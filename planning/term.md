@@ -9,3 +9,14 @@
 9. **Windows / planes** — subsurfaces with their own coordinate space, clipping, and z-order (ncurses `WINDOW`/`panel`, notcurses `plane`). This is the defining abstraction of both libraries and your largest *architectural* gap; `term::` is a single flat surface today. Optional if you deliberately want flat-surface-only.
 10. **Wide-character cell width** — you're one-cell-per-scalar, so CJK/emoji (double-width) will misalign. notcurses handles this.
 
+**Windows / planes** —
+
+term::openPane(x1, y1, x2, y2, z) AS Integer
+term::closePane(id AS Integer) AS Nothing
+term::setPane(id AS Integer) AS Nothing
+
+a id of 0 is always the default full terminal pane
+
+openPane makes a new subsurfaces with their own coordinate space, clipping, and z-order
+closePane terminate an existing subsurface
+setPane sets what subsurface is in use, all term::draw*, term::fillRect and term::clear go to a specific pane. attributes/colors/etc are global

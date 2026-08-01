@@ -201,57 +201,57 @@ call.)
 
 **`src/arch/`**
 
-- [ ] `src/arch/encode_operand.rs` (51 loc)
-- [ ] `src/arch/encode_plan.rs` (177 loc)
-- [ ] `src/arch/image.rs` (150 loc)
-- [ ] `src/arch/mod.rs` (17 loc)
-- [ ] `src/arch/ops.rs` (740 loc)
+- [x] `src/arch/encode_operand.rs` (51 loc) — clean
+- [x] `src/arch/encode_plan.rs` (177 loc) — clean
+- [x] `src/arch/image.rs` (150 loc) — clean
+- [x] `src/arch/mod.rs` (17 loc) — clean
+- [x] `src/arch/ops.rs` (740 loc) — clean
 
 **`src/arch/aarch64/`**
 
-- [ ] `src/arch/aarch64/backend.rs` (66 loc)
-- [ ] `src/arch/aarch64/mod.rs` (9 loc)
-- [ ] `src/arch/aarch64/regmodel.rs` (272 loc)
-- [ ] `src/arch/aarch64/reloc.rs` (44 loc)
-- [ ] `src/arch/aarch64/select.rs` (106 loc)
+- [x] `src/arch/aarch64/backend.rs` (66 loc) — clean
+- [x] `src/arch/aarch64/mod.rs` (9 loc) — clean
+- [x] `src/arch/aarch64/regmodel.rs` (272 loc) — clean
+- [x] `src/arch/aarch64/reloc.rs` (44 loc) — clean
+- [x] `src/arch/aarch64/select.rs` (106 loc) — clean
 
 **`src/arch/aarch64/encode/`**
 
-- [ ] `src/arch/aarch64/encode/emitter.rs` (1328 loc)
-- [ ] `src/arch/aarch64/encode/mod.rs` (35 loc)
-- [ ] `src/arch/aarch64/encode/operand.rs` (103 loc)
-- [ ] `src/arch/aarch64/encode/sizing.rs` (103 loc)
+- [x] `src/arch/aarch64/encode/emitter.rs` (1328 loc) — clean
+- [x] `src/arch/aarch64/encode/mod.rs` (35 loc) — clean
+- [x] `src/arch/aarch64/encode/operand.rs` (103 loc) — clean
+- [x] `src/arch/aarch64/encode/sizing.rs` (103 loc) — clean
 
 **`src/arch/riscv64/`**
 
-- [ ] `src/arch/riscv64/backend.rs` (55 loc)
-- [ ] `src/arch/riscv64/mod.rs` (21 loc)
-- [ ] `src/arch/riscv64/regmodel.rs` (254 loc)
-- [ ] `src/arch/riscv64/reloc.rs` (48 loc)
-- [ ] `src/arch/riscv64/select.rs` (1328 loc)
-- [ ] `src/arch/riscv64/v128.rs` (2287 loc)
+- [x] `src/arch/riscv64/backend.rs` (55 loc) — clean
+- [x] `src/arch/riscv64/mod.rs` (21 loc) — clean
+- [x] `src/arch/riscv64/regmodel.rs` (254 loc) — clean
+- [x] `src/arch/riscv64/reloc.rs` (48 loc) — clean
+- [x] `src/arch/riscv64/select.rs` (1328 loc) — clean
+- [x] `src/arch/riscv64/v128.rs` (2287 loc) — bug-394 (item 5)
 
 **`src/arch/riscv64/encode/`**
 
-- [ ] `src/arch/riscv64/encode/emitter.rs` (915 loc)
-- [ ] `src/arch/riscv64/encode/mod.rs` (48 loc)
-- [ ] `src/arch/riscv64/encode/operand.rs` (95 loc)
-- [ ] `src/arch/riscv64/encode/sizing.rs` (103 loc)
+- [x] `src/arch/riscv64/encode/emitter.rs` (915 loc) — clean
+- [x] `src/arch/riscv64/encode/mod.rs` (48 loc) — clean
+- [x] `src/arch/riscv64/encode/operand.rs` (95 loc) — clean
+- [x] `src/arch/riscv64/encode/sizing.rs` (103 loc) — clean
 
 **`src/arch/x86_64/`**
 
-- [ ] `src/arch/x86_64/backend.rs` (129 loc)
-- [ ] `src/arch/x86_64/mod.rs` (18 loc)
-- [ ] `src/arch/x86_64/regmodel.rs` (474 loc)
-- [ ] `src/arch/x86_64/reloc.rs` (46 loc)
-- [ ] `src/arch/x86_64/select.rs` (1322 loc)
+- [x] `src/arch/x86_64/backend.rs` (129 loc) — clean
+- [x] `src/arch/x86_64/mod.rs` (18 loc) — clean
+- [x] `src/arch/x86_64/regmodel.rs` (474 loc) — clean
+- [x] `src/arch/x86_64/reloc.rs` (46 loc) — clean
+- [x] `src/arch/x86_64/select.rs` (1322 loc) — clean
 
 **`src/arch/x86_64/encode/`**
 
-- [ ] `src/arch/x86_64/encode/emitter.rs` (2365 loc)
-- [ ] `src/arch/x86_64/encode/mod.rs` (62 loc)
-- [ ] `src/arch/x86_64/encode/operand.rs` (51 loc)
-- [ ] `src/arch/x86_64/encode/sizing.rs` (12 loc)
+- [x] `src/arch/x86_64/encode/emitter.rs` (2365 loc) — bug-394 (item 4), bug-397
+- [x] `src/arch/x86_64/encode/mod.rs` (62 loc) — clean
+- [x] `src/arch/x86_64/encode/operand.rs` (51 loc) — clean
+- [x] `src/arch/x86_64/encode/sizing.rs` (12 loc) — clean
 
 **`src/ast/`**
 

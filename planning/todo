@@ -1,0 +1,35 @@
+REM
+REM Builtin - NET
+REM
+
+net::poll(List OF Socket) AS Socket
+
+REM
+REM Builtin - TLS
+REM
+
+tls::poll(sock AS TlsSocket) AS Boolean
+tls::poll(sock AS TlsSocket, timeoutMs AS Integer) AS Boolean
+tls::poll(List OF TlsSocket) AS TlsSocket
+
+REM
+REM Builtin - HTTP
+REM
+
+TYPE PendingState
+  sentAll  AS Boolean
+  raw      AS List OF Byte
+  err      AS Integer
+END TYPE
+
+' RES handle so the socket drops lexically when the user drops it
+EXPORT RES TYPE PendingRequest ... 
+
+FUNC http::startRead(url, headers, method) AS RES PendingRequest
+FUNC http::ready(RES req AS PendingRequest) AS Boolean   ' net::poll(sock, 0)
+SUB  http::pump(RES req AS PendingRequest)               ' read one chunk if ready
+FUNC http::done(RES req AS PendingRequest) AS Boolean
+FUNC http::finish(RES req AS PendingRequest) AS Response ' your existing parse
+
+' keep http::read/http::write blocking as-is (they become thin wrappers: startRead + pump-until-done + finish)
+

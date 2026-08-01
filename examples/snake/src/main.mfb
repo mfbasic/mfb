@@ -88,7 +88,7 @@ SUB drawBoard(snake AS List OF Point, food AS Point, gridW AS Integer, gridH AS 
 
   term::setForeground(245, 170, 70)
   IF food.x >= 0 THEN
-    term::drawGlyph(food.x + 1, food.y + 1, 42)
+    term::drawGlyph(food.x + 1, food.y + 1, 9883)
   END IF
 
   term::setForeground(110, 230, 135)
@@ -114,7 +114,7 @@ SUB drawBoard(snake AS List OF Point, food AS Point, gridW AS Integer, gridH AS 
   IF len(snake) > 0 THEN
     LET head AS Point = collections::get(snake, 0)
     term::setForeground(235, 255, 235)
-    term::drawGlyph(head.x + 1, head.y + 1, 64)
+    term::drawGlyph(head.x + 1, head.y + 1, 9786)
   END IF
   term::setBold(FALSE)
 END SUB
