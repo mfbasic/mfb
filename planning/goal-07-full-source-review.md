@@ -1,7 +1,7 @@
 # goal-07: Full platform source review (fresh pass) — file-by-file bug hunt
 
 Last updated: 2026-07-28
-Status: IN PROGRESS (393 / 402 files reviewed)
+Status: COMPLETE (402 / 402 files reviewed)
 
 A fresh, independent pass over the entire shipped platform: the compiler
 (`src/**` Rust), the MFBASIC-source standard library (`src/builtins/*.mfb`),
@@ -218,6 +218,9 @@ call.)
 | bug-418 | win_x86_64/app/mod.rs:798 | Memory-safety — transcript NUL store past 64 KiB wbuf on ≥32 KiB print (arena OOB) | MED | Open |
 | bug-419 | repository/src/server.rs:953,2534 | Security — challenge/signing rate-limit keyed on unauth `owner` → targeted account lockout | MED | Open |
 | bug-420 | repository/src/server.rs:1697, client.rs:65, store.rs:1592 | Security — org admin→owner escalation + client redirect SSRF + fuzzy-search DoS (3-item) | LOW | Open |
+| bug-421 | linux_gtk/bootstrap.rs:599 | Correctness — GTK LINE Backspace deletes one byte not code point (invalid UTF-8) | LOW | Open |
+| bug-422 | builtins/json_package.mfb:331 | **Security — `json::parse` no structural depth cap → deep-nested JSON SIGSEGV (uncatchable); reproduced** | HIGH | Open |
+| bug-423 | builtins/regex_package.mfb:1485 | **Security — `regex::compile` no depth cap → deep-nested pattern SIGSEGV (uncatchable); reproduced** | HIGH | Open |
 
 ## File census & progress
 
@@ -780,19 +783,19 @@ call.)
 - [x] `src/builtins/audio_mml.mfb` (496 loc) — bug-394 (item 17)
 - [x] `src/builtins/audio_render.mfb` (112 loc) — clean
 - [x] `src/builtins/collections_package.mfb` (448 loc) — clean
-- [ ] `src/builtins/crypto_aead.mfb` (697 loc)
-- [ ] `src/builtins/crypto_ecdsa.mfb` (120 loc)
-- [ ] `src/builtins/crypto_ed25519.mfb` (567 loc)
-- [ ] `src/builtins/crypto_hash.mfb` (765 loc)
-- [ ] `src/builtins/crypto_util.mfb` (114 loc)
+- [x] `src/builtins/crypto_aead.mfb` (697 loc) — clean
+- [x] `src/builtins/crypto_ecdsa.mfb` (120 loc) — clean
+- [x] `src/builtins/crypto_ed25519.mfb` (567 loc) — clean
+- [x] `src/builtins/crypto_hash.mfb` (765 loc) — clean
+- [x] `src/builtins/crypto_util.mfb` (114 loc) — clean
 - [x] `src/builtins/csv_package.mfb` (235 loc) — clean
 - [x] `src/builtins/datetime_package.mfb` (1116 loc) — clean
-- [ ] `src/builtins/encoding_package.mfb` (1273 loc)
-- [ ] `src/builtins/http_package.mfb` (1215 loc)
-- [ ] `src/builtins/json_package.mfb` (820 loc)
+- [x] `src/builtins/encoding_package.mfb` (1273 loc) — clean
+- [x] `src/builtins/http_package.mfb` (1215 loc) — clean
+- [x] `src/builtins/json_package.mfb` (820 loc) — bug-422
 - [x] `src/builtins/money_package.mfb` (26 loc) — clean
 - [x] `src/builtins/net_package.mfb` (338 loc) — clean
-- [ ] `src/builtins/regex_package.mfb` (1957 loc)
+- [x] `src/builtins/regex_package.mfb` (1957 loc) — bug-423
 - [x] `src/builtins/strings_package.mfb` (101 loc) — clean
 - [x] `src/builtins/term_package.mfb` (60 loc) — clean
 
