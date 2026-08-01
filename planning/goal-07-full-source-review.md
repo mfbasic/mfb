@@ -544,13 +544,13 @@ call.)
 
 - [x] `src/target/shared/code/app.rs` (130 loc) — clean
 - [x] `src/target/shared/code/architecture_guards.rs` (141 loc) — clean
-- [ ] `src/target/shared/code/arena.rs` (1201 loc)
-- [ ] `src/target/shared/code/builder_arena_transfer.rs` (1131 loc)
+- [x] `src/target/shared/code/arena.rs` (1201 loc) — clean
+- [x] `src/target/shared/code/builder_arena_transfer.rs` (1131 loc) — clean
 - [ ] `src/target/shared/code/builder_bits.rs` (313 loc)
-- [ ] `src/target/shared/code/builder_collection_compare.rs` (552 loc)
-- [ ] `src/target/shared/code/builder_collection_layout.rs` (2758 loc)
-- [ ] `src/target/shared/code/builder_collection_queries.rs` (3504 loc)
-- [ ] `src/target/shared/code/builder_collection_query.rs` (697 loc)
+- [x] `src/target/shared/code/builder_collection_compare.rs` (552 loc) — clean
+- [x] `src/target/shared/code/builder_collection_layout.rs` (2758 loc) — clean
+- [x] `src/target/shared/code/builder_collection_queries.rs` (3504 loc) — clean
+- [x] `src/target/shared/code/builder_collection_query.rs` (697 loc) — clean
 - [ ] `src/target/shared/code/builder_control.rs` (1653 loc)
 - [ ] `src/target/shared/code/builder_conversions.rs` (1581 loc)
 - [ ] `src/target/shared/code/builder_emit_helpers.rs` (439 loc)
@@ -564,10 +564,10 @@ call.)
 - [ ] `src/target/shared/code/builder_money.rs` (148 loc)
 - [ ] `src/target/shared/code/builder_money_math.rs` (445 loc)
 - [ ] `src/target/shared/code/builder_numeric.rs` (1709 loc)
-- [ ] `src/target/shared/code/builder_owned_cleanup.rs` (206 loc)
+- [x] `src/target/shared/code/builder_owned_cleanup.rs` (206 loc) — clean
 - [ ] `src/target/shared/code/builder_pow.rs` (916 loc)
 - [ ] `src/target/shared/code/builder_registers.rs` (280 loc)
-- [ ] `src/target/shared/code/builder_resource_cleanup.rs` (490 loc)
+- [x] `src/target/shared/code/builder_resource_cleanup.rs` (490 loc) — clean
 - [ ] `src/target/shared/code/builder_search.rs` (1210 loc)
 - [ ] `src/target/shared/code/builder_simd_fixed_math.rs` (343 loc)
 - [ ] `src/target/shared/code/builder_simd_float_math.rs` (2273 loc)
@@ -575,14 +575,14 @@ call.)
 - [ ] `src/target/shared/code/builder_strings.rs` (2019 loc)
 - [ ] `src/target/shared/code/builder_strings_builtins.rs` (2909 loc)
 - [ ] `src/target/shared/code/builder_strings_package.rs` (442 loc)
-- [ ] `src/target/shared/code/builder_thread_cleanup.rs` (224 loc)
+- [x] `src/target/shared/code/builder_thread_cleanup.rs` (224 loc) — clean
 - [ ] `src/target/shared/code/builder_value_semantics.rs` (926 loc)
 - [ ] `src/target/shared/code/builder_values.rs` (1930 loc)
 - [ ] `src/target/shared/code/builder_vector_inline.rs` (417 loc)
 - [x] `src/target/shared/code/code_impl.rs` (394 loc) — clean
 - [x] `src/target/shared/code/codegen_utils.rs` (898 loc) — bug-407, bug-394 (item 12)
-- [ ] `src/target/shared/code/collection_buffer.rs` (477 loc)
-- [ ] `src/target/shared/code/collection_mutate.rs` (477 loc)
+- [x] `src/target/shared/code/collection_buffer.rs` (477 loc) — clean
+- [x] `src/target/shared/code/collection_mutate.rs` (477 loc) — clean
 - [ ] `src/target/shared/code/crypto.rs` (218 loc)
 - [ ] `src/target/shared/code/crypto_ec.rs` (127 loc)
 - [ ] `src/target/shared/code/data_objects.rs` (1328 loc)
@@ -598,8 +598,8 @@ call.)
 - [ ] `src/target/shared/code/io_terminal.rs` (260 loc)
 - [ ] `src/target/shared/code/link_locator.rs` (665 loc)
 - [ ] `src/target/shared/code/link_thunk.rs` (2838 loc)
-- [ ] `src/target/shared/code/list_mutate.rs` (2510 loc)
-- [ ] `src/target/shared/code/map_mutate.rs` (1571 loc)
+- [x] `src/target/shared/code/list_mutate.rs` (2510 loc) — clean
+- [x] `src/target/shared/code/map_mutate.rs` (1571 loc) — clean
 - [ ] `src/target/shared/code/mir.rs` (1701 loc)
 - [x] `src/target/shared/code/mod.rs` (2905 loc) — clean
 - [x] `src/target/shared/code/module_analysis.rs` (1069 loc) — clean
