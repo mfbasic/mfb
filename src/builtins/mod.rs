@@ -1203,34 +1203,53 @@ mod tests {
     static MIGRATED_REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[&MIGRATED_BITS]);
 
     #[test]
-    fn adapters_fall_back_when_registry_is_empty() {
-        // Against the empty production registry, every adapter returns exactly
-        // what the legacy helper returns — production dispatch is unchanged in A.
+    fn adapters_fall_back_for_unmigrated_packages() {
+        // `math` is not migrated, so it is absent from the production registry
+        // and every adapter falls back to — and returns exactly — the legacy
+        // helper. This is what keeps production dispatch unchanged for packages
+        // that have not yet moved onto descriptors.
         assert!(registry_is_call(
             &descriptor::REGISTRY,
-            "bits.band",
-            bits::is_bits_call
+            "math.abs",
+            math::is_math_call
         ));
         assert!(!registry_is_call(
             &descriptor::REGISTRY,
-            "bits.nope",
-            bits::is_bits_call
+            "math.nope",
+            math::is_math_call
         ));
         assert_eq!(
-            registry_arity(&descriptor::REGISTRY, "bits.band", bits::arity),
-            bits::arity("bits.band")
+            registry_arity(&descriptor::REGISTRY, "math.abs", math::arity),
+            math::arity("math.abs")
         );
         assert_eq!(
             registry_return_type_name(
                 &descriptor::REGISTRY,
-                "bits.band",
-                bits::call_return_type_name
+                "math.abs",
+                math::call_return_type_name
             ),
-            bits::call_return_type_name("bits.band")
+            math::call_return_type_name("math.abs")
         );
         assert_eq!(
-            registry_expected_arguments(&descriptor::REGISTRY, "bits.band", |name| bits::expected_arguments(name).map(str::to_string)),
-            bits::expected_arguments("bits.band").map(str::to_string)
+            registry_expected_arguments(&descriptor::REGISTRY, "math.abs", |name| math::expected_arguments(name).map(str::to_string)),
+            math::expected_arguments("math.abs").map(str::to_string)
+        );
+    }
+
+    #[test]
+    fn adapters_use_descriptor_for_migrated_bits() {
+        // `bits` IS migrated (plan-72-D), so against the production registry the
+        // adapter takes the descriptor branch; its answer still equals the legacy
+        // helper. The `|_| unreachable`-style legacy closures here would only be
+        // consulted on a registry miss, which does not happen for bits.band.
+        assert!(registry_is_call(&descriptor::REGISTRY, "bits.band", |_| false));
+        assert_eq!(
+            registry_arity(&descriptor::REGISTRY, "bits.band", |_| None),
+            bits::arity("bits.band")
+        );
+        assert_eq!(
+            registry_return_type_name(&descriptor::REGISTRY, "bits.band", |_| None),
+            bits::call_return_type_name("bits.band")
         );
     }
 

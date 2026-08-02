@@ -1,5 +1,10 @@
 use std::borrow::Cow;
 
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, DefaultResolver, Implementation,
+    Lowering, Parameter, ReturnType,
+};
+
 // Integer bitwise/shift/rotate operations. Each lowers to one (or a few) native
 // AArch64 instructions inline (see `builder_bits.rs`); none is a runtime helper.
 // All operands and results are raw two's-complement 64-bit `Integer` bit
@@ -23,31 +28,91 @@ const BSWAP16: &str = "bits.bswap16";
 const BSWAP32: &str = "bits.bswap32";
 const BSWAP64: &str = "bits.bswap64";
 
+// plan-72-D: `BITS` is the descriptor authority for this package. Every op takes
+// and returns raw two's-complement `Integer` bit patterns, lowers inline (no
+// runtime helper, no implementation rewrite), and has a single fixed-arity
+// overload. bits has no builtin types, source companion, or custom resolver.
+const P_AB: &[Parameter] = &[
+    Parameter::required("a", "Integer"),
+    Parameter::required("b", "Integer"),
+];
+const P_A: &[Parameter] = &[Parameter::required("a", "Integer")];
+const P_VC: &[Parameter] = &[
+    Parameter::required("value", "Integer"),
+    Parameter::required("count", "Integer"),
+];
+const P_V: &[Parameter] = &[Parameter::required("value", "Integer")];
+
+const OV_AB: &[BuiltinOverload] = &[BuiltinOverload {
+    params: P_AB,
+    return_type: ReturnType::Fixed("Integer"),
+}];
+const OV_A: &[BuiltinOverload] = &[BuiltinOverload {
+    params: P_A,
+    return_type: ReturnType::Fixed("Integer"),
+}];
+const OV_VC: &[BuiltinOverload] = &[BuiltinOverload {
+    params: P_VC,
+    return_type: ReturnType::Fixed("Integer"),
+}];
+const OV_V: &[BuiltinOverload] = &[BuiltinOverload {
+    params: P_V,
+    return_type: ReturnType::Fixed("Integer"),
+}];
+
+const fn bits_fn(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+) -> BuiltinFunction {
+    BuiltinFunction {
+        name,
+        doc_slug: slug,
+        overloads,
+        implementation: Implementation::Same,
+        lowering: Lowering::Inline,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+
+const BITS_FUNCTIONS: &[BuiltinFunction] = &[
+    bits_fn(BAND, "band", OV_AB),
+    bits_fn(BOR, "bor", OV_AB),
+    bits_fn(BXOR, "bxor", OV_AB),
+    bits_fn(BNOT, "bnot", OV_A),
+    bits_fn(SL, "sl", OV_VC),
+    bits_fn(SR, "sr", OV_VC),
+    bits_fn(SRA, "sra", OV_VC),
+    bits_fn(RL32, "rl32", OV_VC),
+    bits_fn(RR32, "rr32", OV_VC),
+    bits_fn(RL64, "rl64", OV_VC),
+    bits_fn(RR64, "rr64", OV_VC),
+    bits_fn(CLZ, "clz", OV_V),
+    bits_fn(CTZ, "ctz", OV_V),
+    bits_fn(POP_COUNT, "popCount", OV_V),
+    bits_fn(BSWAP16, "bswap16", OV_V),
+    bits_fn(BSWAP32, "bswap32", OV_V),
+    bits_fn(BSWAP64, "bswap64", OV_V),
+];
+
+pub(crate) static BITS: BuiltinModule = BuiltinModule {
+    name: "bits",
+    functions: BITS_FUNCTIONS,
+    types: &[],
+    source: None,
+    resolver: None,
+};
+
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
 }
 
 pub(crate) fn is_bits_call(name: &str) -> bool {
-    matches!(
-        name,
-        BAND | BOR
-            | BXOR
-            | BNOT
-            | SL
-            | SR
-            | SRA
-            | RL32
-            | RR32
-            | RL64
-            | RR64
-            | CLZ
-            | CTZ
-            | POP_COUNT
-            | BSWAP16
-            | BSWAP32
-            | BSWAP64
-    )
+    DefaultResolver::contains(&BITS, name)
 }
 
 /// The variable-shift ops (`sl`/`sr`/`sra`) are the only `bits::` calls that can
@@ -59,6 +124,11 @@ pub(crate) fn is_bits_shift(name: &str) -> bool {
     matches!(name, SL | SR | SRA)
 }
 
+// `call_param_names` and `expected_arguments` return `&'static` borrowed shapes
+// that the owned `DefaultResolver` output (`Vec`/`String`) cannot be coerced to,
+// and their consumers require the borrow, so they stay as static literals PINNED
+// equal to `BITS` by `parity_matches_descriptor` until plan-72-BB moves the
+// consumers onto the owned descriptor API.
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         BAND | BOR | BXOR => Some(&[&["a"], &["b"]]),
@@ -70,15 +140,11 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    is_bits_call(name).then_some("Integer")
+    DefaultResolver::return_type_name(&BITS, name)
 }
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    match name {
-        BNOT | CLZ | CTZ | POP_COUNT | BSWAP16 | BSWAP32 | BSWAP64 => Some((1, 1)),
-        BAND | BOR | BXOR | SL | SR | SRA | RL32 | RR32 | RL64 | RR64 => Some((2, 2)),
-        _ => None,
-    }
+    DefaultResolver::arity(&BITS, name)
 }
 
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
@@ -92,15 +158,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 }
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
-    let (min, max) = arity(name)?;
-    if !(min..=max).contains(&arg_types.len()) {
-        return None;
-    }
-    if arg_types.iter().any(|type_| type_ != "Integer") {
-        return None;
-    }
-    Some(ResolvedCall {
-        return_type: Cow::Borrowed("Integer"),
+    DefaultResolver::resolve_call(&BITS, name, arg_types).map(|return_type| ResolvedCall {
+        return_type: Cow::Borrowed(return_type),
     })
 }
 
@@ -233,5 +292,38 @@ mod tests {
     #[test]
     fn resolve_rejects_unknown_name() {
         assert_eq!(ret("bits.nope", &["Integer"]), None);
+    }
+
+    // plan-72-D migration gate: prove `BITS` reproduces every legacy helper
+    // answer for every `bits.*` name (and an unknown name), and pins the two
+    // static wrappers (`call_param_names`, `expected_arguments`) equal to the
+    // descriptor-derived forms. Keep until plan-72-BB deletes the legacy helpers.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::parity;
+
+        let calls: Vec<&str> = BITS_FUNCTIONS.iter().map(|f| f.name).collect();
+        let legacy = parity::LegacySet {
+            is_call: &is_bits_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            return_type_name: &call_return_type_name,
+            expected_arguments: &|name| expected_arguments(name).map(str::to_string),
+            param_name_overloads: None,
+            argument_types: None,
+            implementation_name: None,
+            default_padding: None,
+            builtin_type_fields: None,
+        };
+        let mut probe = calls.clone();
+        probe.push("bits.nope");
+        parity::assert_parity(&BITS, &probe, &legacy, &[]);
+
+        // resolve_call parity across accepted and rejected shapes.
+        assert_eq!(resolve_call(BAND, &types(&["Integer", "Integer"])).unwrap().return_type, "Integer");
+        assert!(resolve_call(BAND, &types(&["Integer", "String"])).is_none());
+        assert!(resolve_call(BNOT, &types(&["Integer", "Integer"])).is_none());
     }
 }

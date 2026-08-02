@@ -590,9 +590,11 @@ impl BuiltinRegistry {
 /// legacy per-package helper (the `mod.rs` adapters fall back on a registry
 /// miss). BB then deletes the legacy helpers the adapters fall back to.
 ///
-/// Migrated so far: `app` (plan-72-B).
-pub(crate) static REGISTRY: BuiltinRegistry =
-    BuiltinRegistry::new(&[&crate::builtins::app::APP]);
+/// Migrated so far: `app` (plan-72-B), `bits` (plan-72-D).
+pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
+    &crate::builtins::app::APP,
+    &crate::builtins::bits::BITS,
+]);
 
 /// The migration parity harness (plan-72).
 ///
@@ -1172,13 +1174,16 @@ mod tests {
 
     #[test]
     fn production_registry_holds_migrated_packages() {
-        // `app` is migrated (plan-72-B), so it is registered and resolvable by
-        // module name and by qualified function name. `bits` is not migrated yet,
-        // so it is absent and its calls fall back to the legacy helper.
+        // Migrated packages (app plan-72-B, bits plan-72-D) are registered and
+        // resolvable by module name and by qualified function name. `math` is not
+        // migrated yet, so it is absent and its calls fall back to the legacy
+        // helper.
         assert!(REGISTRY.module("app").is_some());
         assert!(REGISTRY.function("app.setMode").is_some());
-        assert!(REGISTRY.module("bits").is_none());
-        assert!(REGISTRY.function("bits.band").is_none());
+        assert!(REGISTRY.module("bits").is_some());
+        assert!(REGISTRY.function("bits.band").is_some());
+        assert!(REGISTRY.module("math").is_none());
+        assert!(REGISTRY.function("math.abs").is_none());
         // The registry's names stay unique as packages are appended.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);
