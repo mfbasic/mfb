@@ -70,7 +70,7 @@ load is 7 projects.
 Acceptance: `cargo test` passes; every `http.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual`, including
 the existing `tests/byte-identity/http` cohort.
-Commit: —
+Commit: 542ec50f1
 
 ## Validation
 

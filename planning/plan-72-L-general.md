@@ -56,7 +56,7 @@ Fixture load is 26 projects.
 
 Acceptance: `cargo test` passes; every `general.*` fixture runs clean
 under `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
-Commit: —
+Commit: 4a436687b
 
 ## Validation
 

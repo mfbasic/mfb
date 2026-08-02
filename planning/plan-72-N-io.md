@@ -58,7 +58,7 @@ projects.
 
 Acceptance: `cargo test` passes; every `io.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
-Commit: —
+Commit: dd6e065b4
 
 ## Validation
 

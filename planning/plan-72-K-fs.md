@@ -56,7 +56,7 @@ window on this letter is the largest per-package run in the plan.
 
 Acceptance: `cargo test` passes; every `fs.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
-Commit: —
+Commit: d275e0a84
 
 ## Validation
 
