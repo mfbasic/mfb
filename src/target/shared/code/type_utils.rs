@@ -39,17 +39,19 @@ pub(super) fn static_nir_value_type(
                 .iter()
                 .map(|arg| static_nir_value_type(arg, locals, fields))
                 .collect::<Option<Vec<_>>>()?;
-            builtins::general::resolve_call(target, &arg_types)
-                .map(|call| call.return_type.into_owned())
-                .or_else(|| {
-                    builtins::collections::resolve_call(target, &arg_types)
-                        .map(|call| call.return_type.into_owned())
-                })
-                .or_else(|| {
-                    builtins::strings::resolve_call(target, &arg_types)
-                        .map(|call| call.return_type.into_owned())
-                })
-                .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
+            // plan-72-BB: the narrow `general`/`collections`/`strings` return-type
+            // resolution (the argument-computed types codegen needs) goes through
+            // the registry aggregate, gated to exactly that set so a broader
+            // package's computed return never widens this oracle (the aggregate is
+            // byte-identical to each package's own `resolve_call`). Other builtins
+            // fall through to the nominal `call_return_type_name`, as before.
+            match builtins::builtin_package_name(target) {
+                Some("general" | "collections" | "strings") => {
+                    builtins::resolve_call_return_type(target, &arg_types)
+                }
+                _ => None,
+            }
+            .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
         }
         NirValue::ResultIsOk { .. } => Some("Boolean".to_string()),
         NirValue::ResultValue { value } => static_nir_value_type(value, locals, fields)

@@ -426,6 +426,10 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
 /// which the descriptor's per-position join cannot reproduce (a genuine
 /// non-descriptor behavior, per BB's non-goals).
 pub(crate) fn expected_arguments(name: &str) -> Option<String> {
+    // `term` alone returns an owned `String` (its `"no arguments"` zero-arg form).
+    if let Some(text) = term::expected_arguments(name) {
+        return Some(text);
+    }
     if let Some(text) = encoding::expected_arguments(name)
         .or_else(|| crypto::expected_arguments(name))
         .or_else(|| math::expected_arguments(name))
@@ -434,6 +438,11 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| audio::expected_arguments(name))
         .or_else(|| http::expected_arguments(name))
         .or_else(|| vector::expected_arguments(name))
+        // The bespoke-checker packages keep their own hand-authored phrasing too
+        // (`"or"`-phrased / prose).
+        .or_else(|| collections::expected_arguments(name))
+        .or_else(|| general::expected_arguments(name))
+        .or_else(|| thread::expected_arguments(name))
     {
         return Some(text.to_string());
     }

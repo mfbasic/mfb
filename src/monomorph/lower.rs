@@ -743,7 +743,10 @@ impl<'a> Monomorphizer<'a> {
         if !crate::builtins::general::is_overridable(name) {
             return None;
         }
-        if crate::builtins::general::resolve_call(name, arg_types).is_some() {
+        // `name` is already gated to a general-overridable builtin above, so the
+        // registry aggregate resolves it exactly as `general::resolve_call` did
+        // (plan-72-BB).
+        if crate::builtins::resolve_call_return_type(name, arg_types).is_some() {
             return None;
         }
         let chosen = self

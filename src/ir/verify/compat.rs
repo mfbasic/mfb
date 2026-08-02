@@ -239,8 +239,8 @@ impl TypeEnv {
                 }
             }
             if builtins::resolve_call_return_type(target, &arg_types).is_none() {
-                let expected = builtins::collections::expected_arguments(target)
-                    .unwrap_or("supported overload");
+                let expected = builtins::expected_arguments(target)
+                    .unwrap_or_else(|| "supported overload".to_string());
                 self.emit(
                     "TYPE_CALL_ARGUMENT_MISMATCH",
                     format!(
@@ -266,8 +266,8 @@ impl TypeEnv {
                 {
                     return;
                 }
-                let expected =
-                    builtins::general::expected_arguments(target).unwrap_or("supported overload");
+                let expected = builtins::expected_arguments(target)
+                    .unwrap_or_else(|| "supported overload".to_string());
                 self.emit(
                     "TYPE_CALL_ARGUMENT_MISMATCH",
                     format!(

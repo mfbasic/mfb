@@ -309,7 +309,7 @@ impl<'a> SyntaxChecker<'a> {
         }
 
         if mismatch {
-            let expected = builtins::term::expected_arguments(callee)
+            let expected = builtins::expected_arguments(callee)
                 .unwrap_or_else(|| "no arguments".to_string());
             let actual = arg_types
                 .iter()
@@ -330,8 +330,8 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     pub(super) fn term_return_type(&mut self, callee: &str) -> Type {
-        match builtins::term::resolve_call(callee, &[]) {
-            Some(resolved) => self.parse_type(&resolved.return_type),
+        match builtins::resolve_call_return_type(callee, &[]) {
+            Some(return_type) => self.parse_type(&return_type),
             None => Type::Unknown,
         }
     }
@@ -410,9 +410,10 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        let Some(resolved) = builtins::thread::resolve_call(callee, &arg_type_names) else {
-            let expected =
-                builtins::thread::expected_arguments(callee).unwrap_or("supported overload");
+        let Some(resolved_return) = builtins::resolve_call_return_type(callee, &arg_type_names)
+        else {
+            let expected = builtins::expected_arguments(callee)
+                .unwrap_or_else(|| "supported overload".to_string());
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
@@ -425,7 +426,7 @@ impl<'a> SyntaxChecker<'a> {
             return Type::Unknown;
         };
 
-        let return_type = self.parse_type(&resolved.return_type);
+        let return_type = self.parse_type(&resolved_return);
         self.check_thread_boundary_sendability(
             file,
             display_callee,
@@ -487,7 +488,8 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        let Some(resolved) = builtins::general::resolve_call(callee, &arg_type_names) else {
+        let Some(resolved_return) = builtins::resolve_call_return_type(callee, &arg_type_names)
+        else {
             // The built-in rejected these argument types, so an override may fill
             // the gap (plan-01-overload.md §A.3.2). A *user* override has already
             // been rewritten to its mangled concrete symbol by the monomorphizer
@@ -503,8 +505,8 @@ impl<'a> SyntaxChecker<'a> {
                     builtins::general::override_result_type(callee).unwrap_or("Unknown"),
                 );
             }
-            let expected =
-                builtins::general::expected_arguments(callee).unwrap_or("supported overload");
+            let expected = builtins::expected_arguments(callee)
+                .unwrap_or_else(|| "supported overload".to_string());
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
@@ -519,7 +521,7 @@ impl<'a> SyntaxChecker<'a> {
 
         self.check_general_builtin_comparability(file, display_callee, callee, &arg_types, line);
 
-        self.parse_type(&resolved.return_type)
+        self.parse_type(&resolved_return)
     }
 
     /// Typechecks a migrated `collections::` native member call (plan-01 §5).
@@ -560,8 +562,8 @@ impl<'a> SyntaxChecker<'a> {
                             "TYPE_CALL_ARGUMENT_MISMATCH",
                             &format!(
                                 "Call to `{display_callee}` has argument type(s) ({collection_type_name}, {predicate}), expected {}.",
-                                builtins::collections::expected_arguments(callee)
-                                    .unwrap_or("supported overload")
+                                builtins::expected_arguments(callee)
+                                    .unwrap_or_else(|| "supported overload".to_string())
                             ),
                             file,
                             line,
@@ -570,15 +572,16 @@ impl<'a> SyntaxChecker<'a> {
                     };
 
                     let arg_types = vec![collection_type_name, predicate_type];
-                    let Some(resolved) = builtins::collections::resolve_call(callee, &arg_types)
+                    let Some(resolved_return) =
+                        builtins::resolve_call_return_type(callee, &arg_types)
                     else {
                         self.report(
                             "TYPE_CALL_ARGUMENT_MISMATCH",
                             &format!(
                                 "Call to `{display_callee}` has argument type(s) ({}), expected {}.",
                                 arg_types.join(", "),
-                                builtins::collections::expected_arguments(callee)
-                                    .unwrap_or("supported overload")
+                                builtins::expected_arguments(callee)
+                                    .unwrap_or_else(|| "supported overload".to_string())
                             ),
                             file,
                             line,
@@ -586,7 +589,7 @@ impl<'a> SyntaxChecker<'a> {
                         return Type::Unknown;
                     };
 
-                    return self.parse_type(&resolved.return_type);
+                    return self.parse_type(&resolved_return);
                 }
             }
         }
@@ -635,9 +638,10 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        let Some(resolved) = builtins::collections::resolve_call(callee, &arg_type_names) else {
-            let expected =
-                builtins::collections::expected_arguments(callee).unwrap_or("supported overload");
+        let Some(resolved_return) = builtins::resolve_call_return_type(callee, &arg_type_names)
+        else {
+            let expected = builtins::expected_arguments(callee)
+                .unwrap_or_else(|| "supported overload".to_string());
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
@@ -652,7 +656,7 @@ impl<'a> SyntaxChecker<'a> {
 
         self.check_general_builtin_comparability(file, display_callee, member, &arg_types, line);
 
-        self.parse_type(&resolved.return_type)
+        self.parse_type(&resolved_return)
     }
 
     pub(super) fn check_general_builtin_comparability(

@@ -2000,11 +2000,10 @@ fn expression_type(
                                 filter_predicate_arg_type(predicate, &collection_type)
                             {
                                 let arg_types = vec![collection_type, predicate_type];
-                                return builtins::general::resolve_call(
+                                return builtins::resolve_call_return_type(
                                     &canonical_callee,
                                     &arg_types,
-                                )
-                                .map(|resolved| resolved.return_type.to_string());
+                                );
                             }
                         }
                     }
@@ -2013,8 +2012,7 @@ fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return builtins::general::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
+                return builtins::resolve_call_return_type(&canonical_callee, &arg_types);
             }
             if builtins::collections::is_native_member_call(&canonical_callee) {
                 let normalized =
@@ -2030,11 +2028,10 @@ fn expression_type(
                                 filter_predicate_arg_type(predicate, &collection_type)
                             {
                                 let arg_types = vec![collection_type, predicate_type];
-                                return builtins::collections::resolve_call(
+                                return builtins::resolve_call_return_type(
                                     &canonical_callee,
                                     &arg_types,
-                                )
-                                .map(|resolved| resolved.return_type.to_string());
+                                );
                             }
                         }
                     }
@@ -2043,8 +2040,7 @@ fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return builtins::collections::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
+                return builtins::resolve_call_return_type(&canonical_callee, &arg_types);
             }
             // The remaining builtin packages share one arg-typed dispatch
             // (bug-342 A1 — was 17 byte-identical is_*_call → resolve_call
