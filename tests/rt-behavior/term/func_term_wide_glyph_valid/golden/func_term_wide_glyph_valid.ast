@@ -1,0 +1,37 @@
+{
+  "project": "func_term_wide_glyph_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "term", "line": 7 },
+    { "module": "io", "line": 8 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.on", "arguments": [] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.moveTo", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.write", "arguments": [{ "kind": "string", "value": "日本語|" }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.moveTo", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "78" }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.write", "arguments": [{ "kind": "string", "value": "Z日" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.moveTo", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "6" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.write", "arguments": [{ "kind": "string", "value": "X" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 30 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 31 }
+      ]
+    }
+    ]
+  }
+  ]
+}

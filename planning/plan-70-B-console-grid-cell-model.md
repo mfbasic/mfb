@@ -122,17 +122,31 @@ re-derivation, since a mis-sized out buffer overflows on a saturating repaint.
 
 ### Phase 1 — width + wide-trailing for single-scalar wide glyphs (spike, no pool)
 
-- [ ] Add the `width` byte (cell offset 14) and `WIDE_TRAIL` sentinel const.
-- [ ] `emit_grid_write`: after decoding a scalar, call A's width helper; for
-      width==2 write primary + `WIDE_TRAIL`, wrap-if-at-edge, `col += width`.
-- [ ] `emit_grid_present`: skip `WIDE_TRAIL`, set `last_col = col + width`.
-- [ ] Tests: a fixture printing `"[日]"` and `"[A]"` in a known grid; assert (via
-      the console-grid test harness / a captured escape stream) that the `]`
-      lands at the correct column after the wide `日`.
+- [x] Add the `width` byte (cell offset 14, `C_WIDTH`) and `WIDE_TRAIL` sentinel
+      const (`0xFFFF_FFFF` = "4294967295"; never a valid packed UTF-8 scalar).
+- [x] `emit_grid_write`: decode the scalar's codepoint and its charwidth via the
+      new free primitives (`emit_utf8_codepoint_by_len` +
+      `emit_unicode_charwidth_free`, since the writer is a raw-instrs free function,
+      not a `CodeBuilder`); for width==2 write primary + `WIDE_TRAIL`, wrap a wide
+      glyph off the right edge, `col += width`. A standalone zero-width scalar falls
+      back to width 1 (the EGC pool that folds combining marks is Phase 2). Threaded
+      a `relocations` param through `emit_grid_write` (and its `io_stdout` caller)
+      for the property-table data-address loads.
+- [x] `emit_grid_present`: skip a `WIDE_TRAIL` cell (emit nothing, mark presented),
+      and set `last_col = col + (width==2 ? 2 : 1)` — robust to cells the
+      width-aware writer never touched (stored width 0 → advance 1).
+- [x] Tests: `tests/rt-behavior/term/func_term_wide_glyph_valid` — runs piped
+      (24x80 fallback, deterministic escape stream) and its `build.log` golden
+      captures `日本語|` (| at column 6), a wide-at-edge wrap, and a diff pass.
 
-Acceptance: on a real UTF-8 terminal (macOS host), `"日本語"` followed by `"|"`
-shows the `|` aligned (3 wide glyphs = 6 columns); the diff-present of a scrolling
-CJK frame stays aligned (no bug-392-style scatter). Commit: —
+Acceptance: verified on the macOS host via the captured escape stream — `"日本語|"`
+emits with a **single** leading `[1;1H` CUP and no intermediate CUP (presenter
+cursor model advances by width, the bug-392 fix), 73 aligned trailing blanks
+(cols 7-79), zero `0xFF` sentinel leak; the writer's cursor lands at display col 7
+(`[1;8H`, i.e. 6+1, not the 3+1 a scalar-count advance would give); a width-2 glyph
+at column 79 wraps to the next row (`[4;1H`); the diff-present re-emits only the one
+changed cell, still aligned (`[1;7H`). `cargo test` 3748 passed; existing term
+acceptance goldens unchanged (ASCII width==1 path is byte-identical). Commit: —
 
 ### Phase 2 — EGC pool for multi-scalar clusters
 
@@ -174,4 +188,21 @@ bounded; `cargo test` + artifact-gate green (goldens deferred to G). Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **2026-08-02 — A's width helpers are `CodeBuilder` methods; the console
+  writer/present are raw free functions, so B added free-function mirrors.** The
+  plan (§3) says to "reuse A's `emit_grapheme_display_width` logic" and A's
+  charwidth helper, but `emit_grid_write`/`emit_grid_present` in `term_grid.rs`
+  are free functions that push `abi::` into a `Vec<CodeInstruction>` (+ a
+  `Vec<CodeRelocation>`), not `CodeBuilder` methods that go through `self.emit`.
+  So B added three `pub(in crate::target::shared::code)` free functions in
+  `private/unicode.rs` — `emit_load_data_address_free`, `emit_utf8_codepoint_by_len`,
+  `emit_unicode_charwidth_free` — mirroring the `CodeBuilder` helpers but taking
+  the current `symbol` (relocation `from`), a `label_prefix`, and explicit scratch
+  vregs. The existing `CodeBuilder` methods are left untouched (no golden churn on
+  the strings/regex paths). plan-70-C's draw helpers (also free functions in
+  `term.rs`) will reuse these same free primitives.
+- **2026-08-02 — `emit_grid_write` needed a new `relocations` parameter.** It had
+  only `instrs`; the property-table lookup emits data-address relocations, so the
+  signature grew a `relocations: &mut Vec<CodeRelocation>` threaded from its sole
+  caller (`io_stdout.rs` `lower_io_write_helper`, which already has `relocations`
+  and `symbol` in scope).

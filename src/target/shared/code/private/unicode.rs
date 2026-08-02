@@ -1088,3 +1088,171 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(whitespace_label));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Free-function Unicode primitives for the neutral console codegen (plan-70-B/C).
+//
+// `term_grid.rs`/`term.rs` build their writer/present/stamp loops as free
+// functions that push raw `abi::` instructions into a `Vec<CodeInstruction>` and
+// their relocations into a `Vec<CodeRelocation>` — they are NOT `CodeBuilder`
+// methods, so they cannot call the `emit_unicode_*` helpers above (those go
+// through `self.emit`/`self.relocations`). These free mirrors take the current
+// function `symbol` (the relocation `from`), an explicit `label_prefix` for
+// unique labels, and caller-chosen scratch vregs, so the console width path can
+// reuse the exact two-stage property walk without a `CodeBuilder`.
+
+/// Load the address of an internal data `symbol` into `register` via the
+/// `adrp`/`add` page pair, recording the two data-address relocations against
+/// `from`. Free mirror of `CodeBuilder::emit_load_data_address`.
+pub(in crate::target::shared::code) fn emit_load_data_address_free(
+    from: &str,
+    symbol: &str,
+    register: &str,
+    instrs: &mut Vec<CodeInstruction>,
+    relocs: &mut Vec<CodeRelocation>,
+) {
+    instrs.push(abi::load_page_address(register, symbol));
+    relocs.push(CodeRelocation {
+        from: from.to_string(),
+        to: symbol.to_string(),
+        kind: RelocIntent::DataAddrHi,
+        binding: "data".to_string(),
+        library: None,
+    });
+    instrs.push(abi::add_page_offset(register, register, symbol));
+    relocs.push(CodeRelocation {
+        from: from.to_string(),
+        to: symbol.to_string(),
+        kind: RelocIntent::DataAddrLo,
+        binding: "data".to_string(),
+        library: None,
+    });
+}
+
+/// Decode the UTF-8 scalar at `ptr` (whose byte length `len` is already known,
+/// 1..=4, with lead byte in `lead`) into `codepoint`. Standard mask/shift decode;
+/// the caller has already clamped `len` to the remaining bytes, so this never
+/// reads past the string. `mask`/`byte` are caller-owned throwaway vregs. Used by
+/// the console writer/stamp path (plan-70-B/C) to recover a codepoint for the
+/// width lookup after the raw bytes were packed into the cell glyph.
+pub(in crate::target::shared::code) fn emit_utf8_codepoint_by_len(
+    label_prefix: &str,
+    ptr: &str,
+    len: &str,
+    lead: &str,
+    codepoint: &str,
+    byte: &str,
+    mask: &str,
+    instrs: &mut Vec<CodeInstruction>,
+) {
+    let do2 = format!("{label_prefix}_cp2");
+    let do3 = format!("{label_prefix}_cp3");
+    let done = format!("{label_prefix}_cpdone");
+    // Continuation byte payload mask.
+    // len == 1 (default): codepoint = lead.
+    instrs.push(abi::move_register(codepoint, lead));
+    instrs.push(abi::compare_immediate(len, "2"));
+    instrs.push(abi::branch_lo(&done));
+    instrs.push(abi::branch_eq(&do2));
+    instrs.push(abi::compare_immediate(len, "3"));
+    instrs.push(abi::branch_eq(&do3));
+    // len == 4: (lead & 0x07)<<18 | (b1&0x3F)<<12 | (b2&0x3F)<<6 | (b3&0x3F)
+    instrs.push(abi::move_immediate(mask, "Integer", "7"));
+    instrs.push(abi::and_registers(codepoint, lead, mask));
+    instrs.push(abi::shift_left_immediate(codepoint, codepoint, 18));
+    instrs.push(abi::move_immediate(mask, "Integer", "63"));
+    instrs.push(abi::load_u8(byte, ptr, 1));
+    instrs.push(abi::and_registers(byte, byte, mask));
+    instrs.push(abi::shift_left_immediate(byte, byte, 12));
+    instrs.push(abi::or_registers(codepoint, codepoint, byte));
+    instrs.push(abi::load_u8(byte, ptr, 2));
+    instrs.push(abi::and_registers(byte, byte, mask));
+    instrs.push(abi::shift_left_immediate(byte, byte, 6));
+    instrs.push(abi::or_registers(codepoint, codepoint, byte));
+    instrs.push(abi::load_u8(byte, ptr, 3));
+    instrs.push(abi::and_registers(byte, byte, mask));
+    instrs.push(abi::or_registers(codepoint, codepoint, byte));
+    instrs.push(abi::branch(&done));
+    // len == 3: (lead & 0x0F)<<12 | (b1&0x3F)<<6 | (b2&0x3F)
+    instrs.push(abi::label(&do3));
+    instrs.push(abi::move_immediate(mask, "Integer", "15"));
+    instrs.push(abi::and_registers(codepoint, lead, mask));
+    instrs.push(abi::shift_left_immediate(codepoint, codepoint, 12));
+    instrs.push(abi::move_immediate(mask, "Integer", "63"));
+    instrs.push(abi::load_u8(byte, ptr, 1));
+    instrs.push(abi::and_registers(byte, byte, mask));
+    instrs.push(abi::shift_left_immediate(byte, byte, 6));
+    instrs.push(abi::or_registers(codepoint, codepoint, byte));
+    instrs.push(abi::load_u8(byte, ptr, 2));
+    instrs.push(abi::and_registers(byte, byte, mask));
+    instrs.push(abi::or_registers(codepoint, codepoint, byte));
+    instrs.push(abi::branch(&done));
+    // len == 2: (lead & 0x1F)<<6 | (b1&0x3F)
+    instrs.push(abi::label(&do2));
+    instrs.push(abi::move_immediate(mask, "Integer", "31"));
+    instrs.push(abi::and_registers(codepoint, lead, mask));
+    instrs.push(abi::shift_left_immediate(codepoint, codepoint, 6));
+    instrs.push(abi::move_immediate(mask, "Integer", "63"));
+    instrs.push(abi::load_u8(byte, ptr, 1));
+    instrs.push(abi::and_registers(byte, byte, mask));
+    instrs.push(abi::or_registers(codepoint, codepoint, byte));
+    instrs.push(abi::label(&done));
+}
+
+/// Compute the terminal display width (0/1/2) of `codepoint` into `width_out`,
+/// via the two-stage property trie + the `charwidth` bits (plan-70-A). A
+/// codepoint `>= 0x110000` maps to width 1, matching
+/// `property_for_codepoint`'s out-of-range guard and avoiding an out-of-bounds
+/// stage-1 read. `scratch_a`/`scratch_b` are caller-owned throwaway vregs. Free
+/// mirror of `emit_unicode_property_lookup` + `emit_unicode_property_charwidth`.
+pub(in crate::target::shared::code) fn emit_unicode_charwidth_free(
+    from: &str,
+    label_prefix: &str,
+    codepoint: &str,
+    width_out: &str,
+    scratch_a: &str,
+    scratch_b: &str,
+    instrs: &mut Vec<CodeInstruction>,
+    relocs: &mut Vec<CodeRelocation>,
+) {
+    let table = scratch_a;
+    let index = scratch_b;
+    let in_range = format!("{label_prefix}_cw_in");
+    let done = format!("{label_prefix}_cw_done");
+    // Out-of-range (>= U+110000) → default property, charwidth 1.
+    instrs.push(abi::move_immediate(table, "Integer", "1114112"));
+    instrs.push(abi::compare_registers(codepoint, table));
+    instrs.push(abi::branch_lo(&in_range));
+    instrs.push(abi::move_immediate(width_out, "Integer", "1"));
+    instrs.push(abi::branch(&done));
+    instrs.push(abi::label(&in_range));
+    // stage1[cp >> 8]
+    instrs.push(abi::shift_right_immediate(index, codepoint, 8));
+    instrs.push(abi::shift_left_immediate(index, index, 1));
+    emit_load_data_address_free(from, UNICODE_STAGE1_SYMBOL, table, instrs, relocs);
+    instrs.push(abi::add_registers(table, table, index));
+    instrs.push(abi::load_u16(index, table, 0));
+    // stage2[stage1 + (cp & 0xff)]
+    instrs.push(abi::move_immediate(table, "Integer", "255"));
+    instrs.push(abi::and_registers(table, codepoint, table));
+    instrs.push(abi::add_registers(index, index, table));
+    instrs.push(abi::shift_left_immediate(index, index, 1));
+    emit_load_data_address_free(from, UNICODE_STAGE2_SYMBOL, table, instrs, relocs);
+    instrs.push(abi::add_registers(table, table, index));
+    instrs.push(abi::load_u16(index, table, 0));
+    // property = properties + stage2 * PROPERTY_SIZE
+    instrs.push(abi::move_immediate(
+        table,
+        "Integer",
+        &UNICODE_PROPERTY_SIZE.to_string(),
+    ));
+    instrs.push(abi::multiply_registers(index, index, table));
+    emit_load_data_address_free(from, UNICODE_PROPERTIES_SYMBOL, table, instrs, relocs);
+    instrs.push(abi::add_registers(table, table, index));
+    // charwidth = (flags >> 4) & 0b11
+    instrs.push(abi::load_u16(width_out, table, UNICODE_PROPERTY_OFFSET_FLAGS));
+    instrs.push(abi::shift_right_immediate(width_out, width_out, 4));
+    instrs.push(abi::move_immediate(table, "Integer", "3"));
+    instrs.push(abi::and_registers(width_out, width_out, table));
+    instrs.push(abi::label(&done));
+}

@@ -52,6 +52,18 @@ pub(super) const C_FG: usize = 4;
 pub(super) const C_BG: usize = 8;
 pub(super) const C_BOLD: usize = 12;
 pub(super) const C_UN: usize = 13;
+// plan-70-B: display width (0/1/2) of the cluster this cell holds, computed at
+// write time from A's charwidth table and read by the presenter so a wide glyph
+// advances the terminal cursor by 2 columns. Lives in a previously-unused pad
+// byte, so `CELL_SIZE` is unchanged.
+pub(super) const C_WIDTH: usize = 14;
+// A wide cluster occupies its primary cell (`width` 2) followed by this
+// **wide-trailing sentinel** in the next column: a reserved glyph value the
+// presenter and draw helpers skip (it emits nothing) but that keeps the second
+// column occupied for cursor math and diffing. 0xFFFF_FFFF is not a valid packed
+// UTF-8 scalar (a lead byte 0xFF never appears), so it can never collide with a
+// real glyph.
+pub(super) const WIDE_TRAIL: &str = "4294967295";
 
 /// Worst-case escape bytes emitted per changed cell. Sizes the per-block output
 /// buffer.
@@ -441,6 +453,7 @@ pub(super) fn emit_grid_write(
     strobj: &str,
     append_newline: bool,
     instrs: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
 ) {
     let gp = "%v300";
     let back = "%v301";
@@ -460,6 +473,12 @@ pub(super) fn emit_grid_write(
     let t = "%v315";
     let idx = "%v316";
     let cell = "%v317";
+    // plan-70-B width path: codepoint decode + charwidth lookup + wide handling.
+    let cp = "%v318";
+    let width = "%v319";
+    let sa = "%v320";
+    let sb = "%v321";
+    let trail = "%v322";
     let done = format!("{symbol}_gw_done");
     let loop_top = format!("{symbol}_gw_loop");
     let handle_nl = format!("{symbol}_gw_nl");
@@ -472,6 +491,9 @@ pub(super) fn emit_grid_write(
     let col_ok = format!("{symbol}_gw_colok");
     let row_ok = format!("{symbol}_gw_rowok");
     let nl_ok = format!("{symbol}_gw_nlok");
+    let w_have = format!("{symbol}_gw_whave");
+    let wide_edge = format!("{symbol}_gw_wideedge");
+    let after_trail = format!("{symbol}_gw_aftertrail");
 
     instrs.extend([
         abi::load_u64(
@@ -554,8 +576,51 @@ pub(super) fn emit_grid_write(
         abi::shift_left_immediate(t, t, 24),
         abi::or_registers(glyph, glyph, t),
         abi::label(&cellw),
+    ]);
+    // plan-70-B: decode this scalar's codepoint and its display width, then place
+    // it width-aware. Uses the free Unicode primitives (this is a raw-instrs free
+    // function, not a CodeBuilder). `sa`/`sb` are throwaway scratch, reused across
+    // the decode and the charwidth lookup (sequential, no overlap).
+    super::private::unicode::emit_utf8_codepoint_by_len(
+        &format!("{symbol}_gwd"),
+        ptr,
+        len,
+        b0,
+        cp,
+        sa,
+        sb,
+        instrs,
+    );
+    super::private::unicode::emit_unicode_charwidth_free(
+        symbol,
+        &format!("{symbol}_gww"),
+        cp,
+        width,
+        sa,
+        sb,
+        instrs,
+        relocations,
+    );
+    instrs.extend([
+        // Phase-1 fallback: a standalone zero-width scalar (a combining mark with
+        // no base to fold into — the EGC pool that merges them is Phase 2) still
+        // takes its own cell and advances one column, matching the pre-plan-70
+        // behavior. A real base+mark cluster is handled by the pool later.
+        abi::compare_immediate(width, "0"),
+        abi::branch_ne(&w_have),
+        abi::move_immediate(width, "Integer", "1"),
+        abi::label(&w_have),
         // Wrap at the right edge.
         abi::compare_registers(col, cols),
+        abi::branch_lo(&wide_edge),
+        abi::move_immediate(col, "Integer", "0"),
+        abi::add_immediate(row, row, 1),
+        abi::label(&wide_edge),
+        // A width-2 glyph at the last column wraps rather than straddling the edge.
+        abi::compare_immediate(width, "2"),
+        abi::branch_ne(&col_ok),
+        abi::add_immediate(sa, col, 1),
+        abi::compare_registers(sa, cols),
         abi::branch_lo(&col_ok),
         abi::move_immediate(col, "Integer", "0"),
         abi::add_immediate(row, row, 1),
@@ -578,7 +643,23 @@ pub(super) fn emit_grid_write(
         abi::store_u32(bg, cell, C_BG),
         abi::store_u8(bold, cell, C_BOLD),
         abi::store_u8(un, cell, C_UN),
-        abi::add_immediate(col, col, 1),
+        abi::store_u8(width, cell, C_WIDTH),
+        // A wide glyph reserves the next cell as a wide-trailing sentinel (same
+        // row: the wide-at-edge wrap above guarantees col <= cols-2 here). The
+        // presenter emits nothing for it and does not advance the cursor past it.
+        abi::compare_immediate(width, "2"),
+        abi::branch_ne(&after_trail),
+        abi::add_immediate(trail, cell, CELL_SIZE),
+        abi::move_immediate(sa, "Integer", WIDE_TRAIL),
+        abi::store_u32(sa, trail, C_GLYPH),
+        abi::store_u32(fg, trail, C_FG),
+        abi::store_u32(bg, trail, C_BG),
+        abi::store_u8(bold, trail, C_BOLD),
+        abi::store_u8(un, trail, C_UN),
+        abi::move_immediate(sb, "Integer", "0"),
+        abi::store_u8(sb, trail, C_WIDTH),
+        abi::label(&after_trail),
+        abi::add_registers(col, col, width),
         abi::add_registers(ptr, ptr, len),
         abi::subtract_registers(rem, rem, len),
         abi::branch(&loop_top),
@@ -899,12 +980,17 @@ pub(super) fn emit_grid_present(
     let wcur = "%v232";
     let wrem = "%v233";
     let wres = "%v234";
+    // plan-70-B: this cell's stored display width, for the cursor-advance model.
+    let cwidth = "%v235";
 
     let done_ok = format!("{symbol}_pr_ok");
     let loop_top = format!("{symbol}_pr_loop");
     let after = format!("{symbol}_pr_after");
     let emit_cell = format!("{symbol}_pr_emit");
     let advance = format!("{symbol}_pr_adv");
+    let trail_present = format!("{symbol}_pr_trail");
+    let adv1 = format!("{symbol}_pr_adv1");
+    let after_setcol = format!("{symbol}_pr_aftercol");
     let cup_done = format!("{symbol}_pr_cupdone");
     let do_cup = format!("{symbol}_pr_docup");
     let sgr_done = format!("{symbol}_pr_sgrdone");
@@ -985,6 +1071,13 @@ pub(super) fn emit_grid_present(
         abi::branch_ne(&emit_cell),
         abi::branch(&advance),
         abi::label(&emit_cell),
+        // plan-70-B: a wide-trailing sentinel draws nothing — the wide glyph in its
+        // primary cell already covers this column, and the primary advanced the
+        // cursor model by 2. Mark it presented and move on without a CUP/SGR/glyph.
+        abi::load_u32(glyph, bc, C_GLYPH),
+        abi::move_immediate(a0, "Integer", WIDE_TRAIL),
+        abi::compare_registers(glyph, a0),
+        abi::branch_eq(&trail_present),
         // Cursor: emit a CUP unless the terminal cursor is already here. Equality
         // via xor + compare-to-zero keeps the rv64 selector's pending rhs an
         // immediate (register-reuse safe under spilling). [[bug-126.2]]
@@ -1054,15 +1147,28 @@ pub(super) fn emit_grid_present(
         abi::move_register(last_bold, cbold),
         abi::move_register(last_un, cun),
         abi::label(&sgr_done),
-        abi::load_u32(glyph, bc, C_GLYPH),
     ]);
+    // `glyph` was loaded at `emit_cell` and is not clobbered before here.
     append_glyph(buf, glyph, &format!("{symbol}_prg"), instrs);
-    // The terminal cursor is now one column past this cell.
+    // The terminal cursor is now `width` columns past this cell's start: a wide
+    // glyph (stored width 2) leaves the cursor 2 columns on, so a following run of
+    // changed cells stays column-aligned without a redundant CUP (the bug-392
+    // auto-advance fix). Any stored width other than 2 (including 0 on cells the
+    // width-aware writer never touched) advances a single column.
     instrs.extend([
         abi::move_immediate(last_valid, "Integer", "1"),
         abi::move_register(last_row, row),
+        abi::load_u8(cwidth, bc, C_WIDTH),
+        abi::compare_immediate(cwidth, "2"),
+        abi::branch_ne(&adv1),
+        abi::add_immediate(last_col, col, 2),
+        abi::branch(&after_setcol),
+        abi::label(&adv1),
         abi::add_immediate(last_col, col, 1),
-        // Mark the cell presented: copy back→front (16 bytes = 2 words).
+        abi::label(&after_setcol),
+        // Mark the cell presented: copy back→front (16 bytes = 2 words). A
+        // wide-trailing sentinel joins here too (nothing emitted, still synced).
+        abi::label(&trail_present),
         abi::load_u64(a0, bc, 0),
         abi::store_u64(a0, fc, 0),
         abi::load_u64(a0, bc, 8),

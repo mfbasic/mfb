@@ -1,0 +1,65 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_term_wide_glyph_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "enum",
+    "line": 32,
+    "visibility": "export",
+    "name": "LineStyle",
+    "members": [
+    { "name": "Light" },
+    { "name": "Heavy" },
+    { "name": "LightDash" },
+    { "name": "HeavyDash" },
+    { "name": "LightDot" },
+    { "name": "HeavyDot" },
+    { "name": "Double" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 53,
+    "visibility": "export",
+    "name": "FillStyle",
+    "members": [
+    { "name": "Filled" },
+    { "name": "Light" },
+    { "name": "Medium" },
+    { "name": "Dark" },
+    { "name": "Checker" },
+    { "name": "CheckerAlt" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 10,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "term.on", "args": [] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "term.moveTo", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.write", "args": [{ "kind": "const", "type": "String", "value": "日本語|" }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "term.moveTo", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "78" }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.write", "args": [{ "kind": "const", "type": "String", "value": "Z日" }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "term.sync", "args": [] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "term.moveTo", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "6" }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.write", "args": [{ "kind": "const", "type": "String", "value": "X" }] } },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "term.sync", "args": [] } },
+    { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "term.off", "args": [] } },
+    { "op": "return", "line": 31, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

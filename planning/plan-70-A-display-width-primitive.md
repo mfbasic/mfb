@@ -147,7 +147,7 @@ the falsification test cannot read `charwidth()` without it)
 Acceptance: `cargo test` green (3748 passed); the codegen helper's runtime proof
 is the Phase 3 dual-path fixture, which drives `charwidth==2` (日), `1` (A/e), and
 `0` (combining/ZWJ) through `emit_unicode_property_charwidth` on the dynamic path.
-Commit: — (see Phase 3 commit)
+Commit: d3b6b6d9c
 
 ### Phase 3 — `strings::displayWidth` builtin
 
@@ -171,7 +171,7 @@ ZWJ family=2, lone combining=0, empty=0) via **both** paths; `cargo test` green;
 **every** shifted native golden (all table-embedding byte-identity fixtures — the
 blast radius is far wider than the plan estimated; see Corrections) across all 5
 targets — regenerated **here in A**, not deferred to G, so B–F each start from a
-clean gate. Commit: —
+clean gate. Commit: d3b6b6d9c
 
 ## Validation Plan
 
