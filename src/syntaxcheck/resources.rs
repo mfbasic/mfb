@@ -47,6 +47,7 @@ impl<'a> SyntaxChecker<'a> {
         match type_ {
             Type::Thread(..) | Type::ThreadWorker(..) => true,
             Type::List(element) => self.contains_thread_with_seen(element, seen),
+            Type::Set(element) => self.contains_thread_with_seen(element, seen),
             Type::Map(key, value) => {
                 self.contains_thread_with_seen(key, seen)
                     || self.contains_thread_with_seen(value, seen)
@@ -89,6 +90,7 @@ impl<'a> SyntaxChecker<'a> {
             Type::Thread(..) | Type::ThreadWorker(..) => true,
             Type::User(name) if self.resource_registry.is_resource(name) => true,
             Type::List(element) => self.contains_resource_or_thread_with_seen(element, seen),
+            Type::Set(element) => self.contains_resource_or_thread_with_seen(element, seen),
             Type::Map(key, value) => {
                 self.contains_resource_or_thread_with_seen(key, seen)
                     || self.contains_resource_or_thread_with_seen(value, seen)
@@ -588,6 +590,38 @@ mod resources_tests {
         // A union variant with a resource-bearing field walks the Union arm.
         let src = "IMPORT fs\nTYPE A\n  f AS List OF RES File\nEND TYPE\nTYPE B\n  n AS Integer\nEND TYPE\nUNION AB\n  A\n  B\nEND UNION\nFUNC main AS Integer\n  LET m AS Map OF AB TO Integer = Map OF AB TO Integer {}\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
+    }
+
+    // ---- contains_thread / contains_resource_or_thread walk a `Set` --------
+
+    /// bug-406: both predicates recurse through `List`/`Map`/`User` but had no
+    /// `Type::Set` arm, so a thread (or resource) nested in a `Set` fell through
+    /// to `_ => false`. A `Set` element must be walked like a `List` element.
+    #[test]
+    fn contains_thread_walks_set_element() {
+        use super::super::{SyntaxChecker, Type};
+        let project = crate::ast::AstProject {
+            name: "t".to_string(),
+            files: vec![],
+        };
+        let checker = SyntaxChecker::new(std::path::Path::new("."), &project);
+        let thread = || {
+            Type::Thread(
+                Box::new(Type::Integer),
+                None,
+                None,
+                Box::new(Type::Integer),
+            )
+        };
+        let set_of_thread = Type::Set(Box::new(thread()));
+        assert!(
+            checker.contains_thread(&set_of_thread),
+            "contains_thread must recurse into a Set element"
+        );
+        assert!(
+            checker.contains_resource_or_thread(&set_of_thread),
+            "contains_resource_or_thread must recurse into a Set element"
+        );
     }
 
     // ---- collection element axis (RES marker mismatch) ---------------------
