@@ -157,7 +157,7 @@ UTF-8 output intact; `scripts/test-macapp.sh` all cases pass (no regression); th
 Windows sums unchanged). The pixel-level GUI proof (NFD `"café"`, the ZWJ family, and
 a `drawBox` around CJK rendering/aligning, resize reflow) remains this plan's
 **human-convergence step** (§ Phase 1 acceptance — an interactive window-server
-session; not compositable in this automated session). Commit: —
+session; not compositable in this automated session). Commit: 4b5df8cf3
 
 ## Validation Plan
 
