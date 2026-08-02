@@ -173,48 +173,21 @@ pub(super) fn lower_validate_utf8_helper() -> CodeFunction {
     let invalid = format!("{symbol}_invalid");
     let mut vregs = Vregs::new();
     let mut instructions = vec![abi::label("entry")];
-    if std::env::var("MFB_ASCII").is_ok() {
-        let lp = format!("{symbol}_lp");
-        let ok = format!("{symbol}_ok");
-        let pos = vregs.next();
-        let rem = vregs.next();
-        let byte = vregs.next();
-        instructions.extend([
-            abi::move_register(&pos, abi::ARG[0]),
-            abi::move_register(&rem, abi::ARG[1]),
-            abi::label(&lp),
-            abi::compare_immediate(&rem, "0"),
-            abi::branch_eq(&ok),
-            abi::load_u8(&byte, &pos, 0),
-            abi::compare_immediate(&byte, "127"),
-            abi::branch_hi(&invalid),
-            abi::add_immediate(&pos, &pos, 1),
-            abi::subtract_immediate(&rem, &rem, 1),
-            abi::branch(&lp),
-            abi::label(&ok),
-            abi::move_immediate(abi::RET[0], "Integer", "0"),
-            abi::return_(),
-            abi::label(&invalid),
-            abi::move_immediate(abi::RET[0], "Integer", "1"),
-            abi::return_(),
-        ]);
-    } else {
-        emit_validate_utf8(
-            symbol,
-            abi::ARG[0],
-            abi::ARG[1],
-            &invalid,
-            &mut instructions,
-            &mut vregs,
-        );
-        instructions.extend([
-            abi::move_immediate(abi::RET[0], "Integer", "0"),
-            abi::return_(),
-            abi::label(&invalid),
-            abi::move_immediate(abi::RET[0], "Integer", "1"),
-            abi::return_(),
-        ]);
-    }
+    emit_validate_utf8(
+        symbol,
+        abi::ARG[0],
+        abi::ARG[1],
+        &invalid,
+        &mut instructions,
+        &mut vregs,
+    );
+    instructions.extend([
+        abi::move_immediate(abi::RET[0], "Integer", "0"),
+        abi::return_(),
+        abi::label(&invalid),
+        abi::move_immediate(abi::RET[0], "Integer", "1"),
+        abi::return_(),
+    ]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     CodeFunction {
         name: "runtime.validateUtf8".to_string(),
@@ -894,5 +867,61 @@ impl Vregs {
         let name = format!("%v{}", self.0);
         self.0 += 1;
         name
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The emitted `_mfb_rt_validate_utf8` helper must always be the real,
+    /// multi-byte UTF-8 validator — never a build-time-toggled ASCII-only stub
+    /// that rejects every byte > 127 (bug-407). Guards against reintroducing an
+    /// undocumented env switch: the helper's structure must not depend on the
+    /// process environment. The real validator is identified by its multi-byte
+    /// continuation labels (`_utf8_two`/`_utf8_three`/`_utf8_four`), which the
+    /// ASCII-only stub never emits.
+    #[test]
+    fn validate_utf8_helper_is_env_independent_multibyte_validator() {
+        fn multibyte_labels(func: &CodeFunction) -> usize {
+            func.instructions
+                .iter()
+                .filter(|ins| ins.op == CodeOp::Label)
+                .filter_map(|ins| ins.fields.iter().find(|(n, _)| *n == "name"))
+                .filter(|(_, v)| {
+                    v.ends_with("_utf8_two")
+                        || v.ends_with("_utf8_three")
+                        || v.ends_with("_utf8_four")
+                })
+                .count()
+        }
+
+        // The helper lowers through the active backend; pick one for the test.
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+
+        // Default environment: the real validator is emitted.
+        let baseline = multibyte_labels(&lower_validate_utf8_helper());
+        assert_eq!(
+            baseline, 3,
+            "default build must emit the multi-byte UTF-8 validator"
+        );
+
+        // Setting the former `MFB_ASCII` toggle must not change the emitted
+        // helper — it is no longer consulted. Save/restore so we do not leak
+        // the variable to other tests in the process.
+        let saved = std::env::var_os("MFB_ASCII");
+        // SAFETY: single-threaded within this test's synchronous body; the
+        // variable is restored before returning.
+        unsafe { std::env::set_var("MFB_ASCII", "1") };
+        let toggled = multibyte_labels(&lower_validate_utf8_helper());
+        match saved {
+            Some(v) => unsafe { std::env::set_var("MFB_ASCII", v) },
+            None => unsafe { std::env::remove_var("MFB_ASCII") },
+        }
+
+        assert_eq!(
+            toggled, 3,
+            "MFB_ASCII must not toggle the UTF-8 validator into an ASCII-only stub (bug-407)"
+        );
     }
 }
