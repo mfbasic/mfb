@@ -141,15 +141,24 @@ commit below.
 
 ### Phase 3 — Tree-wide gate + archive
 
-- [ ] Full `cargo test` (whole suite, never one module).
-- [ ] `scripts/artifact-gate.sh` (debug) diffs=0, with `.ncodesum` regenerated for
-      all four targets on the macOS host (per `fast-codegen-gate`).
+- [x] Full `cargo test` (whole suite, never one module). — DONE (pre-merge):
+      `cargo test --quiet` → **3661 passed; 0 failed** (+ the smaller binaries all
+      `ok`, 0 failed). Re-run after the main merge (below).
+- [~] `scripts/artifact-gate.sh` (debug) diffs=0, with `.ncodesum` regenerated for
+      all targets on the macOS host (per `fast-codegen-gate`). — pre-merge gate
+      IN FLIGHT; then re-run after the main merge. (io + tls + http .ncodesum were
+      regenerated for all five targets in F/D and pass a scoped N=3 determinism
+      check.)
 - [ ] Acceptance golden harness for all touched fixtures (`scripts/sync-goldens.sh`),
       avoiding the non-deterministic full `test-accept.sh` perf-table trap
       (`perf-goldens-break-execution-acceptance`).
-- [ ] Move plan-73-A..E to `planning/completed/` (per `completed-plans-go-to-old-plans`).
+- [ ] Merge current `main` into `worktree-P-73` (main advanced 594235307→a60ce43f8,
+      plan-72 descriptor refactor — disjoint file set) and re-run `cargo test` +
+      `artifact-gate` per the follow-plan finish rule.
+- [ ] Move plan-73-A..F to `planning/completed/` (per `completed-plans-go-to-old-plans`).
 
-Acceptance: all gates green tree-wide; plan-73 archived. Commit: —
+Acceptance: all gates green tree-wide (after the main merge); plan-73 archived.
+Commit: —
 
 ## Validation Plan
 
