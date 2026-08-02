@@ -162,7 +162,7 @@ Land the specified rule before the code, so the code has something to be checked
 
 Acceptance: the spec states the rule and its directionality; `mfb spec language
 resource-management` renders it (verified against the rebuilt release binary).
-Commit: —
+Commit: 5564c75b6
 
 ### Phase 2 — the three checkers
 
@@ -195,7 +195,7 @@ parameter position can traverse (syntaxcheck `inference.rs` + `ir::verify` `call
 accepts the variant; both reverse directions are rejected — no `app::` code involved. The
 builtin-only paths (checkers 1–2) carry no resource-union consumer until 13-C and are
 deferred there.
-Commit: —
+Commit: 5564c75b6
 
 ### Phase 3 — directionality proof (the load-bearing one)
 
@@ -214,7 +214,7 @@ cases are rejected. A passing positive test alone proves nothing here — symmet
 also passes it; the two `-invalid` cases are the guard. (The third "checker path", a
 package `resolve_call`, is builtin-only and not reachable from a user-declared union — see
 Phase 2 corrections; it is 13-C's to prove for `app::`.)
-Commit: —
+Commit: 5564c75b6
 
 ## Validation Plan
 
