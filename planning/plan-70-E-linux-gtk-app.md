@@ -171,7 +171,7 @@ a `term::` app writing a combining-mark NFD cluster (`cafe`+U+0301) alongside CJ
 clean on a real GTK box (2226, Xvfb): the pool-append + renderer pool-read execute, no
 crash. GTK integration tests pass. The pixel composition (NFD `"café"` as one glyph,
 a wide cluster spanning two cells) is the human-convergence GUI step (same GTK4/Xvfb
-display limit as Phases 1-2). Commit: —
+display limit as Phases 1-2). Commit: 0c1870721
 
 ## Validation Plan
 
