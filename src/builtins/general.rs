@@ -100,10 +100,6 @@ const fn gfn(
 
 // Illustrative per-position types (see the note above). `value` is the canonical
 // first-parameter name for every general call.
-const P_ERROR: &[Parameter] = &[
-    Parameter::required("code", "Integer"),
-    Parameter::required("message", "String"),
-];
 const P_V_STR: &[Parameter] = &[Parameter::required("value", "String")];
 const P_V_INT: &[Parameter] = &[Parameter::required("value", "Integer")];
 const P_V_T: &[Parameter] = &[Parameter::required("value", "T")];

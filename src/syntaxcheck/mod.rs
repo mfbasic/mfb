@@ -1311,7 +1311,6 @@ impl<'a> SyntaxChecker<'a> {
         }
 
         let mut locals = HashMap::new();
-        let mut seen_default = false;
         for param in &function.params {
             let param_type = param
                 .type_name
@@ -1329,11 +1328,6 @@ impl<'a> SyntaxChecker<'a> {
                 &format!("parameter `{}`", param.name),
             );
 
-            if param.default.is_some() {
-                seen_default = true;
-            } else if seen_default {
-            }
-
             if let Some(default) = &param.default {
                 let default_type =
                     self.infer_expression(file, default, &mut locals, param.line, ExprMode::Read);
@@ -1350,7 +1344,6 @@ impl<'a> SyntaxChecker<'a> {
                 }
             }
 
-            let _is_resource = self.is_resource_type(&param_type);
             let state_type = param.state_type.clone();
             locals.insert(
                 param.name.clone(),
@@ -1849,15 +1842,6 @@ mod checker_tests {
         // branch of check_function.
         let _ = check_src(
             "FUNC g(a) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
-        );
-    }
-
-    #[test]
-    fn non_default_after_default_walk() {
-        // A required parameter following a defaulted one walks the seen_default
-        // branch.
-        let _ = check_src(
-            "FUNC g(a AS Integer = 1, b AS Integer) AS Integer\n  RETURN a + b\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
         );
     }
 

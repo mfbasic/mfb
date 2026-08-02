@@ -234,10 +234,14 @@ impl CodeBuilder<'_> {
     fn lower_value_inner(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         let scratch9_reg = self.temporary_vreg();
         let scratch10_reg = self.temporary_vreg();
-        let scratch11_reg = self.temporary_vreg();
+        // A third scratch vreg was consumed by the union-wrap data-variant
+        // field-copy loop (now removed as unreachable — every data variant
+        // returns early via `emit_wrap_record_in_union`). The allocation is kept
+        // so `next_vreg` — and therefore the byte-identical codegen it drives —
+        // is unchanged.
+        let _ = self.temporary_vreg();
         let scratch9 = scratch9_reg.as_str();
         let scratch10 = scratch10_reg.as_str();
-        let scratch11 = scratch11_reg.as_str();
         if let Some(string_value) = self.static_string_value(value) {
             let register = self.load_string_constant(&string_value)?;
             return Ok(ValueResult {
@@ -1341,24 +1345,12 @@ impl CodeBuilder<'_> {
                     &tag.to_string(),
                 ));
                 self.emit(abi::store_u64(&tag_register, abi::RET[1], 0));
-                if is_resource_variant || self.record_has_inline_data(member_type) {
-                    // Resource variants store the handle pointer at +8. A record
-                    // variant whose record has inlined String data is also stored
-                    // as a single pointer at +8 (the inline-offset slots are
-                    // meaningless once detached from the record's data region);
-                    // the record stays a standalone flat block (plan-02 §4.2,
-                    // union reshape deferred to Phase 4).
-                    self.emit(abi::load_u64(scratch9, abi::stack_pointer(), wrapped_slot));
-                    self.emit(abi::load_u64(scratch10, abi::stack_pointer(), result_slot));
-                    self.emit(abi::store_u64(scratch9, scratch10, 8));
-                } else {
-                    for (index, _) in fields.iter().enumerate() {
-                        self.emit(abi::load_u64(scratch11, abi::stack_pointer(), wrapped_slot));
-                        self.emit(abi::load_u64(scratch9, scratch11, 8 * index));
-                        self.emit(abi::load_u64(scratch10, abi::stack_pointer(), result_slot));
-                        self.emit(abi::store_u64(scratch9, scratch10, 8 * (index + 1)));
-                    }
-                }
+                // Only resource variants reach here — every data variant returned
+                // early above via `emit_wrap_record_in_union`. A resource variant
+                // stores its handle pointer as a single word at +8 (plan-02 §4.2).
+                self.emit(abi::load_u64(scratch9, abi::stack_pointer(), wrapped_slot));
+                self.emit(abi::load_u64(scratch10, abi::stack_pointer(), result_slot));
+                self.emit(abi::store_u64(scratch9, scratch10, 8));
                 let register = self.allocate_register()?;
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {

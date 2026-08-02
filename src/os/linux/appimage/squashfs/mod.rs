@@ -379,9 +379,6 @@ pub(crate) fn write(tree: &SquashTree) -> Result<Vec<u8>, String> {
     let mut inode_at: Vec<u64> = vec![0; planned.len()];
     write_inodes(0, &planned, &mut inode_table, &mut dir_table, &mut inode_at)?;
     let root_ref = metadata_ref(inode_at[0]);
-    if ref_offset(inode_at[0]) as usize > METADATA_BLOCK {
-        return Err("squashfs: root inode offset exceeds the metadata block size".to_string());
-    }
 
     let inode_bytes = inode_table.finish();
     let dir_bytes = dir_table.finish();
