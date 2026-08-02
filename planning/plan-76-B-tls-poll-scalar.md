@@ -391,6 +391,27 @@ Commit: —
   is decided. **Surfaced to the user for a scope decision.** Measured by the Phase-0 audit + the
   read-helper analysis (`tls/macos/client.rs:806-1052`): the receive→map→copy→release path keeps no
   persistent buffer and the completion is uncancellable.
+- **B-macos-blocker-2 (Phase 4, discovered while implementing the approved re-architecture): the
+  outstanding-receive model is CROSS-CUTTING — it touches the per-op semaphore invariant every
+  macOS TLS op depends on, not just read/poll.** `emit_fresh_sem` (`macos/mod.rs:412-427`)
+  `dispatch_release`s and recreates `ctx->sem` on EVERY read/write, and its safety rests on the
+  invariant "each op performs exactly one `dispatch_semaphore_wait` (FOREVER) balanced by exactly one
+  signal" (the bug-52 / bug-55 sem-leak fixes). A poll that arms a receive and returns (bounded
+  timeout) leaves an UNBALANCED, outstanding receive whose completion will later signal `ctx->sem`;
+  the next `tls::write`/`tls::read` calling `emit_fresh_sem` would then `dispatch_release` that very
+  semaphore while a completion is pending → libdispatch "deallocated while in use" crash, or a lost
+  signal. **Consequence:** the sound design needs a shared *drain-armed-receive* prefix
+  (`if ARMED: wait ctx->sem FOREVER; stash CTX_CONTENT→CTX_PEND (or terminal); ARMED=0`) at the head
+  of read AND write AND close AND poll — a change to shipping, bug-fixed concurrent code with real
+  regression risk (bug-52/55). Plan: new connection-ctx slots `CTX_PEND_BUF/LEN/OFF` + `CTX_ARMED`
+  (ctx size 48→≥80, zeroed at both connection-ctx alloc sites `client.rs:107` / `server.rs:1434`,
+  NOT the listener LCTX); a `emit_drain_armed_receive` helper shared by all four ops; poll posts a
+  bounded receive only when not armed and PEND is empty; read serves from PEND first (its existing
+  no-poll fast path stays byte-identical — the PEND/armed prefix is skipped when nothing is armed).
+  Implementation is in progress under the user's "full re-architecture" decision; it is materially
+  larger than the original Phase-4 scope and must be verified by a poll/read-interleave + ≥1000×
+  leak-loop fixture on macOS. Measured from `emit_fresh_sem` (`macos/mod.rs:412-427`) and the read
+  path's per-op sem/wait pairing.
 
 ## Summary
 
