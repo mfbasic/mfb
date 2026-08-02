@@ -317,6 +317,27 @@ as a regression unless proven stale under AGENTS.md.
   by new unit tests; this is a general vocabulary fix, not app-specific tuning
   (respects A's non-goal). Evidence: `rg -n '=> "\(\)"' src/builtins/` (4 packages).
 
+## Finalize log (J–N)
+
+Letters J (errorcode), K (fs), L (general), M (http), N (io) landed on
+`worktree-P-72` and merged to main. Gates on the merged tree (after merging main's
+bug-394/396/397 fixes, which had no overlap with the builtins descriptor files):
+
+- Full `cargo test`: green (0 failed).
+- `artifact-gate.sh` (byte-identity codegen, all targets): **0 diffs** —
+  `1120 tests, 1262 build(s), 1511 golden(s) checked, 0 diff(s)`. Every migrated
+  package's `*_codegen_cover_rt` fixture PASSED (`fs`, `general`, `http`, `io`;
+  `errorcode` has no byte-identity fixture — its migration is codegen-inert).
+- Targeted `test-accept.sh` over `*errorcode* *io* *general* *fs* *http*`: 624
+  fixtures ran, **1 mismatch** — `rt-behavior/tls/tls-connect-google-rt` — a
+  live-network test that timed out reaching google.com
+  (`Error: 7-705-0008 … did not complete before its deadline`). It is out of J–N
+  scope (no tls/net file was touched — the 5 commits touch only
+  `descriptor.rs`/`errorcode.rs`/`fs.rs`/`general.rs`/`http.rs`/`io.rs`), the
+  artifact-gate proved tls codegen byte-identical to main's committed goldens
+  (so the binary is bit-for-bit main's), and it reproduces on isolated re-run —
+  an environmental network flake, not a regression.
+
 ## Summary
 
 This is a metadata authority migration, not a language feature. The risk is not
