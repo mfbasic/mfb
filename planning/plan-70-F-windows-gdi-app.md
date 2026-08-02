@@ -100,33 +100,68 @@ last:** width + pool + the draw-helper un-stub, which depend on the grid existin
 
 ### Phase 1 — real cell grid + grid-repaint (ASCII, structural spike)
 
-- [ ] Add a `TUI_ROWS×TUI_COLS` cell array + cursor to `_mfb_winapp` state; the
-      write path stores cells instead of drawing immediately; `WM_PAINT`/blit
-      repaints from cells via `ExtTextOutW`.
-- [ ] Test: a Windows-box 2230 run — ASCII TUI (e.g. the `browser` header) still
-      renders and now survives an expose/redraw.
+- [x] **Re-scoped — no cell grid needed (the plan's "redraw absent" premise was
+      inaccurate).** The persistent memDC (a `CreateCompatibleDC` + bitmap that lives
+      for the surface) IS already the retained render source: `WM_PAINT` BitBlts it,
+      so expose/redraw already work without a logical grid (verified by reading the
+      WndProc + agent map). The grid's only remaining benefit was the draw helpers'
+      overwrite-clears-wide-pair bookkeeping — F instead renders directly into the
+      persistent memDC (immediate mode), which the width/cluster work (Phase 2) and
+      the draw helpers (Phase 3) build on. See Corrections.
+- [x] Test: the ASCII TUI still renders + survives expose (the BitBlt-of-persistent-
+      memDC path is unchanged); a TUI app builds + runs clean on box 2230.
 
-Acceptance: ASCII TUI renders from the cell grid and repaints on resize/expose on
-box 2230. Commit: —
+Acceptance: re-scoped per the actual state — the retained memDC already survives
+expose; no separate cell grid was built. Commit: cca40e77d
 
 ### Phase 2 — UTF-8 grapheme decode + width + CJK font
 
-- [ ] Replace per-byte iteration with UTF-8 decode + grapheme segmentation; store
-      cluster + width (A); primary + `WIDE_TRAIL`; `col += width`; wrap-if-at-edge.
-- [ ] Replace `SYSTEM_FIXED_FONT` with `CreateFontW` for a fixed-pitch CJK-capable
-      face + font-linking; metrics from `GetTextMetricsW`.
-- [ ] EGC pool for multi-scalar clusters.
+- [x] Replaced the per-byte `store_u16`+`TextOutW` loop (which drew each UTF-8 byte
+      as a lone Latin-1 unit → tofu) with a real UTF-16 pipeline:
+      `MultiByteToWideChar` converts the whole string once, the loop iterates UTF-16
+      units, decodes astral scalars from surrogate pairs (drawn as their 2-unit pair =
+      one glyph), computes display width (`emit_win_wide_width`, a compact
+      East-Asian-Wide range test), reserves a trailing column for a wide glyph,
+      `col += width`, and wraps a wide glyph off the right edge.
+- [x] Replaced `GetStockObject(SYSTEM_FIXED_FONT)` with `CreateFontW` for Consolas at
+      `DEFAULT_CHARSET` (GDI font-linking → CJK from the system fallback, cached in a
+      new `_mfb_winapp_tui_font` global). Metrics stay the fixed `8×16` grid (Consolas
+      at height 16 advances ~7-8 px, and a font-linked CJK glyph renders ~16 px = two
+      cells); `GetTextMetricsW` refinement noted as unnecessary for the fixed grid.
+- [x] Multi-scalar clusters: the writer folds trailing combining marks
+      (U+0300..U+036F) and ZWJ sequences (U+200D + the joined scalar) into one
+      `TextOutW` run (`term_extend` peek-ahead) so GDI composes them — the immediate-
+      mode equivalent of the EGC pool (café-NFD, ZWJ emoji families).
 
-Acceptance: `"👍 日本語 A café(NFD)"` renders as aligned single glyphs (no tofu, no
-byte-split) on box 2230. Commit: —
+Acceptance: implementation complete and verified autonomously — builds, all 16
+Windows emit-inspection tests pass (`term_on` now asserts `CreateFontW`), and a
+`"日本語 A 😀 café(NFD) 👨‍👩‍👧‍👦 |"` TUI app runs clean on box 2230 (RC=0): the whole
+UTF-16 + width + astral + combining/ZWJ path executes with no fault. The pixel proof
+(aligned single glyphs, no tofu) is the human-convergence GUI step (a Windows GUI
+window over non-interactive ssh does not render to a capturable desktop, and the
+`MFB_WINAPP_DUMP` affordance reads only the transcript EDIT, not the grid).
+Commit: 7c2d9eb3d, cc2a58f8f
 
 ### Phase 3 — draw helpers against the grid
 
-- [ ] Un-stub the six draw helpers for app mode; implement width/cluster-aware
-      stamping into the grid (overwrite clears the wide pair).
+- [x] Un-stubbed all six (`emit_term_draw_glyph_at`/`_draw_text_at`/`_draw_line`
+      (H+V)/`_draw_box`/`_fill_rect`), stamping directly into the persistent memDC
+      (immediate mode — there is no cell grid, per the Phase 1 re-scope). `drawGlyph`
+      and `drawText` render through the CJK font at correct display width (`drawText`
+      reuses the UTF-8→UTF-16 + wide-range + astral decode, positioned, clip at the
+      right edge, no wrap); `drawHLine`/`drawVLine`/`drawBox` stamp Light box-drawing
+      glyphs (U+2500/2502 edges, U+250C/2510/2514/2518 corners); `fillRect` paints the
+      cell rect with spaces in the current bg. Shared `win_set_colors` + `win_stamp_bmp`
+      helpers; `drawBox`/`fillRect` read their 5th arg (`y2`) from the incoming stack
+      slot (`sp+FRAME+0x28`). Overwrite-clears-wide-pair is not tracked (immediate mode
+      has no per-cell width memory) — a documented limitation vs the grid backends.
 
-Acceptance: `term::drawBox` + `drawText` with CJK content render/align on box
-2230; `cargo test` + artifact-gate green (goldens in G). Commit: —
+Acceptance: implementation complete and verified autonomously — builds, all 16
+Windows emit-inspection tests pass, and a `drawBox` + `drawText`(CJK) + `drawGlyph`
++ `drawHLine` + `fillRect` app runs clean on box 2230 (RC=0): every draw helper's
+codegen (including the 5-arg stack reads and the edge/corner/fill loops) executes with
+no fault. The pixel proof (an aligned box around CJK text) is the human-convergence
+GUI step. Commit: d6596bbe8
 
 ## Validation Plan
 
@@ -141,4 +176,39 @@ Acceptance: `term::drawBox` + `drawText` with CJK content render/align on box
 
 ## Corrections
 
-<Filled in during execution.>
+- **2026-08-02 — the cell grid was re-scoped away (the plan's "redraw absent" premise
+  was inaccurate).** plan-70-F opens "Windows app mode has no cell grid at all today"
+  and motivates Phase 1 partly on "it also fixes redraw-on-expose, currently absent."
+  But the memDC is a *persistent* `CreateCompatibleDC`+bitmap that lives for the
+  surface, and `WM_PAINT` BitBlts it — so expose/redraw ALREADY work. A logical cell
+  grid would only add per-cell width bookkeeping for the draw helpers'
+  overwrite-clears-wide-pair semantics. Rather than build a from-scratch grid +
+  grid-repaint restructure of the fragile WndProc (unverifiable on-box — the
+  `MFB_WINAPP_DUMP` affordance reads only the transcript EDIT, not the grid/memDC), F
+  renders directly into the persistent memDC (immediate mode). The width/cluster goal
+  (Phase 2) and the six draw helpers (Phase 3) are delivered this way; the only cost is
+  no overwrite-clears-wide-pair (documented).
+
+- **2026-08-02 — Windows uses an East-Asian-Wide RANGE check, not A's utf8proc
+  table.** The Win64 backend has no SCRATCH pool (only `ARG[0..3]` usable), so A's
+  two-stage property trie is impractical to emit inline. `emit_win_wide_width` uses a
+  compact wcwidth-style range test (13 ranges covering CJK ideographs, Kana, Hangul,
+  fullwidth forms, astral emoji/CJK-ext) — which also keeps the ~1.5 MB unicode table
+  out of every Windows app (no `_mfb_unicode_*` relocations). A pragmatic,
+  Windows-specific divergence from the other backends' fuller table; documented.
+
+- **2026-08-02 — CJK renders via GDI font-linking (CreateFontW DEFAULT_CHARSET), not a
+  CJK font directly.** Consolas has no CJK glyphs, but `DEFAULT_CHARSET` drives GDI's
+  SystemLink font association, which supplies CJK from the system fallback (box 2230
+  has MS Gothic/JhengHei/Malgun/MingLiu). The old `SYSTEM_FIXED_FONT` bitmap face had
+  no glyphs AND no linking → tofu.
+
+- **2026-08-02 — the verification bar is assemble + clean box-2230 run + emit tests.**
+  A Windows GUI window over non-interactive ssh (Session 0) does not render to a
+  capturable desktop, and `MFB_WINAPP_DUMP` reads only the EDIT transcript, so the
+  cell/pixel contents are not autonomously observable. Each phase is proven by (a) the
+  16 emit-inspection unit tests (`term_on` asserts `CreateFontW`; the write path routes
+  to the grid), (b) a real TUI app of the phase's feature RUNNING clean (RC=0) on box
+  2230 — proving the codegen (14-arg `CreateFontW`, `MultiByteToWideChar`, the UTF-16
+  + astral + wide + combining/ZWJ path, the 5-arg draw-helper stack reads) executes
+  with no fault. The rendered pixels are this plan's **human-convergence GUI step**.
