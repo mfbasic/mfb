@@ -1,0 +1,12 @@
+{
+  "name": "union_xfer_stateless_workers",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "Accepts a stateless resource union `Stream` over the thread plane and returns a variant code.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "ident": "tests:union-xfer-stateless-workers",
+  "identKey": "ed25519-public:test-union-xfer-stateless-workers-ident",
+  "identFingerprint": "sha256:test-union-xfer-stateless-workers-ident",
+  "signingFingerprint": "sha256:test-union-xfer-stateless-workers-signing"
+}

@@ -1,0 +1,20 @@
+IMPORT thread
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+UNION Stream
+  File
+  Socket
+END UNION
+
+' plan-75: the resource plane carries a resource *union* together with its
+' uniform STATE across the thread boundary. The worker accepts a
+' `RES Stream STATE Cursor` by agreement and returns the transferred `pos`
+' (the consumer set it to 99 before transfer) — the state type is checked
+' across the boundary, not a coincidence of authorship.
+EXPORT ISOLATED FUNC takeUnionCursor(t AS ThreadWorker OF RES Stream STATE Cursor TO Integer, seed AS String) AS Integer
+  RES s AS Stream STATE Cursor = thread::accept(t, 1000)
+  RETURN s.state.pos
+END FUNC

@@ -364,7 +364,17 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&result, source));
                 Ok(result)
             }
-            other if self.type_model.union_names.contains(other) => {
+            // A resource union transferred with its STATE is spelled
+            // `Stream STATE Cursor`; the union set is keyed on the bare name, so
+            // base-strip to route it to the union deep-copy (plan-75 gap 2). The
+            // full type (with STATE) is passed on so the variant-record copy can
+            // deep-copy the uniform STATE payload.
+            other
+                if self
+                    .type_model
+                    .union_names
+                    .contains(crate::builtins::resource::base_resource_name(other)) =>
+            {
                 self.copy_union_to_current_arena(other, source)
             }
             // A non-flat record (its fields embed pointers — a recursive field, a
@@ -1043,9 +1053,14 @@ impl CodeBuilder<'_> {
         source: &str,
         destination: &str,
     ) -> Result<(), String> {
+        // A transferred stateful union is spelled `Stream STATE Cursor`; the union
+        // set and variant map key on the bare name (plan-75 gap 3). Its `STATE T`
+        // clause names the uniform STATE record every resource variant carries.
+        let union_base = crate::builtins::resource::base_resource_name(type_);
+        let union_state = crate::builtins::resource::state_type_name(type_);
         let mut variants = self
             .type_model
-            .variants_for_union(type_)
+            .variants_for_union(union_base)
             .map(|variant| {
                 let tag = self
                     .type_model
@@ -1117,6 +1132,41 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::add_immediate(&scratch10, &scratch10, 16));
                 self.copy_record_fields_into_existing(variant, &scratch9, &scratch10)?;
+                self.emit(abi::branch(&done_label));
+                continue;
+            }
+            if crate::builtins::is_resource_type(variant) {
+                // Resource union `{tag@0, ptr@8}`: the whole-union memcpy copied the
+                // variant record pointer at +8 verbatim, so it still aliases the
+                // sender's arena (a bug-257-class UAF — true for a *stateless*
+                // resource union too, plan-75 gap 3). Deep-copy the variant's record
+                // (with its uniform STATE payload, if any) into the current arena and
+                // repoint the copy's +8. `copy_resource_to_current_arena` sizes the
+                // record, deep-copies its STATE, and flags the source `moved|closed`.
+                let variant_type = match union_state {
+                    Some(state) => format!("{variant} STATE {state}"),
+                    None => variant.clone(),
+                };
+                self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
+                self.emit(abi::load_u64(&scratch10, &scratch9, 8));
+                let copied = self.copy_resource_to_current_arena(&variant_type, &scratch10)?;
+                // Stash before reloading the destination pointer: `copied` may be x9.
+                self.emit(abi::store_u64(
+                    &copied,
+                    abi::stack_pointer(),
+                    union_copied_slot,
+                ));
+                self.emit(abi::load_u64(
+                    &scratch9,
+                    abi::stack_pointer(),
+                    destination_slot,
+                ));
+                self.emit(abi::load_u64(
+                    &scratch10,
+                    abi::stack_pointer(),
+                    union_copied_slot,
+                ));
+                self.emit(abi::store_u64(&scratch10, &scratch9, 8));
                 self.emit(abi::branch(&done_label));
                 continue;
             }
