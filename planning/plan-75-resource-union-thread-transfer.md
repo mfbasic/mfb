@@ -108,32 +108,41 @@ Commit: ad5fd7bb6 (prereq gate) + this phase's commit
 
 ### Phase 1 — send-side fixes, gaps 1–4 (acceptance: the `/tmp/p75repro` consumer builds & links; a stateless-union transfer also builds)
 
-Commit:
+Commit: (this phase's commit)
 
-- [ ] Gap 1: base-strip the `resource_union_closes` lookup in `push_op_helpers` so a
-  transferred stateful union declares its variant close helpers.
-- [ ] Gap 2: base-strip the union dispatch in `emit_thread_copy_real` so a stateful union
-  reaches `copy_union_to_current_arena`.
-- [ ] Gap 3: in `copy_union_fields_into_existing`, deep-copy a **resource** union's active
+- [x] Gap 1: base-strip the `resource_union_closes` lookup in `push_op_helpers`
+  (`src/target/shared/runtime/usage.rs`) so a transferred stateful union declares its
+  variant close helpers.
+- [x] Gap 2: base-strip the union dispatch in `emit_thread_copy_real`
+  (`builder_arena_transfer.rs`) so a stateful union reaches `copy_union_to_current_arena`.
+- [x] Gap 3: in `copy_union_fields_into_existing`, deep-copy a **resource** union's active
   variant record (`+8`) via `copy_resource_to_current_arena` and repoint `+8`; base-strip
-  `union_is_data`/`inline_collection_payload_size`/`variants_for_union`/`copy_union_*` so the
-  STATE suffix resolves. This also fixes the **stateless** resource-union aliasing UAF — file
-  it as a bug (write-bug) since it is a latent memory-safety defect independent of this plan.
-- [ ] Gap 4: classify a resource-union `Result` payload as a scalar pointer
+  `union_is_data`, `inline_collection_payload_size`, `record_field_is_pointer` (the last one
+  was **added to the plan** — without it `type_is_flat("Stream STATE Cursor")` returned true
+  and the flat arm hijacked the dispatch; see Corrections), and the `variants_for_union` call
+  in `copy_union_fields_into_existing`, so the STATE suffix resolves. This also fixes the
+  **stateless** resource-union aliasing UAF — filed as
+  `bugs/completed/bug-425-stateless-resource-union-transfer-aliases-variant-record.md`.
+- [x] Gap 4: classify a resource-union `Result` payload as a scalar pointer
   (`union_is_data(base)` in `result_payload_is_block`).
-- [ ] Verify: `/tmp/p75repro` consumer builds & links with the worktree release `mfb`; a
-  stateless-union variant (no STATE) also builds. `cargo test --bin mfb` green.
+- [x] Verify: `/tmp/p75repro` consumer builds & links with the worktree release `mfb`; a
+  stateless-union variant (no STATE) also builds & links. `cargo test --bin mfb` → 3750
+  passed; 0 failed.
 
 ### Phase 2 — accept-side agreement & end-to-end run (acceptance: the transfer runs and prints 99; STATE independent across the boundary)
 
-Commit:
+Commit: (this phase's commit)
 
-- [ ] Build & run the `/tmp/p75repro` end-to-end transfer; it must print `99` (STATE
-  arrived intact across the boundary).
-- [ ] If the receiver materialize/extract path surfaces further resource-union / STATE-suffix
-  gaps (gap 5), fix them here and record each in Corrections.
-- [ ] Prove sender/receiver payload independence: a 20× repeat run stays green (no
-  shared-arena UAF); a stateless-union transfer also runs clean.
+- [x] Build & run the `/tmp/p75repro` end-to-end transfer; it prints `99` (STATE arrived
+  intact across the boundary).
+- [x] ~~If the receiver materialize/extract path surfaces further resource-union / STATE-suffix
+  gaps (gap 5), fix them here~~ — moot: no gap 5 surfaced. The receiver reuses the *same*
+  `emit_thread_copy_real`/`copy_union_fields_into_existing` machinery (transfer runs
+  arena-switched to the destination, accept runs in the receiver's own arena), so the Phase 1
+  send-side fixes covered the accept side with no further change. Confirmed by the end-to-end
+  `99` and the stateless `1` (File) both being correct.
+- [x] Prove sender/receiver payload independence: 20× repeat runs stay green — stateful
+  20/20 print `99` exit 0, stateless 20/20 print `1` exit 0 (no shared-arena UAF).
 
 ### Phase 3 — committed fixtures (acceptance: rt-behavior fixtures green in test-accept; artifact-gate green)
 
@@ -155,4 +164,22 @@ acceptance suite — a resource-union classification change can ripple to `Resul
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **Gap 3 needed one more base-strip than the plan listed: `record_field_is_pointer`.**
+  The plan's Measured-gaps §3 named `union_is_data`/`inline_collection_payload_size` but not
+  `record_field_is_pointer` (`src/target/shared/code/builder_collection_layout.rs:535`). That
+  function's `union_names.contains(field_type)` also missed the STATE suffix, so
+  `record_field_is_pointer("Stream STATE Cursor")` returned false →
+  `type_is_flat("Stream STATE Cursor")` returned **true** (its `else` arm is
+  `!record_field_is_pointer(...)`) → the flat arm of `emit_thread_copy_real` (line 334) would
+  have hijacked the dispatch *before* the union arm and byte-copied the union as a "flat"
+  block, re-introducing the +8 aliasing. Measured by reading `type_is_flat_inner`
+  (builder_collection_layout.rs:601–616). Base-stripped it too; the union arm's own
+  base-strip (gap 2) then routes correctly.
+- **Accept-side gap 5 did not materialize.** Phase 0 flagged the receiver
+  materialize/extract path as "unexplored, expect further gaps." Building and running the
+  transfer end-to-end after the Phase 1 fixes showed no gap: the receiver reuses the same
+  deep-copy machinery, so no accept-specific change was required. Recorded as a moot task in
+  Phase 2 rather than silently dropped.
+- **The stateless-union aliasing UAF was fixed in the same change and filed as a bug**
+  (`bugs/completed/bug-425-...`), per the plan's Phase 1 instruction and the project's
+  fix-bugs-in-the-same-change rule.

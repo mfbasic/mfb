@@ -8,6 +8,10 @@ impl CodeBuilder<'_> {
         if let Some(union_name) = self.type_model.union_variants.get(type_) {
             return self.inline_collection_payload_size(union_name);
         }
+        // A transferred stateful union arrives spelled `Stream STATE Cursor`; the
+        // union set is keyed on the bare name (plan-75 gap 3). The `{tag, ptr}`
+        // layout is unchanged by the STATE suffix, so size it on the base name.
+        let type_ = crate::builtins::resource::base_resource_name(type_);
         if self.type_model.union_names.contains(type_) {
             // A resource variant carries no record fields (validation.rs registers
             // none for `"resource"` variants) but its payload is a single resource
@@ -531,7 +535,16 @@ impl CodeBuilder<'_> {
     pub(super) fn record_field_is_pointer(&self, field_type: &str) -> bool {
         is_collection_type(field_type)
             || self.type_model.record_fields.contains_key(field_type)
-            || self.type_model.union_names.contains(field_type)
+            // A resource union is a pointer composite (its value is a pointer to a
+            // `{tag, ptr}` block), never a flat block. A transferred stateful union
+            // is spelled `Stream STATE Cursor`; base-strip so the STATE suffix does
+            // not misclassify it as a flat scalar (plan-75 gap 3, else `type_is_flat`
+            // would route the transfer copy to `copy_flat_block` and alias the +8
+            // variant record).
+            || self
+                .type_model
+                .union_names
+                .contains(crate::builtins::resource::base_resource_name(field_type))
             || field_type.starts_with("Result OF ")
             || field_type == "Error"
     }
@@ -694,6 +707,10 @@ impl CodeBuilder<'_> {
     /// (plan-02 §4.3); resource unions keep `{tag, resource-ptr}` and are never
     /// reshaped. A union is all-data or all-resource (`rules.rs:790`).
     pub(super) fn union_is_data(&self, type_: &str) -> bool {
+        // A transferred stateful union spells `Stream STATE Cursor`; the union set
+        // is keyed on the bare name `Stream` (plan-75 gap 3). Strip the suffix so a
+        // resource union with STATE still classifies as all-resource.
+        let type_ = crate::builtins::resource::base_resource_name(type_);
         if !self.type_model.union_names.contains(type_) {
             return false;
         }
