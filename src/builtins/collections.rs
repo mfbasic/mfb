@@ -1,3 +1,8 @@
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
+    DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
+    ParameterType, ReturnType,
+};
 use crate::ast::{AstFile, AstProject};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -82,6 +87,194 @@ const NATIVE_MEMBERS: &[&str] = &[
     "toList",
 ];
 
+// plan-72-E: `COLLECTIONS` is the descriptor authority for this package's NATIVE
+// members (the source-generic `FUNCTIONS` above are resolved by the monomorphizer,
+// not here, so they are not descriptor functions). The descriptor owns
+// membership, per-position parameter names/aliases, and arity. Return-type
+// resolution is genuinely generic (`get(List OF T, Integer) → T`, map/set/
+// function-typed overloads), so it lives on a `BuiltinResolver` that delegates to
+// the existing `dispatch_resolve` (below). Parameter *types* are documentation
+// only — a member like `get` has List/Map overloads a single `ParameterType`
+// cannot express, and no delegating wrapper reads them (resolution is
+// resolver-owned; `expected_arguments` keeps its hand-authored "or"-phrased
+// strings). The `.mfb` source companion is modelled as `WhenImported`.
+const fn req(
+    name: &'static str,
+    aliases: &'static [&'static str],
+    ty: &'static str,
+) -> Parameter {
+    Parameter {
+        name,
+        aliases,
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::None,
+    }
+}
+
+/// An optional trailing parameter (only `find`'s `start`). The `Fill` is inert:
+/// collections has no default-argument padding, so nothing reads it — it exists
+/// solely so `DefaultResolver::arity` derives `find`'s `(2, 3)` range.
+const fn opt(
+    name: &'static str,
+    aliases: &'static [&'static str],
+    ty: &'static str,
+) -> Parameter {
+    Parameter {
+        name,
+        aliases,
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::Fill {
+            type_name: ty,
+            expr: "",
+        },
+    }
+}
+
+const fn native(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+) -> BuiltinFunction {
+    BuiltinFunction {
+        name,
+        doc_slug: slug,
+        overloads,
+        implementation: Implementation::Same,
+        lowering: Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+
+// One overload per member, carrying the merged parameter-name table; the resolver
+// owns the actual per-overload (List/Map/Set) type resolution, so `return_type` is
+// `Custom` throughout and the parameter *types* are documentation only.
+const fn custom(params: &'static [Parameter]) -> BuiltinOverload {
+    BuiltinOverload {
+        params,
+        return_type: ReturnType::Custom,
+    }
+}
+
+const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
+    native("collections.get", "get", &[custom(&[
+        req("value", &["collection"], "List OF T"),
+        req("index", &["key"], "Integer"),
+    ])]),
+    native("collections.getOr", "getOr", &[custom(&[
+        req("value", &["collection"], "List OF T"),
+        req("index", &["key"], "Integer"),
+        req("default", &["fallback"], "T"),
+    ])]),
+    native("collections.set", "set", &[custom(&[
+        req("value", &["collection"], "List OF T"),
+        req("index", &["key"], "Integer"),
+        req("item", &[], "T"),
+    ])]),
+    native("collections.append", "append", &[custom(&[
+        req("value", &["list"], "List OF T"),
+        req("item", &["items"], "T"),
+    ])]),
+    native("collections.prepend", "prepend", &[custom(&[
+        req("value", &["list"], "List OF T"),
+        req("item", &[], "T"),
+    ])]),
+    native("collections.insert", "insert", &[custom(&[
+        req("value", &["list"], "List OF T"),
+        req("index", &[], "Integer"),
+        req("item", &[], "T"),
+    ])]),
+    native("collections.removeAt", "removeAt", &[custom(&[
+        req("value", &["list"], "List OF T"),
+        req("index", &[], "Integer"),
+    ])]),
+    native("collections.removeKey", "removeKey", &[custom(&[
+        req("value", &["map"], "Map OF K TO V"),
+        req("key", &[], "K"),
+    ])]),
+    native("collections.keys", "keys", &[custom(&[req("value", &["map"], "Map OF K TO V")])]),
+    native("collections.values", "values", &[custom(&[req("value", &["map"], "Map OF K TO V")])]),
+    native("collections.hasKey", "hasKey", &[custom(&[
+        req("value", &["map"], "Map OF K TO V"),
+        req("key", &[], "K"),
+    ])]),
+    native("collections.contains", "contains", &[custom(&[
+        req("value", &["collection"], "List OF T"),
+        req("item", &[], "T"),
+    ])]),
+    native("collections.forEach", "forEach", &[custom(&[
+        req("value", &["collection"], "List OF T"),
+        req("action", &[], "FUNC(T) AS Nothing"),
+    ])]),
+    native("collections.transform", "transform", &[custom(&[
+        req("value", &["collection"], "List OF T"),
+        req("f", &["transform"], "FUNC(T) AS U"),
+    ])]),
+    native("collections.filter", "filter", &[custom(&[
+        req("value", &["collection"], "List OF T"),
+        req("predicate", &[], "FUNC(T) AS Boolean"),
+    ])]),
+    native("collections.reduce", "reduce", &[custom(&[
+        req("value", &["collection"], "List OF T"),
+        req("initial", &["seed"], "U"),
+        req("f", &["combine"], "FUNC(U, T) AS U"),
+    ])]),
+    native("collections.sum", "sum", &[custom(&[req("value", &["collection"], "List OF Number")])]),
+    native("collections.find", "find", &[custom(&[
+        req("value", &["list"], "List OF T"),
+        req("item", &["needle"], "T"),
+        opt("start", &[], "Integer"),
+    ])]),
+    native("collections.mid", "mid", &[custom(&[
+        req("value", &["list"], "List OF T"),
+        req("start", &[], "Integer"),
+        req("count", &[], "Integer"),
+    ])]),
+    native("collections.replace", "replace", &[custom(&[
+        req("value", &["list"], "List OF T"),
+        req("old", &["needle"], "T"),
+        req("new", &["replacement"], "T"),
+    ])]),
+    native("collections.add", "add", &[custom(&[
+        req("value", &["set"], "Set OF T"),
+        req("item", &["element"], "T"),
+    ])]),
+    native("collections.remove", "remove", &[custom(&[
+        req("value", &["set"], "Set OF T"),
+        req("item", &["element"], "T"),
+    ])]),
+    native("collections.toList", "toList", &[custom(&[req("value", &["set"], "Set OF T")])]),
+];
+
+/// Generic return-type resolution for collections native members. Delegates to
+/// the same `dispatch_resolve` logic the public `resolve_call` used pre-migration,
+/// so every List/Map/Set/function-typed overload resolves byte-identically.
+struct CollectionsResolver;
+impl BuiltinResolver for CollectionsResolver {
+    fn resolve_return_type(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        dispatch_resolve(name, arg_types).map(|resolved| resolved.return_type.into_owned())
+    }
+}
+static COLLECTIONS_RESOLVER: CollectionsResolver = CollectionsResolver;
+
+pub(crate) static COLLECTIONS: BuiltinModule = BuiltinModule {
+    name: "collections",
+    functions: COLLECTIONS_FUNCTIONS,
+    types: &[],
+    source: Some(BuiltinSource {
+        rule: InjectionRule::WhenImported,
+        loader: source_file,
+    }),
+    resolver: Some(&COLLECTIONS_RESOLVER),
+};
+
 /// The internal generic-function name implementing a public `collections::`
 /// member, e.g. `sort` -> `#collections_sort`. The injected package is lexed in
 /// internal mode, so its `__collections_*` definitions carry the internal sigil;
@@ -113,8 +306,7 @@ pub(crate) fn is_collections_call(name: &str) -> bool {
 /// (`collections.get`, ...). Used to route the call into `general`'s resolve
 /// logic and to dequalify the IR target back to the bare native name.
 pub(crate) fn is_native_member_call(name: &str) -> bool {
-    name.strip_prefix("collections.")
-        .is_some_and(is_native_member)
+    DefaultResolver::contains(&COLLECTIONS, name)
 }
 
 /// The bare native name for a `collections.<member>` native-member call, e.g.
@@ -146,11 +338,29 @@ pub(crate) fn native_member_bare(name: &str) -> Option<&str> {
         .filter(|member| is_native_member(member))
 }
 
-/// Resolves a `collections.<member>` native-member call by delegating to the
-/// granular `general::resolve_*` helpers (which carry the original bare-name
-/// semantics). `find`/`mid`/`replace` use the List-only overload here; their
-/// String overloads live in `strings::`.
+/// Resolves a `collections.<member>` native-member call by routing through the
+/// descriptor's `BuiltinResolver` (plan-72-E), which delegates to
+/// `dispatch_resolve`. The returned type string is identical to the pre-migration
+/// path; only the `Cow` variant changes (`Owned` vs `Borrowed`), which no
+/// consumer observes.
 pub(crate) fn resolve_call<'a>(
+    name: &str,
+    arg_types: &'a [String],
+) -> Option<super::general::ResolvedCall<'a>> {
+    let return_type = COLLECTIONS
+        .resolver?
+        .resolve_return_type(&COLLECTIONS, name, arg_types)?;
+    Some(super::general::ResolvedCall {
+        return_type: Cow::Owned(return_type),
+    })
+}
+
+/// The generic per-member resolution, delegating to the granular
+/// `general::resolve_*`/local `resolve_*` helpers (which carry the original
+/// bare-name semantics). `find`/`mid`/`replace` use the List-only overload here;
+/// their String overloads live in `strings::`. Invoked through the descriptor
+/// resolver by `resolve_call`.
+fn dispatch_resolve<'a>(
     name: &str,
     arg_types: &'a [String],
 ) -> Option<super::general::ResolvedCall<'a>> {
@@ -470,6 +680,13 @@ fn resolve_reduce<'a>(arg_types: &'a [String]) -> Option<super::general::Resolve
         })
 }
 
+// `call_param_names` returns a `&'static` borrowed nested slice the owned
+// `DefaultResolver::param_names` cannot produce, so it stays a static literal
+// PINNED equal to `COLLECTIONS` by `parity_matches_descriptor` until plan-72-BB.
+// `expected_arguments` keeps its hand-authored "or"-phrased strings (the
+// descriptor's per-position types cannot express `List OF T, Integer or Map OF K
+// TO V, K`), and `call_return_type_name` delegates to `general` — neither is
+// descriptor-derivable, so both stay as-is (documented in the plan Corrections).
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match native_member_bare(name)? {
         "get" => Some(&[&["value", "collection"], &["index", "key"]]),
@@ -549,14 +766,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 }
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    match native_member_bare(name)? {
-        "removeAt" | "removeKey" | "hasKey" | "contains" | "append" | "prepend" | "get"
-        | "forEach" | "transform" | "filter" | "add" | "remove" => Some((2, 2)),
-        "getOr" | "set" | "insert" | "reduce" | "mid" | "replace" => Some((3, 3)),
-        "keys" | "values" | "sum" | "toList" => Some((1, 1)),
-        "find" => Some((2, 3)),
-        _ => None,
-    }
+    DefaultResolver::arity(&COLLECTIONS, name)
 }
 
 /// Whether any file in `ast` imports the `collections` package.
@@ -1351,5 +1561,147 @@ mod tests {
             "FUNC(FUNC(String) AS Integer) AS String",
         ]);
         assert!(resolve_transform(&mismatched).is_none());
+    }
+
+    // plan-72-E migration gate: prove `COLLECTIONS` reproduces the legacy answers
+    // for every native member — membership, arity, and parameter names/aliases —
+    // and that its `BuiltinResolver` resolves List/Map/Set/generic return types
+    // identically to the legacy dispatch. `expected_arguments` and
+    // `call_return_type_name` are not descriptor-derivable (custom phrasing /
+    // general delegation) and are excluded. Keep until plan-72-BB.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::parity;
+
+        let calls: Vec<&str> = COLLECTIONS_FUNCTIONS.iter().map(|f| f.name).collect();
+        let legacy = parity::LegacySet {
+            is_call: &is_native_member_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            // Resolver-backed: the harness skips return-type parity when the
+            // module has a resolver, so this value is unused.
+            return_type_name: &|_| None,
+            // Not descriptor-derivable (custom "or"-phrased strings).
+            expected_arguments: None,
+            param_name_overloads: None,
+            argument_types: None,
+            implementation_name: None,
+            default_padding: None,
+            builtin_type_fields: None,
+        };
+        // `collections.sort` is a source generic (not a native member) and
+        // `collections.nope` is unknown; both must be non-members.
+        let mut probe = calls.clone();
+        probe.push("collections.sort");
+        probe.push("collections.nope");
+
+        // Resolver samples covering List/Map/Set and generic resolution.
+        let samples = [
+            parity::ResolverSample {
+                call: "collections.get",
+                arg_types: &["List OF Integer", "Integer"],
+                expected_return: Some("Integer"),
+                expected_impl: None,
+                expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: "collections.get",
+                arg_types: &["Map OF String TO Integer", "String"],
+                expected_return: Some("Integer"),
+                expected_impl: None,
+                expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: "collections.keys",
+                arg_types: &["Map OF String TO Integer"],
+                expected_return: Some("List OF String"),
+                expected_impl: None,
+                expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: "collections.values",
+                arg_types: &["Map OF String TO Integer"],
+                expected_return: Some("List OF Integer"),
+                expected_impl: None,
+                expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: "collections.append",
+                arg_types: &["List OF Integer", "Integer"],
+                expected_return: Some("List OF Integer"),
+                expected_impl: None,
+                expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: "collections.contains",
+                arg_types: &["List OF Integer", "Integer"],
+                expected_return: Some("Boolean"),
+                expected_impl: None,
+                expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: "collections.contains",
+                arg_types: &["Set OF Integer", "Integer"],
+                expected_return: Some("Boolean"),
+                expected_impl: None,
+                expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: "collections.add",
+                arg_types: &["Set OF Integer", "Integer"],
+                expected_return: Some("Set OF Integer"),
+                expected_impl: None,
+                expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: "collections.toList",
+                arg_types: &["Set OF Integer"],
+                expected_return: Some("List OF Integer"),
+                expected_impl: None,
+                expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: "collections.sum",
+                arg_types: &["List OF Integer"],
+                expected_return: Some("Integer"),
+                expected_impl: None,
+                expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: "collections.find",
+                arg_types: &["List OF Integer", "Integer"],
+                expected_return: Some("Integer"),
+                expected_impl: None,
+                expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: "collections.mid",
+                arg_types: &["List OF Integer", "Integer", "Integer"],
+                expected_return: Some("List OF Integer"),
+                expected_impl: None,
+                expected_padding: None,
+                expected_overload_target: None,
+            },
+        ];
+        parity::assert_parity(&COLLECTIONS, &probe, &legacy, &samples);
+
+        // The source companion injects on import (WhenImported).
+        assert_eq!(
+            COLLECTIONS.source.expect("collections has a source").rule,
+            crate::builtins::descriptor::InjectionRule::WhenImported
+        );
     }
 }
