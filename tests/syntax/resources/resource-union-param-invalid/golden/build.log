@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-union-param-invalid
+  16 | FUNC widenToConcrete AS Integer
+  17 |   RES s AS Stream = fs::createTempFile()
+  18 |   RETURN useFile(s)
+     | ^
+tests/syntax/resources/resource-union-param-invalid/src/main.mfb:18 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Argument 1 for `useFile` has type Stream, expected File.
+  23 | FUNC closeUnion AS Integer
+  24 |   RES s AS Stream = fs::createTempFile()
+  25 |   fs::close(s)
+     | ^
+tests/syntax/resources/resource-union-param-invalid/src/main.mfb:25 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `fs.close` has argument type(s) (Stream), expected File.
+[exit 1]

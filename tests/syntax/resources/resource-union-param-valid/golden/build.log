@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-union-param-valid
+Wrote AST to tests/syntax/resources/resource-union-param-valid/resource_union_param_valid.ast
+Wrote IR to tests/syntax/resources/resource-union-param-valid/resource_union_param_valid.ir
+[exit 0]
