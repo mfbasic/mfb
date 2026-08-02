@@ -505,6 +505,55 @@ fn lower_read(
         abi::store_u64("%v11", abi::stack_pointer(), SRC_OFF),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), FRAMES_GOT_OFF),
     ]);
+    // bug-416 (2): drain the previous read's unconsumed capture tail first, so a
+    // non-packet-aligned read loses no frames. The stash holds DEVICE-format bytes
+    // (W_MIX_BPF stride); point W_OUT1 at it and reuse the packet fill/convert.
+    {
+        let drain_cf = format!("{symbol}_drain_cf");
+        let drain_skip = format!("{symbol}_drain_skip");
+        ins.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
+            abi::load_u64("%v10", "%v9", W_CARRY_FRAMES),
+            abi::load_u64("%v11", "%v9", W_CARRY_HEAD),
+            abi::subtract_registers("%v10", "%v10", "%v11"), // remaining
+            abi::compare_immediate("%v10", "0"),
+            abi::branch_le(&drain_skip),
+            // copyFrames = min(remaining, framesRequested)   (frames_got == 0 here)
+            abi::load_u64("%v12", abi::stack_pointer(), FRAMES_OFF),
+            abi::compare_registers("%v10", "%v12"),
+            abi::branch_le(&drain_cf),
+            abi::move_register("%v10", "%v12"),
+            abi::label(&drain_cf),
+            abi::store_u64("%v10", abi::stack_pointer(), OFFSET_OFF), // copyFrames
+            // W_OUT1 = carryPtr + head * mixBpf  (fill source)
+            abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
+            abi::load_u64("%v13", "%v9", W_CARRY_PTR),
+            abi::load_u64("%v11", "%v9", W_CARRY_HEAD),
+            abi::load_u64("%v14", "%v9", W_MIX_BPF),
+            abi::multiply_registers("%v11", "%v11", "%v14"),
+            abi::add_registers("%v13", "%v13", "%v11"),
+            abi::store_u64("%v13", "%v9", W_OUT1),
+        ]);
+        emit_read_fill(FRAMES_GOT_OFF, OFFSET_OFF, &mut ins);
+        ins.extend([
+            // frames_got += copyFrames
+            abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
+            abi::load_u64("%v10", abi::stack_pointer(), OFFSET_OFF),
+            abi::add_registers("%v9", "%v9", "%v10"),
+            abi::store_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
+            // carry_head += copyFrames; reset the stash once fully drained
+            abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
+            abi::load_u64("%v11", "%v9", W_CARRY_HEAD),
+            abi::add_registers("%v11", "%v11", "%v10"),
+            abi::store_u64("%v11", "%v9", W_CARRY_HEAD),
+            abi::load_u64("%v12", "%v9", W_CARRY_FRAMES),
+            abi::compare_registers("%v11", "%v12"),
+            abi::branch_lt(&drain_skip), // still stashed frames -> keep cursor
+            abi::store_u64(abi::ZERO, "%v9", W_CARRY_HEAD),
+            abi::store_u64(abi::ZERO, "%v9", W_CARRY_FRAMES),
+            abi::label(&drain_skip),
+        ]);
+    }
     if timeout {
         ins.push(abi::subtract_stack(0x20));
         emit_external_int_call(platform, "GetTickCount64", symbol, 0, platform_imports, &mut ins, &mut rel)?;
@@ -573,6 +622,34 @@ fn lower_read(
         abi::store_u64("%v10", abi::stack_pointer(), OFFSET_OFF), // copyFrames
     ]);
     emit_read_fill(FRAMES_GOT_OFF, OFFSET_OFF, &mut ins);
+    // bug-416 (2): before releasing the WHOLE packet, stash the frames that did
+    // not fit (numFrames - copyFrames) so the next read continues them. WASAPI
+    // forbids a partial ReleaseBuffer, so the tail must be copied out here or it is
+    // lost — this is the data-loss defect on any non-packet-aligned read.
+    {
+        let carry_tail_skip = format!("{symbol}_carry_tail_skip");
+        ins.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
+            abi::load_u32("%v10", "%v9", W_OUT0),                    // numFrames
+            abi::load_u64("%v11", abi::stack_pointer(), OFFSET_OFF), // copyFrames
+            abi::subtract_registers("%v12", "%v10", "%v11"),        // tail
+            abi::compare_immediate("%v12", "0"),
+            abi::branch_le(&carry_tail_skip),
+            abi::load_u64("%v13", "%v9", W_MIX_BPF),
+            abi::load_u64("%v14", "%v9", W_OUT1),                    // pData
+            abi::multiply_registers("%v15", "%v11", "%v13"),        // copyFrames*mixBpf
+            abi::add_registers("%v14", "%v14", "%v15"),             // src
+            abi::load_u64("%v15", "%v9", W_CARRY_PTR),              // dst = carry base
+            abi::multiply_registers("%v13", "%v12", "%v13"),       // n = tail*mixBpf
+        ]);
+        emit_copy_bytes("%v14", "%v15", "%v13", &format!("{symbol}_carry_tail"), &mut ins);
+        ins.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
+            abi::store_u64(abi::ZERO, "%v9", W_CARRY_HEAD),
+            abi::store_u64("%v12", "%v9", W_CARRY_FRAMES),          // tail frames stashed
+            abi::label(&carry_tail_skip),
+        ]);
+    }
     // capture->ReleaseBuffer(numFrames) — the WHOLE packet
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
@@ -711,8 +788,10 @@ fn lower_query(
                 abi::label(&is_input),
                 abi::move_register("%v10", "%v11"),
                 abi::label(&have_avail),
-                abi::load_u64("%v13", abi::stack_pointer(), BPF_OFF),
-                abi::multiply_registers(RESULT_VALUE_REGISTER, "%v10", "%v13"),
+                // bug-416 (1): `audio::available` returns whole FRAMES (man
+                // `audio/available.md`), matching the macOS/ALSA backends and the
+                // sibling `Query::Poll` arm — NOT bytes. Do not scale by BPF.
+                abi::move_register(RESULT_VALUE_REGISTER, "%v10"),
             ]);
         }
         Query::Poll => {
