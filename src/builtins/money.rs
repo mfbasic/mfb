@@ -16,11 +16,9 @@
 //! `Rounding` enum is a builtin type; the `package_source_glue!` companion is
 //! `WhenImported`.
 
-use std::borrow::Cow;
-
 use super::descriptor::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, BuiltinType,
-    DefaultResolver, Implementation, InjectionRule, Lowering, Parameter, ReturnType, TypeKind,
+    Implementation, InjectionRule, Lowering, Parameter, ReturnType, TypeKind,
 };
 
 const SET_ROUNDING: &str = "money.setRounding";
@@ -146,4 +144,28 @@ mod tests {
         assert!(source_file().is_ok());
     }
 
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `ov`/`money_fn` are const fns used only in const context, so their
+        // bodies never run at runtime. Call them at runtime to cover the shape.
+        let overload = ov(P_ROUND, "Money");
+        assert_eq!(overload.params.len(), 2);
+        assert_eq!(overload.return_type, ReturnType::Fixed("Money"));
+
+        let func = money_fn(ROUND, "round", OV_ROUND);
+        assert_eq!(func.name, ROUND);
+        assert_eq!(func.doc_slug, "round");
+        assert_eq!(func.implementation, Implementation::Same);
+        assert_eq!(func.lowering, Lowering::Inline);
+        assert_eq!(func.overloads.len(), 1);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+    }
+
+    #[test]
+    fn is_builtin_type_recognizes_rounding() {
+        assert!(is_builtin_type("Rounding"));
+        assert!(!is_builtin_type("Money"));
+        assert!(!is_builtin_type("Nope"));
+    }
 }

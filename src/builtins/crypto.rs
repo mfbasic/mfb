@@ -750,4 +750,136 @@ mod tests {
         );
     }
 
+    // The `ov`/`cf`/`req` const-fn constructors are only evaluated in const context
+    // (the `P_*` tables and `CRYPTO_FUNCTIONS`), so they show no runtime coverage.
+    // Call them at runtime and assert their returned fields.
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `req` builds a required `Parameter`.
+        let param = req("data", BYTES);
+        assert_eq!(param.name, "data");
+        assert!(param.aliases.is_empty());
+        assert_eq!(param.ty, ParameterType::Named(BYTES));
+        assert_eq!(param.default, DefaultValue::None);
+
+        // `ov` builds a single `BuiltinOverload` (not an array).
+        let overload = ov(P_DATA, BYTES);
+        assert_eq!(overload.params.len(), 1);
+        assert_eq!(overload.return_type, ReturnType::Fixed(BYTES));
+
+        // `cf` needs a `&'static [BuiltinOverload]`; a temporary `&[ov(...)]` would
+        // trip E0716, so bind it as a const inside the test.
+        const OV: &[BuiltinOverload] = &[ov(P_DATA, BYTES)];
+        let func = cf(SHA256, "sha256", OV);
+        assert_eq!(func.name, SHA256);
+        assert_eq!(func.doc_slug, "sha256");
+        assert_eq!(func.overloads.len(), 1);
+        assert_eq!(func.implementation, Implementation::Custom);
+        assert_eq!(func.lowering, Lowering::Helper);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+    }
+
+    fn rt(name: &str, args: &[&str]) -> Option<String> {
+        dispatch_resolve(name, &strings(args)).map(|r| r.return_type.into_owned())
+    }
+
+    // `dispatch_resolve` (the argument-validating return-type resolution) has no
+    // existing test; exercise every overload arm and the reject arm.
+    #[test]
+    fn dispatch_resolve_overload_branches() {
+        // Hashes: `List OF Byte` and `String` overloads both resolve to bytes.
+        assert_eq!(rt(SHA256, &[BYTES]), Some(BYTES.to_string()));
+        assert_eq!(rt(SHA224, &["String"]), Some(BYTES.to_string()));
+        assert_eq!(rt(SHA512, &[BYTES]), Some(BYTES.to_string()));
+        assert_eq!(rt(SHA384, &["String"]), Some(BYTES.to_string()));
+        assert_eq!(rt(SHA256, &["Integer"]), None);
+
+        // HMAC: key is always bytes; data is bytes-or-text.
+        assert_eq!(rt(HMAC_SHA256, &[BYTES, BYTES]), Some(BYTES.to_string()));
+        assert_eq!(rt(HMAC_SHA512, &[BYTES, "String"]), Some(BYTES.to_string()));
+        assert_eq!(rt(HMAC_SHA256, &["String", BYTES]), None);
+
+        // HKDF: fixed positional types.
+        assert_eq!(
+            rt(HKDF_SHA256, &[BYTES, BYTES, BYTES, "Integer"]),
+            Some(BYTES.to_string())
+        );
+        assert_eq!(rt(HKDF_SHA512, &[BYTES, BYTES, BYTES]), None);
+
+        // PBKDF2: password is bytes-or-text; remaining positions fixed.
+        assert_eq!(
+            rt(PBKDF2_SHA256, &[BYTES, BYTES, "Integer", "Integer"]),
+            Some(BYTES.to_string())
+        );
+        assert_eq!(
+            rt(PBKDF2_SHA512, &["String", BYTES, "Integer", "Integer"]),
+            Some(BYTES.to_string())
+        );
+        assert_eq!(rt(PBKDF2_SHA256, &[BYTES, BYTES, "Integer"]), None);
+
+        // AEAD seal: 3-arg (no aad) and 4-arg (with aad) both resolve to Sealed.
+        assert_eq!(
+            rt(AES256_GCM_SEAL, &[BYTES, BYTES, BYTES]),
+            Some(SEALED_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(CHACHA20_POLY1305_SEAL, &[BYTES, BYTES, BYTES, BYTES]),
+            Some(SEALED_TYPE.to_string())
+        );
+
+        // AEAD open: 4-arg and 5-arg (with aad) both resolve to bytes.
+        assert_eq!(
+            rt(AES256_GCM_OPEN, &[BYTES, BYTES, BYTES, BYTES]),
+            Some(BYTES.to_string())
+        );
+        assert_eq!(
+            rt(CHACHA20_POLY1305_OPEN, &[BYTES, BYTES, BYTES, BYTES, BYTES]),
+            Some(BYTES.to_string())
+        );
+
+        // Random.
+        assert_eq!(rt(RANDOM_BYTES, &["Integer"]), Some(BYTES.to_string()));
+        assert_eq!(rt(RANDOM_INT, &["Integer", "Integer"]), Some("Integer".to_string()));
+
+        // Nullary source glue.
+        assert_eq!(rt(UUID4, &[]), Some("String".to_string()));
+        assert_eq!(rt(GENERATE_ED25519, &[]), Some(KEYPAIR_TYPE.to_string()));
+        assert_eq!(rt(GENERATE_P256, &[]), Some(KEYPAIR_TYPE.to_string()));
+        assert_eq!(rt(GENERATE_P256_RAW, &[]), Some(BYTES.to_string()));
+
+        // Public-key sign/verify and constant-time equal.
+        assert_eq!(rt(ED25519_SIGN, &[BYTES, BYTES]), Some(BYTES.to_string()));
+        assert_eq!(
+            rt(ED25519_VERIFY, &[BYTES, BYTES, BYTES]),
+            Some("Boolean".to_string())
+        );
+        assert_eq!(
+            rt(CONSTANT_TIME_EQUAL, &[BYTES, BYTES]),
+            Some("Boolean".to_string())
+        );
+
+        // Reject arm: unknown name and arity/type mismatches.
+        assert_eq!(rt("crypto.bogus", &[BYTES]), None);
+        assert_eq!(rt(RANDOM_INT, &["Integer"]), None);
+    }
+
+    // `implementation_name` delegates through the resolver (line reaching
+    // `.resolver?`) and the default `dispatch_implementation_name` arm strips the
+    // `crypto.` prefix.
+    #[test]
+    fn implementation_name_delegation_and_default_arm() {
+        // Native entry point -> None (early return in the dispatch).
+        assert_eq!(implementation_name(RANDOM_BYTES, &[]), None);
+        // Default arm: no `_bytes`/`_text` suffix, just the stripped name.
+        assert_eq!(
+            implementation_name(UUID4, &[]),
+            Some("__crypto_uuid4".to_string())
+        );
+        assert_eq!(
+            implementation_name(CONSTANT_TIME_EQUAL, &strings(&[BYTES, BYTES])),
+            Some("__crypto_constantTimeEqual".to_string())
+        );
+    }
+
 }

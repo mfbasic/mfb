@@ -375,4 +375,31 @@ mod tests {
         assert_eq!(augmented.files.len(), ast.files.len());
     }
 
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `ov`/`json_fn`/`req` are const fns used only in const context; call them
+        // at runtime so their bodies are exercised.
+        let param = req("value", &["text"], "String");
+        assert_eq!(param.name, "value");
+        assert_eq!(param.aliases, &["text"]);
+        assert_eq!(param.ty, ParameterType::Named("String"));
+        assert_eq!(param.default, DefaultValue::None);
+
+        let overload = ov(P_PARSE, "Json");
+        assert_eq!(overload.params.len(), 1);
+        assert_eq!(overload.return_type, ReturnType::Fixed("Json"));
+
+        const OV_PARSE: &[BuiltinOverload] = &[ov(P_PARSE, "Json")];
+        let func = json_fn(
+            PARSE,
+            "parse",
+            OV_PARSE,
+            Implementation::Rewrite(INTERNAL_PARSE),
+        );
+        assert_eq!(func.name, PARSE);
+        assert_eq!(func.doc_slug, "parse");
+        assert_eq!(func.implementation, Implementation::Rewrite(INTERNAL_PARSE));
+        assert_eq!(func.lowering, Lowering::Helper);
+        assert!(!func.flags.internal_only);
+    }
 }

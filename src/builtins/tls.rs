@@ -554,4 +554,44 @@ mod tests {
         assert!(!consumes_argument(WRITE, 0));
     }
 
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `ov`/`tf`/`req`/`fill` are const fns used only in const context, so
+        // their bodies never run at runtime. Call them at runtime to cover the
+        // shape.
+        let required = req("host", &["h"], "String");
+        assert_eq!(required.name, "host");
+        assert_eq!(required.aliases, &["h"]);
+        assert_eq!(required.ty, ParameterType::Named("String"));
+        assert_eq!(required.default, DefaultValue::None);
+
+        let filled = fill("timeoutMs", "Integer", SENTINEL);
+        assert_eq!(filled.name, "timeoutMs");
+        assert!(filled.aliases.is_empty());
+        assert_eq!(filled.ty, ParameterType::Named("Integer"));
+        assert_eq!(
+            filled.default,
+            DefaultValue::Fill {
+                type_name: "Integer",
+                expr: SENTINEL,
+            }
+        );
+
+        let overload = ov(P_READ, "List OF Byte");
+        assert_eq!(overload.params.len(), 2);
+        assert_eq!(overload.return_type, ReturnType::Fixed("List OF Byte"));
+
+        // E0716: `tf` takes `&'static [BuiltinOverload]`, so build the slice as a
+        // named const rather than a borrowed temporary.
+        const OV: &[BuiltinOverload] = &[ov(P_READ, TLS_SOCKET_TYPE)];
+        let func = tf(READ, "read", OV);
+        assert_eq!(func.name, READ);
+        assert_eq!(func.doc_slug, "read");
+        assert_eq!(func.implementation, Implementation::Same);
+        assert_eq!(func.lowering, Lowering::Helper);
+        assert_eq!(func.overloads.len(), 1);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+    }
+
 }

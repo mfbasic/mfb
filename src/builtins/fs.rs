@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 
 use super::descriptor::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinType, DefaultResolver,
@@ -443,4 +442,53 @@ mod tests {
         assert!(exact(&types(&[]), &[]));
     }
 
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `ov`/`ffn`/`req`/`opt` are const fns used only in const context, so
+        // their bodies never run at runtime and show as uncovered. Call them at
+        // runtime to exercise (and pin the shape of) each constructor.
+        let overload = ov(P_PATH, "Boolean");
+        assert_eq!(overload.params.len(), 1);
+        assert_eq!(overload.params[0].name, "path");
+        assert_eq!(overload.return_type, ReturnType::Fixed("Boolean"));
+
+        let niladic = ov(P_NONE, FILE_TYPE);
+        assert!(niladic.params.is_empty());
+        assert_eq!(niladic.return_type, ReturnType::Fixed(FILE_TYPE));
+
+        // E0716: `ffn` borrows a `&'static [BuiltinOverload]`, so the overload
+        // slice must be a named const, not a temporary.
+        const OV: &[BuiltinOverload] = &[ov(P_PATH, "Boolean")];
+        let func = ffn(FILE_EXISTS, "fileExists", OV);
+        assert_eq!(func.name, FILE_EXISTS);
+        assert_eq!(func.doc_slug, "fileExists");
+        assert_eq!(func.overloads.len(), 1);
+        assert_eq!(func.implementation, Implementation::Same);
+        assert_eq!(func.lowering, Lowering::Helper);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+
+        let required = req("path", "String");
+        assert_eq!(required.name, "path");
+        assert!(required.aliases.is_empty());
+        assert_eq!(required.ty, ParameterType::Named("String"));
+        assert_eq!(required.default, DefaultValue::None);
+
+        let optional = opt("mode", "String");
+        assert_eq!(optional.name, "mode");
+        assert!(optional.aliases.is_empty());
+        assert_eq!(optional.ty, ParameterType::Named("String"));
+        assert_eq!(optional.default, DefaultValue::Optional);
+    }
+
+    #[test]
+    fn expected_arguments_optional_and_file_boolean() {
+        // Covers the `OPEN_WITHIN` (optional trailing `mode`) and `SET_BUFFERED`
+        // (File, Boolean) arms not reached by `expected_arguments_specific`.
+        assert_eq!(
+            expected_arguments(OPEN_WITHIN),
+            Some("String, String[, String]")
+        );
+        assert_eq!(expected_arguments(SET_BUFFERED), Some("File, Boolean"));
+    }
 }

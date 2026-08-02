@@ -603,4 +603,211 @@ mod tests {
         );
     }
 
+    fn rt(name: &str, args: &[&str]) -> Option<String> {
+        dispatch_resolve(name, &strings(args)).map(|r| r.return_type.into_owned())
+    }
+
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `ov`/`hfn`/`req`/`fill`/`req_alias` are const fns invoked only in const
+        // context, so their bodies never run at runtime. Call them here to exercise
+        // (and pin the shape of) each constructor.
+        let overload = ov(P_READ, RESPONSE_TYPE);
+        assert_eq!(overload.params.len(), 3);
+        assert_eq!(overload.params[0].name, "url");
+        assert_eq!(overload.return_type, ReturnType::Fixed(RESPONSE_TYPE));
+
+        const OV: &[BuiltinOverload] = &[ov(P_BODY, RESPONSE_TYPE)];
+        let func = hfn(OK, "ok", OV, Implementation::Rewrite(INTERNAL_OK));
+        assert_eq!(func.name, OK);
+        assert_eq!(func.doc_slug, "ok");
+        assert_eq!(func.implementation, Implementation::Rewrite(INTERNAL_OK));
+        assert_eq!(func.lowering, Lowering::Helper);
+        assert_eq!(func.overloads.len(), 1);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+
+        let r = req("url", URL_TYPE);
+        assert_eq!(r.name, "url");
+        assert_eq!(r.ty, ParameterType::Named(URL_TYPE));
+        assert_eq!(r.default, DefaultValue::None);
+        assert!(r.aliases.is_empty());
+
+        let f = fill("headers", HEADER_MAP, "{}");
+        assert_eq!(f.name, "headers");
+        assert_eq!(f.ty, ParameterType::Named(HEADER_MAP));
+        assert_eq!(
+            f.default,
+            DefaultValue::Fill { type_name: HEADER_MAP, expr: "{}" }
+        );
+        assert!(f.aliases.is_empty());
+
+        const ALIASES: &[&str] = &["response"];
+        let a = req_alias("resp", ALIASES, RESPONSE_TYPE);
+        assert_eq!(a.name, "resp");
+        assert_eq!(a.aliases, ALIASES);
+        assert_eq!(a.ty, ParameterType::Named(RESPONSE_TYPE));
+        assert_eq!(a.default, DefaultValue::None);
+    }
+
+    #[test]
+    fn resolver_trait_dispatches() {
+        // The HttpResolver trait methods are wired through the descriptor; call
+        // them directly to cover `resolve_return_type` and `implementation_name`.
+        assert_eq!(
+            HTTP_RESOLVER.resolve_return_type(&HTTP, READ, &strings(&[URL_TYPE])),
+            Some(RESPONSE_TYPE.to_string())
+        );
+        assert_eq!(
+            HTTP_RESOLVER.resolve_return_type(&HTTP, READ, &strings(&["String"])),
+            None
+        );
+        // implementation_name is Some only for handleRequest, choosing the transport.
+        assert_eq!(
+            HTTP_RESOLVER.implementation_name(
+                &HTTP,
+                HANDLE_REQUEST,
+                &strings(&[LISTENER_TYPE, ROUTE_LIST])
+            ),
+            Some(INTERNAL_HANDLE_REQUEST.to_string())
+        );
+        assert_eq!(
+            HTTP_RESOLVER.implementation_name(
+                &HTTP,
+                HANDLE_REQUEST,
+                &strings(&[TLS_LISTENER_TYPE, ROUTE_LIST])
+            ),
+            Some(INTERNAL_HANDLE_REQUEST_SSL.to_string())
+        );
+        assert_eq!(
+            HTTP_RESOLVER.implementation_name(&HTTP, READ, &strings(&[URL_TYPE])),
+            None
+        );
+    }
+
+    #[test]
+    fn dispatch_resolve_every_overload() {
+        // read(url, [headers], [method]) -> Response
+        assert_eq!(rt(READ, &[URL_TYPE]), Some(RESPONSE_TYPE.to_string()));
+        assert_eq!(
+            rt(READ, &[URL_TYPE, HEADER_MAP]),
+            Some(RESPONSE_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(READ, &[URL_TYPE, HEADER_MAP, "String"]),
+            Some(RESPONSE_TYPE.to_string())
+        );
+        assert_eq!(rt(READ, &["String"]), None);
+        // write(url, body, [headers], [method]) -> Response
+        assert_eq!(
+            rt(WRITE, &[URL_TYPE, "String"]),
+            Some(RESPONSE_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(WRITE, &[URL_TYPE, "String", HEADER_MAP]),
+            Some(RESPONSE_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(WRITE, &[URL_TYPE, "String", HEADER_MAP, "String"]),
+            Some(RESPONSE_TYPE.to_string())
+        );
+        // server(port, [host], [backlog]) -> Listener
+        assert_eq!(rt(SERVER, &["Integer"]), Some(LISTENER_TYPE.to_string()));
+        assert_eq!(
+            rt(SERVER, &["Integer", "String"]),
+            Some(LISTENER_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(SERVER, &["Integer", "String", "Integer"]),
+            Some(LISTENER_TYPE.to_string())
+        );
+        // serverSSL(port, certPath, keyPath, [host], [backlog]) -> TlsListener
+        assert_eq!(
+            rt(SERVER_SSL, &["Integer", "String", "String"]),
+            Some(TLS_LISTENER_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(SERVER_SSL, &["Integer", "String", "String", "String"]),
+            Some(TLS_LISTENER_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(
+                SERVER_SSL,
+                &["Integer", "String", "String", "String", "Integer"]
+            ),
+            Some(TLS_LISTENER_TYPE.to_string())
+        );
+        // handleRequest overloaded by listener type -> Nothing
+        assert_eq!(
+            rt(HANDLE_REQUEST, &[LISTENER_TYPE, ROUTE_LIST]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(
+            rt(HANDLE_REQUEST, &[TLS_LISTENER_TYPE, ROUTE_LIST]),
+            Some("Nothing".to_string())
+        );
+        // constructors / static helpers
+        assert_eq!(
+            rt(ROUTE, &["String", HANDLER_TYPE]),
+            Some(ROUTE_TYPE.to_string())
+        );
+        assert_eq!(rt(RESPONSE_DEFAULT, &[]), Some(RESPONSE_TYPE.to_string()));
+        assert_eq!(rt(OK, &["String"]), Some(RESPONSE_TYPE.to_string()));
+        assert_eq!(rt(JSON, &["String"]), Some(RESPONSE_TYPE.to_string()));
+        assert_eq!(
+            rt(STATUS, &["Integer", "String"]),
+            Some(RESPONSE_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(WITH_HEADER, &[RESPONSE_TYPE, "String", "String"]),
+            Some(RESPONSE_TYPE.to_string())
+        );
+        assert_eq!(rt(BYTES, &["String"]), Some(BYTE_LIST.to_string()));
+        assert_eq!(
+            rt(RESPOND_FILE, &[FILE_TYPE]),
+            Some(RESPONSE_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(RESPOND_FILE, &[FILE_TYPE, "String"]),
+            Some(RESPONSE_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(RESPOND_PATH, &[REQUEST_TYPE, "String"]),
+            Some(RESPONSE_TYPE.to_string())
+        );
+        // reject paths (final `_ => return None` arm)
+        assert_eq!(rt("http.nope", &[]), None);
+        assert_eq!(rt(ROUTE, &["String", "FUNC(Integer) AS Integer"]), None);
+    }
+
+    #[test]
+    fn expected_arguments_server_surface() {
+        assert_eq!(
+            expected_arguments(SERVER),
+            Some("Integer[, String[, Integer]]")
+        );
+        assert_eq!(
+            expected_arguments(SERVER_SSL),
+            Some("Integer, String, String[, String[, Integer]]")
+        );
+        assert_eq!(
+            expected_arguments(HANDLE_REQUEST),
+            Some("Listener or TlsListener, List OF Route")
+        );
+        assert_eq!(
+            expected_arguments(ROUTE),
+            Some("String, FUNC(Request) AS Response")
+        );
+        assert_eq!(expected_arguments(RESPONSE_DEFAULT), Some("no arguments"));
+        assert_eq!(expected_arguments(OK), Some("String"));
+        assert_eq!(expected_arguments(JSON), Some("String"));
+        assert_eq!(expected_arguments(STATUS), Some("Integer, String"));
+        assert_eq!(
+            expected_arguments(WITH_HEADER),
+            Some("Response, String, String")
+        );
+        assert_eq!(expected_arguments(BYTES), Some("String"));
+        assert_eq!(expected_arguments(RESPOND_FILE), Some("File[, String]"));
+        assert_eq!(expected_arguments(RESPOND_PATH), Some("Request, String"));
+    }
 }

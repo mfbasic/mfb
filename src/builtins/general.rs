@@ -857,6 +857,79 @@ mod tests {
     }
 
     #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `ov` builds a Fixed-return overload; `ovc` a Custom-return one. Both are
+        // only invoked in const context by GENERAL_FUNCTIONS, so call them here.
+        let fixed = ov(P_V_INT, "Byte");
+        assert_eq!(fixed.params.len(), 1);
+        assert_eq!(fixed.params[0].name, "value");
+        assert_eq!(fixed.return_type, ReturnType::Fixed("Byte"));
+
+        let custom = ovc(P_V_STR);
+        assert_eq!(custom.params.len(), 1);
+        assert_eq!(custom.params[0].name, "value");
+        assert_eq!(custom.return_type, ReturnType::Custom);
+
+        // `gfn` assembles a general BuiltinFunction (Same/Helper, no flags).
+        // E0716: gfn wants a &'static overload slice, so bind a const first.
+        const OV: &[BuiltinOverload] = &[ov(P_V_INT, "Byte")];
+        let func = gfn("demoName", "demoSlug", OV);
+        assert_eq!(func.name, "demoName");
+        assert_eq!(func.doc_slug, "demoSlug");
+        assert_eq!(func.overloads.len(), 1);
+        assert_eq!(func.implementation, Implementation::Same);
+        assert_eq!(func.lowering, Lowering::Helper);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+    }
+
+    #[test]
+    fn override_result_type_money_scalar_arms() {
+        assert_eq!(override_result_type(TO_MONEY), Some("Money"));
+        assert_eq!(override_result_type(TO_SCALAR), Some("Scalar"));
+    }
+
+    #[test]
+    fn call_param_names_money_scalar_arms() {
+        assert_eq!(call_param_names(TO_MONEY), Some(&[&["value"][..]][..]));
+        assert_eq!(call_param_names(TO_SCALAR), Some(&[&["value"][..]][..]));
+    }
+
+    #[test]
+    fn builtin_function_id_is_numeric_arm() {
+        assert_eq!(
+            builtin_function_id(IS_NUMERIC),
+            Some(BUILTIN_FUNCTION_IS_NUMERIC)
+        );
+    }
+
+    #[test]
+    fn resolve_to_scalar_and_money() {
+        // toScalar accepts Integer/String/Byte -> Scalar, rejects others.
+        assert_eq!(rt(TO_SCALAR, &["Integer"]), Some("Scalar".to_string()));
+        assert_eq!(rt(TO_SCALAR, &["String"]), Some("Scalar".to_string()));
+        assert_eq!(rt(TO_SCALAR, &["Byte"]), Some("Scalar".to_string()));
+        assert_eq!(rt(TO_SCALAR, &["Float"]), None);
+        assert_eq!(rt(TO_SCALAR, &["Integer", "Integer"]), None);
+        // toMoney accepts String/Integer/Float/Fixed/Byte -> Money.
+        assert_eq!(rt(TO_MONEY, &["String"]), Some("Money".to_string()));
+        assert_eq!(rt(TO_MONEY, &["Integer"]), Some("Money".to_string()));
+        assert_eq!(rt(TO_MONEY, &["Float"]), Some("Money".to_string()));
+        assert_eq!(rt(TO_MONEY, &["Fixed"]), Some("Money".to_string()));
+        assert_eq!(rt(TO_MONEY, &["Byte"]), Some("Money".to_string()));
+        assert_eq!(rt(TO_MONEY, &["Boolean"]), None);
+    }
+
+    #[test]
+    fn expected_arguments_money_scalar_arms() {
+        assert_eq!(
+            expected_arguments(TO_MONEY),
+            Some("String, Integer, Float, Fixed, or Byte")
+        );
+        assert_eq!(expected_arguments(TO_SCALAR), Some("Integer, String, or Byte"));
+    }
+
+    #[test]
     fn function_parts_splits_nested_function_parameters() {
         // A flat `split_once(") AS ")` cut at the *inner* `) AS `, yielding the
         // garbage params ["FUNC(Integer", "Integer"] and return "Integer) AS X".

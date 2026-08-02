@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::path::Path;
 
 use super::descriptor::{
@@ -290,4 +289,38 @@ mod tests {
         );
     }
 
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `regex_fn` is a const fn invoked only in const context
+        // (`REGEX_FUNCTIONS`), so its body never runs at runtime and shows as
+        // uncovered. Call it at runtime to exercise (and pin the shape of) the
+        // constructor. The E0716 gotcha: a `&[ov(...)]` temporary cannot be
+        // passed as `&'static [BuiltinOverload]`, so use a named const slice.
+        const OV: &[BuiltinOverload] = &[BuiltinOverload {
+            params: PARAMS_MATCH,
+            return_type: ReturnType::Fixed("Boolean"),
+        }];
+        let func = regex_fn(MATCH, "match", OV, INTERNAL_MATCH);
+        assert_eq!(func.name, MATCH);
+        assert_eq!(func.doc_slug, "match");
+        assert_eq!(func.overloads.len(), 1);
+        assert_eq!(
+            func.implementation,
+            Implementation::Rewrite(INTERNAL_MATCH)
+        );
+        assert_eq!(func.lowering, Lowering::Helper);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+    }
+
+    #[test]
+    fn augmented_project_pushes_injected_source_file() {
+        // Exercise the `augmented.files.push(source_file()?)` path and assert the
+        // appended file is the compiler-injected regex source companion.
+        let ast = project("IMPORT regex\nSUB main\nEND SUB\n");
+        let augmented = augmented_project(&ast).expect("augment");
+        let injected = augmented.files.last().expect("injected file");
+        assert_eq!(injected.path, "builtins/regex.mfb");
+        assert!(injected.internal);
+    }
 }

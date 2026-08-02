@@ -905,4 +905,63 @@ mod tests {
         );
     }
 
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `ov`/`vf`/`req`/`opt` are const fns used only in const context, so their
+        // bodies never run at runtime and show as uncovered. Call them at runtime
+        // to exercise (and pin the shape of) each constructor.
+        let overload = ov(P_UNARY);
+        assert_eq!(overload.params.len(), 1);
+        assert_eq!(overload.return_type, ReturnType::Custom);
+
+        const OV: &[BuiltinOverload] = &[ov(P_UNARY)];
+        let func = vf(LENGTH, "length", OV);
+        assert_eq!(func.name, LENGTH);
+        assert_eq!(func.doc_slug, "length");
+        assert_eq!(func.overloads.len(), 1);
+        assert_eq!(func.implementation, Implementation::Custom);
+        assert_eq!(func.lowering, Lowering::Helper);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+
+        let required = req("a", &["v"], "Vector");
+        assert_eq!(required.name, "a");
+        assert_eq!(required.aliases.len(), 1);
+        assert_eq!(required.aliases[0], "v");
+        assert_eq!(required.ty, ParameterType::Named("Vector"));
+        assert_eq!(required.default, DefaultValue::None);
+
+        let optional = opt("b", "Vector");
+        assert_eq!(optional.name, "b");
+        assert!(optional.aliases.is_empty());
+        assert_eq!(optional.ty, ParameterType::Named("Vector"));
+        assert_eq!(optional.default, DefaultValue::Optional);
+    }
+
+    #[test]
+    fn vector_resolver_delegates_to_free_functions() {
+        // `VectorResolver`'s hooks are only invoked through the registry at
+        // runtime; drive them directly so the delegating bodies (and the
+        // `implementation_name` free function's constant and typed branches) run.
+        use crate::builtins::descriptor::BuiltinResolver;
+        let resolver = VectorResolver;
+        assert_eq!(
+            resolver.resolve_return_type(&VECTOR, LENGTH, &strings(&["Float3"])),
+            Some("Float".to_string())
+        );
+        assert_eq!(
+            resolver.implementation_name(&VECTOR, LENGTH, &strings(&["Float3"])),
+            Some("__vector_length_float3".to_string())
+        );
+        // Constant path through the resolver hook.
+        assert_eq!(
+            resolver.implementation_name(&VECTOR, "vector.zeroFloat3", &[]),
+            Some("__vector_zeroFloat3".to_string())
+        );
+        // Unresolved overload → None.
+        assert_eq!(
+            resolver.implementation_name(&VECTOR, LENGTH, &strings(&["Float"])),
+            None
+        );
+    }
 }

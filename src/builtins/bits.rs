@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 
 use super::descriptor::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, DefaultResolver, Implementation,
@@ -207,4 +206,17 @@ mod tests {
         assert_eq!(expected_arguments("bits.nope"), None);
     }
 
+    #[test]
+    fn bits_fn_constructor_executes_at_runtime() {
+        // `bits_fn` is a const fn used only in const context; call it at runtime
+        // so its body is exercised.
+        let func = bits_fn(BAND, "band", OV_AB);
+        assert_eq!(func.name, BAND);
+        assert_eq!(func.doc_slug, "band");
+        assert_eq!(func.implementation, Implementation::Same);
+        assert_eq!(func.lowering, Lowering::Inline);
+        assert_eq!(func.overloads.len(), 1);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+    }
 }

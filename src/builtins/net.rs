@@ -804,4 +804,70 @@ mod tests {
         );
     }
 
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `ov`/`nf`/`req`/`opt` are const fns used only in const context, so
+        // their bodies never run at runtime. Call them at runtime to cover the
+        // shape.
+        let required = req("host", &["h"], "String");
+        assert_eq!(required.name, "host");
+        assert_eq!(required.aliases, &["h"]);
+        assert_eq!(required.ty, ParameterType::Named("String"));
+        assert_eq!(required.default, DefaultValue::None);
+
+        let optional = opt("port", "Integer");
+        assert_eq!(optional.name, "port");
+        assert!(optional.aliases.is_empty());
+        assert_eq!(optional.ty, ParameterType::Named("Integer"));
+        assert_eq!(optional.default, DefaultValue::Optional);
+
+        let overload = ov(P_READ, SOCKET_TYPE);
+        assert_eq!(overload.params.len(), 2);
+        assert_eq!(overload.return_type, ReturnType::Fixed(SOCKET_TYPE));
+
+        // E0716: `nf` takes `&'static [BuiltinOverload]`, so build the slice as a
+        // named const rather than a borrowed temporary.
+        const OV: &[BuiltinOverload] = &[ov(P_LOOKUP, "List OF Address")];
+        let func = nf(LOOKUP, "lookup", OV, Implementation::Rewrite(INTERNAL_TO_URL));
+        assert_eq!(func.name, LOOKUP);
+        assert_eq!(func.doc_slug, "lookup");
+        assert_eq!(func.implementation, Implementation::Rewrite(INTERNAL_TO_URL));
+        assert_eq!(func.lowering, Lowering::Helper);
+        assert_eq!(func.overloads.len(), 1);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+    }
+
+    #[test]
+    fn expected_arguments_remaining_arms() {
+        assert_eq!(expected_arguments(ACCEPT), Some("Listener, Integer"));
+        assert_eq!(expected_arguments(POLL), Some("Socket, Integer"));
+        assert_eq!(expected_arguments(READ), Some("Socket, Integer"));
+        assert_eq!(expected_arguments(READ_TEXT), Some("Socket, Integer"));
+        assert_eq!(expected_arguments(WRITE), Some("Socket, List OF Byte"));
+        assert_eq!(expected_arguments(WRITE_TEXT), Some("Socket, String"));
+        assert_eq!(
+            expected_arguments(LOCAL_ADDRESS),
+            Some("Socket or Listener or UdpSocket")
+        );
+        assert_eq!(expected_arguments(BIND_UDP), Some("String, Integer"));
+        assert_eq!(expected_arguments(RECEIVE_FROM), Some("UdpSocket, Integer"));
+        assert_eq!(
+            expected_arguments(RECEIVE_TEXT_FROM),
+            Some("UdpSocket, Integer")
+        );
+        assert_eq!(expected_arguments(PERCENT_DECODE), Some("String"));
+        assert_eq!(expected_arguments(PARSE_QUERY), Some("String"));
+    }
+
+    #[test]
+    fn argument_types_remaining_arms() {
+        assert_eq!(argument_types(RECEIVE_FROM), Some("UdpSocket, Integer"));
+        assert_eq!(argument_types(RECEIVE_TEXT_FROM), Some("UdpSocket, Integer"));
+        assert_eq!(
+            argument_types(SEND_TEXT_TO),
+            Some("UdpSocket, Address, String")
+        );
+    }
+
 }

@@ -923,4 +923,84 @@ END TESTING
         assert_eq!(augmented_project(&plain).unwrap().files.len(), 1);
     }
 
+    // The `ov` and `strings_fn` const-fn constructors are only evaluated in const
+    // context (the `OV_*` tables and `STRINGS_FUNCTIONS`), so they show no runtime
+    // coverage. Call them at runtime and assert their returned fields.
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `ov` returns a single-element `[BuiltinOverload; 1]`.
+        let overload = ov(P_VALUE, "String");
+        assert_eq!(overload.len(), 1);
+        assert_eq!(overload[0].params.len(), 1);
+        assert_eq!(overload[0].params[0].name, "value");
+        assert_eq!(overload[0].return_type, ReturnType::Fixed("String"));
+
+        // `strings_fn` builds a `BuiltinFunction`. `OV_VALUE_STRING` is already a
+        // `&'static [BuiltinOverload]`, so it passes without the E0716 temporary.
+        let func = strings_fn(TRIM, "trim", OV_VALUE_STRING, Implementation::Same);
+        assert_eq!(func.name, TRIM);
+        assert_eq!(func.doc_slug, "trim");
+        assert_eq!(func.overloads.len(), 1);
+        assert_eq!(func.implementation, Implementation::Same);
+        assert_eq!(func.lowering, Lowering::Helper);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+
+        // A `Rewrite` implementation exercises the same builder with the seam arm.
+        let seam = strings_fn(
+            TO_SCALARS,
+            "toScalars",
+            OV_VALUE_LIST_SCALAR,
+            Implementation::Rewrite("__strings_toScalars"),
+        );
+        assert_eq!(
+            seam.implementation,
+            Implementation::Rewrite("__strings_toScalars")
+        );
+    }
+
+    // The scalar-seam arms of `expected_arguments` (their bespoke phrasing) are not
+    // hit by `expected_arguments_specific`, which covers only native members.
+    #[test]
+    fn expected_arguments_seam_members() {
+        assert_eq!(expected_arguments(TO_SCALARS), Some("String"));
+        assert_eq!(expected_arguments(FROM_SCALARS), Some("List OF Scalar"));
+        for name in [IS_LETTER, IS_DIGIT, IS_WHITESPACE, IS_UPPER, IS_LOWER] {
+            assert_eq!(expected_arguments(name), Some("Scalar"));
+        }
+        assert_eq!(expected_arguments("strings.bogus"), None);
+    }
+
+    // The `StringsResolver::uses_source` hook (the only resolver method the module
+    // needs) delegates to `uses_package`.
+    #[test]
+    fn uses_source_resolver_hook() {
+        let seam = project(vec![parse_file(SEAM_SOURCE)]);
+        assert_eq!(STRINGS_RESOLVER.uses_source(&STRINGS, &seam), Some(true));
+        let plain = project(vec![parse_file(
+            "IMPORT strings\n\nFUNC f() AS Nothing\n  LET x AS Integer = 1\nEND FUNC\n",
+        )]);
+        assert_eq!(STRINGS_RESOLVER.uses_source(&STRINGS, &plain), Some(false));
+    }
+
+    // The `Fail`, `Constructor`, and `MapLiteral` arms of the seam walk are not
+    // reached by `SEAM_SOURCE`; drive each with a seam reference in that position.
+    #[test]
+    fn seam_walk_fail_constructor_map_arms() {
+        // Statement::Fail — the error expression references a seam member.
+        let fail_src =
+            "IMPORT strings\n\nFUNC f() AS Nothing\n  FAIL strings::toScalars(\"hi\")\nEND FUNC\n";
+        assert!(uses_package(&project(vec![parse_file(fail_src)])));
+
+        // Expression::Constructor — a positional constructor argument references it.
+        let ctor_src = "IMPORT strings\n\nFUNC f() AS Nothing\n  \
+LET p AS Thing = Thing[strings::toScalars(\"hi\")]\nEND FUNC\n";
+        assert!(uses_package(&project(vec![parse_file(ctor_src)])));
+
+        // Expression::MapLiteral — a map entry value references it.
+        let map_src = "IMPORT strings\n\nFUNC f() AS Nothing\n  \
+LET m AS Map OF String TO String = Map OF String TO String { \"k\" := strings::toScalars(\"hi\") }\nEND FUNC\n";
+        assert!(uses_package(&project(vec![parse_file(map_src)])));
+    }
+
 }

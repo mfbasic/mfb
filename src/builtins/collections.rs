@@ -341,7 +341,10 @@ pub(crate) fn native_member_bare(name: &str) -> Option<&str> {
 /// descriptor's `BuiltinResolver` (plan-72-E), which delegates to
 /// `dispatch_resolve`. The returned type string is identical to the pre-migration
 /// path; only the `Cow` variant changes (`Owned` vs `Borrowed`), which no
-/// consumer observes.
+/// consumer observes. Production dispatch goes through
+/// `CollectionsResolver::resolve_return_type`; this wrapper exists only to let the
+/// module tests exercise the full descriptor → resolver → `dispatch_resolve` path.
+#[cfg(test)]
 pub(crate) fn resolve_call<'a>(
     name: &str,
     arg_types: &'a [String],
@@ -1526,6 +1529,113 @@ mod tests {
             "FUNC(FUNC(String) AS Integer) AS String",
         ]);
         assert!(resolve_transform(&mismatched).is_none());
+    }
+
+    /// The `const fn` descriptor constructors (`req`/`opt`/`native`/`custom`) are
+    /// only invoked in `const` context by `COLLECTIONS_FUNCTIONS`, so they carry
+    /// no runtime coverage. Call each at runtime and assert the fields it builds.
+    #[test]
+    fn const_constructors_build_expected_fields() {
+        let r = req("value", &["collection"], "List OF T");
+        assert_eq!(r.name, "value");
+        assert_eq!(r.aliases, &["collection"]);
+        assert_eq!(r.ty, ParameterType::Named("List OF T"));
+        assert_eq!(r.default, DefaultValue::None);
+
+        // `opt`'s `Fill` is inert (empty `expr`); it exists only so `arity`
+        // derives `find`'s `(2, 3)` range.
+        let o = opt("start", &[], "Integer");
+        assert_eq!(o.name, "start");
+        assert!(o.aliases.is_empty());
+        assert_eq!(o.ty, ParameterType::Named("Integer"));
+        assert_eq!(
+            o.default,
+            DefaultValue::Fill {
+                type_name: "Integer",
+                expr: ""
+            }
+        );
+
+        // `custom` takes a `&'static [Parameter]`; a runtime temporary would be
+        // E0716, so the parameter slice is a `const`.
+        const PARAMS: &[Parameter] = &[req("value", &[], "List OF T")];
+        let overload = custom(PARAMS);
+        assert_eq!(overload.return_type, ReturnType::Custom);
+        assert_eq!(overload.params.len(), 1);
+        assert_eq!(overload.params[0].name, "value");
+
+        // `native` takes a `&'static [BuiltinOverload]`; the overloads are a `const`.
+        const OVS: &[BuiltinOverload] = &[custom(&[req("value", &[], "List OF T")])];
+        let f = native("collections.get", "get", OVS);
+        assert_eq!(f.name, "collections.get");
+        assert_eq!(f.doc_slug, "get");
+        assert_eq!(f.overloads.len(), 1);
+        assert_eq!(f.implementation, Implementation::Same);
+        assert_eq!(f.lowering, Lowering::Helper);
+        assert_eq!(f.flags, BuiltinFlags::default());
+    }
+
+    #[test]
+    fn resolve_set_members() {
+        // `add(Set OF T, T) AS Set OF T` — element must match.
+        assert_eq!(
+            rc(resolve_set_add(&strings(&["Set OF Integer", "Integer"]))),
+            Some("Set OF Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_set_add(&strings(&["Set OF Integer", "String"]))),
+            None
+        );
+        // A List is not a Set here — `set_element` returns None.
+        assert_eq!(
+            rc(resolve_set_add(&strings(&["List OF Integer", "Integer"]))),
+            None
+        );
+        assert_eq!(rc(resolve_set_add(&strings(&["Set OF Integer"]))), None);
+
+        // `remove(Set OF T, T) AS Set OF T`.
+        assert_eq!(
+            rc(resolve_set_remove(&strings(&["Set OF Integer", "Integer"]))),
+            Some("Set OF Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_set_remove(&strings(&["Set OF Integer", "String"]))),
+            None
+        );
+        assert_eq!(
+            rc(resolve_set_remove(&strings(&["List OF Integer", "Integer"]))),
+            None
+        );
+        assert_eq!(rc(resolve_set_remove(&strings(&["Set OF Integer"]))), None);
+
+        // `toList(Set OF T) AS List OF T`.
+        assert_eq!(
+            rc(resolve_set_to_list(&strings(&["Set OF Integer"]))),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_set_to_list(&strings(&["List OF Integer"]))),
+            None
+        );
+        assert_eq!(
+            rc(resolve_set_to_list(&strings(&["Set OF Integer", "x"]))),
+            None
+        );
+
+        // Through the full descriptor -> resolver -> `dispatch_resolve` path
+        // (the `add`/`remove`/`toList` arms).
+        assert_eq!(
+            rt("collections.add", &["Set OF Integer", "Integer"]),
+            Some("Set OF Integer".to_string())
+        );
+        assert_eq!(
+            rt("collections.remove", &["Set OF Integer", "Integer"]),
+            Some("Set OF Integer".to_string())
+        );
+        assert_eq!(
+            rt("collections.toList", &["Set OF Integer"]),
+            Some("List OF Integer".to_string())
+        );
     }
 
 }

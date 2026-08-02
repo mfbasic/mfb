@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 
 use super::descriptor::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, DefaultResolver, DefaultValue,
@@ -173,4 +172,37 @@ mod tests {
         assert!(!is_io_call("print"));
     }
 
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `ov`/`io_fn` are const fns used only in const context, so their bodies
+        // never run at runtime and show as uncovered. Call them at runtime to
+        // exercise (and pin the shape of) both constructors.
+        let overload = ov(P_VALUE, "Nothing");
+        assert_eq!(overload.params.len(), 1);
+        assert_eq!(overload.params[0].name, "value");
+        assert_eq!(overload.return_type, ReturnType::Fixed("Nothing"));
+
+        let niladic = ov(&[], "Boolean");
+        assert!(niladic.params.is_empty());
+        assert_eq!(niladic.return_type, ReturnType::Fixed("Boolean"));
+
+        let func = io_fn(PRINT, "print", OV_WRITE);
+        assert_eq!(func.name, PRINT);
+        assert_eq!(func.doc_slug, "print");
+        assert_eq!(func.implementation, Implementation::Same);
+        assert_eq!(func.lowering, Lowering::Helper);
+        assert_eq!(func.overloads.len(), 1);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+    }
+
+    #[test]
+    fn expected_arguments_renders_every_arity_class() {
+        assert_eq!(expected_arguments(PRINT), Some("String"));
+        assert_eq!(expected_arguments(FLUSH), Some("no arguments"));
+        assert_eq!(expected_arguments(SET_BUFFERED), Some("Boolean"));
+        assert_eq!(expected_arguments(INPUT), Some("String"));
+        assert_eq!(expected_arguments(POLL_INPUT), Some("Integer"));
+        assert_eq!(expected_arguments("io.nope"), None);
+    }
 }

@@ -645,6 +645,72 @@ mod tests {
     }
 
     #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `ov` builds a BuiltinOverload; only used in const context by the OV_*
+        // tables, so exercise both a Custom and a Fixed return at runtime.
+        let custom = ov(P_VALUE, ReturnType::Custom);
+        assert_eq!(custom.params.len(), 1);
+        assert_eq!(custom.params[0].name, "value");
+        assert_eq!(custom.return_type, ReturnType::Custom);
+        let fixed = ov(P_VALUE, ReturnType::Fixed("Integer"));
+        assert_eq!(fixed.return_type, ReturnType::Fixed("Integer"));
+
+        // `req` builds a required Named parameter with aliases.
+        let param = req("base", &["value"], "Float");
+        assert_eq!(param.name, "base");
+        assert_eq!(param.aliases.len(), 1);
+        assert_eq!(param.aliases[0], "value");
+        assert_eq!(param.ty, ParameterType::Named("Float"));
+        assert_eq!(param.default, DefaultValue::None);
+
+        // `mf` assembles a math BuiltinFunction (Same/Inline, no flags).
+        // E0716: mf wants a &'static overload slice, so bind a const first.
+        const OV: &[BuiltinOverload] = &[ov(P_VALUE, ReturnType::Custom)];
+        let func = mf("math.demo", "demo", OV);
+        assert_eq!(func.name, "math.demo");
+        assert_eq!(func.doc_slug, "demo");
+        assert_eq!(func.overloads.len(), 1);
+        assert_eq!(func.implementation, Implementation::Same);
+        assert_eq!(func.lowering, Lowering::Inline);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+    }
+
+    #[test]
+    fn resolve_float_transcendental_arrays() {
+        // The EXP|SIN|COS|TAN|ATAN|ASIN|ACOS array-over-Float kernel arm.
+        for name in [EXP, SIN, COS, TAN, ATAN, ASIN, ACOS] {
+            assert_eq!(
+                ret(name, &["List OF Float"]),
+                Some("List OF Float".to_string()),
+                "{name}"
+            );
+        }
+        // Fixed arrays are not accepted by this arm.
+        assert_eq!(ret(COS, &["List OF Fixed"]), None);
+    }
+
+    #[test]
+    fn resolve_money_rounding_and_rand() {
+        // floor/ceil/round(Money) -> Integer (dimension exit).
+        assert_eq!(ret(FLOOR, &["Money"]), Some("Integer".to_string()));
+        assert_eq!(ret(CEIL, &["Money"]), Some("Integer".to_string()));
+        assert_eq!(ret(ROUND, &["Money"]), Some("Integer".to_string()));
+        // rand(Money, Money) -> Money.
+        assert_eq!(ret(RAND, &["Money", "Money"]), Some("Money".to_string()));
+        // A single Money is not a rand shape.
+        assert_eq!(ret(RAND, &["Money"]), None);
+    }
+
+    #[test]
+    fn two_money_helper() {
+        assert!(two_money(&strings(&["Money", "Money"])));
+        assert!(!two_money(&strings(&["Money", "Integer"])));
+        assert!(!two_money(&strings(&["Money"])));
+        assert!(!two_money(&strings(&["Integer", "Integer"])));
+    }
+
+    #[test]
     fn numeric_helpers() {
         assert!(is_numeric("Integer"));
         assert!(is_numeric("Float"));

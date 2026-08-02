@@ -1482,4 +1482,313 @@ mod tests {
             Some(true)
         );
     }
+
+    // ---- Coverage: const constructors invoked at runtime -------------------
+
+    #[test]
+    fn parameter_required_constructor_runtime() {
+        // `Parameter::required` is a `const fn` used only in const contexts by the
+        // module fixtures; exercise it at runtime so its body is covered.
+        let p = Parameter::required("x", "Integer");
+        assert_eq!(p.name, "x");
+        assert!(p.aliases.is_empty());
+        // `ParameterType`/`DefaultValue` derive `PartialEq` — assert_eq on them.
+        assert_eq!(p.ty, ParameterType::Named("Integer"));
+        assert_eq!(p.default, DefaultValue::None);
+        // `ParameterType::name` accessor and the aliasless `name_spellings`.
+        assert_eq!(p.ty.name(), "Integer");
+        assert_eq!(p.name_spellings(), vec!["x"]);
+    }
+
+    #[test]
+    fn builtin_registry_new_at_runtime() {
+        // `BuiltinRegistry::new` is a `const fn` used only by static REGISTRY /
+        // TEST_REGISTRY initializers; call it at runtime to cover its body.
+        let modules: &'static [&'static BuiltinModule] = &[&TEST_MODULE, &OTHER_MODULE];
+        let reg = BuiltinRegistry::new(modules);
+        assert_eq!(reg.modules().len(), 2);
+        assert_eq!(reg.modules()[0].name, "t");
+        assert_eq!(reg.modules()[1].name, "u");
+    }
+
+    // ---- Coverage: the two hand-written Debug impls ------------------------
+
+    #[test]
+    fn builtin_source_debug_is_non_exhaustive() {
+        let source = TEST_MODULE.source.expect("test module has a source");
+        let rendered = format!("{source:?}");
+        assert!(rendered.contains("BuiltinSource"));
+        assert!(rendered.contains("WhenImported"));
+        // `finish_non_exhaustive` renders the trailing `..` (the loader fn is
+        // deliberately omitted).
+        assert!(rendered.contains(".."));
+    }
+
+    #[test]
+    fn builtin_module_debug_renders_resolver_presence() {
+        // A resolver-backed module renders the placeholder, exercising the
+        // `.map(|_| "<resolver>")` closure and the Some arm.
+        let with_resolver = format!("{S_MODULE:?}");
+        assert!(with_resolver.contains("BuiltinModule"));
+        assert!(with_resolver.contains("<resolver>"));
+        assert!(with_resolver.contains("\"s\""));
+        // A data-only module renders `None` for the absent resolver.
+        let without = format!("{OTHER_MODULE:?}");
+        assert!(without.contains("BuiltinModule"));
+        assert!(without.contains("\"u\""));
+        assert!(without.contains("None"));
+    }
+
+    // ---- Coverage: BuiltinResolver default (data-only) methods -------------
+
+    struct BareResolver;
+    impl BuiltinResolver for BareResolver {}
+
+    #[test]
+    fn resolver_default_methods_are_data_only() {
+        // A resolver that overrides nothing exercises every default trait-method
+        // body (the not-customised fallbacks), which `SResolver` never reaches
+        // because it overrides them all.
+        let r = BareResolver;
+        let args = vec!["Integer".to_string()];
+        assert_eq!(r.resolve_return_type(&TEST_MODULE, "t.add", &args), None);
+        assert_eq!(r.implementation_name(&TEST_MODULE, "t.add", &args), None);
+        assert_eq!(r.default_padding(&TEST_MODULE, "t.add", 0), None);
+        assert_eq!(
+            r.resolve_overload_target(&TEST_MODULE, "t.add", &args, Some("Integer")),
+            Ok(None)
+        );
+        let project = crate::ast::AstProject {
+            name: String::new(),
+            files: Vec::new(),
+        };
+        assert_eq!(r.uses_source(&TEST_MODULE, &project), None);
+    }
+
+    // ---- Coverage: arity across overloads, param-name-overloads paths ------
+
+    #[test]
+    fn arity_spans_overload_extremes() {
+        // `s.pick` has a 1-param and a 2-param overload; arity min/max span both,
+        // covering the `max()?` fold across overloads.
+        assert_eq!(DefaultResolver::arity(&S_MODULE, "s.pick"), Some((1, 2)));
+        assert_eq!(DefaultResolver::arity(&S_MODULE, "s.missing"), None);
+    }
+
+    #[test]
+    fn param_name_overloads_single_multi_and_missing() {
+        // Multi-overload: per-overload canonical names, faithfully un-merged.
+        assert_eq!(
+            DefaultResolver::param_name_overloads(&S_MODULE, "s.pick"),
+            Some(vec![vec!["a"], vec!["a", "b"]])
+        );
+        // Single-overload call → None (its names live in `param_names`).
+        assert_eq!(
+            DefaultResolver::param_name_overloads(&TEST_MODULE, "t.add"),
+            None
+        );
+        // Unknown call → None via the `?` miss.
+        assert_eq!(
+            DefaultResolver::param_name_overloads(&TEST_MODULE, "t.missing"),
+            None
+        );
+    }
+
+    // ---- Coverage: return-type disagreement + multi-overload resolve_call --
+
+    const MIXED_RET: BuiltinFunction = BuiltinFunction {
+        name: "t.mixed",
+        doc_slug: "mixed",
+        overloads: &[
+            BuiltinOverload {
+                params: &[Parameter::required("a", "Integer")],
+                return_type: ReturnType::Fixed("Integer"),
+            },
+            BuiltinOverload {
+                params: &[Parameter::required("a", "String")],
+                return_type: ReturnType::Fixed("String"),
+            },
+        ],
+        implementation: Implementation::Same,
+        lowering: Lowering::Inline,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    };
+
+    const MIXED_MODULE: BuiltinModule = BuiltinModule {
+        name: "m",
+        functions: &[MIXED_RET],
+        types: &[],
+        source: None,
+        resolver: None,
+    };
+
+    #[test]
+    fn return_type_name_disagreeing_overloads_is_none() {
+        // Two Fixed overloads with DIFFERENT return types → no single fixed
+        // answer (the `Some(_) => return None` arm).
+        assert_eq!(
+            DefaultResolver::return_type_name(&MIXED_MODULE, "t.mixed"),
+            None
+        );
+        // A single Custom-return overload → None (the `else { return None }` arm).
+        assert_eq!(DefaultResolver::return_type_name(&TEST_MODULE, "t.pick"), None);
+        // Same-return overloads still resolve to the shared type.
+        assert_eq!(
+            DefaultResolver::return_type_name(&TEST_MODULE, "t.add"),
+            Some("Integer")
+        );
+    }
+
+    #[test]
+    fn resolve_call_selects_the_matching_overload() {
+        // Multi-overload dispatch by exact argument-type match.
+        assert_eq!(
+            DefaultResolver::resolve_call(&MIXED_MODULE, "t.mixed", &types(&["Integer"])),
+            Some("Integer")
+        );
+        assert_eq!(
+            DefaultResolver::resolve_call(&MIXED_MODULE, "t.mixed", &types(&["String"])),
+            Some("String")
+        );
+        // No overload accepts a mismatched type.
+        assert_eq!(
+            DefaultResolver::resolve_call(&MIXED_MODULE, "t.mixed", &types(&["List OF Byte"])),
+            None
+        );
+    }
+
+    // ---- Coverage: argument_types / expected_arguments first-overload paths -
+
+    #[test]
+    fn argument_types_and_expected_arguments_paths() {
+        assert_eq!(
+            DefaultResolver::argument_types(&S_MODULE, "s.pick"),
+            Some(vec!["Integer"])
+        );
+        // Zero-parameter overload → None (nothing to type).
+        assert_eq!(DefaultResolver::argument_types(&TEST_MODULE, "t.now"), None);
+        assert_eq!(
+            DefaultResolver::argument_types(&TEST_MODULE, "t.missing"),
+            None
+        );
+        assert_eq!(
+            DefaultResolver::expected_arguments(&S_MODULE, "s.pick").as_deref(),
+            Some("Integer")
+        );
+        assert_eq!(
+            DefaultResolver::expected_arguments(&TEST_MODULE, "t.now").as_deref(),
+            Some("()")
+        );
+        assert_eq!(
+            DefaultResolver::expected_arguments(&TEST_MODULE, "t.missing"),
+            None
+        );
+    }
+
+    // ---- Coverage: SResolver's non-matching-name and String-arg branches ---
+
+    #[test]
+    fn sresolver_non_matching_name_falls_through_to_defaults() {
+        let args = vec!["Integer".to_string()];
+        assert_eq!(
+            S_RESOLVER.resolve_return_type(&S_MODULE, "s.other", &args),
+            None
+        );
+        assert_eq!(
+            S_RESOLVER.implementation_name(&S_MODULE, "s.other", &args),
+            None
+        );
+        assert_eq!(S_RESOLVER.default_padding(&S_MODULE, "s.other", 0), None);
+        assert_eq!(
+            S_RESOLVER.resolve_overload_target(&S_MODULE, "s.other", &args, None),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn sresolver_string_first_arg_returns_string() {
+        // Drives the `"String"` return arm the parity samples never take.
+        let args = vec!["String".to_string()];
+        assert_eq!(
+            S_RESOLVER
+                .resolve_return_type(&S_MODULE, "s.pick", &args)
+                .as_deref(),
+            Some("String")
+        );
+    }
+
+    // ---- Coverage: assert_parity data-only branches (resolver.is_none()) ----
+
+    #[test]
+    fn assert_parity_data_only_module_exercises_all_facets() {
+        // A data-only (resolver-less) module drives the `module.resolver.is_none()`
+        // TRUE branches of `assert_parity` (return-type, implementation-name, and
+        // default-padding parity), which the resolver-backed test skips. Each
+        // legacy closure delegates to `DefaultResolver` on the same module, so
+        // every assertion is trivially satisfied while the parity code runs.
+        let legacy = parity::LegacySet {
+            is_call: &|name| DefaultResolver::contains(&TEST_MODULE, name),
+            arity: &|name| DefaultResolver::arity(&TEST_MODULE, name),
+            param_names: &|name| DefaultResolver::param_names(&TEST_MODULE, name),
+            return_type_name: &|name| DefaultResolver::return_type_name(&TEST_MODULE, name),
+            expected_arguments: Some(&|name| {
+                DefaultResolver::expected_arguments(&TEST_MODULE, name)
+            }),
+            param_name_overloads: Some(&|name| {
+                DefaultResolver::param_name_overloads(&TEST_MODULE, name)
+            }),
+            argument_types: Some(&|name| DefaultResolver::argument_types(&TEST_MODULE, name)),
+            implementation_name: Some(&|name| {
+                DefaultResolver::implementation_name(&TEST_MODULE, name)
+            }),
+            default_padding: Some(&|name, provided| {
+                DefaultResolver::default_padding(&TEST_MODULE, name, provided)
+            }),
+            builtin_type_fields: Some(&|name| {
+                TEST_MODULE
+                    .types
+                    .iter()
+                    .find(|ty| ty.name == name)
+                    .and_then(|ty| (!ty.fields.is_empty()).then_some(ty.fields))
+            }),
+        };
+        parity::assert_parity(
+            &TEST_MODULE,
+            &["t.add", "t.emit", "t.now", "t.pick"],
+            &legacy,
+            &[],
+        );
+    }
+
+    #[test]
+    fn assert_parity_drives_every_resolver_sample_facet() {
+        // A resolver-backed module with a sample carrying all four Some facets
+        // drives the resolver-sample asserts (return / implementation / padding /
+        // overload-target) inside `assert_parity`.
+        let legacy = parity::LegacySet {
+            is_call: &|name| DefaultResolver::contains(&S_MODULE, name),
+            arity: &|name| DefaultResolver::arity(&S_MODULE, name),
+            param_names: &|name| DefaultResolver::param_names(&S_MODULE, name),
+            return_type_name: &|_| None,
+            expected_arguments: None,
+            param_name_overloads: None,
+            argument_types: None,
+            implementation_name: None,
+            default_padding: None,
+            builtin_type_fields: None,
+        };
+        let samples = [parity::ResolverSample {
+            call: "s.pick",
+            arg_types: &["Integer"],
+            expected_return: Some("Integer"),
+            expected_impl: Some("__s_pick1"),
+            expected_padding: Some(vec![("Integer", "0")]),
+            expected_type: None,
+            expected_overload_target: Some("s.pick#0"),
+        }];
+        parity::assert_parity(&S_MODULE, &["s.pick"], &legacy, &samples);
+    }
 }

@@ -13,7 +13,6 @@
 //! console build is a CLI compile error (plan-62-A §3.3), so the name gate here
 //! makes the import *legal* and the CLI rejects it when app mode is off.
 
-use std::borrow::Cow;
 
 use super::descriptor::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, BuiltinType,
@@ -155,4 +154,10 @@ mod tests {
         assert_eq!(augmented.files.len(), ast.files.len() + 1);
     }
 
+    #[test]
+    fn is_builtin_type_recognizes_mode() {
+        assert!(is_builtin_type("Mode"));
+        assert!(!is_builtin_type("Console"));
+        assert!(!is_builtin_type("Nope"));
+    }
 }

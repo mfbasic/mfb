@@ -1614,4 +1614,214 @@ mod tests {
         let err = header_err(&path);
         assert!(err.contains("not valid UTF-8"));
     }
+
+    // --- imported type-def conversion (pure) ------------------------------
+
+    fn type_field(name: &str, ty: &str) -> binary_repr::BinaryReprTypeField {
+        binary_repr::BinaryReprTypeField {
+            name: name.to_string(),
+            type_: ty.to_string(),
+            visibility: binary_repr::BinaryReprTypeVisibility::Export,
+        }
+    }
+
+    fn type_export(
+        name: &str,
+        kind: binary_repr::BinaryReprExportKind,
+    ) -> binary_repr::BinaryReprTypeExport {
+        binary_repr::BinaryReprTypeExport {
+            name: name.to_string(),
+            kind,
+            fields: Vec::new(),
+            variants: Vec::new(),
+            members: Vec::new(),
+            foreign_owner: None,
+        }
+    }
+
+    #[test]
+    fn imported_type_def_maps_a_record_export() {
+        let mut export = type_export("Point", binary_repr::BinaryReprExportKind::Type);
+        export.fields = vec![type_field("x", "Integer"), type_field("y", "Integer")];
+        let def = imported_type_def(export).expect("record maps to a def");
+        assert_eq!(def.name, "Point");
+        assert!(matches!(def.kind, ir::ImportedTypeKind::Record));
+        assert_eq!(def.fields.len(), 2);
+        assert_eq!(def.fields[0].name, "x");
+        assert_eq!(def.fields[0].type_, "Integer");
+        assert_eq!(def.fields[1].name, "y");
+        assert!(def.variants.is_empty());
+        assert!(def.members.is_empty());
+    }
+
+    #[test]
+    fn imported_type_def_maps_a_union_export_with_variant_fields() {
+        let mut export = type_export("Shape", binary_repr::BinaryReprExportKind::Union);
+        export.variants = vec![
+            binary_repr::BinaryReprTypeVariant {
+                name: "Circle".to_string(),
+                fields: vec![type_field("r", "Float")],
+            },
+            binary_repr::BinaryReprTypeVariant {
+                name: "Empty".to_string(),
+                fields: Vec::new(),
+            },
+        ];
+        let def = imported_type_def(export).expect("union maps to a def");
+        assert!(matches!(def.kind, ir::ImportedTypeKind::Union));
+        assert_eq!(def.variants.len(), 2);
+        assert_eq!(def.variants[0].name, "Circle");
+        assert_eq!(def.variants[0].fields.len(), 1);
+        assert_eq!(def.variants[0].fields[0].name, "r");
+        assert_eq!(def.variants[0].fields[0].type_, "Float");
+        assert!(def.variants[1].fields.is_empty());
+    }
+
+    #[test]
+    fn imported_type_def_maps_an_enum_export() {
+        let mut export = type_export("Color", binary_repr::BinaryReprExportKind::Enum);
+        export.members = vec!["Red".to_string(), "Green".to_string()];
+        let def = imported_type_def(export).expect("enum maps to a def");
+        assert!(matches!(def.kind, ir::ImportedTypeKind::Enum));
+        assert_eq!(def.members, vec!["Red".to_string(), "Green".to_string()]);
+        assert!(def.fields.is_empty());
+        assert!(def.variants.is_empty());
+    }
+
+    #[test]
+    fn imported_type_def_drops_function_and_sub_exports() {
+        // Only record/union/enum exports become type defs; callable exports are
+        // dropped (they reach the build through `external_package_function_types`).
+        for kind in [
+            binary_repr::BinaryReprExportKind::Func,
+            binary_repr::BinaryReprExportKind::Sub,
+        ] {
+            assert!(imported_type_def(type_export("callable", kind)).is_none());
+        }
+    }
+
+    // --- imported type defs / resource closers from real fixtures ---------
+
+    #[test]
+    fn imported_type_defs_from_files_reads_a_record_export_fixture() {
+        let dir = crate::testutil::fixture_dir("project-record-comparable-package-valid");
+        let pkg = dir
+            .join("packages")
+            .join("package_record_comparable.mfp");
+        let defs = imported_type_defs_from_files(&[pkg]);
+        assert!(!defs.is_empty(), "fixture exports at least one type");
+        assert!(
+            defs.iter()
+                .any(|def| matches!(def.kind, ir::ImportedTypeKind::Record)),
+            "fixture exports a record type"
+        );
+    }
+
+    #[test]
+    fn imported_type_defs_from_files_skips_unreadable_packages() {
+        // A file that is not a valid `.mfp` is silently skipped (line 456).
+        let dir = tempfile::tempdir().unwrap();
+        let bad = dir.path().join("bad.mfp");
+        fs::write(&bad, b"not an mfp").unwrap();
+        assert!(imported_type_defs_from_files(&[bad]).is_empty());
+    }
+
+    #[test]
+    fn imported_type_defs_empty_when_no_packages() {
+        let value = json(r#"{"name":"p","version":"1"}"#);
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        assert!(imported_type_defs(dir.path(), manifest).is_empty());
+    }
+
+    #[test]
+    fn imported_type_defs_reads_from_an_installed_package() {
+        let dir = crate::testutil::fixture_dir("project-record-comparable-package-valid");
+        let value =
+            json(r#"{"name":"p","version":"1","packages":[{"name":"package_record_comparable"}]}"#);
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        let defs = imported_type_defs(&dir, manifest);
+        assert!(
+            defs.iter()
+                .any(|def| matches!(def.kind, ir::ImportedTypeKind::Record)),
+            "the installed package's record export is surfaced"
+        );
+    }
+
+    #[test]
+    fn imported_resource_closers_skips_builtin_backed_resources() {
+        // `resource_state_export_valid` exports only builtin-backed resources
+        // (a `UNION Stream` of `File`/`Socket`). A built-in is authoritative and
+        // already seeded, so the importer registers no closer for it — the loop
+        // hits the `is_resource_type` skip and yields nothing.
+        let dir = crate::testutil::fixture_dir("resource-state-import-rt");
+        let value =
+            json(r#"{"name":"p","version":"1","packages":[{"name":"resource_state_export_valid"}]}"#);
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        assert!(imported_resource_closers(&dir, manifest).is_empty());
+    }
+
+    #[test]
+    fn imported_resource_closers_registers_a_native_resource() {
+        let dir = crate::testutil::fixture_dir("native-resource-import-valid");
+        let value =
+            json(r#"{"name":"p","version":"1","packages":[{"name":"native_resource_link_valid"}]}"#);
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        let closers = imported_resource_closers(&dir, manifest);
+        assert!(!closers.is_empty(), "native package exports a closable resource");
+        // Each resource is registered under both its bare and `<pkg>.<Type>` name.
+        assert!(
+            closers.iter().any(|(ty, _)| ty.contains('.')),
+            "package-qualified spelling registered: {closers:?}"
+        );
+        assert!(
+            closers.iter().any(|(ty, _)| !ty.contains('.')),
+            "bare spelling registered: {closers:?}"
+        );
+        // A native resource's bare close alias is resolved to a dotted
+        // `<pkg>.<alias>` op, and no close op is empty.
+        assert!(
+            closers.iter().any(|(_, close)| close.contains('.')),
+            "native close op is dotted: {closers:?}"
+        );
+        assert!(closers.iter().all(|(_, close)| !close.is_empty()));
+    }
+
+    #[test]
+    fn imported_resource_closers_empty_when_packages_unreadable() {
+        // installed_package_files errors (a declared package is not installed),
+        // so the lossy closer reader returns no pairs (lines 295-297).
+        let value = json(r#"{"name":"p","version":"1","packages":[{"name":"absent_dep"}]}"#);
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        assert!(imported_resource_closers(dir.path(), manifest).is_empty());
+    }
+
+    #[test]
+    fn common_dependency_fields_rejects_a_non_string_name() {
+        // `name` is present but is a JSON number, not a string, so the
+        // `.get::<String>()?` short-circuits and the entry is dropped (line 607).
+        let mut obj = HashMap::new();
+        obj.insert("name".to_string(), JsonValue::Number(42.0));
+        assert!(project_package_dependency(&JsonValue::Object(obj)).is_none());
+    }
+
+    #[test]
+    fn external_package_function_types_lossy_skips_a_corrupt_body() {
+        // The container header is valid but the binary-representation body is
+        // corrupt: read_mfp_header succeeds while read_package_exports fails, so
+        // the lossy reader skips the package (line 516) instead of propagating.
+        let header = read_mfp_header(&fixture_mfp()).unwrap();
+        let mut bytes = fs::read(fixture_mfp()).unwrap();
+        let body_start = bytes.len() - header.binary_repr_length;
+        for byte in &mut bytes[body_start..body_start + 8] {
+            *byte ^= 0xff;
+        }
+        let (_dir, path) = write_temp(&bytes);
+        // The fixed header is untouched, so it still parses.
+        assert!(read_mfp_header(&path).is_ok());
+        let (functions, params) = external_package_function_types_from_files_lossy(&[path]);
+        assert!(functions.is_empty(), "corrupt body must yield no functions");
+        assert!(params.is_empty());
+    }
 }

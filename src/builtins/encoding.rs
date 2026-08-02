@@ -544,4 +544,85 @@ mod tests {
         );
     }
 
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `p`/`ov`/`ef` are const fns used only in const context, so their
+        // bodies never run at runtime and show as uncovered. Call them at
+        // runtime to exercise (and pin the shape of) each constructor.
+        let param = p("value", VALTEXT, "String");
+        assert_eq!(param.name, "value");
+        assert_eq!(param.aliases, VALTEXT);
+        assert_eq!(param.ty, ParameterType::Named("String"));
+        assert_eq!(param.default, DefaultValue::None);
+
+        // E0716: `ov`/`ef` borrow `&'static` slices, so they must be named consts.
+        const PARAMS: &[Parameter] = &[p("value", &[], "String")];
+        let overload = ov(PARAMS, BYTES);
+        assert_eq!(overload.params.len(), 1);
+        assert_eq!(overload.params[0].name, "value");
+        assert_eq!(overload.return_type, ReturnType::Fixed(BYTES));
+
+        const OV_CUSTOM: &[BuiltinOverload] = &[ov(&[p("value", VALTEXT, "String")], BYTES)];
+        let custom = ef(UTF8_ENCODE, "utf8Encode", OV_CUSTOM, Implementation::Custom);
+        assert_eq!(custom.name, UTF8_ENCODE);
+        assert_eq!(custom.doc_slug, "utf8Encode");
+        assert_eq!(custom.overloads.len(), 1);
+        assert_eq!(custom.implementation, Implementation::Custom);
+        assert_eq!(custom.lowering, Lowering::Helper);
+        assert!(!custom.flags.internal_only);
+        assert!(!custom.flags.return_type_overloaded);
+
+        const OV_REWRITE: &[BuiltinOverload] = &[ov(&[p("data", &[], BYTES)], "String")];
+        let rewrite = ef(
+            HEX_ENCODE,
+            "hexEncode",
+            OV_REWRITE,
+            Implementation::Rewrite("__encoding_hexEncode"),
+        );
+        assert_eq!(
+            rewrite.implementation,
+            Implementation::Rewrite("__encoding_hexEncode")
+        );
+    }
+
+    #[test]
+    fn dispatch_resolve_all_branches() {
+        // `dispatch_resolve` is reached in production only through the descriptor
+        // resolver; call it directly to exercise every return-type arm and the
+        // arity guard.
+        let ret = |name: &str, args: &[&str]| {
+            dispatch_resolve(name, &strings(args)).map(|r| r.return_type.into_owned())
+        };
+        let resolve = ret;
+
+        // Arity guard: only unary calls resolve.
+        assert!(resolve(UTF8_ENCODE, &["String", "String"]).is_none());
+        assert!(resolve(UTF8_ENCODE, &[]).is_none());
+        // utf8 family (monomorph targets + overloaded names).
+        assert_eq!(ret(UTF8_ENCODE, &["String"]).as_deref(), Some(BYTES));
+        assert_eq!(ret(UTF8_ENCODE_BYTES, &["String"]).as_deref(), Some(BYTES));
+        assert_eq!(ret(UTF8_ENCODE_INTS, &["String"]).as_deref(), Some(INTS));
+        assert_eq!(ret(UTF8_DECODE, &[BYTES]).as_deref(), Some("String"));
+        assert_eq!(ret(UTF8_DECODE, &[INTS]).as_deref(), Some("String"));
+        assert_eq!(ret(UTF8_DECODE_BYTES, &[BYTES]).as_deref(), Some("String"));
+        assert_eq!(ret(UTF8_DECODE_INTS, &[INTS]).as_deref(), Some("String"));
+        // utf16/utf32.
+        assert_eq!(ret(UTF16_ENCODE, &["String"]).as_deref(), Some(INTS));
+        assert_eq!(ret(UTF32_ENCODE, &["String"]).as_deref(), Some(INTS));
+        assert_eq!(ret(UTF16_DECODE, &[INTS]).as_deref(), Some("String"));
+        assert_eq!(ret(UTF32_DECODE, &[INTS]).as_deref(), Some("String"));
+        // hex/base32/base64 encode -> String, decode -> Bytes.
+        assert_eq!(ret(BASE64_ENCODE, &[BYTES]).as_deref(), Some("String"));
+        assert_eq!(ret(BASE64URL_DECODE, &["String"]).as_deref(), Some(BYTES));
+        // percent/html/formUrl/punycode String -> String.
+        assert_eq!(ret(PERCENT_ENCODE, &["String"]).as_deref(), Some("String"));
+        assert_eq!(ret(PUNYCODE_DECODE, &["String"]).as_deref(), Some("String"));
+        // leb128/varint.
+        assert_eq!(ret(VARINT_ENCODE, &["Integer"]).as_deref(), Some(BYTES));
+        assert_eq!(ret(VARINT_DECODE, &[BYTES]).as_deref(), Some("Integer"));
+
+        // Wrong argument type falls through to the `_ => None` arm.
+        assert!(resolve(UTF8_ENCODE, &["Integer"]).is_none());
+        assert!(resolve("encoding.nope", &["String"]).is_none());
+    }
 }

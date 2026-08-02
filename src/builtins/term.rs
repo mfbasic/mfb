@@ -538,4 +538,38 @@ mod tests {
         );
     }
 
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `ov` and `term_fn` are const fns invoked only in const context
+        // (`OV_*` / `TERM_FUNCTIONS`), so their bodies never run at runtime and
+        // show as uncovered. Call them at runtime to exercise (and pin the shape
+        // of) both constructors.
+        let overloads = ov(P_RGB, "Nothing");
+        assert_eq!(overloads.len(), 1);
+        assert_eq!(overloads[0].return_type, ReturnType::Fixed("Nothing"));
+        assert_eq!(overloads[0].params.len(), 3);
+        assert_eq!(overloads[0].params[0].name, "r");
+
+        let niladic = ov(P_EMPTY, "Boolean");
+        assert!(niladic[0].params.is_empty());
+        assert_eq!(niladic[0].return_type, ReturnType::Fixed("Boolean"));
+
+        let func = term_fn(ON, "on", OV_NOTHING_EMPTY);
+        assert_eq!(func.name, ON);
+        assert_eq!(func.doc_slug, "on");
+        assert_eq!(func.overloads.len(), 1);
+        // `term::` calls lower directly by name to the native backend — no rewrite.
+        assert_eq!(func.implementation, Implementation::Same);
+        assert_eq!(func.lowering, Lowering::Helper);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+    }
+
+    #[test]
+    fn resolve_call_rejects_unknown_name() {
+        // The `?` on `call_return_type_name` short-circuits to `None` for a name
+        // that is not a `term::` call.
+        assert!(resolve_call("term.unknown", &[]).is_none());
+        assert!(resolve_call("strings.trim", &[]).is_none());
+    }
 }

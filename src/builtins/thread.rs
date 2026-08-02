@@ -941,4 +941,86 @@ mod tests {
             Some((THREAD_TYPE, "Thread OF RES File TO String", None, "Boolean"))
         );
     }
+
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `ov`/`tf`/`req`/`opt` are const fns used only in const context, so their
+        // bodies never run at runtime and show as uncovered. Call them at runtime
+        // to exercise (and pin the shape of) each constructor.
+        let overload = ov(P_HANDLE);
+        assert_eq!(overload.params.len(), 1);
+        assert_eq!(overload.return_type, ReturnType::Custom);
+
+        const OV: &[BuiltinOverload] = &[ov(P_HANDLE)];
+        let func = tf(IS_RUNNING, "isRunning", OV);
+        assert_eq!(func.name, IS_RUNNING);
+        assert_eq!(func.doc_slug, "isRunning");
+        assert_eq!(func.overloads.len(), 1);
+        assert_eq!(func.implementation, Implementation::Same);
+        assert_eq!(func.lowering, Lowering::Helper);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+
+        let required = req("t", &["thread"], "Thread");
+        assert_eq!(required.name, "t");
+        assert_eq!(required.aliases.len(), 1);
+        assert_eq!(required.aliases[0], "thread");
+        assert_eq!(required.ty, ParameterType::Named("Thread"));
+        assert_eq!(required.default, DefaultValue::None);
+
+        let optional = opt("timeoutMs", &[], "Integer");
+        assert_eq!(optional.name, "timeoutMs");
+        assert!(optional.aliases.is_empty());
+        assert_eq!(optional.ty, ParameterType::Named("Integer"));
+        assert_eq!(optional.default, DefaultValue::Optional);
+    }
+
+    #[test]
+    fn resolve_open_close_stdin() {
+        // Zero args subscribes the calling thread; one parent `Thread` handle
+        // subscribes that worker. Both return Nothing (plan-15 §4.5).
+        assert_eq!(rt(OPEN_STD_IN, &[]), Some("Nothing".to_string()));
+        assert_eq!(rt(CLOSE_STD_IN, &[]), Some("Nothing".to_string()));
+        let t = "Thread OF Integer TO String";
+        assert_eq!(rt(OPEN_STD_IN, &[t]), Some("Nothing".to_string()));
+        assert_eq!(rt(CLOSE_STD_IN, &[t]), Some("Nothing".to_string()));
+        // A worker handle is not a parent `Thread`, so the one-arg form rejects it.
+        let w = "ThreadWorker OF Integer TO String";
+        assert_eq!(rt(OPEN_STD_IN, &[w]), None);
+        // Too many arguments.
+        assert_eq!(rt(OPEN_STD_IN, &[t, "Integer"]), None);
+    }
+
+    #[test]
+    fn expected_arguments_stdin() {
+        assert!(expected_arguments(OPEN_STD_IN).unwrap().contains("Thread"));
+        assert!(expected_arguments(CLOSE_STD_IN).unwrap().contains("Thread"));
+    }
+
+    #[test]
+    fn thread_resolver_delegates_to_resolve_call() {
+        // `ThreadResolver::resolve_return_type` is only invoked through the
+        // registry; drive it directly so the delegating body and the
+        // argument-dependent `resolve_call` arms (start/waitFor/receive/stdin) run.
+        use crate::builtins::descriptor::BuiltinResolver;
+        let resolver = ThreadResolver;
+        let f = "ISOLATED FUNC(ThreadWorker OF Integer TO String, Integer) AS String";
+        assert_eq!(
+            resolver.resolve_return_type(&THREAD, START, &strings(&[f, "Integer"])),
+            Some("Thread OF Integer TO String".to_string())
+        );
+        let t = "Thread OF Integer TO String";
+        assert_eq!(
+            resolver.resolve_return_type(&THREAD, WAIT_FOR, &strings(&[t])),
+            Some("String".to_string())
+        );
+        assert_eq!(
+            resolver.resolve_return_type(&THREAD, RECEIVE, &strings(&[t])),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            resolver.resolve_return_type(&THREAD, OPEN_STD_IN, &[]),
+            Some("Nothing".to_string())
+        );
+    }
 }

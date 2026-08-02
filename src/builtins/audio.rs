@@ -672,4 +672,192 @@ mod tests {
         assert!(call_return_type_name("audio.nope").is_none());
     }
 
+    fn rt(name: &str, args: &[&str]) -> Option<String> {
+        dispatch_resolve(name, &strings(args)).map(|r| r.return_type.into_owned())
+    }
+
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `req`/`reqa`/`opt`/`ov`/`af` are const fns invoked only in const context,
+        // so their bodies never run at runtime. Call them here to exercise (and pin
+        // the shape of) each constructor.
+        let r = req("frames", "Integer");
+        assert_eq!(r.name, "frames");
+        assert_eq!(r.ty, ParameterType::Named("Integer"));
+        assert_eq!(r.default, DefaultValue::None);
+        assert!(r.aliases.is_empty());
+
+        const ALIASES: &[&str] = &["tracks"];
+        let a = reqa("mml", ALIASES, "String");
+        assert_eq!(a.name, "mml");
+        assert_eq!(a.aliases, ALIASES);
+        assert_eq!(a.ty, ParameterType::Named("String"));
+        assert_eq!(a.default, DefaultValue::None);
+
+        let o = opt("timeoutMs", "Integer");
+        assert_eq!(o.name, "timeoutMs");
+        assert_eq!(o.ty, ParameterType::Named("Integer"));
+        assert_eq!(
+            o.default,
+            DefaultValue::Fill { type_name: "Integer", expr: "" }
+        );
+        assert!(o.aliases.is_empty());
+
+        let overload = ov(OPEN_OV0, AUDIO_INPUT_TYPE);
+        assert_eq!(overload.params.len(), 3);
+        assert_eq!(overload.params[0].name, "sampleRate");
+        assert_eq!(overload.return_type, ReturnType::Fixed(AUDIO_INPUT_TYPE));
+        let niladic = ov(&[], "List OF AudioDevice");
+        assert!(niladic.params.is_empty());
+        assert_eq!(niladic.return_type, ReturnType::Fixed("List OF AudioDevice"));
+
+        const OV: &[BuiltinOverload] = &[ov(&[req("note", AUDIO_NOTE_TYPE)], "List OF Byte")];
+        let func = af(RENDER, "render", OV);
+        assert_eq!(func.name, RENDER);
+        assert_eq!(func.doc_slug, "render");
+        assert_eq!(func.implementation, Implementation::Custom);
+        assert_eq!(func.lowering, Lowering::Helper);
+        assert_eq!(func.overloads.len(), 1);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+    }
+
+    #[test]
+    fn resolver_trait_dispatches() {
+        // AudioResolver::resolve_return_type is wired through the descriptor; call
+        // it directly to cover the delegation into `dispatch_resolve`.
+        assert_eq!(
+            AUDIO_RESOLVER.resolve_return_type(
+                &AUDIO,
+                READ,
+                &strings(&[AUDIO_INPUT_TYPE, "Integer"])
+            ),
+            Some("List OF Byte".to_string())
+        );
+        assert_eq!(
+            AUDIO_RESOLVER.resolve_return_type(
+                &AUDIO,
+                READ,
+                &strings(&[AUDIO_OUTPUT_TYPE, "Integer"])
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn source_implementation_name_dispatch() {
+        // render always maps to its body; play picks single- vs multi-track by the
+        // second argument's type; native calls return None.
+        assert_eq!(source_implementation_name(RENDER, &[]), Some(INTERNAL_RENDER));
+        assert_eq!(
+            source_implementation_name(PLAY, &strings(&[AUDIO_OUTPUT_TYPE, "String"])),
+            Some(INTERNAL_PLAY)
+        );
+        assert_eq!(
+            source_implementation_name(
+                PLAY,
+                &strings(&[AUDIO_OUTPUT_TYPE, "List OF String"])
+            ),
+            Some(INTERNAL_PLAY_TRACKS)
+        );
+        assert_eq!(source_implementation_name(DEVICES, &[]), None);
+    }
+
+    #[test]
+    fn dispatch_resolve_every_overload() {
+        assert_eq!(rt(DEVICES, &[]), Some("List OF AudioDevice".to_string()));
+        assert_eq!(rt(DEVICES, &["Integer"]), None);
+        // open* accept an optional leading AudioDevice.
+        assert_eq!(
+            rt(OPEN_INPUT, &["Integer", "Integer", "Integer"]),
+            Some(AUDIO_INPUT_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(
+                OPEN_INPUT,
+                &[AUDIO_DEVICE_TYPE, "Integer", "Integer", "Integer"]
+            ),
+            Some(AUDIO_INPUT_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(OPEN_OUTPUT, &["Integer", "Integer", "Integer"]),
+            Some(AUDIO_OUTPUT_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(
+                OPEN_OUTPUT,
+                &[AUDIO_DEVICE_TYPE, "Integer", "Integer", "Integer"]
+            ),
+            Some(AUDIO_OUTPUT_TYPE.to_string())
+        );
+        assert_eq!(rt(OPEN_INPUT, &["Integer", "Integer"]), None);
+        // read is input-only (both arities); write is output-only.
+        assert_eq!(
+            rt(READ, &[AUDIO_INPUT_TYPE, "Integer"]),
+            Some("List OF Byte".to_string())
+        );
+        assert_eq!(
+            rt(READ, &[AUDIO_INPUT_TYPE, "Integer", "Integer"]),
+            Some("List OF Byte".to_string())
+        );
+        assert_eq!(rt(READ, &[AUDIO_OUTPUT_TYPE, "Integer"]), None);
+        assert_eq!(
+            rt(WRITE, &[AUDIO_OUTPUT_TYPE, "List OF Byte"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(rt(WRITE, &[AUDIO_INPUT_TYPE, "List OF Byte"]), None);
+        // poll/available/xruns/close accept either handle.
+        for t in [AUDIO_INPUT_TYPE, AUDIO_OUTPUT_TYPE] {
+            assert_eq!(rt(POLL, &[t]), Some("Boolean".to_string()));
+            assert_eq!(rt(POLL, &[t, "Integer"]), Some("Boolean".to_string()));
+            assert_eq!(rt(AVAILABLE, &[t]), Some("Integer".to_string()));
+            assert_eq!(rt(XRUNS, &[t]), Some("Integer".to_string()));
+            assert_eq!(rt(CLOSE, &[t]), Some("Nothing".to_string()));
+        }
+        assert_eq!(rt(POLL, &["Integer"]), None);
+        assert_eq!(rt(CLOSE, &["String"]), None);
+        // render/play source overloads.
+        assert_eq!(
+            rt(RENDER, &[AUDIO_NOTE_TYPE]),
+            Some("List OF Byte".to_string())
+        );
+        assert_eq!(rt(RENDER, &["List OF Byte"]), None);
+        assert_eq!(
+            rt(PLAY, &[AUDIO_OUTPUT_TYPE, "String"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(
+            rt(PLAY, &[AUDIO_OUTPUT_TYPE, "List OF String"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(rt(PLAY, &[AUDIO_OUTPUT_TYPE, "Integer"]), None);
+        assert_eq!(rt("audio.nope", &[]), None);
+    }
+
+    #[test]
+    fn expected_arguments_all_branches() {
+        assert_eq!(
+            expected_arguments(OPEN_INPUT),
+            Some("Integer, Integer, Integer or AudioDevice, Integer, Integer, Integer")
+        );
+        assert_eq!(
+            expected_arguments(OPEN_OUTPUT),
+            Some("Integer, Integer, Integer or AudioDevice, Integer, Integer, Integer")
+        );
+        assert_eq!(
+            expected_arguments(POLL),
+            Some("AudioInput or AudioOutput[, Integer]")
+        );
+        assert_eq!(
+            expected_arguments(AVAILABLE),
+            Some("AudioInput or AudioOutput")
+        );
+        assert_eq!(expected_arguments(XRUNS), Some("AudioInput or AudioOutput"));
+        assert_eq!(expected_arguments(CLOSE), Some("AudioInput or AudioOutput"));
+        assert_eq!(expected_arguments(RENDER), Some("AudioNote"));
+        assert_eq!(
+            expected_arguments(PLAY),
+            Some("AudioOutput, String or AudioOutput, List OF String")
+        );
+    }
 }

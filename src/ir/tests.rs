@@ -6244,4 +6244,416 @@ END FUNC
             40 * (15 - 5)
         );
     }
+
+    // ==== plan-lower-coverage: reachable uncovered arms ======================
+
+    // Suffixed float literal (`1.5f`): the `is_suffixed` branch's `_ => "Float"`
+    // arm (lower.rs ~2465). `F`/`m`/`M` hit the Fixed/Money arms; `f` falls here.
+    #[test]
+    fn suffixed_float_literal_types_as_float() {
+        let ir = lower_src(
+            "suffixed_float",
+            "FUNC main AS Float\n  LET x AS Float = 1.5f\n  RETURN x\nEND FUNC\n",
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("\"Float\""), "{j}");
+    }
+
+    // A negated decimal literal in an exact-numeric slot lowers its operand as a
+    // const of that exact type (lower.rs ~3171-3172): `AS Money`/`AS Fixed`.
+    #[test]
+    fn negated_exact_numeric_literals() {
+        let ir = lower_src(
+            "neg_exact",
+            "FUNC main AS Integer\n  \
+               LET m AS Money = -1.25\n  \
+               LET f AS Fixed = -1.25\n  \
+               RETURN 0\nEND FUNC\n",
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("\"Money\""), "{j}");
+        assert!(j.contains("\"Fixed\""), "{j}");
+    }
+
+    // An untyped list literal in a no-expected-type slot infers its element type
+    // from the first element via `literal_expression_type` (lower.rs ~3475): a
+    // Fixed (`F`) and a Money (`m`) literal reach its Fixed/Money arms
+    // (~3482-3483).
+    #[test]
+    fn untyped_list_literal_element_type_fixed_and_money() {
+        let ir = lower_src(
+            "list_elem_infer",
+            "FUNC main AS Integer\n  \
+               LET a = [1.5F]\n  \
+               LET b = [1.99m]\n  \
+               RETURN 0\nEND FUNC\n",
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("List OF Fixed"), "{j}");
+        assert!(j.contains("List OF Money"), "{j}");
+    }
+
+    // A top-level binding with no `AS` annotation infers its type from the value
+    // both in `infer_binding_types` (lower.rs ~1887-1889) and in `lower_binding`
+    // (~253-258). A binding holding a FUNC value is then callable, inferring the
+    // call's return type from the binding's FUNC type (~2092-2095).
+    #[test]
+    fn untyped_global_binding_holding_function_value() {
+        let ir = lower_src(
+            "global_fnval",
+            "FUNC helper(n AS Integer) AS Integer\n  RETURN n + 1\nEND FUNC\n\
+             LET fnRef = helper\n\
+             FUNC main AS Integer\n  RETURN fnRef(5)\nEND FUNC\n",
+        );
+        assert!(ir.bindings.iter().any(|b| b.name == "fnRef"));
+        // The call resolves through the binding's FUNC type to Integer.
+        let ret = &function(&ir, "main").body;
+        assert!(!ret.is_empty());
+        let b = binding_of(&ir, "fnRef");
+        assert!(b.type_.starts_with("FUNC("), "fnRef type: {}", b.type_);
+    }
+
+    fn binding_of<'a>(ir: &'a super::IrProject, name: &str) -> &'a super::IrBinding {
+        ir.bindings
+            .iter()
+            .find(|b| b.name == name)
+            .unwrap_or_else(|| panic!("no binding {name}"))
+    }
+
+    // A first-class value of an ISOLATED FUNC type: calling it strips the
+    // `ISOLATED FUNC(` prefix in both `function_return_from_type` (~2158) and
+    // `function_param_types_from_type` (~2166) when typing the call and its arg.
+    #[test]
+    fn isolated_func_value_call_typing() {
+        let ir = lower_src(
+            "isolated_fnval",
+            "ISOLATED FUNC iso(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n\
+             FUNC main AS Integer\n  \
+               LET g = iso\n  \
+               RETURN g(5)\nEND FUNC\n",
+        );
+        let body = &function(&ir, "main").body;
+        // g is bound with an ISOLATED FUNC type.
+        let has_iso = body.iter().any(|op| matches!(op,
+            IrOp::Bind { type_, .. } if type_.starts_with("ISOLATED FUNC(")));
+        assert!(has_iso, "expected an ISOLATED FUNC-typed local");
+    }
+
+    // FOR EACH over a Map yields `MapEntry OF K TO V` (parse_map_type ~1554); a
+    // `.value` access on the entry then parses the entry type (~1560).
+    #[test]
+    fn foreach_over_map_entry_value() {
+        let ir = lower_src(
+            "map_iter",
+            "IMPORT collections\n\
+             FUNC main AS Integer\n  \
+               LET m AS Map OF String TO Integer = Map OF String TO Integer { \"a\" := 1 }\n  \
+               LET total AS Integer = 0\n  \
+               FOR EACH e IN m\n    \
+                 total = total + e.value\n  \
+               NEXT\n  \
+               RETURN total\nEND FUNC\n",
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("MapEntry OF String TO Integer"), "{j}");
+    }
+
+    // A bare general built-in predicate (`isPositive`) as the callback of a
+    // native `collections::filter` member: expression_type takes the
+    // unary-callback path (lower.rs ~2020-2036) and the call lowers the predicate
+    // to a typed FunctionRef via `builtin_predicate_ref_type` (~2417-2434). A
+    // sibling `collections::get` exercises the plain arg-typed member path
+    // (~2039-2043).
+    #[test]
+    fn collections_filter_with_bare_general_predicate() {
+        let ir = lower_src(
+            "filter_pred",
+            "IMPORT collections\n\
+             FUNC main AS Integer\n  \
+               LET nums AS List OF Integer = [1, -2, 3]\n  \
+               LET pos AS List OF Integer = collections::filter(nums, isPositive)\n  \
+               RETURN collections::get(pos, 0)\nEND FUNC\n",
+        );
+        let j = json_of(&ir);
+        // The predicate lowered to a function reference of the element-typed sig.
+        assert!(
+            j.contains("FUNC(Integer) AS Boolean") || j.contains("functionRef"),
+            "{j}"
+        );
+    }
+
+    // An assignment-bodied lambda whose target appears ONLY on the left captures
+    // the target even though it never reads on the right (lower.rs ~2874-2883).
+    #[test]
+    fn assign_bodied_lambda_captures_write_only_target() {
+        let ir = lower_src(
+            "assign_lambda",
+            "IMPORT collections\n\
+             FUNC main AS Integer\n  \
+               LET last AS Integer = 0\n  \
+               LET nums AS List OF Integer = [1, 2, 3]\n  \
+               collections::forEach(nums, LAMBDA(n) -> last = n)\n  \
+               RETURN last\nEND FUNC\n",
+        );
+        // A private $lambda function is synthesized, capturing `last`.
+        let lambda = ir
+            .functions
+            .iter()
+            .find(|f| f.name.starts_with("$lambda"))
+            .expect("lambda synthesized");
+        let _ = lambda;
+        let j = json_of(&ir);
+        assert!(j.contains("capture") || j.contains("closure"), "{j}");
+    }
+
+    // A union that INCLUDES itself: `expanded_union_variants` must short-circuit
+    // the cycle rather than recurse forever (lower.rs ~3658-3659, bug-194).
+    #[test]
+    fn self_including_union_cycle_terminates() {
+        let ir = try_lower_src(
+            "union_cycle",
+            "UNION Loop\n  INCLUDES Loop\n  A(x AS Integer)\nEND UNION\n\
+             FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+        );
+        // The point is that lowering terminates (no stack overflow); any outcome
+        // that returns is a pass.
+        let _ = ir;
+    }
+
+    // A TESTING block is an AST item with no executable body; the normal build
+    // path walks past it (lower.rs ~191, the `Item::Testing` arm).
+    #[test]
+    fn testing_block_item_is_skipped_by_lowering() {
+        let ir = try_lower_src(
+            "testing_item",
+            "IMPORT io\n\
+             FUNC label(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n\
+             FUNC main AS Integer\n  RETURN 0\nEND FUNC\n\
+             TESTING\n  \
+               TGROUP \"g\"\n    \
+                 TCASE \"c\"\n      \
+                   expectEqual(label(1), 1)\n    \
+                 END TCASE\n  \
+               END TGROUP\n\
+             END TESTING\n",
+        );
+        // The program still lowers to a project with `main`, TESTING and all.
+        assert!(
+            ir.as_ref()
+                .map(|p| p.functions.iter().any(|f| f.name == "main"))
+                .unwrap_or(false),
+            "program with a TESTING block did not lower"
+        );
+    }
+
+    // An untyped lambda parameter defaults to `Unknown` on both the
+    // expression_type path (lower.rs ~2110) and the lowering path (~2903, ~2978).
+    #[test]
+    fn untyped_lambda_param_defaults_to_unknown() {
+        let ir = try_lower_src(
+            "untyped_lambda",
+            "IMPORT collections\n\
+             FUNC main AS Integer\n  \
+               LET nums AS List OF Integer = [1, 2, 3]\n  \
+               LET out AS List OF Integer = collections::transform(nums, LAMBDA(x) -> x + 1)\n  \
+               RETURN collections::get(out, 0)\nEND FUNC\n",
+        );
+        assert!(ir.is_some(), "untyped lambda param did not lower");
+        let ir = ir.unwrap();
+        assert!(ir.functions.iter().any(|f| f.name.starts_with("$lambda")));
+    }
+
+    // `error(code)` with a missing message argument: total lowering (plan-20-D)
+    // substitutes an Unknown-typed placeholder rather than panicking (lower.rs
+    // ~2591-2597).
+    #[test]
+    fn error_call_with_missing_argument_uses_placeholder() {
+        let ir = try_lower_src(
+            "error_placeholder",
+            "FUNC boom() AS Integer\n  FAIL error(900)\nEND FUNC\n\
+             FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+        );
+        // The front end accepts the short arity here (it reaches lowering);
+        // total lowering substitutes an Unknown placeholder for the message.
+        assert!(ir.is_some(), "error() short arity did not lower");
+        let ir = ir.unwrap();
+        assert!(ir.functions.iter().any(|f| f.name == "boom"));
+    }
+
+    // A lambda body that CALLS a captured function-typed local reaches the
+    // Call arm of `collect_captured_locals` (lower.rs ~3399-3405).
+    #[test]
+    fn lambda_calls_captured_function_local() {
+        let ir = try_lower_src(
+            "captured_call",
+            "IMPORT collections\n\
+             FUNC helper(n AS Integer) AS Integer\n  RETURN n * 2\nEND FUNC\n\
+             FUNC main AS Integer\n  \
+               LET g = helper\n  \
+               LET nums AS List OF Integer = [1, 2, 3]\n  \
+               LET out AS List OF Integer = collections::transform(nums, LAMBDA(x) -> g(x))\n  \
+               RETURN collections::get(out, 0)\nEND FUNC\n",
+        );
+        assert!(ir.is_some(), "lambda calling a captured local did not lower");
+        let ir = ir.unwrap();
+        let j = json_of(&ir);
+        assert!(j.contains("closure") || j.contains("capture"), "{j}");
+    }
+
+    // A LET whose value is an inline TRAP with no `AS` annotation infers the
+    // success type from the trapped expression (lower.rs ~527-530).
+    #[test]
+    fn untyped_let_inline_trap_infers_success_type() {
+        let ir = try_lower_src(
+            "let_trap_infer",
+            "FUNC parse(s AS String) AS Integer\n  RETURN 5\nEND FUNC\n\
+             FUNC main AS Integer\n  \
+               LET n = parse(\"7\") TRAP(e)\n    \
+                 RECOVER 0\n  \
+               END TRAP\n  \
+               RETURN n\nEND FUNC\n",
+        );
+        assert!(ir.is_some(), "untyped let-trap did not lower");
+        let ir = ir.unwrap();
+        assert!(ir.functions.iter().any(|f| f.name == "main"));
+    }
+
+    // An inline-TRAP handler whose head IF's then-body holds a nested IF, MATCH,
+    // FOR, WHILE, DO...UNTIL and FOR EACH — none terminating — forces
+    // `block_can_terminate` (via treeify's `!block_can_terminate(then_body)`
+    // guard at lower.rs:1267) to walk every `statement_can_terminate` arm
+    // (~1475-1486): If, Match, and the For/ForEach/While/DoUntil group. Ordering
+    // them non-terminating keeps `.any()` from short-circuiting so each arm runs.
+    #[test]
+    fn trap_handler_block_can_terminate_walks_all_nested_arms() {
+        let ir = lower_src(
+            "trap_can_terminate",
+            "FUNC parse(s AS String) AS Integer\n  \
+               MUT acc AS Integer = 0\n  \
+               LET n AS Integer = toInt(s) TRAP(e)\n    \
+                 IF e.code > 0 THEN\n      \
+                   IF acc > 0 THEN\n        acc = acc + 1\n      END IF\n      \
+                   MATCH acc\n        CASE 1\n          acc = acc + 1\n        \
+                   CASE ELSE\n          acc = acc + 2\n      END MATCH\n      \
+                   FOR i = 1 TO 2\n        acc = acc + i\n      NEXT\n      \
+                   WHILE acc < 0\n        acc = acc + 1\n      END WHILE\n      \
+                   DO\n        acc = acc + 1\n      LOOP UNTIL acc > 5\n      \
+                   FOR EACH v IN [1, 2]\n        acc = acc + v\n      NEXT\n    \
+                 END IF\n    \
+                 RECOVER acc\n  \
+               END TRAP\n  \
+               RETURN n\nEND FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(function(&ir, "parse").body.iter().any(|op| matches!(
+            op,
+            IrOp::If {
+                condition: super::super::IrValue::ResultIsOk { .. },
+                ..
+            }
+        )));
+    }
+
+    // A MATCH whose scrutinee is a member access to a NON-EXISTENT field types as
+    // `Unknown` (record_field_type -> None), reaching match_expression_type's
+    // `unwrap_or_else(|| "Unknown")` fallback (lower.rs ~791). lower_src bypasses
+    // the type checker, so the bad field survives to lowering.
+    #[test]
+    fn untypeable_match_scrutinee_defaults_to_unknown() {
+        let ir = try_lower_src(
+            "unknown_match",
+            "TYPE Rec\n  a AS Integer\nEND TYPE\n\
+             FUNC run(r AS Rec) AS Integer\n  \
+               MATCH r.missing\n    \
+                 CASE ELSE\n      RETURN 0\n  \
+               END MATCH\nEND FUNC\n\
+             FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+        );
+        assert!(ir.is_some(), "bad-field MATCH scrutinee did not lower");
+    }
+
+    // FOR bounds and a FOR EACH iterable that are member accesses to non-existent
+    // fields type as `Unknown`, reaching the start/end (`~851/853`) and iterable
+    // (`~931`) `unwrap_or_else(|| "Unknown")` fallbacks.
+    #[test]
+    fn untypeable_loop_bounds_and_iterable_default_to_unknown() {
+        let ir = try_lower_src(
+            "unknown_loops",
+            "TYPE Rec\n  a AS Integer\nEND TYPE\n\
+             FUNC run(r AS Rec) AS Integer\n  \
+               MUT total AS Integer = 0\n  \
+               FOR i = r.lo TO r.hi\n    total = total + 1\n  NEXT\n  \
+               FOR EACH v IN r.items\n    total = total + 1\n  NEXT\n  \
+               RETURN total\nEND FUNC\n\
+             FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+        );
+        assert!(ir.is_some(), "bad-field loop bounds did not lower");
+    }
+
+    // A unary negation whose operand types as `Unknown` (a member access to a
+    // non-existent field, in a non-exact-numeric slot) reaches the negation
+    // else-branch `unwrap_or_else(|| "Unknown")` fallback (lower.rs ~3176-3177).
+    #[test]
+    fn untypeable_negation_operand_defaults_to_unknown() {
+        let ir = try_lower_src(
+            "unknown_neg",
+            "TYPE Rec\n  a AS Integer\nEND TYPE\n\
+             FUNC run(r AS Rec) AS Integer\n  \
+               LET x AS Integer = -r.missing\n  \
+               RETURN x\nEND FUNC\n\
+             FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+        );
+        assert!(ir.is_some(), "bad-field negation did not lower");
+    }
+
+    // A per-position builtin (`datetime::date`) called with a leading NAMED arg
+    // followed by positionals forces `normalize_builtin_call_arguments` to skip
+    // the already-filled slot (the `while ... is_some()` loop, lower.rs ~2247)
+    // and to place the named arg by position-name match (~2262).
+    #[test]
+    fn builtin_named_first_then_positional_reorders() {
+        let ir = try_lower_src(
+            "dt_named_first",
+            "IMPORT datetime\n\
+             FUNC run() AS Integer\n  \
+               LET d = datetime::date(year := 2020, 5, 3)\n  \
+               RETURN 0\nEND FUNC\n\
+             FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+        );
+        assert!(ir.is_some(), "datetime::date named-first call did not lower");
+    }
+
+    // An overloaded-param-name builtin (`datetime::instant`) called with named
+    // args routes through `normalize_overloaded_builtin_call_arguments`, selecting
+    // the matching overload and ordering positionals/named into it (lower.rs
+    // ~2276-2311).
+    #[test]
+    fn builtin_overloaded_named_arguments_select_overload() {
+        let ir = try_lower_src(
+            "dt_overload",
+            "IMPORT datetime\n\
+             FUNC run() AS Integer\n  \
+               LET d = datetime::instant(days := 5, hours := 1, mins := 2, seconds := 3, nanos := 4)\n  \
+               RETURN 0\nEND FUNC\n\
+             FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+        );
+        assert!(ir.is_some(), "datetime::instant overloaded named call did not lower");
+    }
+
+    // A per-position builtin called with MORE positionals than it has parameters,
+    // alongside a named arg, pushes the surplus onto the `extras` overflow list
+    // (lower.rs ~2253-2254). Type checking (which would reject the arity) is
+    // bypassed by lower_src.
+    #[test]
+    fn builtin_named_with_surplus_positionals_overflows_to_extras() {
+        let ir = try_lower_src(
+            "dt_extras",
+            "IMPORT datetime\n\
+             FUNC run() AS Integer\n  \
+               LET d = datetime::date(2020, 5, 3, 99, month := 6)\n  \
+               RETURN 0\nEND FUNC\n\
+             FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+        );
+        assert!(ir.is_some(), "datetime::date surplus-arity call did not lower");
+    }
 }

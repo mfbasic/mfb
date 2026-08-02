@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 
 use super::descriptor::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, DefaultResolver, Implementation,
@@ -188,4 +187,29 @@ mod tests {
         assert_eq!(call_param_names(ENVIRON), Some(&[][..]));
     }
 
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `ov`/`os_fn` are const fns used only in const context; call them at
+        // runtime so their bodies are exercised.
+        let overload = ov(P_NAME_FALLBACK, "String");
+        assert_eq!(overload.params.len(), 2);
+        assert_eq!(overload.return_type, ReturnType::Fixed("String"));
+
+        let func = os_fn(PID, "pid", OV_INTEGER);
+        assert_eq!(func.name, PID);
+        assert_eq!(func.doc_slug, "pid");
+        assert_eq!(func.implementation, Implementation::Same);
+        assert_eq!(func.lowering, Lowering::Helper);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+    }
+
+    #[test]
+    fn expected_arguments_covers_every_arity_class() {
+        assert_eq!(expected_arguments(GET_ENV), Some("String"));
+        assert_eq!(expected_arguments(GET_ENV_OR), Some("String, String"));
+        assert_eq!(expected_arguments(SET_ENV), Some("String, String"));
+        assert_eq!(expected_arguments(PID), Some("no arguments"));
+        assert_eq!(expected_arguments("os.unknown"), None);
+    }
 }

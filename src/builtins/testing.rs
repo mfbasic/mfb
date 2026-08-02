@@ -386,4 +386,26 @@ mod tests {
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);
     }
+
+    #[test]
+    fn descriptor_constructors_execute_at_runtime() {
+        // `assert_fn` is a const fn invoked only in const context
+        // (`TESTING_FUNCTIONS`), so its body never runs at runtime and shows as
+        // uncovered. Call it at runtime to exercise (and pin the shape of) the
+        // constructor. Use a named const slice to satisfy the `&'static`
+        // overloads parameter (E0716).
+        const OV: &[BuiltinOverload] = &[BuiltinOverload {
+            params: PARAMS_T,
+            return_type: ReturnType::Fixed("Nothing"),
+        }];
+        let func = assert_fn(EXPECT_EQUAL, "expectEqual", OV);
+        assert_eq!(func.name, EXPECT_EQUAL);
+        assert_eq!(func.doc_slug, "expectEqual");
+        assert_eq!(func.overloads.len(), 1);
+        // Every assertion is compiler-lowered inline with no rewrite.
+        assert_eq!(func.implementation, Implementation::Same);
+        assert_eq!(func.lowering, Lowering::Inline);
+        assert!(!func.flags.internal_only);
+        assert!(!func.flags.return_type_overloaded);
+    }
 }
