@@ -628,20 +628,122 @@ fn rejects_union_wrap_of_foreign_variant() {
 
 #[test]
 fn accepts_union_wrap_of_real_variant() {
+    // A real variant tag wrapping a correctly-typed payload. bug-404 added the
+    // payload-type reconciliation; real lowering sets `member_type` to the
+    // wrapped value's own type (lower.rs:3312), so the payload must be a
+    // `Circle` here — the previous `int_const("0")` payload was never legitimate
+    // IR, it only exercised the tag check in isolation.
     let body = vec![IrOp::Return {
         value: Some(IrValue::UnionWrap {
             union_type: "Shape".to_string(),
             member_type: "Circle".to_string(),
-            value: Box::new(int_const("0")),
+            value: Box::new(IrValue::Local("c".to_string())),
         }),
         loc: IrSourceLoc::default(),
     }];
-    let f = func_returns("run", "Shape", vec![], body);
+    let f = func_returns("run", "Shape", vec![param("c", "Circle", None)], body);
     check(&project(
         vec![f],
         vec![union("Shape", &["Circle", "Square"])],
     ))
     .expect("real variant is valid");
+}
+
+// --- bug-404: reconcile ResultValue/UnionWrap/WithUpdate annotations --------
+// The IR verifier is the sole safety net for untrusted imported-package IR
+// (`check()` runs on decoded `.mfp`). bug-162 reconciled `UnionExtract` (the
+// read side); these three sibling sites — `ResultValue.type_`, the `UnionWrap`
+// payload, and `WithUpdate.type_` — trusted their attacker-controlled
+// annotation against the actual value, allowing type/layout confusion.
+
+#[test]
+fn rejects_result_value_with_fabricated_success_type() {
+    // A `ResultValue` annotated `Account` over a `Result OF Integer` — the
+    // annotation disagrees with the Result's real element type. `infer_type`
+    // trusts the annotation, so a later member access reads `Account`'s record
+    // layout off an Integer.
+    let body = vec![ret(IrValue::ResultValue {
+        type_: "Account".to_string(),
+        value: Box::new(IrValue::Local("r".to_string())),
+    })];
+    let f = func_returns(
+        "run",
+        "Account",
+        vec![param("r", "Result OF Integer", None)],
+        body,
+    );
+    let err = check(&project(vec![f], vec![record("Account", &["balance"])]))
+        .expect_err("fabricated ResultValue success type must be rejected");
+    assert!(err.contains("Account") || err.contains("Integer"), "{err}");
+}
+
+#[test]
+fn accepts_result_value_with_matching_success_type() {
+    let body = vec![ret(IrValue::ResultValue {
+        type_: "Integer".to_string(),
+        value: Box::new(IrValue::Local("r".to_string())),
+    })];
+    let f = func_returns(
+        "run",
+        "Integer",
+        vec![param("r", "Result OF Integer", None)],
+        body,
+    );
+    check(&project(vec![f], vec![])).expect("matching success type is valid");
+}
+
+#[test]
+fn rejects_union_wrap_with_mismatched_payload() {
+    // `Circle` is a real variant of `Shape`, but the wrapped value is an
+    // Integer, not a `Circle`. A later MATCH/UnionExtract reads `Circle`'s
+    // layout off the Integer — the read side is guarded (bug-162); this is the
+    // wrap side.
+    let body = vec![ret(IrValue::UnionWrap {
+        union_type: "Shape".to_string(),
+        member_type: "Circle".to_string(),
+        value: Box::new(int_const("0")),
+    })];
+    let f = func_returns("run", "Shape", vec![], body);
+    let err = check(&project(
+        vec![f],
+        vec![
+            union("Shape", &["Circle", "Square"]),
+            record("Circle", &["r"]),
+        ],
+    ))
+    .expect_err("mismatched UnionWrap payload must be rejected");
+    assert!(err.contains("Circle") || err.contains("Integer"), "{err}");
+}
+
+#[test]
+fn rejects_with_update_with_fabricated_type() {
+    // `type_` claims `Account`, but the target is a `Widget`. The update is
+    // checked entirely against `Account`'s fields and `infer_type` returns the
+    // trusted `Account`, so codegen updates by `Account`'s offsets.
+    let body = vec![ret(IrValue::WithUpdate {
+        type_: "Account".to_string(),
+        target: Box::new(IrValue::Local("b".to_string())),
+        updates: vec![],
+    })];
+    let f = func_returns("run", "Account", vec![param("b", "Widget", None)], body);
+    let err = check(&project(
+        vec![f],
+        vec![record("Account", &["balance"]), record("Widget", &["size"])],
+    ))
+    .expect_err("fabricated WithUpdate type must be rejected");
+    assert!(err.contains("Account") || err.contains("Widget"), "{err}");
+}
+
+#[test]
+fn accepts_with_update_matching_target_type() {
+    let body = vec![ret(IrValue::WithUpdate {
+        type_: "Account".to_string(),
+        target: Box::new(IrValue::Local("a".to_string())),
+        updates: vec![],
+    })];
+    let f = func_returns("run", "Account", vec![param("a", "Account", None)], body);
+    check(&project(vec![f], vec![record("Account", &["balance"])]))
+        .expect("matching WithUpdate target type is valid");
 }
 
 // --- match -----------------------------------------------------------------
@@ -1523,6 +1625,25 @@ fn accepts_exit_program_in_range() {
         vec![func_returns("run", "Nothing", vec![], body)],
         vec![],
     ));
+}
+
+#[test]
+fn rejects_exit_program_i128_min_without_panic() {
+    // `Unary("-", Const{Integer, i128::MIN})` parses to i128::MIN and the
+    // verifier's negation of it must not overflow-panic (debug build); it is
+    // out of the 0..255 host range, so it must be reported as such.
+    let body = vec![IrOp::ExitProgram {
+        code: unary(
+            "-",
+            const_of("Integer", "-170141183460469231731687303715884105728"),
+            "Integer",
+        ),
+        loc: IrSourceLoc::default(),
+    }];
+    expect_rule(
+        &project(vec![func_returns("run", "Nothing", vec![], body)], vec![]),
+        "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
+    );
 }
 
 // --- fail / propagate ------------------------------------------------------

@@ -83,7 +83,7 @@ impl TypeEnv {
                 value,
             } => {
                 self.check_value_depth(value, locals, depth + 1);
-                self.check_union_wrap(union_type, member_type);
+                self.check_union_wrap(union_type, member_type, value, locals);
             }
             IrValue::Closure { captures, .. } => {
                 for capture in captures {
@@ -94,9 +94,11 @@ impl TypeEnv {
                 self.check_value_depth(value, locals, depth + 1);
                 self.check_union_extract(type_, value, locals);
             }
-            IrValue::ResultIsOk { value }
-            | IrValue::ResultValue { value, .. }
-            | IrValue::ResultError { value } => {
+            IrValue::ResultValue { type_, value } => {
+                self.check_value_depth(value, locals, depth + 1);
+                self.check_result_value_type(type_, value, locals);
+            }
+            IrValue::ResultIsOk { value } | IrValue::ResultError { value } => {
                 self.check_value_depth(value, locals, depth + 1);
             }
             IrValue::Unary { op, operand, .. } => {
@@ -128,6 +130,10 @@ impl TypeEnv {
                 updates,
             } => {
                 self.check_value_depth(target, locals, depth + 1);
+                // Reconcile the (attacker-controlled) stamped `type_` against the
+                // target's actual type before any field/read-only rule trusts it
+                // (bug-404).
+                self.check_with_update_type(type_, target, locals);
                 // Compiler/runtime-owned records may never be updated —
                 // syntaxcheck's TYPE_READ_ONLY_RECORD_UPDATE (message differs for
                 // the Error pair vs the compiler-owned handle records). When
@@ -265,6 +271,79 @@ impl TypeEnv {
             | IrValue::LocalRef { .. }
             | IrValue::FunctionRef { .. }
             | IrValue::Capture { .. } => {}
+        }
+    }
+
+    /// Reconcile a `ResultValue`'s success-type annotation against the element
+    /// type of the `Result` its `value` actually carries. `infer_type` trusts
+    /// this `type_` (`mod.rs`), so a crafted `.mfp` could annotate `Account` on a
+    /// `Result OF Integer` and steer a later member access to read `Account`'s
+    /// record layout off an Integer — completing the reconciliation bug-162 began
+    /// on the read side (`check_union_extract`). Skipped when the annotation is
+    /// empty/`Unknown`, or the value's type is unknown or is not a `Result OF T`,
+    /// so legitimate source-lowered IR (whose `type_ == success_type`,
+    /// `lower.rs:1141`) never rejects.
+    pub(super) fn check_result_value_type(
+        &self,
+        type_: &str,
+        value: &IrValue,
+        locals: &HashMap<String, String>,
+    ) {
+        let annotated = resource_base_type(type_);
+        if annotated.is_empty() || annotated == "Unknown" {
+            return;
+        }
+        let Some(inner) = self.infer_type(value, locals) else {
+            return;
+        };
+        let Some(element) = resource_base_type(&inner).strip_prefix("Result OF ") else {
+            return; // the value is not a known `Result` → nothing to reconcile
+        };
+        if element.is_empty() || element == "Unknown" {
+            return;
+        }
+        if !self.compatible(annotated, element) && !self.compatible(element, annotated) {
+            self.emit(
+                VERIFY_TYPE,
+                format!(
+                    "ResultValue is annotated `{annotated}` but its Result carries `{element}`"
+                ),
+            );
+        }
+    }
+
+    /// Reconcile a `WithUpdate`'s stamped `type_` against the target record's
+    /// actual type. The `WithUpdate` arm derives the field set and read-only
+    /// verdict from `type_`, and `infer_type(WithUpdate)` returns it, so a crafted
+    /// `.mfp` could stamp `Account` over a differently-shaped target and have
+    /// codegen update by `Account`'s offsets (bug-404). Skipped when `type_` is
+    /// empty/`Unknown` (lowering fell back to inferring the target) or the target
+    /// type is unknown, so legitimate IR — which stamps `type_` from the target's
+    /// own type — never rejects.
+    pub(super) fn check_with_update_type(
+        &self,
+        type_: &str,
+        target: &IrValue,
+        locals: &HashMap<String, String>,
+    ) {
+        let annotated = resource_base_type(type_);
+        if annotated.is_empty() || annotated == "Unknown" {
+            return;
+        }
+        let Some(actual) = self.infer_type(target, locals) else {
+            return;
+        };
+        let actual = resource_base_type(&actual);
+        if actual.is_empty() || actual == "Unknown" {
+            return;
+        }
+        if !self.compatible(annotated, actual) && !self.compatible(actual, annotated) {
+            self.emit(
+                VERIFY_TYPE,
+                format!(
+                    "WITH update is annotated `{annotated}` but its target has type `{actual}`"
+                ),
+            );
         }
     }
 

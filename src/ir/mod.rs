@@ -75,7 +75,8 @@ pub(crate) use docs::{IrDocDecl, IrPackageDoc};
 pub(crate) use json::visibility_name;
 pub(crate) use link::{
     abi_ctype_valid_as_argument, abi_ctype_valid_as_return, check_buffer_slots, check_cstruct,
-    check_struct_slot, compute_c_layout, link_expr_var_names, AbiDirection, BufferSlotsView,
+    check_struct_slot, compute_c_layout, link_compare_op_valid, link_expr_var_names, AbiDirection,
+    BufferSlotsView,
     CLayout, IrAbiSlot, IrBindIn, IrBindInField, IrBuffer, IrCStruct, IrCStructField, IrFree,
     IrLinkExpr, IrLinkFunction, IrNativeResource, StructSlotView, BYTE_LIST_TYPE,
 };
