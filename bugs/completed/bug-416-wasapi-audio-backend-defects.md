@@ -6,9 +6,28 @@ Severity: MEDIUM
 Class: Correctness (cross-platform divergence + capture data loss) + Memory-safety
 (LOW) + wrong-comment (LOW)
 
-Status: Open
-Regression Test: tests/ — Windows: `audio::available` returns frames (not bytes); a
-non-packet-aligned `audio::read` loses no captured frames across successive reads.
+STATUS: FIXED (2d369db4f)
+Regression Test: `src/target/shared/code/audio/windows_tests.rs` (emit-inspection,
+`cargo test --bin mfb windows_tests`) — (1) `audio::available` emits no `mul` writing
+the result register (frames, not bytes); (2) `audio::read`/`readTimeout` drain a
+carry-over tail (a second `emit_read_fill`) and save the unconsumed packet tail
+(`*_carry_tail` labels) before `ReleaseBuffer`; (3) `openInput` loads `W_MIX_CH` to
+reject `mixCh < userCh`. Runtime proof of the WASAPI paths is Windows-only (box 2230).
+
+Fix summary (all four defects, Windows-only codegen):
+- (1) Dropped the `* BPF` scale in the `Query::Available` arm (`windows_io.rs`).
+- (2) Added a per-stream capture carry-over stash (`W_CARRY_PTR/FRAMES/HEAD`, one
+  device buffer wide, input streams only; `windows.rs`/`windows_open.rs`). The read
+  loop copies the unconsumed tail out before the (mandatory whole-packet)
+  `ReleaseBuffer`; the next read drains it first — no captured frame is dropped.
+- (3) Reject `mixCh < userCh` at SHARED open (`windows_open.rs`) — the read
+  converter cannot synthesize channels the device lacks; the write path is already
+  bounded on `mixCh`.
+- (4) Rewrote the stale module header and removed the dangling `branch_if_hr`
+  comment (`windows.rs`) — no buffer-alignment retry exists, AUTOCONVERTPCM is
+  deliberately unused.
+- Byte-identity: `windows-x86_64.ncodesum` regenerated; the four non-Windows audio
+  goldens are byte-identical (change is confined to the `windows` module).
 
 Four defects in the Windows WASAPI audio backend, batched (same subsystem):
 
@@ -68,6 +87,10 @@ Windows-only; not reproducible on the macOS host. Confirmed statically: the
 - Observed: (1) `available` = bytes; (2) captured audio gaps on non-aligned reads;
   (3) 4-byte OOB read on a mono-mix stereo-open device; (4) doc contradicts code.
 - Expected: (1) frames; (2) no dropped frames; (3) in-bounds; (4) accurate doc.
+- Confirmed statically before the fix (worktree-B-416): `* BPF` in `Query::Available`
+  vs the raw count in `Query::Poll`; `ReleaseBuffer(numFrames)` after a `min(...)`
+  copy; the absent `mixCh >= userCh` guard; `grep branch_if_hr` = comment only. All
+  now hold in the emit-inspection tests (RED→GREEN) + a clean windows-x86_64 encode.
 
 ## Root Cause
 

@@ -198,6 +198,10 @@ fn lower_open(
         abi::store_u64(abi::ZERO, "%v15", W_STARTED),
         abi::store_u64(abi::ZERO, "%v15", W_XRUNS),
         abi::store_u64(abi::ZERO, "%v15", W_SHARED),
+        // bug-416 (2): capture carry-over, empty until the first partial packet.
+        abi::store_u64(abi::ZERO, "%v15", W_CARRY_PTR),
+        abi::store_u64(abi::ZERO, "%v15", W_CARRY_FRAMES),
+        abi::store_u64(abi::ZERO, "%v15", W_CARRY_HEAD),
     ]);
     // CoInitializeEx(NULL, COINIT_MULTITHREADED) — result ignored.
     ins.extend([
@@ -306,6 +310,16 @@ fn lower_open(
         abi::load_u16("%v11", "%v10", 14), // mix bits per sample
         abi::compare_immediate("%v11", "32"),
         abi::branch_ne(&dev_fail),
+        // bug-416 (3): the SHARED read converter (`emit_read_fill`) reads userCh
+        // channels per frame from the device mix buffer (c in [0, userCh)); a mix
+        // with fewer channels than the caller opened would read past the capture
+        // buffer on the final frame. Reject mixCh < userCh — the read path cannot
+        // synthesize channels the device does not provide. (The write path is safe:
+        // it bounds c on mixCh and folds the user channel with `c mod userCh`.)
+        abi::load_u64("%v11", "%v9", W_MIX_CH),
+        abi::load_u64("%v12", abi::stack_pointer(), CH_OFF),
+        abi::compare_registers("%v11", "%v12"),
+        abi::branch_lt(&dev_fail),
     ]);
     // Initialize SHARED with the mix format (pointer at W_OUT0).
     emit_initialize(false, true, &mut ins);
@@ -330,6 +344,23 @@ fn lower_open(
         abi::add_immediate(abi::ARG[1], "%v9", W_BUFFER),
     ]);
     com_call(SLOT_AC_GET_BUFFER_SIZE, 2, &mut ins);
+    if input {
+        // bug-416 (2): allocate the capture carry-over buffer — one full device
+        // buffer's worth (the maximum a single `GetBuffer` packet can hold) in the
+        // device mix format. Input streams only; render never carries.
+        ins.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
+            abi::load_u32("%v10", "%v9", W_BUFFER), // negotiated buffer frames
+            abi::load_u64("%v11", "%v9", W_MIX_BPF),
+            abi::multiply_registers(abi::return_register(), "%v10", "%v11"),
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        ]);
+        emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
+        ins.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
+            abi::store_u64(abi::RET[1], "%v9", W_CARRY_PTR),
+        ]);
+    }
     // CreateEventW(NULL, FALSE, FALSE, NULL) — auto-reset; NOT sign-extended.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),

@@ -789,14 +789,22 @@ pub(super) fn emit_app_io_write_helper(
     ins.push(abi::load_u64(abi::ARG[3], abi::ARG[2], 0)); // cbMultiByte = len
     ins.push(abi::add_immediate(abi::ARG[2], abi::ARG[2], 8)); // lpMultiByteStr = str+8
     call_external(symbol, "MultiByteToWideChar", KERNEL32, &mut ins, &mut rel);
-    // NUL-terminate wbuf. The UTF-16 unit count ≤ the input byte count `str[0]`, so
-    // `wbuf + str[0]*2` is a safe upper bound (exact for ASCII); use the trusted
-    // byte length rather than MultiByteToWideChar's `int` return (whose garbage high
-    // rax bits SIGSEGV'd `wbuf + garbage` in the non-headless transcript path). A
-    // precise NUL for multi-byte text is a later refinement.
-    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), STR));
-    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0)); // len = str[0]
-    ins.push(abi::shift_left_immediate(abi::ARG[0], abi::ARG[0], 1)); // len*2
+    // NUL-terminate wbuf at the TRUE converted length. MultiByteToWideChar returns
+    // the wchar count written (≤ 32767, since cchWideChar=32767) in %ret0. The old
+    // code instead offset by the untrusted UTF-8 byte length `str[0]*2` as a "safe
+    // upper bound", but str[0]*2 exceeds the 65536-byte wbuf for any print ≥ 32768
+    // bytes, storing the NUL past the arena block and corrupting adjacent data
+    // (bug-418). Mask the `int` return's garbage high bits (the SIGSEGV the
+    // byte-length hack originally dodged — same fix the WM_GETTEXTLENGTH return
+    // below uses), clamp to ≤ 32767, then use that wchar count. A failed conversion
+    // returns 0 → NUL at wbuf[0], which is safe.
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "4294967295"));
+    ins.push(abi::and_registers(abi::ARG[0], abi::return_register(), abi::ARG[1])); // low 32 bits
+    ins.push(abi::compare_immediate(abi::ARG[0], "32767"));
+    ins.push(abi::branch_le("nul_len_ok"));
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "32767")); // clamp to wbuf capacity
+    ins.push(abi::label("nul_len_ok"));
+    ins.push(abi::shift_left_immediate(abi::ARG[0], abi::ARG[0], 1)); // wchar count → byte offset
     ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), WBUF));
     ins.push(abi::add_registers(abi::ARG[0], abi::ARG[1], abi::ARG[0])); // wbuf + len*2
     ins.push(abi::store_u16(abi::ZERO, abi::ARG[0], 0));
@@ -1437,6 +1445,7 @@ fn writable_qword(symbol: &str) -> CodeDataObject {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::arch::ops::CodeOp;
     use crate::target::shared::code::PresentationMode;
 
     fn spec() -> AppEntrySpec {
@@ -1666,5 +1675,34 @@ mod tests {
         assert!(t.contains(&"TextOutW") && t.contains(&"SetTextColor"));
         let (_f2, _i2, rel_plain) = emit_app_io_write_helper("_t", false, true, None);
         assert!(!rel_plain.iter().any(|r| r.to == "TextOutW"), "no grid path without term state");
+    }
+
+    #[test]
+    fn transcript_nul_offset_is_clamped_within_wbuf() {
+        // bug-418: `wbuf` is arena_alloc("65536") (32768 wchars) and
+        // MultiByteToWideChar is capped at cchWideChar=32767, so the conversion stays
+        // in bounds. But the NUL terminator's offset must ALSO stay in bounds. The
+        // buggy code wrote the NUL at `wbuf + str[0]*2`, where str[0] is the untrusted
+        // UTF-8 BYTE length: any print ≥ 32768 bytes makes the offset ≥ 65536 and the
+        // store lands past the 64 KiB arena block, corrupting adjacent arena data.
+        //
+        // The fix derives the offset from the converted wchar count clamped to ≤ 32767
+        // (max byte offset 32767*2 = 65534 < 65536). Structurally: the transcript NUL
+        // store (the unique `str_u16` of the zero register) must be preceded by a
+        // `cmp_imm rhs=32767` clamp. The raw `str[0]*2` form has no such clamp — only
+        // `cmp_imm rhs=0` guards (the path selectors), never a 32767 bound.
+        let (_frame, ins, _rel) = emit_app_io_write_helper("_test_io", false, false, None);
+        let nul_idx = ins
+            .iter()
+            .position(|i| i.op == CodeOp::StrU16 && i.get("src") == Some(abi::ZERO))
+            .expect("transcript path NUL-terminates wbuf via a str_u16 of the zero register");
+        let clamped = ins[..nul_idx]
+            .iter()
+            .any(|i| i.op == CodeOp::CmpImm && i.get("rhs") == Some("32767"));
+        assert!(
+            clamped,
+            "the wbuf NUL offset must be clamped to ≤ 32767 wchars so it stays within \
+             the 65536-byte wbuf (bug-418); found no `cmp_imm rhs=32767` before the store"
+        );
     }
 }

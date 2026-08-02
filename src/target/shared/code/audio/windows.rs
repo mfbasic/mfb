@@ -20,9 +20,12 @@
 //! handle, the negotiated buffer frame count, and the COM out-pointer scratch the
 //! method calls write their results into (an absolute arena address is a stable,
 //! DEPTH-0-safe out-param target). Open Decision 1 (EXCLUSIVE, no resampling) is
-//! attempted first with the buffer-alignment retry; if EXCLUSIVE is refused it
-//! falls back to SHARED with AUTOCONVERTPCM so `s16le` still plays on any endpoint
-//! (clearly a last resort, recorded in `W_SHARED`).
+//! attempted first; if the device refuses that format (any FAILED `Initialize`
+//! HRESULT) `lower_open` releases and re-activates the client and falls back to
+//! SHARED at the device's own MIX FORMAT (`GetMixFormat`), converting each sample
+//! between `s16le` and the mix's 32-bit float by hand — AUTOCONVERTPCM is NOT used
+//! (it fast-fails on the test box). The fallback is a last resort, recorded in
+//! `W_SHARED`; there is no buffer-alignment retry.
 
 use std::collections::HashMap;
 
@@ -41,8 +44,6 @@ const STGM_READ: &str = "0";
 const SHAREMODE_SHARED: &str = "0";
 const SHAREMODE_EXCLUSIVE: &str = "1";
 const STREAMFLAGS_EVENTCALLBACK: &str = "262144"; // 0x00040000
-                                                  // AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED = 0x88890019 (negative as i32); built by
-                                                  // shift+add in `branch_if_hr` since the encoder rejects the negative literal.
 const REFTIMES_PER_SEC: &str = "10000000";
 const WAVE_FORMAT_PCM: usize = 1;
 const BITS_PER_SAMPLE: usize = 16;
@@ -95,7 +96,17 @@ const W_OUT2: usize = 88; // COM out-ptr scratch (flags)
 const W_WFX: usize = 120; // WAVEFORMATEX (18 bytes, +pad) -> 120..138
 const W_MIX_CH: usize = 144; // SHARED-mix: device mix channel count
 const W_MIX_BPF: usize = 152; // SHARED-mix: device mix bytes-per-frame (frame stride)
-const W_SIZE: usize = 176;
+// bug-416 (2): capture carry-over. WASAPI requires a whole IAudioCaptureClient
+// packet be released (`ReleaseBuffer(numFrames)` == the `GetBuffer` count or 0) —
+// a partial consume is illegal. When a `read` whose length isn't packet-aligned
+// consumes only part of the final packet, the unconsumed tail is stashed here (in
+// the DEVICE mix format, `W_MIX_BPF` stride) and drained by the next `read` so no
+// captured frame is dropped. `W_CARRY_PTR` sizes to `W_BUFFER * W_MIX_BPF` bytes
+// (input streams only); `W_CARRY_HEAD` is the frame cursor into the stash.
+const W_CARRY_PTR: usize = 160; // arena carry buffer (input only), or null
+const W_CARRY_FRAMES: usize = 168; // total frames stashed
+const W_CARRY_HEAD: usize = 176; // frames already drained (cursor)
+const W_SIZE: usize = 184;
 
 const SLOT_ENUM_GET_DEVICE: usize = 5; // IMMDeviceEnumerator::GetDevice
 
@@ -255,3 +266,7 @@ pub(super) fn lower_audio_windows(
 include!("windows_open.rs");
 include!("windows_io.rs");
 include!("windows_devices.rs");
+
+#[cfg(test)]
+#[path = "windows_tests.rs"]
+mod windows_tests;
