@@ -115,7 +115,7 @@ drawing area to its framebuffer (GTK4's GL renderer needs a compositor/GL sessio
 even `GSK_RENDERER=cairo` stays black; the black paint + a coloured background never
 reach the root either, so it is a GTK4/Xvfb display limit, NOT the Pango codegen). This
 is the SAME pre-existing limitation `tests/rt_gtk_term_utf8_grid.rs` documents ("needs
-a manual `-app` run on a GTK desktop"). Commit: —
+a manual `-app` run on a GTK desktop"). Commit: a643ea509
 
 ### Phase 2 — width layout + single-scalar wide
 
