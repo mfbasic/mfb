@@ -121,6 +121,21 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
         || name.starts_with("ThreadWorker OF ")
 }
 
+/// The record `(field, type)` list of a builtin type, or `None` when the type is
+/// opaque/enum or unknown (plan-72-BB: the owning module's descriptor `types`
+/// entry — only `io`, `net`, `term`, and `audio` contribute record types today).
+/// A type with no fields (opaque handle / source-companion record) reports `None`,
+/// matching the legacy per-package `builtin_type_fields`.
+pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
+    descriptor::REGISTRY.modules().iter().find_map(|module| {
+        module
+            .types
+            .iter()
+            .find(|ty| ty.name == name)
+            .and_then(|ty| (!ty.fields.is_empty()).then_some(ty.fields))
+    })
+}
+
 /// The internal helper a built-in package provides as an **override** of an
 /// overridable general built-in (`toString`, `len`, …) over one of its value
 /// types (plan-01-overload.md §B.2). A general call `f(x)` whose sole argument

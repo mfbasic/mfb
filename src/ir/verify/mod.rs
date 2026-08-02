@@ -1226,10 +1226,7 @@ fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static s
         }
         _ => {}
     }
-    builtins::io::builtin_type_fields(name)
-        .or_else(|| builtins::net::builtin_type_fields(name))
-        .or_else(|| builtins::term::builtin_type_fields(name))
-        .or_else(|| builtins::audio::builtin_type_fields(name))
+    builtins::builtin_type_fields(name)
 }
 
 /// Record every `Closure { name, captures }` site's captured-slot count so the

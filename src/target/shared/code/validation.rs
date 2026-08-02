@@ -298,7 +298,7 @@ impl TypeModel {
             }
         }
         for type_name in ["Address", "Datagram", "DatagramText"] {
-            if let Some(fields) = builtins::net::builtin_type_fields(type_name) {
+            if let Some(fields) = builtins::builtin_type_fields(type_name) {
                 record_fields.insert(
                     type_name.to_string(),
                     fields
@@ -308,7 +308,7 @@ impl TypeModel {
                 );
             }
         }
-        if let Some(fields) = builtins::audio::builtin_type_fields("AudioDevice") {
+        if let Some(fields) = builtins::builtin_type_fields("AudioDevice") {
             record_fields.insert(
                 "AudioDevice".to_string(),
                 fields
@@ -318,7 +318,7 @@ impl TypeModel {
             );
         }
         for type_name in ["TermColor", "TermSize"] {
-            if let Some(fields) = builtins::term::builtin_type_fields(type_name) {
+            if let Some(fields) = builtins::builtin_type_fields(type_name) {
                 record_fields.insert(
                     type_name.to_string(),
                     fields
