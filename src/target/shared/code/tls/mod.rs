@@ -412,6 +412,21 @@ pub(super) fn lower_tls_write_helper(
     }
 }
 
+/// plan-76-B: `tls::poll(sock[, timeoutMs]) AS Boolean` — the TLS readiness query,
+/// per-backend (openssl `SSL_pending`+`poll`, schannel carry-over+`WSAPoll`, macOS
+/// the outstanding-receive model).
+pub(super) fn lower_tls_poll_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    match platform.family() {
+        PlatformFamily::MacOS => macos::lower_tls_poll_macos(symbol, platform_imports, platform),
+        PlatformFamily::Linux => openssl::lower_tls_poll_openssl(symbol, platform_imports, platform),
+        PlatformFamily::Windows => schannel::lower_tls_poll(symbol, platform_imports, platform),
+    }
+}
+
 pub(super) fn lower_tls_close_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,

@@ -55,6 +55,11 @@ const CFG_DESC_SYMBOL: &str = "_mfb_tls_cfg_block_desc";
 pub(crate) const STATE_INVOKE: &str = "_mfb_tls_nw_state_invoke";
 pub(crate) const SEND_INVOKE: &str = "_mfb_tls_nw_send_invoke";
 pub(crate) const RECV_INVOKE: &str = "_mfb_tls_nw_recv_invoke";
+// plan-76-B Phase 4: the poll readiness receive's completion block. Identical to
+// RECV_INVOKE but writes the dedicated CTX_PCONTENT/CTX_PERROR slots and signals
+// CTX_PSEM, so an outstanding poll receive never collides with the read/write
+// CTX_SEM/CTX_CONTENT the per-op `emit_fresh_sem` recycles.
+pub(crate) const RECV_POLL_INVOKE: &str = "_mfb_tls_nw_recv_poll_invoke";
 // Configure-TLS block invoke: overrides the SNI / certificate-validation
 // server name when `serverName` is supplied. The server path reuses the same
 // trampoline shape to install the local identity: it captures
@@ -99,7 +104,25 @@ pub(crate) const CTX_STATE: usize = 16;
 pub(crate) const CTX_CONTENT: usize = 24;
 pub(crate) const CTX_ERROR: usize = 32;
 pub(crate) const CTX_RETAIN: usize = 40; // dispatch_retain, used by the receive block
-const CTX_SIZE: &str = "48";
+// plan-76-B Phase 4 (outstanding-receive model for tls::poll): a DEDICATED
+// semaphore + content/error slots for the poll readiness receive, isolated from
+// the per-op CTX_SEM/CTX_CONTENT that read/write recycle via `emit_fresh_sem`. The
+// isolation is what keeps `tls::write`/`tls::close` byte-identical — an outstanding
+// poll receive never touches CTX_SEM, so their fresh-sem invariant (bug-52/55) is
+// unaffected. `CTX_PSEM` is created once at connection-ctx setup and reused (at most
+// one poll receive is ever outstanding). `CTX_PEND_*` is the stashed decrypted
+// plaintext (a plain arena buffer, so no NW object lifetime is held across a
+// poll→read boundary); `CTX_ARMED` is 1 while a poll receive is in flight. These
+// slots live only in the CONNECTION ctx (a separate allocation from the listener
+// LCTX, whose ring starts at offset 48), so they do not collide with LCTX.
+pub(crate) const CTX_PSEM: usize = 48;
+pub(crate) const CTX_PCONTENT: usize = 56;
+pub(crate) const CTX_PERROR: usize = 64;
+pub(crate) const CTX_PEND_BUF: usize = 72; // stashed plaintext arena buffer (0 = none)
+pub(crate) const CTX_PEND_LEN: usize = 80; // total bytes in CTX_PEND_BUF
+pub(crate) const CTX_PEND_OFF: usize = 88; // consume cursor into CTX_PEND_BUF
+pub(crate) const CTX_ARMED: usize = 96; // 1 while a poll receive is outstanding
+const CTX_SIZE: &str = "112";
 
 // The listener context extends the shared ctx prefix (the listener's
 // state-changed handler is the plain STATE_INVOKE trampoline over the same
@@ -582,7 +605,8 @@ mod server;
 mod tests;
 
 pub(super) use client::{
-    lower_tls_close_macos, lower_tls_connect_macos, lower_tls_read_macos, lower_tls_write_macos,
+    lower_tls_close_macos, lower_tls_connect_macos, lower_tls_poll_macos, lower_tls_read_macos,
+    lower_tls_write_macos,
 };
 pub(super) use server::{
     lower_tls_accept_macos, lower_tls_close_listener_macos, lower_tls_listen_macos,

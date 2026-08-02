@@ -1459,6 +1459,22 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
         abi::store_u64(abi::ZERO, "%v9", CTX_CONTENT),
         abi::store_u64(abi::ZERO, "%v9", CTX_ERROR),
     ]);
+    // plan-76-B Phase 4: dedicated poll-receive semaphore + zeroed pending slots on
+    // the server-accepted connection ctx (tls::poll works on accepted sockets too).
+    // FNPTR still holds dispatch_semaphore_create here.
+    ins.extend([
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+        abi::load_u64("%v9", abi::stack_pointer(), CCTX),
+        abi::store_u64(abi::return_register(), "%v9", CTX_PSEM),
+        abi::store_u64(abi::ZERO, "%v9", CTX_PCONTENT),
+        abi::store_u64(abi::ZERO, "%v9", CTX_PERROR),
+        abi::store_u64(abi::ZERO, "%v9", CTX_PEND_BUF),
+        abi::store_u64(abi::ZERO, "%v9", CTX_PEND_LEN),
+        abi::store_u64(abi::ZERO, "%v9", CTX_PEND_OFF),
+        abi::store_u64(abi::ZERO, "%v9", CTX_ARMED),
+    ]);
     dlsym(
         &mut EmitCtx {
             symbol,

@@ -482,10 +482,6 @@ pub(super) fn lower_tls_close(
 // readable. The buffered fast-path is mandatory: a DecryptMessage can leave plaintext
 // in the carry-over buffer with the socket idle, which an fd-only poll would miss.
 // x0 = sock record, x1 = timeoutMs.
-// plan-76-B Phase 3: complete and compile-verified; unwired pending the macOS
-// backend architecture decision (B-macos-blocker) — the 3-backend `tls.poll`
-// dispatch must land atomically.
-#[allow(dead_code)]
 pub(super) fn lower_tls_poll(
     symbol: &str,
     imports: &HashMap<String, String>,

@@ -2204,14 +2204,6 @@ pub(super) fn lower_tls_read_openssl(
 // tls.poll  (plan-76-B: tls::poll(sock[, timeoutMs]) AS Boolean)
 // ---------------------------------------------------------------------------
 
-// plan-76-B Phase 2: complete and compile-verified. Not yet wired into the
-// `tls.poll` dispatch — the fan-out (`tls/mod.rs`) is exhaustive over all three
-// backends, and the macOS backend is blocked on an architecture decision
-// (plan-76-B Corrections B-macos-blocker: Network.framework cannot answer a
-// non-blocking readiness poll without a data-losing race, so it needs an
-// outstanding-receive re-architecture). The 3-backend dispatch must land
-// atomically, so this stays unwired until that is resolved.
-#[allow(dead_code)]
 /// TLS readiness on OpenSSL. `readable = SSL_pending(ssl) > 0 OR poll(fd, POLLIN)`:
 /// the `SSL_pending` fast-path catches decrypted app bytes already buffered in the
 /// TLS layer with the fd idle (which an fd-only poll would miss), and the `poll(2)`

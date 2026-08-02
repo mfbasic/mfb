@@ -328,6 +328,7 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "tls.readText",
             "tls.write",
             "tls.writeText",
+            "tls.poll",
             "tls.close",
             "tls.closeListener",
         ],

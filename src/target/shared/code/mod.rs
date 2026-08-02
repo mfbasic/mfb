@@ -2159,6 +2159,7 @@ fn lower_runtime_helper(
                 "tls.writeText" => {
                     tls::lower_tls_write_helper(symbol, platform_imports, platform, true)?
                 }
+                "tls.poll" => tls::lower_tls_poll_helper(symbol, platform_imports, platform)?,
                 "tls.close" => tls::lower_tls_close_helper(symbol, platform_imports, platform)?,
                 "tls.closeListener" => {
                     tls::lower_tls_close_listener_helper(symbol, platform_imports, platform)?
@@ -2237,6 +2238,18 @@ pub(super) fn emit_alloc(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(fail),
     ]);
+}
+
+/// `arena_free(x0 = ptr, x1 = size)` — return a compiler-sized allocation to the
+/// arena. The caller preloads `x0`/`x1`; one internal-call relocation per (from,to)
+/// covers all sites in `symbol`. Companion of [`emit_alloc`].
+pub(super) fn emit_arena_free(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::branch_link(ARENA_FREE_SYMBOL));
+    relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
 }
 
 fn internal_branch(from: &str, to: &str) -> CodeRelocation {

@@ -54,6 +54,13 @@ pub(crate) const TLS_WRITE_TEXT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     abi: RuntimeHelperAbi { returns: "Nothing" },
 };
 
+// plan-76-B: the TLS readiness query.
+pub(crate) const TLS_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Tls,
+    call: "tls.poll",
+    abi: RuntimeHelperAbi { returns: "Boolean" },
+};
+
 pub(crate) const TLS_CLOSE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Tls,
     call: "tls.close",
