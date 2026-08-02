@@ -976,30 +976,31 @@ pub(crate) fn lower_thread_trampoline(
     // and `FRAME_SIZE` is a 16-multiple, so it preserves whatever alignment the
     // trampoline is entered with. Whether the entry alignment is `sp % 16 == 0`
     // or `sp % 16 == 8` depends on HOW the OS/thread library reaches this
-    // start-routine, and that differs per x86-64 ABI — so the fixup is gated
-    // per-flavor, not per-arch (bug-385 corrects bug-383's over-broad gate):
+    // start-routine, which differs per ISA — so the fixup is gated per-arch:
     //
-    //   - Windows x86-64: BaseThreadInitThunk `call`s the routine, pushing an
-    //     8-byte return address, so it arrives at `sp % 16 == 8`. Without a fixup
-    //     a file API reaches ntdll's SwitchBack (`SbSelectProcedure`), which does
-    //     `movaps [rbp+0x170], xmm0` on a stack local and #GPs (an AV at
-    //     address -1). It NEEDS the +8 (47-H).
-    //   - musl x86-64: the pthread start-routine dispatch likewise `call`s the
-    //     routine, so it too arrives at `sp % 16 == 8` and NEEDS the +8 to give
-    //     downstream callees a 16-aligned stack (bug-383; proven on 2227).
-    //   - glibc x86-64: glibc's `start_thread` enters the start routine already
-    //     16-aligned (`sp % 16 == 0`), so a +8 here would MISalign every
-    //     downstream call and the first `movaps`-to-a-stack-local faults — a hard
-    //     SIGSEGV, not a latent tolerance. It must take NO realign (bug-385;
-    //     proven on 2228: the 88-byte frame SIGSEGVs, the 80-byte frame runs).
+    //   - EVERY x86-64 thread library reaches the start-routine with a `call`
+    //     (glibc `start_thread` → `pd->start_routine(...)`; musl's pthread
+    //     dispatch; Windows `BaseThreadInitThunk`). The `call` pushes an 8-byte
+    //     return address onto an otherwise 16-aligned stack, so the trampoline is
+    //     always entered at `sp % 16 == 8`. Without the +8 bias every downstream
+    //     `call` lands at `sp % 16 == 8` and the first SSE store to a stack local
+    //     (`movaps`/`movdqa` in `fstatat`/`pthread_create`/ntdll `SwitchBack`)
+    //     faults — a hard SIGSEGV. So x86-64 ALWAYS needs the +8, independent of
+    //     libc (bug-408; box-proven 2026-08-01: on glibc 2228 the 88-byte frame
+    //     runs and the 80-byte frame SIGSEGVs 5/5; on musl 2227 the 88-byte frame
+    //     runs and the 96-byte double-realign SIGSEGVs 5/5; Windows 47-H).
+    //
+    // This corrects bug-385, which wrongly believed glibc `start_thread` entered
+    // the routine already 16-aligned and gated glibc OUT of the realign. That was
+    // masked because `linux_x86_64` carried a SECOND, unconditional +8 override
+    // that silently restored glibc's frame to 88 (and pushed musl to a broken 96);
+    // bug-408 removes that override and lets this single per-arch realign stand.
     //
     // aarch64/riscv64 are unaffected on every OS: `bl`/`jal` write the return
     // address to a link register and leave `sp` unchanged, so the trampoline is
     // entered at `sp % 16 == 0` already and keeps its byte-identical 80-byte
     // frame. macOS (aarch64) likewise takes no realign.
-    let needs_realign = platform.arch() == "x86_64"
-        && (platform.family() == PlatformFamily::Windows
-            || platform.libc() == Some(crate::manifest::libraries::Libc::Musl));
+    let needs_realign = platform.arch() == "x86_64";
     let x86_realign = if needs_realign { 8 } else { 0 };
     let frame = FRAME_SIZE + x86_realign;
 

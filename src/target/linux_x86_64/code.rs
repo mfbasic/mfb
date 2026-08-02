@@ -26,7 +26,7 @@ use crate::target::linux_common::code::{
     self as common, AppSupport, LinuxArch, MAP_PRIVATE_ANON, PROT_READ_WRITE,
 };
 use crate::target::shared::code::{
-    self, CodeFunction, CodeInstruction, CodeRelocation, MirPlan, NativeCodePlan,
+    self, CodeInstruction, CodeRelocation, MirPlan, NativeCodePlan,
 };
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
@@ -193,45 +193,15 @@ impl LinuxArch for X86_64 {
         Ok(())
     }
 
-    fn emit_thread_trampoline(
-        &self,
-        platform: &dyn code::CodegenPlatform,
-        platform_imports: &HashMap<String, String>,
-        uses_stdin: bool,
-        arena_init: code::ArenaInitSymbols,
-    ) -> Result<CodeFunction, String> {
-        // Same shared trampoline as AArch64: pthread hands the control block in
-        // the first argument register; the body is alias-free machine-floor
-        // code (x13/x14/x20 scratch) that selects cleanly through the x86 remap.
-        let mut function =
-            code::lower_thread_trampoline(platform_imports, platform, uses_stdin, arena_init)?;
-        // No worker r14-zeroing: `store xzr` now encodes an immediate zero on x86,
-        // so a worker no longer depends on r14 holding 0 (plan-34-C freed r14).
-        let at = usize::from(
-            function
-                .instructions
-                .first()
-                .is_some_and(|inst| inst.op == crate::arch::ops::CodeOp::Label),
-        );
-        // Re-bias the stack for SysV alignment. pthread enters the trampoline
-        // like any C callee (rsp ≡ 8 mod 16); the shared trampoline's 80-byte
-        // frame keeps that parity, so every function it calls would be entered
-        // at ≡ 0 — the whole worker call tree then runs 8 off the C convention
-        // and musl's SSE locals (movaps/movdqa on [rsp+K] in fstatat,
-        // pthread_create, …) fault. An extra 8-byte bias (popped before the
-        // trampoline's return) restores ≡ 0 at its call instructions, exactly
-        // what SysV requires. The trampoline's own [sp, K] slots are relative
-        // to the final sp, so they are unaffected. AArch64 needs no bias.
-        function.instructions.insert(at + 1, abi::subtract_stack(8));
-        let mut i = at + 2;
-        while i < function.instructions.len() {
-            if function.instructions[i].op == crate::arch::ops::CodeOp::Ret {
-                function.instructions.insert(i, abi::add_stack(8));
-                i += 2;
-            } else {
-                i += 1;
-            }
-        }
-        Ok(function)
-    }
+    // No `emit_thread_trampoline` override: x86-64 uses the default
+    // `LinuxArch::emit_thread_trampoline`, which returns the shared
+    // `lower_thread_trampoline` verbatim (like aarch64/riscv64). That shared body
+    // now applies the SysV stack realign for ALL x86-64 (bug-408): glibc, musl,
+    // and Windows all enter the thread start-routine via a `call` at `sp%16==8`
+    // and need one +8 bias (an 88-byte frame). This backend previously inserted a
+    // SECOND, unconditional `sub sp,8` here (commit 10b5d0fb4a) to compensate for
+    // bug-385 having wrongly gated glibc OUT of the shared realign — which left
+    // glibc correct only by accident (80 + 8 = 88) and pushed musl to a broken
+    // 96-byte double realign (both box-proven on 2228/2227, 2026-08-01). With the
+    // shared gate fixed to be per-arch, that override is removed.
 }

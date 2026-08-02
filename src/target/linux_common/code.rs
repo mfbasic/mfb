@@ -1134,6 +1134,13 @@ mod tests {
         }
     }
 
+    fn x86_64_musl() -> Platform<X86_64> {
+        Platform {
+            arch: X86_64,
+            flavor: LinuxFlavor::Musl,
+        }
+    }
+
     /// bug-321's Validation Plan names this as the one cheap regression test
     /// worth adding: `stat_mode_offset` is the single constant this refactor
     /// could plausibly homogenize by accident, because it sits inside a run of
@@ -1449,5 +1456,73 @@ mod tests {
         // The positive control: these do not panic.
         assert!(!Aarch64.app().require_gtk());
         assert!(X86_64.app().require_gtk());
+    }
+
+    /// bug-408: EVERY x86-64 thread library (glibc `start_thread`, musl's pthread
+    /// dispatch, Windows `BaseThreadInitThunk`) `call`s the start-routine, so the
+    /// trampoline is entered at `sp%16==8` and needs exactly ONE +8 realign — an
+    /// 88-byte frame — on both libcs. Box-proven 2026-08-01: on glibc 2228 the
+    /// 88-byte frame runs and the 80-byte frame SIGSEGVs; on musl 2227 the 88-byte
+    /// frame runs and the 96-byte double-realign SIGSEGVs. This asserts the shared
+    /// trampoline emits exactly one frame `sub_sp`/`add_sp` of 88 for BOTH libcs
+    /// (no libc-gated 80, no compounding 96 from a second override).
+    #[test]
+    fn thread_trampoline_x86_frame_is_88_on_both_libcs() {
+        // The trampoline lowers `pthread_*` calls through the import table.
+        let imports: HashMap<String, String> = [
+            "pthread_mutex_init",
+            "pthread_mutex_lock",
+            "pthread_mutex_unlock",
+            "pthread_cond_init",
+            "pthread_cond_signal",
+            "pthread_cond_broadcast",
+            "pthread_cond_wait",
+            "pthread_cond_timedwait",
+            "pthread_create",
+            "pthread_detach",
+            "pthread_attr_init",
+            "pthread_attr_setstacksize",
+            "pthread_attr_destroy",
+        ]
+        .into_iter()
+        .map(|s| (s.to_string(), "libc.so.6".to_string()))
+        .collect();
+        for platform in [
+            &x86_64() as &dyn CodegenPlatform,
+            &x86_64_musl() as &dyn CodegenPlatform,
+        ] {
+            let trampoline = platform
+                .emit_thread_trampoline(
+                    &imports,
+                    false,
+                    crate::target::shared::code::ArenaInitSymbols::default(),
+                )
+                .expect("emit thread trampoline");
+
+            let subs: Vec<usize> = trampoline
+                .instructions
+                .iter()
+                .filter(|i| i.op.mnemonic() == "sub_sp")
+                .map(|i| i.get("imm").expect("sub_sp imm").parse().expect("numeric imm"))
+                .collect();
+            let adds: Vec<usize> = trampoline
+                .instructions
+                .iter()
+                .filter(|i| i.op.mnemonic() == "add_sp")
+                .map(|i| i.get("imm").expect("add_sp imm").parse().expect("numeric imm"))
+                .collect();
+
+            let libc = platform.libc().map(|l| l.as_str()).unwrap_or("?");
+            assert_eq!(
+                subs, vec![88usize],
+                "{libc} x86-64 trampoline must have exactly one frame `sub sp` of 88 \
+                 bytes (one +8 realign, no libc-gated 80, no compounding 96) — bug-408"
+            );
+            assert_eq!(
+                adds, vec![88usize],
+                "{libc} x86-64 trampoline must tear the frame down with exactly one \
+                 `add sp` of 88 bytes — bug-408"
+            );
+        }
     }
 }
