@@ -32,20 +32,27 @@ References: plan-72 overview, `src/builtins/csv.rs`,
 
 ### Phase G1 — descriptor and resolver
 
-- [ ] Add `pub(crate) static CSV: BuiltinModule` with every function,
-      overload, parameter, argument types, return type, implementation, and
-      default.
-- [ ] Model the `package_source_glue!` companion as
-      `BuiltinSource { rule: InjectionRule::WhenImported, .. }`.
-- [ ] Attach a resolver (or a static implementation-name table) for
-      `implementation_name`.
-- [ ] Rewrite the 7 metadata helpers as wrappers over `CSV`.
-- [ ] Register `CSV` with the `BuiltinRegistry` from plan-72-A.
-- [ ] Parity tests for every `csv.*` name and every implementation-name
-      case.
+- [x] Add `pub(crate) static CSV: BuiltinModule` — `parse(value/text: String)`
+      → `List OF List OF String`, `stringify(value: List OF List OF String)` →
+      `String`; `Fixed` returns; `Implementation::Rewrite(__csv_parse/__csv_stringify)`.
+- [x] Model the `package_source_glue!` companion as
+      `BuiltinSource { rule: InjectionRule::WhenImported, loader: source_file }`.
+- [x] ~~Attach a resolver~~ — moot: `implementation_name(name)` is a fixed
+      name→symbol map = `Implementation::Rewrite`, so a **static table** (no
+      resolver) suffices. The plan's "1 custom-resolver helper" overstated it.
+- [x] Rewrite the metadata helpers over `CSV`: `is_csv_call`/`arity`/
+      `call_return_type_name`/`resolve_call`/`implementation_name` delegate to
+      `DefaultResolver`; `call_param_names`/`expected_arguments` stay static
+      (borrowed ABI), pinned by parity.
+- [x] Register `CSV` with the `BuiltinRegistry`
+      (`new(&[&app::APP, &bits::BITS, &collections::COLLECTIONS, &csv::CSV])`).
+- [x] Parity test `parity_matches_descriptor`: both members + `csv.other`
+      (membership, arity, param names, return type, expected args, impl name),
+      plus resolve_call/rewrite.
 
 Acceptance: `cargo test` passes and `csv.*` fixtures run clean under
-`scripts/test-accept.sh target/debug/mfb target/accept-actual`.
+`scripts/test-accept.sh` (2 fixtures; byte-identity via the combined C/F/G/H/I
+artifact-gate at finalization).
 Commit: —
 
 ## Validation

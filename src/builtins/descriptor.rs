@@ -590,12 +590,12 @@ impl BuiltinRegistry {
 /// legacy per-package helper (the `mod.rs` adapters fall back on a registry
 /// miss). BB then deletes the legacy helpers the adapters fall back to.
 ///
-/// Migrated so far: `app` (plan-72-B), `bits` (plan-72-D), `collections`
-/// (plan-72-E).
+/// Migrated so far: `app` (B), `bits` (D), `collections` (E), `csv` (G).
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::bits::BITS,
     &crate::builtins::collections::COLLECTIONS,
+    &crate::builtins::csv::CSV,
 ]);
 
 /// The migration parity harness (plan-72).
