@@ -127,11 +127,13 @@ freedom is whether a given function is a *readiness query* or a *producing call*
 | `< 0` | rejected | `ErrInvalidArgument` (77050002) | `ErrInvalidArgument` (77050002) |
 
 - A **readiness query** has a not-ready value to return (`FALSE` for a
-  `Boolean` poll, `-1`, etc.): `net::poll`, `audio::poll`, `io::pollInput`.
+  `Boolean` poll, `-1`, etc.): `net::poll` (scalar `Socket → Boolean` form),
+  `audio::poll`, `io::pollInput`.
 - A **producing call** yields a resource, message, connection, or bytes and has
   no not-ready value, so an unmet deadline is an error: `net::accept`,
-  `net::connectTcp`, `net::read`/`readText`/`write`/`writeText` (under a socket
-  read/write timeout), `tls::connect`, `tls::accept`, `audio::read`,
+  `net::connectTcp`, `net::poll` (the multiplex `List OF RES Socket → Socket`
+  form, which yields the first ready socket), `net::read`/`readText`/`write`/`writeText`
+  (under a socket read/write timeout), `tls::connect`, `tls::accept`, `audio::read`,
   `thread::send`, `thread::receive`, `thread::transfer`, `thread::accept`.
 - **Expiry raises exactly one error, `ErrTimeout` (77050008)**, for every
   producing call. There is no family-specific expiry code. (`net` read/write

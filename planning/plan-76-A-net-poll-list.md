@@ -296,18 +296,27 @@ Acceptance: the multiplex fixture runs clean and picks the correct ready socket;
 match the plan-73 table; 1200× loop leaks no fd; `cargo test --bin mfb` (3750/0) + `net` byte-identity
 delta proven additive + release-parity confirmed. (Full `artifact-gate all` deferred to finalization —
 a concurrent gate from another session held the global lock; net goldens independently verified.)
-Commit: (recorded next commit)
+Commit: f37003c4c
 
 ### Phase 4 — docs
 
-- [ ] Man page: add the list overload to `src/docs/man/builtins/net/poll.md` (both overloads,
-      timeout-convention row, "returns a borrowed pointer; the list still owns and closes it").
-- [ ] Spec: ensure `mfb spec` net section's `poll(List OF Socket)` wording matches the shipped
-      return type and ownership note (it already documents the overload — reconcile, don't
-      re-invent). Cite `mfb spec language builtin-functions` §18.4 for the timeout meaning.
+- [x] Man page `src/docs/man/builtins/net/poll.md`: added both list overloads to the Synopsis,
+      Overloads, Parameters (`socks`), Return value (borrowed `Socket`), and Errors (`ErrTimeout`
+      77050008 for the list expiry; empty-list `ErrInvalidArgument`); replaced the stale "deliberately
+      not implemented / unreachable" paragraph with the readiness-multiplex description (borrowed
+      pointer, list owns/closes, empty→ErrInvalidArgument, producing-call ErrTimeout); added a
+      multiplex example. Fixed a stale `net_connect_is_address_form` citation → `net_poll_is_list_form`.
+- [x] Spec `src/docs/spec/language/18_builtin-functions.md`: reconciled the timeout-convention
+      classification — the scalar `net::poll` stays a readiness query; the list `net::poll` is now
+      listed as a **producing call** (yields the first ready socket, `ErrTimeout` on expiry). The net
+      function list already names `net::poll` (one name, two overloads). The plan's claim that the
+      spec "already documents the `poll(List OF Socket)` overload" was imprecise — the spec lists the
+      function name, not per-overload signatures (those live in the man page); reconciled the
+      convention classification instead (Corrections C3).
 
-Acceptance: `mfb man net poll` shows both overloads; man/spec-citation tests green.
-Commit: —
+Acceptance: `mfb man net poll` renders all four overloads; `cargo test --bin mfb` green (3750/0),
+man/spec-citation tests pass (5/0). ✅
+Commit: (recorded next commit)
 
 ## Validation Plan
 
@@ -350,6 +359,13 @@ Commit: —
   `tests/rt-behavior/resources/`. Remaining Phase-1 work is narrowed to WIRING
   `net.poll(List)` into the same non-owning-return classification `collections::get`
   uses (so the returned binding registers no close obligation), not proving feasibility.
+- **C3 (Phase 4): the spec carries no per-overload `poll` signature to "reconcile".**
+  The plan (Phase 4) said `mfb spec` "already documents the `poll(List OF Socket)`
+  overload." In fact the net spec (`18_builtin-functions.md`) lists only the function
+  *name* `net::poll`; per-overload signatures live in the man page. What needed
+  reconciling was the timeout-convention classification: the scalar form is a readiness
+  query (`Boolean`/`FALSE`), the new list form is a **producing** call (yields the first
+  ready `Socket`, `ErrTimeout` on expiry) — both bullets updated accordingly.
 
 ## Summary
 
