@@ -960,13 +960,15 @@ mod tests {
             argument_types: None, // custom joined strings
             implementation_name: None,
             default_padding: None,
-            builtin_type_fields: Some(&|name| match name {
-                SEALED_TYPE | KEYPAIR_TYPE => Some(&[] as &'static [(&'static str, &'static str)]),
-                _ => None,
-            }),
+            // Sealed/KeyPair are opaque (no record fields) and crypto has no
+            // builtin_type_fields helper; membership is asserted below.
+            builtin_type_fields: None,
         };
         let mut probe = calls.clone();
         probe.push("crypto.bogus");
+        assert!(is_builtin_type(SEALED_TYPE));
+        assert!(is_builtin_type(KEYPAIR_TYPE));
+        assert!(!is_builtin_type("Nope"));
 
         let samples = [
             // hash: bytes vs text implementation selection.

@@ -361,13 +361,17 @@ impl DefaultResolver {
     }
 
     /// Per-position name spellings for named-argument binding — legacy
-    /// `call_param_names`. Uses the function's canonical (first) overload; a
-    /// function whose overloads place a name at different positions is a
-    /// `call_param_name_overloads` case and is resolved elsewhere.
+    /// `call_param_names`. A function with a single overload returns its
+    /// per-position spellings; a function whose overloads disagree on positions
+    /// returns `None` (its names live in `param_name_overloads`), matching the way
+    /// legacy `call_param_names` returns `None` for such a call (`audio.openInput`).
     pub(crate) fn param_names(module: &BuiltinModule, name: &str) -> Option<Vec<Vec<&'static str>>> {
-        let overload = module.function(name)?.overloads.first()?;
+        let function = module.function(name)?;
+        if function.overloads.len() != 1 {
+            return None;
+        }
         Some(
-            overload
+            function.overloads[0]
                 .params
                 .iter()
                 .map(Parameter::name_spellings)
@@ -378,13 +382,18 @@ impl DefaultResolver {
     /// Per-overload canonical parameter-name lists — legacy
     /// `call_param_name_overloads`. Each entry is one overload's parameter names
     /// (canonical spelling only), so a call whose overloads place a name at
-    /// different positions (`net::connectTcp`'s `timeoutMs`) is described
-    /// faithfully rather than merged. `None` for an unknown call.
+    /// different positions (`audio.openInput`, `net::connectTcp`) is described
+    /// faithfully rather than merged. `None` for a single-overload or unknown call
+    /// (its names live in `param_names`), matching legacy
+    /// `call_param_name_overloads`.
     pub(crate) fn param_name_overloads(
         module: &BuiltinModule,
         name: &str,
     ) -> Option<Vec<Vec<&'static str>>> {
         let function = module.function(name)?;
+        if function.overloads.len() <= 1 {
+            return None;
+        }
         Some(
             function
                 .overloads
@@ -591,13 +600,14 @@ impl BuiltinRegistry {
 /// miss). BB then deletes the legacy helpers the adapters fall back to.
 ///
 /// Migrated so far: `app` (B), `bits` (D), `collections` (E), `csv` (G),
-/// `crypto` (F).
+/// `crypto` (F), `audio` (C).
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::bits::BITS,
     &crate::builtins::collections::COLLECTIONS,
     &crate::builtins::csv::CSV,
     &crate::builtins::crypto::CRYPTO,
+    &crate::builtins::audio::AUDIO,
 ]);
 
 /// The migration parity harness (plan-72).
@@ -742,8 +752,11 @@ pub(crate) mod parity {
 
         if let Some(builtin_type_fields) = legacy.builtin_type_fields {
             for ty in module.types {
+                // An opaque/enum type carries no record fields; the descriptor
+                // models that as an empty slice, the legacy helper as `None`.
+                let descriptor_fields = (!ty.fields.is_empty()).then_some(ty.fields);
                 assert_eq!(
-                    Some(ty.fields),
+                    descriptor_fields,
                     builtin_type_fields(ty.name),
                     "builtin-type-field parity for {}",
                     ty.name
@@ -1478,7 +1491,9 @@ mod tests {
         let legacy = parity::LegacySet {
             is_call: &|name| name == "s.pick",
             arity: &|name| (name == "s.pick").then_some((1, 2)),
-            param_names: &|name| (name == "s.pick").then(|| vec![vec!["a"]]),
+            // `s.pick` is multi-overload, so its names live in
+            // `param_name_overloads`; `param_names` is None (single-overload only).
+            param_names: &|_| None,
             // Return type is resolver-owned, so this row is not asserted for a
             // resolver-backed module; supply the data-only default anyway.
             return_type_name: &|_| None,
