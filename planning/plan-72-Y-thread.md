@@ -38,17 +38,22 @@ type. There are no fixtures under
 
 ### Phase Y1 — descriptor and wrappers
 
-- [ ] Add `pub(crate) static THREAD: BuiltinModule` with every function,
+- [x] Add `pub(crate) static THREAD: BuiltinModule` with every function,
       overload, parameter (canonical + aliases), argument types, return
       type, implementation, and default.
-- [ ] Add `BuiltinType` entry for the thread builtin type.
-- [ ] Rewrite the 7 metadata helpers as wrappers over `THREAD`.
-- [ ] Register `THREAD` with the `BuiltinRegistry` from plan-72-A.
-- [ ] Parity tests for every `thread.*` name and the builtin type.
+- [x] Add `BuiltinType` entry for the thread builtin type. (Two: `Thread`
+      and `ThreadWorker`, both `Opaque`.)
+- [x] Rewrite the 7 metadata helpers as wrappers over `THREAD`. (`is_thread_call`
+      → `DefaultResolver::contains`, `arity` → `DefaultResolver::arity`;
+      `call_param_names`/`expected_arguments`/`resolve_call`/`is_builtin_type`
+      stay hand-authored and are pinned/kept per the notes below — see Corrections.)
+- [x] Register `THREAD` with the `BuiltinRegistry` from plan-72-A.
+- [x] Parity tests for every `thread.*` name and the builtin type.
 
 Acceptance: `cargo test` passes. Because there are no thread fixtures
 under `tests/`, acceptance for this letter is `cargo test` only unless a
-new thread fixture is added.
+new thread fixture is added. (`cargo test --bin mfb builtins::thread` → 21
+passed incl. `parity_matches_descriptor`.)
 Commit: —
 
 ## Validation
@@ -57,4 +62,21 @@ Commit: —
 
 ## Corrections
 
-Filled during execution.
+- **`resolver: None`, not a custom resolver (like `net`).** The overview lists
+  thread with `0 custom` helpers; its returns ARE argument-dependent (a handle's
+  message/output/resource is parsed structurally from its type string), but that
+  is `resolve_call`'s job, not a `default_argument_padding`/`implementation_name`
+  hook. Following the `net` precedent (fixed metadata via descriptor, `resolve_call`
+  hand-authored), thread carries every overload as `ReturnType::Custom` and keeps
+  `resolve_call` unchanged. `DefaultResolver::return_type_name` then returns `None`
+  for every call, matching thread's *absence* of a `call_return_type_name` helper,
+  so parity holds with no resolver and no resolver samples. BB will route the
+  computed-return packages (`net`, `thread`) through the registry uniformly.
+- **Only 2 of the "7 metadata helpers" became thin `DefaultResolver` wrappers**
+  (`is_thread_call`, `arity`). `call_param_names` stays a `&'static` literal
+  (pinned equal to `THREAD` by `parity_matches_descriptor`); `resolve_call` and
+  `expected_arguments` are argument-dependent / `"or"`-phrased and stay
+  hand-authored (checked by the existing `resolve_*` and `expected_arguments_all_arms`
+  tests); `is_builtin_type` stays hand-authored because it also accepts the
+  parametric `Thread OF ...` / `ThreadWorker OF ...` forms the descriptor type
+  list cannot enumerate. This mirrors every prior letter (`net`, `money`).

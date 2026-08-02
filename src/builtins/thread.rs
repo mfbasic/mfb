@@ -1,5 +1,10 @@
 use std::borrow::Cow;
 
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinType, DefaultResolver,
+    DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType, TypeKind,
+};
+
 pub(crate) const THREAD_TYPE: &str = "Thread";
 pub(crate) const THREAD_WORKER_TYPE: &str = "ThreadWorker";
 
@@ -39,26 +44,137 @@ pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
 }
 
+// plan-72-Y: `THREAD` is the descriptor authority for this package. thread is
+// data-only for its STATIC metadata (membership, arity, parameter names): every
+// user-facing call is a single overload whose parameter list reproduces the
+// legacy `call_param_names`/`arity`. The return type is argument-dependent (a
+// thread handle's message/output/resource is parsed structurally from its type
+// string), so every overload carries `ReturnType::Custom` and `resolve_call`
+// stays hand-authored — like `net`, the descriptor's per-position match cannot
+// reproduce the structural thread-type resolution. `expected_arguments` is
+// `"or"`-phrased / `ISOLATED FUNC`-shaped and also stays hand-authored. The two
+// builtin types `Thread` and `ThreadWorker` are opaque; `is_builtin_type` stays
+// hand-authored because it also accepts the parametric `Thread OF ...` /
+// `ThreadWorker OF ...` forms.
+const fn ov(params: &'static [Parameter]) -> BuiltinOverload {
+    BuiltinOverload {
+        params,
+        return_type: ReturnType::Custom,
+    }
+}
+
+const fn tf(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+) -> BuiltinFunction {
+    BuiltinFunction {
+        name,
+        doc_slug: slug,
+        overloads,
+        implementation: Implementation::Same,
+        lowering: Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+
+const fn req(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
+    Parameter {
+        name,
+        aliases,
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::None,
+    }
+}
+
+// An optional trailing parameter: widens the arity range but is NOT
+// default-padded (thread has no `default_argument_padding` helper), so
+// `Optional`, not `Fill`.
+const fn opt(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
+    Parameter {
+        name,
+        aliases,
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::Optional,
+    }
+}
+
+const P_START: &[Parameter] = &[
+    req("f", &["entry"], "ISOLATED FUNC"),
+    req("data", &[], "In"),
+    opt("inboundLimit", &[], "Integer"),
+    opt("outboundLimit", &[], "Integer"),
+];
+const P_HANDLE: &[Parameter] = &[req("t", &["thread"], "Thread")];
+const P_SEND: &[Parameter] = &[
+    req("t", &["thread"], "Thread"),
+    req("data", &["value"], "Msg"),
+    opt("timeoutMs", &[], "Integer"),
+];
+const P_POLL: &[Parameter] = &[req("t", &["thread"], "Thread"), req("ms", &[], "Integer")];
+const P_RECEIVE: &[Parameter] = &[
+    req("t", &["thread"], "Thread"),
+    opt("timeoutMs", &[], "Integer"),
+];
+const P_TRANSFER: &[Parameter] = &[
+    req("t", &["thread"], "Thread"),
+    req("res", &["resource"], "Res"),
+    opt("timeoutMs", &[], "Integer"),
+];
+const P_ACCEPT: &[Parameter] = &[
+    req("t", &["thread"], "Thread"),
+    opt("timeoutMs", &[], "Integer"),
+];
+const P_STDIN: &[Parameter] = &[opt("t", &["thread"], "Thread")];
+
+const THREAD_FUNCTIONS: &[BuiltinFunction] = &[
+    tf(START, "start", &[ov(P_START)]),
+    tf(IS_RUNNING, "isRunning", &[ov(P_HANDLE)]),
+    tf(WAIT_FOR, "waitFor", &[ov(P_HANDLE)]),
+    tf(CANCEL, "cancel", &[ov(P_HANDLE)]),
+    tf(SEND, "send", &[ov(P_SEND)]),
+    tf(POLL, "poll", &[ov(P_POLL)]),
+    tf(RECEIVE, "receive", &[ov(P_RECEIVE)]),
+    tf(IS_CANCELLED, "isCancelled", &[ov(P_HANDLE)]),
+    tf(TRANSFER, "transfer", &[ov(P_TRANSFER)]),
+    tf(ACCEPT, "accept", &[ov(P_ACCEPT)]),
+    tf(OPEN_STD_IN, "openStdIn", &[ov(P_STDIN)]),
+    tf(CLOSE_STD_IN, "closeStdIn", &[ov(P_STDIN)]),
+];
+
+/// The two opaque thread handle types. `is_builtin_type` additionally accepts the
+/// parametric `Thread OF ...` / `ThreadWorker OF ...` forms, so it stays
+/// hand-authored; these base entries keep the registry exhaustive.
+const THREAD_TYPES: &[BuiltinType] = &[
+    BuiltinType {
+        name: THREAD_TYPE,
+        kind: TypeKind::Opaque,
+        fields: &[],
+    },
+    BuiltinType {
+        name: THREAD_WORKER_TYPE,
+        kind: TypeKind::Opaque,
+        fields: &[],
+    },
+];
+
+pub(crate) static THREAD: BuiltinModule = BuiltinModule {
+    name: "thread",
+    functions: THREAD_FUNCTIONS,
+    types: THREAD_TYPES,
+    source: None,
+    resolver: None,
+};
+
 /// User-facing thread calls. Recognized by `is_builtin_call`, so it must NOT
 /// include the internal resource-plane names, which are synthesized only during
 /// IR lowering and are not user-callable (bug-173 E). A user-typed
 /// `thread.emitResource(x)` must be reported as an unknown function.
 pub(crate) fn is_thread_call(name: &str) -> bool {
-    matches!(
-        name,
-        START
-            | IS_RUNNING
-            | WAIT_FOR
-            | CANCEL
-            | SEND
-            | POLL
-            | RECEIVE
-            | IS_CANCELLED
-            | TRANSFER
-            | ACCEPT
-            | OPEN_STD_IN
-            | CLOSE_STD_IN
-    )
+    DefaultResolver::contains(&THREAD, name)
 }
 
 /// Post-lowering classifier: `is_thread_call` plus the internal resource-plane
@@ -195,17 +311,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 }
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    match name {
-        START => Some((2, 4)),
-        IS_RUNNING | WAIT_FOR | CANCEL | IS_CANCELLED => Some((1, 1)),
-        SEND => Some((2, 3)),
-        POLL => Some((2, 2)),
-        RECEIVE => Some((1, 2)),
-        TRANSFER => Some((2, 3)),
-        ACCEPT => Some((1, 2)),
-        OPEN_STD_IN | CLOSE_STD_IN => Some((0, 1)),
-        _ => None,
-    }
+    DefaultResolver::arity(&THREAD, name)
 }
 
 fn matches_start(arg_types: &[String]) -> bool {
@@ -819,6 +925,46 @@ mod tests {
             thread_parts_full("Thread OF (Integer) TO String"),
             Some((THREAD_TYPE, "Integer", None, "String"))
         );
+    }
+
+    // plan-72-Y migration gate: prove `THREAD` reproduces every legacy helper
+    // answer for every user-facing `thread.*` name (and an unknown name) —
+    // membership, arity, and per-position parameter names — pinning the borrowed
+    // `call_param_names` static equal to `THREAD`. Returns are argument-dependent
+    // (`ReturnType::Custom`), so `resolve_call` stays hand-authored and is checked
+    // by the `resolve_*` tests above; `expected_arguments` is `"or"`-phrased and
+    // checked by `expected_arguments_all_arms`. Keep until plan-72-BB.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::parity;
+
+        let calls: Vec<&str> = THREAD_FUNCTIONS.iter().map(|f| f.name).collect();
+        let legacy = parity::LegacySet {
+            is_call: &is_thread_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            // thread has no fixed return-type helper: every return is
+            // argument-dependent, so the descriptor reports `None` and the legacy
+            // side is `None` too.
+            return_type_name: &|_| None,
+            // `ISOLATED FUNC`-shaped and `"or"`-phrased; kept hand-authored.
+            expected_arguments: None,
+            param_name_overloads: None,
+            argument_types: None,
+            implementation_name: None,
+            default_padding: None,
+            builtin_type_fields: None,
+        };
+        let mut probe = calls.clone();
+        probe.push("thread.nope");
+        parity::assert_parity(&THREAD, &probe, &legacy, &[]);
+
+        // The two opaque handle types are the descriptor's builtin-type authority
+        // (the parametric `Thread OF ...` forms stay in `is_builtin_type`).
+        assert!(is_builtin_type(THREAD_TYPE));
+        assert!(is_builtin_type(THREAD_WORKER_TYPE));
     }
 
     #[test]

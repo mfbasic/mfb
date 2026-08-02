@@ -639,6 +639,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::money::MONEY,
     &crate::builtins::net::NET,
     &crate::builtins::os::OS,
+    &crate::builtins::thread::THREAD,
 ]);
 
 /// The migration parity harness (plan-72).
