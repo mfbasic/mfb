@@ -808,6 +808,19 @@ LET __REGEX_STEP_BUDGET AS Integer = 2000000
 ' over a single-scalar child is iterative and unaffected at any input length.
 LET __REGEX_DEPTH_LIMIT AS Integer = 600
 
+' bug-423: the recursive-descent parser had no depth cap, so a deeply-nested-group
+' pattern (`((((...`) recursed once per group and overflowed the native stack
+' during *compile*, killing the process with an uncatchable SIGSEGV before any
+' matching happened -- bug-315 had guarded only the matcher. This is the parser's
+' own ceiling on group-nesting depth. It is LOWER than __REGEX_DEPTH_LIMIT on
+' purpose: each nesting level costs three native frames (parseAlt -> parseConcat
+' -> parseParen -> parseAlt), so the same ~600-frame stack budget the matcher
+' proved safe corresponds to ~200 nesting levels here. Measured: the produced
+' executable's stack is exhausted around 350 nested `(` (N<=300 fails cleanly,
+' N>=400 SIGSEGVs), so 200 rejects the pathological cases with margin while
+' leaving any realistic pattern -- which nests only a handful deep -- untouched.
+LET __REGEX_PARSE_DEPTH_LIMIT AS Integer = 200
+
 FUNC __regex_isSimpleNode(node AS __regex_Node) AS Boolean
   MATCH node
     CASE __regex_Lit(litNode)
@@ -1467,14 +1480,14 @@ FUNC __regex_parseName(pat AS List OF String, n AS Integer, i AS Integer) AS __r
   RETURN __regex_Name[name, j + 1]
 END FUNC
 
-FUNC __regex_parseNamedGroup(pat AS List OF String, n AS Integer, nameStart AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Paren
+FUNC __regex_parseNamedGroup(pat AS List OF String, n AS Integer, nameStart AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer, depth AS Integer) AS __regex_Paren
   LET nm AS __regex_Name = __regex_parseName(pat, n, nameStart)
   IF collections::hasKey(names, nm.name) THEN
     FAIL error(77050003, "invalid regex")
   END IF
   LET slot AS Integer = g + 1
   LET names2 AS Map OF String TO Integer = collections::set(names, nm.name, slot)
-  LET inner AS __regex_Parse = __regex_parseAlt(pat, n, nm.nxt, flags, slot, names2)
+  LET inner AS __regex_Parse = __regex_parseAlt(pat, n, nm.nxt, flags, slot, names2, depth)
   IF inner.nxt >= n OR collections::get(pat, inner.nxt) <> ")" THEN
     FAIL error(77050003, "invalid regex")
   END IF
@@ -1482,7 +1495,7 @@ FUNC __regex_parseNamedGroup(pat AS List OF String, n AS Integer, nameStart AS I
   RETURN __regex_Paren[FALSE, flags, node, inner.nxt + 1, inner.groups, inner.names]
 END FUNC
 
-FUNC __regex_parseParen(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Paren
+FUNC __regex_parseParen(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer, depth AS Integer) AS __regex_Paren
   MUT idx AS Integer = i + 1
   IF idx >= n THEN
     FAIL error(77050003, "invalid regex")
@@ -1490,7 +1503,7 @@ FUNC __regex_parseParen(pat AS List OF String, n AS Integer, i AS Integer, flags
   LET c AS String = collections::get(pat, idx)
   IF c <> "?" THEN
     LET slot AS Integer = g + 1
-    LET inner AS __regex_Parse = __regex_parseAlt(pat, n, idx, flags, slot, names)
+    LET inner AS __regex_Parse = __regex_parseAlt(pat, n, idx, flags, slot, names, depth + 1)
     IF inner.nxt >= n OR collections::get(pat, inner.nxt) <> ")" THEN
       FAIL error(77050003, "invalid regex")
     END IF
@@ -1503,7 +1516,7 @@ FUNC __regex_parseParen(pat AS List OF String, n AS Integer, i AS Integer, flags
   END IF
   LET d AS String = collections::get(pat, idx)
   IF d = ":" THEN
-    LET inner AS __regex_Parse = __regex_parseAlt(pat, n, idx + 1, flags, g, names)
+    LET inner AS __regex_Parse = __regex_parseAlt(pat, n, idx + 1, flags, g, names, depth + 1)
     IF inner.nxt >= n OR collections::get(pat, inner.nxt) <> ")" THEN
       FAIL error(77050003, "invalid regex")
     END IF
@@ -1516,13 +1529,13 @@ FUNC __regex_parseParen(pat AS List OF String, n AS Integer, i AS Integer, flags
         FAIL error(77050003, "invalid regex")
       END IF
     END IF
-    RETURN __regex_parseNamedGroup(pat, n, idx + 1, flags, g, names)
+    RETURN __regex_parseNamedGroup(pat, n, idx + 1, flags, g, names, depth + 1)
   END IF
   IF d = "P" THEN
     IF idx + 1 >= n OR collections::get(pat, idx + 1) <> "<" THEN
       FAIL error(77050003, "invalid regex")
     END IF
-    RETURN __regex_parseNamedGroup(pat, n, idx + 2, flags, g, names)
+    RETURN __regex_parseNamedGroup(pat, n, idx + 2, flags, g, names, depth + 1)
   END IF
   IF d = "=" OR d = "!" THEN
     FAIL error(77050003, "invalid regex")
@@ -1537,7 +1550,7 @@ FUNC __regex_parseParen(pat AS List OF String, n AS Integer, i AS Integer, flags
     RETURN __regex_Paren[TRUE, spec.flags, node, spec.nxt + 1, g, names]
   END IF
   IF spec.term = ":" THEN
-    LET inner AS __regex_Parse = __regex_parseAlt(pat, n, spec.nxt + 1, spec.flags, g, names)
+    LET inner AS __regex_Parse = __regex_parseAlt(pat, n, spec.nxt + 1, spec.flags, g, names, depth + 1)
     IF inner.nxt >= n OR collections::get(pat, inner.nxt) <> ")" THEN
       FAIL error(77050003, "invalid regex")
     END IF
@@ -1664,7 +1677,7 @@ FUNC __regex_parseQuantSuffix(pat AS List OF String, n AS Integer, i AS Integer,
   RETURN __regex_Parse[rep, nxt, g, names]
 END FUNC
 
-FUNC __regex_parseConcat(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Parse
+FUNC __regex_parseConcat(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer, depth AS Integer) AS __regex_Parse
   MUT idx AS Integer = i
   MUT gg AS Integer = g
   MUT nm AS Map OF String TO Integer = names
@@ -1686,7 +1699,7 @@ FUNC __regex_parseConcat(pat AS List OF String, n AS Integer, i AS Integer, flag
       CONTINUE DO
     END IF
     IF c = "(" THEN
-      LET pr AS __regex_Paren = __regex_parseParen(pat, n, idx, fl, gg, nm)
+      LET pr AS __regex_Paren = __regex_parseParen(pat, n, idx, fl, gg, nm, depth)
       gg = pr.groups
       nm = pr.names
       IF pr.isDir THEN
@@ -1721,18 +1734,26 @@ FUNC __regex_parseConcat(pat AS List OF String, n AS Integer, i AS Integer, flag
   RETURN __regex_Parse[node, idx, gg, nm]
 END FUNC
 
-FUNC __regex_parseAlt(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Parse
+FUNC __regex_parseAlt(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer, depth AS Integer) AS __regex_Parse
+  ' bug-423: one native frame per group-nesting level with no guard overflowed
+  ' the stack on a pathologically deep pattern. Every group descent routes
+  ' through here (parseParen -> parseAlt), so capping depth at this single point
+  ' turns the crash into an ordinary catchable failure well before the native
+  ' stack runs out.
+  IF depth > __REGEX_PARSE_DEPTH_LIMIT THEN
+    FAIL error(77050003, "regex: pattern nested too deeply")
+  END IF
   MUT idx AS Integer = i
   MUT gg AS Integer = g
   MUT nm AS Map OF String TO Integer = names
-  LET first AS __regex_Parse = __regex_parseConcat(pat, n, idx, flags, gg, nm)
+  LET first AS __regex_Parse = __regex_parseConcat(pat, n, idx, flags, gg, nm, depth)
   idx = first.nxt
   gg = first.groups
   nm = first.names
   MUT opts AS List OF __regex_Node = [first.node]
   WHILE idx < n AND collections::get(pat, idx) = "|"
     idx = idx + 1
-    LET nextc AS __regex_Parse = __regex_parseConcat(pat, n, idx, flags, gg, nm)
+    LET nextc AS __regex_Parse = __regex_parseConcat(pat, n, idx, flags, gg, nm, depth)
     idx = nextc.nxt
     gg = nextc.groups
     nm = nextc.names
@@ -1749,7 +1770,7 @@ FUNC __regex_compile(pattern AS String) AS __regex_Program
   LET pat AS List OF String = __regex_toScalars(pattern)
   LET flags0 AS __regex_Flags = __regex_Flags[FALSE, FALSE, FALSE, FALSE, FALSE]
   LET names0 AS Map OF String TO Integer = Map OF String TO Integer {}
-  LET parsed AS __regex_Parse = __regex_parseAlt(pat, len(pat), 0, flags0, 0, names0)
+  LET parsed AS __regex_Parse = __regex_parseAlt(pat, len(pat), 0, flags0, 0, names0, 0)
   IF parsed.nxt <> len(pat) THEN
     FAIL error(77050003, "invalid regex")
   END IF
