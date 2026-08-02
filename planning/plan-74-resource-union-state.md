@@ -245,15 +245,18 @@ carries the STATE suffix so the concrete path (`state_type_name` non-None) is ta
 
 Land the specified rule before the code, mirroring plan-13-A.
 
-- [ ] Amend `src/docs/spec/language/15_resource-management.md`: a resource union may carry a
+- [x] Amend `src/docs/spec/language/15_resource-management.md`: a resource union may carry a
       STATE, declared uniformly at the use site (binding/parameter/return); the STATE type
       is independent of the active variant; agreement and drop-free behave as for a concrete
-      stateful resource; per-variant STATE is not introduced.
-- [ ] Update `src/docs/spec/diagnostics/01_rule-codes.md`: mark `2-203-0088` retired
-      (reserved, not recycled).
+      stateful resource; per-variant STATE is not introduced. (New "A resource union may
+      carry `STATE`" paragraph in §15.5; removed the "carries no `STATE`" clause.)
+- [x] Update `src/docs/spec/diagnostics/01_rule-codes.md`: mark `2-203-0088` retired
+      (reserved, not recycled). Also updated `src/rules/table.rs` message to the retired
+      note, mirroring the `2-203-0086` precedent.
 
 Acceptance: `mfb spec language resource-management` renders the rule and its uniform-STATE
-constraint; the diagnostics topic shows 2-203-0088 retired.
+constraint (verified); the diagnostics topic shows 2-203-0088 retired (verified);
+`every_rule_is_documented_in_the_spec` passes.
 Commit: —
 
 ### Phase 2 — verifier: lift the ban, confirm agreement
