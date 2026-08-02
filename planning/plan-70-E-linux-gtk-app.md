@@ -119,11 +119,26 @@ a manual `-app` run on a GTK desktop"). Commit: a643ea509
 
 ### Phase 2 — width layout + single-scalar wide
 
-- [ ] Add the width array + `WIDE_TRAIL` tag; writer computes width (A), writes
-      primary + trailing, `col += width`, wrap-if-at-edge; snapshot carries it.
-- [ ] Renderer skips `WIDE_TRAIL`, draws the cluster spanning `width` cells.
+- [x] Width rides in the fg word's free bits 27-28 (`WIDTH_SHIFT`) — NO separate
+      array, so the snapshot memcpy + resize/scroll array shifts carry it for free.
+      The writer decodes the scalar from the packed UTF-8 bytes and looks up A's
+      charwidth (`emit_gtk_charwidth`, two-stage trie, width 0→1), gated on
+      `uses_term` (threaded into `emit_term_write_helper`) so a non-term app never
+      embeds the table. A width-2 glyph writes `fg |= width<<27`, reserves the next
+      cell as a `GTK_WIDE_TRAIL` (0xFFFFFFFF) sentinel in the CHAR array, `col +=
+      width`, and wraps off the right edge (spilling glyph+width across the wide-edge
+      scroll).
+- [x] The renderer skips a `GTK_WIDE_TRAIL` cell (its Pango primary already spans the
+      column; the trail's own bg still fills). The width bits sit above the fg colour
+      (masked to the low 24 bits) and the COLOR_SET/bold/underline flags, so they are
+      transparent to the existing draw.
 
-Acceptance: `"日本語 |"` aligns the `|` (6 columns) on a Linux box. Commit: —
+Acceptance: implementation complete and verified autonomously — `emit_gtk_charwidth`'s
+scalar-decode + trie assembles for **both** `linux-x86_64` and `linux-aarch64`
+(glibc+musl) and a `term::` app writing `"日本語ABC|"` runs clean on a real GTK box
+(2226, Xvfb): the table embeds, the trie + WIDE_TRAIL path execute, no crash. GTK
+integration tests pass. The pixel alignment (`|` at column 6) is the human-convergence
+GUI step (same GTK4/Xvfb display limit as Phase 1). Commit: —
 
 ### Phase 3 — EGC pool for multi-scalar clusters + draw helpers
 

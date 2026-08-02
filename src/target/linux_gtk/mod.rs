@@ -149,6 +149,14 @@ const STATE_SIZE: usize = ST_HELD + 8;
 const COLOR_SET: usize = 1 << 24;
 const BOLD_FLAG: usize = 1 << 25;
 const UNDERLINE_FLAG: usize = 1 << 26;
+// plan-70-E: the display width (0/1/2) of the cell's grapheme rides in the fg word's
+// free bits 27-28, so the snapshot memcpy + resize/scroll array shifts carry it for
+// free (no separate width array). A wide (width-2) glyph reserves the next cell as a
+// WIDE_TRAIL sentinel in the CHAR array — 0xFFFFFFFF is not valid UTF-8 (0xFF is not a
+// lead byte), so the renderer's blank check distinguishes it, and it never collides
+// with a real packed-UTF-8 cell.
+const WIDTH_SHIFT: usize = 27;
+const GTK_WIDE_TRAIL: &str = "4294967295"; // 0xFFFFFFFF
 const TERM_DEFAULT_FG: &str = "16777215"; // 0xFFFFFF white (matches console default)
 
 // Backing-store bounds for the grid (a fixed stride keeps storage static). The
@@ -453,7 +461,7 @@ pub(crate) fn emit_app_program_entry(
         emit_term_show_idle_helper()?,
         emit_term_hide_idle_helper()?,
         emit_term_redraw_idle_helper()?,
-        emit_term_write_helper()?,
+        emit_term_write_helper(spec.uses_term)?,
         emit_term_scroll_helper()?,
         emit_term_init_helper()?,
         emit_term_resize_helper()?,
@@ -491,7 +499,7 @@ pub(crate) fn emit_app_program_entry_x86(
         emit_term_show_idle_helper()?,
         emit_term_hide_idle_helper()?,
         emit_term_redraw_idle_helper()?,
-        emit_term_write_helper()?,
+        emit_term_write_helper(spec.uses_term)?,
         emit_term_scroll_helper()?,
         emit_term_init_helper()?,
         emit_term_resize_helper()?,
