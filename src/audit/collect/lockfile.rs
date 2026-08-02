@@ -26,7 +26,7 @@ pub(super) fn collect_lockfile(
     // readable lockfile with no `projectHash`, which produced no finding.
     let mut parsed = false;
     if let Ok(contents) = std::fs::read_to_string(&lock_path) {
-        if let Ok(value) = contents.parse::<JsonValue>() {
+        if let Ok(value) = crate::json::parse_json_bounded(&contents) {
             if let Some(object) = value.get::<HashMap<String, JsonValue>>() {
                 parsed = true;
                 version = object

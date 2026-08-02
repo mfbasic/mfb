@@ -904,8 +904,7 @@ pub(crate) fn read_lock(project_dir: &Path) -> Result<Option<Lock>, String> {
     }
     let contents = fs::read_to_string(&path)
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
-    let value: JsonValue = contents
-        .parse()
+    let value = crate::json::parse_json_bounded(&contents)
         .map_err(|_| format!("'{}' is not valid JSON", path.display()))?;
     let object = value
         .get::<std::collections::HashMap<String, JsonValue>>()
