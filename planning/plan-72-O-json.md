@@ -33,22 +33,27 @@ at line 94. Fixture load is 8 projects.
 
 ### Phase O1 — descriptor and wrappers
 
-- [ ] Add `pub(crate) static JSON: BuiltinModule` with every function,
+- [x] Add `pub(crate) static JSON: BuiltinModule` with every function,
       overload, parameter, argument types, return type, implementation, and
       default.
-- [ ] Add `BuiltinType` entry for the json builtin type.
-- [ ] Model the `package_source_glue!` companion as
+- [x] Add `BuiltinType` entry for the json builtin type (all seven `Json*`
+      value types as opaque builtin types).
+- [x] Model the `package_source_glue!` companion as
       `BuiltinSource { rule: InjectionRule::WhenImported, .. }`.
-- [ ] Attach a resolver (or a static implementation-name table) for
-      `implementation_name`.
-- [ ] Rewrite the 8 metadata helpers as wrappers over `JSON`.
-- [ ] Register `JSON` with the `BuiltinRegistry` from plan-72-A.
-- [ ] Parity tests for every `json.*` name, the builtin type, and every
+- [x] ~~Attach a resolver (or a static implementation-name table) for
+      `implementation_name`.~~ — moot: `implementation_name` is a fixed
+      per-name rewrite, modelled as `Implementation::Rewrite(__json_*)` on each
+      `BuiltinFunction`; `DefaultResolver::implementation_name` derives it with
+      no resolver. See Corrections.
+- [x] Rewrite the 8 metadata helpers as wrappers over `JSON`
+      (`resolve_call` stays hand-authored: json value-type-set acceptance).
+- [x] Register `JSON` with the `BuiltinRegistry` from plan-72-A.
+- [x] Parity tests for every `json.*` name, the builtin type, and every
       implementation-name case.
 
 Acceptance: `cargo test` passes; every `json.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
-Commit: —
+Commit: <O-hash>
 
 ## Validation
 
@@ -58,4 +63,18 @@ Commit: —
 
 ## Corrections
 
-Filled during execution.
+- **No resolver needed for `implementation_name`.** The plan assumed a resolver
+  (or a static implementation-name table) was required. In fact json's
+  `implementation_name` is a fixed per-name rewrite (`parse → __json_parse`,
+  etc.), which the descriptor models directly as
+  `Implementation::Rewrite(<symbol>)` on each function;
+  `DefaultResolver::implementation_name` derives it, so `JSON` is a data-only
+  module (`resolver: None`). Evidence: `src/builtins/json.rs:implementation_name`
+  was a fixed `match name { PARSE => Some(INTERNAL_PARSE), .. }`, not
+  argument-dependent.
+- **`resolve_call` stays hand-authored.** json's `resolve_call` accepts any
+  member of the json value-type set (`stringify(JsonObj)`) where the descriptor
+  lists the umbrella `Json` type; the descriptor's exact per-position match
+  cannot express a type set, so `resolve_call` remains hand-authored (a bespoke
+  facet like io's `"no arguments"`), and is checked directly rather than through
+  the parity harness. Behavior is unchanged.
