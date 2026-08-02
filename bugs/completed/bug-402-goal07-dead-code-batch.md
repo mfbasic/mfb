@@ -148,7 +148,7 @@ and removed per "never leave a bug you found (not excused by pre-existing)".
 - Additional dead-code items found later in goal-07 are appended here as they
   surface.
 
-## STATUS: FIXED (<hash>)
+## STATUS: FIXED (fix 7221e2ef3, merged to main e9e8ab1f7)
 
 All 10 items removed on a single integration worktree (`worktree-B-402`). The
 compiler validates the removals: a clean `cargo build` (0 warnings — the standing
