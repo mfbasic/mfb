@@ -152,7 +152,7 @@ fn emit_verify_hostname(
         abi::move_immediate("%v9", "Integer", "1"), // AUTHTYPE_SERVER
         abi::store_u32("%v9", "%v8", SSLPARA + 4),
         abi::load_u64("%v9", abi::stack_pointer(), snamew_off),
-        abi::store_u64("%v9", "%v8", SSLPARA + 8), // pwszServerName
+        abi::store_u64("%v9", "%v8", SSLPARA + 16), // pwszServerName (x64 offset 16, after fdwChecks@8 + 4B pad@12)
         abi::move_immediate("%v9", "Integer", "16"), // sizeof CERT_CHAIN_POLICY_PARA
         abi::store_u32("%v9", "%v8", POLICYPARA),
         abi::add_immediate("%v9", "%v8", SSLPARA),
@@ -177,6 +177,71 @@ fn emit_verify_hostname(
         abi::branch_ne(fail),
     ]);
     Ok(())
+}
+
+#[cfg(test)]
+mod verify_hostname_tests {
+    use super::*;
+    use crate::target::shared::code::test_support::TestPlatform;
+    use crate::target::shared::code::CodeOp;
+    use std::collections::HashMap;
+
+    // bug-413: the wide server-name pointer must be stored into
+    // SSL_EXTRA_CERT_CHAIN_POLICY_PARA::pwszServerName, which on Win64 (with the
+    // declared `cbSize = 24` four-field x64 layout: cbSize@0, dwAuthType@4,
+    // fdwChecks@8, 4-byte pad@12, pwszServerName@16) is at SSLPARA + 16. Storing
+    // it at SSLPARA + 8 lands in fdwChecks (+ pad) and leaves pwszServerName NULL,
+    // so CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL) performs NO
+    // hostname match — any chain-trusted cert is accepted for any hostname (MITM).
+    #[test]
+    fn server_name_pointer_stored_at_pwsz_server_name_offset() {
+        const SSLPARA: usize = 0x40; // must match emit_verify_hostname's local const
+        const SNAMEW_OFF: usize = 200; // distinctive frame slot for the wide name ptr
+        let imports = HashMap::new();
+        let mut ins = Vec::new();
+        let mut rel = Vec::new();
+        emit_verify_hostname(
+            "t_vh",
+            8,
+            SNAMEW_OFF,
+            "t_vh_fail",
+            &imports,
+            &TestPlatform,
+            &mut ins,
+            &mut rel,
+        )
+        .expect("lower emit_verify_hostname");
+
+        // Locate the load of the wide server-name pointer from [sp + SNAMEW_OFF].
+        let load_idx = ins
+            .iter()
+            .position(|i| {
+                i.op == CodeOp::LdrU64
+                    && i.get("base") == Some(abi::stack_pointer())
+                    && i.get("offset") == Some(SNAMEW_OFF.to_string().as_str())
+            })
+            .expect("emit_verify_hostname must load the wide server-name pointer");
+        let name_reg = ins[load_idx]
+            .get("dst")
+            .expect("load has a dst register")
+            .to_string();
+
+        // The next store of that register into the SSLPARA struct is the
+        // pwszServerName write; it must target SSLPARA + 16, never SSLPARA + 8.
+        let store = ins[load_idx + 1..]
+            .iter()
+            .find(|i| i.op == CodeOp::StrU64 && i.get("src") == Some(name_reg.as_str()))
+            .expect("the loaded server-name pointer must be stored into the policy para");
+        assert_eq!(
+            store.get("offset"),
+            Some((SSLPARA + 16).to_string().as_str()),
+            "pwszServerName must be written at SSLPARA + 16 (offset {}); \
+             storing it at SSLPARA + 8 (offset {}) leaves pwszServerName NULL and \
+             disables Schannel hostname verification (bug-413 TLS MITM)",
+            SSLPARA + 16,
+            SSLPARA + 8,
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,13 +1,66 @@
-# bug-408: x86-64 Linux thread-trampoline override double-applies the SysV realign — glibc worker frame is 88 bytes (bug-385 proved 88 SIGSEGVs), musl is 96
+# bug-408: x86-64 thread trampoline mis-aligns the worker stack — glibc needs the +8 realign too, musl double-applies it (96 bytes)
 
-Last updated: 2026-07-28
-Effort: small (<1h) code change; requires box validation on 2228 (glibc) + 2227 (musl)
+Last updated: 2026-08-01
+Effort: small code change; box-validated on 2228 (glibc) + 2227 (musl)
 Severity: HIGH
-Class: Memory-safety / Correctness (stack-ABI misalignment; regression of bug-385)
+Class: Memory-safety / Correctness (stack-ABI misalignment)
 
-Status: Open
-Regression Test: tests/rt-behavior/threads/* run on a real glibc AND musl x86-64
-box (the frame size is invisible to macOS-host acceptance).
+STATUS: FIXED (2ca58ab66) — the fix is NOT what this doc originally proposed. The
+doc's premise was inverted; the actual bug and fix are below. Box-proven on both
+libcs 2026-08-01.
+
+## RESOLUTION (2026-08-01) — the doc's premise was inverted
+
+The `/fix-bug` reproduction ran the fixture on real x86-64 boxes and found the
+**opposite** of what this doc (and bug-385) claimed. Deterministic, 5/5 each:
+
+| libc / box       | frame | how built                          | runtime            |
+| ---------------- | ----- | ---------------------------------- | ------------------ |
+| glibc 2228       | 88    | HEAD (shared 80 + override +8)     | **runs, exit 0**   |
+| glibc 2228       | 80    | override removed (this doc's fix)  | **SIGSEGV 139**    |
+| glibc 2228       | 88    | **landed fix** (shared 88, no override) | **runs, exit 0** |
+| musl 2227        | 96    | HEAD (shared 88 + override +8)     | **SIGSEGV 139**    |
+| musl 2227        | 88    | **landed fix** (shared 88, no override) | **runs, exit 0** |
+
+Every binary differs only in the trampoline frame (byte-scanned + `-ncode`-diffed
+to exactly the `sub_sp`/`add_sp` lines). The runners printed the full expected
+`one two three alpha beta gamma` when they ran, and faulted after `one two three`
+when they didn't. Also validated exit-0 on both boxes: `thread-drop-cleanup`,
+`thread-link-worker-rt` (and `thread-fs-close-rt` gives an identical
+environmental "path does not exist" error on HEAD and fix alike — never a crash).
+
+**Root cause (actual):** every x86-64 thread library reaches the start-routine
+with a `call` — glibc `start_thread` → `pd->start_routine(...)`, musl's pthread
+dispatch, Windows `BaseThreadInitThunk` — so the trampoline is always entered at
+`sp%16==8` and needs exactly **one** +8 realign (an 88-byte frame). bug-385
+wrongly believed glibc `start_thread` entered 16-aligned and gated glibc OUT of
+the shared realign. That was masked because `linux_x86_64::emit_thread_trampoline`
+carried a SECOND, unconditional +8 override, so:
+
+- glibc: shared 80 (no realign) + override +8 = **88 — correct only by accident**.
+- musl: shared 88 (realign) + override +8 = **96 — a real double-apply (crashes)**.
+- windows: shared 88, no linux override = 88 (correct, untouched).
+
+So the doc's stated fix ("remove the override") was HALF right (it fixes musl's
+96) and HALF fatal (it drops glibc to a SIGSEGV-ing 80). The `bug-385` /
+`glibc-musl-thread-entry-alignment` "glibc enters 16-aligned, needs 80" claim is
+**false** — glibc enters at `sp%16==8` like everyone else.
+
+**Landed fix:** gate the shared realign per-arch —
+`needs_realign = platform.arch() == "x86_64"` (drop the libc/family sub-gate) —
+so glibc and musl both get an 88-byte frame from the *single* shared realign, and
+delete the `linux_x86_64` override entirely. Net: glibc 88, musl 88, windows 88 —
+one correct realign, no double apply, no accidental correctness. aarch64/riscv64
+(`bl`/`jal`, entered `sp%16==0`) and macOS are byte-identical.
+
+Commits: `2ca58ab66` (fix + 88/88 guard test in `linux_common/code.rs`),
+golden update in the follow-up commit. Guard test:
+`target::linux_common::code::tests::thread_trampoline_x86_frame_is_88_on_both_libcs`.
+
+---
+
+_Original analysis below is preserved for history; its glibc conclusion is wrong
+(see RESOLUTION above)._
 
 The shared thread-worker trampoline `lower_thread_trampoline`
 (`src/target/shared/code/runtime_helpers.rs:955`) was fixed by bug-385 to apply the

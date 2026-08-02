@@ -1119,7 +1119,6 @@ pub(super) fn emit_grid_present(
     // list kept alive across the write, which the streaming diff does not retain.
     let write_loop = format!("{symbol}_present_write_loop");
     let write_done = format!("{symbol}_present_write_done");
-    let write_retry = format!("{symbol}_present_write_retry");
     let cursor = wcur;
     let remaining = wrem;
     instrs.extend([
@@ -1129,25 +1128,39 @@ pub(super) fn emit_grid_present(
         // Nothing left: done.
         abi::compare_immediate(remaining, "0"),
         abi::branch_eq(&write_done),
-        abi::label(&write_retry),
         abi::move_register(abi::string_length_register(), remaining),
         abi::move_register(abi::string_data_register(), cursor),
         abi::move_immediate(abi::return_register(), "Integer", "1"),
     ]);
     platform.emit_write(symbol, platform_imports, instrs, relocations)?;
-    instrs.extend([
-        abi::move_register(wres, abi::return_register()),
-        abi::compare_immediate(wres, "0"),
-        // A negative return is EINTR (retry) or a genuine failure. A 0 return for a
-        // nonzero-length write moved nothing, so treat it as failure rather than
-        // spinning (bug-62's lesson on this exact loop shape).
-        abi::branch_le(&write_done),
-        // Short write: advance and go again.
-        abi::add_registers(cursor, cursor, wres),
-        abi::subtract_registers(remaining, remaining, wres),
-        abi::branch(&write_loop),
-        abi::label(&write_done),
-    ]);
+    instrs.push(abi::move_register(wres, abi::return_register()));
+    // bug-410: route the write result through the shared transfer tail every
+    // sibling write loop uses. A positive count advances the cursor and re-loops; a
+    // negative return is EINTR (a signal — SIGWINCH resize / SIGCHLD / the console
+    // SIGINT — interrupted the present mid-`write`; MFBASIC handlers are not
+    // SA_RESTART) and is re-issued at `write_loop` from the unchanged
+    // cursor/remaining; a 0 return for a nonzero-length write moved nothing and is a
+    // hard give-up (bug-62). The give-up target is `write_done`: this present has no
+    // error channel and `front == back` already claims the frame painted, but a real
+    // EINTR is now repaired instead of leaving the frame permanently corrupt. The
+    // dead `write_retry` label (bug-314 H3's vestige, never branched to) is gone —
+    // the retry edge is the loop top, matching `emit_transfer_loop_tail`.
+    emit_transfer_loop_tail(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: instrs,
+            relocations,
+        },
+        wres,
+        write_uses_raw_syscall(platform),
+        cursor,
+        remaining,
+        &write_loop,
+        &write_done,
+    )?;
+    instrs.push(abi::label(&write_done));
     instrs.push(abi::label(&done_ok));
     Ok(())
 }
@@ -1200,6 +1213,57 @@ mod tests {
             "OUTBUF_PER_CELL ({OUTBUF_PER_CELL}) must cover the {widest}-digit worst \
              case ({})",
             worst_case(widest)
+        );
+    }
+
+    /// bug-410: the `term::sync` present-write loop copies each emitted cell
+    /// back->front *before* the `write`, so a signal delivered mid-`write` (MFBASIC
+    /// handlers are not `SA_RESTART`) must re-issue the write — else `front == back`
+    /// claims a frame that only partially reached the terminal and the corruption
+    /// is permanent. The loop used to give up on any negative return (`b.le
+    /// write_done`), leaving the dead `write_retry` label with no incoming branch.
+    ///
+    /// This drives the present lowering with the errno accessor available (the
+    /// libc-`write` convention, as on macOS / aarch64 / riscv64) and asserts the
+    /// loop classifies EINTR and branches back to its own top to retry, exactly the
+    /// tail every sibling write loop emits via `emit_transfer_loop_tail`.
+    #[test]
+    fn present_write_loop_retries_eintr() {
+        let symbol = "test_term_sync";
+        // The errno accessor being importable is what lets the libc-write backends
+        // classify EINTR at all (bug-410's import half); supply it so the retry
+        // path is exercised rather than the degenerate give-up.
+        let mut platform_imports = HashMap::new();
+        platform_imports.insert("__errno_location".to_string(), "libc".to_string());
+        let mut instrs = Vec::new();
+        let mut relocations = Vec::new();
+        emit_grid_present(
+            symbol,
+            0,
+            56, // SCRATCH_END; only baked into offsets, never executed here.
+            "0",
+            &crate::target::shared::code::test_support::TestPlatform,
+            &platform_imports,
+            &mut instrs,
+            &mut relocations,
+        )
+        .expect("present lowers");
+
+        let write_loop = format!("{symbol}_present_write_loop");
+        // The EINTR retry edge: `cmp <ret>, EINTR` immediately followed by
+        // `b.eq write_loop`. Before the fix no compare against EINTR and no
+        // conditional branch back to the loop top existed — the negative return
+        // fell straight through to `write_done`.
+        let retries_eintr = instrs.windows(2).any(|w| {
+            w[0].op.mnemonic() == "cmp_imm"
+                && w[0].get("rhs") == Some(EINTR_ERRNO)
+                && w[1].op.mnemonic() == "b.eq"
+                && w[1].get("target") == Some(write_loop.as_str())
+        });
+        assert!(
+            retries_eintr,
+            "term::sync present-write loop must re-issue the write on EINTR \
+             (bug-410): expected `cmp <ret>, {EINTR_ERRNO}; b.eq {write_loop}`"
         );
     }
 }

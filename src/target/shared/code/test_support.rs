@@ -27,10 +27,22 @@ impl CodegenPlatform for TestPlatform {
     fn backend(&self) -> &'static dyn super::mir::Backend { &crate::arch::aarch64::backend::AARCH64_BACKEND }
     fn emit_apply_raw_mode(&self, _b: &str, _o: usize, _m: usize, _de: bool, _dc: bool, _i: &mut Vec<CodeInstruction>) { unimplemented!("TestPlatform::emit_apply_raw_mode") }
     fn emit_program_exit(&self, _from: &str, _instructions: &mut Vec<CodeInstruction>, _relocations: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_program_exit") }
-    fn emit_write(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_write") }
+    fn emit_write(&self, _from: &str, _pi: &HashMap<String, String>, i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
+        // A plain `bl _write` leaving the request length in the return register
+        // (pretend the whole buffer landed) is enough for a caller (the bug-410
+        // `term::` present-write loop test) to lower and inspect its retry tail.
+        i.push(abi::branch_link("_write"));
+        i.push(abi::move_register(abi::return_register(), abi::string_length_register()));
+        Ok(())
+    }
     fn emit_poll_input(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_poll_input") }
     fn emit_is_terminal(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_is_terminal") }
-    fn emit_terminal_size(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_terminal_size") }
+    fn emit_terminal_size(&self, _from: &str, _pi: &HashMap<String, String>, i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
+        // A plain `bl _ioctl` marker; the bug-410 present-loop test only inspects
+        // the neutral instruction stream, so no real TIOCGWINSZ sequence is needed.
+        i.push(abi::branch_link("_ioctl"));
+        Ok(())
+    }
     fn emit_path_exists(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_path_exists") }
     fn emit_path_stat(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_path_stat") }
     fn emit_stat_is_kind(&self, _so: usize, _ek: &str, _m: &str, _mk: &str, _e: &str, _f: &str, _mi: &str, _i: &mut Vec<CodeInstruction>) { unimplemented!("TestPlatform::emit_stat_is_kind") }
