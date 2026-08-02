@@ -14,6 +14,28 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
+use super::descriptor::BuiltinModule;
+
+// plan-72-U: `resource` is the resource registry — it maps a resolved resource
+// type name (`File`, `Socket`, a `pkg.Handle`) to its close op and thread-transfer
+// bit. A resource value is a POINTER to one live registered thing, never an owned
+// or borrowed Rust value ([[res-is-a-pointer-not-a-borrow]]); this table only
+// records how to close that pointer and whether it may cross a thread boundary.
+// The package exposes no builtin callables, no builtin types, and no source
+// companion (census: `helpers 0`, `srcglue/btypes/custom 0`), so its descriptor
+// carries empty function/type lists and no resolver. It exists only to keep the
+// `BuiltinRegistry` exhaustive so plan-72-BB can collapse the aggregate dispatch
+// arms for every package unconditionally. The `ResourceRegistry`/`is_builtin_*`
+// surface below stays the metadata authority for resource close ops — the
+// descriptor vocabulary models builtin calls and types, not the resource table.
+pub(crate) static RESOURCE: BuiltinModule = BuiltinModule {
+    name: "resource",
+    functions: &[],
+    types: &[],
+    source: None,
+    resolver: None,
+};
+
 /// Where a resource registration came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ResourceKind {
@@ -360,5 +382,34 @@ mod tests {
         assert_eq!(builtin_resource_close_function("Socket"), Some("net.close"));
         assert!(is_builtin_sendable_resource_type("Socket"));
         assert!(!is_builtin_sendable_resource_type("Listener"));
+    }
+
+    // plan-72-U migration gate: `resource` owns no builtin callables or types, so
+    // the descriptor is deliberately empty — the point of this letter is only that
+    // the registry enumerates `resource` alongside every other package. Prove the
+    // module is registered, carries the empty shape, and rejects every name lookup
+    // cleanly. Kept until plan-72-BB.
+    #[test]
+    fn descriptor_is_registered_and_empty() {
+        use crate::builtins::descriptor::{DefaultResolver, REGISTRY};
+
+        let module = REGISTRY.module("resource").expect("resource is registered");
+        assert_eq!(module.name, "resource");
+        assert!(module.functions.is_empty());
+        assert!(module.types.is_empty());
+        assert!(module.source.is_none());
+        assert!(module.resolver.is_none());
+
+        // No callable is owned: membership and every derivation is empty/None. The
+        // resource *type* names (`File`, `Socket`) live in the `ResourceRegistry`,
+        // not the descriptor, so a lookup of one here is correctly a miss.
+        assert!(!DefaultResolver::contains(&RESOURCE, "File"));
+        assert!(!DefaultResolver::contains(&RESOURCE, "resource.close"));
+        assert!(REGISTRY.function("resource.anything").is_none());
+        assert_eq!(DefaultResolver::arity(&RESOURCE, "resource.anything"), None);
+
+        // The registry stays well-formed with `resource` appended.
+        assert_eq!(REGISTRY.duplicate_module_name(), None);
+        assert_eq!(REGISTRY.duplicate_function_name(), None);
     }
 }

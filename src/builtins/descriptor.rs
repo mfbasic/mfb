@@ -612,7 +612,8 @@ impl BuiltinRegistry {
 ///
 /// Migrated so far: `app` (B), `bits` (D), `collections` (E), `csv` (G),
 /// `crypto` (F), `audio` (C), `datetime` (H), `encoding` (I), `json` (O),
-/// `math` (P), `money` (Q), `net` (R), `os` (S).
+/// `math` (P), `money` (Q), `net` (R), `os` (S), `regex` (T), `resource` (U),
+/// `strings` (V), `term` (W), `testing` (X).
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::bits::BITS,
@@ -622,6 +623,11 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::audio::AUDIO,
     &crate::builtins::datetime::DATETIME,
     &crate::builtins::encoding::ENCODING,
+    &crate::builtins::regex::REGEX,
+    &crate::builtins::resource::RESOURCE,
+    &crate::builtins::strings::STRINGS,
+    &crate::builtins::term::TERM,
+    &crate::builtins::testing::TESTING,
     &crate::builtins::json::JSON,
     &crate::builtins::math::MATH,
     &crate::builtins::money::MONEY,
@@ -1223,16 +1229,16 @@ mod tests {
     #[test]
     fn production_registry_holds_migrated_packages() {
         // Migrated packages (app plan-72-B, bits plan-72-D) are registered and
-        // resolvable by module name and by qualified function name. `regex` is not
+        // resolvable by module name and by qualified function name. `tls` is not
         // migrated yet, so it is absent and its calls fall back to the legacy
-        // helper. (This used `math` until plan-72-P migrated it; the example moved
-        // to a still-unmigrated package.)
+        // helper. (This used `math` until plan-72-P migrated it, then `regex`
+        // until plan-72-T; the example tracks a still-unmigrated package.)
         assert!(REGISTRY.module("app").is_some());
         assert!(REGISTRY.function("app.setMode").is_some());
         assert!(REGISTRY.module("bits").is_some());
         assert!(REGISTRY.function("bits.band").is_some());
-        assert!(REGISTRY.module("regex").is_none());
-        assert!(REGISTRY.function("regex.match").is_none());
+        assert!(REGISTRY.module("tls").is_none());
+        assert!(REGISTRY.function("tls.connect").is_none());
         // The registry's names stay unique as packages are appended.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

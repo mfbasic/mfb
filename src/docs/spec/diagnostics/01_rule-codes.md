@@ -434,6 +434,7 @@ Scheme*).
 | `2-203-0132` | `NATIVE_BUFFER_INVALID` | error | a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte |
 | `2-203-0133` | `TYPE_STATE_OPAQUE_NARROWING` | error | an opaque resource STATE cannot be narrowed to a concrete STATE type |
 | `2-203-0134` | `RESOURCE_SHADOWS_BUILTIN` | error | a RESOURCE declaration cannot reuse the name of a built-in resource type |
+| `2-203-0135` | `TYPE_INSTANTIATION_BUDGET_EXCEEDED` | error | generic instantiation fans out past the total-instantiation budget |
 | `2-203-0089` | `RESOURCE_CLOSE_NOT_NATIVE` | error | a resource's CLOSE BY op must be a native LINK function |
 | `2-203-0090` | `RESOURCE_CLOSE_MISSING` | error | a resource's CLOSE BY op names no function in its LINK block |
 | `2-203-0091` | `RESOURCE_CLOSE_SIGNATURE` | error | a close op must consume exactly one RES parameter of its resource |

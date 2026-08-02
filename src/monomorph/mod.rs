@@ -58,6 +58,18 @@ struct Monomorphizer<'a> {
     /// instantiation so the attribution follows the frame being lowered.
     current_file: Option<String>,
     template_instantiation_depth: usize,
+    /// Count of concrete generic instantiations (functions + user types) actually
+    /// lowered so far. Bounds *wide* fan-out the per-path `template_instantiation_
+    /// depth` cap cannot: a generic that recurses through ≥2 distinct type-widening
+    /// self-calls fans into an exponential tree of distinct `name<args>` keys, none
+    /// of which the depth cap collapses (bug-399). Checked against
+    /// `MAX_TOTAL_INSTANTIATIONS` at each instantiation entry point.
+    total_instantiations: usize,
+    /// Set once any instantiation limit (the total budget or the depth cap) trips,
+    /// so every subsequent instantiation short-circuits without recursing or
+    /// re-reporting — halting the enumeration after a single bounded diagnostic
+    /// instead of exploring the remaining (exponential) tree (bug-399).
+    instantiation_limit_reached: bool,
     had_error: bool,
 }
 
@@ -106,3 +118,12 @@ mod lower;
 use helpers::*;
 
 const MAX_TEMPLATE_INSTANTIATION_DEPTH: usize = 256;
+
+/// Global ceiling on the total number of concrete generic instantiations
+/// (functions + user types) monomorphization will lower for one project. The
+/// depth cap bounds a single recursion *path*; this bounds the *breadth* of a
+/// fan-out — a generic recursing through ≥2 type-widening self-calls produces an
+/// exponential tree of distinct `name<args>` keys that the per-leaf depth cap
+/// never halts (bug-399). A few thousand is far above any hand-written generic
+/// program yet stops the fan-out promptly with a single bounded diagnostic.
+const MAX_TOTAL_INSTANTIATIONS: usize = 4096;
