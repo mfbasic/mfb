@@ -5,10 +5,39 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Security (verifier gap on untrusted imported IR) / Memory-safety
 
-Status: Open
+Status: FIXED (1ef245a8b, merged b3218b862)
 Regression Test: tests/ — verify-layer unit tests: a decoded `ResultValue` /
 `UnionWrap` / `WithUpdate` whose annotation disagrees with its value's inferred
 type must be rejected (Err), and legitimate source-lowered IR must still pass.
+
+## STATUS: FIXED (1ef245a8b, merged to main b3218b862)
+
+All three sibling sites now reconcile their attacker-controlled annotation
+against the actual value, skip-if-unknown, mirroring bug-162's
+`check_union_extract`:
+
+- (a) `ResultValue.type_` → new `check_result_value_type` (`verify/values.rs`):
+  reconciles the annotated success type against the `Result OF T` element type
+  the value carries.
+- (b) `UnionWrap` payload → `check_union_wrap` (`verify/compat.rs`) extended to
+  take the value+locals and reject a payload whose type is not the tagged
+  `member_type` (`expression_compatible`), after the existing tag check.
+- (c) `WithUpdate.type_` → new `check_with_update_type` (`verify/values.rs`):
+  reconciles the stamped `type_` against `infer_type(target)`.
+
+RED-then-GREEN: 3 rejection tests (`rejects_result_value_with_fabricated_success_type`,
+`rejects_union_wrap_with_mismatched_payload`, `rejects_with_update_with_fabricated_type`)
++ 2 accept tests, all in `verify/tests.rs`. Full `cargo test` green (3733 passed,
+0 failed) both before and after merging main (which had advanced with bug-403/405/406).
+
+Deviation from plan: the pre-existing `accepts_union_wrap_of_real_variant`
+fixture wrapped an `int_const("0")` under a `Circle` tag — never legitimate IR
+(real lowering sets `member_type` to the wrapped value's own type, lower.rs:3312;
+it only exercised the tag check in isolation). Its payload was corrected to a
+`Circle`-typed value so the fix's payload check does not false-reject it. No
+crafted `.mfp` fixture was built (matches the doc's Failing Reproduction note);
+the vulnerability was reproduced and fixed at the verify layer, which is the
+sole safety net for decoded package IR.
 
 The IR verifier is the sole safety net for **untrusted imported-package IR**
 (`check()` runs on decoded `.mfp`, with no syntaxcheck behind it). bug-162 fixed

@@ -1,0 +1,42 @@
+IMPORT io
+
+FUNC boom(n AS Integer) AS Integer
+  IF n < 0 THEN FAIL error(400, "neg")
+  RETURN n * 10
+END FUNC
+
+' bug-401: an inline-TRAP handler whose branches fall through must share one
+' continuation (linear lowering), and a fired RECOVER must still prevent later
+' sibling statements from running. This handler mixes a conditional RECOVER with
+' several fall-through IFs before a final RECOVER.
+FUNC handled(n AS Integer, flag AS Integer) AS Integer
+  MUT trace AS Integer = 0
+  LET v = boom(n) TRAP(e)
+    IF flag = 1 THEN
+      RECOVER 111
+    END IF
+    trace = trace + 1
+    IF flag = 2 THEN
+      trace = trace + 20
+    END IF
+    IF flag = 3 THEN
+      trace = trace + 400
+    END IF
+    trace = trace + 300
+    RECOVER 999 + trace
+  END TRAP
+  RETURN v
+END FUNC
+
+SUB main()
+  ' success path: no failure, RECOVER never runs -> boom(5) = 50
+  io::print(toString(handled(5, 0)))
+  ' fail + flag=1 -> first RECOVER fires; no later trace additions -> 111
+  io::print(toString(handled(-1, 1)))
+  ' fail + flag=0 -> falls through: trace = 1+300 = 301 -> 999+301 = 1300
+  io::print(toString(handled(-1, 0)))
+  ' fail + flag=2 -> trace = 1+20+300 = 321 -> 999+321 = 1320
+  io::print(toString(handled(-1, 2)))
+  ' fail + flag=3 -> trace = 1+400+300 = 701 -> 999+701 = 1700
+  io::print(toString(handled(-1, 3)))
+END SUB
