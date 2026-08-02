@@ -37,19 +37,35 @@ load is 7 projects.
 
 ### Phase M1 — descriptor and resolver
 
-- [ ] Add `pub(crate) static HTTP: BuiltinModule` with every function,
+- [x] Add `pub(crate) static HTTP: BuiltinModule` with every function,
       overload, parameter (canonical + aliases), argument types, return
-      type, implementation, and default.
-- [ ] Add `BuiltinType` entry for the http builtin type.
-- [ ] Model the `package_source_glue!` companion as
-      `BuiltinSource { rule: InjectionRule::WhenImported, .. }`.
-- [ ] Implement `HttpResolver` for `default_argument_padding` and typed
-      `implementation_name`.
-- [ ] Rewrite the 9 metadata helpers as wrappers over
-      `HTTP`/`HttpResolver`.
-- [ ] Register `HTTP` with the `BuiltinRegistry` from plan-72-A.
-- [ ] Parity tests: every `http.*` name, every default-padding slot, every
-      typed implementation-name case, and the builtin type.
+      type, implementation, and default. Done: 14 functions, fixed returns;
+      optional trailing arguments are `DefaultValue::Fill` carrying the same
+      `(type, expr)` pairs the legacy `default_argument_padding` injected.
+- [x] Add `BuiltinType` entry for the http builtin type(s). Done: **four**
+      record types (`Response`, `Request`, `RequestPart`, `Route`) — the
+      "1 builtin-type" census counted the single `is_builtin_type` helper fn,
+      not the type names it covers (see Corrections).
+- [x] Model the `package_source_glue!` companion as
+      `BuiltinSource { rule: InjectionRule::WhenImported, loader: source_file }`.
+- [x] Implement `HttpResolver` for typed `implementation_name` (`handleRequest`
+      selects `__http_handleRequest{,SSL}` by first-arg type) and
+      `resolve_return_type` (type-union overload validation). Default padding is
+      NOT resolver-owned — it is data-derivable from the `Fill` parameters (see
+      Corrections).
+- [x] Rewrite the 9 metadata helpers as wrappers over `HTTP`/`HttpResolver`.
+      `is_http_call`→`contains`, `arity`→`arity`, `call_return_type_name`
+      →`return_type_name` delegate to `DefaultResolver`; `resolve_call` routes
+      through `HttpResolver::resolve_return_type`; `implementation_name` uses the
+      shared `handle_request_target` for `handleRequest` and
+      `DefaultResolver::implementation_name` (the `Rewrite` symbol) otherwise;
+      `is_builtin_type` queries `HTTP.types`; `call_param_names`,
+      `expected_arguments`, and `default_argument_padding` stay hand-authored
+      statics pinned by parity.
+- [x] Register `HTTP` with the `BuiltinRegistry` from plan-72-A.
+- [x] Parity tests: every `http.*` name, every default-padding slot, both
+      typed `handleRequest` implementation cases, and the four builtin types
+      (`parity_matches_descriptor`).
 
 Acceptance: `cargo test` passes; every `http.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual`, including
@@ -64,4 +80,23 @@ Commit: —
 
 ## Corrections
 
-Filled during execution.
+- **`default_argument_padding` is data-derivable, not resolver-owned.** Phase M1
+  called for `HttpResolver` to own `default_argument_padding`, but every http
+  default is a plain trailing `(type, expr)` fill (`headers={}`, `method=GET`,
+  `host=0.0.0.0`, `backlog=128`, `contentType=""`). Modelling those as
+  `DefaultValue::Fill` parameters makes `DefaultResolver::default_padding`
+  reproduce the legacy static byte-for-byte, so the resolver does not override
+  `default_padding` (identical to how plan-72-F handled crypto's AEAD `aad`). The
+  legacy `default_argument_padding` static is kept (borrowed `&'static` return) and
+  pinned to the `Fill` parameters by the parity test. Evidence: parity assertion
+  `DefaultResolver::default_padding(&HTTP, name, provided) == default_argument_padding(name, provided)`
+  over READ/WRITE/SERVER/SERVER_SSL/RESPOND_FILE.
+- **http contributes four builtin types, not one.** The census `btypes 1` counts
+  the single `is_builtin_type` helper fn; that fn covers four record type names
+  (`Response`, `Request`, `RequestPart`, `Route`), all modelled as `BuiltinType`
+  entries. Evidence: original `http.rs` `is_builtin_type` match arm and the
+  `server_types_and_consumes` test. `resolve_call`'s type-union overloads
+  (`handleRequest` accepts `Listener` OR `TlsListener`) cannot be expressed as a
+  single `ParameterType::Named`, so — like crypto/collections — `resolve_call`
+  routes through `HttpResolver::resolve_return_type` (bespoke `dispatch_resolve`)
+  rather than `DefaultResolver::resolve_call`.

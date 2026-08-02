@@ -6,6 +6,12 @@
 
 use std::borrow::Cow;
 
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
+    BuiltinType, DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
+    ParameterType, ReturnType, TypeKind,
+};
+
 const READ: &str = "http.read";
 const WRITE: &str = "http.write";
 // Server surface (plan-05 §F.5): lifecycle, routing, response constructors,
@@ -68,35 +74,217 @@ const ROUTE_LIST: &str = "List OF Route";
 // handler function reference resolves to.
 const HANDLER_TYPE: &str = "FUNC(Request) AS Response";
 
+// plan-72-M: `HTTP` is the descriptor authority for this package. Every function
+// has a fixed return regardless of which overload matches, so
+// `call_return_type_name` and `arity` derive from the descriptor. Optional
+// trailing arguments are `DefaultValue::Fill` carrying the same `(type, expr)`
+// pairs the legacy `default_argument_padding` injected, so default padding is
+// DATA-derivable (see Corrections in plan-72-M — the resolver does not own it).
+// `resolve_call` (overloads with type-union first arguments — `handleRequest`
+// accepts `Listener` OR `TlsListener`) and typed `implementation_name`
+// (`handleRequest` selects `__http_handleRequest{,SSL}` by the first argument's
+// type) are argument-dependent and live on `HttpResolver`; every other call maps
+// 1:1 to a fixed internal (`Implementation::Rewrite`). The parameter *types*
+// below are illustrative where an overload is type-union; `resolve_call` owns the
+// real acceptance. `Response`/`Request`/`RequestPart`/`Route` are the source
+// companion record types; the `.mfb` companion injects on import (`WhenImported`).
+const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload {
+    BuiltinOverload {
+        params,
+        return_type: ReturnType::Fixed(ret),
+    }
+}
+
+const fn hfn(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+    implementation: Implementation,
+) -> BuiltinFunction {
+    BuiltinFunction {
+        name,
+        doc_slug: slug,
+        overloads,
+        implementation,
+        lowering: Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+
+const fn req(name: &'static str, ty: &'static str) -> Parameter {
+    Parameter::required(name, ty)
+}
+
+// A trailing argument that is default-padded during IR lowering with `(ty, expr)`.
+const fn fill(name: &'static str, ty: &'static str, expr: &'static str) -> Parameter {
+    Parameter {
+        name,
+        aliases: &[],
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::Fill {
+            type_name: ty,
+            expr,
+        },
+    }
+}
+
+const fn req_alias(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
+    Parameter {
+        name,
+        aliases,
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::None,
+    }
+}
+
+const P_READ: &[Parameter] = &[
+    req("url", URL_TYPE),
+    fill("headers", HEADER_MAP, "{}"),
+    fill("method", "String", "GET"),
+];
+const P_WRITE: &[Parameter] = &[
+    req("url", URL_TYPE),
+    req("body", "String"),
+    fill("headers", HEADER_MAP, "{}"),
+    fill("method", "String", "POST"),
+];
+const P_SERVER: &[Parameter] = &[
+    req("port", "Integer"),
+    fill("host", "String", "0.0.0.0"),
+    fill("backlog", "Integer", "128"),
+];
+const P_SERVER_SSL: &[Parameter] = &[
+    req("port", "Integer"),
+    req("certPath", "String"),
+    req("keyPath", "String"),
+    fill("host", "String", "0.0.0.0"),
+    fill("backlog", "Integer", "128"),
+];
+const P_HANDLE_REQUEST: &[Parameter] =
+    &[req_alias("listener", &["server"], LISTENER_TYPE), req("routes", ROUTE_LIST)];
+const P_ROUTE: &[Parameter] = &[req("pattern", "String"), req("handler", HANDLER_TYPE)];
+const P_BODY: &[Parameter] = &[req("body", "String")];
+const P_STATUS: &[Parameter] = &[req("code", "Integer"), req("body", "String")];
+const P_WITH_HEADER: &[Parameter] = &[
+    req_alias("resp", &["response"], RESPONSE_TYPE),
+    req("name", "String"),
+    req("value", "String"),
+];
+const P_TEXT: &[Parameter] = &[req("text", "String")];
+const P_RESPOND_FILE: &[Parameter] = &[req("file", FILE_TYPE), fill("contentType", "String", "")];
+const P_RESPOND_PATH: &[Parameter] =
+    &[req_alias("req", &["request"], REQUEST_TYPE), req("root", "String")];
+
+const HTTP_FUNCTIONS: &[BuiltinFunction] = &[
+    hfn(READ, "read", &[ov(P_READ, RESPONSE_TYPE)], Implementation::Rewrite(INTERNAL_READ)),
+    hfn(WRITE, "write", &[ov(P_WRITE, RESPONSE_TYPE)], Implementation::Rewrite(INTERNAL_WRITE)),
+    hfn(SERVER, "server", &[ov(P_SERVER, LISTENER_TYPE)], Implementation::Rewrite(INTERNAL_SERVER)),
+    hfn(
+        SERVER_SSL,
+        "serverSSL",
+        &[ov(P_SERVER_SSL, TLS_LISTENER_TYPE)],
+        Implementation::Rewrite(INTERNAL_SERVER_SSL),
+    ),
+    // Overloaded by listener type: the resolver picks the internal target.
+    hfn(HANDLE_REQUEST, "handleRequest", &[ov(P_HANDLE_REQUEST, "Nothing")], Implementation::Custom),
+    hfn(ROUTE, "route", &[ov(P_ROUTE, ROUTE_TYPE)], Implementation::Rewrite(INTERNAL_ROUTE)),
+    hfn(
+        RESPONSE_DEFAULT,
+        "responseDefault",
+        &[ov(&[], RESPONSE_TYPE)],
+        Implementation::Rewrite(INTERNAL_RESPONSE_DEFAULT),
+    ),
+    hfn(OK, "ok", &[ov(P_BODY, RESPONSE_TYPE)], Implementation::Rewrite(INTERNAL_OK)),
+    hfn(STATUS, "status", &[ov(P_STATUS, RESPONSE_TYPE)], Implementation::Rewrite(INTERNAL_STATUS)),
+    hfn(JSON, "json", &[ov(P_BODY, RESPONSE_TYPE)], Implementation::Rewrite(INTERNAL_JSON)),
+    hfn(
+        WITH_HEADER,
+        "withHeader",
+        &[ov(P_WITH_HEADER, RESPONSE_TYPE)],
+        Implementation::Rewrite(INTERNAL_WITH_HEADER),
+    ),
+    hfn(BYTES, "bytes", &[ov(P_TEXT, BYTE_LIST)], Implementation::Rewrite(INTERNAL_BYTES)),
+    hfn(
+        RESPOND_FILE,
+        "respondFile",
+        &[ov(P_RESPOND_FILE, RESPONSE_TYPE)],
+        Implementation::Rewrite(INTERNAL_RESPOND_FILE),
+    ),
+    hfn(
+        RESPOND_PATH,
+        "respondPath",
+        &[ov(P_RESPOND_PATH, RESPONSE_TYPE)],
+        Implementation::Rewrite(INTERNAL_RESPOND_PATH),
+    ),
+];
+
+const HTTP_TYPES: &[BuiltinType] = &[
+    BuiltinType { name: RESPONSE_TYPE, kind: TypeKind::Record, fields: &[] },
+    BuiltinType { name: REQUEST_TYPE, kind: TypeKind::Record, fields: &[] },
+    BuiltinType { name: REQUEST_PART_TYPE, kind: TypeKind::Record, fields: &[] },
+    BuiltinType { name: ROUTE_TYPE, kind: TypeKind::Record, fields: &[] },
+];
+
+/// The internal `__http_handleRequest{,SSL}` target: `handleRequest` is overloaded
+/// by listener type, so the first argument's type selects the transport body. The
+/// production `implementation_name` wrapper and the resolver share this.
+fn handle_request_target(arg_types: &[String]) -> &'static str {
+    if arg_types.first().map(String::as_str) == Some(TLS_LISTENER_TYPE) {
+        INTERNAL_HANDLE_REQUEST_SSL
+    } else {
+        INTERNAL_HANDLE_REQUEST
+    }
+}
+
+/// Argument-dependent resolution for http: overload validation with type-union
+/// first arguments (return type) and the `handleRequest` typed target selection.
+struct HttpResolver;
+impl BuiltinResolver for HttpResolver {
+    fn resolve_return_type(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        dispatch_resolve(name, arg_types).map(|resolved| resolved.return_type.into_owned())
+    }
+
+    fn implementation_name(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        (name == HANDLE_REQUEST).then(|| handle_request_target(arg_types).to_string())
+    }
+}
+static HTTP_RESOLVER: HttpResolver = HttpResolver;
+
+pub(crate) static HTTP: BuiltinModule = BuiltinModule {
+    name: "http",
+    functions: HTTP_FUNCTIONS,
+    types: HTTP_TYPES,
+    source: Some(BuiltinSource {
+        rule: InjectionRule::WhenImported,
+        loader: source_file,
+    }),
+    resolver: Some(&HTTP_RESOLVER),
+};
+
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    matches!(
-        name,
-        RESPONSE_TYPE | REQUEST_TYPE | REQUEST_PART_TYPE | ROUTE_TYPE
-    )
+    HTTP.types.iter().any(|ty| ty.name == name)
 }
 
 pub(crate) fn is_http_call(name: &str) -> bool {
-    matches!(
-        name,
-        READ | WRITE
-            | SERVER
-            | SERVER_SSL
-            | HANDLE_REQUEST
-            | ROUTE
-            | RESPONSE_DEFAULT
-            | OK
-            | STATUS
-            | JSON
-            | WITH_HEADER
-            | BYTES
-            | RESPOND_FILE
-            | RESPOND_PATH
-    )
+    DefaultResolver::contains(&HTTP, name)
 }
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
@@ -125,21 +313,20 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    match name {
-        READ | WRITE => Some(RESPONSE_TYPE),
-        SERVER => Some(LISTENER_TYPE),
-        SERVER_SSL => Some(TLS_LISTENER_TYPE),
-        HANDLE_REQUEST => Some("Nothing"),
-        ROUTE => Some(ROUTE_TYPE),
-        RESPONSE_DEFAULT | OK | STATUS | JSON | WITH_HEADER | RESPOND_FILE | RESPOND_PATH => {
-            Some(RESPONSE_TYPE)
-        }
-        BYTES => Some(BYTE_LIST),
-        _ => None,
-    }
+    DefaultResolver::return_type_name(&HTTP, name)
 }
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    let return_type = HTTP.resolver?.resolve_return_type(&HTTP, name, arg_types)?;
+    Some(ResolvedCall {
+        return_type: Cow::Owned(return_type),
+    })
+}
+
+/// The argument-validating return-type resolution, invoked through the descriptor
+/// resolver by `resolve_call`. `handleRequest` accepts either listener type; the
+/// server/client overloads validate their per-position argument types.
+fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let return_type = match name {
         READ if exact(arg_types, &[URL_TYPE])
             || exact(arg_types, &[URL_TYPE, HEADER_MAP])
@@ -221,18 +408,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 }
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    match name {
-        READ => Some((1, 3)),
-        WRITE => Some((2, 4)),
-        SERVER => Some((1, 3)),
-        SERVER_SSL => Some((3, 5)),
-        HANDLE_REQUEST | STATUS | ROUTE | RESPOND_PATH => Some((2, 2)),
-        WITH_HEADER => Some((3, 3)),
-        RESPONSE_DEFAULT => Some((0, 0)),
-        OK | JSON | BYTES => Some((1, 1)),
-        RESPOND_FILE => Some((1, 2)),
-        _ => None,
-    }
+    DefaultResolver::arity(&HTTP, name)
 }
 
 /// Default trailing arguments injected during IR lowering: the empty `headers`
@@ -272,31 +448,13 @@ pub(crate) fn consumes_argument(name: &str, index: usize) -> bool {
 }
 
 /// The internal source-companion target. `handleRequest` is overloaded by
-/// listener type, so its target is chosen from the first argument's type; every
-/// other call maps 1:1.
+/// listener type, so its target is chosen from the first argument's type (owned by
+/// `HttpResolver` and the shared `handle_request_target`); every other call maps
+/// 1:1 to its `Implementation::Rewrite` symbol in the descriptor.
 pub(crate) fn implementation_name(name: &str, arg_types: &[String]) -> Option<&'static str> {
     match name {
-        READ => Some(INTERNAL_READ),
-        WRITE => Some(INTERNAL_WRITE),
-        SERVER => Some(INTERNAL_SERVER),
-        SERVER_SSL => Some(INTERNAL_SERVER_SSL),
-        HANDLE_REQUEST => {
-            if arg_types.first().map(String::as_str) == Some(TLS_LISTENER_TYPE) {
-                Some(INTERNAL_HANDLE_REQUEST_SSL)
-            } else {
-                Some(INTERNAL_HANDLE_REQUEST)
-            }
-        }
-        ROUTE => Some(INTERNAL_ROUTE),
-        RESPONSE_DEFAULT => Some(INTERNAL_RESPONSE_DEFAULT),
-        OK => Some(INTERNAL_OK),
-        STATUS => Some(INTERNAL_STATUS),
-        JSON => Some(INTERNAL_JSON),
-        WITH_HEADER => Some(INTERNAL_WITH_HEADER),
-        BYTES => Some(INTERNAL_BYTES),
-        RESPOND_FILE => Some(INTERNAL_RESPOND_FILE),
-        RESPOND_PATH => Some(INTERNAL_RESPOND_PATH),
-        _ => None,
+        HANDLE_REQUEST => Some(handle_request_target(arg_types)),
+        _ => DefaultResolver::implementation_name(&HTTP, name),
     }
 }
 
@@ -576,6 +734,111 @@ mod tests {
         assert_eq!(
             augmented_project(&ast).expect("a").files.len(),
             ast.files.len()
+        );
+    }
+
+    // plan-72-M migration gate: prove `HTTP` + `HttpResolver` reproduce the legacy
+    // answers — membership/arity/param-names via the descriptor, the fixed
+    // returns via `call_return_type_name`, argument-dependent return + typed
+    // `handleRequest` implementation via resolver samples, default padding derived
+    // from the `Fill` parameters (data, not resolver-owned), and the four record
+    // builtin types + `WhenImported` source. Keep until plan-72-BB.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::{parity, DefaultResolver};
+
+        let calls: Vec<&str> = HTTP_FUNCTIONS.iter().map(|f| f.name).collect();
+        let legacy = parity::LegacySet {
+            is_call: &is_http_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            // Return/impl are resolver- or descriptor-owned and checked below;
+            // the harness skips them for a resolver-backed module.
+            return_type_name: &|_| None,
+            expected_arguments: None, // bespoke bracketed / "no arguments" phrasing
+            param_name_overloads: None,
+            argument_types: None,
+            implementation_name: None,
+            default_padding: None,
+            // The four record types carry no descriptor fields (source-defined) and
+            // http has no builtin_type_fields helper; membership asserted below.
+            builtin_type_fields: None,
+        };
+        let mut probe = calls.clone();
+        probe.push("http.nope");
+
+        for ty in [RESPONSE_TYPE, REQUEST_TYPE, REQUEST_PART_TYPE, ROUTE_TYPE] {
+            assert!(is_builtin_type(ty), "{ty}");
+        }
+        assert!(!is_builtin_type("Url"));
+
+        let samples = [
+            parity::ResolverSample {
+                call: HANDLE_REQUEST,
+                arg_types: &[LISTENER_TYPE, ROUTE_LIST],
+                expected_return: Some("Nothing"),
+                expected_impl: Some(INTERNAL_HANDLE_REQUEST),
+                expected_padding: None,
+                expected_type: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: HANDLE_REQUEST,
+                arg_types: &[TLS_LISTENER_TYPE, ROUTE_LIST],
+                expected_return: Some("Nothing"),
+                expected_impl: Some(INTERNAL_HANDLE_REQUEST_SSL),
+                expected_padding: None,
+                expected_type: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: READ,
+                arg_types: &[URL_TYPE, HEADER_MAP, "String"],
+                expected_return: Some(RESPONSE_TYPE),
+                expected_impl: None,
+                expected_padding: None,
+                expected_type: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: SERVER_SSL,
+                arg_types: &["Integer", "String", "String"],
+                expected_return: Some(TLS_LISTENER_TYPE),
+                expected_impl: None,
+                expected_padding: None,
+                expected_type: None,
+                expected_overload_target: None,
+            },
+        ];
+        parity::assert_parity(&HTTP, &probe, &legacy, &samples);
+
+        // call_return_type_name (descriptor-derived Fixed) matches the legacy
+        // values, and default padding derives from the optional `Fill` parameters
+        // exactly as the legacy `default_argument_padding` static.
+        assert_eq!(call_return_type_name(READ), Some(RESPONSE_TYPE));
+        assert_eq!(call_return_type_name(SERVER), Some(LISTENER_TYPE));
+        assert_eq!(call_return_type_name(SERVER_SSL), Some(TLS_LISTENER_TYPE));
+        assert_eq!(call_return_type_name(HANDLE_REQUEST), Some("Nothing"));
+        assert_eq!(call_return_type_name(BYTES), Some(BYTE_LIST));
+        for name in [READ, WRITE, SERVER, SERVER_SSL, RESPOND_FILE] {
+            let (_, max) = arity(name).unwrap();
+            for provided in 0..=max {
+                assert_eq!(
+                    DefaultResolver::default_padding(&HTTP, name, provided),
+                    default_argument_padding(name, provided).to_vec(),
+                    "padding parity {name} @ {provided}"
+                );
+            }
+        }
+
+        // The fixed 1:1 implementation rewrites and the source rule.
+        assert_eq!(implementation_name(READ, &[]), Some(INTERNAL_READ));
+        assert_eq!(implementation_name(RESPOND_PATH, &[]), Some(INTERNAL_RESPOND_PATH));
+        assert_eq!(
+            HTTP.source.expect("http has a source").rule,
+            InjectionRule::WhenImported
         );
     }
 }
