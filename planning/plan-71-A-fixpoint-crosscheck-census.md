@@ -252,23 +252,30 @@ Acceptance: `bug387-gate.sh … full` reports PASS on clean `main` (**met** — 
 byte-identical on app-ncode ×4 targets and exe-oracle ×4 targets); baseline manifests
 for all five targets exist in `/tmp/bug387` with Open Decision 1 (commit them) explicitly
 deferred (**met**).
-Commit: —
+Commit: c107bff93
 
 ### Phase 2 — cross-check gate (env-gated, byte-identical)
 
-- [ ] Add `map_token_direct` + `is_abi_role_token` to `src/arch/x86_64/select.rs` (§4).
-- [ ] Defer role tokens in `select_x86`; capture + realize + audit-report in
-      `remap_x86_abi` (§4). Non-audit path writes `mapped` unchanged.
-- [ ] Tests: extend `src/arch/x86_64/select::tests` — assert `map_token_direct` matches
-      the fixpoint on the existing clean cases (call args, returns, syscalls, staged
-      error-Result, incoming-param bridge) so the gate itself is covered; assert audit
-      mode emits a `BUG387-MISMATCH` for a constructed reuse case.
-- [ ] Gate: `bug387-gate.sh target/release/mfb full` → PASS (audit **unset**) — the
-      diagnostic is byte-identical on all five targets.
+- [x] Add `map_token_direct` + `is_abi_role_token` to `src/arch/x86_64/select.rs` (§4).
+- [x] Defer role tokens in `select_x86`; capture + realize + audit-report in
+      `remap_x86_abi` (§4). Non-audit path writes `mapped` unchanged. (Implemented as
+      `remap_x86_abi` → `remap_x86_abi_inner(instructions, abi, audit) -> Vec<String>`
+      so the unit tests can force the cross-check on regardless of the environment; the
+      env-reading wrapper `eprintln!`s the returned lines. See Corrections.)
+- [x] Tests: extend `src/arch/x86_64/select::tests` — `map_token_direct_matches_the_abi_tables`
+      (SysV+Win64 tables), `is_abi_role_token_covers_only_role_tokens`,
+      `direct_map_agrees_with_the_fixpoint_on_clean_cases` (call args, returns, syscall
+      args + nr → no mismatch), `audit_reports_result_reused_as_argument` (constructed
+      reuse → exactly one `BUG387-MISMATCH token=%ret0 direct=rax inferred=rdi`), and
+      `audit_off_reports_nothing_and_role_tokens_select_byte_identically`.
+- [x] Gate: `bug387-gate.sh target/release/mfb full` → `BUG387-GATE: PASS
+      (byte-identical)` (audit **unset**) — byte-identical on all five targets
+      (linux-x86_64 1282, windows-x86_64 611, linux-riscv64 1280, linux-aarch64 1282
+      executables `OK … byte-identical`; app-ncode byte-identical ×4).
 
-Acceptance: `cargo test --bin mfb arch::x86_64::select` green; `bug387-gate.sh … full`
-PASS with audit unset (byte-identical everywhere); a real `cargo test` (full) shows
-`test result: ok`.
+Acceptance: `cargo test --bin mfb arch::x86_64::select` green (**27 passed**);
+`bug387-gate.sh … full` PASS with audit unset (byte-identical everywhere, **met**);
+a real full `cargo test --bin mfb` shows `test result: ok. 3751 passed; 0 failed`.
 Commit: —
 
 ### Phase 3 — corpus census
@@ -328,7 +335,23 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Open Decision 1 resolved as DEFER (do not commit baselines).** Evidence: the
+  exe-oracle manifest is sha256s of produced executables, valid only against the exact
+  `mfb` build that recorded it; any later byte-moving codegen change on any target
+  invalidates the whole file, so committing it manufactures false failures rather than a
+  durable golden. Baselines re-recorded from clean `main` in `/tmp/bug387` each session
+  (Phase 1's design). See Open Decisions.
+- **`remap_x86_abi` split into a thin env-reading wrapper + `remap_x86_abi_inner(…,
+  audit) -> Vec<String>`.** The plan's §4 step 4 described the audit as inline
+  `eprintln!`s; testing emission that way needs stderr capture, which std does not offer
+  in-process. The `inner` fn instead returns the `BUG387-MISMATCH` lines (empty unless
+  `audit`) and the wrapper `eprintln!`s them, so `audit_reports_result_reused_as_argument`
+  can assert on the returned vec while the census sweep still reads them on stderr. The
+  register rewriting is unchanged and byte-identical whether or not `audit` is set — the
+  bug387-gate (audit unset) PASS on all five targets is the proof.
+- **No `assert` path added (as A intended).** §4 notes A ships audit-only; the non-audit
+  path writes `mapped` exactly as today with no panic. The live `assert_eq!` is the final
+  letter's job.
 
 ## Summary
 

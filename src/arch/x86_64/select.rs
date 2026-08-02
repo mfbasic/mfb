@@ -154,12 +154,79 @@ fn map_abi_register(n: usize, role: Option<AbiBoundary>, is_result: bool, abi: X
     reg.to_string()
 }
 
+/// Context-free direct map from an ABI *role token* to its x86-64 register under
+/// `abi` — **no CFG role inference** (`%argN` → `CALL_ARGS[N]`, `%sysargN` →
+/// `SYS_ARGS[N]`, `%retN` → `RETS[N]`, `%sysnr`/`%sysret` → `rax`); `None` for any
+/// non-role value. This is the map bug-85 tried to realize directly and
+/// `remap_x86_abi`'s fixpoint replaced. plan-71 drives the fixpoint toward it: at a
+/// site where this map and the inference AGREE the fixpoint is deletable
+/// byte-identically; where they DISAGREE a later letter must re-tokenize (Category
+/// 1) or stage a move (Category 2). The audit in `remap_x86_abi` reports every
+/// disagreement so plan-71-A can census the split (plan-71-A §3/§4).
+fn map_token_direct(value: &str, abi: X86Abi) -> Option<String> {
+    let (call_args, sys_args, rets): (&[&str], &[&str], &[&str]) = match abi {
+        X86Abi::SysV => (CALL_ARGS, SYS_ARGS, RETS),
+        // Win64 emits no raw syscall (OS calls go through the IAT), so `SYS_ARGS`
+        // is unreachable under Win64; it is passed only to keep the arity uniform.
+        X86Abi::Win64 => (CALL_ARGS_WIN64, SYS_ARGS, RETS_WIN64),
+    };
+    let index_after = |prefix: &str| {
+        value
+            .strip_prefix(prefix)
+            .and_then(|rest| rest.parse::<usize>().ok())
+    };
+    if let Some(n) = index_after("%arg") {
+        return call_args.get(n).map(|reg| reg.to_string());
+    }
+    if let Some(n) = index_after("%sysarg") {
+        return sys_args.get(n).map(|reg| reg.to_string());
+    }
+    if let Some(n) = index_after("%ret") {
+        return rets.get(n).map(|reg| reg.to_string());
+    }
+    if value == "%sysnr" || value == "%sysret" {
+        // The syscall number lives in `rax` (SysV) and a syscall's result comes
+        // back in `rax`; both agree with the inference's `x8`→rax / `x0`-result
+        // coloring at a syscall boundary.
+        return Some("rax".to_string());
+    }
+    None
+}
+
+/// Is `value` one of the deferred ABI *role tokens* (`%argN`/`%sysargN`/`%retN`/
+/// `%sysnr`/`%sysret`)? These are the tokens `select_x86` leaves un-realized so
+/// `remap_x86_abi` can both realize them (byte-identically) and cross-check them.
+fn is_abi_role_token(value: &str) -> bool {
+    map_token_direct(value, X86Abi::SysV).is_some()
+}
+
 /// Remap the residual AArch64 physical registers a selected stream still carries
 /// (the ABI registers `x0`–`x8`, `sp`, `xzr`/`x31`, the link register `x30`, and
 /// leftover scratch) to their x86-64 / SysV homes. Virtual registers (`%vN`) and
 /// `arena_base` (already realized to `r15`) pass through. The hard case is
 /// `x0`–`x8`, whose role depends on the nearest call/`svc`/`ret` boundary.
 fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>, abi: X86Abi) {
+    // plan-71-A cross-check gate. `select_x86` now DEFERS the ABI role tokens into
+    // this pass (rather than realizing them to `xN` up front); the audit reports
+    // where the context-free `map_token_direct` disagrees with the inference. With
+    // `MFB_BUG387_AUDIT` unset every emitted byte is unchanged: the deferred tokens
+    // are realized to exactly the `xN` `select_x86` used to hand us, and `mapped`
+    // is still what gets written. See the `audit`/pre-pass block below.
+    let mismatches = remap_x86_abi_inner(instructions, abi, std::env::var_os("MFB_BUG387_AUDIT").is_some());
+    for line in mismatches {
+        eprintln!("{line}");
+    }
+}
+
+/// The body of [`remap_x86_abi`], parameterized on `audit` so the unit tests can
+/// force the cross-check on regardless of the environment. Returns the
+/// `BUG387-MISMATCH` report lines (empty unless `audit`); the register rewriting it
+/// performs on `instructions` is byte-identical whether or not `audit` is set.
+fn remap_x86_abi_inner(
+    instructions: &mut Vec<CodeInstruction>,
+    abi: X86Abi,
+    audit: bool,
+) -> Vec<String> {
     // The argument/result register files for the active convention. `SysV` reads
     // the module constants unchanged (byte-identical); `Win64` reads the `*_WIN64`
     // tables. Both result banks are 4 wide, so every `rets.len()` guard is
@@ -178,6 +245,41 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>, abi: X86Abi) {
             .iter()
             .any(|(_, value)| value == "x30" || value == "lr")
     });
+
+    // plan-71-A: realize the deferred ABI role tokens back to their `xN` spelling
+    // so the inference below runs byte-identically to the pre-plan-71 world (where
+    // `select_x86` realized them itself). Remember, per (instruction, field), which
+    // operand was a role token and its original spelling, so the rewrite loop can
+    // cross-check the inference's chosen register against `map_token_direct`. Under
+    // `audit`, also snapshot each such instruction's original op + token fields for
+    // the divergence report (`role_site[i]`). This runs after the `x30`/`lr` retain
+    // so the indices it records match the ones the analyses below use.
+    let mut role_token: std::collections::HashMap<(usize, usize), String> =
+        std::collections::HashMap::new();
+    let mut role_site: Vec<Option<String>> = vec![None; instructions.len()];
+    for (i, inst) in instructions.iter_mut().enumerate() {
+        if !inst.fields.iter().any(|(_, v)| is_abi_role_token(v)) {
+            continue;
+        }
+        if audit {
+            let fields = inst
+                .fields
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            role_site[i] = Some(format!("{} [{fields}]", inst.op.mnemonic()));
+        }
+        for (p, (_, value)) in inst.fields.iter_mut().enumerate() {
+            if is_abi_role_token(value) {
+                role_token.insert((i, p), value.clone());
+                if let Some(reg) = crate::target::shared::abi::realize_abi_token(value) {
+                    *value = reg.to_string();
+                }
+            }
+        }
+    }
+    let mut mismatches: Vec<String> = Vec::new();
 
     let count = instructions.len();
     // The boundary each register's value flows into, resolved along CONTROL FLOW
@@ -533,7 +635,7 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>, abi: X86Abi) {
             staged_live.clear();
         }
         let mut new_defs: Vec<String> = Vec::new();
-        for (key, value) in instructions[i].fields.iter_mut() {
+        for (p, (key, value)) in instructions[i].fields.iter_mut().enumerate() {
             if value == "sp" {
                 *value = "rsp".to_string();
                 continue;
@@ -630,6 +732,27 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>, abi: X86Abi) {
             if is_def {
                 new_defs.push(value.clone());
             }
+            // plan-71-A cross-check: if this operand was a deferred role token,
+            // compare the context-free `map_token_direct` against the register the
+            // fixpoint chose. A disagreement is a site a later letter must handle
+            // (Category 1 re-tokenize / Category 2 stage); report it under `audit`.
+            // This is inspection only — `mapped` is still written unchanged.
+            if audit {
+                if let Some(token) = role_token.get(&(i, p)) {
+                    if let Some(direct) = map_token_direct(token, abi) {
+                        if direct != mapped {
+                            mismatches.push(format!(
+                                "BUG387-MISMATCH abi={} token={token} direct={direct} inferred={mapped} | site: {}",
+                                match abi {
+                                    X86Abi::SysV => "sysv",
+                                    X86Abi::Win64 => "win64",
+                                },
+                                role_site[i].as_deref().unwrap_or("?"),
+                            ));
+                        }
+                    }
+                }
+            }
             *value = mapped;
         }
         match abi_boundary_of(&instructions[i]) {
@@ -681,6 +804,8 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>, abi: X86Abi) {
             instructions.insert(at + offset, inst);
         }
     }
+
+    mismatches
 }
 
 /// Rewrite the flag-reading branch of a fused *float* compare into the x86
@@ -829,9 +954,15 @@ pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<Co
         );
         // plan-34-B Phase-3b seam: realize a role token to its AArch64 spelling
         // (`%arg3` → `x3`) so `remap_x86_abi`'s existing role inference reproduces
-        // today's result exactly (byte-identical). Phase 4 replaces the inference
-        // with a direct token→SysV lookup and drops this.
+        // today's result exactly (byte-identical). plan-71-A now DEFERS the ABI
+        // *role* tokens (`is_abi_role_token`: `%argN`/`%sysargN`/`%retN`/`%sysnr`/
+        // `%sysret`) past this seam so `remap_x86_abi` can realize AND cross-check
+        // them against `map_token_direct`; every other token (`%scratchN`,
+        // `%localN`, `%mathpool`, `%sysnr_darwin`, …) is realized here as before.
         for (_, value) in instruction.fields.iter_mut() {
+            if is_abi_role_token(value) {
+                continue;
+            }
             if let Some(reg) = crate::target::shared::abi::realize_abi_token(value) {
                 *value = reg.to_string();
             }
@@ -1318,5 +1449,146 @@ mod tests {
             .find(|inst| inst.op == CodeOp::CmpImm)
             .expect("the entry compare survives selection");
         assert_eq!(cmp.get("lhs"), Some("rsi"));
+    }
+
+    // ---- plan-71-A: the context-free cross-check gate ----
+
+    #[test]
+    fn map_token_direct_matches_the_abi_tables() {
+        // SysV: call args, syscall args, returns, and the syscall nr/result.
+        for (n, reg) in ["rdi", "rsi", "rdx", "rcx", "r8", "r9", "rax", "rbp"]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(
+                map_token_direct(&format!("%arg{n}"), X86Abi::SysV).as_deref(),
+                Some(reg)
+            );
+        }
+        for (n, reg) in ["rdi", "rsi", "rdx", "r10", "r8", "r9"].into_iter().enumerate() {
+            assert_eq!(
+                map_token_direct(&format!("%sysarg{n}"), X86Abi::SysV).as_deref(),
+                Some(reg)
+            );
+        }
+        for (n, reg) in ["rax", "rdx", "rcx", "rsi"].into_iter().enumerate() {
+            assert_eq!(
+                map_token_direct(&format!("%ret{n}"), X86Abi::SysV).as_deref(),
+                Some(reg)
+            );
+        }
+        assert_eq!(map_token_direct("%sysnr", X86Abi::SysV).as_deref(), Some("rax"));
+        assert_eq!(map_token_direct("%sysret", X86Abi::SysV).as_deref(), Some("rax"));
+        // Win64 reads the *_WIN64 tables.
+        for (n, reg) in ["rcx", "rdx", "r8", "r9"].into_iter().enumerate() {
+            assert_eq!(
+                map_token_direct(&format!("%arg{n}"), X86Abi::Win64).as_deref(),
+                Some(reg)
+            );
+        }
+        assert_eq!(map_token_direct("%ret0", X86Abi::Win64).as_deref(), Some("rax"));
+        assert_eq!(map_token_direct("%ret2", X86Abi::Win64).as_deref(), Some("r8"));
+    }
+
+    #[test]
+    fn is_abi_role_token_covers_only_role_tokens() {
+        for role in ["%arg0", "%arg7", "%sysarg0", "%sysarg5", "%ret0", "%ret3", "%sysnr", "%sysret"] {
+            assert!(is_abi_role_token(role), "{role} should be a role token");
+        }
+        // Off-the-end indices and every non-role token are NOT deferred — they stay
+        // realized in `select_x86` exactly as before (so their bytes never move).
+        for other in [
+            "%arg8", "%sysarg6", "%ret4", "%scratch0", "%local0", "%mathpool", "%sysnr_darwin",
+            "x0", "rdi", "%v3",
+        ] {
+            assert!(!is_abi_role_token(other), "{other} must not be a role token");
+        }
+    }
+
+    #[test]
+    fn direct_map_agrees_with_the_fixpoint_on_clean_cases() {
+        // Call args in, then a result read back out: `%argK` colors `CALL_ARGS[K]`
+        // and the post-call `%ret0` colors `rax`, exactly what `map_token_direct`
+        // says — so audit mode reports NO mismatch for this shape.
+        let mut call = vec![
+            ci("mov_imm", &[("dst", "%arg0"), ("value", "1")]),
+            ci("mov_imm", &[("dst", "%arg1"), ("value", "2")]),
+            ci("mov_imm", &[("dst", "%arg5"), ("value", "6")]),
+            ci("bl", &[("target", "_mfb_f")]),
+            ci("mov", &[("dst", "x9"), ("src", "%ret0")]),
+            ci("ret", &[]),
+        ];
+        let mismatches = remap_x86_abi_inner(&mut call, X86Abi::SysV, true);
+        assert!(mismatches.is_empty(), "clean call case diverged: {mismatches:?}");
+        let vals = values(&call);
+        for reg in ["rdi", "rsi", "r9", "rax"] {
+            assert!(vals.contains(&reg.to_string()), "missing {reg} in {vals:?}");
+        }
+
+        // Syscall args + number: `%sysargK` → `SYS_ARGS[K]`, `%sysnr` → `rax`.
+        let mut sys = vec![
+            ci("mov_imm", &[("dst", "%sysarg0"), ("value", "1")]),
+            ci("mov_imm", &[("dst", "%sysarg3"), ("value", "4")]),
+            ci("mov_imm", &[("dst", "%sysnr"), ("value", "60")]),
+            ci("svc", &[]),
+            ci("ret", &[]),
+        ];
+        let mismatches = remap_x86_abi_inner(&mut sys, X86Abi::SysV, true);
+        assert!(mismatches.is_empty(), "clean syscall case diverged: {mismatches:?}");
+        let vals = values(&sys);
+        for reg in ["rdi", "r10", "rax"] {
+            assert!(vals.contains(&reg.to_string()), "missing {reg} in {vals:?}");
+        }
+    }
+
+    #[test]
+    fn audit_reports_result_reused_as_argument() {
+        // A value produced into `%ret0` (rax) but flowing into the next call as its
+        // argument (rdi) — the dominant divergent idiom (plan-71-A §2). The fixpoint
+        // colors it `rdi` by role; the context-free map says `rax`; audit reports it.
+        let mut stream = vec![
+            ci("mov_imm", &[("dst", "%ret0"), ("value", "1")]),
+            ci("bl", &[("target", "_mfb_f")]),
+            ci("ret", &[]),
+        ];
+        let mismatches = remap_x86_abi_inner(&mut stream, X86Abi::SysV, true);
+        assert_eq!(mismatches.len(), 1, "expected exactly one mismatch: {mismatches:?}");
+        let line = &mismatches[0];
+        assert!(line.contains("BUG387-MISMATCH"), "{line}");
+        assert!(line.contains("token=%ret0"), "{line}");
+        assert!(line.contains("direct=rax"), "{line}");
+        assert!(line.contains("inferred=rdi"), "{line}");
+        assert!(line.contains("site: mov_imm"), "{line}");
+        // The register actually written is still the fixpoint's choice (byte-identical).
+        assert!(values(&stream).contains(&"rdi".to_string()));
+    }
+
+    #[test]
+    fn audit_off_reports_nothing_and_role_tokens_select_byte_identically() {
+        // With audit off no report is produced, and deferring the role tokens then
+        // realizing them in `remap_x86_abi` reproduces the exact `xN`-form output —
+        // proving the gate is byte-identical by construction.
+        let token_form = sel(&[
+            ci("mov_imm", &[("dst", "%arg0"), ("value", "1")]),
+            ci("mov_imm", &[("dst", "%arg1"), ("value", "2")]),
+            ci("bl", &[("target", "_mfb_f")]),
+            ci("mov", &[("dst", "x9"), ("src", "%ret0")]),
+            ci("ret", &[]),
+        ]);
+        let register_form = sel(&[
+            ci("mov_imm", &[("dst", "x0"), ("value", "1")]),
+            ci("mov_imm", &[("dst", "x1"), ("value", "2")]),
+            ci("bl", &[("target", "_mfb_f")]),
+            ci("mov", &[("dst", "x9"), ("src", "x0")]),
+            ci("ret", &[]),
+        ]);
+        assert_eq!(values(&token_form), values(&register_form));
+
+        let mut clean = vec![
+            ci("mov_imm", &[("dst", "%arg0"), ("value", "1")]),
+            ci("bl", &[("target", "_mfb_f")]),
+            ci("ret", &[]),
+        ];
+        assert!(remap_x86_abi_inner(&mut clean, X86Abi::SysV, false).is_empty());
     }
 }
