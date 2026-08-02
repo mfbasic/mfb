@@ -74,7 +74,7 @@ Fixture load is 50 projects — the largest cohort in this plan after `fs`.
 Acceptance: `cargo test` passes; every `collections.*` fixture runs clean under
 `scripts/test-accept.sh` (61 fixtures pass; byte-identity via the combined D+E
 artifact-gate at finalization).
-Commit: —
+Commit: c72f4f4d6
 
 ## Validation
 

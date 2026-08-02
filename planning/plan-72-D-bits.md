@@ -51,7 +51,7 @@ load is 18 projects.
 Acceptance: `cargo test` passes and every `bits.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual` (19 fixtures pass;
 byte-identity via the combined D+E artifact-gate at finalization).
-Commit: —
+Commit: 0c74d16b7
 
 ## Validation
 
