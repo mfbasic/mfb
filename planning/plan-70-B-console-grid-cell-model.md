@@ -212,7 +212,9 @@ bandwidth only; a content-hash-in-glyph optimization is a possible future follow
 Commit: fd630daaf
 
 Acceptance: a fixture that redraws a pooled-cluster frame N times keeps pool usage
-bounded; `cargo test` + artifact-gate green (goldens deferred to G). Commit: —
+bounded; `cargo test` + artifact-gate green (goldens regenerated in G). The per-cell
+fixed 64-byte slot (`POOL_BYTES_PER_CELL`) makes usage inherently bounded — it is
+lifecycle-free, not a growable arena, so N redraws never grow it. Commit: fd630daaf
 
 ## Validation Plan
 
