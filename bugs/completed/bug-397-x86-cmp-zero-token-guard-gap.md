@@ -5,10 +5,37 @@ Effort: small (<1h)
 Severity: LOW
 Class: Memory-safety / Correctness (latent, defense-in-depth)
 
-Status: Open
+Status: FIXED (merge 23cc215ca / fix 92591fecf)
 Regression Test: tests/ — an encoder unit test asserting `cmp`/`cmp_imm` with a
 zero-token (`xzr`) operand errors (or encodes a true zero read) rather than
 emitting `r8`.
+
+## STATUS: FIXED (merge 23cc215ca, fix 92591fecf)
+
+All four unguarded paths in the r8-sentinel family now treat a zero-token operand
+the way `alu3`/the carry-`rhs` guards do — an explicit zero read or a loud error,
+never a silent `r8`:
+
+- `cmp` (`emitter.rs`): a zero-token `rhs` routes to the immediate form
+  `cmp lhs, 0` (`enc_alu_imm32(7, lhs, 0)`); a zero-token `lhs` (`cmp 0, rhs`, no
+  scratch-free x86 form) is a loud error.
+- `cmp_imm`: a zero-token `lhs` is a loud error.
+- `enc_add_carry`: a zero-token `lhs` is normalized into `rhs` (add commutes), so
+  the existing guarded `rhs`-zero path handles it; both operands zero → loud error.
+- `enc_sub_borrow`: a zero-token `lhs` is a loud error (subtraction does not
+  commute and has no CF-preserving scratch-free form).
+
+Reproduction was unit-level (no MIR producer emits these shapes). RED-verified
+before the fix: `cmp rax, xzr` encoded `[0x4C,0x39,0xC0]` = `cmp rax, r8`, and
+`add_carry` with a zero `lhs` encoded `mov rbx, r8; add rbx, rdi` — the exact r8
+leak. Five new tests (`cmp_zero_token_rhs_compares_immediate_zero`,
+`cmp_zero_token_lhs_rejected`, `cmp_imm_zero_token_lhs_rejected`,
+`add_carry_zero_token_lhs_commutes`, `sub_borrow_zero_token_lhs_rejected`) are now
+GREEN. Full suite green: `mfb` bin 3697/0, full workspace `cargo test` exit 0.
+
+Because no current producer emits these operand shapes, this is a byte-identity
+no-op for every real program — no golden/artifact-gate churn. Defense-in-depth,
+as ranked.
 
 In the x86_64 encoder, the zero register is a sentinel: `reg("xzr")` returns 16,
 and `modrm`/REX encoding takes `16 & 7 == 0` plus a REX.R/REX.B bit, so a
