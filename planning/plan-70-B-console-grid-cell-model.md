@@ -146,7 +146,7 @@ cursor model advances by width, the bug-392 fix), 73 aligned trailing blanks
 (`[1;8H`, i.e. 6+1, not the 3+1 a scalar-count advance would give); a width-2 glyph
 at column 79 wraps to the next row (`[4;1H`); the diff-present re-emits only the one
 changed cell, still aligned (`[1;7H`). `cargo test` 3748 passed; existing term
-acceptance goldens unchanged (ASCII width==1 path is byte-identical). Commit: —
+acceptance goldens unchanged (ASCII width==1 path is byte-identical). Commit: fbdce19e7
 
 ### Phase 2 — EGC pool for multi-scalar clusters
 
