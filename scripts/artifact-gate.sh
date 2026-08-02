@@ -10,6 +10,51 @@
 # backend, and the Linux-only code paths — `audio/alsa`, `tls/openssl`, and every
 # `linux_*` target module — had no byte-identity coverage at all on the machine
 # where the work actually happens.
+set -u
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(pwd)"
+BYTE_ID="$REPO/tests/byte-identity"
+
+# Usage: <mfb-exe> <builtin|all>. The second positional is a *selector*: a single
+# `tests/byte-identity/<builtin>` name to scope the run to one built-in, or `all`
+# to sweep every fixture under tests/ (the full gate). A missing selector prints
+# usage and runs nothing, so a bare invocation can never be mistaken for a pass.
+usage() {
+  local builtins
+  builtins=$(cd "$BYTE_ID" 2>/dev/null && for d in */; do [ -f "$d/project.json" ] && printf '%s ' "${d%/}"; done)
+  cat >&2 <<EOF
+Usage: $(basename "$0") <mfb-exe> <builtin|all>
+
+Execution-free byte-identity gate: regenerate deterministic codegen artifact
+dumps and diff them against committed goldens.
+
+  <mfb-exe>   path to the mfb binary (e.g. target/release/mfb)
+  <builtin>   run only tests/byte-identity/<builtin>/*
+  all         run every fixture under tests/
+
+Available builtins:
+  ${builtins:-<none found>}
+EOF
+}
+
+if [ "$#" -lt 2 ]; then
+  usage
+  exit 2
+fi
+
+MFB="$1"; SEL="$2"
+
+if [ "$SEL" = "all" ]; then
+  FIND_ROOT="$REPO/tests"
+else
+  FIND_ROOT="$BYTE_ID/$SEL"
+  if [ ! -d "$FIND_ROOT" ]; then
+    echo "Unknown builtin '$SEL'." >&2
+    usage
+    exit 2
+  fi
+fi
+
 # Refuse to run concurrently with another artifact-gate — they thrash disk/CPU
 # and can kill each other (0-byte artifacts / exit 144). `pgrep -f` matches this
 # script's own process too, so exclude our own PID ($$).
@@ -18,11 +63,8 @@ if [ -n "$other" ]; then
   echo "Another artifact-gate (pid $other) is running."
   exit 1
 fi
-set -u
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=artifact-kinds.sh
 . "$SCRIPT_DIR/artifact-kinds.sh"
-MFB="$1"; REPO="$(pwd)"
 host_arch="$(uname -m)"; case "$host_arch" in arm64) A=aarch64;; x86_64) A=x86_64;; *) A=$host_arch;; esac
 case "$(uname -s)" in Darwin) HOST_TGT="macos-$A";; Linux) HOST_TGT="linux-$A";; *) HOST_TGT="unknown-$A";; esac
 diffs=0; checked=0; ran=0; builds=0
@@ -132,6 +174,6 @@ while IFS= read -r pj; do
   else
     echo "FAILED  $rel/$pkg ($f_diffs_n/$f_checked_n golden(s))"
   fi
-done < <(find "$REPO"/tests -name project.json | sort)
-echo "artifact-gate: $ran tests, $builds build(s), $checked golden(s) checked, $diffs diff(s)"
+done < <(find "$FIND_ROOT" -name project.json | sort)
+echo "artifact-gate [$SEL]: $ran tests, $builds build(s), $checked golden(s) checked, $diffs diff(s)"
 [ "$diffs" -eq 0 ]
