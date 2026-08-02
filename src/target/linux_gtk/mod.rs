@@ -50,6 +50,10 @@ const WORKER_SYMBOL: &str = "_mfb_gtkapp_worker";
 const KEY_PRESSED_SYMBOL: &str = "_mfb_gtkapp_key_pressed";
 const WINDOW_CLOSED_SYMBOL: &str = "_mfb_gtkapp_window_closed";
 const APPEND_SYMBOL: &str = "_mfb_gtkapp_append";
+/// bug-421: erase the final character (one whole UTF-8 code point) from the
+/// transcript. Called by the LINE_ECHO Backspace path to keep the on-screen echo
+/// in sync with the code-point-aware line buffer.
+const DELETE_LAST_CHAR_SYMBOL: &str = "_mfb_gtkapp_delete_last_char";
 /// Main-thread idle callback that drains one marshaled output chunk into the
 /// transcript (scheduled from the worker thread via `g_idle_add`, plan-05 §6.4).
 const APPEND_IDLE_SYMBOL: &str = "_mfb_gtkapp_append_idle";
@@ -437,6 +441,7 @@ pub(crate) fn emit_app_program_entry(
         emit_window_closed_handler()?,
         emit_finish_helper()?,
         emit_append_helper()?,
+        emit_delete_last_char_helper()?,
         emit_append_idle_helper()?,
         // term:: TUI surface support (plan-01-term.md §6.3).
         emit_term_draw_helper()?,
@@ -475,6 +480,7 @@ pub(crate) fn emit_app_program_entry_x86(
         emit_window_closed_handler()?,
         emit_finish_helper()?,
         emit_append_helper()?,
+        emit_delete_last_char_helper()?,
         emit_append_idle_helper()?,
         emit_term_draw_helper()?,
         emit_term_show_idle_helper()?,
@@ -751,6 +757,10 @@ pub(crate) fn app_mode_imports(
         (GTK, "gtk_text_buffer_delete_mark"),
         (GTK, "gtk_text_buffer_get_end_iter"),
         (GTK, "gtk_text_buffer_insert"),
+        // bug-421: LINE_ECHO Backspace erases the last echoed character by moving a
+        // GtkTextIter back one char (code-point granular) and deleting the range.
+        (GTK, "gtk_text_iter_backward_char"),
+        (GTK, "gtk_text_buffer_delete"),
         // Terminal-style key input captured at the window (no entry box; mirrors
         // the macOS NSTextView keyDown: override). GDK lives in libgtk-4.
         (GTK, "gtk_event_controller_key_new"),
@@ -1150,6 +1160,9 @@ mod import_tests {
             "g_idle_add",
             "g_application_run",
             "gtk_window_present",
+            // bug-421: the LINE_ECHO Backspace transcript-erase helper.
+            "gtk_text_iter_backward_char",
+            "gtk_text_buffer_delete",
         ] {
             assert!(
                 declared.contains(symbol),

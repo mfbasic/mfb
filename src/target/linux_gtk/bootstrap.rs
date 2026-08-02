@@ -594,15 +594,39 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     asm.push(abi::store_u64("x9", "x10", ST_LINE_LEN));
     asm.push(abi::branch("consumed"));
 
-    // Backspace: drop the last byte of the pending line (transcript echo-delete
-    // TODO(plan-05): byte-granular, ASCII-correct for now).
+    // Backspace: remove one whole UTF-8 code point from the pending line (bug-421).
+    // Decrementing the byte length by a fixed 1 (the old behavior) left a stray
+    // continuation byte for multi-byte input (e.g. `é` = 0xC3 0xA9), committing
+    // invalid UTF-8 on Enter. Instead scan back from the end over continuation bytes
+    // (`(b & 0xC0) == 0x80`) to the lead byte, so the whole character is dropped:
+    //   do { len--; } while (len > 0 && (line_buf[len] & 0xC0) == 0x80);
     asm.push(abi::label("backspace"));
-    asm.load_state("x9", ST_LINE_LEN);
+    asm.load_state("x9", ST_LINE_LEN); // x9 = len
     asm.push(abi::compare_immediate("x9", "0"));
     asm.push(abi::branch_eq("ignore"));
-    asm.push(abi::subtract_immediate("x9", "x9", 1));
+    asm.local_address("x10", STATE_SYMBOL);
+    asm.push(abi::add_immediate("x11", "x10", ST_LINE_BUF)); // x11 = &line_buf[0]
+    asm.push(abi::move_immediate("x13", "Integer", "192")); // 0xC0 continuation mask
+    asm.push(abi::label("bs_scan"));
+    asm.push(abi::subtract_immediate("x9", "x9", 1)); // len--
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_eq("bs_done")); // reached the buffer start
+    asm.push(abi::add_registers("x12", "x11", "x9")); // &line_buf[len]
+    asm.push(abi::load_u8("x12", "x12", 0)); // byte
+    asm.push(abi::and_registers("x12", "x12", "x13")); // byte & 0xC0
+    asm.push(abi::compare_immediate("x12", "128")); // == 0x80 -> continuation byte
+    asm.push(abi::branch_eq("bs_scan")); // keep scanning back to the lead byte
+    asm.push(abi::label("bs_done"));
     asm.local_address("x10", STATE_SYMBOL);
     asm.push(abi::store_u64("x9", "x10", ST_LINE_LEN));
+    // In LINE_ECHO mode, erase the just-removed glyph from the transcript so the
+    // display matches the committed line. `_mfb_gtkapp_delete_last_char` removes one
+    // whole code point (GtkTextIter char-granular), matching the buffer scan above.
+    asm.load_state("x9", ST_INPUT_MODE);
+    asm.push(abi::compare_immediate("x9", MODE_LINE_ECHO));
+    asm.push(abi::branch_ne("consumed"));
+    asm.load_state("x0", ST_TEXT_BUFFER);
+    asm.call_internal(DELETE_LAST_CHAR_SYMBOL);
     asm.push(abi::branch("consumed"));
 
     // Raw: unichar -> UTF-8 in scratch -> write to the pipe immediately.
@@ -819,6 +843,57 @@ pub(super) fn emit_append_helper() -> Result<CodeFunction, String> {
     asm.finish(APPEND_SYMBOL, "Nothing")
 }
 
+/// `void _mfb_gtkapp_delete_last_char(GtkTextBuffer *buffer /*x0*/)` — remove the
+/// final character (one whole UTF-8 code point) from the transcript. The LINE_ECHO
+/// Backspace path (bug-421) calls this so the on-screen echo stays in sync with the
+/// code-point-aware line buffer: a two-byte `é` is erased as one glyph, never as a
+/// half character. Uses GtkTextIter's char-granular `backward_char`, so the byte
+/// width of the removed code point is irrelevant. Must run on the GTK main thread
+/// (the key handler already does). Deletes nothing if the buffer is empty
+/// (`backward_char` returns FALSE at the start iterator).
+pub(super) fn emit_delete_last_char_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(DELETE_LAST_CHAR_SYMBOL);
+    // lr@0, buffer@8, end_iter@16 (80B GtkTextIter), start_iter@96 (80B); frame 176.
+    let frame = 176;
+    let end_iter = 16;
+    let start_iter = 96;
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 8)); // buffer
+
+    // end_iter = buffer end; start_iter = buffer end (two independent copies).
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), 8));
+    asm.push(abi::add_immediate("x1", abi::stack_pointer(), end_iter));
+    asm.call_external("gtk_text_buffer_get_end_iter");
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), 8));
+    asm.push(abi::add_immediate("x1", abi::stack_pointer(), start_iter));
+    asm.call_external("gtk_text_buffer_get_end_iter");
+
+    // start_iter moves back one whole character; FALSE means already at the buffer
+    // start (nothing to erase) — skip the delete so we never touch the prompt.
+    asm.push(abi::add_immediate("x0", abi::stack_pointer(), start_iter));
+    asm.call_external("gtk_text_iter_backward_char"); // gboolean -> x0
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_eq("dlc_done"));
+
+    // gtk_text_buffer_delete(buffer, &start_iter, &end_iter)
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), 8));
+    asm.push(abi::add_immediate("x1", abi::stack_pointer(), start_iter));
+    asm.push(abi::add_immediate("x2", abi::stack_pointer(), end_iter));
+    asm.call_external("gtk_text_buffer_delete");
+
+    asm.push(abi::label("dlc_done"));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    asm.finish(DELETE_LAST_CHAR_SYMBOL, "Nothing")
+}
+
 /// `gboolean _mfb_gtkapp_append_idle(gpointer chunk)` — runs on the GTK main
 /// thread (scheduled by the io write helper via `g_idle_add`). Inserts the chunk's
 /// bytes into the transcript via `_mfb_gtkapp_append`, frees the chunk, and returns
@@ -996,6 +1071,109 @@ mod tests {
             (LINE_BUF_CAP - MAX_UTF8_LEN) + MAX_UTF8_LEN,
             LINE_BUF_CAP,
             "the worst-case accepted line fills the buffer exactly, never past it"
+        );
+    }
+
+    /// `emit_key_pressed_handler` plus the `[start, end)` index range of its
+    /// Backspace handler — from the `backspace` label to the next top-level label
+    /// (`raw`). Returns the owning function so the caller can borrow the slice
+    /// (`CodeInstruction` is not `Clone`).
+    fn backspace_region() -> (CodeFunction, usize, usize) {
+        let func = emit_key_pressed_handler().unwrap();
+        let start = func
+            .instructions
+            .iter()
+            .position(|i| i.op == CodeOp::Label && i.get("name") == Some("backspace"))
+            .expect("key handler must have a `backspace` label");
+        let end = func.instructions[start + 1..]
+            .iter()
+            .position(|i| i.op == CodeOp::Label && i.get("name") == Some("raw"))
+            .map(|p| start + 1 + p)
+            .expect("`raw` label must follow the backspace handler");
+        (func, start, end)
+    }
+
+    /// bug-421: LINE-mode Backspace must remove one whole UTF-8 code point, not a
+    /// single byte. The handler must scan back over continuation bytes: load a byte
+    /// from `ST_LINE_BUF`, mask it with `0xC0`, and compare against `0x80` (the
+    /// continuation-byte test `(b & 0xC0) == 0x80`), looping while it holds. A pure
+    /// `sub_imm; str` (byte-granular) leaves a stray continuation byte in the line
+    /// buffer, committing invalid UTF-8 for multi-byte input.
+    #[test]
+    fn backspace_removes_whole_codepoint_not_one_byte() {
+        let (func, start, end) = backspace_region();
+        let region = &func.instructions[start..end];
+
+        assert!(
+            region.iter().any(|i| i.op == CodeOp::LdrU8),
+            "backspace must load line-buffer bytes to find the code-point boundary \
+             (a single sub_imm on the byte length is not code-point aware) — bug-421"
+        );
+        assert!(
+            region
+                .iter()
+                .any(|i| i.op == CodeOp::And),
+            "backspace must mask a byte with 0xC0 to test for a UTF-8 continuation \
+             byte — bug-421"
+        );
+        assert!(
+            region
+                .iter()
+                .any(|i| i.op == CodeOp::CmpImm && i.get("rhs") == Some("128")),
+            "backspace must compare the masked byte against 0x80 (128) to detect a \
+             continuation byte and keep scanning back to the lead byte — bug-421"
+        );
+    }
+
+    /// bug-421: in LINE_ECHO mode the echoed glyph must be erased from the transcript
+    /// when Backspace removes the code point, so the display matches the committed
+    /// line. The handler must gate on `ST_INPUT_MODE == MODE_LINE_ECHO` and call the
+    /// transcript delete helper.
+    #[test]
+    fn line_echo_backspace_erases_transcript_glyph() {
+        let (func, start, end) = backspace_region();
+        let region = &func.instructions[start..end];
+
+        assert!(
+            region
+                .iter()
+                .any(|i| i.op == CodeOp::CmpImm && i.get("rhs") == Some(MODE_LINE_ECHO)),
+            "backspace must gate the transcript erase on LINE_ECHO mode — bug-421"
+        );
+        assert!(
+            region
+                .iter()
+                .any(|i| i.op == CodeOp::BranchLink
+                    && i.get("target") == Some(DELETE_LAST_CHAR_SYMBOL)),
+            "LINE_ECHO backspace must call the transcript delete-last-char helper so \
+             the echo tracks the code-point-aware line buffer — bug-421"
+        );
+    }
+
+    /// bug-421: the transcript delete helper moves a GtkTextIter back one char
+    /// (code-point granular) and deletes the range, so a multi-byte echoed glyph is
+    /// removed whole. It must fetch the end iter, call `gtk_text_iter_backward_char`,
+    /// and delete via `gtk_text_buffer_delete`.
+    #[test]
+    fn delete_last_char_helper_is_codepoint_granular() {
+        let func = emit_delete_last_char_helper().unwrap();
+        let ins = &func.instructions;
+        let targets: Vec<&str> = ins
+            .iter()
+            .filter(|i| i.op == CodeOp::BranchLink)
+            .filter_map(|i| i.get("target"))
+            .collect();
+        assert!(
+            targets.contains(&"gtk_text_buffer_get_end_iter"),
+            "delete helper must fetch the buffer end iterator"
+        );
+        assert!(
+            targets.contains(&"gtk_text_iter_backward_char"),
+            "delete helper must move back one whole character (code-point granular)"
+        );
+        assert!(
+            targets.contains(&"gtk_text_buffer_delete"),
+            "delete helper must delete the trailing character range"
         );
     }
 }

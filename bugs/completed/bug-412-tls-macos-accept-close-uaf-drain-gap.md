@@ -5,10 +5,45 @@ Effort: small (<1h)
 Severity: LOW
 Class: Resource-safety (async completion-handler use-after-free; bug-380 class)
 
-Status: Open
+Status: FIXED (7dc352906)
 Regression Test: the bug-380 stress harness (`closed-default-tls-drop-rt` under
 heavy concurrent load on macOS aarch64) extended to exercise `tls::accept`
-handshake failures + `closeListener` followed by process exit.
+handshake failures + `closeListener` followed by process exit. In this
+environment (no macOS runtime) the fix is pinned by two codegen emit-inspection
+tests in `src/target/shared/code/tls/macos/tests.rs`
+(`accept_failure_exits_drain_to_cancelled`, `close_listener_drains_to_cancelled`)
+that assert each cancel-and-return exit emits a drain loop (back-edge label +
+`ldr_u32 [ctx+CTX_STATE]` + `cmp_imm <cancelled>` + `b.ne` back), mirroring the
+guards bug-380/bug-317 use for the connect path.
+
+## STATUS: FIXED (7dc352906)
+
+All three server cancel-and-return paths now drain to their terminal
+`cancelled` state before returning, mirroring the connect-path drain bug-380
+added:
+
+- `lower_tls_accept_macos` `conn_fail` and `hs_timeout` drain `CCTX->state` to
+  `nw_connection_state_cancelled` (5).
+- `lower_tls_close_listener_macos` resolves `dispatch_semaphore_wait` and drains
+  `LCTX->state` to `nw_listener_state_cancelled` (4), done while the listener,
+  its queue, and ctx are still retained (before the bug-55 releases).
+
+Implemented as a shared `emit_cancel_drain(ins, ctx_off, wait_off, label,
+cancelled_state)` helper (connection and listener ctx share the `CTX_SEM` /
+`CTX_STATE` prefix; only the terminal-state constant differs). The bug-317 leak
+fixes on these paths are preserved (non-goal). Emitted macOS `.ncode` verified
+to contain all three drains with stack layout identical to the working
+`hs_wait` loop; the `macos-aarch64` tls byte-identity golden was regenerated and
+the other six goldens are unchanged (the fix is scoped to the
+Network.framework backend). Full `cargo test` green (3637 passed) and the tls
+artifact-gate passes.
+
+**Verdict for bug-380 Phase-1 audit item (`bugs/completed/bug-380-…md:197`,
+"Audit `close` and `server.rs` for the same window"):** CONFIRMED — the server
+accept-fail and `closeListener` paths had the identical async-cancel window and
+now carry the same drain. The connect-path drain and the `conn_timeout` connect
+exit were reviewed and left unchanged (connect never cancels before its wait
+loop, so its exits cannot enter with the connection already `cancelled`).
 
 bug-380 fixed a macOS-Network.framework use-after-free on the TLS **connect** path
 by adding a synchronous cancel-drain loop (`client.rs:606-619`): after

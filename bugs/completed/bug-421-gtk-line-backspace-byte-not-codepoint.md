@@ -5,10 +5,36 @@ Effort: small (<1h)
 Severity: LOW
 Class: Correctness (UTF-8 boundary) — acknowledged in-code TODO(plan-05)
 
-Status: Open
-Regression Test: tests/ — a GTK-app-mode `io::readLine` receiving a multi-byte
-character followed by Backspace must commit a valid UTF-8 line (the whole character
-removed), and the transcript echo must match.
+Status: FIXED (4a951ad0e)
+Regression Test: `src/target/linux_gtk/bootstrap.rs` emit-inspection tests
+(`backspace_removes_whole_codepoint_not_one_byte`,
+`line_echo_backspace_erases_transcript_glyph`,
+`delete_last_char_helper_is_codepoint_granular`). GTK app mode cannot be emulated
+(`.ai/compiler.md` §Validation), so the regression is pinned at the emitted-
+instruction level (the Windows/macOS codegen bug pattern): the Backspace handler
+must scan line-buffer bytes for the UTF-8 continuation-byte boundary and, in
+LINE_ECHO, call the transcript delete helper.
+
+## STATUS: FIXED (4a951ad0e)
+
+The Linux-GTK key handler's Backspace branch now removes one whole UTF-8 code
+point instead of one byte: it scans back over continuation bytes
+(`(b & 0xC0) == 0x80`) to the lead byte
+(`do { len--; } while (len > 0 && (line_buf[len] & 0xC0) == 0x80)`), so a
+multi-byte character (`é` = 0xC3 0xA9) is dropped whole and the committed line
+stays valid UTF-8. In LINE_ECHO mode it calls a new `_mfb_gtkapp_delete_last_char`
+helper that erases one character from the transcript via GtkTextIter's char-
+granular `gtk_text_iter_backward_char` + `gtk_text_buffer_delete`, keeping the
+echo in sync with the buffer. Two GTK imports (`gtk_text_iter_backward_char`,
+`gtk_text_buffer_delete`) were declared for the helper, which is wired into both
+the aarch64 and x86 app function lists.
+
+Deviation from the doc: verified by emit-inspection tests + the full `cargo test`
+(3635 passed), not by a live GTK run — Linux app mode is unemulatable, so no
+end-to-end reproduction on a GTK box was performed (the doc's reproduction was
+already source-only for the same reason).
+
+Commit: 4a951ad0e (`bug-421: GTK app LINE Backspace deletes a whole UTF-8 code point`)
 
 In Linux-GTK app mode, the LINE-mode Backspace branch (`src/target/linux_gtk/
 bootstrap.rs:599`) does `ST_LINE_LEN -= 1` — decrementing the line buffer length by

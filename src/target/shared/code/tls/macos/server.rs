@@ -5,6 +5,46 @@ use super::*;
 // (plan-06-tls-server.md §7)
 // ===========================================================================
 
+/// bug-412: block until the arena ctx at `sp + ctx_off` reaches its terminal
+/// `cancelled` state (`cancelled_state`) before a cancel-and-return exit hands
+/// control back to the program.
+///
+/// `nw_connection_cancel` / `nw_listener_cancel` transition asynchronously, and
+/// the state-changed handler (STATE_INVOKE) dereferences the arena-allocated ctx
+/// on *every* invocation. Letting an exit return before the object's final
+/// `cancelled` transition fires lets that queued handler run against a freed ctx
+/// after the program exits and the arena is torn down → EXC_BAD_ACCESS on the
+/// shared `mfb.tls` serial queue (intermittent, load-dependent). `cancelled` is
+/// terminal — nothing transitions after it — so spinning on the semaphore until
+/// `ctx->state == cancelled_state` guarantees no handler runs afterward, no
+/// matter how many transitions `cancel` produced or whether a leftover signal is
+/// consumed first. The state constant differs by object: a connection reaches
+/// `nw_connection_state_cancelled` = 5, a listener `nw_listener_state_cancelled`
+/// = 4; both share the ctx prefix (`CTX_SEM` / `CTX_STATE`). `wait_off` must hold
+/// a resolved `dispatch_semaphore_wait`; the wait is DISPATCH_TIME_FOREVER. This
+/// mirrors the connect-path drain (`client.rs`, bug-380).
+fn emit_cancel_drain(
+    ins: &mut Vec<CodeInstruction>,
+    ctx_off: usize,
+    wait_off: usize,
+    drain_label: &str,
+    cancelled_state: &str,
+) {
+    ins.extend([
+        abi::label(drain_label),
+        abi::load_u64("%v9", abi::stack_pointer(), ctx_off),
+        abi::load_u64(abi::return_register(), "%v9", CTX_SEM),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::bitwise_not(abi::ARG[1], abi::ARG[1]), // DISPATCH_TIME_FOREVER
+        abi::load_u64("%v10", abi::stack_pointer(), wait_off),
+        abi::branch_link_register("%v10"),
+        abi::load_u64("%v9", abi::stack_pointer(), ctx_off),
+        abi::load_u32("%v10", "%v9", CTX_STATE),
+        abi::compare_immediate("%v10", cancelled_state),
+        abi::branch_ne(drain_label),
+    ]);
+}
+
 #[allow(clippy::too_many_arguments)]
 /// Read the whole file named by the MFBASIC `String` at `sp + path_off` into a
 /// fresh arena buffer: pointer at `sp + buf_off`, byte length at
@@ -1234,7 +1274,9 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
     let accept_invalid = format!("{symbol}_accept_invalid");
     let hs_loop = format!("{symbol}_hs_wait");
     let hs_timeout = format!("{symbol}_hs_timeout");
+    let hs_timeout_drain = format!("{symbol}_hs_timeout_drain");
     let conn_fail = format!("{symbol}_conn_fail");
+    let conn_fail_drain = format!("{symbol}_conn_fail_drain");
     let ready = format!("{symbol}_ready");
     let done = format!("{symbol}_done");
 
@@ -1568,6 +1610,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
         FNPTR,
         &load_fail,
     )?;
+    emit_cancel_drain(&mut ins, CCTX, WAITFN, &conn_fail_drain, "5");
     emit_fail(
         symbol,
         ERR_TLS_FAILED_CODE,
@@ -1590,6 +1633,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
         FNPTR,
         &load_fail,
     )?;
+    emit_cancel_drain(&mut ins, CCTX, WAITFN, &hs_timeout_drain, "5");
     emit_fail(
         symbol,
         ERR_TIMEOUT_CODE,
@@ -1675,11 +1719,16 @@ pub(in crate::target::shared::code::tls) fn lower_tls_close_listener_macos(
     const SETQFN: usize = 48;
     const CANCELFN: usize = 56;
     const RELEASEFN: usize = 64;
+    const WAITFN: usize = 72;
 
     let already = format!("{symbol}_already");
     let load_fail = format!("{symbol}_load_fail");
     let drain_loop = format!("{symbol}_drain");
     let drained = format!("{symbol}_drained");
+    // bug-412: the listener-cancel drain (distinct from `drain_loop`, which
+    // rejects still-queued connections). Blocks on the listener ctx semaphore
+    // until the async `nw_listener_cancel` reaches `cancelled`.
+    let lcancel_drain = format!("{symbol}_lcancel_drain");
     let done = format!("{symbol}_done");
 
     let mut ins = vec![abi::label("entry")];
@@ -1778,6 +1827,33 @@ pub(in crate::target::shared::code::tls) fn lower_tls_close_listener_macos(
         abi::load_u64(abi::return_register(), "%v9", REC_CONN),
         abi::load_u64("%v10", abi::stack_pointer(), FNPTR),
         abi::branch_link_register("%v10"),
+    ]);
+    // bug-412: `nw_listener_cancel` is asynchronous; the listener state handler
+    // (STATE_INVOKE over the arena-allocated LCTX) still fires the `cancelled`
+    // transition and signals LCTX->sem. Drain to that terminal state (listener
+    // state 4) before returning, so a process exit here cannot leave a queued
+    // handler to dereference the freed LCTX. Done while the listener, its queue,
+    // and the ctx are all still retained (before the releases below), mirroring
+    // the connect-path drain (bug-380). WAITFN gets `dispatch_semaphore_wait`.
+    dlsym(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
+        HANDLE,
+        "dispatch_semaphore_wait",
+        FNPTR,
+        &load_fail,
+    )?;
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::store_u64("%v9", abi::stack_pointer(), WAITFN),
+    ]);
+    emit_cancel_drain(&mut ins, LCTX, WAITFN, &lcancel_drain, "4");
+    ins.extend([
         // Release the listener, its serial queue, and the listener-ctx
         // semaphore this handle owns; cancelling alone leaks them (bug-55). The
         // arena-allocated lctx block is reclaimed with the arena. RELEASEFN
