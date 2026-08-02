@@ -1,5 +1,10 @@
 use std::borrow::Cow;
 
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, DefaultResolver, DefaultValue,
+    Implementation, Lowering, Parameter, ParameterType, ReturnType,
+};
+
 const ERROR: &str = "error";
 const LEN: &str = "len";
 const TYPE_NAME: &str = "typeName";
@@ -38,33 +43,131 @@ pub(crate) const BUILTIN_FUNCTION_IS_ZERO_FIXED: u32 = BUILTIN_FUNCTION_ID_BASE 
 /// the one position that worked for the rest (bug-368).
 pub(crate) const BUILTIN_FUNCTION_IS_NUMERIC: u32 = BUILTIN_FUNCTION_ID_BASE + 14;
 
+// plan-72-L: `GENERAL` is the descriptor authority for the global (unqualified)
+// builtins. Every function has a fixed return regardless of which accepted
+// argument-type set matches, but the legacy `call_return_type_name` fast-path
+// oracle populates ONLY the six numeric narrowing conversions (`toInt`..`toScalar`)
+// and returns `None` for the rest — so those six carry `ReturnType::Fixed` and
+// every other function carries `ReturnType::Custom` (→ `None`), reproducing the
+// oracle exactly. `error` is an irregular reserved primitive: it is a member with
+// parameter names but a `None` arity (its argument count is validated by
+// `resolve_call`, not the generic arity gate), so its descriptor entry carries an
+// EMPTY overload list — membership holds and `arity` is `None`, matching legacy.
+// Its parameter names (`code`/`message`) therefore live only in the hand-authored
+// `call_param_names` static until plan-72-BB (see Corrections in plan-72-L).
+//
+// `call_param_names`, `resolve_call`, and `expected_arguments` stay hand-authored:
+// `call_param_names` returns a `&'static` borrowed shape the owned `DefaultResolver`
+// cannot produce (and covers `error`); `resolve_call` performs per-position
+// accepted-type-SET matching (`len` accepts String/List/Map/Set) the descriptor's
+// single `ParameterType::Named` cannot express — so the parameter *types* below are
+// illustrative, resolution is owned by `resolve_call`; `expected_arguments` uses a
+// bespoke `"… or …"` phrasing. Each is pinned to `GENERAL` by
+// `parity_matches_descriptor` where derivable.
+const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload {
+    BuiltinOverload {
+        params,
+        return_type: ReturnType::Fixed(ret),
+    }
+}
+
+// A fixed-return function whose return is not exposed through the context-free
+// `call_return_type_name` oracle (resolved via `resolve_call` instead).
+const fn ovc(params: &'static [Parameter]) -> BuiltinOverload {
+    BuiltinOverload {
+        params,
+        return_type: ReturnType::Custom,
+    }
+}
+
+const fn gfn(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+) -> BuiltinFunction {
+    BuiltinFunction {
+        name,
+        doc_slug: slug,
+        overloads,
+        implementation: Implementation::Same,
+        lowering: Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+
+// Illustrative per-position types (see the note above). `value` is the canonical
+// first-parameter name for every general call.
+const P_ERROR: &[Parameter] = &[
+    Parameter::required("code", "Integer"),
+    Parameter::required("message", "String"),
+];
+const P_V_STR: &[Parameter] = &[Parameter::required("value", "String")];
+const P_V_INT: &[Parameter] = &[Parameter::required("value", "Integer")];
+const P_V_T: &[Parameter] = &[Parameter::required("value", "T")];
+const P_TO_STRING: &[Parameter] = &[
+    Parameter::required("value", "Scalar"),
+    Parameter {
+        name: "precision",
+        aliases: &["decimals"],
+        ty: ParameterType::Named("Byte"),
+        default: DefaultValue::Optional,
+    },
+];
+const P_TO_INT: &[Parameter] = &[
+    Parameter {
+        name: "value",
+        aliases: &["text"],
+        ty: ParameterType::Named("String"),
+        default: DefaultValue::None,
+    },
+    Parameter {
+        name: "base",
+        aliases: &[],
+        ty: ParameterType::Named("Integer"),
+        default: DefaultValue::Optional,
+    },
+];
+
+const GENERAL_FUNCTIONS: &[BuiltinFunction] = &[
+    // Reserved primitive: member with param-names but None arity → empty overloads.
+    gfn(ERROR, "error", &[]),
+    gfn(LEN, "len", &[ovc(P_V_STR)]),
+    gfn(TYPE_NAME, "typeName", &[ovc(P_V_T)]),
+    gfn(TO_STRING, "toString", &[ovc(P_TO_STRING)]),
+    gfn(TO_INT, "toInt", &[ov(P_TO_INT, "Integer")]),
+    gfn(TO_FLOAT, "toFloat", &[ov(P_V_STR, "Float")]),
+    gfn(TO_FIXED, "toFixed", &[ov(P_V_STR, "Fixed")]),
+    gfn(TO_BYTE, "toByte", &[ov(P_V_INT, "Byte")]),
+    gfn(TO_MONEY, "toMoney", &[ov(P_V_STR, "Money")]),
+    gfn(TO_SCALAR, "toScalar", &[ov(P_V_INT, "Scalar")]),
+    gfn(IS_NUMERIC, "isNumeric", &[ovc(P_V_STR)]),
+    gfn(IS_EVEN, "isEven", &[ovc(P_V_INT)]),
+    gfn(IS_ODD, "isOdd", &[ovc(P_V_INT)]),
+    gfn(IS_POSITIVE, "isPositive", &[ovc(P_V_INT)]),
+    gfn(IS_NEGATIVE, "isNegative", &[ovc(P_V_INT)]),
+    gfn(IS_ZERO, "isZero", &[ovc(P_V_INT)]),
+    gfn(IS_EMPTY, "isEmpty", &[ovc(P_V_STR)]),
+    gfn(IS_NOT_EMPTY, "isNotEmpty", &[ovc(P_V_STR)]),
+];
+
+pub(crate) static GENERAL: BuiltinModule = BuiltinModule {
+    name: "general",
+    functions: GENERAL_FUNCTIONS,
+    types: &[],
+    source: None,
+    resolver: None,
+};
+
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
 }
 
 pub(crate) fn is_general_call(name: &str) -> bool {
-    matches!(
-        name,
-        ERROR
-            | LEN
-            | TYPE_NAME
-            | TO_STRING
-            | TO_INT
-            | TO_FLOAT
-            | TO_FIXED
-            | TO_BYTE
-            | TO_MONEY
-            | TO_SCALAR
-            | IS_NUMERIC
-            | IS_EVEN
-            | IS_ODD
-            | IS_POSITIVE
-            | IS_NEGATIVE
-            | IS_ZERO
-            | IS_EMPTY
-            | IS_NOT_EMPTY
-    )
+    DefaultResolver::contains(&GENERAL, name)
 }
 
 /// Whether a general built-in may be **overridden** by a user- or package-defined
@@ -127,15 +230,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    match name {
-        TO_INT => Some("Integer"),
-        TO_FLOAT => Some("Float"),
-        TO_FIXED => Some("Fixed"),
-        TO_BYTE => Some("Byte"),
-        TO_MONEY => Some("Money"),
-        TO_SCALAR => Some("Scalar"),
-        _ => None,
-    }
+    DefaultResolver::return_type_name(&GENERAL, name)
 }
 
 pub(crate) fn builtin_function_id(name: &str) -> Option<u32> {
@@ -372,14 +467,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 }
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    match name {
-        LEN | TYPE_NAME | TO_FLOAT | TO_FIXED | TO_BYTE | TO_MONEY | TO_SCALAR | IS_NUMERIC
-        | IS_EVEN | IS_ODD | IS_POSITIVE | IS_NEGATIVE | IS_ZERO | IS_EMPTY | IS_NOT_EMPTY => {
-            Some((1, 1))
-        }
-        TO_STRING | TO_INT => Some((1, 2)),
-        _ => None,
-    }
+    DefaultResolver::arity(&GENERAL, name)
 }
 
 use super::exact;
@@ -811,5 +899,73 @@ mod tests {
         );
         // An unbalanced parameter list has no top-level close paren.
         assert_eq!(function_parts("FUNC(FUNC(Integer) AS Integer"), None);
+    }
+
+    // plan-72-L migration gate: prove `GENERAL` reproduces the legacy helper
+    // answers via `DefaultResolver` for the 17 regular functions — membership,
+    // arity, param names, and the `call_return_type_name` fast-path oracle (Fixed
+    // for the 6 numeric conversions, None for the rest). `error` is checked
+    // separately because its irregular "member with param-names but None arity"
+    // shape (empty overloads) makes `DefaultResolver::param_names` return None
+    // while the static `call_param_names` still carries `code`/`message`. Keep
+    // until plan-72-BB deletes the legacy helpers.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::{parity, DefaultResolver, REGISTRY};
+
+        // The 17 regular functions (every general call except `error`).
+        let regular: Vec<&str> = ALL_GENERAL.iter().copied().filter(|n| *n != ERROR).collect();
+        let legacy = parity::LegacySet {
+            is_call: &is_general_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            return_type_name: &call_return_type_name,
+            // general's expected arguments use bespoke "… or …" phrasing the
+            // descriptor's per-position rendering cannot reproduce.
+            expected_arguments: None,
+            param_name_overloads: None,
+            argument_types: None,
+            implementation_name: None,
+            default_padding: None,
+            builtin_type_fields: None,
+        };
+        let mut probe = regular.clone();
+        probe.push("nope");
+        parity::assert_parity(&GENERAL, &probe, &legacy, &[]);
+
+        // The `call_return_type_name` oracle: Fixed only for the six numeric
+        // narrowing conversions, None (Custom) for every other function.
+        for (name, ret) in [
+            (TO_INT, "Integer"),
+            (TO_FLOAT, "Float"),
+            (TO_FIXED, "Fixed"),
+            (TO_BYTE, "Byte"),
+            (TO_MONEY, "Money"),
+            (TO_SCALAR, "Scalar"),
+        ] {
+            assert_eq!(call_return_type_name(name), Some(ret), "{name}");
+        }
+        for name in [LEN, TYPE_NAME, TO_STRING, IS_NUMERIC, IS_EVEN, IS_EMPTY] {
+            assert_eq!(call_return_type_name(name), None, "{name}");
+        }
+
+        // `error`: a member with param-names but no arity. Membership and the
+        // return-type oracle derive from the descriptor (empty overloads → None
+        // arity, None return); the param names stay in the static helper.
+        assert!(is_general_call(ERROR));
+        assert!(DefaultResolver::contains(&GENERAL, ERROR));
+        assert_eq!(arity(ERROR), None);
+        assert_eq!(call_return_type_name(ERROR), None);
+        assert_eq!(
+            call_param_names(ERROR),
+            Some(&[&["code"][..], &["message"][..]][..])
+        );
+        assert_eq!(rt(ERROR, &["Integer", "String"]), Some("Error".to_string()));
+
+        // The registry stays well-formed with `general`'s unqualified names.
+        assert_eq!(REGISTRY.duplicate_module_name(), None);
+        assert_eq!(REGISTRY.duplicate_function_name(), None);
     }
 }
