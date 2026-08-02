@@ -44,7 +44,7 @@ References (read first):
 | Must be true | Command | Status |
 |---|---|---|
 | Working tree builds & tests green at HEAD | `cargo test --bin mfb` (full suite) | MET — 3750 passed; 0 failed (2026-08-02, worktree P-76) |
-| Codegen artifact baseline clean | `scripts/artifact-gate.sh target/debug/mfb all` → diffs=0 | IN PROGRESS — full `all` gate running as baseline (see Corrections C1: command needs the `all` selector now) |
+| Codegen artifact baseline clean | `scripts/artifact-gate.sh target/debug/mfb all` → diffs=0 | MET — `FINAL_GATE_EXIT=0`, 679 PASSED, 0 DIFF at `606d3df2f` (Corrections C1: needs the `all` selector; C4: gate result + docs-only main merge) |
 | No competing in-flight edits to `src/builtins/{net,tls,http}.rs`, `src/builtins/{net,http}_package.mfb`, `src/target/shared/code/{net,tls}/**` | `git status` on those paths | MET — fresh worktree forked from main; tree clean |
 | `List OF RES <resource>` compiles and runs (resources-in-collections landed) | fixtures exist: `ls tests/rt-behavior/resources/resource-collection-floats-runtime` | MET (verified — see Verified properties) |
 
@@ -366,6 +366,17 @@ Commit: 9b6e533e5
   reconciling was the timeout-convention classification: the scalar form is a readiness
   query (`Boolean`/`FALSE`), the new list form is a **producing** call (yields the first
   ready `Socket`, `ErrTimeout` on expiry) — both bullets updated accordingly.
+- **C4 (Finalization): the full artifact-gate ran green at `606d3df2f`; the later
+  `git merge main` into `worktree-P-76` added ZERO code.** Finalization ran
+  `scripts/artifact-gate.sh target/debug/mfb all` → `FINAL_GATE_EXIT=0`, 679 PASSED,
+  0 FAILED/0 DIFF (4 benign `SKIP … no matching goldens` on invalid-syntax fixtures)
+  at commit `606d3df2f`. main then advanced (plan-78 A/B/C + plan-79), so per follow-plan
+  §5 main was merged into the worktree; `git show --stat` of that merge shows **only 4
+  `planning/*.md` files** (plan-78-A/B/C + plan-79 are documentation-only commits — e.g.
+  `65b6b0478` "flip MirInstruction operands…" touches solely `plan-79-mir-operand.md`).
+  No `.rs`/golden/fixture changed, so the `606d3df2f` gate result stands for the merged
+  tree; a `cargo build --bin mfb` on the merge tip re-confirmed it compiles. Measured via
+  the merge diffstat + `git show --stat 65b6b0478`.
 
 ## Summary
 
