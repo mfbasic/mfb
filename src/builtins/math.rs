@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
 use super::descriptor::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, DefaultResolver,
-    DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType,
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver,
+    DefaultResolver, DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType,
 };
 
 const PI: &str = "math.pi";
@@ -727,5 +727,4 @@ mod tests {
         assert!(one_numeric_list(&strings(&["List OF Float"]), "Float"));
         assert!(!one_numeric_list(&strings(&["List OF Float"]), "Fixed"));
     }
-
 }

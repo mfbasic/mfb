@@ -102,80 +102,80 @@ pub(super) fn lower_datetime_helper(
             &localoffset_range_fail,
         )?;
     } else {
-    match call {
-        "datetime.nowNanos" | "datetime.monotonicNanos" => {
-            let clock_id = if call == "datetime.nowNanos" {
-                CLOCK_REALTIME
-            } else {
-                match platform.family() {
-                    PlatformFamily::MacOS => CLOCK_MONOTONIC_DARWIN,
-                    PlatformFamily::Linux => CLOCK_MONOTONIC_LINUX,
-                    // Windows is routed to `lower_datetime_windows` above and never
-                    // reaches this libc clock-id selection (plan-66-A).
-                    PlatformFamily::Windows => {
-                        unreachable!("plan-66-A routes Windows datetime to kernel32")
+        match call {
+            "datetime.nowNanos" | "datetime.monotonicNanos" => {
+                let clock_id = if call == "datetime.nowNanos" {
+                    CLOCK_REALTIME
+                } else {
+                    match platform.family() {
+                        PlatformFamily::MacOS => CLOCK_MONOTONIC_DARWIN,
+                        PlatformFamily::Linux => CLOCK_MONOTONIC_LINUX,
+                        // Windows is routed to `lower_datetime_windows` above and never
+                        // reaches this libc clock-id selection (plan-66-A).
+                        PlatformFamily::Windows => {
+                            unreachable!("plan-66-A routes Windows datetime to kernel32")
+                        }
                     }
-                }
-            };
-            // x0 = clock id, x1 = &timespec.
-            instructions.push(abi::move_immediate(abi::ARG[0], "Integer", clock_id));
-            instructions.push(abi::add_immediate(
-                abi::ARG[1],
-                abi::stack_pointer(),
-                TIMESPEC_OFFSET,
-            ));
-            platform.emit_libc_call(
-                "clock_gettime",
-                symbol,
-                platform_imports,
-                &mut instructions,
-                &mut relocations,
-            )?;
-            // nanos = tv_sec * 1_000_000_000 + tv_nsec.
-            instructions.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), TIMESPEC_OFFSET),
-                abi::load_u64("%v10", abi::stack_pointer(), TIMESPEC_OFFSET + 8),
-                abi::move_immediate("%v11", "Integer", "1000000000"),
-                abi::multiply_registers("%v9", "%v9", "%v11"),
-                abi::add_registers(RESULT_VALUE_REGISTER, "%v9", "%v10"),
-            ]);
+                };
+                // x0 = clock id, x1 = &timespec.
+                instructions.push(abi::move_immediate(abi::ARG[0], "Integer", clock_id));
+                instructions.push(abi::add_immediate(
+                    abi::ARG[1],
+                    abi::stack_pointer(),
+                    TIMESPEC_OFFSET,
+                ));
+                platform.emit_libc_call(
+                    "clock_gettime",
+                    symbol,
+                    platform_imports,
+                    &mut instructions,
+                    &mut relocations,
+                )?;
+                // nanos = tv_sec * 1_000_000_000 + tv_nsec.
+                instructions.extend([
+                    abi::load_u64("%v9", abi::stack_pointer(), TIMESPEC_OFFSET),
+                    abi::load_u64("%v10", abi::stack_pointer(), TIMESPEC_OFFSET + 8),
+                    abi::move_immediate("%v11", "Integer", "1000000000"),
+                    abi::multiply_registers("%v9", "%v9", "%v11"),
+                    abi::add_registers(RESULT_VALUE_REGISTER, "%v9", "%v10"),
+                ]);
+            }
+            "datetime.localOffset" => {
+                // x0 holds epochSeconds. Stash it as the `time_t` input, then call
+                // `localtime_r(&time_t, &tm)` and read `tm.tm_gmtoff`.
+                instructions.extend([
+                    abi::store_u64(abi::ARG[0], abi::stack_pointer(), TIME_T_OFFSET),
+                    abi::add_immediate(abi::ARG[0], abi::stack_pointer(), TIME_T_OFFSET),
+                    abi::add_immediate(abi::ARG[1], abi::stack_pointer(), TM_OFFSET),
+                ]);
+                platform.emit_libc_call(
+                    "localtime_r",
+                    symbol,
+                    platform_imports,
+                    &mut instructions,
+                    &mut relocations,
+                )?;
+                // `localtime_r` returns NULL (and sets EOVERFLOW) when the instant's
+                // year does not fit `tm_year`'s `int`; on that path it writes no field
+                // of `tm`, so loading `tm_gmtoff` would return an uninitialized stack
+                // qword (an ASLR info-leak). Branch on the return before touching the
+                // buffer (bug-42). The return sits in the return register, which is
+                // also `RESULT_TAG_REGISTER`, so test it before the OK tail overwrites
+                // it below.
+                instructions.push(abi::compare_immediate(abi::RET[0], "0"));
+                instructions.push(abi::branch_eq(&localoffset_range_fail));
+                instructions.push(abi::load_u64(
+                    RESULT_VALUE_REGISTER,
+                    abi::stack_pointer(),
+                    TM_OFFSET + TM_GMTOFF_OFFSET,
+                ));
+            }
+            other => {
+                return Err(format!(
+                    "native datetime lowering does not support runtime call '{other}'"
+                ));
+            }
         }
-        "datetime.localOffset" => {
-            // x0 holds epochSeconds. Stash it as the `time_t` input, then call
-            // `localtime_r(&time_t, &tm)` and read `tm.tm_gmtoff`.
-            instructions.extend([
-                abi::store_u64(abi::ARG[0], abi::stack_pointer(), TIME_T_OFFSET),
-                abi::add_immediate(abi::ARG[0], abi::stack_pointer(), TIME_T_OFFSET),
-                abi::add_immediate(abi::ARG[1], abi::stack_pointer(), TM_OFFSET),
-            ]);
-            platform.emit_libc_call(
-                "localtime_r",
-                symbol,
-                platform_imports,
-                &mut instructions,
-                &mut relocations,
-            )?;
-            // `localtime_r` returns NULL (and sets EOVERFLOW) when the instant's
-            // year does not fit `tm_year`'s `int`; on that path it writes no field
-            // of `tm`, so loading `tm_gmtoff` would return an uninitialized stack
-            // qword (an ASLR info-leak). Branch on the return before touching the
-            // buffer (bug-42). The return sits in the return register, which is
-            // also `RESULT_TAG_REGISTER`, so test it before the OK tail overwrites
-            // it below.
-            instructions.push(abi::compare_immediate(abi::RET[0], "0"));
-            instructions.push(abi::branch_eq(&localoffset_range_fail));
-            instructions.push(abi::load_u64(
-                RESULT_VALUE_REGISTER,
-                abi::stack_pointer(),
-                TM_OFFSET + TM_GMTOFF_OFFSET,
-            ));
-        }
-        other => {
-            return Err(format!(
-                "native datetime lowering does not support runtime call '{other}'"
-            ));
-        }
-    }
     }
 
     instructions.push(abi::move_immediate(
@@ -232,8 +232,8 @@ fn lower_datetime_windows(
     range_fail: &str,
 ) -> Result<(), String> {
     let call_win = |func: &str,
-                        instructions: &mut Vec<CodeInstruction>,
-                        relocations: &mut Vec<CodeRelocation>|
+                    instructions: &mut Vec<CodeInstruction>,
+                    relocations: &mut Vec<CodeRelocation>|
      -> Result<(), String> {
         platform.emit_libc_call(func, symbol, platform_imports, instructions, relocations)
     };
@@ -325,14 +325,22 @@ fn lower_datetime_windows(
             instructions.extend([
                 abi::move_immediate(abi::ARG[0], "Integer", "0"),
                 abi::add_immediate(abi::ARG[1], abi::stack_pointer(), WIN_UTC_SYSTEMTIME_OFFSET),
-                abi::add_immediate(abi::ARG[2], abi::stack_pointer(), WIN_LOCAL_SYSTEMTIME_OFFSET),
+                abi::add_immediate(
+                    abi::ARG[2],
+                    abi::stack_pointer(),
+                    WIN_LOCAL_SYSTEMTIME_OFFSET,
+                ),
             ]);
             call_win("SystemTimeToTzSpecificLocalTime", instructions, relocations)?;
             instructions.push(abi::compare_immediate(abi::RET[0], "0"));
             instructions.push(abi::branch_eq(range_fail));
             // SystemTimeToFileTime(&local, &localFt).
             instructions.extend([
-                abi::add_immediate(abi::ARG[0], abi::stack_pointer(), WIN_LOCAL_SYSTEMTIME_OFFSET),
+                abi::add_immediate(
+                    abi::ARG[0],
+                    abi::stack_pointer(),
+                    WIN_LOCAL_SYSTEMTIME_OFFSET,
+                ),
                 abi::add_immediate(abi::ARG[1], abi::stack_pointer(), WIN_LOCAL_FILETIME_OFFSET),
             ]);
             call_win("SystemTimeToFileTime", instructions, relocations)?;

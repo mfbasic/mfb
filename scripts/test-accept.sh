@@ -167,7 +167,10 @@ remove_output_dir() {
   rm -rf "$test_dir/build"
 }
 
-# Run a built fixture program with a watchdog and a deterministic stdin (bug-320).
+# Run a subprocess (a `mfb build` front-end pass, or a built fixture program) under
+# a watchdog with a deterministic stdin (bug-320). Wrapping the builds too means an
+# infinite loop in the compiler becomes one named `timeout` failure instead of
+# wedging the whole suite with no output and no exit code.
 #
 # Without this, a program that never exits wedges the entire suite: no output, no
 # failing fixture, no exit code, and the per-fixture log stays buffered so tailing
@@ -356,11 +359,11 @@ while IFS= read -r project_json; do
     # prints on stdout, so the run-path extraction below is unaffected.
     echo "$ mfb build ${target_label}${console_flags} tests/$test_name"
     # shellcheck disable=SC2086
-    "$MFB_EXE" build -q $target_arg $console_flags "tests/$test_name"
+    run_with_watchdog "$MFB_EXE" build -q $target_arg $console_flags "tests/$test_name"
     echo "[exit $?]"
     if [ -f "$golden_dir/$package_name.mfp" ] || [ -f "$golden_dir/$package_name.info" ]; then
       echo "$ mfb build tests/$test_name"
-      "$MFB_EXE" build -q "tests/$test_name"
+      run_with_watchdog "$MFB_EXE" build -q "tests/$test_name"
       echo "[exit $?]"
     fi
     app_flags=""
@@ -372,7 +375,7 @@ while IFS= read -r project_json; do
     if [ -n "$app_flags" ]; then
       echo "$ mfb build ${target_label}-app${app_flags} tests/$test_name"
       # shellcheck disable=SC2086
-      "$MFB_EXE" build -q $target_arg -app $app_flags "tests/$test_name"
+      run_with_watchdog "$MFB_EXE" build -q $target_arg -app $app_flags "tests/$test_name"
       echo "[exit $?]"
     fi
     # A `<pkg>.run` golden forces the full `mfb build` (link + merge) path and
@@ -388,7 +391,7 @@ while IFS= read -r project_json; do
     #     README (tests/rt-behavior/security/README.md) points here.
     if [ -f "$golden_dir/$package_name.run" ]; then
       echo "$ mfb build ${target_label}tests/$test_name"
-      build_output=$("$MFB_EXE" build -q $target_arg "tests/$test_name" 2>&1)
+      build_output=$(run_with_watchdog "$MFB_EXE" build -q $target_arg "tests/$test_name" 2>&1)
       build_status=$?
       printf '%s\n' "$build_output"
       echo "[exit $build_status]"

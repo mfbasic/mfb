@@ -1,0 +1,308 @@
+# plan-76-A: net::poll(List OF Socket) AS Socket
+
+Last updated: 2026-08-02
+Overall Effort: huge (>3d) — the whole plan-76 feature (non-blocking I/O + async HTTP)
+Effort: large (3h–1d)
+Depends on: nothing (this is the anchor sub-plan; it holds the feature-wide Prerequisites)
+
+## The plan-76 feature (context for all letters)
+
+plan-76 adds the non-blocking I/O surface that a URL-transparent, cooperatively-driven
+HTTP client needs, now that a resource union can carry uniform STATE (plan-74, landed):
+
+- **A (this file)** — `net::poll(List OF Socket) AS Socket`: readiness-multiplex over many
+  plaintext sockets. The spec already documents this overload; the code stubbed it out.
+- **B** — `tls::poll(sock[, timeoutMs]) AS Boolean`: the first TLS readiness primitive
+  (none exists today), backend-specific because a TLS socket buffers decrypted records.
+- **C** — `tls::poll(List OF TlsSocket) AS TlsSocket`: the TLS multiplex, building on B.
+- **D** — the `http` async client: a `Stream` resource union (`net::Socket | net::TlsSocket`)
+  carrying a `PendingState`, driven by `http::startRead / ready / pump / done / finish`, with
+  `http::read`/`http::write` rewritten as blocking wrappers over them.
+
+Letter order equals implementation order; each lands before the next. Real dependencies:
+C depends on B; D depends on B (its `pump`/`ready` need TLS readiness) and on plan-74. A is
+independent of B/C/D and lands first as the lowest-risk primitive.
+
+The single behavioral outcome of **this** sub-plan: a program can build a `List OF RES Socket`
+of several connected sockets and call `net::poll(socks)` to block until one is readable (or
+`net::poll(socks, timeoutMs)` to bound the wait), receiving back a pointer to the first ready
+socket — the list retains ownership and still closes every socket exactly once on scope exit.
+
+References (read first):
+
+- `.ai/compiler.md` — runtime completion gate, validation/function tests, register lifetimes.
+- `.ai/specifications.md` — keep the embedded spec current with every compiler change.
+- `planning/completed/plan-73-A-timeout-convention-and-thread.md` and `plan-73-C-net.md` —
+  the timeout convention this overload obeys, and the net migration that shaped `net::poll`.
+- `src/target/shared/code/net/poll.rs:17` (`lower_net_poll_helper`) — the single-socket native
+  poll this overload generalizes (the `pollfd`/`poll(2)`/EINTR-retry/sentinel scaffolding to reuse).
+- `mfb spec language resource-management` §15.6 (resources in collections) — the ownership-float
+  rules that make a returned borrowed-socket pointer sound.
+
+## Prerequisites (feature-wide; B/C/D point back here)
+
+| Must be true | Command | Status |
+|---|---|---|
+| Working tree builds & tests green at HEAD | `cargo test --bin mfb` (full suite) | UNMEASURED — re-run at start |
+| Codegen artifact baseline clean | `scripts/artifact-gate.sh target/debug/mfb` → diffs=0 | UNMEASURED — re-run at start |
+| No competing in-flight edits to `src/builtins/{net,tls,http}.rs`, `src/builtins/{net,http}_package.mfb`, `src/target/shared/code/{net,tls}/**` | `git status` on those paths | UNMEASURED — re-run at start |
+| `List OF RES <resource>` compiles and runs (resources-in-collections landed) | fixtures exist: `ls tests/rt-behavior/resources/resource-collection-floats-runtime` | MET (verified — see Verified properties) |
+
+> **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run every
+> command and update every status before you continue and before you stop. If you stop, report
+> the status of *all* prerequisites, not just the one that blocked you.
+
+Everything below is written against the world where these hold.
+
+## 1. Goal
+
+- `net::poll(socks AS List OF RES Socket) AS RES Socket` — blocks until at least one socket in
+  `socks` is readable, then returns a pointer to the first ready one (lowest list index).
+- `net::poll(socks AS List OF RES Socket, timeoutMs AS Integer) AS RES Socket` — the same, bounded
+  by the plan-73 timeout convention: omit = block; `> 0` = wait up to that long; `< 0` =
+  `ErrInvalidArgument`; expiry with none ready raises `ErrTimeout` (this is a *producing* call —
+  it yields a resource and has no not-ready value to return, per the plan-73-A classification).
+  `0` = one immediate scan (raises `ErrTimeout` if none ready).
+- The returned pointer aliases a list element; ownership stays with the list's scope. Closing,
+  returning, or `thread::transfer`ing through the returned binding is the caller's right (§15.6),
+  and the list's later drop finds it already closed (defined no-op). No socket is closed by `poll`.
+- An empty list is rejected `ErrInvalidArgument` (nothing to wait on).
+- The existing single-socket `net::poll(sock AS Socket[, timeoutMs]) AS Boolean` is unchanged.
+
+### Non-goals (explicit constraints)
+
+- **No writability/poll-mode selection.** Readiness means `POLLIN` (readable / EOF / error),
+  matching the single-socket overload. No `POLLOUT` overload is added here.
+- **No change to the single-socket overload**, its `Boolean` return, or any other `net::` function.
+- **No new resource type or STATE.** `Socket` stays a plain opaque resource.
+- **No `List OF Socket` without `RES`.** The argument is `List OF RES Socket`; a bare `List OF
+  Socket` is rejected exactly as `LET s AS Socket` is (`TYPE_RESOURCE_REQUIRES_RES`, §15.6).
+- **No UDP/`Listener` multiplex.** Only `Socket`.
+
+## 2. Current State
+
+- **Single-socket poll exists**: `net::poll(sock AS Socket[, timeoutMs AS Integer]) AS Boolean`,
+  descriptor `src/builtins/net.rs:163` (`nf(POLL, "poll", &[ov(P_POLL, "Boolean")], …)`),
+  param array `P_POLL` `src/builtins/net.rs:123`, resolver `src/builtins/net.rs:362-364`, native
+  lowering `src/target/shared/code/net/poll.rs:17` (`lower_net_poll_helper`). It builds one
+  `pollfd { int fd; short events = POLLIN; short revents; }` on the stack, calls `poll(2)`,
+  retries on EINTR (`poll.rs:101-113`), and threads the plan-73 sentinel: omitted timeout is
+  padded with `TIMEOUT_UNBOUNDED_SENTINEL` → `poll(-1)` (block); `< 0` → invalid; `> 0` clamped to
+  `INT_MAX` (`poll.rs:39-60`).
+- **The list overload was stubbed out with a now-stale rationale.** `src/builtins/net.rs:358-361`
+  says: *"The `poll(List OF Socket)` overload in the specification is omitted: the ownership model
+  forbids resource handles as collection elements, so a `List OF Socket` value cannot be
+  constructed and the overload is unreachable."* That statement is **obsolete** — resources in
+  collections (`List OF RES Socket`) now compile and run (Verified below). The spec still documents
+  the overload; this sub-plan implements it and deletes the comment.
+- **The socket fd** lives in the resource record; the single-socket helper reads it at
+  `src/target/shared/code/net/poll.rs:61-64` (`FILE_OFFSET_FD` / `FILE_OFFSET_CLOSED`). A
+  `List OF RES Socket` element is a pointer to such a record.
+- **Resources-in-collections precedent**: `tests/rt-behavior/resources/resource-collection-floats-runtime`,
+  `resource-return-collection-order-rt` (a builtin-free `FUNC … AS List OF RES File` returning a
+  resource list), `resource-collection-not-owner-valid` (a callee holds pointers it must not close).
+- **A builtin returning a resource** is a solved shape (`net::connectTcp AS Socket`,
+  `src/builtins/net.rs:151-156`, native `src/target/shared/code/net/mod.rs:1010`) — but every
+  existing one *produces* a fresh handle. Returning an *aliased element of a list argument* is the
+  novel bit and the design risk (§3).
+- **Checker path**: net flows through `check_table_builtin_call` (`src/syntaxcheck/builtins.rs:187`),
+  which calls the package `resolve_call` string-matcher — so the new overload is added purely by
+  extending `resolve_call` + the descriptor/param tables; no per-function checker edit.
+
+### Measured populations
+
+| What | Count | Command |
+|---|---|---|
+| `net::poll` overloads today | 1 (Boolean) | `rg -n 'POLL' src/builtins/net.rs` → descriptor :163, resolver :362 |
+| Stale "resource handles cannot be list elements" comment | 1 | `rg -n 'poll\(List OF Socket\)' src/builtins/net.rs` → :358 |
+| `List OF RES` fixtures proving resource-lists work | ≥3 dirs | `ls tests/rt-behavior/resources \| rg 'collection'` |
+| `net::poll` native lowering sites to generalize | 1 | `rg -n 'lower_net_poll_helper' src/target/shared/code/net` → poll.rs:17, mod.rs dispatch |
+| net rt-behavior poll tests to mirror | 2 | `ls tests/rt-behavior/net \| rg 'poll'` → `func_net_poll_valid`, `net-poll-timeout-convention-rt` |
+
+### Verified properties
+
+| Claim | Verdict | How checked |
+|---|---|---|
+| `List OF RES Socket` (resource list) compiles & runs | **CONFIRMED** | `tests/rt-behavior/resources/resource-collection-floats-runtime/src/main.mfb:10` binds `MUT handles AS List OF RES File`; the golden `.ir`/`.run` exist and are gated. The mechanism is resource-type-agnostic (`Socket` is a `BUILTIN_RESOURCES` entry like `File`). |
+| The net.rs omission comment is stale | **CONFIRMED** | It asserts a `List OF Socket` "cannot be constructed"; the fixture above constructs `List OF RES File`. Same registry path (`resource.rs:151` Socket, `:` File). |
+| Single-socket poll's `pollfd`/EINTR/sentinel scaffolding is reusable for N fds | **CONFIRMED (structurally)** | `poll.rs:65-113` builds one `pollfd` and calls `poll(&pfd, 1, timeout)`; generalizing to `poll(&pfds, n, timeout)` is a count + a stride loop over list elements. Read the helper end-to-end before editing. |
+| A builtin can return a pointer to an element of a resource-list argument (borrowed-return) | **UNVERIFIED** — Phase 1 falsifies cheaply | No existing builtin returns an aliased argument element. Escape-analysis owner assignment and the `.mfp` resource-region encoding for such a return are unproven. This is the design risk; Phase 1 is the experiment. |
+| Empty-list handling | **UNVERIFIED** — Phase 2 | choose reject-`ErrInvalidArgument`; confirm no `poll(&pfds, 0, …)` degenerate call is emitted. |
+
+## 3. Design Overview
+
+Two independent pieces:
+
+1. **Type/resolver surface (Phase 2).** Add a second `net::poll` overload keyed on the argument
+   type `List OF RES Socket` → return `RES Socket`, in the descriptor table + `resolve_call`
+   (`net.rs`), plus `call_param_names` / `expected_arguments` / `argument_types`. Delete the stale
+   comment. The single-socket overload's arms are untouched (different arg type → no ambiguity).
+
+2. **Native lowering (Phase 3).** A new helper (`lower_net_poll_list_helper` in
+   `src/target/shared/code/net/poll.rs`) that: reads the list length; rejects length 0
+   (`ErrInvalidArgument`); iterates the list elements, loading each element's record ptr and its
+   fd (`FILE_OFFSET_FD`) into a stack-allocated `pollfd[n]` with `events = POLLIN`; calls
+   `poll(&pfds, n, timeout)` reusing the exact sentinel/clamp/EINTR-retry logic of the scalar
+   helper; on return scans `revents` for the first fd with a readiness bit set and returns a
+   pointer to that list element's *record* as the `Socket` result value; on expiry (poll==0)
+   raises `ErrTimeout`.
+
+**Where design uncertainty concentrates (schedule FIRST):** the **borrowed-resource return** — a
+builtin returning a pointer to one of its list argument's elements, without producing or moving a
+handle. Phase 1 falsifies this with the smallest possible experiment: a throwaway program that
+binds `RES ready AS Socket = net::poll(socks)` (against a temporary hand-wired overload, or against
+`collections::get(socks, 0) AS RES Socket` if `get` already returns a borrowed `RES Socket`) and
+checks that escape analysis assigns the returned binding to an alias of the list's owner (no double
+close, no leak). If the escape/`.mfp` machinery cannot express a borrowed-element return, fall back
+to **Open Decision 1** (return an `Integer` index instead of a `Socket`) *before* building Phase 3.
+
+**Where correctness risk concentrates (schedule LAST):** the multi-fd lowering itself
+(stack layout of `pollfd[n]`, the list-element stride, the `revents` scan) is the blast-radius
+work, guarded by a runtime multiplex fixture and the byte-identity gate. Reuse the scalar helper's
+proven poll/EINTR/sentinel block verbatim; only the array build + result selection are new.
+
+**Rejected alternatives:**
+
+- *Return an `Integer` index (first-ready position), caller does `collections::get`.* Safer (no
+  borrowed-resource return) but contradicts the spec's documented `poll(List OF Socket) AS Socket`
+  and pushes a `get` on every caller. Recorded as the Open-Decision-1 fallback, not the default.
+- *Take a bare `List OF Socket`.* Rejected — resources require the `RES` marker in collections
+  (§15.6); a bare list is a compile error by design.
+- *Re-poll one fd at a time in a loop.* Rejected — defeats the purpose (a single `poll(2)` over N
+  fds is the whole point) and changes fairness/latency.
+
+## 4. Detailed Design
+
+### 4.1 Resolver (Phase 2)
+
+- In `net.rs` `resolve_call`, add: `POLL if exact(arg_types, &["List OF RES Socket"]) ||
+  exact(arg_types, &["List OF RES Socket", "Integer"]) => Cow::Borrowed("RES Socket")` (confirm the
+  exact type-string spelling the checker produces for a resource list — verify against the
+  `resolve_call` arg_types seen for `collections::get(List OF RES Socket, …)`; adjust the literal
+  to match). Keep the existing scalar arms.
+- Add the overload to the descriptor `OV`/`P_*` tables so arity and named-arg metadata resolve
+  (`net.rs:123` neighborhood): a `P_POLL_LIST` param array `[req("socks", &[], "List OF RES Socket"),
+  opt("timeoutMs", "Integer")]`, and a second `ov(...)` on the `POLL` descriptor with return
+  `"RES Socket"`. Update `call_param_names` (`net.rs:296`), `expected_arguments`, `argument_types`.
+- Delete the stale comment `net.rs:358-361`.
+
+### 4.2 Native lowering (Phase 3)
+
+- New `lower_net_poll_list_helper` in `net/poll.rs`, dispatched from `net/mod.rs` when the `poll`
+  call's first arg is a list (the lowering picks the helper by argument shape, mirroring how the
+  other overloaded net calls dispatch).
+- Layout: `n = list length`; if `n == 0` → `ErrInvalidArgument`. Allocate `pollfd[n]` on the stack
+  (each `pollfd` is 8 bytes: `int fd; short events; short revents`). Loop `i in 0..n`: load element
+  `i`'s record ptr from the list payload, load `fd` from `record + FILE_OFFSET_FD`, store into
+  `pfds[i].fd`, set `pfds[i].events = POLLIN`, zero `revents`. Reuse `emit_pollfd_events`
+  (`poll.rs`) per slot.
+- Timeout: identical sentinel/clamp/`< 0`-invalid normalization as the scalar helper (factor the
+  shared prologue if clean; otherwise copy the proven block).
+- Call `poll(&pfds, n, timeout)`, EINTR-retry (`poll.rs:101-113` pattern). On `ret == 0` (expiry)
+  → `ErrTimeout`. On `ret > 0` scan `pfds[0..n]` for the first slot whose `revents & (POLLIN |
+  POLLHUP | POLLERR)` is set; return that element's **record pointer** as the `Socket` value.
+- Result is a borrowed pointer — emit it as the resource-return value the escape analysis expects
+  for a borrowed element (settled in Phase 1). No close, no move.
+
+## Compatibility / Format Impact
+
+- **Changed:** `net::poll` gains a `(List OF RES Socket[, Integer]) → RES Socket` overload; the
+  net spec/man page documents it; the stale code comment is removed.
+- **Unchanged:** the single-socket overload and every other `net::` function; the `Socket` resource
+  type, its close op, and the resource registry; the `.mfp` encoding; the timeout convention.
+
+## Phases
+
+> Tick `- [x]` in the same commit as the work. An unticked box means NOT DONE.
+
+### Phase 1 — falsify the borrowed-resource return (design uncertainty first)
+
+- [ ] Write the smallest experiment that a builtin (or `collections::get`) returning `RES Socket`
+      aliasing a `List OF RES Socket` element is expressible: a fixture binding
+      `RES ready AS Socket = <borrowed-return>` inside a scope that owns the list, then closing the
+      list's scope, under a repeat loop; observe no double-free/leak (mirror
+      `tests/rt-behavior/resources/resource-collection-not-owner-valid`).
+- [ ] If it is NOT expressible with the existing escape/`.mfp` machinery, STOP and switch to Open
+      Decision 1 (Integer-index return) before Phase 2/3 — do not half-build the resource return.
+
+Acceptance: a documented yes/no with a runtime fixture. Yes → proceed with `AS RES Socket`. No →
+adopt the index form and adjust Phases 2–3 (return `Integer`, `-1` when none for the `0`/expiry
+case, or keep `ErrTimeout`).
+Commit: —
+
+### Phase 2 — resolver + descriptor surface
+
+- [ ] Add the list overload to `net.rs` (descriptor `OV`/`P_POLL_LIST`, `resolve_call` arms,
+      `call_param_names`, `expected_arguments`, `argument_types`); delete the stale comment.
+- [ ] Tests: a `tests/syntax/net` accept fixture binding `RES s AS Socket = net::poll(socks)` and
+      `net::poll(socks, 100)`; a reject fixture for a bare `List OF Socket` (no `RES`) and for a
+      non-list/non-socket arg. Confirm the scalar overload still resolves (`net::poll(sock)` →
+      `Boolean`) — no overload ambiguity.
+
+Acceptance: at `-ast -ir`, the list overload resolves to `RES Socket`, the scalar to `Boolean`,
+bad forms rejected; `cargo test --bin mfb` green (no runtime yet).
+Commit: —
+
+### Phase 3 — native multi-fd lowering (largest blast radius)
+
+- [ ] `lower_net_poll_list_helper` in `net/poll.rs` + dispatch in `net/mod.rs`; empty-list →
+      `ErrInvalidArgument`; `pollfd[n]` build; shared sentinel/clamp/EINTR block; `revents` scan;
+      first-ready record-ptr return; expiry → `ErrTimeout`.
+- [ ] Tests: `tests/rt-behavior/net/net-poll-list-rt` — connect two loopback sockets (server
+      accepts, writes to exactly one), `net::poll([a,b])` returns the written-to socket; then read
+      it. Add a timeout-convention case (`net::poll(socks, 0)` on two idle sockets → `ErrTimeout`;
+      `net::poll(socks, -1_via_omit)` blocks then returns when data arrives; `< 0` explicit →
+      `ErrInvalidArgument`). Loop the connect/poll/close ≥1000× to prove no fd leak / no
+      double-close of the borrowed return.
+- [ ] Goldens: regenerate `byte-identity/net` `.ncodesum` for all five targets if net codegen
+      shifts; prove determinism.
+
+Acceptance: the multiplex fixture runs clean and picks the correct ready socket; the timeout cases
+match the plan-73 table; ≥1000× loop leaks no fd; `cargo test --bin mfb` + `artifact-gate.sh`
+(debug, diffs=0) green.
+Commit: —
+
+### Phase 4 — docs
+
+- [ ] Man page: add the list overload to `src/docs/man/builtins/net/poll.md` (both overloads,
+      timeout-convention row, "returns a borrowed pointer; the list still owns and closes it").
+- [ ] Spec: ensure `mfb spec` net section's `poll(List OF Socket)` wording matches the shipped
+      return type and ownership note (it already documents the overload — reconcile, don't
+      re-invent). Cite `mfb spec language builtin-functions` §18.4 for the timeout meaning.
+
+Acceptance: `mfb man net poll` shows both overloads; man/spec-citation tests green.
+Commit: —
+
+## Validation Plan
+
+- Tests: syntax accept/reject (Phase 2); rt-behavior multiplex + timeout + leak-loop (Phase 3).
+- Coverage check: the new fixtures exercise the list-arg resolver arm and the multi-fd helper (both
+  in the gate denominator via `tests/syntax/net` and `tests/rt-behavior/net`).
+- Runtime proof: the two-socket multiplex fixture prints which socket was ready and its bytes.
+- Doc sync: `src/docs/man/builtins/net/poll.md`, the net spec section.
+- Acceptance: `cargo test --bin mfb`, `scripts/test-accept.sh target/debug/mfb target/accept-actual`
+  (net glob), `scripts/artifact-gate.sh target/debug/mfb`.
+
+## Open Decisions
+
+1. **Return `RES Socket` (borrowed element) vs. `Integer` index.** Recommended: `RES Socket`, to
+   honor the spec's documented `poll(List OF Socket) AS Socket` overload — *conditional on Phase 1
+   proving the borrowed-return is expressible*. Fallback if not: `AS Integer` (first-ready index,
+   `-1`/`ErrTimeout` on expiry), which sidesteps the resource-return question entirely.
+   Descision: RES Socket
+2. **Expiry semantics.** Recommended: treat list-poll as a **producing** call (raise `ErrTimeout`
+   on `0`/`> 0` expiry, block on omit) since it yields a resource with no not-ready sentinel — as
+   opposed to the scalar `poll`'s readiness-query `Boolean`. (§1)
+   Descision: **producing** call
+
+## Corrections
+
+<!-- Filled in during execution. -->
+
+## Summary
+
+The engineering risk is the **borrowed-resource return** (Phase 1 falsifies it before any codegen)
+and the **multi-fd lowering** (Phase 3, behind a leak-loop fixture and the byte-identity gate).
+Everything else is a thin resolver/descriptor addition plus a doc reconciliation — the scalar
+poll's poll/EINTR/sentinel scaffolding is reused verbatim. Untouched: the single-socket overload,
+every other `net::` function, the `Socket` type and registry, the `.mfp` encoding, and TLS (B/C).

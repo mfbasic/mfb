@@ -2499,7 +2499,8 @@ fn with_update_unknown_field_and_uninferable_value_are_skipped() {
     let f = func_returns("run", "Point", vec![param("p", "Point", None)], body);
     let got = rules(&project(vec![f], vec![record("Point", &["x", "y"])]));
     assert!(
-        !got.iter().any(|r| r == "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH"),
+        !got.iter()
+            .any(|r| r == "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH"),
         "{got:?}"
     );
 }
@@ -2529,7 +2530,13 @@ fn accepts_valid_set_literal() {
 /// Money literal with more than five fractional digits (values.rs:373-379).
 #[test]
 fn rejects_money_literal_precision() {
-    let body = vec![bind("m", "Money", Some(money_const("1.123456")), true, false)];
+    let body = vec![bind(
+        "m",
+        "Money",
+        Some(money_const("1.123456")),
+        true,
+        false,
+    )];
     let f = func_returns("run", "Nothing", vec![], body);
     expect_rule(&project(vec![f], vec![]), "TYPE_MONEY_LITERAL_PRECISION");
 }
@@ -2633,7 +2640,10 @@ fn accepts_enum_member_access() {
         type_: "Color".to_string(),
     })];
     let f = func_returns("run", "Color", vec![], body);
-    let got = rules(&project(vec![f], vec![enum_type("Color", &["Red", "Green"])]));
+    let got = rules(&project(
+        vec![f],
+        vec![enum_type("Color", &["Red", "Green"])],
+    ));
     assert!(
         !got.iter().any(|r| r == "TYPE_UNKNOWN_ENUM_MEMBER"),
         "{got:?}"
@@ -2673,7 +2683,12 @@ fn rejects_read_state_on_stateless_resource() {
 /// 684-692).
 #[test]
 fn rejects_money_compared_with_non_money() {
-    let body = vec![eval(binary("<", money_const("1.00"), int_const("2"), "Boolean"))];
+    let body = vec![eval(binary(
+        "<",
+        money_const("1.00"),
+        int_const("2"),
+        "Boolean",
+    ))];
     let f = func_returns("run", "Nothing", vec![], body);
     expect_rule(&project(vec![f], vec![]), "TYPE_MONEY_OPERATION_INVALID");
 }
@@ -2681,7 +2696,12 @@ fn rejects_money_compared_with_non_money() {
 /// `Money = Money` is accepted — the comparison return arm (values.rs:694).
 #[test]
 fn accepts_money_equality() {
-    let body = vec![eval(binary("=", money_const("1.00"), money_const("2.00"), "Boolean"))];
+    let body = vec![eval(binary(
+        "=",
+        money_const("1.00"),
+        money_const("2.00"),
+        "Boolean",
+    ))];
     let f = func_returns("run", "Nothing", vec![], body);
     let got = rules(&project(vec![f], vec![]));
     assert!(
@@ -2693,7 +2713,12 @@ fn accepts_money_equality() {
 /// `Money + non-Money` is invalid (values.rs:701-703).
 #[test]
 fn rejects_money_plus_non_money() {
-    let body = vec![eval(binary("+", money_const("1.00"), int_const("2"), "Money"))];
+    let body = vec![eval(binary(
+        "+",
+        money_const("1.00"),
+        int_const("2"),
+        "Money",
+    ))];
     let f = func_returns("run", "Nothing", vec![], body);
     expect_rule(&project(vec![f], vec![]), "TYPE_MONEY_OPERATION_INVALID");
 }
@@ -2701,7 +2726,12 @@ fn rejects_money_plus_non_money() {
 /// `Money + Money` and `Money * scalar` are accepted (values.rs:696-697).
 #[test]
 fn accepts_money_add_and_scale() {
-    let add = eval(binary("+", money_const("1.00"), money_const("2.00"), "Money"));
+    let add = eval(binary(
+        "+",
+        money_const("1.00"),
+        money_const("2.00"),
+        "Money",
+    ));
     let scale = eval(binary("*", money_const("1.00"), int_const("3"), "Money"));
     let f = func_returns("run", "Nothing", vec![], vec![add, scale]);
     let got = rules(&project(vec![f], vec![]));
@@ -2714,7 +2744,12 @@ fn accepts_money_add_and_scale() {
 /// `Money * Money` is invalid — money² is not Money (values.rs:704).
 #[test]
 fn rejects_money_times_money() {
-    let body = vec![eval(binary("*", money_const("1.00"), money_const("2.00"), "Money"))];
+    let body = vec![eval(binary(
+        "*",
+        money_const("1.00"),
+        money_const("2.00"),
+        "Money",
+    ))];
     let f = func_returns("run", "Nothing", vec![], body);
     expect_rule(&project(vec![f], vec![]), "TYPE_MONEY_OPERATION_INVALID");
 }
@@ -2722,7 +2757,12 @@ fn rejects_money_times_money() {
 /// `non-Money / Money` is invalid (values.rs:705-707).
 #[test]
 fn rejects_non_money_divided_by_money() {
-    let body = vec![eval(binary("/", int_const("6"), money_const("2.00"), "Money"))];
+    let body = vec![eval(binary(
+        "/",
+        int_const("6"),
+        money_const("2.00"),
+        "Money",
+    ))];
     let f = func_returns("run", "Nothing", vec![], body);
     expect_rule(&project(vec![f], vec![]), "TYPE_MONEY_OPERATION_INVALID");
 }
@@ -2730,7 +2770,12 @@ fn rejects_non_money_divided_by_money() {
 /// `Money ^ x` is invalid (values.rs:708).
 #[test]
 fn rejects_money_exponentiation() {
-    let body = vec![eval(binary("^", money_const("1.00"), int_const("2"), "Money"))];
+    let body = vec![eval(binary(
+        "^",
+        money_const("1.00"),
+        int_const("2"),
+        "Money",
+    ))];
     let f = func_returns("run", "Nothing", vec![], body);
     expect_rule(&project(vec![f], vec![]), "TYPE_MONEY_OPERATION_INVALID");
 }
@@ -2738,15 +2783,17 @@ fn rejects_money_exponentiation() {
 /// A `Set OF <union>` whose element is not comparable (values.rs:802).
 #[test]
 fn rejects_set_of_union_element_not_comparable() {
-    let f = func_returns(
-        "run",
-        "Nothing",
-        vec![param("s", "Set OF U", None)],
-        vec![],
-    );
+    let f = func_returns("run", "Nothing", vec![param("s", "Set OF U", None)], vec![]);
     // A data-only union (no resource variants) is not comparable.
     expect_rule(
-        &project(vec![f], vec![union("U", &["A", "B"]), record("A", &["x"]), record("B", &["y"])]),
+        &project(
+            vec![f],
+            vec![
+                union("U", &["A", "B"]),
+                record("A", &["x"]),
+                record("B", &["y"]),
+            ],
+        ),
         "TYPE_REQUIRES_COMPARABLE",
     );
 }
@@ -2760,7 +2807,10 @@ fn accepts_set_of_enum_element() {
         vec![param("s", "Set OF Color", None)],
         vec![],
     );
-    let got = rules(&project(vec![f], vec![enum_type("Color", &["Red", "Green"])]));
+    let got = rules(&project(
+        vec![f],
+        vec![enum_type("Color", &["Red", "Green"])],
+    ));
     assert!(
         !got.iter().any(|r| r == "TYPE_REQUIRES_COMPARABLE"),
         "{got:?}"
@@ -2958,7 +3008,12 @@ fn accepts_set_of_comparable_element() {
 fn rejects_set_of_resource_element() {
     // `Set OF File`: a resource handle is not comparable and can't be owned by an
     // ordinary collection.
-    let f = func_returns("run", "Nothing", vec![param("s", "Set OF File", None)], vec![]);
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("s", "Set OF File", None)],
+        vec![],
+    );
     expect_rule(&project(vec![f], vec![]), "TYPE_REQUIRES_COMPARABLE");
 }
 
@@ -3288,18 +3343,24 @@ fn accepts_collection_res_file() {
 }
 
 #[test]
-fn rejects_state_on_union() {
+fn accepts_state_on_union() {
+    // plan-74: a resource union may carry a uniform (defaultable) STATE at a
+    // binding — the former TYPE_UNION_STATE_FORBIDDEN ban is retired.
     let mut f = func_returns(
         "run",
         "Nothing",
         vec![],
         vec![bind("r", "Res STATE Integer", None, true, false)],
     );
-    // craft a resource union type "Res" with a File variant so is_resource true and unions contains it.
+    // a resource union type "Res" with a File variant so is_resource is true and unions contains it.
     f.resource_owners
         .insert("r".to_string(), crate::ir::resource_escape::ResOwner::Local);
     let u = union("Res", &["File"]);
-    expect_rule(&project(vec![f], vec![u]), "TYPE_UNION_STATE_FORBIDDEN");
+    let got = rules(&project(vec![f], vec![u]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_UNION_STATE_FORBIDDEN"),
+        "union STATE must be accepted (ban retired): {got:?}"
+    );
 }
 
 #[test]
@@ -3509,7 +3570,10 @@ fn foreach_body_move_leaks_to_outer() {
     let f = func_returns(
         "run",
         "Nothing",
-        vec![param("a", "File", None), param("items", "List OF File", None)],
+        vec![
+            param("a", "File", None),
+            param("items", "List OF File", None),
+        ],
         body,
     );
     expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
@@ -3573,8 +3637,10 @@ fn match_on_primitive_scrutinee_not_exhaustive() {
 /// A resource binding whose owner is recorded (so it is not rejected as a
 /// non-`RES` resource hold), typed `type_`, initialized from `value`.
 fn res_bind_owned(f: &mut IrFunction, name: &str, type_: &str, value: Option<IrValue>) -> IrOp {
-    f.resource_owners
-        .insert(name.to_string(), crate::ir::resource_escape::ResOwner::Local);
+    f.resource_owners.insert(
+        name.to_string(),
+        crate::ir::resource_escape::ResOwner::Local,
+    );
     bind(name, type_, value, true, false)
 }
 
@@ -3611,7 +3677,12 @@ fn unary_operand_of_uninferable_value_is_skipped() {
 fn call_argument_of_uninferable_value_is_skipped() {
     // `check_call_argument_types` continues past an argument whose type cannot be
     // inferred (calls.rs:121) — an unknown local passed to a known function.
-    let callee = func_returns("helper", "Nothing", vec![param("a", "Integer", None)], vec![]);
+    let callee = func_returns(
+        "helper",
+        "Nothing",
+        vec![param("a", "Integer", None)],
+        vec![],
+    );
     let body = vec![IrOp::Eval {
         value: IrValue::Call {
             target: "helper".to_string(),
@@ -3654,7 +3725,10 @@ fn rejects_argument_state_retype() {
         vec![param("g", "File STATE Label", None)],
         body,
     );
-    expect_rule(&project(vec![callee, caller], vec![]), "TYPE_STATE_MISMATCH");
+    expect_rule(
+        &project(vec![callee, caller], vec![]),
+        "TYPE_STATE_MISMATCH",
+    );
 }
 
 #[test]
@@ -3677,7 +3751,10 @@ fn rejects_argument_state_missing() {
         loc: IrSourceLoc::default(),
     }];
     let caller = func_returns("run", "Nothing", vec![param("g", "File", None)], body);
-    expect_rule(&project(vec![callee, caller], vec![]), "TYPE_STATE_MISMATCH");
+    expect_rule(
+        &project(vec![callee, caller], vec![]),
+        "TYPE_STATE_MISMATCH",
+    );
 }
 
 #[test]
@@ -3716,7 +3793,11 @@ fn rejects_thread_transfer_state_retype() {
         "run",
         "Nothing",
         vec![
-            param("t", "Thread OF Nothing RES File STATE Cursor TO Nothing", None),
+            param(
+                "t",
+                "Thread OF Nothing RES File STATE Cursor TO Nothing",
+                None,
+            ),
             param("r", "File STATE Label", None),
         ],
         vec![transfer_call("t", Some("r"))],
@@ -3732,7 +3813,11 @@ fn rejects_thread_transfer_state_missing() {
         "run",
         "Nothing",
         vec![
-            param("t", "Thread OF Nothing RES File STATE Cursor TO Nothing", None),
+            param(
+                "t",
+                "Thread OF Nothing RES File STATE Cursor TO Nothing",
+                None,
+            ),
             param("r", "File", None),
         ],
         vec![transfer_call("t", Some("r"))],
@@ -3795,12 +3880,14 @@ fn thread_transfer_non_thread_handle_is_skipped() {
 }
 
 #[test]
-fn rejects_return_state_union() {
-    // FUNC returns a resource union with a STATE (calls.rs:286-293).
+fn accepts_return_state_union() {
+    // plan-74: a FUNC may return a resource union carrying a uniform (defaultable)
+    // STATE — the former TYPE_UNION_STATE_FORBIDDEN return ban is retired.
     let f = func_returns("run", "Res STATE Integer", vec![], vec![]);
-    expect_rule(
-        &project(vec![f], vec![union("Res", &["File"])]),
-        "TYPE_UNION_STATE_FORBIDDEN",
+    let got = rules(&project(vec![f], vec![union("Res", &["File"])]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_UNION_STATE_FORBIDDEN"),
+        "union STATE return must be accepted (ban retired): {got:?}"
     );
 }
 
@@ -3819,7 +3906,12 @@ fn rejects_binding_opaque_state_narrowing() {
     // Binding a bare `RES` parameter under a concrete STATE — an unprovable
     // narrowing (calls.rs:369-375).
     let mut f = func_returns("run", "Nothing", vec![param("p", "File", None)], vec![]);
-    let b = res_bind_owned(&mut f, "x", "File STATE Integer", Some(IrValue::Local("p".to_string())));
+    let b = res_bind_owned(
+        &mut f,
+        "x",
+        "File STATE Integer",
+        Some(IrValue::Local("p".to_string())),
+    );
     f.body = vec![b];
     expect_rule(&project(vec![f], vec![]), "TYPE_STATE_OPAQUE_NARROWING");
 }
@@ -4084,7 +4176,10 @@ fn abi_slot(name: &str, ctype: &str, dir: crate::ir::AbiDirection) -> crate::ir:
     }
 }
 
-fn project_with_link(lf: crate::ir::IrLinkFunction, cstructs: Vec<crate::ir::IrCStruct>) -> IrProject {
+fn project_with_link(
+    lf: crate::ir::IrLinkFunction,
+    cstructs: Vec<crate::ir::IrCStruct>,
+) -> IrProject {
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
     p.link_functions = vec![lf];
     p.link_cstructs = cstructs;
@@ -4327,7 +4422,10 @@ fn set_of_map_of_resource_is_ownership_violation() {
         vec![param("s", "Set OF Map OF File TO Integer", None)],
         vec![],
     );
-    expect_rule(&project(vec![f], vec![]), "TYPE_COLLECTION_OWNERSHIP_VIOLATION");
+    expect_rule(
+        &project(vec![f], vec![]),
+        "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
+    );
 }
 
 /// A self-referential record containing a resource exercises the cycle guard of
@@ -4335,13 +4433,11 @@ fn set_of_map_of_resource_is_ownership_violation() {
 #[test]
 fn set_of_cyclic_record_with_resource_is_ownership_violation() {
     let rec = record_typed("R", &[("self", "R"), ("h", "File")]);
-    let f = func_returns(
-        "run",
-        "Nothing",
-        vec![param("s", "Set OF R", None)],
-        vec![],
+    let f = func_returns("run", "Nothing", vec![param("s", "Set OF R", None)], vec![]);
+    expect_rule(
+        &project(vec![f], vec![rec]),
+        "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
     );
-    expect_rule(&project(vec![f], vec![rec]), "TYPE_COLLECTION_OWNERSHIP_VIOLATION");
 }
 
 // --- link expressions (plan-50-I) -------------------------------------------

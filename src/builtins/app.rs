@@ -13,7 +13,6 @@
 //! console build is a CLI compile error (plan-62-A §3.3), so the name gate here
 //! makes the import *legal* and the CLI rejects it when app mode is off.
 
-
 use super::descriptor::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, BuiltinType,
     DefaultResolver, Implementation, InjectionRule, Lowering, Parameter, ReturnType, TypeKind,

@@ -1477,9 +1477,7 @@ fn statement_can_terminate(statement: &Statement) -> bool {
             else_body,
             ..
         } => block_can_terminate(then_body) || block_can_terminate(else_body),
-        Statement::Match { cases, .. } => {
-            cases.iter().any(|case| block_can_terminate(&case.body))
-        }
+        Statement::Match { cases, .. } => cases.iter().any(|case| block_can_terminate(&case.body)),
         Statement::For { body, .. }
         | Statement::ForEach { body, .. }
         | Statement::While { body, .. }
@@ -1675,9 +1673,19 @@ fn match_case_binding(
                 };
             }
             // coverage:on
+            // A stateful resource union's STATE is uniform across variants, so the
+            // extracted variant binding carries the same STATE suffix as the
+            // scrutinee (plan-74) — this is what lets `f.state` on `CASE File(f)`
+            // resolve and lower through the concrete-record path. The `UnionExtract`
+            // itself stays keyed on the bare variant type (it loads the variant
+            // record pointer at `+8`).
+            let binding_type = match crate::builtins::resource::state_type_name(matched_type) {
+                Some(state) => format!("{type_name} STATE {state}"),
+                None => type_name.clone(),
+            };
             Some((
                 binding.clone(),
-                type_name.clone(),
+                binding_type,
                 IrValue::UnionExtract {
                     type_: type_name.clone(),
                     value: Box::new(IrValue::Local(matched_local.to_string())),
@@ -2668,7 +2676,8 @@ fn lower_expression_with_expected(
             // empty list literal and a `Map OF ...` default (http's `headers`) to an
             // empty map literal, not a scalar const; every other default is a const.
             let mut args = args;
-            for (type_, value) in builtins::default_argument_padding(&canonical_callee, args.len()) {
+            for (type_, value) in builtins::default_argument_padding(&canonical_callee, args.len())
+            {
                 if type_.starts_with("List OF ") {
                     args.push(IrValue::ListLiteral {
                         type_: (*type_).to_string(),

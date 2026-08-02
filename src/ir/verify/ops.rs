@@ -218,10 +218,13 @@ impl TypeEnv {
                             );
                         }
                     }
-                    // STATE is undefined on a resource union (varies by
-                    // tag), and a STATE payload type must be defaultable.
-                    // `state_type_name` peels only a *top-level* STATE, so a
-                    // thread handle whose plane carries `STATE` (`Thread OF RES
+                    // A STATE payload type must be defaultable. plan-74 lifted the
+                    // former `TYPE_UNION_STATE_FORBIDDEN` ban: a resource union may
+                    // now carry a uniform STATE, checked exactly like a concrete
+                    // resource's (the STATE type is the use-site declaration,
+                    // identical for every variant, so no runtime tag is read to
+                    // type it). `state_type_name` peels only a *top-level* STATE, so
+                    // a thread handle whose plane carries `STATE` (`Thread OF RES
                     // File STATE Cursor TO Out`, plan-54) is not misread here.
                     //
                     // bug-376 widened only the RES axis above; these keep the
@@ -231,14 +234,6 @@ impl TypeEnv {
                     if *explicit_type && !name.starts_with('$') {
                         if let Some(state_type) = crate::builtins::resource::state_type_name(type_)
                         {
-                            if self.unions.contains_key(base) {
-                                self.emit(
-                                    "TYPE_UNION_STATE_FORBIDDEN",
-                                    format!(
-                                        "binding `{name}` attaches STATE to resource union `{base}`; a resource union carries no STATE — use a concrete stateful resource."
-                                    ),
-                                );
-                            }
                             if !self.is_defaultable(state_type, &mut HashSet::new()) {
                                 self.emit(
                                     "TYPE_STATE_INVALID",

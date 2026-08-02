@@ -60,7 +60,14 @@ pub(super) fn collect_bind_types(ops: &[NirOp], types: &mut HashSet<String>) {
     impl NirVisitor for Collector<'_> {
         fn visit_op(&mut self, op: &NirOp) {
             if let NirOp::Bind { type_, .. } = op {
-                self.types.insert(type_.clone());
+                // Strip any `STATE T` suffix (plan-74): a stateful resource-union
+                // bind (`Stream STATE Cursor`) names the same union as its bare
+                // form, and the union used-helper check below matches against the
+                // bare union type name — so its variants' close helpers must be
+                // recognized as used, or a valid stateful union bind trips the
+                // "declares unused runtime helper" guard.
+                self.types
+                    .insert(crate::builtins::resource::base_resource_name(type_).to_string());
             }
             walk_op(self, op);
         }

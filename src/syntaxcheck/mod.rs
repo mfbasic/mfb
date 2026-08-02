@@ -2342,7 +2342,14 @@ mod checker_tests {
             Type::Set(Box::new(Type::Integer)),
             Type::Result(Box::new(Type::String)),
         ] {
-            checker.validate_package_metadata_type(file_ref, 1, &pkg, &element_ty, "ctx", &mut seen);
+            checker.validate_package_metadata_type(
+                file_ref,
+                1,
+                &pkg,
+                &element_ty,
+                "ctx",
+                &mut seen,
+            );
         }
 
         // Function type: parameter list + return-type recursion.
@@ -2364,12 +2371,8 @@ mod checker_tests {
         checker.validate_package_metadata_type(file_ref, 1, &pkg, &thread_ty, "ctx", &mut seen);
 
         // ThreadWorker with no resource plane: the same arm, `None` branches.
-        let worker_ty = Type::ThreadWorker(
-            Box::new(Type::Integer),
-            None,
-            None,
-            Box::new(Type::Nothing),
-        );
+        let worker_ty =
+            Type::ThreadWorker(Box::new(Type::Integer), None, None, Box::new(Type::Nothing));
         checker.validate_package_metadata_type(file_ref, 1, &pkg, &worker_ty, "ctx", &mut seen);
 
         // A `User` type not present in `type_infos` and not a resource: the

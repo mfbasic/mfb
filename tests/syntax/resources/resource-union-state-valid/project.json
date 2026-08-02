@@ -1,5 +1,5 @@
 {
-  "name": "resource_return_union_state_invalid",
+  "name": "resource_union_state_valid",
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",

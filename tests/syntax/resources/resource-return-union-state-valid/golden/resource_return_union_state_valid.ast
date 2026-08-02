@@ -1,0 +1,62 @@
+{
+  "project": "resource_return_union_state_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "net", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "StreamState",
+      "line": 4,
+      "fields": [
+      { "visibility": null, "name": "bytes", "type": "Integer", "line": 5 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Stream",
+      "line": 8,
+      "includes": [],
+      "variants": [
+      { "name": "File", "line": 9 },
+      { "name": "Socket", "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "make",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": "Stream", "returnResource": true, "returnState": "StreamState",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "StreamState", "name": "s", "type": "Stream", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 17 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "s" }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 21,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "StreamState", "name": "h", "type": "Stream", "value": { "kind": "call", "callee": "make", "arguments": [] }, "line": 22 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
+      ]
+    }
+    ]
+  }
+  ]
+}

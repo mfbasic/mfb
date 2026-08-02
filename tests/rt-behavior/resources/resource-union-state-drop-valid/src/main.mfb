@@ -1,0 +1,68 @@
+IMPORT fs
+IMPORT net
+IMPORT io
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+UNION Stream
+  File
+  Socket
+END UNION
+
+' Normal scope-drop: open a stateful union, touch its STATE, return with no
+' explicit close. The tag-dispatched drop must close the active variant (File)
+' and free the attached STATE exactly once. Looped so a leaked fd (missing close)
+' hits the fd limit and a double-free corrupts the arena.
+SUB touchDrop(path AS String)
+  RES s AS Stream STATE Cursor = fs::openFile(path)
+  s.state.pos = 42
+END SUB
+
+' Early explicit close via the matched variant. Scope-drop must not double-close
+' (the handle is already closed → benign no-op) but must still free the STATE.
+SUB earlyClose(path AS String)
+  RES s AS Stream STATE Cursor = fs::openFile(path)
+  s.state.pos = 7
+  MATCH s
+    CASE File(f)
+      fs::close(f)
+    CASE Socket(sock)
+      io::print("unexpected socket")
+  END MATCH
+END SUB
+
+' Error-exit path: the union is live when a later fallible call FAILs, so `s`
+' must close+free on the propagated-error exit. The caller absorbs the failure.
+FUNC errExit(path AS String, bad AS String) AS Integer
+  RES s AS Stream STATE Cursor = fs::openFile(path)
+  s.state.pos = 9
+  RES extra AS File = fs::openFile(bad)
+  fs::close(extra)
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  LET path AS String = "target/resource_union_state_drop_valid.txt"
+  IF fs::fileExists(path) THEN
+    fs::deleteFile(path)
+  END IF
+  RES seed AS File = fs::openFile(path, "write")
+  fs::writeAll(seed, "x")
+  fs::close(seed)
+
+  MUT i AS Integer = 0
+  WHILE i < 2000
+    touchDrop(path)
+    earlyClose(path)
+    LET r AS Integer = errExit(path, "target/no_such_dir_74/missing.txt") TRAP(e)
+      RECOVER 0
+    END TRAP
+    i = i + 1
+  END WHILE
+
+  io::print("ok")
+  fs::deleteFile(path)
+  RETURN 0
+END FUNC

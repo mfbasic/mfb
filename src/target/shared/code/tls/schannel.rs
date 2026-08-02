@@ -54,9 +54,9 @@ mod st {
     pub const HEADER: usize = 32; // stream header size (u32)
     pub const TRAILER: usize = 36; // stream trailer size (u32)
     pub const MAXMSG: usize = 40; // stream max message (u32)
-    // 44: server-side marker (u32). Set to 1 by `lower_tls_accept`; 0 on the
-    // client path (the whole header 0..RECV is zeroed there). Read by
-    // `lower_tls_close` to skip freeing the listener-owned credential.
+                                  // 44: server-side marker (u32). Set to 1 by `lower_tls_accept`; 0 on the
+                                  // client path (the whole header 0..RECV is zeroed there). Read by
+                                  // `lower_tls_close` to skip freeing the listener-owned credential.
     pub const SERVER: usize = 44;
     pub const RECV_LEN: usize = 48; // bytes currently in RECV (ciphertext)
     pub const LEFT_OFF: usize = 56; // read cursor into LEFT plaintext buffer

@@ -154,16 +154,27 @@ fn spike_image() -> EncodedImage {
     }
     let mut data = Vec::new();
     let mut data_syms: Vec<EncodedSymbol> = Vec::new();
-    let push_data = |data: &mut Vec<u8>, syms: &mut Vec<EncodedSymbol>, name: &str, bytes: &[u8]| {
-        syms.push(EncodedSymbol {
-            name: name.to_string(),
-            section: EncodedSection::Data,
-            offset: data.len(),
-        });
-        data.extend_from_slice(bytes);
-    };
-    push_data(&mut data, &mut data_syms, "spike_class", &utf16z("MFBSpike"));
-    push_data(&mut data, &mut data_syms, "spike_title", &utf16z("MFB Spike"));
+    let push_data =
+        |data: &mut Vec<u8>, syms: &mut Vec<EncodedSymbol>, name: &str, bytes: &[u8]| {
+            syms.push(EncodedSymbol {
+                name: name.to_string(),
+                section: EncodedSection::Data,
+                offset: data.len(),
+            });
+            data.extend_from_slice(bytes);
+        };
+    push_data(
+        &mut data,
+        &mut data_syms,
+        "spike_class",
+        &utf16z("MFBSpike"),
+    );
+    push_data(
+        &mut data,
+        &mut data_syms,
+        "spike_title",
+        &utf16z("MFB Spike"),
+    );
     push_data(
         &mut data,
         &mut data_syms,
@@ -195,14 +206,16 @@ fn spike_image() -> EncodedImage {
     a.b(&[0xF3, 0x48, 0xAB]); // rep stosq
 
     // cbSize = 80
-    a.b(&[0xC7, 0x84, 0x24, 0x60, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00]); // mov dword [rsp+0x60], 80
-    // lpfnWndProc = &WndProc  (offset 0x68)
+    a.b(&[
+        0xC7, 0x84, 0x24, 0x60, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00,
+    ]); // mov dword [rsp+0x60], 80
+        // lpfnWndProc = &WndProc  (offset 0x68)
     a.rip_internal(&[0x48, 0x8D, 0x05], "WndProc"); // lea rax, [rip+WndProc]
     a.b(&[0x48, 0x89, 0x84, 0x24, 0x68, 0x00, 0x00, 0x00]); // mov [rsp+0x68], rax
-    // hInstance (offset 0x78)
+                                                            // hInstance (offset 0x78)
     a.b(&[0x48, 0x8B, 0x84, 0x24, 0xE0, 0x00, 0x00, 0x00]); // mov rax, [rsp+0xE0]
     a.b(&[0x48, 0x89, 0x84, 0x24, 0x78, 0x00, 0x00, 0x00]); // mov [rsp+0x78], rax
-    // lpszClassName = &spike_class  (offset 0xA0)
+                                                            // lpszClassName = &spike_class  (offset 0xA0)
     a.rip_data(&[0x48, 0x8D, 0x05], "spike_class"); // lea rax, [rip+spike_class]
     a.b(&[0x48, 0x89, 0x84, 0x24, 0xA0, 0x00, 0x00, 0x00]); // mov [rsp+0xA0], rax
 
@@ -259,7 +272,7 @@ fn spike_image() -> EncodedImage {
     // ===== worker(LPVOID hwnd in rcx) =====
     a.sym("worker");
     a.b(&[0x48, 0x83, 0xEC, 0x28]); // sub rsp, 0x28 (shadow + align)
-    // PostMessageW(hwnd, WM_APP, 0, 0) — rcx already holds hwnd.
+                                    // PostMessageW(hwnd, WM_APP, 0, 0) — rcx already holds hwnd.
     a.b(&[0xBA, 0x00, 0x80, 0x00, 0x00]); // mov edx, 0x8000 (WM_APP)
     a.b(&[0x45, 0x31, 0xC0]); // xor r8d, r8d
     a.b(&[0x45, 0x31, 0xC9]); // xor r9d, r9d
@@ -275,7 +288,7 @@ fn spike_image() -> EncodedImage {
     a.jshort(0x74, "wnd_app"); // je wnd_app
     a.b(&[0x81, 0xFA, 0x02, 0x00, 0x00, 0x00]); // cmp edx, 0x0002 (WM_DESTROY)
     a.jshort(0x74, "wnd_destroy"); // je wnd_destroy
-    // default: DefWindowProcW(hwnd, msg, wParam, lParam) — args untouched.
+                                   // default: DefWindowProcW(hwnd, msg, wParam, lParam) — args untouched.
     a.call_import("DefWindowProcW", USER32);
     a.b(&[0x48, 0x83, 0xC4, 0x48]); // add rsp, 0x48
     a.b(&[0xC3]); // ret
@@ -291,7 +304,7 @@ fn spike_image() -> EncodedImage {
     a.b(&[0x48, 0xC7, 0x44, 0x24, 0x30, 0x00, 0x00, 0x00, 0x00]); // mov qword [rsp+0x30], 0 (hTemplate)
     a.call_import("CreateFileW", KERNEL32);
     a.b(&[0x48, 0x89, 0x44, 0x24, 0x38]); // mov [rsp+0x38], rax (handle)
-    // WriteFile(handle, &proof, len, &written, NULL)
+                                          // WriteFile(handle, &proof, len, &written, NULL)
     a.b(&[0x48, 0x89, 0xC1]); // mov rcx, rax
     a.rip_data(&[0x48, 0x8D, 0x15], "spike_proof"); // lea rdx, [rip+spike_proof]
     a.b(&[0x41, 0xB8]); // mov r8d, imm32
@@ -389,9 +402,15 @@ fn links_and_is_gui_subsystem() {
             .collect();
         names.push(name);
     }
-    assert!(names.iter().any(|n| n == ".idata"), "imports present: {names:?}");
+    assert!(
+        names.iter().any(|n| n == ".idata"),
+        "imports present: {names:?}"
+    );
     assert!(names.iter().any(|n| n == ".text"));
-    assert!(names.iter().any(|n| n == ".rdata"), "strings present: {names:?}");
+    assert!(
+        names.iter().any(|n| n == ".rdata"),
+        "strings present: {names:?}"
+    );
 }
 
 /// Dev harness (not a CI assertion): with `MFB_SPIKE_OUT` set, write the GUI

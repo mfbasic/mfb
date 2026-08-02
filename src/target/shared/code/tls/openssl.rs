@@ -620,7 +620,13 @@ pub(super) fn lower_tls_connect_openssl(
     // installed (errno == EWOULDBLOCK/EAGAIN), classify it as a TIMEOUT (ErrTimeout),
     // matching the macOS backend and the connect-poll timeout, rather than the
     // generic ErrTlsFailed. Any other failure stays ErrTlsFailed.
-    platform.emit_errno(symbol, "%v9", platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_errno(
+        symbol,
+        "%v9",
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate("%v9", platform.socket_would_block_code()),
         abi::branch_ne(&tls_fail),
@@ -1752,7 +1758,13 @@ pub(super) fn lower_tls_accept_openssl(
     // plan-73-D: SSL_accept failed — an SO_RCVTIMEO expiry (errno EWOULDBLOCK/EAGAIN)
     // is a handshake TIMEOUT (ErrTimeout), matching the accept-poll timeout and the
     // other backends; anything else is a TLS failure.
-    platform.emit_errno(symbol, "%v9", platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_errno(
+        symbol,
+        "%v9",
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate("%v9", platform.socket_would_block_code()),
         abi::branch_ne(&ssl_fail),

@@ -36,462 +36,462 @@ pub(super) fn emit_main_bootstrap(initial_mode: PresentationMode) -> CodeFunctio
     // `applicationDidFinishLaunching:`) and enters the real `[NSApp run]` loop,
     // staying alive with no window (see the `else` arm below).
     if initial_mode == PresentationMode::Console {
-    // window = [[NSWindow alloc] initWithContentRect:styleMask:backing:defer:]
-    asm.external_data(REG_WINDOW, CLASS_NS_WINDOW, LIB_APPKIT);
-    asm.load_selector(SEL_ALLOC.0);
-    asm.push(abi::move_register("x0", REG_WINDOW));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(REG_WINDOW, "x0"));
+        // window = [[NSWindow alloc] initWithContentRect:styleMask:backing:defer:]
+        asm.external_data(REG_WINDOW, CLASS_NS_WINDOW, LIB_APPKIT);
+        asm.load_selector(SEL_ALLOC.0);
+        asm.push(abi::move_register("x0", REG_WINDOW));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(REG_WINDOW, "x0"));
 
-    asm.load_selector(SEL_INIT_WINDOW.0);
-    // contentRect = NSMakeRect(100, 100, 900, 640) -> d0..d3 (HFA of 4 doubles).
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 100);
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 100);
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[2], 900);
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[3], 640);
-    asm.push(abi::move_immediate("x2", "Integer", WINDOW_STYLE_MASK));
-    asm.push(abi::move_immediate("x3", "Integer", BACKING_BUFFERED));
-    asm.push(abi::move_immediate("x4", "Integer", "0")); // defer: NO
-    asm.push(abi::move_register("x0", REG_WINDOW));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(REG_WINDOW, "x0"));
+        asm.load_selector(SEL_INIT_WINDOW.0);
+        // contentRect = NSMakeRect(100, 100, 900, 640) -> d0..d3 (HFA of 4 doubles).
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 100);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 100);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[2], 900);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[3], 640);
+        asm.push(abi::move_immediate("x2", "Integer", WINDOW_STYLE_MASK));
+        asm.push(abi::move_immediate("x3", "Integer", BACKING_BUFFERED));
+        asm.push(abi::move_immediate("x4", "Integer", "0")); // defer: NO
+        asm.push(abi::move_register("x0", REG_WINDOW));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(REG_WINDOW, "x0"));
 
-    // title = [NSString stringWithUTF8String:"MFBASIC App"]; [window setTitle:title]
-    asm.external_data(REG_SCRATCH_OBJ, CLASS_NS_STRING, LIB_FOUNDATION);
-    asm.load_selector(SEL_STRING_WITH_UTF8.0);
-    asm.local_address("x2", STR_TITLE.0);
-    asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(REG_SCRATCH_OBJ, "x0"));
-    asm.load_selector(SEL_SET_TITLE.0);
-    asm.push(abi::move_register("x2", REG_SCRATCH_OBJ));
-    asm.push(abi::move_register("x0", REG_WINDOW));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
+        // title = [NSString stringWithUTF8String:"MFBASIC App"]; [window setTitle:title]
+        asm.external_data(REG_SCRATCH_OBJ, CLASS_NS_STRING, LIB_FOUNDATION);
+        asm.load_selector(SEL_STRING_WITH_UTF8.0);
+        asm.local_address("x2", STR_TITLE.0);
+        asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(REG_SCRATCH_OBJ, "x0"));
+        asm.load_selector(SEL_SET_TITLE.0);
+        asm.push(abi::move_register("x2", REG_SCRATCH_OBJ));
+        asm.push(abi::move_register("x0", REG_WINDOW));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
 
-    // headless = getenv("MFB_MACAPP_HEADLESS")
-    asm.local_address("x0", STR_HEADLESS_ENV.0);
-    asm.call_external("_getenv", LIB_SYSTEM);
-    asm.push(abi::move_register(REG_HEADLESS, "x0"));
+        // headless = getenv("MFB_MACAPP_HEADLESS")
+        asm.local_address("x0", STR_HEADLESS_ENV.0);
+        asm.call_external("_getenv", LIB_SYSTEM);
+        asm.push(abi::move_register(REG_HEADLESS, "x0"));
 
-    // In GUI mode, build the transcript view + show/activate the window. Headless
-    // test mode skips all of this, leaving no associated NSTextView so the io
-    // helpers fall back to the file descriptor sink (plan §7.2 Strategy A).
-    asm.push(abi::compare_immediate(REG_HEADLESS, "0"));
-    asm.push(abi::branch_ne("after_show"));
+        // In GUI mode, build the transcript view + show/activate the window. Headless
+        // test mode skips all of this, leaving no associated NSTextView so the io
+        // helpers fall back to the file descriptor sink (plan §7.2 Strategy A).
+        asm.push(abi::compare_immediate(REG_HEADLESS, "0"));
+        asm.push(abi::branch_ne("after_show"));
 
-    // content = [window contentView]
-    asm.load_selector(SEL_CONTENT_VIEW.0);
-    asm.push(abi::move_register("x0", REG_WINDOW));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[5], "x0")); // content view (callee-saved)
+        // content = [window contentView]
+        asm.load_selector(SEL_CONTENT_VIEW.0);
+        asm.push(abi::move_register("x0", REG_WINDOW));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[5], "x0")); // content view (callee-saved)
 
-    // scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
-    asm.external_data(abi::LOCAL[4], CLASS_NS_SCROLL_VIEW, LIB_APPKIT);
-    asm.load_selector(SEL_ALLOC.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[4]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[4], "x0"));
-    asm.load_selector(SEL_INIT_FRAME.0);
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 0);
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 0);
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[2], 900);
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[3], 640);
-    asm.push(abi::move_register("x0", abi::LOCAL[4]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[4], "x0")); // scroll view
-                                                       // [scroll setAutoresizingMask:NSViewWidthSizable|NSViewHeightSizable] -- track
-                                                       // the window content view so the transcript fills the window on resize.
-    asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
-    asm.push(abi::move_immediate(
-        "x2",
-        "Integer",
-        AUTORESIZE_WIDTH_HEIGHT,
-    ));
-    asm.push(abi::move_register("x0", abi::LOCAL[4]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
+        // scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
+        asm.external_data(abi::LOCAL[4], CLASS_NS_SCROLL_VIEW, LIB_APPKIT);
+        asm.load_selector(SEL_ALLOC.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[4], "x0"));
+        asm.load_selector(SEL_INIT_FRAME.0);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 0);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 0);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[2], 900);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[3], 640);
+        asm.push(abi::move_register("x0", abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[4], "x0")); // scroll view
+                                                           // [scroll setAutoresizingMask:NSViewWidthSizable|NSViewHeightSizable] -- track
+                                                           // the window content view so the transcript fills the window on resize.
+        asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
+        asm.push(abi::move_immediate(
+            "x2",
+            "Integer",
+            AUTORESIZE_WIDTH_HEIGHT,
+        ));
+        asm.push(abi::move_register("x0", abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
 
-    // Synthesize MFBTextView : NSTextView overriding keyDown: so the transcript
-    // view itself receives typed keys (terminal-style input echoed into the
-    // view), instead of a separate input field.
-    // cls = objc_allocateClassPair(NSTextView, "MFBTextView", 0)
-    asm.external_data(abi::LOCAL[6], CLASS_NS_TEXT_VIEW, LIB_APPKIT);
-    asm.local_address("x1", STR_TEXTVIEW_CLASS.0);
-    asm.push(abi::move_immediate("x2", "Integer", "0"));
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_objc_allocateClassPair", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[6], "x0")); // new class
-                                                       // class_addMethod(cls, @selector(keyDown:), imp, "v@:@")
-    asm.load_selector(SEL_KEY_DOWN.0);
-    asm.local_address("x2", KEY_DOWN_SYMBOL);
-    asm.local_address("x3", STR_INPUT_TYPES.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_class_addMethod", LIB_OBJC);
-    // objc_registerClassPair(cls)
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_objc_registerClassPair", LIB_OBJC);
-    // tv = [[MFBTextView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
-    asm.load_selector(SEL_ALLOC.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(REG_SCRATCH_OBJ, "x0"));
-    asm.load_selector(SEL_INIT_FRAME.0);
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 0);
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 0);
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[2], 900);
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[3], 640);
-    asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(REG_SCRATCH_OBJ, "x0")); // transcript text view (x21)
+        // Synthesize MFBTextView : NSTextView overriding keyDown: so the transcript
+        // view itself receives typed keys (terminal-style input echoed into the
+        // view), instead of a separate input field.
+        // cls = objc_allocateClassPair(NSTextView, "MFBTextView", 0)
+        asm.external_data(abi::LOCAL[6], CLASS_NS_TEXT_VIEW, LIB_APPKIT);
+        asm.local_address("x1", STR_TEXTVIEW_CLASS.0);
+        asm.push(abi::move_immediate("x2", "Integer", "0"));
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_objc_allocateClassPair", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[6], "x0")); // new class
+                                                           // class_addMethod(cls, @selector(keyDown:), imp, "v@:@")
+        asm.load_selector(SEL_KEY_DOWN.0);
+        asm.local_address("x2", KEY_DOWN_SYMBOL);
+        asm.local_address("x3", STR_INPUT_TYPES.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
+        // objc_registerClassPair(cls)
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_objc_registerClassPair", LIB_OBJC);
+        // tv = [[MFBTextView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
+        asm.load_selector(SEL_ALLOC.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(REG_SCRATCH_OBJ, "x0"));
+        asm.load_selector(SEL_INIT_FRAME.0);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 0);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 0);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[2], 900);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[3], 640);
+        asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(REG_SCRATCH_OBJ, "x0")); // transcript text view (x21)
 
-    // [tv setAutoresizingMask:NSViewWidthSizable] -- widen with the scroll view.
-    asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
-    asm.push(abi::move_immediate("x2", "Integer", AUTORESIZE_WIDTH));
-    asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
+        // [tv setAutoresizingMask:NSViewWidthSizable] -- widen with the scroll view.
+        asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
+        asm.push(abi::move_immediate("x2", "Integer", AUTORESIZE_WIDTH));
+        asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
 
-    // [tv setFont:[NSFont userFixedPitchFontOfSize:13]] -- monospaced (plan §5.5)
-    asm.external_data(abi::LOCAL[6], CLASS_NS_FONT, LIB_APPKIT);
-    asm.load_selector(SEL_USER_FIXED_FONT.0);
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], TRANSCRIPT_FONT_SIZE);
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[6], "x0")); // fixed-pitch font
-    asm.load_selector(SEL_SET_FONT.0);
-    asm.push(abi::move_register("x2", abi::LOCAL[6]));
-    asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
+        // [tv setFont:[NSFont userFixedPitchFontOfSize:13]] -- monospaced (plan §5.5)
+        asm.external_data(abi::LOCAL[6], CLASS_NS_FONT, LIB_APPKIT);
+        asm.load_selector(SEL_USER_FIXED_FONT.0);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], TRANSCRIPT_FONT_SIZE);
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[6], "x0")); // fixed-pitch font
+        asm.load_selector(SEL_SET_FONT.0);
+        asm.push(abi::move_register("x2", abi::LOCAL[6]));
+        asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
 
-    // [tv setEditable:NO]; [tv setSelectable:YES]
-    asm.load_selector(SEL_SET_EDITABLE.0);
-    asm.push(abi::move_immediate("x2", "Integer", "0"));
-    asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.load_selector(SEL_SET_SELECTABLE.0);
-    asm.push(abi::move_immediate("x2", "Integer", "1"));
-    asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
+        // [tv setEditable:NO]; [tv setSelectable:YES]
+        asm.load_selector(SEL_SET_EDITABLE.0);
+        asm.push(abi::move_immediate("x2", "Integer", "0"));
+        asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.load_selector(SEL_SET_SELECTABLE.0);
+        asm.push(abi::move_immediate("x2", "Integer", "1"));
+        asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
 
-    // [scroll setDocumentView:tv]; [scroll setHasVerticalScroller:YES]
-    asm.load_selector(SEL_SET_DOCUMENT_VIEW.0);
-    asm.push(abi::move_register("x2", REG_SCRATCH_OBJ));
-    asm.push(abi::move_register("x0", abi::LOCAL[4]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.load_selector(SEL_SET_HAS_VSCROLLER.0);
-    asm.push(abi::move_immediate("x2", "Integer", "1"));
-    asm.push(abi::move_register("x0", abi::LOCAL[4]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
+        // [scroll setDocumentView:tv]; [scroll setHasVerticalScroller:YES]
+        asm.load_selector(SEL_SET_DOCUMENT_VIEW.0);
+        asm.push(abi::move_register("x2", REG_SCRATCH_OBJ));
+        asm.push(abi::move_register("x0", abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.load_selector(SEL_SET_HAS_VSCROLLER.0);
+        asm.push(abi::move_immediate("x2", "Integer", "1"));
+        asm.push(abi::move_register("x0", abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
 
-    // [content addSubview:scroll]
-    asm.load_selector(SEL_ADD_SUBVIEW.0);
-    asm.push(abi::move_register("x2", abi::LOCAL[4]));
-    asm.push(abi::move_register("x0", abi::LOCAL[5]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
+        // [content addSubview:scroll]
+        asm.load_selector(SEL_ADD_SUBVIEW.0);
+        asm.push(abi::move_register("x2", abi::LOCAL[4]));
+        asm.push(abi::move_register("x0", abi::LOCAL[5]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
 
-    // Stash the text view on NSApp so the io helpers (worker thread) can reach it:
-    // objc_setAssociatedObject(app, &ASSOC_KEY, tv, OBJC_ASSOCIATION_ASSIGN)
-    asm.push(abi::move_register("x0", REG_APP));
-    asm.local_address("x1", ASSOC_KEY);
-    asm.push(abi::move_register("x2", REG_SCRATCH_OBJ));
-    asm.push(abi::move_immediate("x3", "Integer", "0"));
-    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+        // Stash the text view on NSApp so the io helpers (worker thread) can reach it:
+        // objc_setAssociatedObject(app, &ASSOC_KEY, tv, OBJC_ASSOCIATION_ASSIGN)
+        asm.push(abi::move_register("x0", REG_APP));
+        asm.local_address("x1", ASSOC_KEY);
+        asm.push(abi::move_register("x2", REG_SCRATCH_OBJ));
+        asm.push(abi::move_immediate("x3", "Integer", "0"));
+        asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
 
-    // --- term:: TermView surface (plan-01-term.md §6.3, Phase 4) ------------
-    // Stash the window + transcript scroll view on NSApp so the worker-thread
-    // term:: helpers can swap the content view in/out and restore it.
-    asm.push(abi::move_register("x0", REG_APP));
-    asm.local_address("x1", WINDOW_ASSOC_KEY);
-    asm.push(abi::move_register("x2", REG_WINDOW));
-    asm.push(abi::move_immediate("x3", "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
-    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
-    asm.push(abi::move_register("x0", REG_APP));
-    asm.local_address("x1", SCROLLVIEW_ASSOC_KEY);
-    asm.push(abi::move_register("x2", abi::LOCAL[4])); // scroll view
-    asm.push(abi::move_immediate("x3", "Integer", "0"));
-    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+        // --- term:: TermView surface (plan-01-term.md §6.3, Phase 4) ------------
+        // Stash the window + transcript scroll view on NSApp so the worker-thread
+        // term:: helpers can swap the content view in/out and restore it.
+        asm.push(abi::move_register("x0", REG_APP));
+        asm.local_address("x1", WINDOW_ASSOC_KEY);
+        asm.push(abi::move_register("x2", REG_WINDOW));
+        asm.push(abi::move_immediate("x3", "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
+        asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+        asm.push(abi::move_register("x0", REG_APP));
+        asm.local_address("x1", SCROLLVIEW_ASSOC_KEY);
+        asm.push(abi::move_register("x2", abi::LOCAL[4])); // scroll view
+        asm.push(abi::move_immediate("x3", "Integer", "0"));
+        asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
 
-    // Synthesize TermView : NSView. The grid-state struct is calloc'd and
-    // attached as an associated object (see term_init), so the class needs no
-    // extra instance bytes.
-    // cls = objc_allocateClassPair(NSView, "TermView", 0)
-    asm.external_data(abi::LOCAL[6], CLASS_NS_VIEW, LIB_APPKIT);
-    asm.local_address("x1", STR_TERMVIEW_CLASS_NAME.0);
-    asm.push(abi::move_immediate("x2", "Integer", "0"));
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_objc_allocateClassPair", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[6], "x0")); // new class
-                                                       // class_addMethod(cls, @selector(drawRect:), imp, "v@:{CGRect=dddd}")
-    asm.load_selector(SEL_DRAW_RECT.0);
-    asm.local_address("x2", TERM_VIEW_DRAW_RECT_SYMBOL);
-    asm.local_address("x3", STR_DRAW_RECT_TYPES.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_class_addMethod", LIB_OBJC);
-    // class_addMethod(cls, @selector(isFlipped), imp, "c@:")
-    asm.load_selector(SEL_IS_FLIPPED.0);
-    asm.local_address("x2", TERM_VIEW_IS_FLIPPED_SYMBOL);
-    asm.local_address("x3", STR_IS_FLIPPED_TYPES.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_class_addMethod", LIB_OBJC);
-    // class_addMethod(cls, @selector(mfbWriteString:), imp, "v@:@")
-    asm.load_selector(SEL_MFB_WRITE_STRING.0);
-    asm.local_address("x2", MFB_WRITE_STRING_SYMBOL);
-    asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_class_addMethod", LIB_OBJC);
-    // class_addMethod(cls, @selector(mfbClear:), imp, "v@:@") — main-thread grid
-    // clear (bug-165). The IMP is the existing TERM_CLEAR_SYMBOL helper, which
-    // reads only `self` (x0 = the TermView) and ignores `_cmd`/the object arg.
-    asm.load_selector(SEL_MFB_CLEAR.0);
-    asm.local_address("x2", TERM_CLEAR_SYMBOL);
-    asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_class_addMethod", LIB_OBJC);
-    // class_addMethod(cls, @selector(mfbDrawLine:), imp, "v@:@") — main-thread
-    // draw-line (term::drawHLine/drawVLine). Like mfbClear:, the IMP mutates the
-    // cell buffer, so it runs on the main thread; it reads the draw parameters the
-    // worker parked in the TermView state and ignores the object arg.
-    asm.load_selector(SEL_MFB_DRAW_LINE.0);
-    asm.local_address("x2", MFB_DRAW_LINE_SYMBOL);
-    asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_class_addMethod", LIB_OBJC);
-    // class_addMethod(cls, @selector(mfbDrawBox:), imp, "v@:@") — main-thread
-    // draw-box (term::drawBox); reads the parked box glyphs + points from state.
-    asm.load_selector(SEL_MFB_DRAW_BOX.0);
-    asm.local_address("x2", MFB_DRAW_BOX_SYMBOL);
-    asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_class_addMethod", LIB_OBJC);
-    // class_addMethod(cls, @selector(mfbFillRect:), imp, "v@:@") — main-thread
-    // fill-rectangle (term::fillRect); reads the parked fill glyph + points.
-    asm.load_selector(SEL_MFB_FILL_RECT.0);
-    asm.local_address("x2", MFB_FILL_RECT_SYMBOL);
-    asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_class_addMethod", LIB_OBJC);
-    // class_addMethod(cls, @selector(mfbDrawGlyph:), imp, "v@:@") — main-thread
-    // single-glyph draw (term::drawGlyph); reads the parked glyph + cell.
-    asm.load_selector(SEL_MFB_DRAW_GLYPH.0);
-    asm.local_address("x2", MFB_DRAW_GLYPH_SYMBOL);
-    asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_class_addMethod", LIB_OBJC);
-    // class_addMethod(cls, @selector(mfbDrawText:), imp, "v@:@") — main-thread
-    // positioned text (term::drawText); the NSString is the object argument.
-    asm.load_selector(SEL_MFB_DRAW_TEXT.0);
-    asm.local_address("x2", MFB_DRAW_TEXT_SYMBOL);
-    asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_class_addMethod", LIB_OBJC);
-    // class_addMethod(cls, @selector(acceptsFirstResponder), imp, "c@:") — so the
-    // TermView can become first responder and receive keyDown: in TUI mode.
-    asm.load_selector(SEL_ACCEPTS_FIRST_RESPONDER.0);
-    asm.local_address("x2", TERM_ACCEPTS_FR_SYMBOL);
-    asm.local_address("x3", STR_IS_FLIPPED_TYPES.0); // "c@:"
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_class_addMethod", LIB_OBJC);
-    // class_addMethod(cls, @selector(keyDown:), imp, "v@:@")
-    asm.load_selector(SEL_KEY_DOWN.0);
-    asm.local_address("x2", TERM_KEY_DOWN_SYMBOL);
-    asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_class_addMethod", LIB_OBJC);
-    // class_addMethod(cls, @selector(setFrameSize:), imp, "v@:{CGSize=dd}") — the
-    // live-window-resize hook: recompute rows/cols and realloc the grid (plan-35-D).
-    asm.load_selector(SEL_SET_FRAME_SIZE.0);
-    asm.local_address("x2", TERM_SET_FRAME_SIZE_SYMBOL);
-    asm.local_address("x3", STR_SET_FRAME_SIZE_TYPES.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_class_addMethod", LIB_OBJC);
-    // objc_registerClassPair(cls)
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_objc_registerClassPair", LIB_OBJC);
-    // tv = [[TermView alloc] initWithFrame:NSMakeRect(0,0,W,H)]
-    asm.load_selector(SEL_ALLOC.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[7], "x0"));
-    asm.load_selector(SEL_INIT_FRAME.0);
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 0);
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 0);
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[2], TERM_VIEW_WIDTH);
-    emit_double_immediate(&mut asm, abi::FP_SCRATCH[3], TERM_VIEW_HEIGHT);
-    asm.push(abi::move_register("x0", abi::LOCAL[7]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[7], "x0")); // TermView instance
-                                                       // [tv setAutoresizingMask:NSViewWidthSizable|NSViewHeightSizable]
-    asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
-    asm.push(abi::move_immediate(
-        "x2",
-        "Integer",
-        AUTORESIZE_WIDTH_HEIGHT,
-    ));
-    asm.push(abi::move_register("x0", abi::LOCAL[7]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    // Size + allocate the cell grid from the font metrics.
-    asm.push(abi::move_register("x0", abi::LOCAL[7]));
-    asm.call_internal(TERM_INIT_SYMBOL);
-    // Stash the TermView on NSApp (its alloc +1 keeps it alive; ASSIGN).
-    asm.push(abi::move_register("x0", REG_APP));
-    asm.local_address("x1", TERMVIEW_ASSOC_KEY);
-    asm.push(abi::move_register("x2", abi::LOCAL[7]));
-    asm.push(abi::move_immediate("x3", "Integer", "0"));
-    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
-    // --- end term:: TermView surface ---------------------------------------
+        // Synthesize TermView : NSView. The grid-state struct is calloc'd and
+        // attached as an associated object (see term_init), so the class needs no
+        // extra instance bytes.
+        // cls = objc_allocateClassPair(NSView, "TermView", 0)
+        asm.external_data(abi::LOCAL[6], CLASS_NS_VIEW, LIB_APPKIT);
+        asm.local_address("x1", STR_TERMVIEW_CLASS_NAME.0);
+        asm.push(abi::move_immediate("x2", "Integer", "0"));
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_objc_allocateClassPair", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[6], "x0")); // new class
+                                                           // class_addMethod(cls, @selector(drawRect:), imp, "v@:{CGRect=dddd}")
+        asm.load_selector(SEL_DRAW_RECT.0);
+        asm.local_address("x2", TERM_VIEW_DRAW_RECT_SYMBOL);
+        asm.local_address("x3", STR_DRAW_RECT_TYPES.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
+        // class_addMethod(cls, @selector(isFlipped), imp, "c@:")
+        asm.load_selector(SEL_IS_FLIPPED.0);
+        asm.local_address("x2", TERM_VIEW_IS_FLIPPED_SYMBOL);
+        asm.local_address("x3", STR_IS_FLIPPED_TYPES.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
+        // class_addMethod(cls, @selector(mfbWriteString:), imp, "v@:@")
+        asm.load_selector(SEL_MFB_WRITE_STRING.0);
+        asm.local_address("x2", MFB_WRITE_STRING_SYMBOL);
+        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
+        // class_addMethod(cls, @selector(mfbClear:), imp, "v@:@") — main-thread grid
+        // clear (bug-165). The IMP is the existing TERM_CLEAR_SYMBOL helper, which
+        // reads only `self` (x0 = the TermView) and ignores `_cmd`/the object arg.
+        asm.load_selector(SEL_MFB_CLEAR.0);
+        asm.local_address("x2", TERM_CLEAR_SYMBOL);
+        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
+        // class_addMethod(cls, @selector(mfbDrawLine:), imp, "v@:@") — main-thread
+        // draw-line (term::drawHLine/drawVLine). Like mfbClear:, the IMP mutates the
+        // cell buffer, so it runs on the main thread; it reads the draw parameters the
+        // worker parked in the TermView state and ignores the object arg.
+        asm.load_selector(SEL_MFB_DRAW_LINE.0);
+        asm.local_address("x2", MFB_DRAW_LINE_SYMBOL);
+        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
+        // class_addMethod(cls, @selector(mfbDrawBox:), imp, "v@:@") — main-thread
+        // draw-box (term::drawBox); reads the parked box glyphs + points from state.
+        asm.load_selector(SEL_MFB_DRAW_BOX.0);
+        asm.local_address("x2", MFB_DRAW_BOX_SYMBOL);
+        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
+        // class_addMethod(cls, @selector(mfbFillRect:), imp, "v@:@") — main-thread
+        // fill-rectangle (term::fillRect); reads the parked fill glyph + points.
+        asm.load_selector(SEL_MFB_FILL_RECT.0);
+        asm.local_address("x2", MFB_FILL_RECT_SYMBOL);
+        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
+        // class_addMethod(cls, @selector(mfbDrawGlyph:), imp, "v@:@") — main-thread
+        // single-glyph draw (term::drawGlyph); reads the parked glyph + cell.
+        asm.load_selector(SEL_MFB_DRAW_GLYPH.0);
+        asm.local_address("x2", MFB_DRAW_GLYPH_SYMBOL);
+        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
+        // class_addMethod(cls, @selector(mfbDrawText:), imp, "v@:@") — main-thread
+        // positioned text (term::drawText); the NSString is the object argument.
+        asm.load_selector(SEL_MFB_DRAW_TEXT.0);
+        asm.local_address("x2", MFB_DRAW_TEXT_SYMBOL);
+        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
+        // class_addMethod(cls, @selector(acceptsFirstResponder), imp, "c@:") — so the
+        // TermView can become first responder and receive keyDown: in TUI mode.
+        asm.load_selector(SEL_ACCEPTS_FIRST_RESPONDER.0);
+        asm.local_address("x2", TERM_ACCEPTS_FR_SYMBOL);
+        asm.local_address("x3", STR_IS_FLIPPED_TYPES.0); // "c@:"
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
+        // class_addMethod(cls, @selector(keyDown:), imp, "v@:@")
+        asm.load_selector(SEL_KEY_DOWN.0);
+        asm.local_address("x2", TERM_KEY_DOWN_SYMBOL);
+        asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
+        // class_addMethod(cls, @selector(setFrameSize:), imp, "v@:{CGSize=dd}") — the
+        // live-window-resize hook: recompute rows/cols and realloc the grid (plan-35-D).
+        asm.load_selector(SEL_SET_FRAME_SIZE.0);
+        asm.local_address("x2", TERM_SET_FRAME_SIZE_SYMBOL);
+        asm.local_address("x3", STR_SET_FRAME_SIZE_TYPES.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
+        // objc_registerClassPair(cls)
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_objc_registerClassPair", LIB_OBJC);
+        // tv = [[TermView alloc] initWithFrame:NSMakeRect(0,0,W,H)]
+        asm.load_selector(SEL_ALLOC.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[7], "x0"));
+        asm.load_selector(SEL_INIT_FRAME.0);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 0);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 0);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[2], TERM_VIEW_WIDTH);
+        emit_double_immediate(&mut asm, abi::FP_SCRATCH[3], TERM_VIEW_HEIGHT);
+        asm.push(abi::move_register("x0", abi::LOCAL[7]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[7], "x0")); // TermView instance
+                                                           // [tv setAutoresizingMask:NSViewWidthSizable|NSViewHeightSizable]
+        asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
+        asm.push(abi::move_immediate(
+            "x2",
+            "Integer",
+            AUTORESIZE_WIDTH_HEIGHT,
+        ));
+        asm.push(abi::move_register("x0", abi::LOCAL[7]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        // Size + allocate the cell grid from the font metrics.
+        asm.push(abi::move_register("x0", abi::LOCAL[7]));
+        asm.call_internal(TERM_INIT_SYMBOL);
+        // Stash the TermView on NSApp (its alloc +1 keeps it alive; ASSIGN).
+        asm.push(abi::move_register("x0", REG_APP));
+        asm.local_address("x1", TERMVIEW_ASSOC_KEY);
+        asm.push(abi::move_register("x2", abi::LOCAL[7]));
+        asm.push(abi::move_immediate("x3", "Integer", "0"));
+        asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+        // --- end term:: TermView surface ---------------------------------------
 
-    // Synthesize + install the NSApplication delegate (worker spawn + quit-on-close).
-    // Extracted so the windowless `None` path can install it too (plan-62-C). A
-    // Console-default program never reconciles, so it installs no `mfbReconcile:`.
-    emit_gui_delegate(&mut asm, false);
+        // Synthesize + install the NSApplication delegate (worker spawn + quit-on-close).
+        // Extracted so the windowless `None` path can install it too (plan-62-C). A
+        // Console-default program never reconciles, so it installs no `mfbReconcile:`.
+        emit_gui_delegate(&mut asm, false);
 
-    // Input-line buffer: an NSMutableString accumulating typed characters until
-    // Return; stashed (retained) on NSApp so the keyDown: handler can reach it.
-    asm.external_data(abi::LOCAL[4], CLASS_NS_MUTABLE_STRING, LIB_FOUNDATION);
-    asm.load_selector(SEL_STRING.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[4]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[4], "x0")); // input line buffer
-    asm.push(abi::move_register("x0", REG_APP));
-    asm.local_address("x1", INPUT_LINE_KEY);
-    asm.push(abi::move_register("x2", abi::LOCAL[4]));
-    asm.push(abi::move_immediate("x3", "Integer", "1")); // OBJC_ASSOCIATION_RETAIN_NONATOMIC
-    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+        // Input-line buffer: an NSMutableString accumulating typed characters until
+        // Return; stashed (retained) on NSApp so the keyDown: handler can reach it.
+        asm.external_data(abi::LOCAL[4], CLASS_NS_MUTABLE_STRING, LIB_FOUNDATION);
+        asm.load_selector(SEL_STRING.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[4], "x0")); // input line buffer
+        asm.push(abi::move_register("x0", REG_APP));
+        asm.local_address("x1", INPUT_LINE_KEY);
+        asm.push(abi::move_register("x2", abi::LOCAL[4]));
+        asm.push(abi::move_immediate("x3", "Integer", "1")); // OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
 
-    // Wire the input pipe: pipe(fds); dup2(fds[0], 0) so the console read helpers
-    // consume window input; stash fds[1] (write end) on NSApp for the keyDown:
-    // handler.
-    asm.push(abi::add_immediate("x0", abi::stack_pointer(), OFF_PIPE));
-    asm.call_external("_pipe", LIB_SYSTEM);
-    // Make the pipe write end (fds[1]) non-blocking so the keyDown: commit
-    // write() returns -1/EAGAIN instead of blocking the UI thread forever when
-    // the worker stops draining stdin and the 64 KiB pipe fills (bug-114). The
-    // third `fcntl` argument is variadic, so on Apple AArch64 it is passed on
-    // the stack (mirrors emit_variadic_call).
-    asm.push(abi::load_u32("x0", abi::stack_pointer(), OFF_PIPE + 4)); // fds[1] (write)
-    asm.push(abi::move_immediate("x1", "Integer", "4")); // F_SETFL
-    asm.push(abi::move_immediate("x2", "Integer", "4")); // O_NONBLOCK (0x0004 on Darwin)
-    asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64("x2", abi::stack_pointer(), 0));
-    asm.call_external("_fcntl", LIB_SYSTEM);
-    asm.push(abi::add_stack(16));
-    asm.push(abi::load_u32("x0", abi::stack_pointer(), OFF_PIPE)); // fds[0] (read)
-    asm.push(abi::move_immediate("x1", "Integer", "0")); // newfd: stdin
-    asm.call_external("_dup2", LIB_SYSTEM);
-    // fd 0 now names the read end, so the original fds[0] is a redundant
-    // duplicate that would otherwise stay open for the process lifetime
-    // (bug-241). Two cases must NOT close it: a failed dup2 (fds[0] is then the
-    // only read end), and fds[0] already being fd 0 (only reachable if stdin was
-    // closed before `pipe`, which makes dup2 a no-op — closing would leave the
-    // program with no stdin at all).
-    asm.push(abi::compare_immediate("x0", "0"));
-    asm.push(abi::branch_lt("input_pipe_wired"));
-    asm.push(abi::load_u32("x0", abi::stack_pointer(), OFF_PIPE)); // fds[0] (read)
-    asm.push(abi::compare_immediate("x0", "0"));
-    asm.push(abi::branch_eq("input_pipe_wired"));
-    asm.call_external("_close", LIB_SYSTEM);
-    asm.push(abi::label("input_pipe_wired"));
-    asm.push(abi::load_u32("x2", abi::stack_pointer(), OFF_PIPE + 4)); // fds[1] (write)
-    asm.push(abi::move_register("x0", REG_APP));
-    asm.local_address("x1", PIPE_ASSOC_KEY);
-    asm.push(abi::move_immediate("x3", "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
-    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+        // Wire the input pipe: pipe(fds); dup2(fds[0], 0) so the console read helpers
+        // consume window input; stash fds[1] (write end) on NSApp for the keyDown:
+        // handler.
+        asm.push(abi::add_immediate("x0", abi::stack_pointer(), OFF_PIPE));
+        asm.call_external("_pipe", LIB_SYSTEM);
+        // Make the pipe write end (fds[1]) non-blocking so the keyDown: commit
+        // write() returns -1/EAGAIN instead of blocking the UI thread forever when
+        // the worker stops draining stdin and the 64 KiB pipe fills (bug-114). The
+        // third `fcntl` argument is variadic, so on Apple AArch64 it is passed on
+        // the stack (mirrors emit_variadic_call).
+        asm.push(abi::load_u32("x0", abi::stack_pointer(), OFF_PIPE + 4)); // fds[1] (write)
+        asm.push(abi::move_immediate("x1", "Integer", "4")); // F_SETFL
+        asm.push(abi::move_immediate("x2", "Integer", "4")); // O_NONBLOCK (0x0004 on Darwin)
+        asm.push(abi::subtract_stack(16));
+        asm.push(abi::store_u64("x2", abi::stack_pointer(), 0));
+        asm.call_external("_fcntl", LIB_SYSTEM);
+        asm.push(abi::add_stack(16));
+        asm.push(abi::load_u32("x0", abi::stack_pointer(), OFF_PIPE)); // fds[0] (read)
+        asm.push(abi::move_immediate("x1", "Integer", "0")); // newfd: stdin
+        asm.call_external("_dup2", LIB_SYSTEM);
+        // fd 0 now names the read end, so the original fds[0] is a redundant
+        // duplicate that would otherwise stay open for the process lifetime
+        // (bug-241). Two cases must NOT close it: a failed dup2 (fds[0] is then the
+        // only read end), and fds[0] already being fd 0 (only reachable if stdin was
+        // closed before `pipe`, which makes dup2 a no-op — closing would leave the
+        // program with no stdin at all).
+        asm.push(abi::compare_immediate("x0", "0"));
+        asm.push(abi::branch_lt("input_pipe_wired"));
+        asm.push(abi::load_u32("x0", abi::stack_pointer(), OFF_PIPE)); // fds[0] (read)
+        asm.push(abi::compare_immediate("x0", "0"));
+        asm.push(abi::branch_eq("input_pipe_wired"));
+        asm.call_external("_close", LIB_SYSTEM);
+        asm.push(abi::label("input_pipe_wired"));
+        asm.push(abi::load_u32("x2", abi::stack_pointer(), OFF_PIPE + 4)); // fds[1] (write)
+        asm.push(abi::move_register("x0", REG_APP));
+        asm.local_address("x1", PIPE_ASSOC_KEY);
+        asm.push(abi::move_immediate("x3", "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
+        asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
 
-    // Application menu with the standard Quit item (Cmd-Q -> [NSApp terminate:]):
-    //   mainMenu -> appMenuItem -> appMenu -> "Quit" item.
-    // mainMenu = [[NSMenu alloc] init]
-    asm.external_data(abi::LOCAL[4], CLASS_NS_MENU, LIB_APPKIT);
-    asm.load_selector(SEL_ALLOC.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[4]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[4], "x0"));
-    asm.load_selector(SEL_INIT.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[4]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[4], "x0")); // main menu
-                                                       // appMenuItem = [[NSMenuItem alloc] init]
-    asm.external_data(abi::LOCAL[5], CLASS_NS_MENU_ITEM, LIB_APPKIT);
-    asm.load_selector(SEL_ALLOC.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[5]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[5], "x0"));
-    asm.load_selector(SEL_INIT.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[5]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[5], "x0")); // app menu item
-                                                       // [mainMenu addItem:appMenuItem]
-    asm.load_selector(SEL_ADD_ITEM.0);
-    asm.push(abi::move_register("x2", abi::LOCAL[5]));
-    asm.push(abi::move_register("x0", abi::LOCAL[4]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    // appMenu = [[NSMenu alloc] init]
-    asm.external_data(abi::LOCAL[6], CLASS_NS_MENU, LIB_APPKIT);
-    asm.load_selector(SEL_ALLOC.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[6], "x0"));
-    asm.load_selector(SEL_INIT.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[6], "x0")); // app submenu
-                                                       // quitItem = [[NSMenuItem alloc] init]
-    asm.external_data(abi::LOCAL[7], CLASS_NS_MENU_ITEM, LIB_APPKIT);
-    asm.load_selector(SEL_ALLOC.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[7]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[7], "x0"));
-    asm.load_selector(SEL_INIT.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[7]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[7], "x0")); // quit item
-                                                       // [quitItem setTitle:@"Quit"]
-    build_nsstring_from_cstring(&mut asm, abi::LOCAL[8], STR_QUIT.0);
-    asm.push(abi::move_register(abi::LOCAL[8], "x0"));
-    asm.load_selector(SEL_SET_TITLE.0);
-    asm.push(abi::move_register("x2", abi::LOCAL[8]));
-    asm.push(abi::move_register("x0", abi::LOCAL[7]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    // [quitItem setAction:@selector(terminate:)]
-    asm.load_selector(SEL_TERMINATE.0);
-    asm.push(abi::move_register(abi::LOCAL[8], "x1")); // terminate: SEL
-    asm.load_selector(SEL_SET_ACTION.0);
-    asm.push(abi::move_register("x2", abi::LOCAL[8]));
-    asm.push(abi::move_register("x0", abi::LOCAL[7]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    // [quitItem setKeyEquivalent:@"q"]
-    build_nsstring_from_cstring(&mut asm, abi::LOCAL[8], STR_QUIT_KEY.0);
-    asm.push(abi::move_register(abi::LOCAL[8], "x0"));
-    asm.load_selector(SEL_SET_KEY_EQUIVALENT.0);
-    asm.push(abi::move_register("x2", abi::LOCAL[8]));
-    asm.push(abi::move_register("x0", abi::LOCAL[7]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    // [appMenu addItem:quitItem]
-    asm.load_selector(SEL_ADD_ITEM.0);
-    asm.push(abi::move_register("x2", abi::LOCAL[7]));
-    asm.push(abi::move_register("x0", abi::LOCAL[6]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    // [appMenuItem setSubmenu:appMenu]
-    asm.load_selector(SEL_SET_SUBMENU.0);
-    asm.push(abi::move_register("x2", abi::LOCAL[6]));
-    asm.push(abi::move_register("x0", abi::LOCAL[5]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    // [app setMainMenu:mainMenu]
-    asm.load_selector(SEL_SET_MAIN_MENU.0);
-    asm.push(abi::move_register("x2", abi::LOCAL[4]));
-    asm.push(abi::move_register("x0", REG_APP));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
+        // Application menu with the standard Quit item (Cmd-Q -> [NSApp terminate:]):
+        //   mainMenu -> appMenuItem -> appMenu -> "Quit" item.
+        // mainMenu = [[NSMenu alloc] init]
+        asm.external_data(abi::LOCAL[4], CLASS_NS_MENU, LIB_APPKIT);
+        asm.load_selector(SEL_ALLOC.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[4], "x0"));
+        asm.load_selector(SEL_INIT.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[4], "x0")); // main menu
+                                                           // appMenuItem = [[NSMenuItem alloc] init]
+        asm.external_data(abi::LOCAL[5], CLASS_NS_MENU_ITEM, LIB_APPKIT);
+        asm.load_selector(SEL_ALLOC.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[5]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[5], "x0"));
+        asm.load_selector(SEL_INIT.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[5]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[5], "x0")); // app menu item
+                                                           // [mainMenu addItem:appMenuItem]
+        asm.load_selector(SEL_ADD_ITEM.0);
+        asm.push(abi::move_register("x2", abi::LOCAL[5]));
+        asm.push(abi::move_register("x0", abi::LOCAL[4]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        // appMenu = [[NSMenu alloc] init]
+        asm.external_data(abi::LOCAL[6], CLASS_NS_MENU, LIB_APPKIT);
+        asm.load_selector(SEL_ALLOC.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[6], "x0"));
+        asm.load_selector(SEL_INIT.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[6], "x0")); // app submenu
+                                                           // quitItem = [[NSMenuItem alloc] init]
+        asm.external_data(abi::LOCAL[7], CLASS_NS_MENU_ITEM, LIB_APPKIT);
+        asm.load_selector(SEL_ALLOC.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[7]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[7], "x0"));
+        asm.load_selector(SEL_INIT.0);
+        asm.push(abi::move_register("x0", abi::LOCAL[7]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register(abi::LOCAL[7], "x0")); // quit item
+                                                           // [quitItem setTitle:@"Quit"]
+        build_nsstring_from_cstring(&mut asm, abi::LOCAL[8], STR_QUIT.0);
+        asm.push(abi::move_register(abi::LOCAL[8], "x0"));
+        asm.load_selector(SEL_SET_TITLE.0);
+        asm.push(abi::move_register("x2", abi::LOCAL[8]));
+        asm.push(abi::move_register("x0", abi::LOCAL[7]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        // [quitItem setAction:@selector(terminate:)]
+        asm.load_selector(SEL_TERMINATE.0);
+        asm.push(abi::move_register(abi::LOCAL[8], "x1")); // terminate: SEL
+        asm.load_selector(SEL_SET_ACTION.0);
+        asm.push(abi::move_register("x2", abi::LOCAL[8]));
+        asm.push(abi::move_register("x0", abi::LOCAL[7]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        // [quitItem setKeyEquivalent:@"q"]
+        build_nsstring_from_cstring(&mut asm, abi::LOCAL[8], STR_QUIT_KEY.0);
+        asm.push(abi::move_register(abi::LOCAL[8], "x0"));
+        asm.load_selector(SEL_SET_KEY_EQUIVALENT.0);
+        asm.push(abi::move_register("x2", abi::LOCAL[8]));
+        asm.push(abi::move_register("x0", abi::LOCAL[7]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        // [appMenu addItem:quitItem]
+        asm.load_selector(SEL_ADD_ITEM.0);
+        asm.push(abi::move_register("x2", abi::LOCAL[7]));
+        asm.push(abi::move_register("x0", abi::LOCAL[6]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        // [appMenuItem setSubmenu:appMenu]
+        asm.load_selector(SEL_SET_SUBMENU.0);
+        asm.push(abi::move_register("x2", abi::LOCAL[6]));
+        asm.push(abi::move_register("x0", abi::LOCAL[5]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        // [app setMainMenu:mainMenu]
+        asm.load_selector(SEL_SET_MAIN_MENU.0);
+        asm.push(abi::move_register("x2", abi::LOCAL[4]));
+        asm.push(abi::move_register("x0", REG_APP));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
 
-    asm.load_selector(SEL_MAKE_KEY_AND_ORDER_FRONT.0);
-    asm.push(abi::move_immediate("x2", "Integer", "0"));
-    asm.push(abi::move_register("x0", REG_WINDOW));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.load_selector(SEL_ACTIVATE.0);
-    asm.push(abi::move_immediate("x2", "Integer", "1")); // ignoreOtherApps: YES
-    asm.push(abi::move_register("x0", REG_APP));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    // [window makeFirstResponder:textview] -- keypresses go to the transcript.
-    asm.load_selector(SEL_MAKE_FIRST_RESPONDER.0);
-    asm.push(abi::move_register("x2", REG_SCRATCH_OBJ)); // transcript text view
-    asm.push(abi::move_register("x0", REG_WINDOW));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.load_selector(SEL_MAKE_KEY_AND_ORDER_FRONT.0);
+        asm.push(abi::move_immediate("x2", "Integer", "0"));
+        asm.push(abi::move_register("x0", REG_WINDOW));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.load_selector(SEL_ACTIVATE.0);
+        asm.push(abi::move_immediate("x2", "Integer", "1")); // ignoreOtherApps: YES
+        asm.push(abi::move_register("x0", REG_APP));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        // [window makeFirstResponder:textview] -- keypresses go to the transcript.
+        asm.load_selector(SEL_MAKE_FIRST_RESPONDER.0);
+        asm.push(abi::move_register("x2", REG_SCRATCH_OBJ)); // transcript text view
+        asm.push(abi::move_register("x0", REG_WINDOW));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
     } else {
         // plan-62-C: `None`-default program — no window/transcript surface. Read the
         // headless env var (the worker/run split below needs it), then, in the GUI
@@ -658,34 +658,38 @@ pub(super) fn emit_reconcile_marshal_helper() -> CodeFunction {
     let skip = format!("{RECONCILE_MARSHAL_SYMBOL}_skip");
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
     asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
     asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
     asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 40));
     asm.push(abi::move_register(abi::LOCAL[2], "x0")); // mode (survives the calls)
-    // app = [NSApplication sharedApplication]
+                                                       // app = [NSApplication sharedApplication]
     asm.external_data(abi::LOCAL[0], CLASS_NS_APPLICATION, LIB_APPKIT);
     asm.load_selector(SEL_SHARED_APPLICATION.0);
     asm.push(abi::move_register("x0", abi::LOCAL[0]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[0], "x0")); // app
-    // delegate = [app delegate]
+                                                       // delegate = [app delegate]
     asm.load_selector(SEL_DELEGATE.0);
     asm.push(abi::move_register("x0", abi::LOCAL[0]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::compare_immediate("x0", "0"));
     asm.push(abi::branch_eq(&skip)); // headless: no delegate, no run loop
     asm.push(abi::move_register(abi::LOCAL[0], "x0")); // delegate
-    // number = [NSNumber numberWithInt:mode]
+                                                       // number = [NSNumber numberWithInt:mode]
     asm.external_data(abi::LOCAL[1], CLASS_NS_NUMBER, LIB_FOUNDATION);
     asm.load_selector(SEL_NUMBER_WITH_INT.0);
     asm.push(abi::move_register("x0", abi::LOCAL[1]));
     asm.push(abi::move_register("x2", abi::LOCAL[2])); // mode
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[1], "x0")); // number
-    // [delegate performSelectorOnMainThread:@selector(mfbReconcile:)
-    //                            withObject:number waitUntilDone:YES]
+                                                       // [delegate performSelectorOnMainThread:@selector(mfbReconcile:)
+                                                       //                            withObject:number waitUntilDone:YES]
     asm.load_selector(SEL_MFB_RECONCILE.0);
     asm.push(abi::move_register(abi::LOCAL[3], "x1")); // mfbReconcile: sel
     asm.load_selector(SEL_PERFORM_ON_MAIN.0);
@@ -717,7 +721,11 @@ pub(super) fn emit_reconcile_build_helper() -> CodeFunction {
     let frame = 48;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
     asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
     asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
@@ -727,8 +735,8 @@ pub(super) fn emit_reconcile_build_helper() -> CodeFunction {
     asm.push(abi::move_register("x0", abi::LOCAL[0]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[0], "x0")); // app
-    // window = [[NSWindow alloc] initWithContentRect:NSMakeRect(100,100,900,640)
-    //                            styleMask:.. backing:.. defer:NO]
+                                                       // window = [[NSWindow alloc] initWithContentRect:NSMakeRect(100,100,900,640)
+                                                       //                            styleMask:.. backing:.. defer:NO]
     asm.external_data(abi::LOCAL[1], CLASS_NS_WINDOW, LIB_APPKIT);
     asm.load_selector(SEL_ALLOC.0);
     asm.push(abi::move_register("x0", abi::LOCAL[1]));
@@ -745,7 +753,7 @@ pub(super) fn emit_reconcile_build_helper() -> CodeFunction {
     asm.push(abi::move_register("x0", abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[1], "x0")); // window
-    // tv = [[NSTextView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
+                                                       // tv = [[NSTextView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
     asm.external_data(abi::LOCAL[2], CLASS_NS_TEXT_VIEW, LIB_APPKIT);
     asm.load_selector(SEL_ALLOC.0);
     asm.push(abi::move_register("x0", abi::LOCAL[2]));
@@ -759,7 +767,7 @@ pub(super) fn emit_reconcile_build_helper() -> CodeFunction {
     asm.push(abi::move_register("x0", abi::LOCAL[2]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[2], "x0")); // tv
-    // [tv setEditable:NO]
+                                                       // [tv setEditable:NO]
     asm.load_selector(SEL_SET_EDITABLE.0);
     asm.push(abi::move_immediate("x2", "Integer", "0"));
     asm.push(abi::move_register("x0", abi::LOCAL[2]));
@@ -807,30 +815,34 @@ pub(super) fn emit_reconcile_helper() -> CodeFunction {
     let done = format!("{RECONCILE_SYMBOL}_done");
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
     asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
     asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
     asm.push(abi::store_u64(abi::LOCAL[4], abi::stack_pointer(), 40));
     asm.push(abi::store_u64(abi::LOCAL[5], abi::stack_pointer(), 48));
     asm.push(abi::move_register(abi::LOCAL[5], "x2")); // number (the withObject arg)
-    // mode = [number intValue]
+                                                       // mode = [number intValue]
     asm.load_selector(SEL_INT_VALUE.0);
     asm.push(abi::move_register("x0", abi::LOCAL[5]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[4], "x0")); // mode
-    // app = [NSApplication sharedApplication]
+                                                       // app = [NSApplication sharedApplication]
     asm.external_data(abi::LOCAL[0], CLASS_NS_APPLICATION, LIB_APPKIT);
     asm.load_selector(SEL_SHARED_APPLICATION.0);
     asm.push(abi::move_register("x0", abi::LOCAL[0]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[0], "x0")); // app
-    // window = objc_getAssociatedObject(app, WINDOW_ASSOC_KEY)
+                                                       // window = objc_getAssociatedObject(app, WINDOW_ASSOC_KEY)
     asm.push(abi::move_register("x0", abi::LOCAL[0]));
     asm.local_address("x1", WINDOW_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[1], "x0")); // window (or nil)
-    // mode != Console(0) -> None path
+                                                       // mode != Console(0) -> None path
     asm.push(abi::compare_immediate(abi::LOCAL[4], "0"));
     asm.push(abi::branch_ne(&none_path));
     // --- Console ---

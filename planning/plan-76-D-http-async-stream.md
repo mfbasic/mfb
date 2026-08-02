@@ -1,0 +1,444 @@
+# plan-76-D: http async client — Stream union + startRead/ready/pump/done/finish
+
+Last updated: 2026-08-02
+Effort: large (3h–1d)
+Depends on: plan-76-B (scalar `tls::poll` — `http::ready`/`pump` gate TLS reads on it) and
+plan-74 (uniform STATE on a resource union — landed). NOT dependent on plan-76-A or plan-76-C (this
+single-stream client uses only *scalar* readiness), and NOT on plan-75 (the stream is never
+transferred across threads).
+
+This sub-plan turns the `http` client from blocking-only into a cooperatively-drivable one, and is
+the motivating consumer of plan-74's resource-union STATE. It introduces a `Stream` resource union
+(`net::Socket | net::TlsSocket`) carrying a `PendingState`, and five public entry points that let a
+program advance an HTTP exchange without blocking its thread:
+
+```
+UNION Stream                                     ' every variant is a resource → Stream is a resource
+  net::Socket
+  net::TlsSocket
+END UNION
+
+TYPE PendingState
+  sentAll AS Boolean            ' request fully written
+  closed  AS Boolean            ' peer EOF observed (Connection: close terminator)
+  raw     AS List OF Byte       ' accumulated response bytes
+  err     AS Integer            ' 0 = ok; else a captured failure code
+END TYPE
+
+FUNC http::startRead(url, headers, method) AS RES http::Stream STATE PendingState  ' variant from url.scheme
+FUNC http::ready (RES stream AS http::Stream STATE PendingState) AS Boolean         ' data available now?
+SUB  http::pump  (RES stream AS http::Stream STATE PendingState)                    ' one non-blocking read; grows state.raw
+FUNC http::done  (RES stream AS http::Stream STATE PendingState) AS Boolean         ' response complete?
+FUNC http::finish(RES stream AS http::Stream STATE PendingState) AS Response        ' parse state.raw
+```
+
+The single behavioral outcome: a program can `RES s AS http::Stream STATE PendingState =
+http::startRead(url, {}, "GET")`, then loop `IF http::ready(s) THEN http::pump(s)` (interleaving its
+own work) until `http::done(s)`, and `http::finish(s)` yields the same `Response` a blocking
+`http::read(url)` would — for both `http://` and `https://` URLs, with the socket closed exactly
+once on scope exit. And `http::read`/`http::write` are rewritten as thin blocking wrappers over
+these, producing byte-identical `Response` values to today.
+
+References (read first):
+
+- `mfb spec language resource-management` §15.5 (union STATE) / §15.6 (resource unions) — the
+  language contract this consumes; **read the "A resource union may carry STATE" paragraph**.
+- `planning/completed/plan-74-resource-union-state.md` — the delivered STATE-on-a-union feature
+  (bind / parameter / return / `.state` via value|param|MATCH / drop). This sub-plan is the "bundled
+  and URL-transparent non-blocking HTTP handle" that plan-74 §1 names as its out-of-scope consumer.
+- `src/builtins/http_package.mfb` — the entire BASIC http implementation; the blocking client is
+  `__http_read`/`__http_write` (:376/:383) over `__http_exchangeTcp`/`__http_exchangeTls`
+  (:311/:340). Reuse `__http_buildRequest` (:155), `__http_parseResponse` (:260),
+  `__http_frameComplete` (:578), `__http_framingLength` (:559).
+- `src/builtins/http.rs` — the descriptor shim: `HTTP_FUNCTIONS` (:181), `HTTP_TYPES` (:224),
+  `Implementation::Rewrite` wiring, `dispatch_resolve` (:318), `expected_arguments` (:378).
+- `src/builtins/json_package.mfb:70` (`EXPORT UNION Json`) — precedent that a builtin `.mfb` may
+  declare/EXPORT a UNION; here it is a **resource** union over imported net/tls variants (novel).
+- Memory: imported-package resource hazards ([[imported-package-resource-two-spellings]]) — a union
+  over `net::`/`tls::` variants declared in `http` must resolve each variant's close op correctly.
+
+## Prerequisites
+
+| Must be true | Command | Status |
+|---|---|---|
+| plan-74 landed (union STATE: bind/param/return/`.state`/drop) | `ls planning/completed/plan-74-*` | MET |
+| plan-76-B landed (scalar `tls::poll` on all backends) | `rg -n 'POLL' src/builtins/tls.rs`; `ls tests/rt-behavior/tls/tls-poll-rt` | NOT MET until B lands |
+| `net::poll(sock[, timeoutMs]) AS Boolean` scalar exists | `rg -n 'POLL' src/builtins/net.rs` → :163 | MET |
+| Feature-wide gate (tree green, gate clean) | see plan-76-A Prerequisites | UNMEASURED |
+
+**Explicitly NOT prerequisites (do not braid):**
+
+| Not required | Why independent | Command |
+|---|---|---|
+| plan-76-A (`net::poll(List)`) | This single-stream client uses only *scalar* `net::poll`/`tls::poll`, never a list-poll. | `ls planning/plan-76-A-*` |
+| plan-76-C (`tls::poll(List)`) | Same — one stream, scalar readiness only. | `ls planning/plan-76-C-*` |
+| plan-75 (resource-union `thread::transfer`) | The stream is never sent across threads; it is bound, driven, and dropped in one thread. | `ls planning/plan-75-*` |
+
+> **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run and update
+> before continuing and before stopping; report all rows if you stop.
+
+## 1. Goal
+
+- The `Stream` union and `PendingState` type are declared in `http_package.mfb` and registered as
+  builtin types (`http::Stream`, `http::PendingState`); `Stream` is a **resource** union.
+- `http::startRead(url AS net::Url, headers AS Map OF String TO String = {}, method AS String =
+  "GET") AS RES http::Stream STATE PendingState` connects per `url.scheme` (https → `tls::connect`,
+  else `net::connectTcp`, both with the existing 30 s connect timeout), writes the built request,
+  and returns the union with `state = { sentAll: TRUE, closed: FALSE, raw: [], err: 0 }`.
+- `http::ready(RES s …) AS Boolean` — `TRUE` iff a non-blocking read would return bytes or EOF now
+  (MATCH → `net::poll(sock, 0)` / `tls::poll(sock, 0)`).
+- `http::pump(RES s …)` — one **non-blocking** read of available bytes (gated internally on
+  readiness so it never blocks), appended to `s.state.raw`; a 0-byte read sets `s.state.closed`; a
+  transport failure sets `s.state.err`.
+- `http::done(RES s …) AS Boolean` — `TRUE` iff `s.state.closed` OR the accumulated `s.state.raw`
+  is a complete frame (`__http_frameComplete`) OR `s.state.err <> 0`.
+- `http::finish(RES s …) AS Response` — if `s.state.err <> 0`, `FAIL`; else
+  `__http_parseResponse(s.state.raw)`. The stream stays bound and is closed by the caller's drop.
+- `http::read`/`http::write` are rewritten to: `startRead` → block-until-ready + `pump` loop until
+  `done` → `finish`, producing the **same** `Response` bytes as today.
+
+### Non-goals (explicit constraints)
+
+- **No change to the `http::read`/`http::write` public signatures or their returned `Response`
+  values.** They must remain byte-for-byte equivalent (same headers, body, chunked handling,
+  size cap, control-byte rejection). This is the compatibility guardrail.
+- **No async request-body streaming.** `startRead` writes the whole request up front (`sentAll` is
+  set immediately). `sentAll` is reserved for a future write-pump; this plan does not implement one.
+- **No thread transfer of a `Stream`.** Single-thread drive only (keeps plan-75 out of scope).
+- **No new native intrinsics.** All five functions are BASIC over existing `net::`/`tls::` calls
+  (`connect`, `write`/`writeText`, `read`, `poll`) + plan-74's union STATE. `http.rs` gains only
+  descriptor-table rows.
+- **No server-side change.** `handleRequest`/`serverSSL` and their duplicated transport branches are
+  untouched (they could later share the union, but not here).
+- **No `get`/`post` convenience verbs.** Method stays an argument, as today.
+
+## 2. Current State
+
+- `http` is a pure-BASIC source package: a thin Rust shim (`http.rs`) of descriptor tables +
+  `Implementation::Rewrite(__http_*)`, and the implementation in `http_package.mfb` (1216 lines),
+  injected into the user AST when `IMPORT http` is present (`augmented_project`,
+  `src/builtins/mod.rs:67`; invoked at `src/ir/lower.rs:107`).
+- The blocking client already does exactly the protocol work `finish` needs: `__http_buildRequest`
+  (`:155`), `__http_parseResponse` (`:260`) with de-chunking (`__http_dechunkBytes` `:597`) and the
+  64 MiB cap; the transport loops `__http_exchangeTcp`/`__http_exchangeTls` (`:311`/`:340`) read
+  64 KiB at a time until a 0-byte read. **These functions are reused, not rewritten** — the async
+  layer only changes *when* bytes are read (readiness-gated) not *how* they are parsed.
+- `Connection: close` is forced in every built request (`http_package.mfb:172`), so the response
+  terminator is peer EOF; `__http_frameComplete` (`:578`) already recognizes a complete framed
+  response earlier (Content-Length satisfied / final chunk) — giving `done` an early-out before EOF.
+- `net`/`tls` transport is native; both packages are file-scoped-imported by `http` already
+  (`http_package.mfb:6-7`). `net::poll(sock, 0)` exists; `tls::poll(sock, 0)` arrives in plan-76-B.
+- Union support in a builtin `.mfb`: `EXPORT UNION Json` (`json_package.mfb:70`) proves the parser
+  accepts it; but that is a **data** union. A **resource** union over `net::Socket`/`net::TlsSocket`
+  variants declared inside `http` (which imports both) is untried — the design risk (§3).
+- Builtin type registration: names go in the module `types:` table (`HTTP_TYPES`, `http.rs:224`);
+  fields/variants live only in the `.mfb`. Adding `Stream`/`PendingState` means two new `types:`
+  rows + the `.mfb` declarations.
+
+### Measured populations
+
+| What | Count | Command |
+|---|---|---|
+| Public `http::` client functions today | 2 (read, write) | `rg -n 'READ\|WRITE' src/builtins/http.rs` → :182-183 |
+| New public functions to add | 5 (startRead, ready, pump, done, finish) | this plan |
+| Reused protocol helpers (no rewrite) | 4 | buildRequest :155, parseResponse :260, frameComplete :578, framingLength :559 |
+| Builtin `.mfb` UNION precedents | 1 data union | `rg -n 'EXPORT UNION\|^\s*UNION' src/builtins/*.mfb` → json:70 (+ regex internal) |
+| Resource **union**-in-builtin precedents | 0 | (none — this is first) |
+| http rt-behavior/acceptance tests to keep green | UNMEASURED | `rg -rl 'http::' tests \| wc -l` — run at start |
+
+### Verified properties
+
+| Claim | Verdict | How checked |
+|---|---|---|
+| http is BASIC; new functions need no native lowering | **CONFIRMED** | `http.rs:1-5` header ("no new intrinsics"); every entry is `Implementation::Rewrite` (`:182-221`). |
+| A builtin `.mfb` may declare & EXPORT a UNION | **CONFIRMED (data union)** | `json_package.mfb:70` `EXPORT UNION Json`. |
+| plan-74 union STATE (bind/param/return/`.state` value|param|MATCH/drop) works | **CONFIRMED** | plan-74 Phases 1–4 landed (`planning/completed/plan-74-*`), fixtures `resource-union-state-{access,drop}-valid`. |
+| A **resource** union over imported (`net::`/`tls::`) variants, declared in a builtin package, binds/MATCHes/drops correctly | **UNVERIFIED** — Phase 1 falsifies FIRST | No precedent. Close-op dispatch must resolve `net::close`/`tls::close` for each variant when the union is declared in `http`. The [[imported-package-resource-two-spellings]] hazard is about decoded `.mfp` packages; `http` is injected as source, so it *should* carry native_resources — but this is unproven and is the design risk. |
+| `net::Socket` sendable, `tls::TlsSocket` NOT sendable — can they share a union? | **UNVERIFIED** — Phase 1 | `resource.rs:151` (Socket `sendable:true`) vs `:213` (TlsSocket `sendable:false`). Mixed sendability may trip a union check; irrelevant to drop/read but confirm the union is accepted. Since we never transfer, non-sendable is fine if the union binds. |
+| `http::read`/`write` output is reproducible from `startRead`+pump-loop+`finish` | **CONFIRMED (by construction)** | Both paths call the identical `__http_buildRequest` + `__http_parseResponse`; only the read loop's blocking-vs-gated shape differs, and both accumulate the same `raw` bytes. Phase 4 proves byte-equality against saved goldens. |
+
+## 3. Design Overview
+
+Four pieces, layered:
+
+1. **Types (Phase 1, design uncertainty).** Declare `Stream` (resource union) + `PendingState` in
+   `http_package.mfb`; register both names in `HTTP_TYPES`. Phase 1 is a *falsification experiment*:
+   a minimal internal `__http_streamProbe` that binds `RES s AS http::Stream STATE PendingState`
+   from a `net::connectTcp`, MATCHes it, reads `s.state`, and drops it — proving a resource union
+   over imported variants binds, states, matches, and closes. If it does not compile/run, STOP and
+   resolve the imported-variant close-op wiring before building the five functions.
+
+2. **The five BASIC functions (Phase 2).** `__http_startRead` / `__http_ready` / `__http_pump` /
+   `__http_done` / `__http_finish` in `http_package.mfb`, reusing the existing protocol helpers.
+   `pump` MATCHes the union and does a readiness-gated single read (§4.2). Internal (non-exported)
+   helper `__http_waitReadable(RES s …)` does the *blocking* readiness wait (MATCH → `net::poll(s)`
+   / `tls::poll(s)` with omitted timeout) for the blocking wrappers — keeping `pump` non-blocking.
+
+3. **Descriptor wiring (Phase 3).** Add five `hfn(...)` rows to `HTTP_FUNCTIONS` with
+   `Implementation::Rewrite(__http_*)`, plus `dispatch_resolve` return types, `call_param_names`,
+   `expected_arguments`, and the two `HTTP_TYPES` rows. `ready`/`done`/`finish` return
+   Boolean/Boolean/Response; `startRead` returns `RES http::Stream STATE PendingState`; `pump` is a
+   SUB (Nothing). The `RES … STATE …` parameter/return spellings ride plan-74's verifier/codegen.
+
+4. **Rewrite the blocking wrappers (Phase 4, compatibility guardrail).** `__http_read`/`__http_write`
+   become: `RES s = startRead(...)`; `WHILE done(s)=FALSE { __http_waitReadable(s); pump(s) }`;
+   `RETURN finish(s)`. Proven byte-identical to today via the saved `http::read`/`write` goldens.
+
+**Where design uncertainty concentrates (schedule FIRST):** the **resource union over imported
+variants** (Phase 1). Everything else is ordinary BASIC over proven helpers; if the union binds,
+matches, states, and drops, the rest is mechanical.
+
+**Where correctness risk concentrates:** (a) **drop-exactly-once** of the active variant's socket on
+every exit path (guarded by plan-74's own machinery + a Phase 2 leak-loop fixture); (b) **byte-parity**
+of the rewritten blocking wrappers (Phase 4, against saved goldens — the one thing that must not
+regress).
+
+**Rejected alternatives:**
+
+- *Two parallel APIs (`startReadTcp`/`startReadTls`, no union), like the server's
+  handleRequest/SSL.* Rejected — it doubles every function and defeats URL-transparency; the union
+  is exactly what plan-74 was built to enable. (Recorded so nobody "simplifies" back to it.)
+- *Store `raw` outside the resource (a caller-held `MUT List OF Byte`).* Rejected — then the buffer
+  is not tied to the handle's lifetime and a MATCH cannot carry it; STATE on the union is the point.
+- *Encode EOF in `err` instead of a `closed` field.* Rejected — overloading `err` conflates "done
+  cleanly" with "failed"; a dedicated `closed AS Boolean` keeps `finish`'s error check clean. (This
+  is the one addition to the prompt's illustrative `PendingState`; noted in Open Decisions.)
+- *Make `pump` block until data.* Rejected — kills the cooperative-drive use case; blocking lives in
+  the wrappers' `__http_waitReadable`, not `pump`.
+
+## 4. Detailed Design
+
+### 4.1 `__http_startRead` (scheme branch → union with STATE)
+
+```
+FUNC __http_startRead(url AS net::Url, headers AS Map OF String TO String, method AS String) AS RES http::Stream STATE PendingState
+  LET verb    AS String = __http_normalizeMethod(method)
+  LET request AS String = __http_buildRequest(verb, url, "", FALSE, headers)
+  IF url.scheme = "https" THEN
+    RES s AS http::Stream STATE PendingState = tls::connect(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS, url.host)
+    MATCH s
+      CASE net::TlsSocket(t) : tls::writeText(t, request)
+      CASE net::Socket(p)    : net::writeText(p, request)   ' unreachable but total
+    END MATCH
+    s.state.sentAll = TRUE
+    RETURN s
+  END IF
+  RES s AS http::Stream STATE PendingState = net::connectTcp(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS)
+  MATCH s
+    CASE net::Socket(p)    : net::writeText(p, request)
+    CASE net::TlsSocket(t) : tls::writeText(t, request)     ' unreachable but total
+  END MATCH
+  s.state.sentAll = TRUE
+  RETURN s
+END FUNC
+```
+
+The binding widens the concrete variant into the union and default-inits `PendingState` (plan-74);
+`RETURN s` carries the STATE (plan-74 stateful-union return). `write` before setting `sentAll`.
+
+### 4.2 `__http_ready` / `__http_pump`
+
+```
+FUNC __http_ready(RES s AS http::Stream STATE PendingState) AS Boolean
+  MATCH s
+    CASE net::Socket(p)    : RETURN net::poll(p, 0)
+    CASE net::TlsSocket(t) : RETURN tls::poll(t, 0)
+  END MATCH
+END FUNC
+
+SUB __http_pump(RES s AS http::Stream STATE PendingState)
+  IF __http_ready(s) = FALSE THEN EXIT SUB          ' non-blocking: nothing to read now
+  MATCH s
+    CASE net::Socket(p)
+      MUT chunk AS List OF Byte = net::read(p, 65536) TRAP(e)
+        IF e.code = errorCode::ErrConnectionClosed THEN
+          s.state.closed = TRUE
+          RECOVER []
+        END IF
+        s.state.err = e.code
+        RECOVER []
+      END TRAP
+      IF len(chunk) = 0 THEN s.state.closed = TRUE ELSE s.state.raw = collections::append(s.state.raw, chunk)
+    CASE net::TlsSocket(t)
+      MUT chunk AS List OF Byte = tls::read(t, 65536) TRAP(e)
+        IF e.code = errorCode::ErrConnectionClosed THEN
+          s.state.closed = TRUE
+          RECOVER []
+        END IF
+        s.state.err = e.code
+        RECOVER []
+      END TRAP
+      IF len(chunk) = 0 THEN s.state.closed = TRUE ELSE s.state.raw = collections::append(s.state.raw, chunk)
+  END MATCH
+  IF len(s.state.raw) > __HTTP_MAX_RESPONSE THEN s.state.err = 77050010
+END SUB
+```
+
+`s.state.raw = collections::append(...)` is the plan-74 in-place STATE mutation through the union
+value. (Confirm `s.state.field = …` and whole-field assignment work on a union — plan-74 Phase 3
+fixtures cover value-position `.state` writes; verify against a `List OF Byte` STATE field in Phase 1.)
+
+### 4.3 `__http_done` / `__http_finish`
+
+```
+FUNC __http_done(RES s AS http::Stream STATE PendingState) AS Boolean
+  IF s.state.err <> 0 THEN RETURN TRUE
+  IF s.state.closed THEN RETURN TRUE
+  RETURN __http_frameComplete(s.state.raw)
+END FUNC
+
+FUNC __http_finish(RES s AS http::Stream STATE PendingState) AS Response
+  IF s.state.err <> 0 THEN FAIL error(s.state.err, "http stream failed")
+  RETURN __http_parseResponse(s.state.raw)
+END FUNC
+```
+
+### 4.4 Blocking wrappers (rewrite `__http_read`/`__http_write`)
+
+```
+FUNC __http_read(url AS net::Url, headers AS Map OF String TO String, method AS String) AS Response
+  RES s AS http::Stream STATE PendingState = __http_startRead(url, headers, method)
+  WHILE __http_done(s) = FALSE
+    __http_waitReadable(s)     ' internal: MATCH → net::poll(p) / tls::poll(t) with omitted timeout (block)
+    __http_pump(s)
+  END WHILE
+  RETURN __http_finish(s)
+END FUNC
+```
+
+`__http_write` is identical but calls `__http_buildRequest(verb, url, body, TRUE, headers)` inside a
+`startRead`-shaped starter (add an internal `__http_startExchange(url, body, hasBody, headers,
+method)` that both `startRead` and the write path share, so the request differs only by body).
+`__http_waitReadable` is the only place a blocking poll is used; `pump` stays non-blocking, so the
+async public API keeps its cooperative semantics.
+
+## Compatibility / Format Impact
+
+- **Changed:** `http` gains `Stream`/`PendingState` types and `startRead`/`ready`/`pump`/`done`/
+  `finish`; `read`/`write` are re-implemented over them; http man/spec add the five functions + two
+  types. `http.rs` gains descriptor rows only (no native lowering).
+- **Unchanged (guardrail):** `http::read`/`http::write` signatures and their returned `Response`
+  bytes; the server side; the `Response`/`Request` record shapes; the connect/read timeouts and
+  64 MiB cap; the control-byte / chunked handling. `net`/`tls` are unchanged (this sub-plan only
+  *calls* the plan-76-B `tls::poll` and existing `net::poll`).
+
+## Phases
+
+> Tick `- [x]` in the same commit as the work. An unticked box means NOT DONE.
+
+### Phase 1 — falsify the resource-union-over-imported-variants (design uncertainty first)
+
+- [ ] Declare `UNION Stream { net::Socket net::TlsSocket }` and `TYPE PendingState { sentAll, closed,
+      raw, err }` in `http_package.mfb`; register `Stream`/`PendingState` in `HTTP_TYPES` (`http.rs`).
+- [ ] Add a throwaway internal `__http_streamProbe(host, port)` that binds `RES s AS http::Stream
+      STATE PendingState = net::connectTcp(host, port)`, sets `s.state.sentAll`, appends a byte to
+      `s.state.raw`, MATCHes `s` reading the concrete variant, and returns — proving bind + `.state`
+      (incl. a `List OF Byte` STATE field) + MATCH + drop all work for a union over imported
+      variants. Drive it from a temporary rt fixture in a ≥500× connect/drop loop (no fd leak).
+- [ ] If it fails to compile or leaks/double-frees, STOP: fix the imported-variant close-op wiring
+      (per [[imported-package-resource-two-spellings]] and plan-74's 3-site close-symbol wiring)
+      before writing the five functions. Remove `__http_streamProbe` once Phase 2 lands.
+
+Acceptance: the probe fixture compiles, runs clean, and survives ≥500× with no fd leak / double-free.
+This is the go/no-go for the whole sub-plan.
+Commit: —
+
+### Phase 2 — the five BASIC functions + waitReadable
+
+- [ ] Add `__http_startRead` (+ shared `__http_startExchange`), `__http_ready`, `__http_pump`,
+      `__http_done`, `__http_finish`, and internal `__http_waitReadable` to `http_package.mfb`
+      (§4.1–4.4), reusing `__http_buildRequest`/`__http_parseResponse`/`__http_frameComplete`.
+- [ ] Tests: `tests/rt-behavior/http/http-async-stream-rt` — against a loopback test server (mirror
+      the existing http server fixtures), drive a GET via `startRead`/`ready`/`pump`/`done`/`finish`
+      and assert the `Response.status`/`body` match a known payload; a large (multi-`pump`) response
+      to prove `state.raw` accumulation; an https case (once B is landed) proving the TLS variant is
+      polled via `tls::poll`; a ≥500× loop proving the socket closes once per iteration.
+
+Acceptance: the async fixture yields the correct `Response` over both http and https; multi-pump
+accumulation works; no fd leak across the loop. `cargo test --bin mfb` green.
+Commit: —
+
+### Phase 3 — descriptor wiring (public surface)
+
+- [ ] Add five `hfn(...)` rows to `HTTP_FUNCTIONS` (`http.rs`) with `Implementation::Rewrite`
+      targets; `HTTP_TYPES` rows for `Stream`/`PendingState`; `dispatch_resolve` return types
+      (`ready`/`done`→Boolean, `finish`→Response, `startRead`→`RES http::Stream STATE PendingState`,
+      `pump`→Nothing); `call_param_names`; `expected_arguments`.
+- [ ] Tests: `tests/syntax/http` accept fixtures for each public call (correct arg/return types,
+      incl. the `RES … STATE …` param spelling); a reject fixture for a wrong-typed arg.
+
+Acceptance: `http::startRead/ready/pump/done/finish` resolve at `-ast -ir` with the right types; a
+user program that drives the async API compiles; `cargo test --bin mfb` green.
+Commit: —
+
+### Phase 4 — rewrite blocking read/write (compatibility guardrail, last)
+
+- [ ] Re-implement `__http_read`/`__http_write` over `startRead`+`waitReadable`+`pump`+`done`+
+      `finish` (§4.4), deleting the now-unused `__http_exchange{,Tcp,Tls}` **only if** nothing else
+      references them (`rg -n '__http_exchange' src/builtins/http_package.mfb`); otherwise leave them.
+- [ ] Tests: prove byte-parity — the existing `http::read`/`http::write` acceptance/rt fixtures pass
+      unchanged (same `Response` status/headers/body); if any golden legitimately shifts, PROVE it is
+      an intended, equivalent change before re-baselining (AGENTS.md rule). Run the full http test
+      set, not one fixture.
+- [ ] Regenerate any `.ir` goldens that shift because `http_package.mfb` changed (per
+      [[builtin-mfb-source-ripples-to-importer-ir-goldens]] — editing the embedded source shifts the
+      `.ir` of every fixture that imports http; grep `tests/**/*.ir` for the http symbols,
+      sync-goldens, and prove the delta is only the intended change).
+
+Acceptance: every existing `http::read`/`write` test passes with identical `Response` output; the
+async and blocking paths agree; `cargo test --bin mfb`, `scripts/test-accept.sh`, and
+`scripts/artifact-gate.sh` green.
+Commit: —
+
+### Phase 5 — docs
+
+- [ ] Man pages under `src/docs/man/builtins/http/` for `startRead`, `ready`, `pump`, `done`,
+      `finish`, and the `Stream`/`PendingState` types page (follow `.ai/man_template.md` /
+      `.ai/man_type_template.md`). Note that `read`/`write` are now thin wrappers.
+- [ ] Spec: update `src/docs/spec/stdlib/05_http.md` with the async client and the `Stream` union /
+      `PendingState`; if `http::startRead` is a new readiness-adjacent surface, cross-reference the
+      timeout convention where `read`/`poll` timeouts apply.
+
+Acceptance: `mfb man http startRead` etc. render; man/spec-citation tests green.
+Commit: —
+
+## Validation Plan
+
+- Tests: Phase 1 probe (union feasibility); Phase 2 async-drive rt (http + https + multi-pump +
+  leak loop); Phase 3 syntax accept/reject; Phase 4 byte-parity against saved `http::read`/`write`
+  goldens (the guardrail).
+- Coverage check: the async fixture exercises `startRead`/`ready`/`pump`/`done`/`finish` and the
+  union STATE paths; the parity fixtures keep `read`/`write` in the denominator.
+- Runtime proof: `http::read(url)` and a `startRead`+pump-loop+`finish` over the *same* URL produce
+  the identical `Response` (status/headers/body), for both `http://` and `https://`.
+- Doc sync: five http man pages + the types page; `src/docs/spec/stdlib/05_http.md`.
+- Acceptance: `cargo test --bin mfb`, `scripts/test-accept.sh target/debug/mfb target/accept-actual`
+  (http glob + any http-importing fixtures), `scripts/artifact-gate.sh target/debug/mfb`.
+
+## Open Decisions
+
+1. **`PendingState` fields.** Recommended: `{ sentAll, closed, raw, err }` — add `closed AS Boolean`
+   to the prompt's illustrative `{ sentAll, raw, err }` so `done` distinguishes clean EOF from
+   failure without overloading `err`. (§3, §4)
+   Descision: `{ sentAll, closed, raw, err }` (add `closed`)
+2. **Delete `__http_exchange{,Tcp,Tls}` after the rewrite** — recommended: delete if unreferenced
+   (the wrappers subsume them), to avoid a second, divergent read loop. Keep only if another caller
+   remains. (Phase 4)
+3. **`http::startRead` first arg type** — recommended: `net::Url` (as `__http_read` takes today),
+   with the public `http::read` already accepting a `Url`; confirm the public `startRead` mirrors
+   `read`'s arg contract exactly. (§4.1)
+   Descision: `net::Url`
+
+## Corrections
+
+<!-- Filled in during execution. -->
+
+## Summary
+
+The motivating consumer of plan-74's union STATE: a `Stream` resource union over `net::Socket`/
+`net::TlsSocket` carrying a `PendingState`, driven non-blockingly by five BASIC functions over
+existing `net`/`tls` primitives (plus plan-76-B's `tls::poll`). Risk is front-loaded into Phase 1
+(does a resource union over *imported* variants bind/match/drop?) and back-loaded into Phase 4 (the
+rewritten `read`/`write` must stay byte-identical). No native lowering is added — only `.mfb` bodies
+and `http.rs` descriptor rows. Untouched: the `http` server, the `Response`/`Request` shapes, the
+`net`/`tls` packages, and cross-thread transfer (plan-75 stays out of scope).

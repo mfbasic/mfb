@@ -118,7 +118,9 @@ pub(super) fn emit_main_bootstrap() -> Result<CodeFunction, String> {
 /// window (transcript + input field), wire input/close signals, present it, create
 /// the window-input pipe (dup'd onto fd 0 for the reused console readers), and
 /// spawn the language worker thread.
-pub(super) fn emit_activate_handler(initial_mode: PresentationMode) -> Result<CodeFunction, String> {
+pub(super) fn emit_activate_handler(
+    initial_mode: PresentationMode,
+) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(ACTIVATE_SYMBOL);
     // lr@0, pthread_t@8, pipe fds (2x i32)@16, x19(controller)@24.
     let frame = 32;
@@ -137,147 +139,147 @@ pub(super) fn emit_activate_handler(initial_mode: PresentationMode) -> Result<Co
     // so `GApplication` does not exit with zero windows — then still spawns the
     // worker below. The window is created later, on demand, by `setMode(Console)`.
     if initial_mode == PresentationMode::Console {
-    // window = gtk_application_window_new(app)  (app is the incoming x0)
-    asm.call_external("gtk_application_window_new");
-    asm.store_state("x0", ST_WINDOW);
-    // gtk_window_set_title(window, "MFBASIC App")
-    asm.load_state("x0", ST_WINDOW);
-    asm.local_address("x1", SYM_TITLE);
-    asm.call_external("gtk_window_set_title");
-    // gtk_window_set_default_size(window, 900, 640)
-    asm.load_state("x0", ST_WINDOW);
-    asm.push(abi::move_immediate("x1", "Integer", WINDOW_WIDTH));
-    asm.push(abi::move_immediate("x2", "Integer", WINDOW_HEIGHT));
-    asm.call_external("gtk_window_set_default_size");
+        // window = gtk_application_window_new(app)  (app is the incoming x0)
+        asm.call_external("gtk_application_window_new");
+        asm.store_state("x0", ST_WINDOW);
+        // gtk_window_set_title(window, "MFBASIC App")
+        asm.load_state("x0", ST_WINDOW);
+        asm.local_address("x1", SYM_TITLE);
+        asm.call_external("gtk_window_set_title");
+        // gtk_window_set_default_size(window, 900, 640)
+        asm.load_state("x0", ST_WINDOW);
+        asm.push(abi::move_immediate("x1", "Integer", WINDOW_WIDTH));
+        asm.push(abi::move_immediate("x2", "Integer", WINDOW_HEIGHT));
+        asm.call_external("gtk_window_set_default_size");
 
-    // scrolled = gtk_scrolled_window_new(); hold a ref so swapping the window child
-    // to the term:: surface and back doesn't destroy it (g_object_ref_sink owns the
-    // floating ref; gtk_window_set_child then takes its own).
-    asm.call_external("gtk_scrolled_window_new");
-    asm.call_external("g_object_ref_sink");
-    asm.store_state("x0", ST_SCROLLED);
+        // scrolled = gtk_scrolled_window_new(); hold a ref so swapping the window child
+        // to the term:: surface and back doesn't destroy it (g_object_ref_sink owns the
+        // floating ref; gtk_window_set_child then takes its own).
+        asm.call_external("gtk_scrolled_window_new");
+        asm.call_external("g_object_ref_sink");
+        asm.store_state("x0", ST_SCROLLED);
 
-    // term:: drawing-area surface: created up front, kept off-window (held by a ref)
-    // until term::on swaps it in. Its draw func renders the character grid; the grid
-    // starts cleared (all spaces).
-    asm.call_external("gtk_drawing_area_new");
-    asm.call_external("g_object_ref_sink");
-    asm.store_state("x0", ST_TERM_AREA);
-    asm.load_state("x0", ST_TERM_AREA);
-    asm.local_address("x1", TERM_DRAW_SYMBOL);
-    asm.push(abi::move_immediate("x2", "Integer", "0")); // user_data
-    asm.push(abi::move_immediate("x3", "Integer", "0")); // destroy
-    asm.call_external("gtk_drawing_area_set_draw_func");
-    // Derive the grid geometry from the monospace font metrics + content size and
-    // blank the grid (main thread, before the worker can use it).
-    asm.call_internal(TERM_INIT_SYMBOL);
-    // Reflow the grid when the drawing area is resized (plan-35-E): the "resize"
-    // handler recomputes the active cols/rows from the new allocation + cell metrics
-    // so term::terminalSize tracks the live window, then forces a full redraw.
-    //   g_signal_connect_data(term_area, "resize", on_resize, NULL, NULL, 0)
-    asm.load_state("x0", ST_TERM_AREA);
-    asm.local_address("x1", STR_RESIZE.0);
-    asm.local_address("x2", TERM_RESIZE_SYMBOL);
-    asm.push(abi::move_immediate("x3", "Integer", "0"));
-    asm.push(abi::move_immediate("x4", "Integer", "0"));
-    asm.push(abi::move_immediate("x5", "Integer", "0"));
-    asm.call_external("g_signal_connect_data");
+        // term:: drawing-area surface: created up front, kept off-window (held by a ref)
+        // until term::on swaps it in. Its draw func renders the character grid; the grid
+        // starts cleared (all spaces).
+        asm.call_external("gtk_drawing_area_new");
+        asm.call_external("g_object_ref_sink");
+        asm.store_state("x0", ST_TERM_AREA);
+        asm.load_state("x0", ST_TERM_AREA);
+        asm.local_address("x1", TERM_DRAW_SYMBOL);
+        asm.push(abi::move_immediate("x2", "Integer", "0")); // user_data
+        asm.push(abi::move_immediate("x3", "Integer", "0")); // destroy
+        asm.call_external("gtk_drawing_area_set_draw_func");
+        // Derive the grid geometry from the monospace font metrics + content size and
+        // blank the grid (main thread, before the worker can use it).
+        asm.call_internal(TERM_INIT_SYMBOL);
+        // Reflow the grid when the drawing area is resized (plan-35-E): the "resize"
+        // handler recomputes the active cols/rows from the new allocation + cell metrics
+        // so term::terminalSize tracks the live window, then forces a full redraw.
+        //   g_signal_connect_data(term_area, "resize", on_resize, NULL, NULL, 0)
+        asm.load_state("x0", ST_TERM_AREA);
+        asm.local_address("x1", STR_RESIZE.0);
+        asm.local_address("x2", TERM_RESIZE_SYMBOL);
+        asm.push(abi::move_immediate("x3", "Integer", "0"));
+        asm.push(abi::move_immediate("x4", "Integer", "0"));
+        asm.push(abi::move_immediate("x5", "Integer", "0"));
+        asm.call_external("g_signal_connect_data");
 
-    // text_view = gtk_text_view_new(); editable=FALSE; monospace=TRUE. The view is
-    // left NON-focusable (like the working build): focusing a GtkTextView activates
-    // the IM/a11y machinery, which crashes in g_variant_new_string when the worker
-    // inserts text. Keys are captured at the window instead (see below).
-    asm.call_external("gtk_text_view_new");
-    asm.store_state("x0", ST_TEXT_VIEW);
-    asm.load_state("x0", ST_TEXT_VIEW);
-    asm.push(abi::move_immediate("x1", "Integer", FALSE));
-    asm.call_external("gtk_text_view_set_editable");
-    asm.load_state("x0", ST_TEXT_VIEW);
-    asm.push(abi::move_immediate("x1", "Integer", TRUE));
-    asm.call_external("gtk_text_view_set_monospace");
-    // buffer = gtk_text_view_get_buffer(text_view)
-    asm.load_state("x0", ST_TEXT_VIEW);
-    asm.call_external("gtk_text_view_get_buffer");
-    asm.store_state("x0", ST_TEXT_BUFFER);
-    // gtk_scrolled_window_set_child(scrolled, text_view); window child = scrolled.
-    asm.load_state("x0", ST_SCROLLED);
-    asm.load_state("x1", ST_TEXT_VIEW);
-    asm.call_external("gtk_scrolled_window_set_child");
-    asm.load_state("x0", ST_WINDOW);
-    asm.load_state("x1", ST_SCROLLED);
-    asm.call_external("gtk_window_set_child");
+        // text_view = gtk_text_view_new(); editable=FALSE; monospace=TRUE. The view is
+        // left NON-focusable (like the working build): focusing a GtkTextView activates
+        // the IM/a11y machinery, which crashes in g_variant_new_string when the worker
+        // inserts text. Keys are captured at the window instead (see below).
+        asm.call_external("gtk_text_view_new");
+        asm.store_state("x0", ST_TEXT_VIEW);
+        asm.load_state("x0", ST_TEXT_VIEW);
+        asm.push(abi::move_immediate("x1", "Integer", FALSE));
+        asm.call_external("gtk_text_view_set_editable");
+        asm.load_state("x0", ST_TEXT_VIEW);
+        asm.push(abi::move_immediate("x1", "Integer", TRUE));
+        asm.call_external("gtk_text_view_set_monospace");
+        // buffer = gtk_text_view_get_buffer(text_view)
+        asm.load_state("x0", ST_TEXT_VIEW);
+        asm.call_external("gtk_text_view_get_buffer");
+        asm.store_state("x0", ST_TEXT_BUFFER);
+        // gtk_scrolled_window_set_child(scrolled, text_view); window child = scrolled.
+        asm.load_state("x0", ST_SCROLLED);
+        asm.load_state("x1", ST_TEXT_VIEW);
+        asm.call_external("gtk_scrolled_window_set_child");
+        asm.load_state("x0", ST_WINDOW);
+        asm.load_state("x1", ST_SCROLLED);
+        asm.call_external("gtk_window_set_child");
 
-    // Capture keystrokes terminal-style with a key controller on the WINDOW (no
-    // focusable input widget; the whole window is the terminal, matching macOS's
-    // keyDown:-on-the-transcript model without the focused-textview IM/a11y hazard).
-    //   controller = gtk_event_controller_key_new()
-    //   g_signal_connect_data(controller, "key-pressed", on_key, NULL, NULL, 0)
-    //   gtk_widget_add_controller(window, controller)  // takes ownership
-    asm.call_external("gtk_event_controller_key_new");
-    asm.push(abi::move_register("x19", "x0")); // controller (callee-saved across calls)
-    asm.local_address("x1", STR_KEY_PRESSED.0);
-    asm.local_address("x2", KEY_PRESSED_SYMBOL);
-    asm.push(abi::move_immediate("x3", "Integer", "0"));
-    asm.push(abi::move_immediate("x4", "Integer", "0"));
-    asm.push(abi::move_immediate("x5", "Integer", "0"));
-    asm.call_external("g_signal_connect_data");
-    asm.load_state("x0", ST_WINDOW);
-    asm.push(abi::move_register("x1", "x19"));
-    asm.call_external("gtk_widget_add_controller");
+        // Capture keystrokes terminal-style with a key controller on the WINDOW (no
+        // focusable input widget; the whole window is the terminal, matching macOS's
+        // keyDown:-on-the-transcript model without the focused-textview IM/a11y hazard).
+        //   controller = gtk_event_controller_key_new()
+        //   g_signal_connect_data(controller, "key-pressed", on_key, NULL, NULL, 0)
+        //   gtk_widget_add_controller(window, controller)  // takes ownership
+        asm.call_external("gtk_event_controller_key_new");
+        asm.push(abi::move_register("x19", "x0")); // controller (callee-saved across calls)
+        asm.local_address("x1", STR_KEY_PRESSED.0);
+        asm.local_address("x2", KEY_PRESSED_SYMBOL);
+        asm.push(abi::move_immediate("x3", "Integer", "0"));
+        asm.push(abi::move_immediate("x4", "Integer", "0"));
+        asm.push(abi::move_immediate("x5", "Integer", "0"));
+        asm.call_external("g_signal_connect_data");
+        asm.load_state("x0", ST_WINDOW);
+        asm.push(abi::move_register("x1", "x19"));
+        asm.call_external("gtk_widget_add_controller");
 
-    // connect window "close-request" -> on_window_closed
-    asm.load_state("x0", ST_WINDOW);
-    asm.local_address("x1", STR_CLOSE_REQUEST.0);
-    asm.local_address("x2", WINDOW_CLOSED_SYMBOL);
-    asm.push(abi::move_immediate("x3", "Integer", "0"));
-    asm.push(abi::move_immediate("x4", "Integer", "0"));
-    asm.push(abi::move_immediate("x5", "Integer", "0"));
-    asm.call_external("g_signal_connect_data");
+        // connect window "close-request" -> on_window_closed
+        asm.load_state("x0", ST_WINDOW);
+        asm.local_address("x1", STR_CLOSE_REQUEST.0);
+        asm.local_address("x2", WINDOW_CLOSED_SYMBOL);
+        asm.push(abi::move_immediate("x3", "Integer", "0"));
+        asm.push(abi::move_immediate("x4", "Integer", "0"));
+        asm.push(abi::move_immediate("x5", "Integer", "0"));
+        asm.call_external("g_signal_connect_data");
 
-    // gtk_window_present(window). Nothing is focused on purpose: keys are
-    // captured by the window-level key controller connected above, so the design
-    // deliberately avoids giving the transcript a focusable widget.
-    asm.load_state("x0", ST_WINDOW);
-    asm.call_external("gtk_window_present");
+        // gtk_window_present(window). Nothing is focused on purpose: keys are
+        // captured by the window-level key controller connected above, so the design
+        // deliberately avoids giving the transcript a focusable widget.
+        asm.load_state("x0", ST_WINDOW);
+        asm.call_external("gtk_window_present");
 
-    // pipe(fds@sp+16); read end -> fd 0 so the reused console readers consume
-    // committed input; the write end is stashed in the runtime state (plan-05
-    // §6.6). The key handler writes committed input to the write end; the read
-    // end is collapsed onto fd 0 below.
-    asm.push(abi::add_immediate("x0", abi::stack_pointer(), 16));
-    asm.call_external("pipe");
-    asm.push(abi::load_u32("x11", abi::stack_pointer(), 20)); // write fd
-    asm.store_state("x11", ST_PIPE_WRITE_FD);
+        // pipe(fds@sp+16); read end -> fd 0 so the reused console readers consume
+        // committed input; the write end is stashed in the runtime state (plan-05
+        // §6.6). The key handler writes committed input to the write end; the read
+        // end is collapsed onto fd 0 below.
+        asm.push(abi::add_immediate("x0", abi::stack_pointer(), 16));
+        asm.call_external("pipe");
+        asm.push(abi::load_u32("x11", abi::stack_pointer(), 20)); // write fd
+        asm.store_state("x11", ST_PIPE_WRITE_FD);
 
-    // Make the pipe write end non-blocking (bug-114): if the worker stops
-    // draining stdin the 64 KiB pipe fills, and a blocking write() in the key
-    // handler would hang the GTK main thread forever. fcntl(write, F_SETFL,
-    // O_NONBLOCK); on Linux/AArch64 the variadic third arg is passed in x2.
-    asm.push(abi::load_u32("x0", abi::stack_pointer(), 20)); // write fd
-    asm.push(abi::move_immediate("x1", "Integer", "4")); // F_SETFL
-    asm.push(abi::move_immediate("x2", "Integer", "2048")); // O_NONBLOCK (0o4000)
-    asm.call_external("fcntl");
+        // Make the pipe write end non-blocking (bug-114): if the worker stops
+        // draining stdin the 64 KiB pipe fills, and a blocking write() in the key
+        // handler would hang the GTK main thread forever. fcntl(write, F_SETFL,
+        // O_NONBLOCK); on Linux/AArch64 the variadic third arg is passed in x2.
+        asm.push(abi::load_u32("x0", abi::stack_pointer(), 20)); // write fd
+        asm.push(abi::move_immediate("x1", "Integer", "4")); // F_SETFL
+        asm.push(abi::move_immediate("x2", "Integer", "2048")); // O_NONBLOCK (0o4000)
+        asm.call_external("fcntl");
 
-    // dup2(read, 0): fd 0 becomes a copy of the pipe read end. The read fd stays
-    // on the stack (sp+16) rather than in a register — a caller-saved register
-    // would not survive the `bl dup2` (Native Codegen Register Lifetimes).
-    asm.push(abi::load_u32("x0", abi::stack_pointer(), 16)); // read fd
-    asm.push(abi::move_immediate("x1", "Integer", "0"));
-    asm.call_external("dup2");
+        // dup2(read, 0): fd 0 becomes a copy of the pipe read end. The read fd stays
+        // on the stack (sp+16) rather than in a register — a caller-saved register
+        // would not survive the `bl dup2` (Native Codegen Register Lifetimes).
+        asm.push(abi::load_u32("x0", abi::stack_pointer(), 16)); // read fd
+        asm.push(abi::move_immediate("x1", "Integer", "0"));
+        asm.call_external("dup2");
 
-    // close(read): fd 0 now holds the read end, so the original read descriptor
-    // is redundant. pipe(2) never returns fd 0 here (fds 0/1/2 are already open
-    // at process start), so `read` is a distinct descriptor from the fd-0 copy;
-    // closing it leaves exactly ONE read end, so closing the write end signals
-    // stdin EOF/hangup to the console readers (bug-59). Reload the read fd from
-    // the stack — `bl dup2` clobbered the caller-saved registers.
-    asm.push(abi::load_u32("x0", abi::stack_pointer(), 16)); // read fd
-    asm.call_external("close");
+        // close(read): fd 0 now holds the read end, so the original read descriptor
+        // is redundant. pipe(2) never returns fd 0 here (fds 0/1/2 are already open
+        // at process start), so `read` is a distinct descriptor from the fd-0 copy;
+        // closing it leaves exactly ONE read end, so closing the write end signals
+        // stdin EOF/hangup to the console readers (bug-59). Reload the read fd from
+        // the stack — `bl dup2` clobbered the caller-saved registers.
+        asm.push(abi::load_u32("x0", abi::stack_pointer(), 16)); // read fd
+        asm.call_external("close");
 
-    // Record the surviving read end (fd 0) in the runtime state. Use x10 for the
-    // value because store_state materializes the state base into x9.
-    asm.push(abi::move_immediate("x10", "Integer", "0"));
-    asm.store_state("x10", ST_PIPE_READ_FD);
+        // Record the surviving read end (fd 0) in the runtime state. Use x10 for the
+        // value because store_state materializes the state base into x9.
+        asm.push(abi::move_immediate("x10", "Integer", "0"));
+        asm.store_state("x10", ST_PIPE_READ_FD);
     } else {
         // plan-62-D: `None`-default — no window. Hold the application so it stays
         // alive with zero windows; the worker (spawned below) runs the program, and
@@ -352,7 +354,11 @@ pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
     let done = format!("{RECONCILE_IDLE_SYMBOL}_done");
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::move_register("x19", "x0")); // mode
     asm.push(abi::compare_immediate("x19", "0"));
@@ -362,7 +368,7 @@ pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
     asm.load_state("x0", ST_WINDOW);
     asm.push(abi::compare_immediate("x0", "0"));
     asm.push(abi::branch_ne(&show)); // window already built → present it
-    // window = gtk_application_window_new(app); title; default size.
+                                     // window = gtk_application_window_new(app); title; default size.
     asm.load_state("x0", ST_APPLICATION);
     asm.call_external("gtk_application_window_new");
     asm.store_state("x0", ST_WINDOW);
@@ -1110,9 +1116,7 @@ mod tests {
              (a single sub_imm on the byte length is not code-point aware) — bug-421"
         );
         assert!(
-            region
-                .iter()
-                .any(|i| i.op == CodeOp::And),
+            region.iter().any(|i| i.op == CodeOp::And),
             "backspace must mask a byte with 0xC0 to test for a UTF-8 continuation \
              byte — bug-421"
         );

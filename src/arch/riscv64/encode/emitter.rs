@@ -681,17 +681,57 @@ impl Encoder {
             // vrsub.vx vd, vs2, rs1 = rs1 - vs2; NegV uses rs1=zero (0 - vs2).
             "vrsub.vx" => v_type(0b000011, 1, vr("lhs")?, xr("gpr")?, OPIVX, vr("dst")?, OP_V),
             // --- vector-immediate shifts / slide (vd, vs2=lhs, imm5) ---
-            "vsll.vi" => v_type(0b100101, 1, vr("lhs")?, im5("imm")?, OPIVI, vr("dst")?, OP_V),
-            "vsra.vi" => v_type(0b101001, 1, vr("lhs")?, im5("imm")?, OPIVI, vr("dst")?, OP_V),
-            "vsrl.vi" => v_type(0b101000, 1, vr("lhs")?, im5("imm")?, OPIVI, vr("dst")?, OP_V),
-            "vslidedown.vi" => v_type(0b001111, 1, vr("lhs")?, im5("imm")?, OPIVI, vr("dst")?, OP_V),
+            "vsll.vi" => v_type(
+                0b100101,
+                1,
+                vr("lhs")?,
+                im5("imm")?,
+                OPIVI,
+                vr("dst")?,
+                OP_V,
+            ),
+            "vsra.vi" => v_type(
+                0b101001,
+                1,
+                vr("lhs")?,
+                im5("imm")?,
+                OPIVI,
+                vr("dst")?,
+                OP_V,
+            ),
+            "vsrl.vi" => v_type(
+                0b101000,
+                1,
+                vr("lhs")?,
+                im5("imm")?,
+                OPIVI,
+                vr("dst")?,
+                OP_V,
+            ),
+            "vslidedown.vi" => v_type(
+                0b001111,
+                1,
+                vr("lhs")?,
+                im5("imm")?,
+                OPIVI,
+                vr("dst")?,
+                OP_V,
+            ),
             // --- splat / lane-mask materialization ---
             // vmv.v.i vd, imm  (vs2 must be v0 in the encoding, i.e. 0).
             "vmv.v.i" => v_type(0b010111, 1, 0, im5("imm")?, OPIVI, vr("dst")?, OP_V),
             // vmv.v.x vd, rs1  (broadcast a GPR).
             "vmv.v.x" => v_type(0b010111, 1, 0, xr("gpr")?, OPIVX, vr("dst")?, OP_V),
             // vmerge.vim vd, vs2, imm, v0  (masked: vm=0, selects imm where v0[i]).
-            "vmerge.vim" => v_type(0b010111, 0, vr("src")?, im5("imm")?, OPIVI, vr("dst")?, OP_V),
+            "vmerge.vim" => v_type(
+                0b010111,
+                0,
+                vr("src")?,
+                im5("imm")?,
+                OPIVI,
+                vr("dst")?,
+                OP_V,
+            ),
             // --- element extract / insert (lane 0 ↔ GPR) ---
             // vmv.x.s rd, vs2  (rd is a GPR in the vd field).
             "vmv.x.s" => v_type(0b010000, 1, vr("src")?, 0b00000, OPMVV, xr("dst")?, OP_V),
@@ -700,9 +740,7 @@ impl Encoder {
             // --- unit-stride 128-bit (2×e64) load / store ---
             "vle64.v" => v_type(0, 1, 0, xr("base")?, VWIDTH_E64, vr("dst")?, LOAD_FP),
             "vse64.v" => v_type(0, 1, 0, xr("base")?, VWIDTH_E64, vr("src")?, STORE_FP),
-            other => {
-                return Err(format!("rv64 encoder does not support vector op '{other}'"))
-            }
+            other => return Err(format!("rv64 encoder does not support vector op '{other}'")),
         };
         self.emit_word(word)
     }

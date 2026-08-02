@@ -36,40 +36,97 @@ struct BuiltinArgMode {
 }
 
 const BUILTIN_ARG_MODES: &[BuiltinArgMode] = &[
-    BuiltinArgMode { name: "encoding", args: ArgMode::Read },
-    BuiltinArgMode { name: "crypto", args: ArgMode::Read },
-    BuiltinArgMode { name: "strings", args: ArgMode::Read },
-    BuiltinArgMode { name: "math", args: ArgMode::Read },
-    BuiltinArgMode { name: "bits", args: ArgMode::Read },
+    BuiltinArgMode {
+        name: "encoding",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "crypto",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "strings",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "math",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "bits",
+        args: ArgMode::Read,
+    },
     BuiltinArgMode {
         name: "fs",
-        args: ArgMode::Consuming { consumes: builtins::fs::consumes_argument, default: ExprMode::Use },
+        args: ArgMode::Consuming {
+            consumes: builtins::fs::consumes_argument,
+            default: ExprMode::Use,
+        },
     },
-    BuiltinArgMode { name: "os", args: ArgMode::Use },
+    BuiltinArgMode {
+        name: "os",
+        args: ArgMode::Use,
+    },
     BuiltinArgMode {
         name: "net",
-        args: ArgMode::Consuming { consumes: builtins::net::consumes_argument, default: ExprMode::Use },
+        args: ArgMode::Consuming {
+            consumes: builtins::net::consumes_argument,
+            default: ExprMode::Use,
+        },
     },
     BuiltinArgMode {
         name: "tls",
-        args: ArgMode::Consuming { consumes: builtins::tls::consumes_argument, default: ExprMode::Use },
+        args: ArgMode::Consuming {
+            consumes: builtins::tls::consumes_argument,
+            default: ExprMode::Use,
+        },
     },
     BuiltinArgMode {
         name: "audio",
-        args: ArgMode::Consuming { consumes: builtins::audio::consumes_argument, default: ExprMode::Use },
+        args: ArgMode::Consuming {
+            consumes: builtins::audio::consumes_argument,
+            default: ExprMode::Use,
+        },
     },
-    BuiltinArgMode { name: "io", args: ArgMode::Read },
-    BuiltinArgMode { name: "json", args: ArgMode::Read },
-    BuiltinArgMode { name: "csv", args: ArgMode::Read },
-    BuiltinArgMode { name: "regex", args: ArgMode::Read },
-    BuiltinArgMode { name: "datetime", args: ArgMode::Read },
-    BuiltinArgMode { name: "money", args: ArgMode::Read },
-    BuiltinArgMode { name: "app", args: ArgMode::Read },
+    BuiltinArgMode {
+        name: "io",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "json",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "csv",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "regex",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "datetime",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "money",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "app",
+        args: ArgMode::Read,
+    },
     BuiltinArgMode {
         name: "http",
-        args: ArgMode::Consuming { consumes: builtins::http::consumes_argument, default: ExprMode::Read },
+        args: ArgMode::Consuming {
+            consumes: builtins::http::consumes_argument,
+            default: ExprMode::Read,
+        },
     },
-    BuiltinArgMode { name: "vector", args: ArgMode::Use },
+    BuiltinArgMode {
+        name: "vector",
+        args: ArgMode::Use,
+    },
 ];
 
 /// The argument-inference mode for a table-checked builtin package, or `None`
@@ -309,8 +366,8 @@ impl<'a> SyntaxChecker<'a> {
         }
 
         if mismatch {
-            let expected = builtins::expected_arguments(callee)
-                .unwrap_or_else(|| "no arguments".to_string());
+            let expected =
+                builtins::expected_arguments(callee).unwrap_or_else(|| "no arguments".to_string());
             let actual = arg_types
                 .iter()
                 .map(|type_| self.type_name(type_))
@@ -1068,9 +1125,7 @@ mod builtins_tests {
             // package (the four bespoke packages own registry functions too but
             // are handled before the table, so they are excluded here).
             if let Some(package) = builtins::builtin_package_name(callee) {
-                if let Some(entry) =
-                    BUILTIN_ARG_MODES.iter().find(|entry| entry.name == package)
-                {
+                if let Some(entry) = BUILTIN_ARG_MODES.iter().find(|entry| entry.name == package) {
                     owners.push(entry.name);
                 }
             }

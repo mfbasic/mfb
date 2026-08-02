@@ -1028,51 +1028,187 @@ fn rvv_ops_encode_to_reference_words() {
         ("vsetvli", &[("dst", "a0"), ("avl", "a1")], 0x0d85_f557),
         ("vsetivli", &[("dst", "zero"), ("avl", "2")], 0xcd81_7057),
         // float vector-vector arithmetic (vd=v1, lhs=v2, rhs=v3).
-        ("vfadd.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x0221_90d7),
-        ("vfsub.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x0a21_90d7),
-        ("vfmul.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x9221_90d7),
-        ("vfdiv.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x8221_90d7),
-        ("vfmin.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x1221_90d7),
-        ("vfmax.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x1a21_90d7),
-        ("vfsgnjn.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x2621_90d7),
-        ("vfsgnjx.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x2a21_90d7),
-        ("vmfeq.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x6221_90d7),
-        ("vmfle.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x6621_90d7),
-        ("vmflt.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x6e21_90d7),
+        (
+            "vfadd.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x0221_90d7,
+        ),
+        (
+            "vfsub.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x0a21_90d7,
+        ),
+        (
+            "vfmul.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x9221_90d7,
+        ),
+        (
+            "vfdiv.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x8221_90d7,
+        ),
+        (
+            "vfmin.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x1221_90d7,
+        ),
+        (
+            "vfmax.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x1a21_90d7,
+        ),
+        (
+            "vfsgnjn.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x2621_90d7,
+        ),
+        (
+            "vfsgnjx.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x2a21_90d7,
+        ),
+        (
+            "vmfeq.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x6221_90d7,
+        ),
+        (
+            "vmfle.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x6621_90d7,
+        ),
+        (
+            "vmflt.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x6e21_90d7,
+        ),
         // fused multiply-accumulate (vd += lhs*rhs): lhs=v2, rhs=v3.
-        ("vfmacc.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0xb231_10d7),
-        ("vfnmsac.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0xbe31_10d7),
+        (
+            "vfmacc.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0xb231_10d7,
+        ),
+        (
+            "vfnmsac.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0xbe31_10d7,
+        ),
         // unary float (vd=v1, src=v2).
         ("vfsqrt.v", &[("dst", "v1"), ("src", "v2")], 0x4e20_10d7),
         ("vfcvt.x.f.v", &[("dst", "v1"), ("src", "v2")], 0x4a20_90d7),
-        ("vfcvt.rtz.x.f.v", &[("dst", "v1"), ("src", "v2")], 0x4a23_90d7),
+        (
+            "vfcvt.rtz.x.f.v",
+            &[("dst", "v1"), ("src", "v2")],
+            0x4a23_90d7,
+        ),
         ("vfcvt.f.x.v", &[("dst", "v1"), ("src", "v2")], 0x4a21_90d7),
         // integer vector-vector.
-        ("vadd.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x0221_80d7),
-        ("vsub.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x0a21_80d7),
-        ("vand.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x2621_80d7),
-        ("vor.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x2a21_80d7),
-        ("vxor.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x2e21_80d7),
-        ("vmseq.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x6221_80d7),
-        ("vmsle.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x7621_80d7),
-        ("vmslt.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x6e21_80d7),
-        ("vsll.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0x9621_80d7),
-        ("vsra.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0xa621_80d7),
-        ("vsrl.vv", &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")], 0xa221_80d7),
+        (
+            "vadd.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x0221_80d7,
+        ),
+        (
+            "vsub.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x0a21_80d7,
+        ),
+        (
+            "vand.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x2621_80d7,
+        ),
+        (
+            "vor.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x2a21_80d7,
+        ),
+        (
+            "vxor.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x2e21_80d7,
+        ),
+        (
+            "vmseq.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x6221_80d7,
+        ),
+        (
+            "vmsle.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x7621_80d7,
+        ),
+        (
+            "vmslt.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x6e21_80d7,
+        ),
+        (
+            "vsll.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0x9621_80d7,
+        ),
+        (
+            "vsra.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0xa621_80d7,
+        ),
+        (
+            "vsrl.vv",
+            &[("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")],
+            0xa221_80d7,
+        ),
         // vector-immediate shifts / slide (imm=3, slide index=1).
-        ("vsll.vi", &[("dst", "v1"), ("lhs", "v2"), ("imm", "3")], 0x9621_b0d7),
-        ("vsra.vi", &[("dst", "v1"), ("lhs", "v2"), ("imm", "3")], 0xa621_b0d7),
-        ("vsrl.vi", &[("dst", "v1"), ("lhs", "v2"), ("imm", "3")], 0xa221_b0d7),
-        ("vslidedown.vi", &[("dst", "v1"), ("lhs", "v2"), ("imm", "1")], 0x3e20_b0d7),
+        (
+            "vsll.vi",
+            &[("dst", "v1"), ("lhs", "v2"), ("imm", "3")],
+            0x9621_b0d7,
+        ),
+        (
+            "vsra.vi",
+            &[("dst", "v1"), ("lhs", "v2"), ("imm", "3")],
+            0xa621_b0d7,
+        ),
+        (
+            "vsrl.vi",
+            &[("dst", "v1"), ("lhs", "v2"), ("imm", "3")],
+            0xa221_b0d7,
+        ),
+        (
+            "vslidedown.vi",
+            &[("dst", "v1"), ("lhs", "v2"), ("imm", "1")],
+            0x3e20_b0d7,
+        ),
         // vector-scalar shifts / reverse-subtract (rs1=a0; neg uses rs1=zero).
-        ("vsll.vx", &[("dst", "v1"), ("lhs", "v2"), ("gpr", "a0")], 0x9625_40d7),
-        ("vsra.vx", &[("dst", "v1"), ("lhs", "v2"), ("gpr", "a0")], 0xa625_40d7),
-        ("vsrl.vx", &[("dst", "v1"), ("lhs", "v2"), ("gpr", "a0")], 0xa225_40d7),
-        ("vrsub.vx", &[("dst", "v1"), ("lhs", "v2"), ("gpr", "zero")], 0x0e20_40d7),
+        (
+            "vsll.vx",
+            &[("dst", "v1"), ("lhs", "v2"), ("gpr", "a0")],
+            0x9625_40d7,
+        ),
+        (
+            "vsra.vx",
+            &[("dst", "v1"), ("lhs", "v2"), ("gpr", "a0")],
+            0xa625_40d7,
+        ),
+        (
+            "vsrl.vx",
+            &[("dst", "v1"), ("lhs", "v2"), ("gpr", "a0")],
+            0xa225_40d7,
+        ),
+        (
+            "vrsub.vx",
+            &[("dst", "v1"), ("lhs", "v2"), ("gpr", "zero")],
+            0x0e20_40d7,
+        ),
         // splat / lane-mask materialization (imm=31 encodes the all-ones -1).
         ("vmv.v.i", &[("dst", "v1"), ("imm", "0")], 0x5e00_30d7),
         ("vmv.v.x", &[("dst", "v1"), ("gpr", "a0")], 0x5e05_40d7),
-        ("vmerge.vim", &[("dst", "v1"), ("src", "v2"), ("imm", "31")], 0x5c2f_b0d7),
+        (
+            "vmerge.vim",
+            &[("dst", "v1"), ("src", "v2"), ("imm", "31")],
+            0x5c2f_b0d7,
+        ),
         // element extract / insert (lane 0 ↔ GPR).
         ("vmv.x.s", &[("dst", "a0"), ("src", "v2")], 0x4220_2557),
         ("vmv.s.x", &[("dst", "v1"), ("gpr", "a0")], 0x4205_60d7),
@@ -1095,16 +1231,49 @@ fn rvv_ops_encode_to_reference_words() {
 #[test]
 fn rvv_ops_are_single_words_and_size_matches() {
     let insts = [
-        ci("rv.vop", &[("vop", "vsetivli"), ("dst", "zero"), ("avl", "2")]),
-        ci("rv.vop", &[("vop", "vfadd.vv"), ("dst", "v1"), ("lhs", "v2"), ("rhs", "v3")]),
-        ci("rv.vop", &[("vop", "vmerge.vim"), ("dst", "v1"), ("src", "v2"), ("imm", "31")]),
-        ci("rv.vop", &[("vop", "vmv.x.s"), ("dst", "a0"), ("src", "v2")]),
-        ci("rv.vop", &[("vop", "vle64.v"), ("dst", "v1"), ("base", "a0")]),
-        ci("rv.vop", &[("vop", "vse64.v"), ("src", "v1"), ("base", "a0")]),
+        ci(
+            "rv.vop",
+            &[("vop", "vsetivli"), ("dst", "zero"), ("avl", "2")],
+        ),
+        ci(
+            "rv.vop",
+            &[
+                ("vop", "vfadd.vv"),
+                ("dst", "v1"),
+                ("lhs", "v2"),
+                ("rhs", "v3"),
+            ],
+        ),
+        ci(
+            "rv.vop",
+            &[
+                ("vop", "vmerge.vim"),
+                ("dst", "v1"),
+                ("src", "v2"),
+                ("imm", "31"),
+            ],
+        ),
+        ci(
+            "rv.vop",
+            &[("vop", "vmv.x.s"), ("dst", "a0"), ("src", "v2")],
+        ),
+        ci(
+            "rv.vop",
+            &[("vop", "vle64.v"), ("dst", "v1"), ("base", "a0")],
+        ),
+        ci(
+            "rv.vop",
+            &[("vop", "vse64.v"), ("src", "v1"), ("base", "a0")],
+        ),
     ];
     for inst in insts {
         let predicted = sizing::instruction_size(&inst).expect("size");
-        assert_eq!(predicted, 4, "{:?} should size to one word", inst.get("vop"));
+        assert_eq!(
+            predicted,
+            4,
+            "{:?} should size to one word",
+            inst.get("vop")
+        );
         let emitted = encode_text(vec![inst]).len();
         assert_eq!(emitted, 4, "expected a single 4-byte word");
     }
@@ -1119,15 +1288,19 @@ fn rvv_encoder_rejects_unknown_vop_and_bad_registers() {
     // Out-of-range vector register.
     assert!(try_encode(vec![ci(
         "rv.vop",
-        &[("vop", "vfadd.vv"), ("dst", "v32"), ("lhs", "v2"), ("rhs", "v3")],
+        &[
+            ("vop", "vfadd.vv"),
+            ("dst", "v32"),
+            ("lhs", "v2"),
+            ("rhs", "v3")
+        ],
     )])
     .unwrap_err()
     .contains("unknown rv64 vector register"));
     // Missing operand field for the selected op.
-    assert!(try_encode(vec![ci(
-        "rv.vop",
-        &[("vop", "vfadd.vv"), ("dst", "v1")],
-    )])
-    .unwrap_err()
-    .contains("missing field"));
+    assert!(
+        try_encode(vec![ci("rv.vop", &[("vop", "vfadd.vv"), ("dst", "v1")],)])
+            .unwrap_err()
+            .contains("missing field")
+    );
 }
