@@ -45,6 +45,18 @@ FUNC main() AS Integer
   io::print(toString(size.columns))
   io::print(toString(size.rows))
 
+  ' plan-70-C: exercise the width- and cluster-aware draw helpers so their codegen
+  ' (grapheme cluster walk, EGC pool, wide-trailing sentinel, paired-clear) gets
+  ' cross-target .ncode coverage — a wide CJK run, a combining (NFD) cluster, a
+  ' zero-width-joiner emoji family, a positioned wide glyph, and an overwrite that
+  ' clears the orphaned half of a wide glyph.
+  term::drawText(0, 0, "日本語")
+  term::drawText(0, 2, "cafe" & "́")
+  term::drawText(0, 4, "👨‍👩‍👧‍👦")
+  term::drawGlyph(10, 6, 0x65E5)
+  term::drawText(0, 8, "日本")
+  term::drawText(1, 8, "X")
+
   ' Clear the surface and present the composed frame.
   term::clear()
   term::sync()

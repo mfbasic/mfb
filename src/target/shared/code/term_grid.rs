@@ -46,7 +46,7 @@ const H_DIRTY: usize = 32;
 pub(super) const HDR_SIZE: usize = 40;
 
 // Cell layout (16 bytes).
-const CELL_SIZE: usize = 16;
+pub(super) const CELL_SIZE: usize = 16;
 pub(super) const C_GLYPH: usize = 0;
 pub(super) const C_FG: usize = 4;
 pub(super) const C_BG: usize = 8;
@@ -97,7 +97,7 @@ pub(super) const WIDE_TRAIL: &str = "4294967295";
 /// and a 64-byte pool slot that is 128; 136 covers it with margin. The diff
 /// coalesces SGR, so the steady state remains far below this; the budget only has
 /// to bound the pathological repaint. (`outbuf_per_cell_covers_the_worst_case_escape_run`.)
-const OUTBUF_PER_CELL: usize = 136;
+pub(super) const OUTBUF_PER_CELL: usize = 136;
 
 /// plan-70-B Phase 2: bytes reserved per cell for a pooled (multi-scalar) grapheme
 /// cluster — a combining sequence, ZWJ emoji family, or regional-indicator flag
@@ -108,7 +108,7 @@ const OUTBUF_PER_CELL: usize = 136;
 /// sidestepped by fixed per-cell slots. 64 covers a base plus a long run of
 /// combining marks / a 4-emoji ZWJ family (25 bytes); a cluster longer than this
 /// stores as many whole leading scalars as fit (graceful cap).
-const POOL_BYTES_PER_CELL: usize = 64;
+pub(super) const POOL_BYTES_PER_CELL: usize = 64;
 
 /// Glyph-word tag for a **pooled** cell: top byte `0xC0`, low 24 bits the cluster
 /// byte length (its bytes live in the per-cell pool slot). The high bit ALONE is
@@ -119,7 +119,7 @@ const POOL_BYTES_PER_CELL: usize = 64;
 /// is a collision-free tag. `WIDE_TRAIL` (top byte `0xFF`) is distinct and is
 /// handled before the pooled check. Length <= `POOL_BYTES_PER_CELL` fits the low
 /// 24 bits with room to spare.
-const GLYPH_POOLED_TAG: i64 = 0xC000_0000;
+pub(super) const GLYPH_POOLED_TAG: i64 = 0xC000_0000;
 /// Mask recovering a pooled cell's cluster byte length from its glyph word (clears
 /// the `0xC0` tag byte).
 const GLYPH_POOLED_LEN_MASK: i64 = 0x00FF_FFFF;

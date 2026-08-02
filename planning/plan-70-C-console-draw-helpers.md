@@ -77,23 +77,36 @@ absorbs.
 
 ### Phase 1 — drawText / drawGlyph width + cluster aware
 
-- [ ] Update `emit_draw_text`, `emit_draw_glyph` to segment graphemes, compute
-      width (A), stamp primary + `WIDE_TRAIL`, advance/clip by width.
-- [ ] Tests: a fixture drawing `"日本語"` at a known cell and a following ASCII
-      marker; assert alignment via the grid/escape capture harness.
+- [x] `emit_draw_text` cluster-walks (peek-ahead over the free-function UAX #29
+      break machinery, mirroring `emit_grid_write`), stores pooled multi-scalar
+      clusters into the on-grid cell's pool slot, computes width, stamps primary +
+      `WIDE_TRAIL`, and CLIPS a wide glyph off the right edge (drops it, stops the
+      run — never splits). `emit_draw_glyph` computes the single glyph's width and
+      stamps a `WIDE_TRAIL` neighbor when wide. Both gained a `relocations` param
+      (threaded from the dispatch); `emit_stamp_cell` gained a `width` param + a
+      `tag` (for the paired-clear); `emit_stamp_run` stamps width 1.
+- [x] Tests: `tests/rt-behavior/term/func_term_draw_wide_valid` (escape-stream
+      golden) draws `日本語|` (col 6), café NFD `café|` (col 4, pooled), the ZWJ
+      family `👨‍👩‍👧‍👦|` (col 2, pooled), a positioned wide `drawGlyph`, and a
+      paired-clear case.
 
-Acceptance: `drawText` of CJK/emoji aligns the following column; a wide glyph at
-the right edge is dropped, not split. Commit: —
+Acceptance: verified on the macOS host — `drawText` of CJK/emoji/clusters aligns
+the following column; `drawGlyph` of `😀` now correctly occupies 2 columns (the
+`func_term_drawGlyph_valid` golden updated — the old one encoded the pre-plan-70
+1-column bug); 0 NUL bytes. `cargo test` 3748 passed. Commit: —
 
 ### Phase 2 — line/box/fill respect wide neighbors
 
-- [ ] `emit_stamp_cell` (and the line/box/fill run stampers) clear the paired half
-      when overwriting one cell of a wide glyph.
-- [ ] Tests: draw a box edge across a row containing a wide glyph; assert no
-      orphaned trailing column renders.
+- [x] `emit_clear_wide_pair` (called from both `emit_stamp_cell` and the
+      `emit_stamp_run` line/box/fill loop) blanks the paired half of any wide glyph
+      a stamp overwrites: a `WIDE_TRAIL` clears the primary to its left; a wide
+      primary clears the trail to its right (blank glyph + width 1, attributes
+      kept). Uses `ctx.idx`/`ctx.lo` — dead scratch at every call site.
+- [x] Tests: covered by `func_term_draw_wide_valid` (draw `日本`, overwrite the
+      trailing half of `日` → its orphaned primary is blanked, leaving `_X本`).
 
-Acceptance: overwriting half a wide glyph leaves no stray column; `cargo test` +
-artifact-gate green (goldens in G). Commit: —
+Acceptance: verified — overwriting half a wide glyph leaves no stray column
+(` X本`); all 35 term acceptance fixtures green; `cargo test` 3748 passed. Commit: —
 
 ## Validation Plan
 
@@ -108,4 +121,32 @@ artifact-gate green (goldens in G). Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **2026-08-02 — the draw helpers needed the same free-function + `relocations`
+  plumbing as B.** `emit_draw_text`/`emit_draw_glyph` are free functions (raw
+  `abi::` into `instructions`) with no `relocations`; the property-table lookup
+  needs it, so both grew a `relocations` param threaded from the term dispatch.
+  They reuse B's free primitives (`emit_utf8_codepoint_by_len`,
+  `emit_unicode_property_ptr_free`, `emit_read_boundclass_icb_charwidth_free`,
+  `emit_grapheme_break_branch_free`, `emit_grapheme_state_update_free`).
+- **2026-08-02 — `emit_stamp_cell` MUST store the width byte even for narrow
+  glyphs.** Before C it wrote glyph/fg/bg/bold/un but not `C_WIDTH`, so a narrow
+  glyph stamped over a cell that had been a wide primary (stored width 2) left the
+  stale width 2 → the presenter advanced 2 for a 1-column glyph. C adds a `width`
+  param stored into every stamp (and `emit_stamp_run` stamps width 1).
+- **2026-08-02 — the `emit_stamp_cell` paired-clear tag must be unique per call,
+  not derived from `skip`.** `drawText` calls `emit_stamp_cell` twice (primary +
+  trail) with the same `skip` (`advance`), so deriving the paired-clear label tag
+  from `skip` produced a duplicate label (`AArch64: duplicate label …`). Fixed by
+  adding an explicit `tag` param, unique per call site.
+- **2026-08-02 — `drawGlyph`/`drawText` draw codegen had NO byte-identity
+  coverage.** The `byte-identity/term` fixture used only `term::on/moveTo/set*/
+  clear/sync`, never a draw op, so C's (complex) cluster-walk/pool/paired-clear
+  codegen was cross-target-unverified. Added a wide CJK run, an NFD cluster, a ZWJ
+  family, a positioned `drawGlyph`, and a paired-clear overwrite to that fixture,
+  regenerating its `.ast`/`.ir` + 5-target `.ncodesum`. (Runtime is covered by the
+  rt-behavior term fixtures.)
+- **2026-08-02 — the `func_term_drawGlyph_valid` golden updated (proven stale).**
+  Its `😀` is East Asian Wide (charwidth 2); the old golden rendered it as ONE
+  column — the exact pre-plan-70 bug. C makes it 2 columns (primary + `WIDE_TRAIL`),
+  so the row-fill has one fewer trailing space. Old golden proven wrong (encoded
+  the bug); regenerated.
