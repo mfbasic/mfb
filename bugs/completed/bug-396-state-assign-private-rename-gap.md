@@ -5,10 +5,31 @@ Effort: small (<1h)
 Severity: LOW
 Class: Correctness (latent) / Footgun (misleading diagnostic)
 
-Status: Open
+Status: FIXED
 Regression Test: tests/ — a resolve/diagnostic fixture: a `FUNC` doing
 `g.state = v` where `g` is a file-PRIVATE top-level binding should report the
 "not a local binding" diagnostic, not "unknown identifier".
+
+STATUS: FIXED (commit e48863ab5; regression fixture 49b30b30f)
+
+The `StateAssign` arm in `scope_privates.rs` now sweeps `resource` through the
+`rename` map exactly like the sibling `Assign` arm (an in-scope local target is
+still correctly left bare, so the local-only rule is unchanged). The PRIVATE
+repro now reports `2-203-0043 TYPE_UNKNOWN_VALUE: State assignment target `g`
+is not a local binding.` — matching the PUBLIC contrast.
+
+Deviation from the doc's plan (a one-line fix): sweeping the reference exposed a
+second, undocumented half of the same footgun — the checker's diagnostic
+(`syntaxcheck/checking.rs:345-359`) interpolated the now-mangled `resource` raw,
+so it would have leaked the untypeable internal spelling `#<hash>$g` into the
+user-facing message. The message is now routed through
+`internal_name::display_name`, which demangles `#<hash>$g` back to the plain
+source `g`, so the accurate diagnostic reads exactly as the "Expected" line
+below. Regression coverage:
+`src/ast/scope_privates.rs` — two unit tests (`private_binding_used_as_state_assign_target_is_rewritten`,
+`a_local_shadowing_a_private_keeps_its_state_assign_target_bare`) and a
+full-pipeline diagnostic fixture
+`tests/syntax/resources/resource-state-assign-private-invalid/`.
 
 The file-PRIVATE name-mangling pass in `src/ast/scope_privates.rs` rewrites every
 reference position of a PRIVATE top-level binding to its mangled `#<hash>$name`

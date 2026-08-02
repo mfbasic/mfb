@@ -1152,8 +1152,10 @@ fn rvv_arm(
             )); // dst ^ ...
             store(&mut out, &d);
         }
-        // Everything else (FRint*, FCvtasV, wide integer shifts, AbsV/Cnt8bV/
-        // Addv8bV, SshlV/UshlV) is left to the scalar arm.
+        // Everything else (FRint*, FCvtasV, wide integer shifts, AbsV) is left
+        // to the scalar arm. `SshlV`/`UshlV` are recognized `is_v128` ops with
+        // no `scalarize_v128` arm, so they fail loud there rather than being
+        // scalarized (pinned by `unhandled_v128_op_panics`).
         _ => return None,
     }
     Some(out)

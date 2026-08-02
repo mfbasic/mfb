@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-state-assign-private-invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   g.state = 5
+     | ^
+tests/syntax/resources/resource-state-assign-private-invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               State assignment target `g` is not a local binding.
+[exit 1]

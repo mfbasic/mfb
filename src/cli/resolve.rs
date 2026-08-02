@@ -334,7 +334,7 @@ fn report_drift(
 ///   coordinates to look up.
 /// - The source must not be a `file://` URL. **This is the plan-60-C §5 fix.**
 ///   `add_package_from_file` copies the ident out of the `.mfp` *header*
-///   (`src/cli/pkg.rs:566`), not out of the URL, so a package that was published
+///   (`src/cli/pkg.rs:1140`), not out of the URL, so a package that was published
 ///   and then added by file carries a registry-shaped ident. Keying only on the
 ///   ident therefore admitted it as a resolver node, and `mfb pkg update`
 ///   silently replaced the user's local file with whatever version the registry
