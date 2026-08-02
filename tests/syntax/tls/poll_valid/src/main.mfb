@@ -1,0 +1,12 @@
+' plan-76-B: tls::poll(sock[, timeoutMs]) AS Boolean resolves. Compile-only
+' (-ast -ir); no TLS runtime is driven here.
+IMPORT tls
+IMPORT io
+
+FUNC main AS Integer
+  RES conn = tls::connect("example.com", 443)
+  LET ready AS Boolean = tls::poll(conn)
+  LET readyT AS Boolean = tls::poll(conn, 100)
+  io::print(toString(ready) & toString(readyT))
+  RETURN 0
+END FUNC

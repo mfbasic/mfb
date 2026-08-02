@@ -238,13 +238,21 @@ Commit: (recorded next commit)
 
 ### Phase 1 — surface (descriptor + resolver + padding)
 
-- [ ] Add `tls::poll` to `tls.rs` (all tables + padding), per §4.1.
-- [ ] Tests: `tests/syntax/tls` accept `tls::poll(sock)` → `Boolean`, `tls::poll(sock, 100)` →
-      `Boolean`; reject a non-`TlsSocket` arg and `< 0`-arity misuse at the checker level.
+- [x] Added `tls::poll` to `tls.rs`: `POLL` const, `P_POLL = [req sock, fill timeoutMs SENTINEL]`,
+      `tf(POLL, "poll", &[ov(P_POLL, "Boolean")])`, `resolve_call` arm (`exact([TlsSocket]) ||
+      exact([TlsSocket, Integer]) => "Boolean"`), `call_param_names`, `expected_arguments`,
+      `argument_types`, and `default_argument_padding` (`POLL_DEFAULTS = [(Integer, SENTINEL)]`,
+      mirroring `ACCEPT`). Updated the tls.rs unit tests (is_call, param_names, return_type,
+      resolve, expected_arguments, argument_types, padding) to cover POLL. Single overload here;
+      the list overload is plan-76-C.
+- [x] Tests: `tests/syntax/tls/poll_valid` (accept `tls::poll(conn)` / `tls::poll(conn, 100)` →
+      `Boolean`) and `tests/syntax/tls/poll_invalid` (reject: `TlsListener` receiver, `String` arg,
+      `String` timeout → `TYPE_CALL_ARGUMENT_MISMATCH`; 3 args → `TYPE_CALL_ARITY_MISMATCH`).
 
-Acceptance: at `-ast -ir` the overloads resolve to `Boolean`; `cargo test --bin mfb` green (native
-lowering will error if referenced at runtime — do not run a TLS program yet).
-Commit: —
+Acceptance: at `-ast -ir` the overload resolves to `Boolean`; `cargo test --bin mfb` green
+(3750 passed, 0 failed); syntax fixtures pass `test-accept.sh`. ✅ (Native lowering not added yet —
+a TLS program that calls `tls::poll` at native build hits the `mod.rs` catch-all until Phase 2–4.)
+Commit: (recorded next commit)
 
 ### Phase 2 — openssl backend (Linux/BSD)
 

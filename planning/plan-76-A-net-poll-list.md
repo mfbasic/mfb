@@ -316,7 +316,7 @@ Commit: f37003c4c
 
 Acceptance: `mfb man net poll` renders all four overloads; `cargo test --bin mfb` green (3750/0),
 man/spec-citation tests pass (5/0). ✅
-Commit: (recorded next commit)
+Commit: 9b6e533e5
 
 ## Validation Plan
 
