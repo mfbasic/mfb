@@ -639,12 +639,30 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         "cmp" => {
             let lhs = reg(field(instruction, "lhs")?)?;
             let rhs = reg(field(instruction, "rhs")?)?;
+            // bug-397: a zero-token operand must never reach `alu_rr` — sentinel 16
+            // encodes as r8 (`16 & 7 == 0` + REX), folding a caller's leftover r8
+            // into the compare (same r8-collision family as bug-123/154). A zero
+            // `rhs` is the real "cmp lhs, 0": route it through the immediate form.
+            if is_zero_token(rhs) {
+                return Ok(Encoded::plain(enc_alu_imm32(7, lhs, 0))); // cmp lhs, 0
+            }
+            // A zero `lhs` ("cmp 0, rhs", flags of `0 - rhs`) has no scratch-free
+            // x86 form (no zero register); no producer emits it, so reject loudly
+            // rather than silently encode r8.
+            if is_zero_token(lhs) {
+                return Err("x86-64 cmp with a zero-token lhs is not handled".to_string());
+            }
             // cmp lhs, rhs : 0x39 /r (rm=lhs, reg=rhs)
             Ok(Encoded::plain(alu_rr(0x39, lhs, rhs)))
         }
         "cmp_imm" => {
             let lhs = reg(field(instruction, "lhs")?)?;
             let imm = checked_imm32(immediate(field(instruction, "rhs")?)?)?;
+            // bug-397: a zero-token `lhs` would encode via enc_alu_imm32's rm=16 as
+            // r8. "cmp 0, imm" is a degenerate, unproduced compare — reject loudly.
+            if is_zero_token(lhs) {
+                return Err("x86-64 cmp_imm with a zero-token lhs is not handled".to_string());
+            }
             Ok(Encoded::plain(enc_alu_imm32(7, lhs, imm))) // /7 = CMP
         }
         "ldr_u64" => mem_load(instruction, MemWidth::U64),
@@ -2179,6 +2197,20 @@ fn enc_add_carry(instruction: &CodeInstruction) -> Result<Encoded, String> {
     let lhs = reg(field(instruction, "lhs")?)?;
     let rhs = reg(field(instruction, "rhs")?)?;
     let carry_in = reg(field(instruction, "carry_in")?)?;
+    // bug-397: a zero-token `lhs` is symmetric to `rhs` here because add commutes.
+    // Normalize the single zero into `rhs` so the guarded zero path below handles
+    // it, rather than letting `enc_mov(dst, lhs)` encode sentinel 16 as r8. Both
+    // operands zero → the result is `carry_in` alone; unproduced, so reject loudly.
+    let (lhs, rhs) = if is_zero_token(lhs) {
+        if is_zero_token(rhs) {
+            return Err(
+                "x86-64 add_carry with both operands the zero token is not handled".to_string(),
+            );
+        }
+        (rhs, lhs)
+    } else {
+        (lhs, rhs)
+    };
     // A zero-token (`abi::ZERO` → "xzr") rhs must contribute exactly 0. `reg`
     // maps it to sentinel 16, which `alu_rr` would encode as `r8` (REX.R + reg 0),
     // folding the caller's leftover `r8` into the sum — this corrupted the PCG64
@@ -2247,6 +2279,14 @@ fn enc_sub_borrow(instruction: &CodeInstruction) -> Result<Encoded, String> {
     let lhs = reg(field(instruction, "lhs")?)?;
     let rhs = reg(field(instruction, "rhs")?)?;
     let borrow_in = reg(field(instruction, "borrow_in")?)?;
+    // bug-397: a zero-token `lhs` ("dst = 0 - rhs - borrow") does NOT commute like
+    // add_carry's, and has no scratch-free x86 form that preserves the borrow flag
+    // (zeroing a scratch via `xor` would clobber CF). Sentinel 16 would otherwise
+    // reach `enc_mov` and encode as r8. Unproduced today — reject loudly rather
+    // than emit wrong bytes (mirrors the dst==rhs register-borrow guard below).
+    if is_zero_token(lhs) {
+        return Err("x86-64 sub_borrow with a zero-token lhs is not handled".to_string());
+    }
     // A zero-token rhs must subtract exactly 0 — sentinel 16 would otherwise
     // encode as `r8` (bug-154, symmetric with enc_add_carry). Latent today: no
     // shared caller passes `xzr` as sub_borrow's rhs.
