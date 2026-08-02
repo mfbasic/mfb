@@ -141,9 +141,10 @@ commit below.
 
 ### Phase 3 — Tree-wide gate + archive
 
-- [x] Full `cargo test` (whole suite, never one module). — DONE (pre-merge):
-      `cargo test --quiet` → **3661 passed; 0 failed** (+ the smaller binaries all
-      `ok`, 0 failed). Re-run after the main merge (below).
+- [x] Full `cargo test` (whole suite, never one module). — DONE both pre- and
+      post-merge. Pre-merge: 3661 passed, 0 failed. **Post-merge** (after merging
+      main's plan-72 descriptor refactor): **4155 tests passed across 38 binaries,
+      0 failed, 0 errors/panics**.
 - [~] `scripts/artifact-gate.sh` (debug) diffs=0, with `.ncodesum` regenerated for
       all targets on the macOS host (per `fast-codegen-gate`). — pre-merge gate
       IN FLIGHT; then re-run after the main merge. (io + tls + http .ncodesum were
