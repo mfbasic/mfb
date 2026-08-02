@@ -107,21 +107,18 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
     )
 }
 
+/// Whether `name` is a builtin value/opaque type contributed by any package
+/// (plan-72-BB: iterated over the descriptor registry's `types`). Every package's
+/// base type names live in its descriptor; `thread`'s parametric
+/// `Thread OF ...` / `ThreadWorker OF ...` forms are the one shape a static type
+/// list cannot enumerate, so they stay a structural prefix check.
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    app::is_builtin_type(name)
-        || audio::is_builtin_type(name)
-        || crypto::is_builtin_type(name)
-        || datetime::is_builtin_type(name)
-        || fs::is_builtin_type(name)
-        || http::is_builtin_type(name)
-        || io::is_builtin_type(name)
-        || json::is_builtin_type(name)
-        || money::is_builtin_type(name)
-        || net::is_builtin_type(name)
-        || term::is_builtin_type(name)
-        || thread::is_builtin_type(name)
-        || tls::is_builtin_type(name)
-        || vector::is_builtin_type(name)
+    descriptor::REGISTRY
+        .modules()
+        .iter()
+        .any(|module| module.types.iter().any(|ty| ty.name == name))
+        || name.starts_with("Thread OF ")
+        || name.starts_with("ThreadWorker OF ")
 }
 
 /// The internal helper a built-in package provides as an **override** of an
@@ -375,28 +372,18 @@ pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Op
     }
 }
 
+/// The static (argument-independent) nominal return type of a builtin call —
+/// plan-72-BB: the owning module's `DefaultResolver::return_type_name` (a
+/// `Custom`-return call has no static nominal and yields `None`; the arg-validated
+/// return lives in [`resolve_call_return_type`]). The lowered-only internal names
+/// (`audio` device opens / timed I/O, `tls.closeListener`) are not descriptor
+/// functions, so IR lowering's queries for their rewritten targets fall back to
+/// those two packages' explicit internal-name maps.
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    app::call_return_type_name(name)
-        .or_else(|| audio::call_return_type_name(name))
-        .or_else(|| general::call_return_type_name(name))
-        .or_else(|| collections::call_return_type_name(name))
-        .or_else(|| strings::call_return_type_name(name))
-        .or_else(|| math::call_return_type_name(name))
-        .or_else(|| bits::call_return_type_name(name))
-        .or_else(|| crypto::call_return_type_name(name))
-        .or_else(|| encoding::call_return_type_name(name))
-        .or_else(|| fs::call_return_type_name(name))
-        .or_else(|| io::call_return_type_name(name))
-        .or_else(|| json::call_return_type_name(name))
-        .or_else(|| csv::call_return_type_name(name))
-        .or_else(|| regex::call_return_type_name(name))
-        .or_else(|| datetime::call_return_type_name(name))
-        .or_else(|| money::call_return_type_name(name))
-        .or_else(|| net::call_return_type_name(name))
-        .or_else(|| os::call_return_type_name(name))
-        .or_else(|| http::call_return_type_name(name))
-        .or_else(|| term::call_return_type_name(name))
-        .or_else(|| tls::call_return_type_name(name))
+    if let Some((module, function)) = descriptor::REGISTRY.function(name) {
+        return descriptor::DefaultResolver::return_type_name(module, function.name);
+    }
+    audio::call_return_type_name(name).or_else(|| tls::call_return_type_name(name))
 }
 
 /// Whether parameter `index` of the built-in `callee` is a compiler-known
