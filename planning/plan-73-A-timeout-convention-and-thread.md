@@ -27,7 +27,9 @@ References:
 ## Prerequisites
 
 These are a precondition on the whole plan-73 feature, stated once here; sub-plans
-B–E point back to this table.
+B–F point back to this table. (Sub-plan F — `io::pollInput` — was appended during
+plan-73-E's Phase 1 audit, which found it was a waiting built-in the original
+A–E split had missed; it depends only on this anchor, like B–D.)
 
 | Must be true | Command | Status |
 |---|---|---|
@@ -149,9 +151,10 @@ Three layers, landed in order:
 2. **Canonical spec section (Phase 2).** Author the convention as a new spec
    section (recommended home: `src/docs/spec/language/18_builtin-functions.md` as
    a "Timeout convention" subsection, since it is a cross-package language rule).
-   Every timeout man page in B–E cites it. This section is the normative contract;
-   thread conforms immediately, the other families conform through plan-73-D, and
-   plan-73-E audits that all man pages cite it.
+   Every timeout man page in B–F cites it. This section is the normative contract;
+   thread conforms immediately, the other families conform through plan-73-D (and
+   `io::pollInput` through plan-73-F), and plan-73-E audits that all man pages
+   cite it.
 3. **Thread migration (Phase 3).** Flip send/transfer omit-default from `0` to the
    sentinel (block path); change receive/accept explicit-`0` from `ErrNotFound` to
    `ErrTimeout`; keep negative rejection. Update descriptor default-padding

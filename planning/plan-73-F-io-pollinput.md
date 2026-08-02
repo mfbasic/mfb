@@ -97,7 +97,7 @@ unchanged.
 Acceptance: `io::pollInput` matches the §18.4 table on omit/`0`/`> 0`/`< 0`;
 runtime-proven on macOS (`TRUE TRUE TRUE` for omit/`0`/`1`, `77050002` for `-1`);
 man + spec citations green; `byte-identity/io` regenerated and deterministic;
-`cargo build` warning-free. — MET. Commit: 6cb814a2f
+`cargo build` warning-free. — MET. Commit: 99702c21c
 
 ## Corrections
 

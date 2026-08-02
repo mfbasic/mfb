@@ -99,28 +99,45 @@ matrix is the guard.
 
 ### Phase 1 — Conformance matrix
 
-- [ ] Build a matrix: rows = the 18 timeout functions, columns = omit / `0` / `>0`
+- [x] Build a matrix: rows = the timeout functions, columns = omit / `0` / `>0`
       / `<0` / expiry-error, values from each man page + descriptor. Confirm each
       cell equals plan-73-A §1 (readiness query vs producing call as appropriate).
-- [ ] For any mismatch, open a Correction and route it to the owning family
-      sub-plan; do not fix behavior in E.
-- [ ] Record the completed matrix in Corrections.
+      — DONE. Authoritative row set derived from the **descriptors**, not man prose
+      (`grep -rn '"timeoutMs"|"ms"|"timeout"' src/builtins/*.rs`): 15 functions
+      take a direct timeout arg. Matrix in Corrections (E-C1).
+- [x] For any mismatch, open a Correction and route it to the owning family
+      sub-plan; do not fix behavior in E. — DONE. The sweep found **two** functions
+      not in the A–D list: `io::pollInput` (genuinely INVERTED — routed to the new
+      **plan-73-F**, E-C2) and `thread::poll` (value-meanings already conform;
+      documented, E-C3).
+- [x] Record the completed matrix in Corrections. — DONE (E-C1).
 
 Acceptance: the matrix is complete and every cell conforms (or a routed Correction
-exists for each exception). Commit: —
+exists for each exception). — MET (io::pollInput routed to F, now conforming;
+thread::poll documented). Commit: 99702c21c (F) + the E doc commit below.
 
 ### Phase 2 — Citation + dead-symbol sweep
 
-- [ ] Confirm every timeout man page cites the canonical section; add missing
-      cross-links (run `scripts/update_man.sh`).
-- [ ] Confirm the section's function list names all 18.
-- [ ] Grep to zero: `grep -rn -E 'DEFAULT_CONNECT_TIMEOUT_MS|77070005|77070006|ErrReadTimeout|ErrWriteTimeout' src tests src/docs`
-      and any `ErrNotFound`-at-`0` thread wording.
-- [ ] Run man_citations_resolve (strict, symbol-level) and the spec file-level
-      citation tests; fix any dangling `[[path:symbol]]` in both man and spec.
+- [x] Confirm every timeout man page cites the canonical section. — DONE; the
+      migrated function pages (net/tls/audio/thread/io) cite `mfb spec language
+      builtin-functions`.
+- [x] Confirm the section's function list names every conforming function. — DONE;
+      §18.4 lists the 14 fully-conforming functions incl. `io::pollInput`, with a
+      documented note on `thread::poll`. (The plan's "18" was a stale *man-page*
+      count, not a function count — corrected in E-C1.)
+- [x] Grep the retired **symbols** to zero. — DONE: `grep -rn -E
+      'ERR_READ_TIMEOUT_CODE|ERR_WRITE_TIMEOUT_CODE|THREAD_RECEIVE_BLOCK_SENTINEL'
+      src` → 0 live symbols. `DEFAULT_CONNECT_TIMEOUT_MS`/`77070005`/`77070006`/
+      `ErrReadTimeout`/`ErrWriteTimeout` remain ONLY in intentional historical
+      prose (comments/docs saying "was"/"retired"/"replaced"/"formerly"), never as
+      a live constant or code path.
+- [x] Run man_citations_resolve (strict, symbol-level) and the spec citation
+      tests. — DONE: `cargo test --bin mfb man_citations_resolve spec_citations_resolve
+      spec_links_resolve` all green (1 passed each). No dangling `[[path:symbol]]`.
 
-Acceptance: retired-symbol grep is empty; man_citations + spec-citation tests
-green; the section lists all 18 functions. Commit: —
+Acceptance: retired-symbol grep is empty (live symbols); man_citations + spec-citation
+tests green; the section lists all conforming functions. — MET. Commit: the E doc
+commit below.
 
 ### Phase 3 — Tree-wide gate + archive
 
@@ -152,7 +169,53 @@ Acceptance: all gates green tree-wide; plan-73 archived. Commit: —
 
 ## Corrections
 
-<Filled during execution — the conformance matrix lives here.>
+**E-C1 — the conformance matrix (and the "18" count was wrong).** The plan's
+measured population said "18 timeout functions", taken from `grep -rln 'timeoutMs'
+src/docs/man | wc -l` — but that counts man **pages** (files), including the two
+`package.md` overviews, and it misses `net::read/readText/write/writeText` (which
+are governed by the socket setters and carry no `timeoutMs` arg). The authoritative
+row set is the **descriptors**: `grep -rn '"timeoutMs"|"ms"|"timeout"'
+src/builtins/*.rs` → **15 functions take a direct timeout arg**. Matrix (each cell
+= plan-73-A §1; ✓ = conforms):
+
+| Function | kind | omit | `0` | `>0` | `<0` | expiry | landed |
+|---|---|---|---|---|---|---|---|
+| `net::poll` | readiness | block ✓ | FALSE now ✓ | bounded ✓ | ErrInvalidArgument ✓ | FALSE | C |
+| `net::accept` | producing | block ✓ | ErrTimeout ✓ | bounded ✓ | ErrInvalidArgument ✓ | ErrTimeout ✓ | C |
+| `net::connectTcp` | producing | block ✓ | ErrTimeout ✓ | bounded ✓ | ErrInvalidArgument ✓ | ErrTimeout ✓ | C |
+| `net::setReadTimeout` | setter | (n/a — binds) | non-blocking ✓ | bounds ✓ | ErrInvalidArgument ✓ | ErrTimeout ✓ | C |
+| `net::setWriteTimeout` | setter | (n/a — binds) | non-blocking ✓ | bounds ✓ | ErrInvalidArgument ✓ | ErrTimeout ✓ | C |
+| `net::read`/`readText`/`write`/`writeText` | producing (socket bound) | block ✓ | via setter ✓ | via setter ✓ | via setter ✓ | ErrTimeout ✓ | C |
+| `tls::connect` | producing | block ✓ | ErrTimeout ✓ | bounded ✓ | ErrInvalidArgument ✓ | ErrTimeout ✓ | D |
+| `tls::accept` | producing | block ✓ | ErrTimeout ✓ | bounded ✓ | ErrInvalidArgument ✓ | ErrTimeout ✓ | D |
+| `audio::poll` | readiness | block ✓ | FALSE now ✓ | bounded ✓ | ErrInvalidArgument ✓ | FALSE | B |
+| `audio::read` | producing | block ✓ | ErrTimeout ✓ | bounded ✓ | ErrInvalidArgument ✓ | ErrTimeout ✓ | B |
+| `io::pollInput` | readiness | block ✓ | FALSE now ✓ | bounded ✓ | ErrInvalidArgument ✓ | FALSE | **F** |
+| `thread::send` | producing | block ✓ | ErrTimeout ✓ | bounded ✓ | ErrInvalidArgument ✓ | ErrTimeout ✓ | A |
+| `thread::receive` | producing | block ✓ | ErrTimeout ✓ | bounded ✓ | ErrInvalidArgument ✓ | ErrTimeout ✓ | A |
+| `thread::transfer` | producing | block ✓ | ErrTimeout ✓ | bounded ✓ | ErrInvalidArgument ✓ | ErrTimeout ✓ | A |
+| `thread::accept` | producing | block ✓ | ErrTimeout ✓ | bounded ✓ | ErrInvalidArgument ✓ | ErrTimeout ✓ | A |
+| `thread::poll` | readiness | (no omit form) | FALSE now ✓ | bounded ✓ | ErrInvalidArgument ✓ | FALSE | A (see E-C3) |
+
+Every cell conforms. `thread::waitFor` (arity `(1,1)`, a bare join) and
+`audio::write`/`audio::play` (no timeout arg) are NOT timeout-taking builtins and
+are correctly out of scope.
+
+**E-C2 — `io::pollInput` was missed by the A–D split (routed to plan-73-F).** The
+audit found `io::pollInput` carried the *inverted* pre-plan-73 convention (omit
+padded with `0` = non-blocking; negative = block forever, straight through to
+`poll(2)`), directly falsifying the canonical §18.4 text. It is a waiting built-in
+no letter covered, so it was landed as the append-only **plan-73-F** (commit
+99702c21c) and now conforms (row above). Runtime-proven on macOS.
+
+**E-C3 — `thread::poll` is documented as value-conforming, not migrated.**
+`thread::poll(t, ms)` has arity `(2,2)` — `ms` is required, so it has no omit form.
+But its value-meanings already match the table (rejects negatives → 77050002, `0`
+= immediate readiness, `>0` = bounded), i.e. none of the dangerous *inversions*
+plan-73 removes are present. A block-forever-then-return-`TRUE` omit form for a
+readiness query is near-useless, and plan-73-A's canonical list deliberately
+enumerated only `net::poll`/`audio::poll` as readiness queries. Recorded as an
+accepted deviation with a note added to §18.4 rather than a behavioral change.
 
 ## Summary
 
