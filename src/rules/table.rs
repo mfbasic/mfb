@@ -716,7 +716,8 @@ pub(super) const RULES: &[Rule] = &[
     },
     // 2-203-0102 (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN) retired in plan-26-C: every
     // inline-lowered builtin is now trappable (raw-supported or infallible), so an
-    // inline TRAP is legal on all of them. The code is not reused.
+    // inline TRAP is legal on all of them. The code is now reused for
+    // TYPE_INSTANTIATION_TOO_DEEP (see the assignment above).
     Rule {
         code: "2-203-0104",
         name: "TYPE_INLINE_TRAP_DEAD_HANDLER",

@@ -107,6 +107,13 @@ pub(crate) fn properties_hex() -> String {
 #[allow(dead_code)]
 pub(crate) fn property_for_codepoint(codepoint: u32) -> PackedProperty {
     let tables = tables();
+    // The two-stage trie only covers U+0000..=U+10FFFF; anything above has no
+    // stage1 slot. utf8proc's own `utf8proc_get_property` returns the index-0
+    // (unassigned) property for `uc >= 0x110000` rather than indexing OOB, so
+    // the reference lookup matches instead of panicking (bug-394 item 11).
+    if codepoint > 0x10FFFF {
+        return tables.properties[0];
+    }
     let stage1 = tables.stage1[(codepoint >> 8) as usize] as usize;
     let stage2 = tables.stage2[stage1 + (codepoint & 0xff) as usize] as usize;
     tables.properties[stage2]
@@ -473,6 +480,17 @@ mod tests {
         assert_eq!(property_for_codepoint(0x200d).boundclass, 14);
         assert_eq!(property_for_codepoint(0x1f1fa).boundclass, 11);
         assert_eq!(property_for_codepoint(0x1f468).boundclass, 19);
+    }
+
+    #[test]
+    fn out_of_range_codepoints_return_the_default_property() {
+        // A codepoint above U+10FFFF has no trie entry; utf8proc's own
+        // `utf8proc_get_property` returns the index-0 (unassigned) property for
+        // `uc >= 0x110000` rather than indexing out of bounds. The reference
+        // lookup must match, not panic (bug-394 item 11).
+        let default = tables().properties[0];
+        assert_eq!(property_for_codepoint(0x110000), default);
+        assert_eq!(property_for_codepoint(u32::MAX), default);
     }
 
     #[test]

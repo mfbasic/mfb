@@ -32,9 +32,6 @@ pub(crate) fn os_env_lock_init_hex(family: PlatformFamily) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// Acquire the env/pwd lock: `pthread_mutex_lock(&_mfb_rt_os_env_lock)`. Emitted at
-/// helper entry, after incoming `String*` arguments have been saved into vregs (the
-/// call clobbers all caller-saved registers).
 /// The env/pwd lock acquire and release function names. POSIX uses the pthread
 /// mutex; Windows uses an SRWLOCK (its all-zero `SRWLOCK_INIT` static already lands
 /// via `os_env_lock_init_hex`'s Windows arm). plan-66-B.
@@ -45,6 +42,9 @@ fn env_lock_fns(family: PlatformFamily) -> (&'static str, &'static str) {
     }
 }
 
+/// Acquire the env/pwd lock: `pthread_mutex_lock(&_mfb_rt_os_env_lock)`. Emitted at
+/// helper entry, after incoming `String*` arguments have been saved into vregs (the
+/// call clobbers all caller-saved registers).
 pub(super) fn emit_env_lock(ctx: &mut EmitCtx) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;

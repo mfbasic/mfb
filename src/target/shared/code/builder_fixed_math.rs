@@ -224,9 +224,6 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(dst, dst, s0));
     }
 
-    /// Run unrolled CORDIC circular vectoring on `(vx, vy)` accumulating the
-    /// rotation angle into `z`. Drives `vy` toward zero so that `z` converges to
-    /// `atan(vy0 / vx0)`. Requires `vx > 0`. The registers are updated in place.
     /// One CORDIC micro-rotation loop, shared by the vectoring and rotation modes
     /// (bug-332 E1). The two modes are mirror images: they differ only in the
     /// label prefix, which register drives the sign decision, and the polarity of
@@ -396,10 +393,6 @@ impl CodeBuilder<'_> {
         Ok(result)
     }
 
-    /// Run unrolled CORDIC circular rotation, rotating the vector `(cosr, sinr)`
-    /// by the angle in `z` (which must lie within the CORDIC convergence range,
-    /// roughly `[-pi/4, pi/4]` here). On entry `cosr` holds the inverse gain and
-    /// `sinr` is zero; on exit `cosr ~= cos(z0)` and `sinr ~= sin(z0)`.
     /// Deterministic Q32.32 `sin` and `cos` of `src`. Returns `(sin, cos)`
     /// registers. Reduces the angle to `[-pi/4, pi/4]` and tracks the quadrant.
     fn emit_fixed_sincos(&mut self, src: &str) -> Result<(String, String), String> {

@@ -383,7 +383,7 @@ pub(super) fn emit_term_scroll_helper() -> Result<CodeFunction, String> {
 }
 
 /// `void _mfb_gtkapp_term_init(void)` — derive the grid geometry (main thread):
-/// measure the monospace cell from Cairo font extents (via a throwaway 1x1 image
+/// measure the monospace cell from Cairo font extents (via a throwaway 8x8 image
 /// surface), then cols = floor(W/cellW), rows = floor(H/cellH) clamped to the
 /// backing-store bounds, and blank the char grid. Mirrors the macOS term_init,
 /// which sizes cols/rows from the font's advance + line height and the view frame.

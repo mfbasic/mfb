@@ -281,8 +281,6 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static str> {
         WRITE => Some("Socket, List OF Byte"),
         WRITE_TEXT => Some("Socket, String"),
         REMOTE_ADDRESS => Some("Socket"),
-        // Overloaded on `Socket|UdpSocket` — per the doc above, overloaded calls
-        // must return `None` and rely on explicit argument types (bug-173 D).
         BIND_UDP => Some("String, Integer"),
         RECEIVE_FROM | RECEIVE_TEXT_FROM => Some("UdpSocket, Integer"),
         SEND_TO => Some("UdpSocket, Address, List OF Byte"),
@@ -290,6 +288,9 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static str> {
         TO_URL => Some("String"),
         PERCENT_DECODE => Some("String"),
         PARSE_QUERY => Some("String"),
+        // The overloaded calls listed in the doc above (plus `setReadTimeout` /
+        // `setWriteTimeout`, overloaded on `Socket|UdpSocket`) fall through here:
+        // they must return `None` and rely on explicit argument types (bug-173 D).
         _ => None,
     }
 }

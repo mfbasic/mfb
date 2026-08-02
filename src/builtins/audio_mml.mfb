@@ -1,8 +1,8 @@
 ' ============================================================================
 ' audio::play — a small MML (Music Macro Language) sequencer.
 '
-' A track is a whitespace-separated string of tokens; every token is separated
-' by whitespace. Tokens: notes A..G (with a trailing + / - accidental, an inline
+' A track is a space-separated string of tokens; every token is separated
+' by a single space. Tokens: notes A..G (with a trailing + / - accidental, an inline
 ' length, and trailing dots), R (rest of the current length), P<n> (a pause of
 ' length n), O0..O6 / < / > (octave), L1..L64 (default length), T32..T255
 ' (tempo), V0..V10 (volume), `I <name>` (instrument: square/triangle/sine/saw/

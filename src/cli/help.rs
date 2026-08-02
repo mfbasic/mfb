@@ -75,7 +75,7 @@ see 'mfb repo --help'.
 
 Options:
   --proof                 (verify) Also print each dependency's inclusion proof
-  --out <file>            (doc) Path to the generated HTML file (default: index.html)
+  --out <file>            (doc) Path to the generated HTML file (default: doc.html)
   --pin                   (add, update) Record the exact version; never float
   --no-pin                (add, update) Float above this version, which becomes the ABI floor
   --yes                   (update, remove) Skip the confirmation prompt";
@@ -194,7 +194,7 @@ Usage: mfb doc [options] [path]
 Render HTML documentation from source files or a project directory.
 
 Options:
-  --out <file>        Path to the generated HTML file (default: index.html)
+  --out <file>        Path to the generated HTML file (default: doc.html)
 
 Arguments:
   [path]              Source file or project folder to document";
