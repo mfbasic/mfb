@@ -122,7 +122,7 @@ Commit: af740239d
   and the flat arm hijacked the dispatch; see Corrections), and the `variants_for_union` call
   in `copy_union_fields_into_existing`, so the STATE suffix resolves. This also fixes the
   **stateless** resource-union aliasing UAF — filed as
-  `bugs/completed/bug-425-stateless-resource-union-transfer-aliases-variant-record.md`.
+  `bugs/completed/bug-426-stateless-resource-union-transfer-aliases-variant-record.md`.
 - [x] Gap 4: classify a resource-union `Result` payload as a scalar pointer
   (`union_is_data(base)` in `result_payload_is_block`).
 - [x] Verify: `/tmp/p75repro` consumer builds & links with the worktree release `mfb`; a
@@ -200,7 +200,7 @@ acceptance suite — a resource-union classification change can ripple to `Resul
   deep-copy machinery, so no accept-specific change was required. Recorded as a moot task in
   Phase 2 rather than silently dropped.
 - **The stateless-union aliasing UAF was fixed in the same change and filed as a bug**
-  (`bugs/completed/bug-425-...`), per the plan's Phase 1 instruction and the project's
+  (`bugs/completed/bug-426-...`), per the plan's Phase 1 instruction and the project's
   fix-bugs-in-the-same-change rule.
 - **Phase 3 needed TWO worker packages, not one.** A single package exporting
   `takeUnionCursor` (whose parameter references the STATE type `Cursor`) forced *every*

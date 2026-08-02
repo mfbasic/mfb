@@ -1,4 +1,4 @@
-# bug-425: transferring a resource union across a thread aliased the sender's variant record (UAF)
+# bug-426: transferring a resource union across a thread aliased the sender's variant record (UAF)
 
 Last updated: 2026-08-02
 Effort: small (fixed as part of plan-75)
