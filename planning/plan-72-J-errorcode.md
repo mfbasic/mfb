@@ -51,7 +51,7 @@ Fixture load is 1 project.
 
 Acceptance: `cargo test` passes; the `errorcode` fixture continues to run
 clean under `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
-Commit: —
+Commit: 18948712b
 
 ## Validation
 

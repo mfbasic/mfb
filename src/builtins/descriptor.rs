@@ -611,7 +611,8 @@ impl BuiltinRegistry {
 /// miss). BB then deletes the legacy helpers the adapters fall back to.
 ///
 /// Migrated so far: `app` (B), `bits` (D), `collections` (E), `csv` (G),
-/// `crypto` (F), `audio` (C), `datetime` (H), `encoding` (I), `errorCode` (J).
+/// `crypto` (F), `audio` (C), `datetime` (H), `encoding` (I), `errorCode` (J),
+/// `io` (N).
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::bits::BITS,
@@ -622,6 +623,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::datetime::DATETIME,
     &crate::builtins::encoding::ENCODING,
     &crate::builtins::errorcode::ERRORCODE,
+    &crate::builtins::io::IO,
 ]);
 
 /// The migration parity harness (plan-72).
