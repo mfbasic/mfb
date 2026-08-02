@@ -95,7 +95,7 @@ one `u16` of zero padding, producing a **24-byte** on-disk record (11 × 2 + 2).
 | 10  | `lowercase_seqindex`   | 7                           | (emitted; not read by runtime helpers)          |
 | 12  | `comb_index`           | 9                           | `UNICODE_PROPERTY_OFFSET_COMB_INDEX` = 12       |
 | 14  | `comb_length`          | 10                          | `UNICODE_PROPERTY_OFFSET_COMB_LENGTH` = 14      |
-| 16  | `flags`                | 11/13/14/15 (packed)        | `UNICODE_PROPERTY_OFFSET_FLAGS` = 16            |
+| 16  | `flags`                | 11/13/14/15/16/17 (packed)  | `UNICODE_PROPERTY_OFFSET_FLAGS` = 16            |
 | 18  | `boundclass`           | 19                          | `UNICODE_PROPERTY_OFFSET_BOUNDCLASS` = 18       |
 | 20  | `indic_conjunct_break` | 20                          | `UNICODE_PROPERTY_OFFSET_INDIC_CONJUNCT_BREAK`=20|
 | 22  | (zero pad)             | —                           | —                                               |
@@ -111,7 +111,8 @@ the fields that *are* read are a parallel definition of
 the same layout and must stay in sync with how `PackedProperty` is encoded.
 [[src/target/shared/code/private/unicode.rs:UNICODE_PROPERTY_SIZE]]
 
-`flags` is a bitfield packed from four utf8proc booleans:
+`flags` is a bitfield packed from four utf8proc booleans plus the display-width
+fields (plan-70-A):
 
 | Bit  | Flag                              | utf8proc field |
 |------|-----------------------------------|----------------|
@@ -119,8 +120,17 @@ the same layout and must stay in sync with how `PackedProperty` is encoded.
 | 1    | `COMP_EXCLUSION`                  | 13             |
 | 2    | `IGNORABLE`                       | 14             |
 | 3    | `CONTROL_BOUNDARY`                | 15             |
+| 4–5  | `charwidth` (0–3, 2 bits)         | 16             |
+| 6    | `AMBIGUOUS` (East Asian ambiguous)| 17             |
+
+The runtime reads the display width as `(flags >> 4) & 0b11` (`CHARWIDTH_SHIFT`=4,
+`CHARWIDTH_MASK`); a value of 2 is East-Asian-Wide (two terminal columns), 0/1 are
+one column (a lone zero-width scalar still occupies a cell — the EGC pool folds
+combining marks into their base). The `AMBIGUOUS` bit marks East Asian Ambiguous
+width; `strings::displayWidth` and the `term::` backends treat ambiguous as width 1.
 
 [[src/unicode/runtime_tables.rs:COMB_IS_SECOND]]
+[[src/unicode/runtime_tables.rs:charwidth]]
 [[src/unicode/runtime_tables.rs:parse_properties]]
 
 `combining_class`, `comb_index`, `comb_length`, `flags`, `boundclass`, and
