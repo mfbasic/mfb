@@ -70,7 +70,7 @@ three custom-resolver helpers. Fixture load is 12 projects.
 Acceptance: `cargo test` passes and every `datetime.*` fixture runs clean
 under `scripts/test-accept.sh` (12 fixtures; byte-identity via the combined
 C/F/G/H/I artifact-gate at finalization).
-Commit: —
+Commit: 57f711ca1
 
 ## Validation
 

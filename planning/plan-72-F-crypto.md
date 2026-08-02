@@ -64,7 +64,7 @@ type via `is_builtin_type` (line 111), and injects a companion via
 Acceptance: `cargo test` passes; every `crypto.*` fixture runs clean under
 `scripts/test-accept.sh` (5 fixtures; byte-identity via the combined C/F/G/H/I
 artifact-gate at finalization).
-Commit: —
+Commit: 09a713d6f
 
 ## Validation
 

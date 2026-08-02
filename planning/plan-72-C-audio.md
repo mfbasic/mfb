@@ -73,7 +73,7 @@ arg_types)` at line 366. It defines two builtin types via `is_builtin_type` /
 Acceptance: `cargo test` passes and every `audio.*` fixture runs clean under
 `scripts/test-accept.sh` (6 fixtures; byte-identity via the combined C/F/G/H/I
 artifact-gate at finalization).
-Commit: —
+Commit: 0e22447f8
 
 ## Validation
 

@@ -53,7 +53,7 @@ References: plan-72 overview, `src/builtins/csv.rs`,
 Acceptance: `cargo test` passes and `csv.*` fixtures run clean under
 `scripts/test-accept.sh` (2 fixtures; byte-identity via the combined C/F/G/H/I
 artifact-gate at finalization).
-Commit: —
+Commit: c2ad264ad
 
 ## Validation
 

@@ -71,7 +71,7 @@ the second-largest custom-resolver cohort.
 Acceptance: `cargo test` passes; every `encoding.*` fixture runs clean under
 `scripts/test-accept.sh` (29 fixtures; byte-identity via the combined C/F/G/H/I
 artifact-gate at finalization).
-Commit: —
+Commit: 7f7a35d83
 
 ## Validation
 
