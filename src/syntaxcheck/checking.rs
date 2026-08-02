@@ -565,10 +565,6 @@ impl<'a> SyntaxChecker<'a> {
                     )),
                     _other => Type::Unknown,
                 };
-                // Iterating a resource collection yields a *pointer* to each
-                // element; the loop variable may not close, `RETURN`, or transfer
-                // the resource (§15.6).
-                let _element_is_resource = self.is_resource_type(&element_type);
                 let mut nested = locals.clone();
                 nested.insert(
                     name.clone(),

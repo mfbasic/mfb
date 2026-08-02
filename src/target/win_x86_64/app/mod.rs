@@ -53,7 +53,6 @@ const TUI_CELL_W: usize = 8; // px per cell (matches the SYSTEM_FIXED_FONT metri
 const TUI_CELL_H: usize = 16;
 /// Writable u64 globals for the TUI surface, all 0 until `term::on` builds them.
 const TUI_MEMDC_SYM: &str = "_mfb_winapp_tui_memdc"; // off-screen HDC
-const TUI_FONT_SYM: &str = "_mfb_winapp_tui_font"; // cached monospace HFONT
 const TUI_ROW_SYM: &str = "_mfb_winapp_tui_row"; // cursor row (0-based)
 const TUI_COL_SYM: &str = "_mfb_winapp_tui_col"; // cursor col (0-based)
 // GDI / window message constants.
@@ -1398,10 +1397,9 @@ pub(super) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         // window proc, both written by `_main` at window build (0 until then).
         writable_qword(STDIN_WRITE_SYM),
         writable_qword(EDIT_OLDPROC_SYM),
-        // plan-66-J-5 term:: TUI grid state: the off-screen memory DC + cached font
-        // (built lazily by term::on), and the grid cursor (row, col). 0 until on.
+        // plan-66-J-5 term:: TUI grid state: the off-screen memory DC (built
+        // lazily by term::on), and the grid cursor (row, col). 0 until on.
         writable_qword(TUI_MEMDC_SYM),
-        writable_qword(TUI_FONT_SYM),
         writable_qword(TUI_ROW_SYM),
         writable_qword(TUI_COL_SYM),
         CodeDataObject {

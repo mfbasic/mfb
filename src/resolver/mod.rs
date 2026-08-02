@@ -175,11 +175,6 @@ struct Resolver<'a> {
 struct LinkFnSig {
     params: Vec<Option<String>>,
     param_resource: Vec<bool>,
-    // Consumed by later native-resource phases (producer typing); recorded now.
-    #[allow(dead_code)]
-    return_type: Option<String>,
-    #[allow(dead_code)]
-    return_resource: bool,
     line: usize,
 }
 
@@ -245,8 +240,6 @@ impl<'a> Resolver<'a> {
                                     .iter()
                                     .map(|param| param.resource)
                                     .collect(),
-                                return_type: function.return_type.clone(),
-                                return_resource: function.return_resource,
                                 line: function.line,
                             },
                         );

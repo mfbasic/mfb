@@ -84,10 +84,17 @@ pub(super) fn emit_executable_path_into(
             ]);
             Ok((buf, Some(count)))
         }
-        // 47-D owns the Windows executable path (GetModuleFileNameW).
-        PlatformFamily::Windows => {
-            unreachable!("47-D owns the Windows executable path")
-        }
+        // Windows acquires its executable path through the UTF-16 wide-string
+        // helper (`lower_os_wide_string_windows`), not this raw-buffer routine, so
+        // `lower_executable_path` early-returns for Windows before reaching here.
+        // `lower_resource_path` calls this unconditionally but `os.resourcePath`
+        // is gated out of `win_x86_64`'s `RUNTIME_CALLS`; return a diagnostic
+        // rather than panicking so that opening that gate before a real Windows
+        // resource-path implementation degrades to a compile error, not an ICE.
+        PlatformFamily::Windows => Err(format!(
+            "{symbol}: executable-path acquisition via the raw-buffer helper is \
+             not implemented for Windows"
+        )),
     }
 }
 
