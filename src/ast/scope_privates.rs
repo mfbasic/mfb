@@ -337,7 +337,19 @@ fn rewrite_stmt(
                 }
             }
         }
-        Statement::StateAssign { value, .. } => rewrite_expr(value, rename, types, scope),
+        Statement::StateAssign {
+            resource, value, ..
+        } => {
+            rewrite_expr(value, rename, types, scope);
+            // bug-396: the target-name reference must be swept through the rename
+            // map too -- exactly like the sibling `Assign` arm above. A local
+            // target is always in `scope` and so is correctly left bare.
+            if !scope.contains(resource) {
+                if let Some(mangled) = rename.get(resource) {
+                    *resource = mangled.clone();
+                }
+            }
+        }
         Statement::Return { value, .. } | Statement::Recover { value, .. } => {
             if let Some(value) = value.as_mut() {
                 rewrite_expr(value, rename, types, scope);
@@ -801,6 +813,47 @@ END TESTING
         assert!(json.contains(&mangled("Box")));
         // The structural keywords survive unmangled.
         assert!(json.contains("List OF"));
+    }
+
+    #[test]
+    fn private_binding_used_as_state_assign_target_is_rewritten() {
+        // bug-396: a `foo.state = v` whose `foo` names a file-PRIVATE top-level
+        // binding must have its `StateAssign.resource` reference mangled to match
+        // the (already mangled) declaration -- otherwise the resolver reports a
+        // bogus SYMBOL_UNKNOWN_IDENTIFIER instead of the accurate "not a local
+        // binding" diagnostic. Sibling to the `Assign` arm, which already sweeps
+        // its target name.
+        let src =
+            "PRIVATE MUT g AS Integer = 0\n\nFUNC f() AS Integer\n  g.state = 5\n  RETURN 0\nEND FUNC\n";
+        let mut project = project_from_src(src);
+        scope_privates(&mut project);
+        let json = project.to_json();
+        // The StateAssign target reference is mangled, not left bare.
+        assert!(
+            json.contains(&format!("\"resource\": \"{}\"", mangled("g"))),
+            "expected mangled StateAssign resource `{}` in output:\n{json}",
+            mangled("g")
+        );
+        // No bare, unmangled `g` target reference survives.
+        assert!(
+            !json.contains("\"resource\": \"g\""),
+            "bare unmangled StateAssign resource `g` should not survive"
+        );
+    }
+
+    #[test]
+    fn a_local_shadowing_a_private_keeps_its_state_assign_target_bare() {
+        // Non-goal guard (bug-396): once a local `g` shadows the private `g`, a
+        // later `g.state = v` targets the in-scope local and must stay bare -- the
+        // rename map only rewrites references the local scope does not cover.
+        let src = "PRIVATE MUT g AS Integer = 0\n\nFUNC f() AS Integer\n  LET g AS Integer = 1\n  g.state = 5\n  RETURN 0\nEND FUNC\n";
+        let mut project = project_from_src(src);
+        scope_privates(&mut project);
+        let json = project.to_json();
+        assert!(
+            json.contains("\"resource\": \"g\""),
+            "a local state-assign target must stay bare:\n{json}"
+        );
     }
 
     #[test]
