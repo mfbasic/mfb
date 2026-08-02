@@ -459,7 +459,8 @@ impl TypeTable {
                 continue;
             };
             if entry.kind == FOREIGN_TYPE_KIND && entry.abi_export_kind.is_none() {
-                entry.abi_export_kind = Some(decode_export_kind(checked_u16_at(&entry.payload, 0)?)?);
+                entry.abi_export_kind =
+                    Some(decode_export_kind(checked_u16_at(&entry.payload, 0)?)?);
             }
         }
         Ok(())

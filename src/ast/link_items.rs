@@ -736,27 +736,25 @@ mod tests {
     #[test]
     fn cstruct_end_must_name_cstruct() {
         // END not naming CSTRUCT (109-116).
-        assert!(
-            parse("LINK \"x\" AS l\n  CSTRUCT Foo AS Rec\n  END BADNAME\nEND LINK\n").is_err()
-        );
+        assert!(parse("LINK \"x\" AS l\n  CSTRUCT Foo AS Rec\n  END BADNAME\nEND LINK\n").is_err());
     }
 
     #[test]
     fn cstruct_field_missing_name() {
         // A field line starting with a non-identifier (128-130).
-        assert!(
-            parse("LINK \"x\" AS l\n  CSTRUCT Foo AS Rec\n    123 CInt32\n  END CSTRUCT\nEND LINK\n")
-                .is_err()
-        );
+        assert!(parse(
+            "LINK \"x\" AS l\n  CSTRUCT Foo AS Rec\n    123 CInt32\n  END CSTRUCT\nEND LINK\n"
+        )
+        .is_err());
     }
 
     #[test]
     fn cstruct_field_missing_ctype() {
         // A field name with no valid C type after it (133-135).
-        assert!(
-            parse("LINK \"x\" AS l\n  CSTRUCT Foo AS Rec\n    field 123\n  END CSTRUCT\nEND LINK\n")
-                .is_err()
-        );
+        assert!(parse(
+            "LINK \"x\" AS l\n  CSTRUCT Foo AS Rec\n    field 123\n  END CSTRUCT\nEND LINK\n"
+        )
+        .is_err());
     }
 
     #[test]

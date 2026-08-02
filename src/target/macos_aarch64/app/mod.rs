@@ -426,21 +426,21 @@ const TV_CUR_FG_OFFSET: usize = 64; // u32 packed r|g<<8|b<<16 (default white)
 const TV_CUR_BG_OFFSET: usize = 72; // u32 packed (default black = 0)
 const TV_CUR_BOLD_OFFSET: usize = 80; // i64 bold flag
 const TV_CUR_UNDERLINE_OFFSET: usize = 88; // i64 underline flag
-// Draw-line parameters (term::drawHLine/drawVLine). The worker resolves the
-// LineStyle ordinal to a `unichar` glyph and parks these here before marshaling
-// `mfbDrawLine:` onto the main thread, which reads them, clamps the span to the
-// current grid, and stamps the glyph. Safe from the worker: only the scalar
-// fields are written (not the realloc-able `cells` pointer), and the
-// `waitUntilDone:YES` marshal serialises them with the main-thread read.
+                                           // Draw-line parameters (term::drawHLine/drawVLine). The worker resolves the
+                                           // LineStyle ordinal to a `unichar` glyph and parks these here before marshaling
+                                           // `mfbDrawLine:` onto the main thread, which reads them, clamps the span to the
+                                           // current grid, and stamps the glyph. Safe from the worker: only the scalar
+                                           // fields are written (not the realloc-able `cells` pointer), and the
+                                           // `waitUntilDone:YES` marshal serialises them with the main-thread read.
 const TV_DRAW_GLYPH_OFFSET: usize = 96; // u32 unichar (resolved by the worker)
 const TV_DRAW_FIXED_OFFSET: usize = 104; // i64 fixed line coordinate (raw)
 const TV_DRAW_LO_OFFSET: usize = 112; // i64 span endpoint A (raw, either order)
 const TV_DRAW_HI_OFFSET: usize = 120; // i64 span endpoint B (raw, either order)
 const TV_DRAW_HORIZ_OFFSET: usize = 128; // i64 1 = horizontal, 0 = vertical
-// term::drawBox parameters. The worker resolves the LineStyle ordinal to the six
-// box glyphs (edges + corners, as unichars) and parks them plus the two raw
-// corner points here before marshaling mfbDrawBox:; the main-thread IMP
-// normalises the points, clamps each edge/corner to the grid, and stamps.
+                                         // term::drawBox parameters. The worker resolves the LineStyle ordinal to the six
+                                         // box glyphs (edges + corners, as unichars) and parks them plus the two raw
+                                         // corner points here before marshaling mfbDrawBox:; the main-thread IMP
+                                         // normalises the points, clamps each edge/corner to the grid, and stamps.
 const TV_BOX_HG_OFFSET: usize = 136; // u32 horizontal edge glyph
 const TV_BOX_VG_OFFSET: usize = 144; // u32 vertical edge glyph
 const TV_BOX_CTL_OFFSET: usize = 152; // u32 top-left corner
@@ -451,20 +451,20 @@ const TV_BOX_X1_OFFSET: usize = 184; // i64 point 1 column (raw)
 const TV_BOX_Y1_OFFSET: usize = 192; // i64 point 1 row (raw)
 const TV_BOX_X2_OFFSET: usize = 200; // i64 point 2 column (raw)
 const TV_BOX_Y2_OFFSET: usize = 208; // i64 point 2 row (raw)
-// term::fillRect parameters. The worker resolves the FillStyle ordinal to the
-// block/shade glyph (unichar) and parks it plus the two raw corner points here
-// before marshaling mfbFillRect:; the IMP normalises/clamps and fills.
+                                     // term::fillRect parameters. The worker resolves the FillStyle ordinal to the
+                                     // block/shade glyph (unichar) and parks it plus the two raw corner points here
+                                     // before marshaling mfbFillRect:; the IMP normalises/clamps and fills.
 const TV_FILL_GLYPH_OFFSET: usize = 216; // u32 fill glyph
 const TV_FILL_X1_OFFSET: usize = 224; // i64 point 1 column (raw)
 const TV_FILL_Y1_OFFSET: usize = 232; // i64 point 1 row (raw)
 const TV_FILL_X2_OFFSET: usize = 240; // i64 point 2 column (raw)
 const TV_FILL_Y2_OFFSET: usize = 248; // i64 point 2 row (raw)
-// term::drawGlyph parameters: the code point (unichar) and its cell.
+                                      // term::drawGlyph parameters: the code point (unichar) and its cell.
 const TV_GLYPH_G_OFFSET: usize = 256; // u32 unichar
 const TV_GLYPH_X_OFFSET: usize = 264; // i64 column
 const TV_GLYPH_Y_OFFSET: usize = 272; // i64 row
-// term::drawText parameters: the start cell (the text itself is passed as the
-// NSString `withObject:` argument, like mfbWriteString:).
+                                      // term::drawText parameters: the start cell (the text itself is passed as the
+                                      // NSString `withObject:` argument, like mfbWriteString:).
 const TV_TEXT_X_OFFSET: usize = 280; // i64 start column
 const TV_TEXT_Y_OFFSET: usize = 288; // i64 row
 // plan-70-D Phase 2: per-cell EGC pool base (a calloc'd byte arena, rows*cols

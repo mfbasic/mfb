@@ -1318,18 +1318,22 @@ mod tests {
         // adapter returns exactly the closure's answer. (This test tracked a
         // still-unmigrated real example — `math` until plan-72-P, `regex` until -T,
         // `tls` until -Z — but none remains.)
-        assert!(registry_is_call(&descriptor::REGISTRY, "nonesuch.thing", |name| {
-            name == "nonesuch.thing"
-        }));
-        assert!(!registry_is_call(&descriptor::REGISTRY, "nonesuch.other", |_| false));
+        assert!(registry_is_call(
+            &descriptor::REGISTRY,
+            "nonesuch.thing",
+            |name| { name == "nonesuch.thing" }
+        ));
+        assert!(!registry_is_call(
+            &descriptor::REGISTRY,
+            "nonesuch.other",
+            |_| false
+        ));
         assert_eq!(
             registry_arity(&descriptor::REGISTRY, "nonesuch.thing", |_| Some((1, 2))),
             Some((1, 2))
         );
         assert_eq!(
-            registry_return_type_name(&descriptor::REGISTRY, "nonesuch.thing", |_| Some(
-                "Nothing"
-            )),
+            registry_return_type_name(&descriptor::REGISTRY, "nonesuch.thing", |_| Some("Nothing")),
             Some("Nothing")
         );
         assert_eq!(
@@ -1339,5 +1343,4 @@ mod tests {
             Some("X".to_string())
         );
     }
-
 }

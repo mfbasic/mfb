@@ -127,7 +127,9 @@ pub(super) fn lower_cpu_count(
         PlatformFamily::MacOS => "58",
         PlatformFamily::Linux => "84",
         // Windows is handled above (GetSystemInfo); never reaches this sysconf id.
-        PlatformFamily::Windows => unreachable!("plan-66-B routes Windows cpuCount to GetSystemInfo"),
+        PlatformFamily::Windows => {
+            unreachable!("plan-66-B routes Windows cpuCount to GetSystemInfo")
+        }
     };
     let positive = format!("{symbol}_positive");
     let mut vregs = Vregs::new();
@@ -181,7 +183,13 @@ pub(super) fn lower_os_wide_string_windows(
     let value = vregs.next();
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    platform.emit_os_wide_string(which, symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_os_wide_string(
+        which,
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_register(&value, abi::return_register()),
         abi::compare_immediate(&value, "0"),
@@ -202,7 +210,12 @@ pub(super) fn lower_os_wide_string_windows(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_UNSUPPORTED_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_UNSUPPORTED_SYMBOL, &mut instructions, &mut relocations);
+    push_error_message_address(
+        symbol,
+        ERR_UNSUPPORTED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);

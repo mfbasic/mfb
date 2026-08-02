@@ -550,6 +550,41 @@ mod resources_tests {
 
     // ---- copyability / sendability walks over user types -------------------
 
+    // ---- resource-union parameter widening (plan-13-A) ---------------------
+
+    /// plan-13-A: a variant value widens into a `RES` parameter that names the
+    /// resource union — a `File` into a `RES s AS Stream` parameter. The
+    /// widening is reached through `expression_compatible`/`compatible`, which
+    /// already subsumes a variant into its union and strips the `RES` marker;
+    /// the parameter position now consults it (spec §15.4).
+    #[test]
+    fn resource_union_variant_widens_into_union_param() {
+        let src = "IMPORT fs\nIMPORT net\nUNION Stream\n  File\n  Socket\nEND UNION\nFUNC useStream(RES s AS Stream) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RES f AS File = fs::createTempFile()\n  RETURN useStream(f)\nEND FUNC\n";
+        assert!(
+            accepts(src),
+            "a variant must widen into a resource-union RES parameter"
+        );
+    }
+
+    /// The load-bearing direction: a resource union value into a *concrete*
+    /// resource parameter is rejected. Symmetric widening would let a union
+    /// reach a concrete close op whose real type it cannot know — a
+    /// use-after-free class bug, not a type-checker inconvenience.
+    #[test]
+    fn resource_union_actual_rejected_by_concrete_param() {
+        let src = "IMPORT fs\nIMPORT net\nUNION Stream\n  File\n  Socket\nEND UNION\nFUNC useFile(RES f AS File) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RES s AS Stream = fs::createTempFile()\n  RETURN useFile(s)\nEND FUNC\n";
+        assert!(rejects_with(src, "TYPE_CALL_ARGUMENT_MISMATCH"));
+    }
+
+    /// A registered close op (`fs::close`, concrete `RES File`) handed a union
+    /// is rejected for the same directional reason — the concrete-typed close
+    /// op stays unreachable by a whole union.
+    #[test]
+    fn resource_union_actual_rejected_by_close_op() {
+        let src = "IMPORT fs\nIMPORT net\nUNION Stream\n  File\n  Socket\nEND UNION\nFUNC main AS Integer\n  RES s AS Stream = fs::createTempFile()\n  fs::close(s)\n  RETURN 0\nEND FUNC\n";
+        assert!(rejects_with(src, "TYPE_CALL_ARGUMENT_MISMATCH"));
+    }
+
     #[test]
     fn resource_union_type_walked() {
         // A union of resource types is a resource union. Storing it in a plain
@@ -605,14 +640,7 @@ mod resources_tests {
             files: vec![],
         };
         let checker = SyntaxChecker::new(std::path::Path::new("."), &project);
-        let thread = || {
-            Type::Thread(
-                Box::new(Type::Integer),
-                None,
-                None,
-                Box::new(Type::Integer),
-            )
-        };
+        let thread = || Type::Thread(Box::new(Type::Integer), None, None, Box::new(Type::Integer));
         let set_of_thread = Type::Set(Box::new(thread()));
         assert!(
             checker.contains_thread(&set_of_thread),

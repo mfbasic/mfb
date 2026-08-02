@@ -1,0 +1,12 @@
+{
+  "name": "union_xfer_workers",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "Accepts a stateful resource union `Stream STATE Cursor` over the thread plane and returns the transferred `pos`.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "ident": "tests:union-xfer-workers",
+  "identKey": "ed25519-public:test-union-xfer-workers-ident",
+  "identFingerprint": "sha256:test-union-xfer-workers-ident",
+  "signingFingerprint": "sha256:test-union-xfer-workers-signing"
+}

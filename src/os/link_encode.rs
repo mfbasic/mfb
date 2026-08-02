@@ -325,7 +325,10 @@ mod tests {
     fn symbol_vmaddr_covers_every_section_arm() {
         let img = image();
         // Text symbol.
-        assert_eq!(symbol_vmaddr(&img, "_t", 0x1000, 0x2000, None).unwrap(), 0x1004);
+        assert_eq!(
+            symbol_vmaddr(&img, "_t", 0x1000, 0x2000, None).unwrap(),
+            0x1004
+        );
         // Data symbol, rodata window, offset < size -> rodata region.
         assert_eq!(
             symbol_vmaddr(&img, "_d0", 0x1000, 0x2000, Some((0x8000, 8))).unwrap(),
@@ -373,7 +376,9 @@ mod tests {
 
         // internal branch26
         let mut text = vec![0u8; 64];
-        assert!(patch_aarch64_reloc(&mut text, &reloc(0, "_t", "branch26", "internal"), &c).unwrap());
+        assert!(
+            patch_aarch64_reloc(&mut text, &reloc(0, "_t", "branch26", "internal"), &c).unwrap()
+        );
         // data page21
         let mut text = vec![0u8; 64];
         assert!(patch_aarch64_reloc(&mut text, &reloc(0, "_d0", "page21", "data"), &c).unwrap());
@@ -382,13 +387,20 @@ mod tests {
         assert!(patch_aarch64_reloc(&mut text, &reloc(0, "_d0", "pageoff12", "data"), &c).unwrap());
         // external branch26
         let mut text = vec![0u8; 64];
-        assert!(patch_aarch64_reloc(&mut text, &reloc(0, "_ext", "branch26", "external"), &c).unwrap());
+        assert!(
+            patch_aarch64_reloc(&mut text, &reloc(0, "_ext", "branch26", "external"), &c).unwrap()
+        );
         // external page21
         let mut text = vec![0u8; 64];
-        assert!(patch_aarch64_reloc(&mut text, &reloc(0, "_gdata", "page21", "external"), &c).unwrap());
+        assert!(
+            patch_aarch64_reloc(&mut text, &reloc(0, "_gdata", "page21", "external"), &c).unwrap()
+        );
         // external pageoff12
         let mut text = vec![0u8; 64];
-        assert!(patch_aarch64_reloc(&mut text, &reloc(0, "_gdata", "pageoff12", "external"), &c).unwrap());
+        assert!(
+            patch_aarch64_reloc(&mut text, &reloc(0, "_gdata", "pageoff12", "external"), &c)
+                .unwrap()
+        );
         // unhandled kind -> Ok(false)
         let mut text = vec![0u8; 64];
         assert!(!patch_aarch64_reloc(&mut text, &reloc(0, "_t", "abs64", "weird"), &c).unwrap());
@@ -401,14 +413,14 @@ mod tests {
         let got = HashMap::new();
         let c = ctx(&img, &stubs, &got);
         let mut text = vec![0u8; 64];
-        let err =
-            patch_aarch64_reloc(&mut text, &reloc(0, "_ext", "branch26", "external"), &c).unwrap_err();
+        let err = patch_aarch64_reloc(&mut text, &reloc(0, "_ext", "branch26", "external"), &c)
+            .unwrap_err();
         assert!(err.contains("cannot bind external symbol"), "{err}");
         let err =
             patch_aarch64_reloc(&mut text, &reloc(0, "_g", "page21", "external"), &c).unwrap_err();
         assert!(err.contains("cannot bind external data symbol"), "{err}");
-        let err =
-            patch_aarch64_reloc(&mut text, &reloc(0, "_g", "pageoff12", "external"), &c).unwrap_err();
+        let err = patch_aarch64_reloc(&mut text, &reloc(0, "_g", "pageoff12", "external"), &c)
+            .unwrap_err();
         assert!(err.contains("cannot bind external data symbol"), "{err}");
     }
 }

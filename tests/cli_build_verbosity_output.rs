@@ -14,9 +14,9 @@
 
 mod common;
 use common::temp_project;
+use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
-use std::fs;
 
 const SOURCE: &str = r#"
 IMPORT io

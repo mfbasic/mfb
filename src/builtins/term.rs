@@ -418,7 +418,15 @@ mod tests {
         }
         assert_eq!(
             call_param_names(DRAW_BOX),
-            Some(&[&["line"][..], &["x1"][..], &["y1"][..], &["x2"][..], &["y2"][..]][..])
+            Some(
+                &[
+                    &["line"][..],
+                    &["x1"][..],
+                    &["y1"][..],
+                    &["x2"][..],
+                    &["y2"][..]
+                ][..]
+            )
         );
         assert_eq!(
             param_types(DRAW_BOX),
@@ -426,7 +434,15 @@ mod tests {
         );
         assert_eq!(
             call_param_names(FILL_RECT),
-            Some(&[&["fill"][..], &["x1"][..], &["y1"][..], &["x2"][..], &["y2"][..]][..])
+            Some(
+                &[
+                    &["fill"][..],
+                    &["x1"][..],
+                    &["y1"][..],
+                    &["x2"][..],
+                    &["y2"][..]
+                ][..]
+            )
         );
         assert_eq!(
             param_types(FILL_RECT),

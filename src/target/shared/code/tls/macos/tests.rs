@@ -532,7 +532,11 @@ fn accept_failure_exits_drain_to_cancelled() {
         lower_tls_accept_macos("t_a", &imports, &TlsReadTestPlatform).expect("lower");
     for (exit, end, drain) in [
         ("t_a_conn_fail", "t_a_hs_timeout", "t_a_conn_fail_drain"),
-        ("t_a_hs_timeout", "t_a_accept_timeout", "t_a_hs_timeout_drain"),
+        (
+            "t_a_hs_timeout",
+            "t_a_accept_timeout",
+            "t_a_hs_timeout_drain",
+        ),
     ] {
         let win = window(&ins, exit, end);
         assert!(

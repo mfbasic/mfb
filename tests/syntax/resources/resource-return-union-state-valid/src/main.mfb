@@ -1,0 +1,24 @@
+IMPORT fs
+IMPORT net
+
+TYPE StreamState
+  bytes AS Integer
+END TYPE
+
+UNION Stream
+  File
+  Socket
+END UNION
+
+' plan-74: a FUNC may return a resource union carrying a uniform STATE; the
+' caller adopts it with a matching STATE binding (the return twin of
+' resource-union-state-valid).
+FUNC make() AS RES Stream STATE StreamState
+  RES s AS Stream STATE StreamState = fs::createTempFile()
+  RETURN s
+END FUNC
+
+FUNC main AS Integer
+  RES h AS Stream STATE StreamState = make()
+  RETURN 0
+END FUNC

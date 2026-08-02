@@ -131,7 +131,8 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_RESOURCE_REQUIRES_RES",
     "TYPE_RES_REQUIRES_RESOURCE",
     "TYPE_STATE_INVALID",
-    "TYPE_UNION_STATE_FORBIDDEN",
+    // plan-74 retired TYPE_UNION_STATE_FORBIDDEN (a resource union may carry
+    // uniform STATE); it is no longer emitted, so it leaves this located-rules list.
     // ir::verify is the SOLE implementer of the STATE-agreement rule (plan-52-C/D)
     // — syntaxcheck has no twin of it to duplicate — so it is relocated from birth
     // rather than after a reproduction pass. Without this entry the source path

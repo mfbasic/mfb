@@ -214,9 +214,9 @@ pub(super) fn write_image(
     w.u32(size_of_image);
     w.u32(headers_size); // SizeOfHeaders
     w.u32(0); // CheckSum (determinism)
-    // Subsystem: WINDOWS_GUI(2) in app mode, WINDOWS_CUI(3) for a console build
-    // (plan-66-I). GUI is the only difference — the loader hides the console for
-    // subsystem 2, letting the app own its own Win32 window.
+              // Subsystem: WINDOWS_GUI(2) in app mode, WINDOWS_CUI(3) for a console build
+              // (plan-66-I). GUI is the only difference — the loader hides the console for
+              // subsystem 2, letting the app own its own Win32 window.
     w.u16(if gui { 2 } else { 3 });
     w.u16(0x0100 | 0x8000); // DllCharacteristics: NX_COMPAT | TERMINAL_SERVER_AWARE (DYNAMIC_BASE clear)
                             // 8 MiB reserve matching the worker-thread stacks, with 1 MiB committed

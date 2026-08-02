@@ -1147,7 +1147,11 @@ pub(super) fn emit_term_draw_line_helper() -> CodeFunction {
 
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     for (reg, off) in [
         (state, 8),
         (cells, 16),
@@ -1617,7 +1621,11 @@ pub(super) fn emit_term_draw_box_helper() -> CodeFunction {
 
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     for (reg, off) in saved {
         asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
     }
@@ -1752,7 +1760,11 @@ pub(super) fn emit_term_fill_rect_helper() -> CodeFunction {
 
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     for (reg, off) in saved {
         asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
     }
@@ -1806,7 +1818,9 @@ pub(super) fn emit_term_fill_rect_helper() -> CodeFunction {
     asm.push(abi::label("fr_row"));
     asm.push(abi::compare_registers(row, yhi));
     asm.push(abi::branch_gt("fr_done"));
-    app_stamp_run(&mut asm, &ctx, true, row, xlo, xhi, glyph, "fr_run", "fr_next");
+    app_stamp_run(
+        &mut asm, &ctx, true, row, xlo, xhi, glyph, "fr_run", "fr_next",
+    );
     asm.push(abi::label("fr_next"));
     asm.push(abi::add_immediate(row, row, 1));
     asm.push(abi::branch("fr_row"));
@@ -1872,7 +1886,11 @@ pub(super) fn emit_term_draw_glyph_helper(uses_term: bool) -> CodeFunction {
     ];
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     for (reg, off) in saved {
         asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
     }
@@ -1980,7 +1998,11 @@ pub(super) fn emit_term_draw_text_helper(uses_term: bool) -> CodeFunction {
     ];
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     for (reg, off) in saved {
         asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
     }

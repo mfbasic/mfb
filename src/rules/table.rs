@@ -996,7 +996,7 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-203-0088",
         name: "TYPE_UNION_STATE_FORBIDDEN",
         severity: Severity::Error,
-        message: "a resource union carries no STATE",
+        message: "reserved: retired by plan-74 (a resource union may carry uniform STATE)",
     },
     Rule {
         code: "2-203-0129",

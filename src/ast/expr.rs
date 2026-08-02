@@ -1007,10 +1007,7 @@ mod tests {
         // ~300 nested `List OF …` trips `parse_type_name`'s `enter_type` false
         // body (569-582) and its bail (597).
         on_big_stack(|| {
-            let src = format!(
-                "SUB s(x AS {}Integer)\nEND SUB\n",
-                "List OF ".repeat(300),
-            );
+            let src = format!("SUB s(x AS {}Integer)\nEND SUB\n", "List OF ".repeat(300),);
             assert!(parse(&src).is_err());
         });
     }
@@ -1028,7 +1025,8 @@ mod tests {
     #[test]
     fn primary_scalar_literal() {
         // A backtick scalar literal reaches the `Scalar` primary arm (472).
-        let file = crate::testutil::parse_file("FUNC f AS Integer\n  LET x = `A`\n  RETURN 0\nEND FUNC\n");
+        let file =
+            crate::testutil::parse_file("FUNC f AS Integer\n  LET x = `A`\n  RETURN 0\nEND FUNC\n");
         // A successful parse is enough to exercise the arm; confirm it parsed.
         assert!(!file.items.is_empty());
     }
@@ -1045,10 +1043,10 @@ mod tests {
     #[test]
     fn map_literal_missing_open_brace() {
         // `Map OF K TO V` with no `{` bails in `parse_map_literal` (882).
-        assert!(
-            parse("FUNC f AS Integer\n  LET m = Map OF Integer TO Integer 5\n  RETURN 0\nEND FUNC\n")
-                .is_err()
-        );
+        assert!(parse(
+            "FUNC f AS Integer\n  LET m = Map OF Integer TO Integer 5\n  RETURN 0\nEND FUNC\n"
+        )
+        .is_err());
     }
 
     #[test]
@@ -1095,6 +1093,8 @@ mod tests {
     fn constructor_argument_list_detail_default_arm() {
         // A non-`RBracket` closing → the `_` detail arm (445).
         let mut p = parser_over(")");
-        assert!(p.parse_constructor_argument_list(TokenKind::RParen).is_some());
+        assert!(p
+            .parse_constructor_argument_list(TokenKind::RParen)
+            .is_some());
     }
 }

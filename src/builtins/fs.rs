@@ -1,4 +1,3 @@
-
 use super::descriptor::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinType, DefaultResolver,
     DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType, TypeKind,
@@ -111,8 +110,11 @@ const P_PATH_BYTES: &[Parameter] = &[req("path", "String"), BYTES_VALUE];
 const P_PATH_VALUE: &[Parameter] = &[req("path", "String"), req("value", "String")];
 const P_OPEN: &[Parameter] = &[req("path", "String"), req("mode", "String")];
 const P_OPEN_FILE: &[Parameter] = &[req("path", "String"), opt("mode", "String")];
-const P_OPEN_WITHIN: &[Parameter] =
-    &[req("root", "String"), req("relPath", "String"), opt("mode", "String")];
+const P_OPEN_WITHIN: &[Parameter] = &[
+    req("root", "String"),
+    req("relPath", "String"),
+    opt("mode", "String"),
+];
 const P_CREATE_TEMP: &[Parameter] = &[opt("directory", "String")];
 const P_FILE_VALUE: &[Parameter] = &[req("file", "File"), req("value", "String")];
 const P_FILE_BYTES: &[Parameter] = &[req("file", "File"), BYTES_VALUE];
@@ -136,28 +138,60 @@ const P_PARTS: &[Parameter] = &[req("parts", "List OF String")];
 
 const FS_FUNCTIONS: &[BuiltinFunction] = &[
     ffn(FILE_EXISTS, "fileExists", &[ov(P_PATH, "Boolean")]),
-    ffn(DIRECTORY_EXISTS, "directoryExists", &[ov(P_PATH, "Boolean")]),
+    ffn(
+        DIRECTORY_EXISTS,
+        "directoryExists",
+        &[ov(P_PATH, "Boolean")],
+    ),
     ffn(EXISTS, "exists", &[ov(P_PATH, "Boolean")]),
     ffn(READ_BYTES, "readBytes", &[ov(P_PATH, "List OF Byte")]),
     ffn(READ_TEXT, "readText", &[ov(P_PATH, "String")]),
     ffn(WRITE_BYTES, "writeBytes", &[ov(P_PATH_BYTES, "Nothing")]),
     ffn(WRITE_TEXT, "writeText", &[ov(P_PATH_VALUE, "Nothing")]),
-    ffn(WRITE_BYTES_ATOMIC, "writeBytesAtomic", &[ov(P_PATH_BYTES, "Nothing")]),
-    ffn(WRITE_TEXT_ATOMIC, "writeTextAtomic", &[ov(P_PATH_VALUE, "Nothing")]),
+    ffn(
+        WRITE_BYTES_ATOMIC,
+        "writeBytesAtomic",
+        &[ov(P_PATH_BYTES, "Nothing")],
+    ),
+    ffn(
+        WRITE_TEXT_ATOMIC,
+        "writeTextAtomic",
+        &[ov(P_PATH_VALUE, "Nothing")],
+    ),
     ffn(APPEND_BYTES, "appendBytes", &[ov(P_PATH_BYTES, "Nothing")]),
     ffn(APPEND_TEXT, "appendText", &[ov(P_PATH_VALUE, "Nothing")]),
     ffn(OPEN, "open", &[ov(P_OPEN, FILE_TYPE)]),
     ffn(OPEN_FILE, "openFile", &[ov(P_OPEN_FILE, FILE_TYPE)]),
-    ffn(OPEN_FILE_NO_FOLLOW, "openFileNoFollow", &[ov(P_OPEN_FILE, FILE_TYPE)]),
+    ffn(
+        OPEN_FILE_NO_FOLLOW,
+        "openFileNoFollow",
+        &[ov(P_OPEN_FILE, FILE_TYPE)],
+    ),
     ffn(OPEN_WITHIN, "openWithin", &[ov(P_OPEN_WITHIN, FILE_TYPE)]),
-    ffn(CREATE_TEMP_FILE, "createTempFile", &[ov(P_CREATE_TEMP, FILE_TYPE)]),
+    ffn(
+        CREATE_TEMP_FILE,
+        "createTempFile",
+        &[ov(P_CREATE_TEMP, FILE_TYPE)],
+    ),
     ffn(TEMP_DIRECTORY, "tempDirectory", &[ov(P_NONE, "String")]),
     ffn(READ_LINE, "readLine", &[ov(P_FILE, "String")]),
     ffn(READ_ALL, "readAll", &[ov(P_FILE, "String")]),
-    ffn(READ_ALL_BYTES, "readAllBytes", &[ov(P_FILE, "List OF Byte")]),
+    ffn(
+        READ_ALL_BYTES,
+        "readAllBytes",
+        &[ov(P_FILE, "List OF Byte")],
+    ),
     ffn(WRITE_ALL, "writeAll", &[ov(P_FILE_VALUE, "Nothing")]),
-    ffn(WRITE_ALL_BYTES, "writeAllBytes", &[ov(P_FILE_BYTES, "Nothing")]),
-    ffn(SET_BUFFERED, "setBuffered", &[ov(P_FILE_ENABLED, "Nothing")]),
+    ffn(
+        WRITE_ALL_BYTES,
+        "writeAllBytes",
+        &[ov(P_FILE_BYTES, "Nothing")],
+    ),
+    ffn(
+        SET_BUFFERED,
+        "setBuffered",
+        &[ov(P_FILE_ENABLED, "Nothing")],
+    ),
     ffn(IS_BUFFERED, "isBuffered", &[ov(P_FILE, "Boolean")]),
     ffn(FLUSH, "flush", &[ov(P_FILE, "Nothing")]),
     ffn(CLOSE, "close", &[ov(P_FILE, "Nothing")]),
@@ -170,12 +204,36 @@ const FS_FUNCTIONS: &[BuiltinFunction] = &[
     ffn(PATH_EXTENSION, "pathExtension", &[ov(P_PATH, "String")]),
     ffn(PATH_NORMALIZE, "pathNormalize", &[ov(P_PATH, "String")]),
     ffn(DELETE_FILE, "deleteFile", &[ov(P_PATH, "Nothing")]),
-    ffn(CREATE_DIRECTORY, "createDirectory", &[ov(P_PATH, "Nothing")]),
-    ffn(CREATE_DIRECTORIES, "createDirectories", &[ov(P_PATH, "Nothing")]),
-    ffn(DELETE_DIRECTORY, "deleteDirectory", &[ov(P_PATH, "Nothing")]),
-    ffn(LIST_DIRECTORY, "listDirectory", &[ov(P_PATH, "List OF String")]),
-    ffn(CURRENT_DIRECTORY, "currentDirectory", &[ov(P_NONE, "String")]),
-    ffn(SET_CURRENT_DIRECTORY, "setCurrentDirectory", &[ov(P_PATH, "Nothing")]),
+    ffn(
+        CREATE_DIRECTORY,
+        "createDirectory",
+        &[ov(P_PATH, "Nothing")],
+    ),
+    ffn(
+        CREATE_DIRECTORIES,
+        "createDirectories",
+        &[ov(P_PATH, "Nothing")],
+    ),
+    ffn(
+        DELETE_DIRECTORY,
+        "deleteDirectory",
+        &[ov(P_PATH, "Nothing")],
+    ),
+    ffn(
+        LIST_DIRECTORY,
+        "listDirectory",
+        &[ov(P_PATH, "List OF String")],
+    ),
+    ffn(
+        CURRENT_DIRECTORY,
+        "currentDirectory",
+        &[ov(P_NONE, "String")],
+    ),
+    ffn(
+        SET_CURRENT_DIRECTORY,
+        "setCurrentDirectory",
+        &[ov(P_PATH, "Nothing")],
+    ),
 ];
 
 const FS_TYPES: &[BuiltinType] = &[BuiltinType {

@@ -98,40 +98,200 @@ const VALTEXT: &[&str] = &["text"];
 
 const ENCODING_FUNCTIONS: &[BuiltinFunction] = &[
     // The two overloaded names: Custom implementation (resolved by the resolver).
-    ef(UTF8_ENCODE, "utf8Encode", &[ov(&[p("value", VALTEXT, "String")], BYTES)], Implementation::Custom),
-    ef(UTF8_DECODE, "utf8Decode", &[ov(&[p("value", &[], BYTES)], "String")], Implementation::Custom),
+    ef(
+        UTF8_ENCODE,
+        "utf8Encode",
+        &[ov(&[p("value", VALTEXT, "String")], BYTES)],
+        Implementation::Custom,
+    ),
+    ef(
+        UTF8_DECODE,
+        "utf8Decode",
+        &[ov(&[p("value", &[], BYTES)], "String")],
+        Implementation::Custom,
+    ),
     // The 4 monomorph targets.
-    ef(UTF8_ENCODE_BYTES, "utf8EncodeBytes", &[ov(&[p("value", &[], "String")], BYTES)], Implementation::Rewrite("__encoding_utf8EncodeBytes")),
-    ef(UTF8_ENCODE_INTS, "utf8EncodeInts", &[ov(&[p("value", &[], "String")], INTS)], Implementation::Rewrite("__encoding_utf8EncodeInts")),
-    ef(UTF8_DECODE_BYTES, "utf8DecodeBytes", &[ov(&[p("value", &[], BYTES)], "String")], Implementation::Rewrite("__encoding_utf8DecodeBytes")),
-    ef(UTF8_DECODE_INTS, "utf8DecodeInts", &[ov(&[p("value", &[], INTS)], "String")], Implementation::Rewrite("__encoding_utf8DecodeInts")),
+    ef(
+        UTF8_ENCODE_BYTES,
+        "utf8EncodeBytes",
+        &[ov(&[p("value", &[], "String")], BYTES)],
+        Implementation::Rewrite("__encoding_utf8EncodeBytes"),
+    ),
+    ef(
+        UTF8_ENCODE_INTS,
+        "utf8EncodeInts",
+        &[ov(&[p("value", &[], "String")], INTS)],
+        Implementation::Rewrite("__encoding_utf8EncodeInts"),
+    ),
+    ef(
+        UTF8_DECODE_BYTES,
+        "utf8DecodeBytes",
+        &[ov(&[p("value", &[], BYTES)], "String")],
+        Implementation::Rewrite("__encoding_utf8DecodeBytes"),
+    ),
+    ef(
+        UTF8_DECODE_INTS,
+        "utf8DecodeInts",
+        &[ov(&[p("value", &[], INTS)], "String")],
+        Implementation::Rewrite("__encoding_utf8DecodeInts"),
+    ),
     // Non-overloaded codecs.
-    ef(UTF16_ENCODE, "utf16Encode", &[ov(&[p("value", VALTEXT, "String")], INTS)], Implementation::Rewrite("__encoding_utf16Encode")),
-    ef(UTF16_DECODE, "utf16Decode", &[ov(&[p("value", &[], INTS)], "String")], Implementation::Rewrite("__encoding_utf16Decode")),
-    ef(UTF32_ENCODE, "utf32Encode", &[ov(&[p("value", VALTEXT, "String")], INTS)], Implementation::Rewrite("__encoding_utf32Encode")),
-    ef(UTF32_DECODE, "utf32Decode", &[ov(&[p("value", &[], INTS)], "String")], Implementation::Rewrite("__encoding_utf32Decode")),
-    ef(HEX_ENCODE, "hexEncode", &[ov(&[p("data", &[], BYTES)], "String")], Implementation::Rewrite("__encoding_hexEncode")),
-    ef(HEX_DECODE, "hexDecode", &[ov(&[p("text", &[], "String")], BYTES)], Implementation::Rewrite("__encoding_hexDecode")),
-    ef(BASE32_ENCODE, "base32Encode", &[ov(&[p("data", &[], BYTES)], "String")], Implementation::Rewrite("__encoding_base32Encode")),
-    ef(BASE32_DECODE, "base32Decode", &[ov(&[p("text", &[], "String")], BYTES)], Implementation::Rewrite("__encoding_base32Decode")),
-    ef(BASE64_ENCODE, "base64Encode", &[ov(&[p("data", &[], BYTES)], "String")], Implementation::Rewrite("__encoding_base64Encode")),
-    ef(BASE64_DECODE, "base64Decode", &[ov(&[p("text", &[], "String")], BYTES)], Implementation::Rewrite("__encoding_base64Decode")),
-    ef(BASE64URL_ENCODE, "base64UrlEncode", &[ov(&[p("data", &[], BYTES)], "String")], Implementation::Rewrite("__encoding_base64UrlEncode")),
-    ef(BASE64URL_DECODE, "base64UrlDecode", &[ov(&[p("text", &[], "String")], BYTES)], Implementation::Rewrite("__encoding_base64UrlDecode")),
-    ef(PERCENT_ENCODE, "percentEncode", &[ov(&[p("value", VALTEXT, "String")], "String")], Implementation::Rewrite("__encoding_percentEncode")),
-    ef(PERCENT_DECODE, "percentDecode", &[ov(&[p("value", VALTEXT, "String")], "String")], Implementation::Rewrite("__encoding_percentDecode")),
-    ef(HTML_ESCAPE, "htmlEscape", &[ov(&[p("value", VALTEXT, "String")], "String")], Implementation::Rewrite("__encoding_htmlEscape")),
-    ef(HTML_UNESCAPE, "htmlUnescape", &[ov(&[p("value", VALTEXT, "String")], "String")], Implementation::Rewrite("__encoding_htmlUnescape")),
-    ef(FORM_URL_ENCODE, "formUrlEncode", &[ov(&[p("value", VALTEXT, "String")], "String")], Implementation::Rewrite("__encoding_formUrlEncode")),
-    ef(FORM_URL_DECODE, "formUrlDecode", &[ov(&[p("value", VALTEXT, "String")], "String")], Implementation::Rewrite("__encoding_formUrlDecode")),
-    ef(PUNYCODE_ENCODE, "punycodeEncode", &[ov(&[p("domain", &[], "String")], "String")], Implementation::Rewrite("__encoding_punycodeEncode")),
-    ef(PUNYCODE_DECODE, "punycodeDecode", &[ov(&[p("asciiDomain", &[], "String")], "String")], Implementation::Rewrite("__encoding_punycodeDecode")),
-    ef(ULEB128_ENCODE, "uleb128Encode", &[ov(&[p("value", &[], "Integer")], BYTES)], Implementation::Rewrite("__encoding_uleb128Encode")),
-    ef(ULEB128_DECODE, "uleb128Decode", &[ov(&[p("data", &[], BYTES)], "Integer")], Implementation::Rewrite("__encoding_uleb128Decode")),
-    ef(SLEB128_ENCODE, "sleb128Encode", &[ov(&[p("value", &[], "Integer")], BYTES)], Implementation::Rewrite("__encoding_sleb128Encode")),
-    ef(SLEB128_DECODE, "sleb128Decode", &[ov(&[p("data", &[], BYTES)], "Integer")], Implementation::Rewrite("__encoding_sleb128Decode")),
-    ef(VARINT_ENCODE, "varintEncode", &[ov(&[p("value", &[], "Integer")], BYTES)], Implementation::Rewrite("__encoding_varintEncode")),
-    ef(VARINT_DECODE, "varintDecode", &[ov(&[p("data", &[], BYTES)], "Integer")], Implementation::Rewrite("__encoding_varintDecode")),
+    ef(
+        UTF16_ENCODE,
+        "utf16Encode",
+        &[ov(&[p("value", VALTEXT, "String")], INTS)],
+        Implementation::Rewrite("__encoding_utf16Encode"),
+    ),
+    ef(
+        UTF16_DECODE,
+        "utf16Decode",
+        &[ov(&[p("value", &[], INTS)], "String")],
+        Implementation::Rewrite("__encoding_utf16Decode"),
+    ),
+    ef(
+        UTF32_ENCODE,
+        "utf32Encode",
+        &[ov(&[p("value", VALTEXT, "String")], INTS)],
+        Implementation::Rewrite("__encoding_utf32Encode"),
+    ),
+    ef(
+        UTF32_DECODE,
+        "utf32Decode",
+        &[ov(&[p("value", &[], INTS)], "String")],
+        Implementation::Rewrite("__encoding_utf32Decode"),
+    ),
+    ef(
+        HEX_ENCODE,
+        "hexEncode",
+        &[ov(&[p("data", &[], BYTES)], "String")],
+        Implementation::Rewrite("__encoding_hexEncode"),
+    ),
+    ef(
+        HEX_DECODE,
+        "hexDecode",
+        &[ov(&[p("text", &[], "String")], BYTES)],
+        Implementation::Rewrite("__encoding_hexDecode"),
+    ),
+    ef(
+        BASE32_ENCODE,
+        "base32Encode",
+        &[ov(&[p("data", &[], BYTES)], "String")],
+        Implementation::Rewrite("__encoding_base32Encode"),
+    ),
+    ef(
+        BASE32_DECODE,
+        "base32Decode",
+        &[ov(&[p("text", &[], "String")], BYTES)],
+        Implementation::Rewrite("__encoding_base32Decode"),
+    ),
+    ef(
+        BASE64_ENCODE,
+        "base64Encode",
+        &[ov(&[p("data", &[], BYTES)], "String")],
+        Implementation::Rewrite("__encoding_base64Encode"),
+    ),
+    ef(
+        BASE64_DECODE,
+        "base64Decode",
+        &[ov(&[p("text", &[], "String")], BYTES)],
+        Implementation::Rewrite("__encoding_base64Decode"),
+    ),
+    ef(
+        BASE64URL_ENCODE,
+        "base64UrlEncode",
+        &[ov(&[p("data", &[], BYTES)], "String")],
+        Implementation::Rewrite("__encoding_base64UrlEncode"),
+    ),
+    ef(
+        BASE64URL_DECODE,
+        "base64UrlDecode",
+        &[ov(&[p("text", &[], "String")], BYTES)],
+        Implementation::Rewrite("__encoding_base64UrlDecode"),
+    ),
+    ef(
+        PERCENT_ENCODE,
+        "percentEncode",
+        &[ov(&[p("value", VALTEXT, "String")], "String")],
+        Implementation::Rewrite("__encoding_percentEncode"),
+    ),
+    ef(
+        PERCENT_DECODE,
+        "percentDecode",
+        &[ov(&[p("value", VALTEXT, "String")], "String")],
+        Implementation::Rewrite("__encoding_percentDecode"),
+    ),
+    ef(
+        HTML_ESCAPE,
+        "htmlEscape",
+        &[ov(&[p("value", VALTEXT, "String")], "String")],
+        Implementation::Rewrite("__encoding_htmlEscape"),
+    ),
+    ef(
+        HTML_UNESCAPE,
+        "htmlUnescape",
+        &[ov(&[p("value", VALTEXT, "String")], "String")],
+        Implementation::Rewrite("__encoding_htmlUnescape"),
+    ),
+    ef(
+        FORM_URL_ENCODE,
+        "formUrlEncode",
+        &[ov(&[p("value", VALTEXT, "String")], "String")],
+        Implementation::Rewrite("__encoding_formUrlEncode"),
+    ),
+    ef(
+        FORM_URL_DECODE,
+        "formUrlDecode",
+        &[ov(&[p("value", VALTEXT, "String")], "String")],
+        Implementation::Rewrite("__encoding_formUrlDecode"),
+    ),
+    ef(
+        PUNYCODE_ENCODE,
+        "punycodeEncode",
+        &[ov(&[p("domain", &[], "String")], "String")],
+        Implementation::Rewrite("__encoding_punycodeEncode"),
+    ),
+    ef(
+        PUNYCODE_DECODE,
+        "punycodeDecode",
+        &[ov(&[p("asciiDomain", &[], "String")], "String")],
+        Implementation::Rewrite("__encoding_punycodeDecode"),
+    ),
+    ef(
+        ULEB128_ENCODE,
+        "uleb128Encode",
+        &[ov(&[p("value", &[], "Integer")], BYTES)],
+        Implementation::Rewrite("__encoding_uleb128Encode"),
+    ),
+    ef(
+        ULEB128_DECODE,
+        "uleb128Decode",
+        &[ov(&[p("data", &[], BYTES)], "Integer")],
+        Implementation::Rewrite("__encoding_uleb128Decode"),
+    ),
+    ef(
+        SLEB128_ENCODE,
+        "sleb128Encode",
+        &[ov(&[p("value", &[], "Integer")], BYTES)],
+        Implementation::Rewrite("__encoding_sleb128Encode"),
+    ),
+    ef(
+        SLEB128_DECODE,
+        "sleb128Decode",
+        &[ov(&[p("data", &[], BYTES)], "Integer")],
+        Implementation::Rewrite("__encoding_sleb128Decode"),
+    ),
+    ef(
+        VARINT_ENCODE,
+        "varintEncode",
+        &[ov(&[p("value", &[], "Integer")], BYTES)],
+        Implementation::Rewrite("__encoding_varintEncode"),
+    ),
+    ef(
+        VARINT_DECODE,
+        "varintDecode",
+        &[ov(&[p("data", &[], BYTES)], "Integer")],
+        Implementation::Rewrite("__encoding_varintDecode"),
+    ),
 ];
 
 /// Argument-dependent resolution for encoding: `resolve_call` validation and the
@@ -155,8 +315,7 @@ impl BuiltinResolver for EncodingResolver {
         arg_types: &[String],
         expected_type: Option<&str>,
     ) -> Result<Option<String>, ()> {
-        dispatch_overload_target(name, arg_types, expected_type)
-            .map(|opt| opt.map(str::to_string))
+        dispatch_overload_target(name, arg_types, expected_type).map(|opt| opt.map(str::to_string))
     }
 }
 static ENCODING_RESOLVER: EncodingResolver = EncodingResolver;
@@ -498,15 +657,27 @@ mod tests {
         let target = |callee: &str, args: &[&str], expected: Option<&str>| {
             crate::builtins::resolve_overload_target(callee, &strings(args), expected)
         };
-        assert_eq!(target(UTF8_ENCODE, &["String"], Some(BYTES)), Ok(Some(UTF8_ENCODE_BYTES.to_string())));
-        assert_eq!(target(UTF8_ENCODE, &["String"], Some(INTS)), Ok(Some(UTF8_ENCODE_INTS.to_string())));
+        assert_eq!(
+            target(UTF8_ENCODE, &["String"], Some(BYTES)),
+            Ok(Some(UTF8_ENCODE_BYTES.to_string()))
+        );
+        assert_eq!(
+            target(UTF8_ENCODE, &["String"], Some(INTS)),
+            Ok(Some(UTF8_ENCODE_INTS.to_string()))
+        );
         // no expected type -> Err
         assert_eq!(target(UTF8_ENCODE, &["String"], None), Err(()));
         assert_eq!(target(UTF8_ENCODE, &["String"], Some("String")), Err(()));
         // utf8Encode with wrong arg types is not the overload arm -> Ok(None)
         assert_eq!(target(UTF8_ENCODE, &["Integer"], Some(BYTES)), Ok(None));
-        assert_eq!(target(UTF8_DECODE, &[BYTES], None), Ok(Some(UTF8_DECODE_BYTES.to_string())));
-        assert_eq!(target(UTF8_DECODE, &[INTS], None), Ok(Some(UTF8_DECODE_INTS.to_string())));
+        assert_eq!(
+            target(UTF8_DECODE, &[BYTES], None),
+            Ok(Some(UTF8_DECODE_BYTES.to_string()))
+        );
+        assert_eq!(
+            target(UTF8_DECODE, &[INTS], None),
+            Ok(Some(UTF8_DECODE_INTS.to_string()))
+        );
         // non-overloaded callee -> Ok(None)
         assert_eq!(target(HEX_ENCODE, &[BYTES], None), Ok(None));
     }

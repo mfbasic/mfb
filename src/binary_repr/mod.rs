@@ -573,7 +573,10 @@ pub fn read_package_type_export_hashes(
         ) {
             continue;
         }
-        hashes.insert(string_at(strings, export.name)?.to_string(), export.sig_hash);
+        hashes.insert(
+            string_at(strings, export.name)?.to_string(),
+            export.sig_hash,
+        );
     }
     Ok(hashes)
 }

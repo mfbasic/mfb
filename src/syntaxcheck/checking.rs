@@ -434,6 +434,15 @@ impl<'a> SyntaxChecker<'a> {
                 let send_failure_restore =
                     self.thread_send_failure_restore(file, expression, locals);
                 let matched_type = self.infer_match_scrutinee(file, expression, locals, *line);
+                // A stateful resource union's STATE is uniform across variants, so
+                // each MATCH-extracted variant inherits it (plan-74). The scrutinee's
+                // STATE lives on its binding's `LocalInfo`, not in `matched_type`.
+                let scrutinee_state = match expression {
+                    Expression::Identifier(name) => {
+                        locals.get(name).and_then(|info| info.state_type.clone())
+                    }
+                    _ => None,
+                };
                 let mut has_unguarded_else = false;
                 let mut all_return = !cases.is_empty();
                 let mut covered_cases = HashSet::new();
@@ -462,6 +471,7 @@ impl<'a> SyntaxChecker<'a> {
                         file,
                         &case.pattern,
                         &matched_type,
+                        scrutinee_state.as_deref(),
                         &mut case_locals,
                         case.line,
                     );

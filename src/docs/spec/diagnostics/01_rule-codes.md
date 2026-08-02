@@ -427,7 +427,7 @@ Scheme*).
 | `2-203-0085` | `TYPE_STATE_INVALID` | error | STATE must be a copyable, defaultable data type |
 | `2-203-0086` | `TYPE_RESOURCE_INVALIDATE_NOT_OWNER` | error | **reserved — retired by resource-scoped ownership; never emitted, never recycled** |
 | `2-203-0087` | `TYPE_MIXED_RESOURCE_UNION` | error | a union must be all-data or all-resource, never mixed |
-| `2-203-0088` | `TYPE_UNION_STATE_FORBIDDEN` | error | a resource union carries no STATE |
+| `2-203-0088` | `TYPE_UNION_STATE_FORBIDDEN` | error | **reserved — retired by plan-74 (a resource union may carry a uniform STATE); never emitted, never recycled** |
 | `2-203-0129` | `TYPE_STATE_MISMATCH` | error | a resource's STATE type is fixed at its owning binding and every other declaration of it must agree |
 | `2-203-0130` | `NATIVE_BIND_STATE_INVALID` | error | a BIND STATE must name the native function's stateful resource return and an OUT CSTRUCT slot whose record is the resource's STATE type |
 | `2-203-0131` | `TYPE_RESOURCE_RETURN_ORDER` | error | a collection that carries a returned resource must be declared before that resource |

@@ -304,10 +304,7 @@ mod tests {
         assert_eq!(func.name, MATCH);
         assert_eq!(func.doc_slug, "match");
         assert_eq!(func.overloads.len(), 1);
-        assert_eq!(
-            func.implementation,
-            Implementation::Rewrite(INTERNAL_MATCH)
-        );
+        assert_eq!(func.implementation, Implementation::Rewrite(INTERNAL_MATCH));
         assert_eq!(func.lowering, Lowering::Helper);
         assert!(!func.flags.internal_only);
         assert!(!func.flags.return_type_overloaded);

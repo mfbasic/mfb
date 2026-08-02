@@ -17,10 +17,30 @@ TEST_ROOT="$ROOT/tests"
 
 # Refuse to run concurrently with another test-accept — concurrent runs thrash
 # disk/CPU and clobber each other's actual output, yielding phantom "missing
-# actual" failures on unrelated fixtures. `pgrep -f` matches this script's own
-# process too, so exclude our own PID ($$). The pattern anchors on `.sh` so it
-# does not also match test-accept-selftest.sh (a distinct, lightweight harness).
-other=$(pgrep -f 'test-accept\.sh' | grep -v "^$$\$" | head -1)
+# actual" failures on unrelated fixtures.
+#
+# `pgrep -f 'test-accept\.sh'` matches every process whose command line contains
+# this script's path, which includes our OWN transient children: bash keeps the
+# parent `bash scripts/test-accept.sh …` command line on the subshells and
+# pipeline members it fork()s to evaluate a `$(...)`, in the window before they
+# exec(). Excluding only `$$` (the main shell) missed those, so the guard would
+# report a phantom "pid N is running" with no real concurrent run — a false CI
+# abort (deterministic under bash 5.2). Instead, skip every candidate that shares
+# our process group: an invocation's children/subshells inherit its PGID at
+# fork() (so they are excluded even mid-race), while a genuinely separate run is
+# launched into its own session/group. A candidate that has already exited (empty
+# PGID) is not a live run either. The `.sh` anchor still keeps this from matching
+# test-accept-selftest.sh (a distinct, lightweight harness).
+mypgid=$(ps -o pgid= -p "$$" | tr -d ' ')
+other=""
+for pid in $(pgrep -f 'test-accept\.sh'); do
+  [ "$pid" = "$$" ] && continue
+  cpgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+  [ -z "$cpgid" ] && continue
+  [ "$cpgid" = "$mypgid" ] && continue
+  other=$pid
+  break
+done
 if [ -n "$other" ]; then
   echo "Another test-accept (pid $other) is running." >&2
   exit 1
@@ -147,7 +167,10 @@ remove_output_dir() {
   rm -rf "$test_dir/build"
 }
 
-# Run a built fixture program with a watchdog and a deterministic stdin (bug-320).
+# Run a subprocess (a `mfb build` front-end pass, or a built fixture program) under
+# a watchdog with a deterministic stdin (bug-320). Wrapping the builds too means an
+# infinite loop in the compiler becomes one named `timeout` failure instead of
+# wedging the whole suite with no output and no exit code.
 #
 # Without this, a program that never exits wedges the entire suite: no output, no
 # failing fixture, no exit code, and the per-fixture log stays buffered so tailing
@@ -336,11 +359,11 @@ while IFS= read -r project_json; do
     # prints on stdout, so the run-path extraction below is unaffected.
     echo "$ mfb build ${target_label}${console_flags} tests/$test_name"
     # shellcheck disable=SC2086
-    "$MFB_EXE" build -q $target_arg $console_flags "tests/$test_name"
+    run_with_watchdog "$MFB_EXE" build -q $target_arg $console_flags "tests/$test_name"
     echo "[exit $?]"
     if [ -f "$golden_dir/$package_name.mfp" ] || [ -f "$golden_dir/$package_name.info" ]; then
       echo "$ mfb build tests/$test_name"
-      "$MFB_EXE" build -q "tests/$test_name"
+      run_with_watchdog "$MFB_EXE" build -q "tests/$test_name"
       echo "[exit $?]"
     fi
     app_flags=""
@@ -352,7 +375,7 @@ while IFS= read -r project_json; do
     if [ -n "$app_flags" ]; then
       echo "$ mfb build ${target_label}-app${app_flags} tests/$test_name"
       # shellcheck disable=SC2086
-      "$MFB_EXE" build -q $target_arg -app $app_flags "tests/$test_name"
+      run_with_watchdog "$MFB_EXE" build -q $target_arg -app $app_flags "tests/$test_name"
       echo "[exit $?]"
     fi
     # A `<pkg>.run` golden forces the full `mfb build` (link + merge) path and
@@ -368,7 +391,7 @@ while IFS= read -r project_json; do
     #     README (tests/rt-behavior/security/README.md) points here.
     if [ -f "$golden_dir/$package_name.run" ]; then
       echo "$ mfb build ${target_label}tests/$test_name"
-      build_output=$("$MFB_EXE" build -q $target_arg "tests/$test_name" 2>&1)
+      build_output=$(run_with_watchdog "$MFB_EXE" build -q $target_arg "tests/$test_name" 2>&1)
       build_status=$?
       printf '%s\n' "$build_output"
       echo "[exit $build_status]"

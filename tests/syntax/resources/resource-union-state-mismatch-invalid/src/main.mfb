@@ -1,0 +1,29 @@
+IMPORT fs
+IMPORT net
+
+TYPE StateA
+  a AS Integer
+END TYPE
+
+TYPE StateB
+  b AS Integer
+END TYPE
+
+UNION Stream
+  File
+  Socket
+END UNION
+
+' plan-74: union STATE agreement is checked exactly as a concrete resource's.
+' A parameter declaring `STATE StateB` handed a `Stream STATE StateA` value is
+' rejected TYPE_STATE_MISMATCH — the uniform STATE type is fixed at the owning
+' binding and every later declaration must agree.
+SUB observe(RES p AS Stream STATE StateB)
+  LET n = p.state.b
+END SUB
+
+FUNC main AS Integer
+  RES s AS Stream STATE StateA = fs::createTempFile()
+  observe(s)
+  RETURN 0
+END FUNC
