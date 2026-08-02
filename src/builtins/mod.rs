@@ -358,38 +358,21 @@ pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
 /// This is the single arg-typed return-type oracle shared by monomorph lowering
 /// and `ir::verify` (which reconciles a decoded package's attacker-controlled
 /// `Call` annotation against it — bug-162).
+/// The argument-validated return type of a builtin call, resolved through the
+/// descriptor registry (plan-72-BB). The module owning `callee` resolves it via
+/// its `BuiltinResolver` (every computed-return / argument-union package overrides
+/// `resolve_return_type`) or, for a fully data-only package, via
+/// `DefaultResolver::resolve_call`'s exact per-position match. The registry
+/// guarantees each qualified name is owned by exactly one module
+/// (`duplicate_function_name` is `None`), so this is order-independent — replacing
+/// the hand-ordered per-package `resolve_call` chain it grew from.
 pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Option<String> {
-    macro_rules! try_pkg {
-        ($resolve:expr) => {
-            if let Some(resolved) = $resolve {
-                return Some(resolved.return_type.into_owned());
-            }
-        };
+    let (module, function) = descriptor::REGISTRY.function(callee)?;
+    match module.resolver {
+        Some(resolver) => resolver.resolve_return_type(module, function.name, arg_types),
+        None => descriptor::DefaultResolver::resolve_call(module, function.name, arg_types)
+            .map(str::to_string),
     }
-    try_pkg!(general::resolve_call(callee, arg_types));
-    try_pkg!(app::resolve_call(callee, arg_types));
-    try_pkg!(collections::resolve_call(callee, arg_types));
-    try_pkg!(strings::resolve_call(callee, arg_types));
-    try_pkg!(math::resolve_call(callee, arg_types));
-    try_pkg!(bits::resolve_call(callee, arg_types));
-    try_pkg!(crypto::resolve_call(callee, arg_types));
-    try_pkg!(encoding::resolve_call(callee, arg_types));
-    try_pkg!(fs::resolve_call(callee, arg_types));
-    try_pkg!(io::resolve_call(callee, arg_types));
-    try_pkg!(json::resolve_call(callee, arg_types));
-    try_pkg!(csv::resolve_call(callee, arg_types));
-    try_pkg!(regex::resolve_call(callee, arg_types));
-    try_pkg!(datetime::resolve_call(callee, arg_types));
-    try_pkg!(money::resolve_call(callee, arg_types));
-    try_pkg!(net::resolve_call(callee, arg_types));
-    try_pkg!(os::resolve_call(callee, arg_types));
-    try_pkg!(http::resolve_call(callee, arg_types));
-    try_pkg!(term::resolve_call(callee, arg_types));
-    try_pkg!(tls::resolve_call(callee, arg_types));
-    try_pkg!(audio::resolve_call(callee, arg_types));
-    try_pkg!(vector::resolve_call(callee, arg_types));
-    try_pkg!(thread::resolve_call(callee, arg_types));
-    None
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
