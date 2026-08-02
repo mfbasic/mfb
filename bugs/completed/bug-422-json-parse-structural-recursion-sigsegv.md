@@ -1,13 +1,40 @@
 # bug-422: `json::parse` has no structural nesting-depth cap → deeply-nested JSON overflows the native stack (uncatchable SIGSEGV) — the depth cap bug-302 required was never landed
 
-Last updated: 2026-07-28
+Last updated: 2026-08-02
 Effort: small (<1h)
 Severity: HIGH
 Class: Security / Robustness (DoS — uncatchable SIGSEGV on untrusted input)
 
-Status: Open
-Regression Test: tests/rt-behavior/json — `json::parse` of `"[" × 5000` (and a
-nested-object equivalent) returns a clean error, never a SIGSEGV.
+Status: FIXED (052ad51de)
+Regression Test: tests/rt-behavior/json/json-parse-deep-nesting-rt — `json::parse`
+of a 5000-deep array (and a 5000-deep object) now returns a clean, catchable error
+`77050003` instead of exit 139; nesting within the cap still parses.
+
+## STATUS: FIXED (052ad51de)
+
+Reproduced on macOS-aarch64 (`target/debug/mfb`) exactly as documented: the exact
+new fixture built against the pre-fix binary exits **139 (SIGSEGV)**; against the
+fixed binary it prints clean `err:77050003` lines and exits 0. Threshold matched
+the doc (N=500 arrays parsed cleanly, N≥1000 crashed).
+
+Fix: threaded a `depth` counter through the five recursive parser functions
+(`__json_parseValue`, `__json_parseArray`, `__json_parseArrayItems`,
+`__json_parseObject`, `__json_parseObjectItems`) and added a cap check at the top
+of `__json_parseValue` — `IF depth > __JSON_DEPTH_LIMIT THEN FAIL ...`, with
+`__JSON_DEPTH_LIMIT = 256`. This mirrors the regex engine's `__REGEX_DEPTH_LIMIT`
+guard (bug-315). Measured boundary: ~257 nested levels parse, deeper fails cleanly
+(safe margin under the ~800–1000-frame native-stack crash point). Both the array
+and object structural-recursion paths were confirmed fixed.
+
+Also regenerated the 5 json-importing `.ir` goldens (the embedded json source
+shifted by the added param + cap; the delta was verified to be *only* the depth
+threading and line-number shifts, nothing else) and corrected the `json::parse`
+man page and the json spec, both of which claimed nesting depth was bounded only
+by the runtime call stack. Full `cargo test`: 4107 passed, 0 failed.
+
+Deviation from the doc: the doc suggested a 128–256 cap; chose **256** (the upper
+end) — generous for any realistic document while keeping a ~3× margin under the
+crash point.
 
 `__json_parseValue` (`src/builtins/json_package.mfb:331`) recurses structurally on
 nested arrays/objects — `parseValue → parseArray (:355) → parseArrayItems (:373) →
