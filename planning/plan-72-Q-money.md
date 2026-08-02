@@ -48,7 +48,7 @@ References: plan-72 overview, `src/builtins/money.rs`,
 
 Acceptance: `cargo test` passes; every `money.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
-Commit: <Q-hash>
+Commit: 96c7a03f4
 
 ## Validation
 
