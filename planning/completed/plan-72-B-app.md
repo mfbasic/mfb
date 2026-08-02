@@ -61,7 +61,7 @@ Acceptance: `cargo test` passes and every `app.*` fixture in
 `tests/{syntax,rt-behavior,byte-identity}` runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual` (6 fixtures, all
 `tests/syntax/app/`; no rt-behavior/byte-identity app fixtures exist).
-Commit: —
+Commit: d080c3aee
 
 ## Validation
 
