@@ -68,6 +68,7 @@ Explicitly **not** prerequisites (do not braid them in):
 - On drop (every exit path), the active variant's STATE block is freed exactly once, after
   the tag-dispatched close, with no leak and no double-free.
 - `thread::transfer` of a stateful resource union carries the STATE intact to the receiver.
+  **(Deferred to plan-75 — resource-union transfer is unimplemented; see Phase 5 / Corrections.)**
 - The STATE type is **uniform**: it is the type declared at the use site, independent of the
   runtime variant, and is checked for agreement (`TYPE_STATE_MISMATCH`) exactly as a
   concrete resource's STATE is.
@@ -140,7 +141,8 @@ from `+8`. This one mismatch is the whole feature.
 | Type-string encoding permits `Stream STATE PendingState` | **CONFIRMED** | `split_state_clause` (`resource.rs:254`) splits on first `" STATE "` iff base has no space; `"Stream"` has none → `state_type_name`→`Some("PendingState")`, `base_resource_name`→`"Stream"`. Base-agnostic. |
 | The ban is only 2 sites; no param-position check | **CONFIRMED** | grep + read of `check_argument_state_agreement` (`calls.rs:238-267`) |
 | `MATCH` extract yields the real 80-byte record ptr | **CONFIRMED** | `UnionExtract` resource path loads `+8`, types as concrete variant (`builder_values.rs:1362-1374`) |
-| Union drop/transfer currently drop STATE entirely | **CONFIRMED** | `ResourceUnionCleanup` has no `state_type` field; `emit_resource_union_cleanup_call` (`builder_resource_cleanup.rs:78-160`) never frees STATE; `copy_union_to_current_arena` (`builder_arena_transfer.rs:603-654`) raw-copies `{tag,ptr}` only |
+| Union drop currently drops STATE entirely | **CONFIRMED (drop only)** | `ResourceUnionCleanup` had no `state_type` field; `emit_resource_union_cleanup_call` never freed STATE. Fixed in Phase 4. |
+| Union **transfer** just "raw-copies `{tag,ptr}`", so only STATE needs adding | **FALSE — the checked granularity was wrong** | The raw `{tag,ptr}` copy is real, but resource-union `thread::transfer` **does not compile end-to-end** (measured 2026-08-02) — the record `+8` pointer aliases the sender's arena, the copy dispatch and `Result` payload classification fail on the STATE suffix, and the declared-helper set is under-populated. Never compiled a transfer. Deferred to plan-75. |
 | STATE lives in the variant record, reached via union `+8` | **CONFIRMED** | wrap stores handle at `+8`; record STATE at `+16`; union block is 16 bytes (`builder_values.rs:1299-1318`) |
 | A union→union (same type) `RES` parameter is accepted today | **UNVERIFIED** — Phase 2 test | pass a `Stream` into a `RES s AS Stream` param; expected accept by exact match |
 | Uniform STATE needs no runtime tag | **CONFIRMED by construction** | the STATE type is the use-site declaration, identical for every variant; nothing is read from the tag to type `.state` |
@@ -323,19 +325,27 @@ Commit: 78653e41d
 Acceptance: the drop fixture runs clean (`ok`, exit 0) and survives 2000× across all three
 exit paths — no fd leak (close ran once per path) and no double-free (arena intact).
 Verified; `cargo test --bin mfb` 3750 pass; 81 resource acceptance tests pass.
-Commit: —
+Commit: 812f11d3e
 
 ### Phase 5 — codegen: thread-transfer STATE deep-copy
 
-- [ ] Deep-copy the active variant's STATE in `copy_union_to_current_arena`
-      (`builder_arena_transfer.rs:603-654`), reusing the concrete-resource STATE copy.
-- [ ] Tests: `tests/rt-behavior/resources/resource-union-state-transfer-valid` — transfer a
-      stateful sendable resource union to a worker; assert the STATE arrives intact and the
-      sender/receiver payloads are independent (no shared-arena UAF under a repeat-run loop).
+- [~] **Deferred to plan-75 — this phase's premise is false.** Deep-copying the STATE in
+      `copy_union_to_current_arena` is *not* the whole (or even the first) fix: **measured
+      2026-08-02, resource-union `thread::transfer` does not compile at all** — for a
+      *stateless* resource union as much as a stateful one. It is an unimplemented feature
+      spanning ~5+ native-lowering layers (declared runtime-helpers, transfer-copy dispatch,
+      variant-record deep-copy — the `+8` pointer aliases the sender's arena, a UAF true even
+      for a stateless union — `Result`-payload classification, and the unaudited accept side).
+      The type surface compiles (`ThreadWorker OF RES Stream STATE Cursor`, `thread::accept`),
+      but the transfer lowering does not. §2.3's "Verified" row only checked the raw
+      `{tag,ptr}` copy, never an end-to-end transfer. Full analysis, the gap-by-gap cascade,
+      and the phased fix are in **`planning/plan-75-resource-union-thread-transfer.md`**. The
+      three speculative partial fixes attempted here were reverted (they left the transfer
+      still non-compiling and added unreachable wiring to a UAF-prone subsystem).
 
-Acceptance: the transfer fixture passes STATE across the boundary intact and survives a
-20× repeat run with no SIGSEGV.
-Commit: —
+Acceptance (moved to plan-75): the transfer fixture passes STATE across the boundary intact
+and survives a 20× repeat run with no SIGSEGV.
+Commit: — (deferred)
 
 ## Validation Plan
 
@@ -363,6 +373,21 @@ Commit: —
 
 ## Corrections
 
+- 2026-08-02 — **Phase 5 (thread-transfer) was mis-scoped and is deferred to plan-75.** §4.4
+  assumed resource-union `thread::transfer` worked and needed only a STATE deep-copy in
+  `copy_union_to_current_arena`. Measured: resource-union transfer **does not compile at all**
+  (stateless or stateful) — an unimplemented feature spanning ~5+ native-lowering layers
+  (declared runtime-helpers `usage.rs`, transfer-copy dispatch `emit_thread_copy_real`,
+  variant-record deep-copy — the `+8` pointer aliases the sender's arena, a UAF even for a
+  stateless union — `Result`-payload classification `result_payload_is_block`, and the
+  unaudited accept side). §2.3's "Verified" row only checked that `copy_union_to_current_arena`
+  raw-copies `{tag,ptr}`, not that a transfer compiles. Per the follow-plan §4 discipline the
+  false premise is recorded and the work is split into its own plan
+  (`planning/plan-75-resource-union-thread-transfer.md`) rather than half-implemented in a
+  delicate, UAF-prone subsystem with no prior test coverage. Three speculative partial fixes
+  were reverted. **The plan's core behavioral outcome — a resource union carries uniform STATE
+  at bind / parameter / return / `.state` (value, parameter, MATCH) / drop — is delivered and
+  tested (Phases 1–4); only the cross-thread facet is deferred.**
 - 2026-08-02 — **Three latent codegen gaps blocked a stateful union that §3 assumed was a
   pure `+8` access change.** Lifting the verifier ban exposed them (they were unreachable
   while the ban stood):
