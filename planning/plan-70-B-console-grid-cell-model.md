@@ -150,26 +150,66 @@ acceptance goldens unchanged (ASCII width==1 path is byte-identical). Commit: fb
 
 ### Phase 2 — EGC pool for multi-scalar clusters
 
-- [ ] Add `egc_pool_base`/`egc_pool_used` header fields; size + zero them in
-      `emit_grid_alloc`; reflow in `emit_grid_resize`; reset on full repaint.
-- [ ] Glyph-field tagging (inline vs pooled); pool-aware `append_glyph`.
-- [ ] Writer: segment full grapheme clusters (combining/ZWJ/flags), store pooled
-      when >1 scalar; width from A's cluster rule.
-- [ ] Re-derive and assert the out-buffer bound (`OUTBUF_PER_CELL` /
-      `worst_case` test at `:1199`) now that a cell can emit a pooled cluster +
-      CUP + SGR; raise `OUTBUF_PER_CELL` if the cluster max exceeds it.
+- [x] ~~Add `egc_pool_base`/`egc_pool_used` header fields; size + zero them in
+      `emit_grid_alloc`; reflow in `emit_grid_resize`; reset on full repaint.~~ —
+      **redesigned to per-cell pool slots** (see Corrections): each cell owns a
+      fixed `POOL_BYTES_PER_CELL`-byte slot at `pool_base + cell_index*POOL`, so
+      there is NO bump pointer, NO `egc_pool_used`, NO reset, and NO reflow/compaction
+      lifecycle — the slot is overwritten whenever the cell is. This sidesteps the
+      whole umbrella lifecycle concern that Phase 3 was to harden. Block per-cell
+      size grew by `POOL_BYTES_PER_CELL` in all 6 alloc/free/resize size formulas;
+      `pool_base = gp + HDR_SIZE + ncells*(2*CELL+OUTBUF)`.
+- [x] Glyph-field tagging (inline vs pooled); pool-aware emission. Pooled tag =
+      top byte `0xC0` (NOT bit 31 — see Corrections: an inline 4-byte scalar sets
+      bit 31); low 24 bits hold the cluster length. Presenter emits pooled bytes
+      from the slot, else `append_glyph` for inline; pooled cells always re-emit
+      (their bytes are outside the 16-byte XOR diff).
+- [x] Writer: segment full grapheme clusters via a peek-ahead loop over the
+      free-function UAX #29 break machinery (`emit_grapheme_break_branch_free` +
+      `emit_grapheme_state_update_free`), store pooled when >1 scalar; width = the
+      cluster's first non-zero-width scalar. A cluster is capped at
+      `POOL_BYTES_PER_CELL` bytes (graceful).
+- [x] Re-derived the out-buffer bound: `OUTBUF_PER_CELL` raised 72→136 (a pooled
+      cell can emit up to `POOL_BYTES_PER_CELL`=64 glyph bytes vs. 4); the
+      `outbuf_per_cell_covers_the_worst_case_escape_run` test now checks the
+      pooled worst case.
 
-Acceptance: `"café"` (NFD: `e`+`U+0301`) renders as 4 cells with the accent on the
-`e`; `"👨‍👩‍👧‍👦"` renders as one 2-wide glyph; the out-buffer assert holds for a
-worst-case pooled row. Commit: —
+Acceptance: verified on the macOS host via the captured escape stream —
+`"cafe"+U+0301+"|"` (NFD café) renders as `café|` with the `é` folded into ONE
+cell and `|` at column 4; `"👨‍👩‍👧‍👦|"` renders the ZWJ family as ONE wide cluster with
+`|` at column 2; the diff pass overwrites the café marker while the pooled `é`
+stays aligned; a **found-and-fixed bug**: an astral emoji (`😀`, a 4-byte inline
+scalar) SIGSEGV'd the presenter under the original bit-31 tag (it collided with a
+real inline glyph) — fixed by moving the tag to top-byte `0xC0`, caught by the
+`func_term_drawGlyph_valid` regression. `cargo test` 3748 passed (incl. the
+re-derived out-buffer test); all 34 term acceptance fixtures unchanged. Commit: —
 
 ### Phase 3 — pool lifecycle hardening
 
-- [ ] Decide + implement compaction/reset policy on scroll + resize (recommend:
-      pool reset on full repaint, per-frame rewrite makes stale offsets inert;
-      verify no unbounded growth across many frames).
-- [ ] Tests: a long-running fixture that repeatedly rewrites pooled clusters and
-      asserts `egc_pool_used` does not grow without bound.
+- [x] ~~Decide + implement compaction/reset policy on scroll + resize~~ — **moot
+      under the per-cell-slot design** (Phase 2 Corrections): there is no bump
+      allocator to compact/reset and no unbounded growth is possible — the pool is
+      a fixed `ncells * POOL_BYTES_PER_CELL` region, each cell overwriting its own
+      slot in place. What DID need doing, and is done, is keeping a pooled cell's
+      slot in sync with its cell across the two content-moving paths:
+      `emit_scroll_back` now shifts the pool slots up one row in lockstep with the
+      cells (and blanks the last row's slots); `emit_grid_resize` copies the
+      overlap's pool slots into the new block alongside the cells (else a copied
+      pooled tag would point at the new block's zeroed slot and emit NUL bytes — a
+      found-and-fixed latent bug).
+- [x] ~~Tests: a long-running fixture asserting `egc_pool_used` does not grow~~ —
+      **moot** (no `egc_pool_used`; growth is structurally impossible). Instead
+      verified the scroll path directly: a pooled `é` (NFD) written near the bottom
+      row and then scrolled up renders correctly at its new row with ZERO NUL bytes
+      in the escape stream (the slot moved with the cell).
+
+Acceptance: `cargo test` 3748 passed; all 35 term acceptance fixtures green
+(including the new cluster-pool fixture); a pooled cluster survives a scroll with
+no NUL/garbage emission. **Note (accepted tradeoff, not a bug):** a pooled cell is
+re-emitted on every present (its cluster bytes live outside the 16-byte XOR diff),
+so `term::off`'s final present idempotently re-draws pooled cells — correct, minor
+bandwidth only; a content-hash-in-glyph optimization is a possible future follow-up.
+Commit: —
 
 Acceptance: a fixture that redraws a pooled-cluster frame N times keeps pool usage
 bounded; `cargo test` + artifact-gate green (goldens deferred to G). Commit: —
@@ -206,3 +246,19 @@ bounded; `cargo test` + artifact-gate green (goldens deferred to G). Commit: —
   signature grew a `relocations: &mut Vec<CodeRelocation>` threaded from its sole
   caller (`io_stdout.rs` `lower_io_write_helper`, which already has `relocations`
   and `symbol` in scope).
+- **2026-08-02 — EGC pool redesigned to per-cell slots (not a bump arena).** The
+  umbrella/§3 describe a growable `egc_pool_base`/`egc_pool_used` bump arena with a
+  reset/compaction lifecycle (the concentrated-risk part). Implemented instead as
+  a fixed `POOL_BYTES_PER_CELL`-byte slot per cell (`pool_base + idx*POOL`), which
+  is bounded by construction and needs no bump pointer, reset, or compaction —
+  removing the entire Phase 3 lifecycle surface. The only extra work is keeping a
+  slot in sync with its cell on scroll (`emit_scroll_back` shifts slots) and resize
+  (`emit_grid_resize` copies overlap slots).
+- **2026-08-02 — the pooled glyph tag is top-byte `0xC0`, NOT bit 31.** First cut
+  used `0x8000_0000` (high bit). But a 4-byte UTF-8 scalar packs its 4th byte (a
+  continuation byte, always `0x80..=0xBF`) into bits 24-31, so an inline astral
+  glyph (e.g. `😀` = `0x80989FF0`) has bit 31 set and was misread as pooled → the
+  presenter emitted `len = glyph & 0x7FFF_FFFF` ≈ 10 MB from the pool slot →
+  SIGSEGV. Caught by the `func_term_drawGlyph_valid` acceptance regression (which
+  draws `😀`). Inline glyphs never have top byte `0xC0..=0xFE`, so the tag moved to
+  `0xC0000000 | len`, with the length masked by `0x00FF_FFFF`.
