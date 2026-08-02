@@ -3957,6 +3957,7 @@ mod lower_construct_tests {
 /// harness onto the shared, per-call-unique `helpers` pipeline.)
 #[cfg(test)]
 mod lower_pipeline_tests {
+    use super::super::IrOp;
     use crate::ast;
     use crate::manifest::validate_project_manifest;
     use crate::monomorph;
@@ -6178,5 +6179,69 @@ END FUNC
 "#,
         );
         assert!(json_of(&ir).contains("main"));
+    }
+
+    /// Total op count of a body, recursing into every nested block. Used to
+    /// prove an inline-`TRAP` handler lowers to a body **linear** in its
+    /// statement count (bug-401).
+    fn count_ops(body: &[IrOp]) -> usize {
+        body.iter()
+            .map(|op| {
+                1 + match op {
+                    IrOp::If {
+                        then_body,
+                        else_body,
+                        ..
+                    } => count_ops(then_body) + count_ops(else_body),
+                    IrOp::Match { cases, .. } => {
+                        cases.iter().map(|c| count_ops(&c.body)).sum()
+                    }
+                    IrOp::While { body, .. }
+                    | IrOp::For { body, .. }
+                    | IrOp::DoUntil { body, .. }
+                    | IrOp::ForEach { body, .. }
+                    | IrOp::Trap { body, .. } => count_ops(body),
+                    _ => 0,
+                }
+            })
+            .sum()
+    }
+
+    /// bug-401: an inline-`TRAP` handler that is N sequential *fall-through*
+    /// `IF`s before a final `RECOVER` must lower to a body **linear** in N. The
+    /// buggy lowering cloned the whole post-branch continuation into both arms
+    /// of every fall-through `IF`, producing 2^N copies of the tail — at N≈14
+    /// the exploded function overflowed the AArch64 ±1 MiB branch range and a
+    /// legal program stopped compiling.
+    #[test]
+    fn inline_trap_fallthrough_handler_lowers_linearly() {
+        fn handler_source(n: usize) -> String {
+            let mut src = String::from(
+                "FUNC g() AS Integer\n  RETURN 1\nEND FUNC\n\
+                 FUNC main() AS Integer\n  MUT y AS Integer = 0\n  LET x = g() TRAP(e)\n",
+            );
+            for i in 1..=n {
+                src.push_str(&format!("    IF y > {i} THEN\n      y = {i}\n    END IF\n"));
+            }
+            src.push_str("    RECOVER 0\n  END TRAP\n  RETURN x + y\nEND FUNC\n");
+            src
+        }
+
+        // Measure the per-`IF` op growth across two sizes; with the exponential
+        // bug this difference is astronomically larger than any linear bound.
+        let small = count_ops(&function(&lower_src("trap_linear_small", &handler_source(5)), "main").body);
+        let large = count_ops(&function(&lower_src("trap_linear_large", &handler_source(15)), "main").body);
+
+        // 10 extra `IF`s may add only a bounded, per-statement number of ops.
+        // Post-fix each fall-through `IF` contributes a small constant (~4);
+        // 40 leaves generous headroom while staying far below the 2^N blow-up
+        // (which would add tens of thousands of ops over the same 10 statements).
+        let growth = large - small;
+        assert!(
+            growth <= 40 * (15 - 5),
+            "inline-TRAP handler op count grew by {growth} for 10 extra fall-through IFs \
+             (expected linear ≤ {}); the continuation is being cloned per branch (bug-401)",
+            40 * (15 - 5)
+        );
     }
 }
