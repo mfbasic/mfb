@@ -427,6 +427,179 @@ pub(super) fn lower_tls_poll_helper(
     }
 }
 
+/// plan-76-C: `tls::poll(List OF RES TlsSocket[, timeoutMs]) AS TlsSocket` — the TLS
+/// readiness multiplex. Blocks until one socket in the list is readable, then returns
+/// a BORROWED pointer to the first ready one (lowest index); the list keeps ownership
+/// and closes each socket on scope exit (§15.6). Empty list → `ErrInvalidArgument`;
+/// expiry with none ready → `ErrTimeout` (producing call).
+///
+/// **Portable, backend-uniform**: rather than a per-backend fd/ring multiplex, it
+/// reuses the per-backend scalar readiness predicate — it scans each socket with
+/// `_mfb_rt_tls_tls_poll(rec, 0)` (non-blocking) and, when none is ready, waits a
+/// bounded slice on the first socket (also via the scalar helper) before rescanning,
+/// so every backend's buffered + raw readiness is honoured with no new native code.
+/// The scalar helper also propagates any per-socket error (e.g. a closed socket).
+/// `x0` = list ptr, `x1` = timeoutMs.
+pub(super) fn lower_tls_poll_list_helper(
+    symbol: &str,
+    _platform_imports: &HashMap<String, String>,
+    _platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    const FRAME_SIZE: usize = 64;
+    const LIST_OFF: usize = 8;
+    const COUNT_OFF: usize = 16;
+    const DATABASE_OFF: usize = 24;
+    const I_OFF: usize = 32;
+    const ROUNDS_OFF: usize = 40;
+    const INFINITE_OFF: usize = 48; // 1 = block until ready (omitted timeout)
+    const SLICE_MS: &str = "20";
+    const SCALAR: &str = "_mfb_rt_tls_tls_poll";
+
+    let invalid = format!("{symbol}_invalid");
+    let timeout_lbl = format!("{symbol}_timeout");
+    let mode_infinite = format!("{symbol}_mode_infinite");
+    let mode_zero = format!("{symbol}_mode_zero");
+    let rounds_done = format!("{symbol}_rounds_done");
+    let round_loop = format!("{symbol}_round_loop");
+    let scan_loop = format!("{symbol}_scan_loop");
+    let scan_done = format!("{symbol}_scan_done");
+    let do_wait = format!("{symbol}_do_wait");
+    let found = format!("{symbol}_found");
+    let done = format!("{symbol}_done");
+
+    let mut ins = vec![abi::label("entry")];
+    let mut rel = Vec::new();
+    // Loads socks[i]'s record ptr into `dst`: entry = list+HEADER+i*ENTRY_SIZE;
+    // rec = load(data_base + load(entry+VALUE_OFFSET)). Uses %v13/%v14 as scratch.
+    // (list ptr in LIST_OFF, data_base in DATABASE_OFF, index reg in `idx`.)
+    let load_elem = |ins: &mut Vec<CodeInstruction>, dst: &str, idx: &str| {
+        ins.extend([
+            abi::load_u64("%v13", abi::stack_pointer(), LIST_OFF),
+            abi::move_immediate("%v14", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+            abi::multiply_registers("%v14", idx, "%v14"),
+            abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
+            abi::add_registers("%v13", "%v13", "%v14"),
+            abi::load_u64("%v13", "%v13", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+            abi::load_u64("%v14", abi::stack_pointer(), DATABASE_OFF),
+            abi::add_registers("%v13", "%v14", "%v13"),
+            abi::load_u64(dst, "%v13", 0),
+        ]);
+    };
+    ins.extend([
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), LIST_OFF),
+        // count = socks.count; reject empty.
+        abi::load_u64("%v9", abi::return_register(), COLLECTION_OFFSET_COUNT),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&invalid),
+        abi::store_u64("%v9", abi::stack_pointer(), COUNT_OFF),
+        // data_base = list + HEADER + capacity * ENTRY_SIZE (kind-0 resource list).
+        abi::load_u64("%v10", abi::return_register(), COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate("%v11", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers("%v10", "%v10", "%v11"),
+        abi::add_immediate("%v11", abi::return_register(), COLLECTION_HEADER_SIZE),
+        abi::add_registers("%v11", "%v11", "%v10"),
+        abi::store_u64("%v11", abi::stack_pointer(), DATABASE_OFF),
+        // Timeout → mode: sentinel = infinite (block); <0 = invalid; 0 = one scan,
+        // no wait; >0 = ceil(t / SLICE) rounds.
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), INFINITE_OFF),
+        abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers(abi::ARG[1], "%v10"),
+        abi::branch_eq(&mode_infinite),
+        abi::compare_immediate(abi::ARG[1], "0"),
+        abi::branch_lt(&invalid),
+        abi::branch_eq(&mode_zero),
+        // rounds = (t + SLICE - 1) / SLICE
+        abi::move_immediate("%v10", "Integer", SLICE_MS),
+        abi::add_immediate(abi::ARG[1], abi::ARG[1], 19),
+        abi::unsigned_divide_registers("%v9", abi::ARG[1], "%v10"),
+        abi::store_u64("%v9", abi::stack_pointer(), ROUNDS_OFF),
+        abi::branch(&rounds_done),
+        abi::label(&mode_infinite),
+        abi::move_immediate("%v9", "Integer", "1"),
+        abi::store_u64("%v9", abi::stack_pointer(), INFINITE_OFF),
+        abi::branch(&rounds_done),
+        abi::label(&mode_zero),
+        abi::move_immediate("%v9", "Integer", "1"),
+        abi::store_u64("%v9", abi::stack_pointer(), ROUNDS_OFF),
+        abi::label(&rounds_done),
+        abi::label(&round_loop),
+        // Scan every socket non-blocking.
+        abi::move_immediate("%v9", "Integer", "0"),
+        abi::store_u64("%v9", abi::stack_pointer(), I_OFF),
+        abi::label(&scan_loop),
+        abi::load_u64("%v9", abi::stack_pointer(), I_OFF),
+        abi::load_u64("%v10", abi::stack_pointer(), COUNT_OFF),
+        abi::compare_registers("%v9", "%v10"),
+        abi::branch_ge(&scan_done),
+    ]);
+    load_elem(&mut ins, abi::return_register(), "%v9");
+    ins.extend([
+        abi::move_immediate(abi::ARG[1], "Integer", "0"), // non-blocking check
+        abi::branch_link(SCALAR),
+        // Propagate any scalar error (closed socket etc.).
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_ne(&done),
+        abi::compare_immediate(RESULT_VALUE_REGISTER, "1"),
+        abi::branch_eq(&found),
+        abi::load_u64("%v9", abi::stack_pointer(), I_OFF),
+        abi::add_immediate("%v9", "%v9", 1),
+        abi::store_u64("%v9", abi::stack_pointer(), I_OFF),
+        abi::branch(&scan_loop),
+        abi::label(&scan_done),
+        // None ready. Infinite mode always waits; otherwise decrement rounds and
+        // raise ErrTimeout when exhausted (zero mode: rounds 1 → 0 → timeout, no wait).
+        abi::load_u64("%v9", abi::stack_pointer(), INFINITE_OFF),
+        abi::compare_immediate("%v9", "1"),
+        abi::branch_eq(&do_wait),
+        abi::load_u64("%v9", abi::stack_pointer(), ROUNDS_OFF),
+        abi::subtract_immediate("%v9", "%v9", 1),
+        abi::store_u64("%v9", abi::stack_pointer(), ROUNDS_OFF),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_le(&timeout_lbl),
+        abi::label(&do_wait),
+        // Wait a bounded slice on socket 0 (via the scalar helper) before rescanning.
+        abi::move_immediate("%v9", "Integer", "0"),
+    ]);
+    load_elem(&mut ins, abi::return_register(), "%v9");
+    ins.extend([
+        abi::move_immediate(abi::ARG[1], "Integer", SLICE_MS),
+        abi::branch_link(SCALAR),
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_ne(&done), // propagate a wait-time error
+        abi::branch(&round_loop),
+        abi::label(&found),
+        // Return socks[i] (borrowed) — the list still owns/closes it.
+        abi::load_u64("%v9", abi::stack_pointer(), I_OFF),
+    ]);
+    load_elem(&mut ins, RESULT_VALUE_REGISTER, "%v9");
+    ins.extend([
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+    ]);
+    rel.push(internal_branch(symbol, SCALAR));
+    ins.push(abi::label(&invalid));
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    ins.push(abi::label(&timeout_lbl));
+    emit_fail(
+        symbol,
+        ERR_TIMEOUT_CODE,
+        ERR_TIMEOUT_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    ins.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
+    Ok((frame, ins, rel, stack_slots))
+}
+
 pub(super) fn lower_tls_close_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,

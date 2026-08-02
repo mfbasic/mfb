@@ -1502,6 +1502,18 @@ pub(crate) fn lower_module_for_platform(
     {
         runtime_symbols.push("_mfb_rt_net_net_pollList".to_string());
     }
+    // plan-76-C: `tls.pollList` is the synthesized list-multiplex target (the NIR
+    // names only `tls.poll`), and its portable driver calls the scalar
+    // `_mfb_rt_tls_tls_poll` — so emit both whenever `tls.poll` is present.
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_tls_tls_poll")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_tls_tls_pollList")
+    {
+        runtime_symbols.push("_mfb_rt_tls_tls_pollList".to_string());
+    }
     // App-mode io.input composes io.write (prompt -> transcript) + io.readLine
     // (read the window input pipe), so ensure both helpers are emitted
     // (plan-04-macos-app.md §5.4).
@@ -2160,6 +2172,9 @@ fn lower_runtime_helper(
                     tls::lower_tls_write_helper(symbol, platform_imports, platform, true)?
                 }
                 "tls.poll" => tls::lower_tls_poll_helper(symbol, platform_imports, platform)?,
+                "tls.pollList" => {
+                    tls::lower_tls_poll_list_helper(symbol, platform_imports, platform)?
+                }
                 "tls.close" => tls::lower_tls_close_helper(symbol, platform_imports, platform)?,
                 "tls.closeListener" => {
                     tls::lower_tls_close_listener_helper(symbol, platform_imports, platform)?

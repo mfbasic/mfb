@@ -351,7 +351,7 @@ Commit: 385d5b1d3 (impl), 57143d5ea (fixture + goldens)
 
 Acceptance: `mfb man tls poll` renders all overloads; `cargo test --bin mfb` 3750/0 (man/spec-citation
 tests pass). ✅
-Commit: (recorded next commit)
+Commit: 4703d3909
 
 ## Validation Plan
 

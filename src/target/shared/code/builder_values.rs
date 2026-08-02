@@ -201,6 +201,7 @@ impl CodeBuilder<'_> {
                     crate::builtins::collections::native_member_bare(target),
                     Some("get" | "getOr")
                 ) || crate::builtins::net::returns_borrowed_resource(target)
+                    || crate::builtins::tls::returns_borrowed_resource(target)
             }
             _ => false,
         }
@@ -1884,6 +1885,17 @@ impl CodeBuilder<'_> {
                     }
                 })
             })
+            // plan-76-C: `tls.poll` is likewise return-type-overloaded — the list
+            // form yields a borrowed `TlsSocket`, the scalar a `Boolean`.
+            .or_else(|| {
+                (target == "tls.poll").then(|| {
+                    if self.net_poll_is_list_form(&helper_args) {
+                        builtins::tls::TLS_SOCKET_TYPE.to_string()
+                    } else {
+                        "Boolean".to_string()
+                    }
+                })
+            })
             .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
             .ok_or_else(|| format!("native runtime call '{target}' has no return type"))?;
         let runtime_target = match target {
@@ -1966,6 +1978,16 @@ impl CodeBuilder<'_> {
                     "net.pollList"
                 } else {
                     "net.poll"
+                }
+            }
+            // plan-76-C: `tls::poll(List OF RES TlsSocket)` lowers through the portable
+            // `tls.pollList` driver (scans the list via the scalar readiness helper),
+            // vs the scalar `tls::poll(TlsSocket) → Boolean`.
+            "tls.poll" => {
+                if self.net_poll_is_list_form(args) {
+                    "tls.pollList"
+                } else {
+                    "tls.poll"
                 }
             }
             _ => target,

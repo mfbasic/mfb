@@ -693,6 +693,7 @@ pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static
     audio::call_param_name_overloads(name)
         .or_else(|| net::call_param_name_overloads(name))
         .or_else(|| datetime::call_param_name_overloads(name))
+        .or_else(|| tls::call_param_name_overloads(name))
 }
 
 /// Pick the overload a call selects, given how many arguments were passed

@@ -132,6 +132,14 @@ const P_POLL: &[Parameter] = &[
     req("sock", &[], TLS_SOCKET_TYPE),
     fill("timeoutMs", "Integer", SENTINEL),
 ];
+// plan-76-C: the TLS readiness multiplex. `socks` is a `List OF RES TlsSocket`; the
+// returned `TlsSocket` is a BORROWED pointer to the first ready element (the list
+// keeps ownership and closes each socket on scope exit), mirroring
+// `net::poll(List OF RES Socket)`.
+const P_POLL_LIST: &[Parameter] = &[
+    req("socks", &[], "List OF RES TlsSocket"),
+    fill("timeoutMs", "Integer", SENTINEL),
+];
 // `close` accepts either handle; the union is validated in the hand-authored
 // `resolve_call`. The param's type feeds only the descriptor's `argument_types`/
 // `expected_arguments` rendering, both of which tls keeps hand-authored, so the
@@ -146,7 +154,14 @@ const TLS_FUNCTIONS: &[BuiltinFunction] = &[
     tf(READ_TEXT, "readText", &[ov(P_READ, "String")]),
     tf(WRITE, "write", &[ov(P_WRITE, "Nothing")]),
     tf(WRITE_TEXT, "writeText", &[ov(P_WRITE_TEXT, "Nothing")]),
-    tf(POLL, "poll", &[ov(P_POLL, "Boolean")]),
+    tf(
+        POLL,
+        "poll",
+        // Scalar readiness query (`TlsSocket → Boolean`) and the readiness multiplex
+        // (`List OF RES TlsSocket → TlsSocket`, borrowed). Return types disagree, so
+        // `resolve_call` selects by argument shape (plan-76-C).
+        &[ov(P_POLL, "Boolean"), ov(P_POLL_LIST, TLS_SOCKET_TYPE)],
+    ),
     tf(CLOSE, "close", &[ov(P_CLOSE, "Nothing")]),
 ];
 
@@ -209,6 +224,15 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
     TLS.types.iter().any(|ty| ty.name == name)
 }
 
+/// plan-76-C: whether a `tls` call returns a BORROWED (non-owning) resource pointer
+/// — `tls::poll(List OF RES TlsSocket)` returns a pointer to the first ready list
+/// element; the list keeps ownership. Consulted by `value_aliases_live_resource`.
+/// The scalar `tls::poll(TlsSocket)` returns `Boolean` and never binds a resource,
+/// so keying on the call name alone is safe (as for `net::poll`).
+pub(crate) fn returns_borrowed_resource(name: &str) -> bool {
+    name == POLL
+}
+
 pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
     match type_name {
         TLS_SOCKET_TYPE => Some(CLOSE),
@@ -234,9 +258,20 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         READ | READ_TEXT => Some(&[&["sock"], &["maxBytes"]]),
         WRITE => Some(&[&["sock"], &["bytes"]]),
         WRITE_TEXT => Some(&[&["sock"], &["value"]]),
-        POLL => Some(&[&["sock"], &["timeoutMs"]]),
+        // POLL is overloaded (scalar `sock` vs list `socks`); its per-overload names
+        // live in `call_param_name_overloads` (plan-76-C).
         CLOSE => Some(&[&["resource", "sock", "listener"]]),
         CLOSE_LISTENER => Some(&[&["listener"]]),
+        _ => None,
+    }
+}
+
+/// plan-76-C: `tls::poll`'s two overloads name their receiver differently (`sock`
+/// scalar, `socks` list), so the descriptor renders per-overload names here and
+/// `call_param_names` yields `None` (mirrors `net::poll`).
+pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static [&'static str]]> {
+    match name {
+        POLL => Some(&[&["sock", "timeoutMs"], &["socks", "timeoutMs"]]),
         _ => None,
     }
 }
@@ -290,6 +325,13 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         {
             Cow::Borrowed("Boolean")
         }
+        // plan-76-C: readiness multiplex `poll(List OF RES TlsSocket[, timeoutMs]) →
+        // TlsSocket` (borrowed element, like `collections::get`/`net::poll(List)`).
+        POLL if exact(arg_types, &["List OF RES TlsSocket"])
+            || exact(arg_types, &["List OF RES TlsSocket", "Integer"]) =>
+        {
+            Cow::Borrowed(TLS_SOCKET_TYPE)
+        }
         CLOSE if exact(arg_types, &[TLS_SOCKET_TYPE]) || exact(arg_types, &[TLS_LISTENER_TYPE]) => {
             Cow::Borrowed("Nothing")
         }
@@ -306,7 +348,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         READ | READ_TEXT => Some("TlsSocket, Integer"),
         WRITE => Some("TlsSocket, List OF Byte"),
         WRITE_TEXT => Some("TlsSocket, String"),
-        POLL => Some("TlsSocket, Integer"),
+        POLL => Some("TlsSocket, Integer or List OF RES TlsSocket, Integer"),
         CLOSE => Some("TlsSocket or TlsListener"),
         _ => None,
     }
@@ -322,7 +364,7 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static str> {
         READ | READ_TEXT => Some("TlsSocket, Integer"),
         WRITE => Some("TlsSocket, List OF Byte"),
         WRITE_TEXT => Some("TlsSocket, String"),
-        POLL => Some("TlsSocket, Integer"),
+        // POLL is overloaded → None (rely on explicit argument types), like net::poll.
         _ => None,
     }
 }
@@ -441,7 +483,8 @@ mod tests {
         assert_eq!(call_return_type_name(READ_TEXT), Some("String"));
         assert_eq!(call_return_type_name(WRITE), Some("Nothing"));
         assert_eq!(call_return_type_name(WRITE_TEXT), Some("Nothing"));
-        assert_eq!(call_return_type_name(POLL), Some("Boolean"));
+        // POLL is return-type-overloaded (Boolean vs TlsSocket) → resolver-owned.
+        assert_eq!(call_return_type_name(POLL), None);
         assert_eq!(call_return_type_name(CLOSE), Some("Nothing"));
         assert_eq!(call_return_type_name(CLOSE_LISTENER), Some("Nothing"));
         assert!(call_return_type_name("tls.nope").is_none());
@@ -517,6 +560,15 @@ mod tests {
             Some("Boolean".to_string())
         );
         assert_eq!(rt(POLL, &["String"]), None);
+        // plan-76-C: poll(List OF RES TlsSocket[, Integer]) -> TlsSocket (borrowed).
+        assert_eq!(
+            rt(POLL, &["List OF RES TlsSocket"]),
+            Some(TLS_SOCKET_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(POLL, &["List OF RES TlsSocket", "Integer"]),
+            Some(TLS_SOCKET_TYPE.to_string())
+        );
         assert_eq!(rt(READ, &[TLS_SOCKET_TYPE]), None);
         assert_eq!(rt(WRITE, &[TLS_SOCKET_TYPE, "String"]), None);
         assert_eq!(rt(CLOSE, &["String"]), None);
@@ -540,7 +592,10 @@ mod tests {
         assert_eq!(expected_arguments(READ_TEXT), Some("TlsSocket, Integer"));
         assert_eq!(expected_arguments(WRITE), Some("TlsSocket, List OF Byte"));
         assert_eq!(expected_arguments(WRITE_TEXT), Some("TlsSocket, String"));
-        assert_eq!(expected_arguments(POLL), Some("TlsSocket, Integer"));
+        assert_eq!(
+            expected_arguments(POLL),
+            Some("TlsSocket, Integer or List OF RES TlsSocket, Integer")
+        );
         assert_eq!(expected_arguments(CLOSE), Some("TlsSocket or TlsListener"));
         assert!(expected_arguments(CLOSE_LISTENER).is_none());
         assert!(expected_arguments("tls.nope").is_none());
@@ -557,7 +612,8 @@ mod tests {
         assert_eq!(argument_types(READ_TEXT), Some("TlsSocket, Integer"));
         assert_eq!(argument_types(WRITE), Some("TlsSocket, List OF Byte"));
         assert_eq!(argument_types(WRITE_TEXT), Some("TlsSocket, String"));
-        assert_eq!(argument_types(POLL), Some("TlsSocket, Integer"));
+        // POLL is overloaded → None.
+        assert_eq!(argument_types(POLL), None);
         // CONNECT is overloaded/defaulted -> None
         assert!(argument_types(CONNECT).is_none());
         assert!(argument_types("tls.nope").is_none());

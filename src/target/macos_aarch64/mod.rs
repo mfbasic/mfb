@@ -176,6 +176,7 @@ impl NativeBackend for Backend {
                 "tls.write",
                 "tls.writeText",
                 "tls.poll",
+                "tls.pollList",
                 "tls.close",
                 "tls.closeListener",
                 "audio.devices",

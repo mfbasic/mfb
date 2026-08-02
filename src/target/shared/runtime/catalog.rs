@@ -182,6 +182,7 @@ static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     TLS_WRITE_SPEC,
     TLS_WRITE_TEXT_SPEC,
     TLS_POLL_SPEC,
+    TLS_POLL_LIST_SPEC,
     TLS_CLOSE_SPEC,
     TLS_CLOSE_LISTENER_SPEC,
 ];
@@ -234,6 +235,8 @@ mod tests {
             // in the code layer (`builder_values`), so it never exists at the NIR
             // level and `helper_for_call` must not classify it.
             "net.pollList",
+            // plan-76-C: same for `tls.poll(List OF RES TlsSocket)` → `tls.pollList`.
+            "tls.pollList",
             // plan-67-B: perf helpers are injected by the code layer (program
             // entry/exit + arena-region wrapping), never present at the NIR level,
             // so `helper_for_call` must NOT classify them.
