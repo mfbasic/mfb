@@ -309,7 +309,6 @@ pub(crate) fn is_native_member_call(name: &str) -> bool {
     DefaultResolver::contains(&COLLECTIONS, name)
 }
 
-/// The bare native name for a `collections.<member>` native-member call, e.g.
 /// Whether a native `collections.<member>` call takes a **unary callback over
 /// the list's element type** as its second argument.
 ///

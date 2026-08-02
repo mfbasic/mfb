@@ -114,8 +114,8 @@ impl CodeBuilder<'_> {
     /// Emit the 2-lane restoring-sqrt kernel: input raw Q32.32 lanes in `v0`,
     /// result in `v3`; negative lanes OR-accumulated into `neg_mask`. `one` holds
     /// broadcast(1); `mask`/`sel` are this kernel's vector scratch (FP vregs the
-    /// caller mints once and threads through both runs). Uses `x0` as the
-    /// (shared) digit counter and physical `v1..v7` for the rest — all
+    /// caller mints once and threads through both runs). Uses an allocator vreg
+    /// as the digit counter and physical `v1..v7` for the rest — all
     /// caller-saved, like the scalar kernel's register-tight body. Mirrors
     /// `emit_fixed_sqrt` op-for-op so each lane is bit-identical to the scalar
     /// result.

@@ -12,7 +12,7 @@ impl<'a> FileParser<'a> {
         let Some(header_index) = header_index else {
             self.report_at(
                 "DOC_BAD_HEADER",
-                "DOC block has no header line; expected FUNC, SUB, TYPE, UNION, ENUM, or PACKAGE.",
+                "DOC block has no header line; expected FUNC, SUB, TYPE, UNION, ENUM, RESOURCE, or PACKAGE.",
                 line,
             );
             return None;

@@ -219,11 +219,6 @@ fn sib(scale: u8, index: u8, base: u8) -> u8 {
     (scale << 6) | ((index & 7) << 3) | (base & 7)
 }
 
-/// Encode `op reg64, reg64` for a register-to-register ALU instruction whose
-/// opcode uses the standard direction (`reg` field = source, `rm` field =
-/// destination — the `/r` form with the 0x01/0x09/… opcodes). We always emit the
-/// `MR` form (opcode operates rm := rm OP reg), so `reg` is the source and `rm`
-/// is the destination.
 /// `push r64` / `pop r64` — 0x50+rd / 0x58+rd, with REX.B for r8-r15. The 64-bit
 /// operand size is implicit, so no REX.W.
 fn enc_push_reg(reg_n: u8) -> Vec<u8> {
@@ -244,6 +239,11 @@ fn enc_pop_reg(reg_n: u8) -> Vec<u8> {
     b
 }
 
+/// Encode `op reg64, reg64` for a register-to-register ALU instruction whose
+/// opcode uses the standard direction (`reg` field = source, `rm` field =
+/// destination — the `/r` form with the 0x01/0x09/… opcodes). We always emit the
+/// `MR` form (opcode operates rm := rm OP reg), so `reg` is the source and `rm`
+/// is the destination.
 fn alu_rr(opcode: u8, dst: u8, src: u8) -> Vec<u8> {
     // REX.R extends `src` (reg field), REX.B extends `dst` (rm field).
     vec![

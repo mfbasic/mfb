@@ -49,7 +49,7 @@ const EDITPROC_SYMBOL: &str = "_mfb_winapp_editproc";
 // hides the transcript EDIT so the grid shows through; `term::off` restores it.
 const TUI_COLS: usize = 80;
 const TUI_ROWS: usize = 25;
-const TUI_CELL_W: usize = 8; // px per cell (matches the Consolas metrics we request)
+const TUI_CELL_W: usize = 8; // px per cell (matches the SYSTEM_FIXED_FONT metrics we request)
 const TUI_CELL_H: usize = 16;
 /// Writable u64 globals for the TUI surface, all 0 until `term::on` builds them.
 const TUI_MEMDC_SYM: &str = "_mfb_winapp_tui_memdc"; // off-screen HDC

@@ -33,10 +33,9 @@ pub(super) fn assemble_native_library_table(
 /// each its own codegen pass, so a locator that differs by libc must be resolved
 /// (and its vendor file verified) once per flavor.
 ///
-/// A Linux **app-mode** build emits a single glibc binary (plan-05-linux-app.md
-/// §5.2), so it must be checked for glibc only: demanding a musl locator — and a
-/// musl blob in `vendor/` — for a flavor the build never emits would fail a
-/// correct project. macOS has no libc axis and yields one target either way.
+/// A Linux build — console AND app-mode — emits both glibc and musl binaries
+/// (plan-56-B §4.1), so both flavors must be checked (each needs its locator and
+/// its vendor blob). macOS has no libc axis and yields one target either way.
 ///
 /// This must stay in lockstep with what the backends actually emit; it is the
 /// caller-side mirror of their per-flavor loop.
@@ -267,9 +266,8 @@ pub(super) fn vendor_output_dirs(
 /// | macos `--app`    | `build/<name>.app/Contents/Resources/`         |
 /// | linux `--app`    | `build/<name>.AppDir/usr/share/<name>/`        |
 ///
-/// The `LinuxApp` arm depends on plan-51-A's AppDir existing; until then a Linux
-/// `--app` build never reaches this path (Linux app mode is unimplemented
-/// pre-51). It is written now so 51-A needs no change here.
+/// The `LinuxApp` arm resolves the per-flavor AppDir resource directory for
+/// every Linux `--app` build (plan-51..66 landed the AppDir/AppImage pipeline).
 pub(super) fn resource_output_dirs(
     output_dir: &Path,
     project_name: &str,

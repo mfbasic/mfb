@@ -19,7 +19,7 @@ pub(super) fn lower_sort_string_list_helper() -> CodeFunction {
     // x0  = collection pointer (preserved for the caller)
     // x9  = entries base (collection + header)
     // x10 = count
-    // x11 = data region base (entries base + count * entry size)
+    // x11 = data region base (entries base + capacity * entry size)
     // x12 = i (outer index), x13 = min index, x14 = j (inner index)
     // x15 = entry[min] address, x16 = entry[j] address
     // x1..x7 = comparison/swap scratch
