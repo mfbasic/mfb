@@ -68,7 +68,7 @@ passed`); `term.*` fixtures (incl. `tests/byte-identity/term`) verified
 byte-identical in the consolidated T–X acceptance at finalization (metadata-only
 wrappers proven equal by parity; the descriptor `REGISTRY` is never read in
 production dispatch).
-Commit: —
+Commit: 89b4be3b2
 
 ## Validation
 

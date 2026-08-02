@@ -47,26 +47,41 @@ Fixture load is 16 projects.
 
 ### Phase V1 — descriptor and wrappers
 
-- [ ] Add `pub(crate) static STRINGS: BuiltinModule` with every function,
+- [x] Add `pub(crate) static STRINGS: BuiltinModule` with every function,
       overload, parameter (canonical + aliases including `split`
-      delimiter/separator), argument types, return type, implementation,
-      and default.
-- [ ] Model native members (`find`, `mid`, `replace`), source companion
-      helpers (`toScalars`, `fromScalars`), and pure fixed-return functions
-      with `Implementation` and `Lowering` values from plan-72-A.
-- [ ] Model the bespoke source triple as `BuiltinSource` with
-      `InjectionRule::Custom` carrying the scalar-seam predicate.
-- [ ] Attach a resolver (or a static implementation-name table) for
-      `implementation_name`.
-- [ ] Rewrite the 10 metadata helpers as wrappers over `STRINGS`.
-- [ ] Register `STRINGS` with the `BuiltinRegistry` from plan-72-A.
-- [ ] Parity tests: every `strings.*` name, every alias, every
-      implementation-name case, and scalar-seam injection with and
-      without an import.
+      delimiter/separator, `join` parts/values, `replace` old/needle &
+      new/replacement), argument types, return type, implementation, and
+      default. Done: all 38 functions, each one fixed-return overload;
+      optional trailing args (`padChar`, `start`) are `DefaultValue::Optional`.
+- [x] Model native members (`find`, `mid`, `replace`), source companion
+      helpers (`toScalars`, `fromScalars`), and pure fixed-return functions.
+      Done: seam members are `Implementation::Rewrite(__strings_*)`, all
+      others `Implementation::Same` (native / bare-name lowering unchanged);
+      `Lowering::Helper` throughout.
+- [x] Model the bespoke source triple as `BuiltinSource` with
+      `InjectionRule::WhenUsed` (the enum's name for "Custom" predicate)
+      carrying the scalar-seam predicate. Done: `uses_source` on the resolver
+      delegates to the load-bearing `uses_package` walk.
+- [x] Attach a resolver for the scalar-seam source predicate. Done:
+      `StringsResolver` implements only `uses_source`; `implementation_name`
+      needed NO resolver — it is a fixed per-name `Rewrite` derivable by
+      `DefaultResolver` (see Corrections).
+- [x] Rewrite the metadata helpers as wrappers over `STRINGS`:
+      `is_strings_call`, `call_return_type_name`, `resolve_call`, `arity`,
+      `implementation_name` delegate to `DefaultResolver`. `call_param_names`
+      keeps its `&'static` table (pinned by parity); `expected_arguments`
+      stays bespoke (`[, T]`).
+- [x] Register `STRINGS` with the `BuiltinRegistry` from plan-72-A.
+- [x] Parity tests (`parity_matches_descriptor`): every `strings.*` name +
+      alias, every implementation-name case, return types, resolve_call
+      (incl. optional-arg overloads), no-padding invariant, and scalar-seam
+      `WhenUsed` injection with and without a seam reference.
 
-Acceptance: `cargo test` passes; every `strings.*` fixture runs clean
-under `scripts/test-accept.sh target/debug/mfb target/accept-actual`,
-including the existing `tests/byte-identity/strings` cohort.
+Acceptance: `cargo test` passes (`cargo test --bin mfb builtins::strings → 20
+passed`; full `builtins::` suite → 403 passed); `strings.*` fixtures (incl.
+`tests/byte-identity/strings`) verified byte-identical in the consolidated T–X
+acceptance at finalization (metadata-only wrappers proven equal by parity; the
+descriptor `REGISTRY` is never read in production dispatch).
 Commit: —
 
 ## Validation
@@ -77,4 +92,27 @@ Commit: —
 
 ## Corrections
 
-Filled during execution.
+- **`implementation_name` needs no resolver (census `custom 1` is data-shaped).**
+  The Goal called for "resolver support for `implementation_name`". It is a fixed
+  per-name map (the 7 seam members → `__strings_*`, everyone else → native), so it
+  is modeled as `Implementation::Rewrite`/`Same` and derived by
+  `DefaultResolver::implementation_name` — the same finding as csv-G/regex-T. The
+  resolver `STRINGS` DOES carry exists solely for the scalar-seam SOURCE predicate
+  (`uses_source`), which the descriptor's `InjectionRule::WhenUsed` requires.
+- **`InjectionRule::Custom` → `WhenUsed`.** The plan text named the rule
+  `InjectionRule::Custom`; the plan-72-A enum spells it `WhenUsed` (inject only
+  when a package-specific predicate holds). Modeled as `WhenUsed` with the
+  predicate on the resolver's `uses_source`.
+- **Optional trailing args are `Optional`, not `Fill`.** `padLeft`/`padRight`'s
+  `padChar` and `find`'s `start` widen arity to (2,3) but are never default-padded
+  (strings has no `default_argument_padding`; the bodies select by arg count). The
+  parity test asserts `default_padding` is empty for every call at every provided
+  count.
+- **`expected_arguments` stays hand-authored** (bespoke `[, T]` bracket phrasing;
+  the `collections`/`regex` precedent). `LegacySet.expected_arguments = None`.
+- **`resolve_call` no longer uses the shared `exact` helper.** It now delegates to
+  `DefaultResolver::resolve_call`; the module-level `use super::exact;` was removed
+  and the `exact_helper` regression test imports `crate::builtins::exact` directly.
+- **Prerequisites Row 4 measured 468** (plan text says 451, a letter-B snapshot) —
+  expected per-letter growth; recorded here rather than editing the shared plan-72
+  overview a concurrent session is updating.
