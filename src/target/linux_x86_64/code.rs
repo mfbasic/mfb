@@ -25,9 +25,7 @@ use crate::os::linux::flavor::LinuxFlavor;
 use crate::target::linux_common::code::{
     self as common, AppSupport, LinuxArch, MAP_PRIVATE_ANON, PROT_READ_WRITE,
 };
-use crate::target::shared::code::{
-    self, CodeInstruction, CodeRelocation, MirPlan, NativeCodePlan,
-};
+use crate::target::shared::code::{self, CodeInstruction, CodeRelocation, MirPlan, NativeCodePlan};
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
 

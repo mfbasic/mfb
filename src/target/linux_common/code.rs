@@ -1503,23 +1503,35 @@ mod tests {
                 .instructions
                 .iter()
                 .filter(|i| i.op.mnemonic() == "sub_sp")
-                .map(|i| i.get("imm").expect("sub_sp imm").parse().expect("numeric imm"))
+                .map(|i| {
+                    i.get("imm")
+                        .expect("sub_sp imm")
+                        .parse()
+                        .expect("numeric imm")
+                })
                 .collect();
             let adds: Vec<usize> = trampoline
                 .instructions
                 .iter()
                 .filter(|i| i.op.mnemonic() == "add_sp")
-                .map(|i| i.get("imm").expect("add_sp imm").parse().expect("numeric imm"))
+                .map(|i| {
+                    i.get("imm")
+                        .expect("add_sp imm")
+                        .parse()
+                        .expect("numeric imm")
+                })
                 .collect();
 
             let libc = platform.libc().map(|l| l.as_str()).unwrap_or("?");
             assert_eq!(
-                subs, vec![88usize],
+                subs,
+                vec![88usize],
                 "{libc} x86-64 trampoline must have exactly one frame `sub sp` of 88 \
                  bytes (one +8 realign, no libc-gated 80, no compounding 96) — bug-408"
             );
             assert_eq!(
-                adds, vec![88usize],
+                adds,
+                vec![88usize],
                 "{libc} x86-64 trampoline must tear the frame down with exactly one \
                  `add sp` of 88 bytes — bug-408"
             );
