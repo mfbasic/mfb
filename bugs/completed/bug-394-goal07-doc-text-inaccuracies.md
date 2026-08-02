@@ -5,9 +5,36 @@ Effort: small (<1h)
 Severity: LOW
 Class: Other (documentation/diagnostic text vs behavior)
 
-Status: Open
-Regression Test: none (comment/message-only; no behavioral test — the diagnostic
-item (1) can carry a message-substring assertion if desired).
+Status: FIXED (00f407998)
+Regression Test: `unicode::runtime_tables::tests::out_of_range_codepoints_return_the_default_property`
+(item 11, RED-then-GREEN). All other items are comment/message-only with no
+behavioral test. Item (1)'s diagnostic is not captured by any test harness
+(`try_parse` returns `Result<_, ()>`; diagnostics are printed, not collected), so
+no substring assertion was added — the existing `is_err()` coverage is unchanged.
+
+## STATUS: FIXED (00f407998)
+
+Re-verified every one of the 18 items against current code (line numbers had all
+drifted since 2026-07-28; all 18 were still valid — none already-fixed, none
+invalid). Applied all as documented. Deviations from the fix notes:
+
+- Item (3): removed the misplaced comment from the `BIND_UDP` arm and added a
+  corrected version at the `_ => None` fall-through of `argument_types`, naming
+  `setReadTimeout`/`setWriteTimeout` as the overloaded `None` cases.
+- Item (5): reworded to list only `scalarize_v128`-handled ops (FRint*, FCvtasV,
+  AbsV) and to state `SshlV`/`UshlV` fail loud in `scalarize_v128`; dropped the
+  non-`is_v128` `Cnt8bV`/`Addv8bV` names.
+- Item (11): the emitted runtime (`emit_unicode_property_lookup`) does not guard
+  either — it relies on callers passing valid scalars. The guard returns the
+  index-0 (unassigned) property for `codepoint > 0x10FFFF`, exactly matching
+  upstream `utf8proc_get_property`'s `uc >= 0x110000` clamp. Added a RED→GREEN
+  test (was `index out of bounds: len 4352, index 4352`).
+
+Full `cargo test` suite green (mfb bin 3692 passed, 0 failed; all binaries ok).
+Comment-only `audio_mml.mfb` change is codegen-neutral (comments stripped; the
+byte-identity codegen tests in the suite pass unchanged). No goldens shifted.
+Pre-existing rustfmt drift in `repository/src/backfill.rs` (unrelated, on main)
+was left untouched.
 
 A batch of small, same-class human-readable-text defects surfaced during the
 goal-07 full-source review: a user-facing diagnostic and three internal doc
