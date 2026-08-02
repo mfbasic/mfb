@@ -1716,6 +1716,29 @@ async fn org_members(
         ));
     }
 
+    // bug-420 item 1: only an owner (or the org itself) may create or remove an
+    // `owner`. An `admin` grantor passes the check above, so without this an
+    // admin could grant itself the `owner` role or remove the org's existing
+    // owner and seize the namespace. Admins keep authority over admin/publisher.
+    let grantor_is_owner = is_org || grantor_role.as_deref() == Some("owner");
+    if !grantor_is_owner {
+        let touches_owner = if request.action == "remove" {
+            state
+                .store
+                .org_member_role(&request.org, &request.member)
+                .map_err(internal)?
+                .as_deref()
+                == Some("owner")
+        } else {
+            request.role == "owner"
+        };
+        if touches_owner {
+            return Err(bad_request(
+                "only an owner or the org itself may grant or remove the owner role".to_string(),
+            ));
+        }
+    }
+
     if request.action == "remove" {
         state
             .store
@@ -4215,6 +4238,147 @@ mod tests {
             .await
             .expect("removal");
         assert!(store.org_member_role("acme", "alice").unwrap().is_none());
+    }
+
+    /// bug-420 item 1: an `admin` member must not be able to seize the org by
+    /// promoting itself to `owner` or by removing an existing owner. Only an
+    /// owner (or the org itself) may manage the owner role.
+    #[tokio::test]
+    async fn admin_cannot_grant_or_remove_the_owner_role() {
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let store = opened.store;
+        let org = register_owner_with_all_keys(&store, "acme");
+        let alice = register_owner_with_all_keys(&store, "alice");
+        let _bob = register_owner_with_all_keys(&store, "bob");
+        let _carol = register_owner_with_all_keys(&store, "carol");
+        let org_token = open_session(&store, "acme", &org.auth_private);
+        let alice_token = open_session(&store, "alice", &alice.auth_private);
+        let state = AppState {
+            store: store.clone(),
+            blob_store: BlobStore::local(opened.packages_dir.clone()),
+            rate_limiter: RateLimiter::new(),
+        };
+
+        let request = |grantor: &str,
+                       ident_private: &[u8],
+                       token: &str,
+                       member: &str,
+                       role: &str,
+                       action: &str| {
+            let message_role = if action == "remove" { "removed" } else { role };
+            let sig = crypto::encode_bytes(
+                &crypto::sign(
+                    ident_private,
+                    &crypto::org_role_message("acme", member, message_role),
+                )
+                .unwrap(),
+            );
+            OrgMemberRequest {
+                org: "acme".to_string(),
+                grantor: grantor.to_string(),
+                member: member.to_string(),
+                role: role.to_string(),
+                action: action.to_string(),
+                session_token: token.to_string(),
+                ident_signature: sig,
+            }
+        };
+
+        // The org bootstraps alice as admin and bob as owner.
+        let _ = org_members(
+            State(state.clone()),
+            Json(request(
+                "acme",
+                &org.ident_private,
+                &org_token,
+                "alice",
+                "admin",
+                "grant",
+            )),
+        )
+        .await
+        .expect("org grants alice admin");
+        let _ = org_members(
+            State(state.clone()),
+            Json(request(
+                "acme",
+                &org.ident_private,
+                &org_token,
+                "bob",
+                "owner",
+                "grant",
+            )),
+        )
+        .await
+        .expect("org grants bob owner");
+
+        // The admin cannot promote itself (or anyone) to owner.
+        let self_promote = org_members(
+            State(state.clone()),
+            Json(request(
+                "alice",
+                &alice.ident_private,
+                &alice_token,
+                "alice",
+                "owner",
+                "grant",
+            )),
+        )
+        .await;
+        assert!(
+            self_promote.is_err(),
+            "an admin must not be able to grant itself the owner role"
+        );
+        assert_eq!(
+            store.org_member_role("acme", "alice").unwrap().as_deref(),
+            Some("admin"),
+            "the admin's role must be unchanged after the refused self-promotion"
+        );
+
+        // The admin cannot remove the org's existing owner.
+        let remove_owner = org_members(
+            State(state.clone()),
+            Json(request(
+                "alice",
+                &alice.ident_private,
+                &alice_token,
+                "bob",
+                "owner",
+                "remove",
+            )),
+        )
+        .await;
+        assert!(
+            remove_owner.is_err(),
+            "an admin must not be able to remove an existing owner"
+        );
+        assert_eq!(
+            store.org_member_role("acme", "bob").unwrap().as_deref(),
+            Some("owner"),
+            "the owner must still hold the owner role after the refused removal"
+        );
+
+        // The admin retains authority over non-owner roles.
+        let _ = org_members(
+            State(state.clone()),
+            Json(request(
+                "alice",
+                &alice.ident_private,
+                &alice_token,
+                "carol",
+                "publisher",
+                "grant",
+            )),
+        )
+        .await
+        .expect("an admin may still grant a publisher");
+        assert_eq!(
+            store.org_member_role("acme", "carol").unwrap().as_deref(),
+            Some("publisher")
+        );
     }
 
     #[tokio::test]
