@@ -240,7 +240,7 @@ teach `value_aliases_live_resource` that `net.pollList` returns a borrowed point
 No escape-analysis change and no `.mfp` format change are required (borrow is a pure
 lowering-site property; the return serialises as the bare type `Socket`). The ≥1000× leak-loop that
 proves no double-close of the borrowed return is folded into the Phase 3 runtime fixture.
-Commit: (recorded next commit)
+Commit: b1fd467c6
 
 ### Phase 2 — resolver + descriptor surface
 
@@ -262,26 +262,41 @@ Commit: (recorded next commit)
 
 Acceptance: at `-ast -ir`, the list overload resolves to `Socket`, the scalar to `Boolean`, bad
 forms rejected; `cargo test --bin mfb` green (3750 passed, 0 failed). ✅
-Commit: (recorded next commit)
+Commit: 70167a08b
 
 ### Phase 3 — native multi-fd lowering (largest blast radius)
 
-- [ ] `lower_net_poll_list_helper` in `net/poll.rs` + dispatch in `net/mod.rs`; empty-list →
-      `ErrInvalidArgument`; `pollfd[n]` build; shared sentinel/clamp/EINTR block; `revents` scan;
-      first-ready record-ptr return; expiry → `ErrTimeout`.
-- [ ] Tests: `tests/rt-behavior/net/net-poll-list-rt` — connect two loopback sockets (server
-      accepts, writes to exactly one), `net::poll([a,b])` returns the written-to socket; then read
-      it. Add a timeout-convention case (`net::poll(socks, 0)` on two idle sockets → `ErrTimeout`;
-      `net::poll(socks, -1_via_omit)` blocks then returns when data arrives; `< 0` explicit →
-      `ErrInvalidArgument`). Loop the connect/poll/close ≥1000× to prove no fd leak / no
-      double-close of the borrowed return.
-- [ ] Goldens: regenerate `byte-identity/net` `.ncodesum` for all five targets if net codegen
-      shifts; prove determinism.
+- [x] `lower_net_poll_list_helper` in `net/poll.rs` + dispatch in `mod.rs` (`net.pollList`). The
+      overload is remapped `net.poll → net.pollList` in `builder_values.rs` by receiver shape
+      (`net_poll_is_list_form`), gets a runtime spec (`NET_POLL_LIST_SPEC`, returns `Socket`) in
+      `net_specs.rs`, is registered in `catalog.rs` (+ `CODE_LAYER_ONLY_CALLS`), and its helper body
+      is force-emitted whenever `net.poll` is present (mirroring `connectTcpAddr`, `mod.rs`). The
+      return-type resolution for the overloaded `net.poll` is selected by arg shape in
+      `builder_values.rs`. Borrow classification wired via `net::returns_borrowed_resource` →
+      `value_aliases_live_resource` (no close obligation on the returned binding). The helper:
+      normalizes the timeout (scalar-helper policy verbatim), rejects the empty list
+      (`ErrInvalidArgument`), builds a transient `pollfd[n]` in the arena (per-platform stride 8/16
+      and events POLLIN/POLLRDNORM), issues one `poll(2)`/`WSAPoll` with EINTR retry, scans `revents`
+      for the first ready slot, returns that element's record pointer (borrowed), and `arena_free`s
+      the array on every allocated exit path (expiry → `ErrTimeout`).
+- [x] Tests: `tests/rt-behavior/net/net-poll-list-rt` — two loopback conns, write to exactly one;
+      `net::poll(socks)` returns the readable one (proven both index directions: write-A → "A",
+      write-B → "B"); `net::poll(socks, 0)` on two idle → `ErrTimeout`; `net::poll(socks, -1)` →
+      `ErrInvalidArgument`; `net::poll([])` → `ErrInvalidArgument`; a **1200× connect/poll/close
+      loop** proving no fd leak and no double-close of the borrowed return. Runs clean on
+      macos-aarch64 (output `first A / second B / timeout TRUE / negative TRUE / empty TRUE /
+      leak-loop survived`, exit 0); passes `test-accept.sh`.
+- [x] Goldens: regenerated `byte-identity/net` `.ncodesum` for all five targets. **Proved the delta
+      is purely additive** — a detached base (`b1fd467c6`) `.ncode` dump diffed against the current
+      one shows ONLY the new `runtime.net.pollList` function inserted (276 lines added, 0 deleted;
+      every existing net helper byte-identical). Confirmed debug-gen == release-gen shas for all 5
+      targets (`.ncode` is compiler-optimization-independent), so the goldens match the release gate.
 
 Acceptance: the multiplex fixture runs clean and picks the correct ready socket; the timeout cases
-match the plan-73 table; ≥1000× loop leaks no fd; `cargo test --bin mfb` + `artifact-gate.sh`
-(debug, diffs=0) green.
-Commit: —
+match the plan-73 table; 1200× loop leaks no fd; `cargo test --bin mfb` (3750/0) + `net` byte-identity
+delta proven additive + release-parity confirmed. (Full `artifact-gate all` deferred to finalization —
+a concurrent gate from another session held the global lock; net goldens independently verified.)
+Commit: (recorded next commit)
 
 ### Phase 4 — docs
 

@@ -1490,6 +1490,18 @@ pub(crate) fn lower_module_for_platform(
     {
         runtime_symbols.push("_mfb_rt_net_net_connectTcpAddr".to_string());
     }
+    // plan-76-A: the `poll(List OF RES Socket)` overload routes to `net.pollList`,
+    // a synthesized target the NIR never names (it carries only `net.poll`), so
+    // emit its helper body whenever `poll` is present — mirroring `connectTcpAddr`.
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_net_net_poll")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_net_net_pollList")
+    {
+        runtime_symbols.push("_mfb_rt_net_net_pollList".to_string());
+    }
     // App-mode io.input composes io.write (prompt -> transcript) + io.readLine
     // (read the window input pipe), so ensure both helpers are emitted
     // (plan-04-macos-app.md §5.4).
@@ -2075,6 +2087,9 @@ fn lower_runtime_helper(
                 }
                 "net.accept" => net::lower_net_accept_helper(symbol, platform_imports, platform)?,
                 "net.poll" => net::lower_net_poll_helper(symbol, platform_imports, platform)?,
+                "net.pollList" => {
+                    net::lower_net_poll_list_helper(symbol, platform_imports, platform)?
+                }
                 "net.read" => {
                     net::lower_net_read_helper(symbol, platform_imports, platform, false)?
                 }
