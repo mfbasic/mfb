@@ -18,6 +18,12 @@
 
 use std::borrow::Cow;
 
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
+    BuiltinType, DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
+    ParameterType, ReturnType, TypeKind,
+};
+
 pub(crate) const FLOAT2_TYPE: &str = "Float2";
 pub(crate) const FLOAT3_TYPE: &str = "Float3";
 pub(crate) const FLOAT4_TYPE: &str = "Float4";
@@ -93,33 +99,196 @@ const ABS: &str = "vector.abs";
 const PERPENDICULAR: &str = "vector.perpendicular";
 const ROTATE_2D: &str = "vector.rotate_2d";
 
+// plan-72-AA: `VECTOR` is the descriptor authority for this package's function
+// members and value-record types. The 19 function members are single-overload
+// (`cross` widens 1..3 via trailing `Optional` params) with `ReturnType::Custom`:
+// the public return type is computed from the argument record type, so
+// `resolve_call` and the typed `implementation_name` (`vector.length` over a
+// `Float3` → `__vector_length_float3`) stay hand-authored and are exposed through
+// `VectorResolver` so the registry can drive them (`H` datetime / `I` encoding
+// pattern). The 42 package CONSTANTS (`vector.zeroFloat3`, …) are parsed
+// dynamically, not enumerated, so they stay in the hand-authored
+// `is_vector_constant`/`constant_*` surface — the descriptor models only the
+// function members. `expected_arguments` is prose ("two vectors of the same
+// type") and stays hand-authored. The nine value records carry their fields in
+// the source companion (like `net::Url`), so they take empty descriptor fields.
+const fn ov(params: &'static [Parameter]) -> BuiltinOverload {
+    BuiltinOverload {
+        params,
+        return_type: ReturnType::Custom,
+    }
+}
+
+const fn vf(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+) -> BuiltinFunction {
+    BuiltinFunction {
+        name,
+        doc_slug: slug,
+        overloads,
+        implementation: Implementation::Custom,
+        lowering: Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+
+const fn req(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
+    Parameter {
+        name,
+        aliases,
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::None,
+    }
+}
+
+// An optional trailing operand: widens the arity range (`cross`) but is NOT
+// default-padded, so `Optional`, not `Fill`.
+const fn opt(name: &'static str, ty: &'static str) -> Parameter {
+    Parameter {
+        name,
+        aliases: &[],
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::Optional,
+    }
+}
+
+const P_UNARY: &[Parameter] = &[req("v", &[], "Vector")];
+const P_BINARY: &[Parameter] = &[req("a", &["v"], "Vector"), req("b", &["n"], "Vector")];
+const P_CROSS: &[Parameter] = &[
+    req("a", &["v"], "Vector"),
+    opt("b", "Vector"),
+    opt("c", "Vector"),
+];
+const P_LERP: &[Parameter] = &[
+    req("a", &[], "Vector"),
+    req("b", &[], "Vector"),
+    req("t", &[], "Float"),
+];
+const P_CLAMP: &[Parameter] = &[req("v", &[], "Vector"), req("max", &[], "Scalar")];
+const P_ROTATE: &[Parameter] = &[req("v", &[], "Vector"), req("angle", &[], "Float")];
+
+const VECTOR_FUNCTIONS: &[BuiltinFunction] = &[
+    vf(LENGTH, "length", &[ov(P_UNARY)]),
+    vf(NORMALIZE, "normalize", &[ov(P_UNARY)]),
+    vf(DISTANCE, "distance", &[ov(P_BINARY)]),
+    vf(DOT, "dot", &[ov(P_BINARY)]),
+    vf(CROSS, "cross", &[ov(P_CROSS)]),
+    vf(REFLECT, "reflect", &[ov(P_BINARY)]),
+    vf(PROJECT, "project", &[ov(P_BINARY)]),
+    vf(REJECT, "reject", &[ov(P_BINARY)]),
+    vf(ANGLE, "angle", &[ov(P_BINARY)]),
+    vf(LERP, "lerp", &[ov(P_LERP)]),
+    vf(LERP_UNCLAMPED, "lerp_unclamped", &[ov(P_LERP)]),
+    vf(SLERP, "slerp", &[ov(P_LERP)]),
+    vf(CLAMP_LENGTH, "clamp_length", &[ov(P_CLAMP)]),
+    vf(SCALE, "scale", &[ov(P_BINARY)]),
+    vf(MIN, "min", &[ov(P_BINARY)]),
+    vf(MAX, "max", &[ov(P_BINARY)]),
+    vf(ABS, "abs", &[ov(P_UNARY)]),
+    vf(PERPENDICULAR, "perpendicular", &[ov(P_UNARY)]),
+    vf(ROTATE_2D, "rotate_2d", &[ov(P_ROTATE)]),
+];
+
+/// The nine fixed-width value records. Their fields are declared by the
+/// `EXPORT TYPE`s in the source companion (like `net::Url`), so they carry no
+/// descriptor fields; `is_builtin_type` stays hand-authored over the same nine.
+const VECTOR_TYPES: &[BuiltinType] = &[
+    BuiltinType {
+        name: FLOAT2_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: FLOAT3_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: FLOAT4_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: FIXED2_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: FIXED3_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: FIXED4_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: INTEGER2_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: INTEGER3_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: INTEGER4_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+];
+
+/// Argument-dependent return-type and implementation selection for the vector
+/// function members, delegating to the same hand-authored `resolve_call` /
+/// `implementation_name` the package used pre-migration so every typed overload
+/// resolves byte-identically. Exposed through the descriptor so plan-72-BB can
+/// drive `vector::` return types and monomorph targets from the registry.
+struct VectorResolver;
+impl BuiltinResolver for VectorResolver {
+    fn resolve_return_type(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        resolve_call(name, arg_types).map(|resolved| resolved.return_type.into_owned())
+    }
+
+    fn implementation_name(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        implementation_name(name, arg_types)
+    }
+}
+static VECTOR_RESOLVER: VectorResolver = VectorResolver;
+
+pub(crate) static VECTOR: BuiltinModule = BuiltinModule {
+    name: "vector",
+    functions: VECTOR_FUNCTIONS,
+    types: VECTOR_TYPES,
+    source: Some(BuiltinSource {
+        rule: InjectionRule::WhenImported,
+        loader: source_file,
+    }),
+    resolver: Some(&VECTOR_RESOLVER),
+};
+
 pub(crate) fn is_vector_call(name: &str) -> bool {
     is_vector_function(name) || is_vector_constant(name)
 }
 
 fn is_vector_function(name: &str) -> bool {
-    matches!(
-        name,
-        LENGTH
-            | NORMALIZE
-            | DISTANCE
-            | DOT
-            | CROSS
-            | REFLECT
-            | PROJECT
-            | REJECT
-            | ANGLE
-            | LERP
-            | LERP_UNCLAMPED
-            | SLERP
-            | CLAMP_LENGTH
-            | SCALE
-            | MIN
-            | MAX
-            | ABS
-            | PERPENDICULAR
-            | ROTATE_2D
-    )
+    DefaultResolver::contains(&VECTOR, name)
 }
 
 /// `(min, max)` argument count for a function member. `cross` spans 1..3 (its
@@ -128,15 +297,10 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     if is_vector_constant(name) {
         return Some((0, 0));
     }
-    let span = match name {
-        LENGTH | NORMALIZE | ABS | PERPENDICULAR => (1, 1),
-        DISTANCE | DOT | REFLECT | PROJECT | REJECT | ANGLE | SCALE | MIN | MAX | CLAMP_LENGTH
-        | ROTATE_2D => (2, 2),
-        CROSS => (1, 3),
-        LERP | LERP_UNCLAMPED | SLERP => (3, 3),
-        _ => return None,
-    };
-    Some(span)
+    // `cross` spans 1..3 (its arity is dimension-specific, validated precisely in
+    // `resolve_call`); the descriptor models that as one overload with two
+    // trailing `Optional` operands.
+    DefaultResolver::arity(&VECTOR, name)
 }
 
 /// Whether `a` and `b` are the same vector type.
@@ -765,6 +929,107 @@ mod tests {
         assert_eq!(
             augmented_project(&ast).expect("a").files.len(),
             ast.files.len()
+        );
+    }
+
+    // plan-72-AA migration gate: prove `VECTOR` reproduces every legacy helper
+    // answer for every function member (and an unknown name) — membership, arity
+    // (incl. `cross`'s 1..3 span), and per-position parameter names — pinning the
+    // borrowed `call_param_names` static equal to `VECTOR`. The argument-dependent
+    // return type and typed `implementation_name` (every element type × dimension,
+    // scalar vs vector returns, and a package constant) are checked through the
+    // resolver samples. `expected_arguments` is prose and checked by
+    // `expected_arguments_text`; the 42 constants stay hand-authored. Keep until
+    // plan-72-BB.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::parity;
+
+        let calls: Vec<&str> = VECTOR_FUNCTIONS.iter().map(|f| f.name).collect();
+        let legacy = parity::LegacySet {
+            is_call: &is_vector_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            // Resolver-backed: the harness skips return-type parity, so this is unused.
+            return_type_name: &|_| None,
+            // Prose ("two vectors of the same type"); kept hand-authored.
+            expected_arguments: None,
+            param_name_overloads: None,
+            argument_types: None,
+            // Argument-dependent; checked through the resolver samples below.
+            implementation_name: None,
+            default_padding: None,
+            builtin_type_fields: None,
+        };
+
+        // Return type + typed implementation across every element type, dimension,
+        // scalar/vector return, `cross`-by-dimension, and a package constant.
+        let sample = |call, args: &'static [&'static str], ret, imp: &'static str| {
+            parity::ResolverSample {
+                call,
+                arg_types: args,
+                expected_return: Some(ret),
+                expected_impl: Some(imp),
+                expected_padding: None,
+                expected_type: None,
+                expected_overload_target: None,
+            }
+        };
+        let samples = [
+            sample(LENGTH, &["Float3"], "Float", "__vector_length_float3"),
+            sample(NORMALIZE, &["Float3"], "Float3", "__vector_normalize_float3"),
+            sample(DISTANCE, &["Float3", "Float3"], "Float", "__vector_distance_float3"),
+            sample(DOT, &["Fixed4", "Fixed4"], "Fixed", "__vector_dot_fixed4"),
+            sample(CROSS, &["Float2"], "Float2", "__vector_cross_float2"),
+            sample(CROSS, &["Float3", "Float3"], "Float3", "__vector_cross_float3"),
+            sample(
+                CROSS,
+                &["Float4", "Float4", "Float4"],
+                "Float4",
+                "__vector_cross_float4",
+            ),
+            sample(
+                LERP,
+                &["Float3", "Float3", "Float"],
+                "Float3",
+                "__vector_lerp_float3",
+            ),
+            sample(
+                CLAMP_LENGTH,
+                &["Float3", "Float"],
+                "Float3",
+                "__vector_clamp_length_float3",
+            ),
+            sample(
+                ROTATE_2D,
+                &["Float2", "Float"],
+                "Float2",
+                "__vector_rotate_2d_float2",
+            ),
+            sample(ABS, &["Integer4"], "Integer4", "__vector_abs_integer4"),
+            // A package constant resolves through the resolver too (zero-arg).
+            sample("vector.zeroInteger2", &[], "Integer2", "__vector_zeroInteger2"),
+        ];
+
+        let mut probe = calls.clone();
+        probe.push("vector.bogus");
+        parity::assert_parity(&VECTOR, &probe, &legacy, &samples);
+
+        // The nine value records are the descriptor's builtin-type authority.
+        for ty in VECTOR_TYPES {
+            assert!(is_builtin_type(ty.name), "{}", ty.name);
+        }
+        assert!(!is_builtin_type("Float5"));
+        // Constants are members via the hand-authored surface, not the descriptor.
+        assert!(is_vector_call("vector.zeroFloat3"));
+        assert!(!is_vector_function("vector.zeroFloat3"));
+
+        // The source companion injects on import (WhenImported).
+        assert_eq!(
+            VECTOR.source.expect("vector has a source").rule,
+            crate::builtins::descriptor::InjectionRule::WhenImported
         );
     }
 }

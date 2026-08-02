@@ -1226,38 +1226,35 @@ mod tests {
     static MIGRATED_REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[&MIGRATED_BITS]);
 
     #[test]
-    fn adapters_fall_back_for_unmigrated_packages() {
-        // `tls` is not migrated, so it is absent from the production registry
-        // and every adapter falls back to — and returns exactly — the legacy
-        // helper. This is what keeps production dispatch unchanged for packages
-        // that have not yet moved onto descriptors. (This test used `math` as the
-        // unmigrated example until plan-72-P migrated it, then `regex` until
-        // plan-72-T migrated that; the example tracks a still-unmigrated package.)
-        assert!(registry_is_call(
-            &descriptor::REGISTRY,
-            "tls.connect",
-            tls::is_tls_call
-        ));
-        assert!(!registry_is_call(
-            &descriptor::REGISTRY,
-            "tls.nope",
-            tls::is_tls_call
-        ));
+    fn adapters_fall_back_on_registry_miss() {
+        // Every real builtin package is now migrated (plan-72-A..AA), so the
+        // production registry owns every real call name and no real package
+        // exercises the legacy fallback anymore. The mod.rs adapters still fall
+        // back to their legacy closure on a registry MISS — the mechanism BB will
+        // delete once aggregate dispatch is registry-only. Prove that mechanism
+        // with a synthetic name no module owns: the registry misses and the
+        // adapter returns exactly the closure's answer. (This test tracked a
+        // still-unmigrated real example — `math` until plan-72-P, `regex` until -T,
+        // `tls` until -Z — but none remains.)
+        assert!(registry_is_call(&descriptor::REGISTRY, "nonesuch.thing", |name| {
+            name == "nonesuch.thing"
+        }));
+        assert!(!registry_is_call(&descriptor::REGISTRY, "nonesuch.other", |_| false));
         assert_eq!(
-            registry_arity(&descriptor::REGISTRY, "tls.connect", tls::arity),
-            tls::arity("tls.connect")
+            registry_arity(&descriptor::REGISTRY, "nonesuch.thing", |_| Some((1, 2))),
+            Some((1, 2))
         );
         assert_eq!(
-            registry_return_type_name(
-                &descriptor::REGISTRY,
-                "tls.connect",
-                tls::call_return_type_name
-            ),
-            tls::call_return_type_name("tls.connect")
+            registry_return_type_name(&descriptor::REGISTRY, "nonesuch.thing", |_| Some(
+                "Nothing"
+            )),
+            Some("Nothing")
         );
         assert_eq!(
-            registry_expected_arguments(&descriptor::REGISTRY, "tls.connect", |name| tls::expected_arguments(name).map(str::to_string)),
-            tls::expected_arguments("tls.connect").map(str::to_string)
+            registry_expected_arguments(&descriptor::REGISTRY, "nonesuch.thing", |_| Some(
+                "X".to_string()
+            )),
+            Some("X".to_string())
         );
     }
 

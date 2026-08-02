@@ -641,6 +641,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::os::OS,
     &crate::builtins::thread::THREAD,
     &crate::builtins::tls::TLS,
+    &crate::builtins::vector::VECTOR,
 ]);
 
 /// The migration parity harness (plan-72).
@@ -1236,18 +1237,26 @@ mod tests {
 
     #[test]
     fn production_registry_holds_migrated_packages() {
-        // Migrated packages (app plan-72-B, bits plan-72-D) are registered and
-        // resolvable by module name and by qualified function name. `tls` is not
-        // migrated yet, so it is absent and its calls fall back to the legacy
-        // helper. (This used `math` until plan-72-P migrated it, then `regex`
-        // until plan-72-T; the example tracks a still-unmigrated package.)
+        // Migrated packages are registered and resolvable by module name and by
+        // qualified function name. As of plan-72-Y/Z/AA (thread, tls, vector) the
+        // LAST three packages are migrated, so the registry is now COMPLETE — every
+        // one of the 26 builtin packages is present. (This test tracked a
+        // still-unmigrated example — `math` until plan-72-P, `regex` until -T,
+        // `tls` until -Z — but none remains, so it now asserts completeness.)
         assert!(REGISTRY.module("app").is_some());
         assert!(REGISTRY.function("app.setMode").is_some());
         assert!(REGISTRY.module("bits").is_some());
         assert!(REGISTRY.function("bits.band").is_some());
-        assert!(REGISTRY.module("tls").is_none());
-        assert!(REGISTRY.function("tls.connect").is_none());
-        // The registry's names stay unique as packages are appended.
+        // The final three, migrated last:
+        assert!(REGISTRY.module("thread").is_some());
+        assert!(REGISTRY.function("thread.start").is_some());
+        assert!(REGISTRY.module("tls").is_some());
+        assert!(REGISTRY.function("tls.connect").is_some());
+        assert!(REGISTRY.module("vector").is_some());
+        assert!(REGISTRY.function("vector.length").is_some());
+        // The registry is exhaustive: all 26 builtin packages are registered.
+        assert_eq!(REGISTRY.modules().len(), 26);
+        // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);
     }

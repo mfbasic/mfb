@@ -62,7 +62,7 @@ Acceptance: `cargo test` passes; every `tls.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
 (`cargo test --bin mfb builtins::tls` → 13 passed; full acceptance run at
 finalization.)
-Commit: —
+Commit: 03df7f6fc
 
 ## Validation
 
