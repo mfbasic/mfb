@@ -266,7 +266,7 @@ impl<'a> SyntaxChecker<'a> {
         let arguments =
             self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
 
-        if let Some((min, max)) = builtins::term::arity(callee) {
+        if let Some((min, max)) = builtins::arity(callee) {
             if arguments.len() < min || arguments.len() > max {
                 let expected = if min == max {
                     min.to_string()
@@ -390,7 +390,7 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        if let Some((min, max)) = builtins::thread::arity(callee) {
+        if let Some((min, max)) = builtins::arity(callee) {
             if arguments.len() < min || arguments.len() > max {
                 let expected = if min == max {
                     min.to_string()
@@ -467,7 +467,7 @@ impl<'a> SyntaxChecker<'a> {
             .map(|type_| self.type_name(type_))
             .collect::<Vec<_>>();
 
-        if let Some((min, max)) = builtins::general::arity(callee) {
+        if let Some((min, max)) = builtins::arity(callee) {
             if arguments.len() < min || arguments.len() > max {
                 let expected = if min == max {
                     min.to_string()
@@ -615,7 +615,7 @@ impl<'a> SyntaxChecker<'a> {
             .map(|type_| self.type_name(type_))
             .collect::<Vec<_>>();
 
-        if let Some((min, max)) = builtins::collections::arity(callee) {
+        if let Some((min, max)) = builtins::arity(callee) {
             if arguments.len() < min || arguments.len() > max {
                 let expected = if min == max {
                     min.to_string()
