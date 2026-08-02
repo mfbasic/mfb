@@ -220,6 +220,22 @@ padded with `0` = non-blocking; negative = block forever, straight through to
 no letter covered, so it was landed as the append-only **plan-73-F** (commit
 99702c21c) and now conforms (row above). Runtime-proven on macOS.
 
+**E-C4 — stale `byte-identity/fs` (and any fs/thread) golden: the C summary's
+"net-gated" claim was wrong (found by E's full gate).** plan-73-A/C removed the
+retired `ERR_READ_TIMEOUT`/`ERR_WRITE_TIMEOUT` tuples from
+`standard_error_messages()` (mod.rs) — a correct retirement. But that table is
+emitted for every module whose helpers include `_mfb_rt_fs_*` **OR**
+`_mfb_rt_thread_*` (mod.rs:876-884), NOT only net modules. plan-73-C's targeted
+byte-identity check (net/tls/http only, to avoid the per-phase full gate) therefore
+MISSED `byte-identity/fs`, whose emitted data-object set legitimately shrank by two
+strings → its committed `.ncodesum` went stale on all 5 targets. Verified this is a
+STALE GOLDEN, not a code bug: a pure-main (a60ce43f8) `mfb` reproduces the committed
+fs golden exactly (MATCH), and the only delta is the two deliberately-retired
+strings. Fix: regenerate the affected byte-identity `.ncodesum` (fs, and any thread
+fixture the gate flags) — the sanctioned "code proven correct → refresh the stale
+snapshot" path, not a weakening. This is exactly the regression E's tree-wide gate
+exists to catch that the per-family targeted checks could not.
+
 **E-C3 — `thread::poll` is documented as value-conforming, not migrated.**
 `thread::poll(t, ms)` has arity `(2,2)` — `ms` is required, so it has no omit form.
 But its value-meanings already match the table (rejects negatives → 77050002, `0`
