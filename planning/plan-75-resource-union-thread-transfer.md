@@ -52,10 +52,10 @@ being a `{tag,ptr}` pointer handle rather than a data block:
 
 ## Prerequisites
 
-| Must be true | Command |
-|---|---|
-| plan-74 landed (union STATE) | `ls planning/completed/plan-74-*` |
-| A stateful **concrete**-resource transfer works (the reference path) | `tests/rt-behavior/threads/thread-transfer-state-rt` is green |
+| Must be true | Command | Status (measured 2026-08-02) |
+|---|---|---|
+| plan-74 landed (union STATE) | `ls planning/completed/plan-74-*` | MET — `planning/completed/plan-74-resource-union-state.md` present |
+| A stateful **concrete**-resource transfer works (the reference path) | `tests/rt-behavior/threads/thread-transfer-state-rt` is green | MET — `test-accept.sh ./target/release/mfb <out> thread-transfer-state-rt` → "acceptance tests passed (1 test(s) ran)" |
 
 ## Phases (sketch — Phase 0 measures before scheduling the rest)
 
