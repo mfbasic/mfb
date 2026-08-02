@@ -65,6 +65,7 @@ fn http_client() -> Result<&'static Client, String> {
             Client::builder()
                 .connect_timeout(CONNECT_TIMEOUT)
                 .timeout(CONTROL_TIMEOUT)
+                .redirect(redirect_policy())
                 .build()
                 .map_err(|err| format!("failed to build the repository HTTP client: {err}"))
         })
@@ -111,6 +112,93 @@ fn ensure_transport_security(repo_url: &str) -> Result<(), String> {
         other => Err(format!(
             "unsupported registry URL scheme '{other}://' in '{repo_url}'"
         )),
+    }
+}
+
+/// A registry redirect chain longer than this is refused (bug-420 item 2). A
+/// legitimate blob fetch is at most one hop (the presigned-URL 302); reqwest's
+/// default cap is 10, kept here as a generous backstop for a well-behaved CDN.
+const MAX_REDIRECTS: usize = 10;
+
+/// Redirect policy for the shared client (bug-420 item 2).
+///
+/// reqwest's default follows up to 10 redirects to *any* host and scheme, but
+/// `ensure_transport_security` only vets the initial URL — never a redirect
+/// target. So a hostile or compromised registry could answer `/blob`, `/index`,
+/// `/log/*`, or `/root.json` with a 302 to an internal/link-local host (blind
+/// SSRF from a dev/CI box at 169.254.169.254, 127.0.0.1, RFC-1918) or to a
+/// plaintext `http://` URL (downgrading the pinned https transport, leaking
+/// which package is fetched). Authenticity is unaffected — blob bytes stay
+/// SHA-256 checked and control-plane bodies signature-checked — but this closes
+/// the transport-level SSRF/leak by vetting every hop.
+fn redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        if attempt.previous().len() >= MAX_REDIRECTS {
+            return attempt.error(format!(
+                "repository redirected more than {MAX_REDIRECTS} times"
+            ));
+        }
+        match ensure_redirect_target(attempt.url()) {
+            Ok(()) => attempt.follow(),
+            Err(message) => attempt.error(message),
+        }
+    })
+}
+
+/// Vet a single redirect target: https only (no plaintext downgrade), and never
+/// an IP literal in an SSRF-sensitive range (bug-420 item 2). A hostname that
+/// resolves to an internal address is out of scope for this literal check — the
+/// documented threat is a 302 straight to `169.254.169.254`/`127.0.0.1`/RFC-1918.
+fn ensure_redirect_target(url: &reqwest::Url) -> Result<(), String> {
+    if url.scheme() != "https" {
+        return Err(format!(
+            "refusing to follow a repository redirect to non-https URL '{url}': a redirect \
+             must not downgrade the pinned https transport"
+        ));
+    }
+    if let Some(host) = url.host_str() {
+        // `host_str` brackets an IPv6 literal (`[::1]`); strip them so it parses.
+        let bare = host.trim_start_matches('[').trim_end_matches(']');
+        if let Ok(ip) = bare.parse::<std::net::IpAddr>() {
+            if is_blocked_redirect_ip(ip) {
+                return Err(format!(
+                    "refusing to follow a repository redirect to internal address '{host}': a \
+                     redirect to a private, loopback, or link-local host is a possible SSRF"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Addresses a registry redirect must never reach: private, loopback,
+/// link-local (including the `169.254.169.254` cloud-metadata endpoint), CGNAT,
+/// and the unspecified address.
+fn is_blocked_redirect_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                // CGNAT shared range 100.64.0.0/10 (RFC 6598), absent from std.
+                || (a == 100 && (b & 0xc0) == 0x40)
+        }
+        IpAddr::V6(v6) => {
+            // Map `::ffff:a.b.c.d` back to the IPv4 rules so a mapped loopback or
+            // private address cannot slip through as "just an IPv6 host".
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_blocked_redirect_ip(IpAddr::V4(v4));
+            }
+            let seg0 = v6.segments()[0];
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || (seg0 & 0xfe00) == 0xfc00 // unique-local fc00::/7
+                || (seg0 & 0xffc0) == 0xfe80 // link-local fe80::/10
+        }
     }
 }
 
@@ -3871,6 +3959,74 @@ mod tests {
         let err = fetch_blob(&broken.url, &hash).unwrap_err();
         assert!(err.contains("500"), "{err}");
         assert!(err.contains("upstream storage exploded"), "{err}");
+    }
+
+    /// bug-420 item 2: the shared client must not follow a registry redirect
+    /// that downgrades transport or points at an internal host. A hostile
+    /// registry that 302s `/index` (or `/blob`, `/root.json`, …) to a
+    /// loopback/plaintext target would otherwise drive a blind SSRF and a
+    /// cleartext leak from the client machine. `ensure_transport_security` only
+    /// vets the *initial* URL, so the guard has to sit in the redirect policy.
+    #[test]
+    fn a_registry_redirect_to_an_internal_plaintext_host_is_refused() {
+        // The "internal" service the redirect tries to reach.
+        let internal = spawn_raw(|_request| http_reply("GET", 200, "{\"secret\":\"internal\"}"));
+        let internal_url = internal.url.clone();
+        // The registry answers with a 302 to the internal host.
+        let registry = spawn_raw(move |_request| {
+            format!(
+                "HTTP/1.1 302 Found\r\nLocation: {internal_url}/index\r\n\
+                 Content-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .into_bytes()
+        });
+
+        let err = get_json::<serde_json::Value>(&registry.url, "/index")
+            .expect_err("the client must refuse the redirect, not follow it");
+        assert!(
+            err.contains("redirect"),
+            "error should explain the redirect refusal, got: {err}"
+        );
+        // The strongest check: the internal service was never contacted.
+        assert!(
+            internal.requests.lock().unwrap().is_empty(),
+            "the client must not connect to the internal redirect target"
+        );
+    }
+
+    /// bug-420 item 2: the redirect-target guard blocks a plaintext downgrade
+    /// and every SSRF-sensitive IP range, while still allowing a normal public
+    /// https target (e.g. a presigned S3 URL).
+    #[test]
+    fn redirect_targets_block_internal_and_downgrade_but_allow_public_https() {
+        let url = |raw: &str| raw.parse::<reqwest::Url>().unwrap();
+
+        // A downgrade to plaintext http is refused outright.
+        assert!(ensure_redirect_target(&url("http://packages.example.com/blob")).is_err());
+
+        // Internal / link-local / loopback / CGNAT targets over https are refused.
+        for target in [
+            "https://169.254.169.254/latest/meta-data/", // cloud metadata (link-local)
+            "https://127.0.0.1/blob",
+            "https://10.0.0.5/blob",
+            "https://192.168.1.1/blob",
+            "https://172.16.0.1/blob",
+            "https://100.64.0.1/blob", // CGNAT
+            "https://[::1]/blob",
+            "https://[fe80::1]/blob",
+            "https://[fc00::1]/blob",
+            "https://[::ffff:127.0.0.1]/blob", // IPv4-mapped loopback
+        ] {
+            assert!(
+                ensure_redirect_target(&url(target)).is_err(),
+                "{target} should be refused"
+            );
+        }
+
+        // A public https host — including a presigned-URL host — is allowed.
+        assert!(ensure_redirect_target(&url("https://s3.amazonaws.com/bucket/key")).is_ok());
+        assert!(ensure_redirect_target(&url("https://packages.example.com/blob")).is_ok());
+        assert!(ensure_redirect_target(&url("https://93.184.216.34/blob")).is_ok());
     }
 
     /// `HEAD /blob` is a presence probe: 404 is "absent", not an error, and
