@@ -69,10 +69,17 @@ or magnitude than binary64 can carry is approximated at parse time rather than
 rejected. [[src/builtins/json_package.mfb:__json_validNumber]]
 [[src/builtins/json_package.mfb:__json_toNumber]]
 
-The parser is iterative rather than recursive at every scanning level — whitespace
-runs, digit runs, string bodies, array items, and object members — so a long flat
-document does not consume a native stack frame per character.
-[[src/builtins/json_package.mfb:__json_skipWhitespace]]
+The parser is iterative rather than recursive at every *scanning* level —
+whitespace runs, digit runs, string bodies, and the sibling elements of a single
+array or object — so a long flat document does not consume a native stack frame
+per character. [[src/builtins/json_package.mfb:__json_skipWhitespace]]
+
+Structural *nesting*, by contrast, does descend one call per level, so it is
+bounded: a document nested beyond a fixed structural depth (256 levels of arrays
+and objects combined) is rejected with `77050003` rather than being allowed to
+exhaust the native stack. Any realistic document is far within this limit; the cap
+exists only so that adversarial deeply-nested input fails cleanly instead of
+crashing the process. [[src/builtins/json_package.mfb:__json_parseValue]]
 
 The argument may also be passed by the name `text`.
 [[src/builtins/json.rs:call_param_names]]
@@ -93,7 +100,7 @@ The argument may also be passed by the name `text`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `value` is not one complete JSON document: it is empty or whitespace only, is truncated, carries non-whitespace content after the document, contains a malformed number, a bad or truncated escape, an unpaired or invalid surrogate, an out-of-range code point, an unescaped raw control character in a string, or any other syntax the grammar does not accept. [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] [[src/builtins/json_package.mfb:__json_parse]] |
+| `77050003` | `ErrInvalidFormat` | `value` is not one complete JSON document: it is empty or whitespace only, is truncated, carries non-whitespace content after the document, contains a malformed number, a bad or truncated escape, an unpaired or invalid surrogate, an out-of-range code point, an unescaped raw control character in a string, is nested beyond the structural depth limit (256 levels of arrays and objects), or any other syntax the grammar does not accept. [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] [[src/builtins/json_package.mfb:__json_parse]] |
 | `77010001` | `ErrOutOfMemory` | The lists, maps, or strings that hold the parsed document cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
 
 ## Examples

@@ -1,0 +1,53 @@
+' bug-422: json_package's array and object parsers recurse structurally, once per
+' nesting level, with no depth cap -- parseValue -> parseArray/Object -> items ->
+' parseValue. MFBASIC has no tail-call optimization, so nesting depth equalled
+' native stack depth and a ~1 KB document of nested `[` (far under the 64 MiB HTTP
+' body cap) overflowed the stack: an uncatchable SIGSEGV, exit 139.
+'
+' json::parse is the untrusted-data boundary and the HTTP server dispatches
+' handler bodies through it, so this was a remote crash. bug-302 loop-ified the
+' scalar scanners but never landed the structural depth cap it required; this
+' guards it, mirroring the regex engine's __REGEX_DEPTH_LIMIT (bug-315).
+IMPORT io
+IMPORT json
+IMPORT strings
+
+' Parse `s`, reporting a clean "ok" / "err:<code>" line. A depth-cap rejection is
+' an ordinary catchable failure now, so it is captured here instead of killing the
+' process; the whole point is that no input reaches TRAP as a SIGSEGV.
+FUNC tryParse(s AS String) AS String
+  LET v AS Json = json::parse(s)
+  RETURN "ok"
+  TRAP(e)
+    RETURN "err:" & toString(e.code)
+END TRAP
+END FUNC
+
+FUNC deepArray(n AS Integer) AS String
+  RETURN strings::repeat("[", n) & strings::repeat("]", n)
+END FUNC
+
+FUNC deepObject(n AS Integer) AS String
+  RETURN strings::repeat("{\"a\":", n) & "1" & strings::repeat("}", n)
+END FUNC
+
+FUNC main AS Integer
+  ' Deeply-nested arrays/objects far past the cap: used to SIGSEGV, now a clean
+  ' error 77050003. 5000 levels is ~5x the ~1000-frame crash threshold.
+  io::print("deep array: " & tryParse(deepArray(5000)))
+  io::print("deep object: " & tryParse(deepObject(5000)))
+
+  ' Nesting comfortably within the cap must still parse -- the guard bounds the
+  ' pathological case without rejecting legitimate documents.
+  io::print("legit array: " & tryParse(deepArray(200)))
+  io::print("legit object: " & tryParse(deepObject(200)))
+
+  ' Ordinary input parses and round-trips identically.
+  LET obj AS Json = json::parse("{\"a\": [1, 2.5, true, null], \"b\": \"x\"}")
+  io::print("roundtrip=" & json::stringify(obj))
+  RETURN 0
+  TRAP(e)
+    io::print("unexpected trap: " & toString(e.code))
+    RETURN 1
+END TRAP
+END FUNC

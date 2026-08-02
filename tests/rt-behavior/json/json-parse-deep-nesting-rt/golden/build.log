@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/rt-behavior/json/json-parse-deep-nesting-rt
+Wrote AST to tests/rt-behavior/json/json-parse-deep-nesting-rt/json_parse_deep_nesting_rt.ast
+Wrote IR to tests/rt-behavior/json/json-parse-deep-nesting-rt/json_parse_deep_nesting_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/json/json-parse-deep-nesting-rt
+Wrote executable to tests/rt-behavior/json/json-parse-deep-nesting-rt/build/json_parse_deep_nesting_rt.out
+[exit 0]
+$ tests/rt-behavior/json/json-parse-deep-nesting-rt/build/json_parse_deep_nesting_rt.out
+deep array: err:77050003
+deep object: err:77050003
+legit array: ok
+legit object: ok
+roundtrip={"a":[1,2.5,true,null],"b":"x"}
+[exit 0]
