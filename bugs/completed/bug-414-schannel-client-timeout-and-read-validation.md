@@ -5,10 +5,30 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (unbounded blocking / DoS) + cross-platform divergence
 
-Status: Open
-Regression Test: tests/ — a Windows TLS connect to a blackhole host with a small
-`timeoutMs` must fail within the timeout; `tls::read` with `maxBytes <= 0` must
-raise `ErrInvalidArgument`.
+STATUS: FIXED (71e1f9eea + fix commit) — item (1) was already fixed at HEAD by
+plan-73-D (c703e6d50) + 85a970105 before this bug was worked; item (2) fixed here.
+Regression Test: `src/target/shared/code/tls/schannel_tests.rs` lowers the Schannel
+`tls::read`/`tls::readText` helpers and pins the `ErrInvalidArgument` exit
+(byte-identity windows `.ncodesum` covers the emitted guard). The runtime
+Schannel path is Windows-only (box 2230); a live TLS peer is not orchestrable in
+acceptance, matching the bug-52/55/317 TLS-codegen-bug precedent.
+
+## Resolution
+
+- **Item (1) — `timeoutMs` discarded on connect: already fixed at HEAD.** No
+  `let _ = TIMEOUT;` exists anywhere in the tree. `plan-73-D` (c703e6d50) rewired
+  the Windows connect to a non-blocking connect + `WSAPoll` bounded by
+  `timeoutMs`, and the handshake recv to `SO_RCVTIMEO`/`SO_SNDTIMEO` (see
+  `schannel_impl.rs` `socket_connect` + the `hs_ts_*` block); 85a970105 hardened
+  it (clamp `>0` to INT_MAX, split net-vs-TLS error surface). This was a false
+  premise relative to HEAD — the bug doc predates the plan-73-D landing.
+- **Item (2) — `tls::read` skipped the `maxBytes > 0` check: FIXED.** Added the
+  `maxBytes <= 0 → ErrInvalidArgument` guard at read entry in
+  `schannel_read_close.rs` `lower_tls_read`, after the closed-resource check
+  (which keeps precedence, matching OpenSSL). The `.ncode` diff vs base is purely
+  additive: the guard + `_invalid` exit (`emit_fail(ERR_INVALID_ARGUMENT)`, code
+  `77050002`) in both `_mfb_rt_tls_tls_read` and `_tls_readText`; the four
+  non-Windows tls `.ncodesum` goldens are byte-identical (Schannel is Windows-only).
 
 Two Windows/Schannel client defects in `src/target/shared/code/tls/`, batched
 (same subsystem):
