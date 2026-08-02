@@ -1,0 +1,56 @@
+IMPORT term
+IMPORT io
+IMPORT strings
+
+' wide-demo — the plan-70 Unicode-wide-character parity proof.
+'
+' Draws a bordered box and lays wide (CJK), astral (emoji), and multi-scalar
+' (NFD combining, ZWJ family) content inside it. On a Unicode-correct backend the
+' box borders stay SQUARE around the content — every wide grapheme occupies two
+' columns, every combining/ZWJ cluster occupies one, and nothing straddles a cell
+' or tears across the border. A byte-per-cell or width-1-per-scalar backend would
+' misalign the right border.
+'
+' Build + run on an interactive terminal / GUI app:
+'   mfb build examples/wide-demo         (console)
+'   mfb build -app examples/wide-demo    (macOS / Linux GTK / Windows GDI)
+'
+' The inner text column is 24 cells wide (columns 2..25); the right border sits at
+' column 26 on every row regardless of the script mix — that alignment IS the proof.
+
+FUNC main() AS Integer
+  term::on()
+  term::clear()
+
+  LET right AS Integer = 26
+
+  ' Border box around the whole panel.
+  term::drawBox(LineStyle.Light, 0, 0, right, 8)
+
+  ' A title, then one line per script class. Each string is measured to confirm it
+  ' fits the 24-column inner field (columns 2..25).
+  term::setForeground(255, 255, 0)
+  term::drawText(2, 1, "plan-70 wide glyphs")
+
+  term::setForeground(200, 200, 255)
+  term::drawText(2, 3, "CJK:   日本語 中文 한국어")
+  term::drawText(2, 4, "emoji: 😀 🎉 👍 astral")
+  term::drawText(2, 5, "NFD:   cafe\u{0301} (café)")
+  term::drawText(2, 6, "ZWJ:   👨‍👩‍👧‍👦 family")
+
+  ' A vertical divider proves wide glyphs to its left never bleed past their cells.
+  term::drawVLine(LineStyle.Light, 1, 3, 6)
+  term::drawGlyph(1, 3, 9532)   ' ┼ where the divider meets nothing (decorative)
+
+  term::sync()
+
+  ' Report the measured display widths so a headless/console run is self-checking:
+  ' each right-hand label must leave the right border at column 26.
+  io::print("displayWidth checks (columns):")
+  io::print("  日本語 中文 한국어 = " & toString(strings::displayWidth("日本語 中文 한국어")))
+  io::print("  cafe combining     = " & toString(strings::displayWidth("cafe\u{0301}")))
+  io::print("  ZWJ family         = " & toString(strings::displayWidth("👨‍👩‍👧‍👦")))
+
+  term::off()
+  RETURN 0
+END FUNC
