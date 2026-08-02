@@ -5,9 +5,31 @@ Effort: small (<1h)
 Severity: LOW
 Class: Correctness (wrong constant defeats an overflow guard)
 
-Status: Open
+STATUS: FIXED (a9ef157f0)
+
+Corrected `WIN_FILETIME_MAX_UNIX_SEC` from `"910692730085477"` to
+`"910692730085"` (`src/target/shared/code/datetime.rs:72`) and the stale guard
+comment at line 303 to match. Pinned with a unit test
+(`datetime::tests::win_filetime_max_unix_sec_matches_no_wrap_formula`) asserting
+the constant equals the documented `(i64::MAX - epoch)/1e7` formula AND the exact
+no-wrap boundary (`bound*1e7 + epoch` fits i64; `(bound+1)*1e7 + epoch`
+overflows). RED against the old constant (`left: 910692730085477`,
+`right: 910692730085`), GREEN after. Full `cargo test` green across all targets
+(main bin 3738, repository lib 313, repo main 21, all integration suites, 0
+failed). No golden references the constant (memory: no Windows `.ncodesum`
+golden; grep for `910692730085477` tree-wide = 0 hits).
+
+Deviation from the doc's suggested regression test: the doc phrased the formula
+as `(i64::MAX - WIN_UNIX_EPOCH_TO_1601_SEC*1e7)/1e7`; the test uses the
+equivalent `WIN_FILETIME_UNIX_EPOCH_100NS` (= `WIN_UNIX_EPOCH_TO_1601_SEC*1e7`)
+directly, matching the code's own doc-comment. Windows-only + year-~58000
+runtime repro is not cheaply reproducible on the macOS host, per the doc;
+verified via arithmetic + the const/boundary unit test.
+
+Status: FIXED
 Regression Test: tests/ — a Windows datetime unit/const test asserting
 `WIN_FILETIME_MAX_UNIX_SEC == (i64::MAX - WIN_UNIX_EPOCH_TO_1601_SEC*1e7)/1e7`.
+Landed as `datetime::tests::win_filetime_max_unix_sec_matches_no_wrap_formula`.
 
 `WIN_FILETIME_MAX_UNIX_SEC` (`src/target/shared/code/datetime.rs:72`) is the
 Windows `localOffset`/`offsetAt`/`toLocal` HIGH bound on `epochSeconds`, guarding
