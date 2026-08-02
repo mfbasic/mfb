@@ -488,6 +488,29 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
     Some(params)
 }
 
+/// The `(type, value)` constants to append after the `provided` real arguments so
+/// a fixed-ABI runtime helper always receives every parameter — plan-72-BB: the
+/// owning package's `default_argument_padding` (only `tls`/`regex`/`datetime`/
+/// `crypto`/`http` default-pad; each owns its callee uniquely, so the first
+/// non-empty result is the owner's).
+pub(crate) fn default_argument_padding(
+    callee: &str,
+    provided: usize,
+) -> &'static [(&'static str, &'static str)] {
+    for pad in [
+        tls::default_argument_padding(callee, provided),
+        regex::default_argument_padding(callee, provided),
+        datetime::default_argument_padding(callee, provided),
+        crypto::default_argument_padding(callee, provided),
+        http::default_argument_padding(callee, provided),
+    ] {
+        if !pad.is_empty() {
+            return pad;
+        }
+    }
+    &[]
+}
+
 /// Whether a type name is a generic placeholder (`T`/`K`/`V` bare or inside a
 /// container), used by [`argument_types`] to skip generic member signatures.
 fn uses_generic_placeholder(type_: &str) -> bool {

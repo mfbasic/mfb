@@ -2585,56 +2585,19 @@ fn lower_expression_with_expected(
             // Pad optional trailing arguments (`tls.connect` defaults)
             // with constants so the fixed-ABI runtime helper always receives
             // every parameter (plan-03-net.md §4).
+            // Pad optional trailing arguments so the fixed-ABI runtime helper
+            // always receives every parameter (plan-72-BB: through the builtins
+            // aggregate). A `List OF ...` default (crypto's AEAD `aad`) lowers to an
+            // empty list literal and a `Map OF ...` default (http's `headers`) to an
+            // empty map literal, not a scalar const; every other default is a const.
             let mut args = args;
-            for (type_, value) in
-                builtins::tls::default_argument_padding(&canonical_callee, args.len())
-            {
-                args.push(IrValue::Const {
-                    type_: (*type_).to_string(),
-                    value: (*value).to_string(),
-                });
-            }
-            for (type_, value) in
-                builtins::regex::default_argument_padding(&canonical_callee, args.len())
-            {
-                args.push(IrValue::Const {
-                    type_: (*type_).to_string(),
-                    value: (*value).to_string(),
-                });
-            }
-            for (type_, value) in
-                builtins::datetime::default_argument_padding(&canonical_callee, args.len())
-            {
-                args.push(IrValue::Const {
-                    type_: (*type_).to_string(),
-                    value: (*value).to_string(),
-                });
-            }
-            // `crypto`'s AEAD `aad` argument defaults to the empty byte list; a
-            // `List OF ...` default lowers to an empty list literal, not a scalar
-            // const (plan-04-crypto.md §A.5).
-            for (type_, value) in
-                builtins::crypto::default_argument_padding(&canonical_callee, args.len())
-            {
+            for (type_, value) in builtins::default_argument_padding(&canonical_callee, args.len()) {
                 if type_.starts_with("List OF ") {
                     args.push(IrValue::ListLiteral {
                         type_: (*type_).to_string(),
                         values: Vec::new(),
                     });
-                } else {
-                    args.push(IrValue::Const {
-                        type_: (*type_).to_string(),
-                        value: (*value).to_string(),
-                    });
-                }
-            }
-            // `http::read`/`write` default the `headers` argument to the empty map
-            // and the method to a literal (plan-03-http.md §B.1). A `Map OF ...`
-            // default lowers to an empty map literal, not a scalar const.
-            for (type_, value) in
-                builtins::http::default_argument_padding(&canonical_callee, args.len())
-            {
-                if parse_map_type(type_).is_some() {
+                } else if parse_map_type(type_).is_some() {
                     args.push(IrValue::MapLiteral {
                         type_: (*type_).to_string(),
                         entries: Vec::new(),
