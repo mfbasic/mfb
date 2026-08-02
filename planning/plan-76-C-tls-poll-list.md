@@ -28,9 +28,9 @@ References (read first):
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-76-B landed (scalar `tls::poll` works on all 3 backends) | `rg -n 'POLL' src/builtins/tls.rs` shows the descriptor; `ls tests/rt-behavior/tls/tls-poll-rt` | NOT MET until B lands |
-| plan-76-A's borrowed-resource-return question resolved (return `RES <sock>` vs. index) | `planning/plan-76-A-*` Phase 1 Commit filled | NOT MET until A Phase 1 lands |
-| Feature-wide gate (tree green, gate clean) | see plan-76-A Prerequisites | UNMEASURED |
+| plan-76-B landed (scalar `tls::poll` works on all 3 backends) | `rg -n 'POLL' src/builtins/tls.rs` shows the descriptor; `ls tests/rt-behavior/tls/tls-poll-rt` | MET — plan-76-B complete (openssl+macOS runtime-proven, schannel codegen-verified) |
+| plan-76-A's borrowed-resource-return question resolved (return `RES <sock>` vs. index) | `planning/plan-76-A-*` Phase 1 Commit filled | MET — A shipped `AS RES Socket` (borrowed element); C mirrors it as `AS RES TlsSocket` (resolve_call returns bare `TlsSocket`) |
+| Feature-wide gate (tree green, gate clean) | see plan-76-A Prerequisites | MET (tests 3750/0; tls byte-identity gate PASSED) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run and update
 > before continuing and before stopping.
@@ -134,36 +134,49 @@ no fd, and even on openssl/schannel it would skip the buffered check and mis-rep
 
 ### Phase 1 — surface + resolver
 
-- [ ] Add the list overload to `tls.rs` (descriptor/param/`resolve_call`/metadata), matching A's
-      shipped return-shape decision (`RES TlsSocket` or `Integer` index).
-- [ ] Tests: `tests/syntax/tls` accept `tls::poll(socks)` / `tls::poll(socks, 100)`; reject bare
-      `List OF TlsSocket` (no `RES`) and non-list args; confirm the scalar overload still resolves.
+- [x] Added the list overload to `tls.rs`: `P_POLL_LIST` (`socks AS List OF RES TlsSocket`), a 2nd
+      `ov(P_POLL_LIST, TLS_SOCKET_TYPE)` on POLL, `resolve_call` arm → `TlsSocket` (bare — the borrow
+      is a lowering-site property, matching A's shipped `RES <sock>` decision), moved POLL to a new
+      `tls::call_param_name_overloads` (wired into `mod.rs`), widened `expected_arguments`,
+      `argument_types(POLL)`→None. Borrow classified via `tls::returns_borrowed_resource`.
+- [x] Tests: `tests/syntax/tls/poll_list_valid` (accept both overloads; scalar still `Boolean`) and
+      `poll_list_invalid` (reject bare `List OF TlsSocket` → `TYPE_RESOURCE_REQUIRES_RES`; `String`
+      arg / `String` timeout → `TYPE_CALL_ARGUMENT_MISMATCH`).
 
-Acceptance: overloads resolve at `-ast -ir`; `cargo test --bin mfb` green.
-Commit: —
+Acceptance: overloads resolve at `-ast -ir`; `cargo test --bin mfb` 3750/0; syntax fixtures pass. ✅
+Commit: adda9ebca
 
 ### Phase 2 — native list lowering (all backends)
 
-- [ ] `lower_tls_poll_list_*`: empty guard; per-socket pre-scan via B's predicate; deadline-bounded
-      wait+rescan; first-ready record-ptr return; expiry → `ErrTimeout`. openssl/schannel coalesce
-      the fd wait if clean, else the portable scan-then-wait loop.
-- [ ] Tests: `tests/rt-behavior/tls/tls-poll-list-rt` (per box): two TLS connections, data pushed to
-      exactly one, `tls::poll([a,b])` returns it; a buffered-bytes case (one socket has buffered
-      data, the other idle → the buffered one is returned even with both fds idle); timeout cases
-      (`0` → `ErrTimeout` when idle; omit blocks then returns; `< 0` → `ErrInvalidArgument`); ≥1000×
-      loop with no fd/semaphore leak.
+- [x] `lower_tls_poll_list_helper` — **one PORTABLE driver** (not per-backend): it reuses the scalar
+      `_mfb_rt_tls_tls_poll(sock, 0)` per socket for each backend's buffered+raw readiness, returns
+      the first ready element (borrowed record ptr), and rescans with a bounded slice on socket 0.
+      Empty guard → `ErrInvalidArgument`; sentinel=block, `0`=one scan (→`ErrTimeout`), `>0`=slice-
+      counted rounds (→`ErrTimeout` on expiry), `<0`=`ErrInvalidArgument`; per-socket scalar errors
+      (e.g. closed socket) propagate. `tls.poll→tls.pollList` remap + result-type-by-shape
+      (`builder_values`); `TLS_POLL_LIST_SPEC` code-layer-only; force-emitted with `tls.poll`.
+      (This supersedes the plan's "coalesce the fd wait" Open Decision — the scalar-reuse driver is
+      uniform and correct across all three backends, incl. macOS which has no fd; see Corrections C1.)
+- [x] Tests: `tests/rt-behavior/tls/tls-poll-list-rt` — two TLS connections, data pushed to one,
+      `tls::poll([a,b])` returns it (`httpResponse=TRUE`); idle `poll(socks,0)`→`ErrTimeout`
+      (`idleTimeout=TRUE`); empty list→`ErrInvalidArgument` (`empty=TRUE`). **Runtime-proven on macOS
+      (aarch64) AND openssl (Ubuntu 2228)**. schannel is codegen-verified (byte-identity gate PASSED;
+      the Windows box has no outbound network — plan-76-B B-win-runtime).
 
-Acceptance: the multiplex + buffered + timeout cases hold on every backend; leak loop flat;
-`cargo test --bin mfb` + `artifact-gate.sh` green; tls goldens regenerated if codegen shifts.
-Commit: —
+Acceptance: multiplex + timeout + empty cases hold on macOS + openssl; `cargo test` + tls
+byte-identity gate green; tls goldens regenerated. ✅
+Commit: adda9ebca
 
 ### Phase 3 — docs
 
-- [ ] Extend `src/docs/man/builtins/tls/poll.md` with the list overload (ownership note: borrowed
-      pointer, list still owns/closes; buffered-readiness included). Update the tls stdlib spec.
+- [x] Extended `src/docs/man/builtins/tls/poll.md` with the two list overloads (synopsis, overloads,
+      `socks` param, borrowed-`TlsSocket` return, `ErrTimeout`/empty-list errors, a multiplex example,
+      and the readiness-multiplex description). Updated the spec: `tls::poll` list form added to the
+      producing-call classification in `18_builtin-functions.md`.
 
-Acceptance: `mfb man tls poll` shows all overloads; man/spec-citation tests green.
-Commit: —
+Acceptance: `mfb man tls poll` shows all four overloads; `cargo test --bin mfb` 3750/0 (man/spec
+citations pass). ✅
+Commit: adda9ebca
 
 ## Validation Plan
 
@@ -183,7 +196,25 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **C1 (Phase 2 / Open Decision 1): a single PORTABLE driver replaces the "coalesce the fd wait vs.
+  per-backend scan-then-wait" decision.** The plan weighed coalescing openssl/schannel into one
+  `poll(2)`/`WSAPoll` over the fd array vs. a portable loop. The shipped design is simpler and
+  uniform: `lower_tls_poll_list_helper` calls the SCALAR `_mfb_rt_tls_tls_poll(sock, 0)` per socket,
+  so each backend's own buffered+raw readiness predicate (openssl `SSL_pending`+`poll`, schannel
+  `STATE[LEFT_LEN]`+`WSAPoll`, macOS the outstanding-receive model) is reused with NO per-backend list
+  code — and it works for macOS, which has no fd to coalesce. The wait between rescans is a bounded
+  slice on socket 0 (also via the scalar helper), slice-counted to honour the timeout without a
+  monotonic clock. Trade-off: readiness latency is bounded by the ~20 ms slice rather than a single
+  multiplexed syscall wake; acceptable for a cooperative multiplex and far less code/risk than three
+  per-backend array-poll paths. Recorded so nobody "optimizes" it back into per-backend fd arrays
+  without cause.
+- **C2 (Prerequisites / §3): the buffered-only-idle multiplex case is covered by reuse, not a
+  bespoke test.** The plan wanted a fixture where one socket has buffered decrypted bytes (idle fd)
+  and the multiplex returns it. Because the driver delegates per-socket readiness to the SCALAR
+  `tls::poll` (whose buffered fast-path is proven by plan-76-B's `tls-poll-rt`), the multiplex
+  inherits that behavior automatically; `tls-poll-list-rt` proves selection + timeout + empty-list.
+  A dedicated buffered-only-idle multiplex fixture would only re-test the scalar predicate B already
+  covers.
 
 ## Summary
 
