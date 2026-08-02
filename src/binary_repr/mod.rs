@@ -611,6 +611,14 @@ fn read_package_type_exports_resolved(
         let Some(dir) = packages_dir else {
             continue;
         };
+        // bug-395: `owner` is decoded verbatim from an untrusted `.mfp` and here
+        // becomes a filename joined onto the packages directory. A hostile owner
+        // like `../../etc/foo` or an absolute path would walk out of the
+        // directory — an existence oracle for any `*.mfp` on the victim's disk,
+        // and an attacker-triggered read of it. Re-validate it as a bare package
+        // name (the rule every `packages/<name>.mfp` obeys) before the join, just
+        // as the sibling native-library `source` locator does (sections.rs).
+        crate::manifest::package::validate_package_name(&owner)?;
         let owner_path = dir.join(format!("{owner}.mfp"));
         if !owner_path.is_file() {
             // The owner is not installed alongside the intermediary; the type's
