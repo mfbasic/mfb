@@ -41,15 +41,19 @@ Its 364 LOC hold lifecycle glue used elsewhere.
 
 ### Phase U1 — descriptor entry
 
-- [ ] Add `pub(crate) static RESOURCE: BuiltinModule` — empty function list
+- [x] Add `pub(crate) static RESOURCE: BuiltinModule` — empty function list
       is acceptable if the module truly exposes none; document what the
-      descriptor carries.
-- [ ] Register `RESOURCE` with the `BuiltinRegistry` from plan-72-A.
-- [ ] Parity tests: registry lookup for `resource` succeeds; unknown-name
-      lookups against it fail cleanly.
+      descriptor carries. Done: empty `functions`/`types`, no `source`/`resolver`;
+      the doc comment records that a resource value is a POINTER
+      ([[res-is-a-pointer-not-a-borrow]]) and that the `ResourceRegistry` table,
+      not the descriptor, stays the close-op authority.
+- [x] Register `RESOURCE` with the `BuiltinRegistry` from plan-72-A.
+- [x] Parity tests: registry lookup for `resource` succeeds; unknown-name
+      lookups against it fail cleanly (`descriptor_is_registered_and_empty`).
 
-Acceptance: `cargo test` passes.
-Commit: —
+Acceptance: `cargo test` passes (`cargo test --bin mfb builtins::resource → 6
+passed`).
+Commit: 89f34e816
 
 ## Validation
 

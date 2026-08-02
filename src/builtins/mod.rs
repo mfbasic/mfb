@@ -1227,35 +1227,37 @@ mod tests {
 
     #[test]
     fn adapters_fall_back_for_unmigrated_packages() {
-        // `math` is not migrated, so it is absent from the production registry
+        // `tls` is not migrated, so it is absent from the production registry
         // and every adapter falls back to — and returns exactly — the legacy
         // helper. This is what keeps production dispatch unchanged for packages
-        // that have not yet moved onto descriptors.
+        // that have not yet moved onto descriptors. (This test used `math` as the
+        // unmigrated example until plan-72-P migrated it, then `regex` until
+        // plan-72-T migrated that; the example tracks a still-unmigrated package.)
         assert!(registry_is_call(
             &descriptor::REGISTRY,
-            "math.abs",
-            math::is_math_call
+            "tls.connect",
+            tls::is_tls_call
         ));
         assert!(!registry_is_call(
             &descriptor::REGISTRY,
-            "math.nope",
-            math::is_math_call
+            "tls.nope",
+            tls::is_tls_call
         ));
         assert_eq!(
-            registry_arity(&descriptor::REGISTRY, "math.abs", math::arity),
-            math::arity("math.abs")
+            registry_arity(&descriptor::REGISTRY, "tls.connect", tls::arity),
+            tls::arity("tls.connect")
         );
         assert_eq!(
             registry_return_type_name(
                 &descriptor::REGISTRY,
-                "math.abs",
-                math::call_return_type_name
+                "tls.connect",
+                tls::call_return_type_name
             ),
-            math::call_return_type_name("math.abs")
+            tls::call_return_type_name("tls.connect")
         );
         assert_eq!(
-            registry_expected_arguments(&descriptor::REGISTRY, "math.abs", |name| math::expected_arguments(name).map(str::to_string)),
-            math::expected_arguments("math.abs").map(str::to_string)
+            registry_expected_arguments(&descriptor::REGISTRY, "tls.connect", |name| tls::expected_arguments(name).map(str::to_string)),
+            tls::expected_arguments("tls.connect").map(str::to_string)
         );
     }
 

@@ -5,10 +5,52 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Security (DoS on untrusted input) / Robustness
 
-Status: Open
-Regression Test: tests/ — a compile fixture: the fan-out program below must fail
-with a bounded "too many instantiations" diagnostic and exit promptly, not run
-unbounded.
+Status: FIXED (7da77e30c, merged dbed8e93c)
+Regression Test: tests/syntax/monomorph/monomorph_instantiation_fanout_bounded
+(the doc's exact fan-out repro → a single bounded diagnostic + prompt exit) plus
+a white-box unit test (`total_instantiation_budget_halts_wide_fanout`) driving
+`charge_instantiation` past the budget.
+
+## STATUS: FIXED (7da77e30c, merged to main dbed8e93c)
+
+Monomorphization now bounds breadth as well as depth. Two shared bounds are
+checked at both instantiation entry points (`instantiate_function`,
+`instantiate_type`), via a new `charge_instantiation` helper:
+
+- **Total-instantiation budget** — `MAX_TOTAL_INSTANTIATIONS = 4096` (functions +
+  user types), counted by a monotonic `total_instantiations`. Wide fan-out that
+  reaches it is rejected with the new rule `2-203-0135
+  TYPE_INSTANTIATION_BUDGET_EXCEEDED`.
+- **Halt-on-first-limit** — `instantiation_limit_reached` latches the moment
+  *either* limit trips (this budget or the existing depth cap), so enumeration
+  stops after a **single** bounded diagnostic instead of re-reporting on every one
+  of the exponentially-many sibling leaves. This is what actually terminates the
+  doc's deep fan-out: its first DFS path legitimately hits the depth cap (256),
+  and the latch then prunes the rest of the tree.
+
+Verification (`target/debug/mfb`, macOS aarch64):
+
+- The doc's Failing Reproduction now emits **one** `TYPE_INSTANTIATION_TOO_DEEP`
+  and exits in ~0.06s (was: non-terminating, killed by the 10s CPU `ulimit` at
+  exit 152 after ~800 diagnostics).
+- The budget path itself (`TYPE_INSTANTIATION_BUDGET_EXCEEDED`) was confirmed
+  end-to-end on a bounded-depth wide fan-out (~4096 distinct user-record
+  instantiations → a single budget diagnostic, exit 1). It is not a committed
+  *fixture* because reaching the several-thousand budget with deepening types is
+  inherently ~seconds of CPU (each instantiation does O(type-size) work); the
+  committed unit test drives the counter directly instead.
+- Full suite green: `cargo test` 3708 unit + all integration binaries 0 failed.
+
+Deviation from the original Blast Radius: the fix adds `halt-on-first-limit`
+alongside the requested budget. The budget alone bounds *count/RSS* but, because
+DFS front-loads a single deep path, the deep fan-out repro would still emit a
+handful of depth diagnostics before the budget tripped; the latch makes the
+output a clean single diagnostic and is the component that actually halts the
+repro. Non-goals held: the 256-depth cap is unchanged and normal generic
+programs, well under both limits, are unaffected.
+
+---
+
 
 The monomorphizer bounds instantiation **depth** but not **breadth**. `template_
 instantiation_depth` (`src/monomorph/lower.rs:648`, cap

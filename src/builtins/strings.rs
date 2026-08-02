@@ -1,5 +1,11 @@
 use std::borrow::Cow;
 
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
+    DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
+    ParameterType, ReturnType,
+};
+
 const TRIM: &str = "strings.trim";
 const TRIM_START: &str = "strings.trimStart";
 const TRIM_END: &str = "strings.trimEnd";
@@ -50,54 +56,256 @@ const IS_WHITESPACE: &str = "strings.isWhitespace";
 const IS_UPPER: &str = "strings.isUpper";
 const IS_LOWER: &str = "strings.isLower";
 
+// plan-72-V: `STRINGS` is the descriptor authority. Despite the census `custom 1`,
+// `strings` needs no per-call resolver: `implementation_name` is a fixed per-name
+// `Implementation::Rewrite(__strings_*)` for the seven scalar-seam members and
+// `Same` for every native member, and `resolve_call`/`call_return_type_name`/
+// `arity` all derive from `DefaultResolver`. Optional trailing arguments
+// (`padLeft`/`padRight`'s `padChar`, `find`'s `start`) are `DefaultValue::Optional`
+// — they widen arity but are never default-padded (strings has no
+// `default_argument_padding`; the native/source bodies select by arg count). Only
+// `expected_arguments` stays hand-authored (the optional-arg `[, T]` bracket
+// phrasing the descriptor's per-position type list cannot render — the
+// `collections` precedent). The module DOES carry a resolver, but solely for the
+// scalar-seam source predicate: its companion injects `WhenUsed` (only when a
+// program both `IMPORT strings` AND references a seam member), so `uses_source`
+// delegates to the load-bearing `uses_package` walk below.
+const P_VALUE: &[Parameter] = &[Parameter::required("value", "String")];
+const P_PREFIX: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter::required("prefix", "String"),
+];
+const P_SUFFIX: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter::required("suffix", "String"),
+];
+const P_NEEDLE: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter::required("needle", "String"),
+];
+const P_SPLIT: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter {
+        name: "delimiter",
+        aliases: &["separator"],
+        ty: ParameterType::Named("String"),
+        default: DefaultValue::None,
+    },
+];
+const P_JOIN: &[Parameter] = &[
+    Parameter {
+        name: "parts",
+        aliases: &["values"],
+        ty: ParameterType::Named("List OF String"),
+        default: DefaultValue::None,
+    },
+    Parameter {
+        name: "delimiter",
+        aliases: &["separator"],
+        ty: ParameterType::Named("String"),
+        default: DefaultValue::None,
+    },
+];
+const P_PREFIXES: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter::required("prefixes", "List OF String"),
+];
+const P_SUFFIXES: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter::required("suffixes", "List OF String"),
+];
+const P_COUNT_INT: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter::required("count", "Integer"),
+];
+const P_TIMES: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter::required("times", "Integer"),
+];
+const P_INDEX: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter::required("index", "Integer"),
+];
+const P_CHARS: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter::required("chars", "String"),
+];
+// padLeft/padRight(value, width, [padChar]) — trailing `padChar` widens arity but
+// is not default-padded.
+const P_PAD: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter::required("width", "Integer"),
+    Parameter {
+        name: "padChar",
+        aliases: &[],
+        ty: ParameterType::Named("String"),
+        default: DefaultValue::Optional,
+    },
+];
+// find(value, needle, [start]) — trailing `start` widens arity but is not padded.
+const P_FIND: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter::required("needle", "String"),
+    Parameter {
+        name: "start",
+        aliases: &[],
+        ty: ParameterType::Named("Integer"),
+        default: DefaultValue::Optional,
+    },
+];
+const P_MID: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter::required("start", "Integer"),
+    Parameter::required("count", "Integer"),
+];
+const P_REPLACE: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter {
+        name: "old",
+        aliases: &["needle"],
+        ty: ParameterType::Named("String"),
+        default: DefaultValue::None,
+    },
+    Parameter {
+        name: "new",
+        aliases: &["replacement"],
+        ty: ParameterType::Named("String"),
+        default: DefaultValue::None,
+    },
+];
+const P_FROM_SCALARS: &[Parameter] = &[Parameter::required("scalars", "List OF Scalar")];
+const P_SCALAR: &[Parameter] = &[Parameter::required("scalar", "Scalar")];
+
+const fn ov(params: &'static [Parameter], ret: &'static str) -> [BuiltinOverload; 1] {
+    [BuiltinOverload {
+        params,
+        return_type: ReturnType::Fixed(ret),
+    }]
+}
+
+const OV_VALUE_STRING: &[BuiltinOverload] = &ov(P_VALUE, "String");
+const OV_VALUE_LIST_STRING: &[BuiltinOverload] = &ov(P_VALUE, "List OF String");
+const OV_VALUE_LIST_BYTE: &[BuiltinOverload] = &ov(P_VALUE, "List OF Byte");
+const OV_VALUE_INTEGER: &[BuiltinOverload] = &ov(P_VALUE, "Integer");
+const OV_VALUE_LIST_SCALAR: &[BuiltinOverload] = &ov(P_VALUE, "List OF Scalar");
+const OV_PREFIX_BOOL: &[BuiltinOverload] = &ov(P_PREFIX, "Boolean");
+const OV_SUFFIX_BOOL: &[BuiltinOverload] = &ov(P_SUFFIX, "Boolean");
+const OV_NEEDLE_BOOL: &[BuiltinOverload] = &ov(P_NEEDLE, "Boolean");
+const OV_NEEDLE_INT: &[BuiltinOverload] = &ov(P_NEEDLE, "Integer");
+const OV_PREFIX_STRING: &[BuiltinOverload] = &ov(P_PREFIX, "String");
+const OV_SUFFIX_STRING: &[BuiltinOverload] = &ov(P_SUFFIX, "String");
+const OV_SPLIT: &[BuiltinOverload] = &ov(P_SPLIT, "List OF String");
+const OV_JOIN: &[BuiltinOverload] = &ov(P_JOIN, "String");
+const OV_PREFIXES_BOOL: &[BuiltinOverload] = &ov(P_PREFIXES, "Boolean");
+const OV_SUFFIXES_BOOL: &[BuiltinOverload] = &ov(P_SUFFIXES, "Boolean");
+const OV_COUNT_STRING: &[BuiltinOverload] = &ov(P_COUNT_INT, "String");
+const OV_TIMES_STRING: &[BuiltinOverload] = &ov(P_TIMES, "String");
+const OV_INDEX_STRING: &[BuiltinOverload] = &ov(P_INDEX, "String");
+const OV_CHARS_STRING: &[BuiltinOverload] = &ov(P_CHARS, "String");
+const OV_PAD: &[BuiltinOverload] = &ov(P_PAD, "String");
+const OV_FIND: &[BuiltinOverload] = &ov(P_FIND, "Integer");
+const OV_MID: &[BuiltinOverload] = &ov(P_MID, "String");
+const OV_REPLACE: &[BuiltinOverload] = &ov(P_REPLACE, "String");
+const OV_FROM_SCALARS: &[BuiltinOverload] = &ov(P_FROM_SCALARS, "String");
+const OV_SCALAR_BOOL: &[BuiltinOverload] = &ov(P_SCALAR, "Boolean");
+
+const fn strings_fn(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+    implementation: Implementation,
+) -> BuiltinFunction {
+    BuiltinFunction {
+        name,
+        doc_slug: slug,
+        overloads,
+        implementation,
+        lowering: Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+
+const STRINGS_FUNCTIONS: &[BuiltinFunction] = &[
+    strings_fn(TRIM, "trim", OV_VALUE_STRING, Implementation::Same),
+    strings_fn(TRIM_START, "trimStart", OV_VALUE_STRING, Implementation::Same),
+    strings_fn(TRIM_END, "trimEnd", OV_VALUE_STRING, Implementation::Same),
+    strings_fn(UPPER, "upper", OV_VALUE_STRING, Implementation::Same),
+    strings_fn(LOWER, "lower", OV_VALUE_STRING, Implementation::Same),
+    strings_fn(CASE_FOLD, "caseFold", OV_VALUE_STRING, Implementation::Same),
+    strings_fn(NORMALIZE_NFC, "normalizeNfc", OV_VALUE_STRING, Implementation::Same),
+    strings_fn(GRAPHEMES, "graphemes", OV_VALUE_LIST_STRING, Implementation::Same),
+    strings_fn(STARTS_WITH, "startsWith", OV_PREFIX_BOOL, Implementation::Same),
+    strings_fn(ENDS_WITH, "endsWith", OV_SUFFIX_BOOL, Implementation::Same),
+    strings_fn(CONTAINS, "contains", OV_NEEDLE_BOOL, Implementation::Same),
+    strings_fn(SPLIT, "split", OV_SPLIT, Implementation::Same),
+    strings_fn(JOIN, "join", OV_JOIN, Implementation::Same),
+    strings_fn(BYTE_LEN, "byteLen", OV_VALUE_INTEGER, Implementation::Same),
+    strings_fn(STARTS_WITH_ANY, "startsWithAny", OV_PREFIXES_BOOL, Implementation::Same),
+    strings_fn(ENDS_WITH_ANY, "endsWithAny", OV_SUFFIXES_BOOL, Implementation::Same),
+    strings_fn(STRIP_PREFIX, "stripPrefix", OV_PREFIX_STRING, Implementation::Same),
+    strings_fn(STRIP_SUFFIX, "stripSuffix", OV_SUFFIX_STRING, Implementation::Same),
+    strings_fn(COUNT, "count", OV_NEEDLE_INT, Implementation::Same),
+    strings_fn(LEFT, "left", OV_COUNT_STRING, Implementation::Same),
+    strings_fn(RIGHT, "right", OV_COUNT_STRING, Implementation::Same),
+    strings_fn(REPEAT, "repeat", OV_TIMES_STRING, Implementation::Same),
+    strings_fn(PAD_LEFT, "padLeft", OV_PAD, Implementation::Same),
+    strings_fn(PAD_RIGHT, "padRight", OV_PAD, Implementation::Same),
+    strings_fn(GRAPHEME_AT, "graphemeAt", OV_INDEX_STRING, Implementation::Same),
+    strings_fn(GRAPHEMES_COUNT, "graphemesCount", OV_VALUE_INTEGER, Implementation::Same),
+    strings_fn(TRIM_CHARS, "trimChars", OV_CHARS_STRING, Implementation::Same),
+    strings_fn(TO_BYTES, "toBytes", OV_VALUE_LIST_BYTE, Implementation::Same),
+    strings_fn(FIND, "find", OV_FIND, Implementation::Same),
+    strings_fn(MID, "mid", OV_MID, Implementation::Same),
+    strings_fn(REPLACE, "replace", OV_REPLACE, Implementation::Same),
+    // Scalar seam + classification predicates — source-companion rewrites.
+    strings_fn(TO_SCALARS, "toScalars", OV_VALUE_LIST_SCALAR, Implementation::Rewrite("__strings_toScalars")),
+    strings_fn(FROM_SCALARS, "fromScalars", OV_FROM_SCALARS, Implementation::Rewrite("__strings_fromScalars")),
+    strings_fn(IS_LETTER, "isLetter", OV_SCALAR_BOOL, Implementation::Rewrite("__strings_isLetter")),
+    strings_fn(IS_DIGIT, "isDigit", OV_SCALAR_BOOL, Implementation::Rewrite("__strings_isDigit")),
+    strings_fn(IS_WHITESPACE, "isWhitespace", OV_SCALAR_BOOL, Implementation::Rewrite("__strings_isWhitespace")),
+    strings_fn(IS_UPPER, "isUpper", OV_SCALAR_BOOL, Implementation::Rewrite("__strings_isUpper")),
+    strings_fn(IS_LOWER, "isLower", OV_SCALAR_BOOL, Implementation::Rewrite("__strings_isLower")),
+];
+
+/// The scalar-seam source predicate — the ONLY resolver hook `strings` needs. The
+/// companion is injected `WhenUsed`; `uses_source` reuses the load-bearing
+/// `uses_package` walk (import of `strings` AND a reference to a seam member).
+struct StringsResolver;
+impl BuiltinResolver for StringsResolver {
+    fn uses_source(&self, _module: &BuiltinModule, project: &crate::ast::AstProject) -> Option<bool> {
+        Some(uses_package(project))
+    }
+}
+static STRINGS_RESOLVER: StringsResolver = StringsResolver;
+
+pub(crate) static STRINGS: BuiltinModule = BuiltinModule {
+    name: "strings",
+    functions: STRINGS_FUNCTIONS,
+    types: &[],
+    source: Some(BuiltinSource {
+        rule: InjectionRule::WhenUsed,
+        loader: source_file,
+    }),
+    resolver: Some(&STRINGS_RESOLVER),
+};
+
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
 }
 
 pub(crate) fn is_strings_call(name: &str) -> bool {
-    matches!(
-        name,
-        TRIM | TRIM_START
-            | TRIM_END
-            | UPPER
-            | LOWER
-            | CASE_FOLD
-            | NORMALIZE_NFC
-            | GRAPHEMES
-            | STARTS_WITH
-            | ENDS_WITH
-            | CONTAINS
-            | SPLIT
-            | JOIN
-            | BYTE_LEN
-            | STARTS_WITH_ANY
-            | ENDS_WITH_ANY
-            | STRIP_PREFIX
-            | STRIP_SUFFIX
-            | COUNT
-            | LEFT
-            | RIGHT
-            | REPEAT
-            | PAD_LEFT
-            | PAD_RIGHT
-            | GRAPHEME_AT
-            | GRAPHEMES_COUNT
-            | TRIM_CHARS
-            | TO_BYTES
-            | FIND
-            | MID
-            | REPLACE
-            | TO_SCALARS
-            | FROM_SCALARS
-            | IS_LETTER
-            | IS_DIGIT
-            | IS_WHITESPACE
-            | IS_UPPER
-            | IS_LOWER
-    )
+    DefaultResolver::contains(&STRINGS, name)
 }
 
+// `call_param_names` returns a `&'static` borrowed shape the owned
+// `DefaultResolver::param_names` cannot produce, so it stays a static table PINNED
+// equal to `STRINGS` by the parity test until plan-72-BB. Aliases (`split`
+// delimiter/separator, `join` parts/values, `replace` old/needle & new/replacement)
+// come from each parameter's `aliases`.
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         TRIM | TRIM_START | TRIM_END | UPPER | LOWER | CASE_FOLD | NORMALIZE_NFC | GRAPHEMES
@@ -129,76 +337,19 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    match name {
-        TRIM | TRIM_START | TRIM_END | UPPER | LOWER | CASE_FOLD | NORMALIZE_NFC | JOIN => {
-            Some("String")
-        }
-        GRAPHEMES | SPLIT => Some("List OF String"),
-        TO_BYTES => Some("List OF Byte"),
-        STARTS_WITH | ENDS_WITH | CONTAINS | STARTS_WITH_ANY | ENDS_WITH_ANY => Some("Boolean"),
-        BYTE_LEN | COUNT | GRAPHEMES_COUNT => Some("Integer"),
-        STRIP_PREFIX | STRIP_SUFFIX | LEFT | RIGHT | REPEAT | PAD_LEFT | PAD_RIGHT
-        | GRAPHEME_AT | TRIM_CHARS | MID | REPLACE => Some("String"),
-        FIND => Some("Integer"),
-        TO_SCALARS => Some("List OF Scalar"),
-        FROM_SCALARS => Some("String"),
-        IS_LETTER | IS_DIGIT | IS_WHITESPACE | IS_UPPER | IS_LOWER => Some("Boolean"),
-        _ => None,
-    }
+    DefaultResolver::return_type_name(&STRINGS, name)
 }
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
-    let return_type = match name {
-        TRIM | TRIM_START | TRIM_END | UPPER | LOWER | CASE_FOLD | NORMALIZE_NFC
-            if exact(arg_types, &["String"]) =>
-        {
-            Cow::Borrowed("String")
-        }
-        GRAPHEMES if exact(arg_types, &["String"]) => Cow::Borrowed("List OF String"),
-        TO_BYTES if exact(arg_types, &["String"]) => Cow::Borrowed("List OF Byte"),
-        STARTS_WITH | ENDS_WITH | CONTAINS if exact(arg_types, &["String", "String"]) => {
-            Cow::Borrowed("Boolean")
-        }
-        SPLIT if exact(arg_types, &["String", "String"]) => Cow::Borrowed("List OF String"),
-        JOIN if exact(arg_types, &["List OF String", "String"]) => Cow::Borrowed("String"),
-        BYTE_LEN if exact(arg_types, &["String"]) => Cow::Borrowed("Integer"),
-        STARTS_WITH_ANY | ENDS_WITH_ANY if exact(arg_types, &["String", "List OF String"]) => {
-            Cow::Borrowed("Boolean")
-        }
-        STRIP_PREFIX | STRIP_SUFFIX | TRIM_CHARS if exact(arg_types, &["String", "String"]) => {
-            Cow::Borrowed("String")
-        }
-        COUNT if exact(arg_types, &["String", "String"]) => Cow::Borrowed("Integer"),
-        LEFT | RIGHT | REPEAT if exact(arg_types, &["String", "Integer"]) => {
-            Cow::Borrowed("String")
-        }
-        PAD_LEFT | PAD_RIGHT
-            if exact(arg_types, &["String", "Integer"])
-                || exact(arg_types, &["String", "Integer", "String"]) =>
-        {
-            Cow::Borrowed("String")
-        }
-        GRAPHEME_AT if exact(arg_types, &["String", "Integer"]) => Cow::Borrowed("String"),
-        GRAPHEMES_COUNT if exact(arg_types, &["String"]) => Cow::Borrowed("Integer"),
-        FIND if exact(arg_types, &["String", "String"])
-            || exact(arg_types, &["String", "String", "Integer"]) =>
-        {
-            Cow::Borrowed("Integer")
-        }
-        MID if exact(arg_types, &["String", "Integer", "Integer"]) => Cow::Borrowed("String"),
-        REPLACE if exact(arg_types, &["String", "String", "String"]) => Cow::Borrowed("String"),
-        TO_SCALARS if exact(arg_types, &["String"]) => Cow::Borrowed("List OF Scalar"),
-        FROM_SCALARS if exact(arg_types, &["List OF Scalar"]) => Cow::Borrowed("String"),
-        IS_LETTER | IS_DIGIT | IS_WHITESPACE | IS_UPPER | IS_LOWER
-            if exact(arg_types, &["Scalar"]) =>
-        {
-            Cow::Borrowed("Boolean")
-        }
-        _ => return None,
-    };
-    Some(ResolvedCall { return_type })
+    DefaultResolver::resolve_call(&STRINGS, name, arg_types).map(|return_type| ResolvedCall {
+        return_type: Cow::Borrowed(return_type),
+    })
 }
 
+// Bespoke `[, T]` bracket phrasing for the optional `padChar`/`start`; the
+// descriptor's per-position type list renders `String, Integer, String` etc., so
+// this stays hand-authored (the `collections` precedent) and is NOT asserted
+// against the descriptor by the parity test.
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         TRIM | TRIM_START | TRIM_END | UPPER | LOWER | CASE_FOLD | NORMALIZE_NFC | GRAPHEMES
@@ -221,36 +372,16 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 }
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    match name {
-        TRIM | TRIM_START | TRIM_END | UPPER | LOWER | CASE_FOLD | NORMALIZE_NFC | GRAPHEMES
-        | BYTE_LEN | GRAPHEMES_COUNT | TO_BYTES => Some((1, 1)),
-        STARTS_WITH | ENDS_WITH | CONTAINS | SPLIT | JOIN | STARTS_WITH_ANY | ENDS_WITH_ANY
-        | STRIP_PREFIX | STRIP_SUFFIX | COUNT | LEFT | RIGHT | REPEAT | GRAPHEME_AT
-        | TRIM_CHARS => Some((2, 2)),
-        PAD_LEFT | PAD_RIGHT | FIND => Some((2, 3)),
-        MID | REPLACE => Some((3, 3)),
-        TO_SCALARS | FROM_SCALARS | IS_LETTER | IS_DIGIT | IS_WHITESPACE | IS_UPPER | IS_LOWER => {
-            Some((1, 1))
-        }
-        _ => None,
-    }
+    DefaultResolver::arity(&STRINGS, name)
 }
 
 /// The source-companion implementation name (`__strings_*`) for the Scalar seam
 /// and classification predicates (plan-41-D). Only these members are backed by
 /// `strings_package.mfb`; every other `strings::` member is native codegen and
-/// returns `None` here so it keeps its native lowering.
+/// returns `None` here so it keeps its native lowering. Delegates to `STRINGS`'
+/// per-name `Implementation::Rewrite`.
 pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
-    match name {
-        TO_SCALARS => Some("__strings_toScalars"),
-        FROM_SCALARS => Some("__strings_fromScalars"),
-        IS_LETTER => Some("__strings_isLetter"),
-        IS_DIGIT => Some("__strings_isDigit"),
-        IS_WHITESPACE => Some("__strings_isWhitespace"),
-        IS_UPPER => Some("__strings_isUpper"),
-        IS_LOWER => Some("__strings_isLower"),
-        _ => None,
-    }
+    DefaultResolver::implementation_name(&STRINGS, name)
 }
 
 /// The source companion backing the Scalar seam/predicates: the scalar helpers
@@ -456,11 +587,12 @@ pub(crate) fn augmented_project(
     Ok(augmented)
 }
 
-use super::exact;
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    // `resolve_call` now derives from the descriptor, so the shared `exact` helper
+    // is only referenced by the `exact_helper` regression test below.
+    use crate::builtins::exact;
 
     fn types(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
@@ -871,5 +1003,127 @@ END TESTING
             "FUNC plain() AS Nothing\n  LET x AS Integer = 1\nEND FUNC\n",
         )]);
         assert_eq!(augmented_project(&plain).unwrap().files.len(), 1);
+    }
+
+    // The full set of strings names including the scalar-seam members (ALL above
+    // stops at REPLACE), for exhaustive parity iteration.
+    const ALL_INCL_SEAM: &[&str] = &[
+        TRIM,
+        TRIM_START,
+        TRIM_END,
+        UPPER,
+        LOWER,
+        CASE_FOLD,
+        NORMALIZE_NFC,
+        GRAPHEMES,
+        STARTS_WITH,
+        ENDS_WITH,
+        CONTAINS,
+        SPLIT,
+        JOIN,
+        BYTE_LEN,
+        STARTS_WITH_ANY,
+        ENDS_WITH_ANY,
+        STRIP_PREFIX,
+        STRIP_SUFFIX,
+        COUNT,
+        LEFT,
+        RIGHT,
+        REPEAT,
+        PAD_LEFT,
+        PAD_RIGHT,
+        GRAPHEME_AT,
+        GRAPHEMES_COUNT,
+        TRIM_CHARS,
+        TO_BYTES,
+        FIND,
+        MID,
+        REPLACE,
+        TO_SCALARS,
+        FROM_SCALARS,
+        IS_LETTER,
+        IS_DIGIT,
+        IS_WHITESPACE,
+        IS_UPPER,
+        IS_LOWER,
+    ];
+
+    // plan-72-V migration gate: prove `STRINGS` reproduces every legacy answer.
+    // `strings` carries a resolver (for the scalar-seam source predicate only), so
+    // `assert_parity` skips the data-only return/impl/padding rows — assert those
+    // explicitly here. `expected_arguments` is bespoke (`[, T]`) and not asserted.
+    // Kept until plan-72-BB.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::{parity, DefaultResolver, InjectionRule, REGISTRY};
+
+        assert_eq!(STRINGS.functions.len(), ALL_INCL_SEAM.len());
+
+        let legacy = parity::LegacySet {
+            is_call: &is_strings_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            return_type_name: &call_return_type_name,
+            // Bespoke bracket phrasing — not descriptor-derivable.
+            expected_arguments: None,
+            param_name_overloads: None,
+            argument_types: None,
+            implementation_name: None,
+            default_padding: None,
+            builtin_type_fields: None,
+        };
+        let mut probe = ALL_INCL_SEAM.to_vec();
+        probe.push("strings.nope");
+        parity::assert_parity(&STRINGS, &probe, &legacy, &[]);
+
+        // The resolver skips these in assert_parity; assert them directly so the
+        // wrappers stay pinned to the descriptor.
+        for &name in ALL_INCL_SEAM {
+            assert_eq!(
+                DefaultResolver::return_type_name(&STRINGS, name),
+                call_return_type_name(name),
+                "return-type for {name}"
+            );
+            assert_eq!(
+                DefaultResolver::implementation_name(&STRINGS, name),
+                implementation_name(name),
+                "implementation-name for {name}"
+            );
+            // Every optional arg is `Optional`, never `Fill`, so no call ever pads.
+            let (_, max) = arity(name).unwrap();
+            for provided in 0..=max {
+                assert!(
+                    DefaultResolver::default_padding(&STRINGS, name, provided).is_empty(),
+                    "no default padding for {name} at {provided} args"
+                );
+            }
+        }
+        // The seven scalar-seam members rewrite to `__strings_*`; everyone else is
+        // native (no rewrite).
+        assert_eq!(implementation_name(TO_SCALARS), Some("__strings_toScalars"));
+        assert_eq!(implementation_name(IS_LOWER), Some("__strings_isLower"));
+        assert_eq!(implementation_name(TRIM), None);
+
+        // Source companion: `WhenUsed`, and the resolver's `uses_source` predicate
+        // is the load-bearing `uses_package` scalar-seam walk.
+        let source = STRINGS.source.expect("strings has a source companion");
+        assert_eq!(source.rule, InjectionRule::WhenUsed);
+        assert!((source.loader)().is_ok());
+        let seam = project(vec![parse_file(SEAM_SOURCE)]);
+        let plain = project(vec![parse_file(
+            "IMPORT strings\n\nFUNC f() AS Nothing\n  LET x AS Integer = 1\nEND FUNC\n",
+        )]);
+        let resolver = STRINGS.resolver.expect("strings has a resolver");
+        assert_eq!(resolver.uses_source(&STRINGS, &seam), Some(true));
+        assert_eq!(resolver.uses_source(&STRINGS, &seam), Some(uses_package(&seam)));
+        assert_eq!(resolver.uses_source(&STRINGS, &plain), Some(uses_package(&plain)));
+
+        // Registered and well-formed alongside every other package.
+        assert!(REGISTRY.module("strings").is_some());
+        assert!(REGISTRY.function(SPLIT).is_some());
+        assert_eq!(REGISTRY.duplicate_module_name(), None);
+        assert_eq!(REGISTRY.duplicate_function_name(), None);
     }
 }

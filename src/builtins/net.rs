@@ -1,5 +1,11 @@
 use std::borrow::Cow;
 
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, BuiltinType,
+    DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
+    ParameterType, ReturnType, TypeKind,
+};
+
 pub(crate) const SOCKET_TYPE: &str = "Socket";
 pub(crate) const LISTENER_TYPE: &str = "Listener";
 pub(crate) const ADDRESS_TYPE: &str = "Address";
@@ -38,57 +44,227 @@ const INTERNAL_PERCENT_DECODE: &str = "__net_percentDecode";
 const PARSE_QUERY: &str = "net.parseQuery";
 const INTERNAL_PARSE_QUERY: &str = "__net_parseQuery";
 
+// plan-72-R: `NET` is the descriptor authority for this package. net is data-only
+// (no resolver): every call's return type is fixed per name (the overloading is on
+// ARGUMENT types, not the return), so `call_return_type_name` and `arity` derive
+// from the descriptor. `connectTcp`'s four structurally-different overloads are
+// modelled as four `BuiltinOverload`s, so `DefaultResolver::param_name_overloads`
+// reproduces the legacy per-overload name table (and `param_names` correctly
+// yields `None`). `implementation_name` is a fixed per-name rewrite
+// (`Implementation::Rewrite(__net_*)`) for the three source-companion calls and
+// `Same` elsewhere. The seven builtin types include three records (Address,
+// Datagram, DatagramText). The `resolve_call` (type-set argument acceptance:
+// `close(Socket|Listener|UdpSocket)`, `connectTcp(String,Integer | Address)`),
+// `expected_arguments` (`"or"`-phrased), and `argument_types` (joined strings,
+// overloaded → `None`) stay hand-authored — the descriptor's exact per-position
+// match and per-type rendering cannot reproduce them.
+const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload {
+    BuiltinOverload {
+        params,
+        return_type: ReturnType::Fixed(ret),
+    }
+}
+
+const fn nf(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+    implementation: Implementation,
+) -> BuiltinFunction {
+    BuiltinFunction {
+        name,
+        doc_slug: slug,
+        overloads,
+        implementation,
+        lowering: Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+
+const fn req(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
+    Parameter {
+        name,
+        aliases,
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::None,
+    }
+}
+
+// An optional trailing parameter: widens the arity range but is NOT
+// default-padded (net has no `default_argument_padding` helper), so `Optional`,
+// not `Fill`.
+const fn opt(name: &'static str, ty: &'static str) -> Parameter {
+    Parameter {
+        name,
+        aliases: &[],
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::Optional,
+    }
+}
+
+const P_LOOKUP: &[Parameter] = &[req("host", &[], "String"), opt("port", "Integer")];
+const P_CT_HP: &[Parameter] = &[req("host", &[], "String"), req("port", &[], "Integer")];
+const P_CT_HPT: &[Parameter] = &[
+    req("host", &[], "String"),
+    req("port", &[], "Integer"),
+    req("timeoutMs", &[], "Integer"),
+];
+const P_CT_A: &[Parameter] = &[req("address", &[], ADDRESS_TYPE)];
+const P_CT_AT: &[Parameter] = &[req("address", &[], ADDRESS_TYPE), req("timeoutMs", &[], "Integer")];
+const P_LISTEN: &[Parameter] = &[
+    req("host", &[], "String"),
+    req("port", &[], "Integer"),
+    opt("backlog", "Integer"),
+];
+const P_ACCEPT: &[Parameter] = &[req("listener", &[], LISTENER_TYPE), opt("timeoutMs", "Integer")];
+const P_POLL: &[Parameter] = &[req("sock", &[], SOCKET_TYPE), opt("timeoutMs", "Integer")];
+const P_READ: &[Parameter] = &[req("sock", &[], SOCKET_TYPE), req("maxBytes", &[], "Integer")];
+const P_WRITE: &[Parameter] = &[req("sock", &[], SOCKET_TYPE), req("bytes", &[], "List OF Byte")];
+const P_WRITE_TEXT: &[Parameter] = &[req("sock", &[], SOCKET_TYPE), req("value", &[], "String")];
+const P_CLOSE: &[Parameter] = &[req("resource", &["sock", "listener"], SOCKET_TYPE)];
+const P_LOCAL_ADDR: &[Parameter] = &[req("sock", &["listener"], SOCKET_TYPE)];
+const P_REMOTE_ADDR: &[Parameter] = &[req("sock", &[], SOCKET_TYPE)];
+const P_TIMEOUT_SET: &[Parameter] =
+    &[req("sock", &[], SOCKET_TYPE), req("timeoutMs", &[], "Integer")];
+const P_BIND_UDP: &[Parameter] = &[req("host", &[], "String"), req("port", &[], "Integer")];
+const P_RECV: &[Parameter] = &[req("sock", &[], UDP_SOCKET_TYPE), req("maxBytes", &[], "Integer")];
+const P_SEND: &[Parameter] = &[
+    req("sock", &[], UDP_SOCKET_TYPE),
+    req("address", &[], ADDRESS_TYPE),
+    req("bytes", &[], "List OF Byte"),
+];
+const P_SEND_TEXT: &[Parameter] = &[
+    req("sock", &[], UDP_SOCKET_TYPE),
+    req("address", &[], ADDRESS_TYPE),
+    req("value", &[], "String"),
+];
+const P_TO_URL: &[Parameter] = &[req("href", &["value", "url"], "String")];
+const P_PERCENT: &[Parameter] = &[req("s", &["text", "value"], "String")];
+const P_PARSE_QUERY: &[Parameter] = &[req("s", &["query", "value"], "String")];
+
+// `connectTcp`'s four overloads have structurally different positional layouts;
+// modelling them as four overloads makes `DefaultResolver::param_name_overloads`
+// reproduce the legacy per-overload name table and `param_names` yield `None`.
+const OV_CONNECT: &[BuiltinOverload] = &[
+    ov(P_CT_HP, SOCKET_TYPE),
+    ov(P_CT_HPT, SOCKET_TYPE),
+    ov(P_CT_A, SOCKET_TYPE),
+    ov(P_CT_AT, SOCKET_TYPE),
+];
+
+const NET_FUNCTIONS: &[BuiltinFunction] = &[
+    nf(LOOKUP, "lookup", &[ov(P_LOOKUP, "List OF Address")], Implementation::Same),
+    nf(CONNECT_TCP, "connectTcp", OV_CONNECT, Implementation::Same),
+    nf(LISTEN_TCP, "listenTcp", &[ov(P_LISTEN, LISTENER_TYPE)], Implementation::Same),
+    nf(ACCEPT, "accept", &[ov(P_ACCEPT, SOCKET_TYPE)], Implementation::Same),
+    nf(POLL, "poll", &[ov(P_POLL, "Boolean")], Implementation::Same),
+    nf(READ, "read", &[ov(P_READ, "List OF Byte")], Implementation::Same),
+    nf(READ_TEXT, "readText", &[ov(P_READ, "String")], Implementation::Same),
+    nf(WRITE, "write", &[ov(P_WRITE, "Nothing")], Implementation::Same),
+    nf(WRITE_TEXT, "writeText", &[ov(P_WRITE_TEXT, "Nothing")], Implementation::Same),
+    nf(CLOSE, "close", &[ov(P_CLOSE, "Nothing")], Implementation::Same),
+    nf(LOCAL_ADDRESS, "localAddress", &[ov(P_LOCAL_ADDR, ADDRESS_TYPE)], Implementation::Same),
+    nf(REMOTE_ADDRESS, "remoteAddress", &[ov(P_REMOTE_ADDR, ADDRESS_TYPE)], Implementation::Same),
+    nf(SET_READ_TIMEOUT, "setReadTimeout", &[ov(P_TIMEOUT_SET, "Nothing")], Implementation::Same),
+    nf(SET_WRITE_TIMEOUT, "setWriteTimeout", &[ov(P_TIMEOUT_SET, "Nothing")], Implementation::Same),
+    nf(BIND_UDP, "bindUdp", &[ov(P_BIND_UDP, UDP_SOCKET_TYPE)], Implementation::Same),
+    nf(RECEIVE_FROM, "receiveFrom", &[ov(P_RECV, DATAGRAM_TYPE)], Implementation::Same),
+    nf(RECEIVE_TEXT_FROM, "receiveTextFrom", &[ov(P_RECV, DATAGRAM_TEXT_TYPE)], Implementation::Same),
+    nf(SEND_TO, "sendTo", &[ov(P_SEND, "Nothing")], Implementation::Same),
+    nf(SEND_TEXT_TO, "sendTextTo", &[ov(P_SEND_TEXT, "Nothing")], Implementation::Same),
+    nf(TO_URL, "toUrl", &[ov(P_TO_URL, URL_TYPE)], Implementation::Rewrite(INTERNAL_TO_URL)),
+    nf(
+        PERCENT_DECODE,
+        "percentDecode",
+        &[ov(P_PERCENT, "String")],
+        Implementation::Rewrite(INTERNAL_PERCENT_DECODE),
+    ),
+    nf(
+        PARSE_QUERY,
+        "parseQuery",
+        &[ov(P_PARSE_QUERY, "Map OF String TO String")],
+        Implementation::Rewrite(INTERNAL_PARSE_QUERY),
+    ),
+];
+
+const ADDRESS_FIELDS: &[(&str, &str)] = &[("host", "String"), ("port", "Integer")];
+const DATAGRAM_FIELDS: &[(&str, &str)] = &[("from", "Address"), ("bytes", "List OF Byte")];
+const DATAGRAM_TEXT_FIELDS: &[(&str, &str)] = &[("from", "Address"), ("value", "String")];
+
+const NET_TYPES: &[BuiltinType] = &[
+    BuiltinType {
+        name: SOCKET_TYPE,
+        kind: TypeKind::Opaque,
+        fields: &[],
+    },
+    BuiltinType {
+        name: LISTENER_TYPE,
+        kind: TypeKind::Opaque,
+        fields: &[],
+    },
+    BuiltinType {
+        name: ADDRESS_TYPE,
+        kind: TypeKind::Record,
+        fields: ADDRESS_FIELDS,
+    },
+    BuiltinType {
+        name: UDP_SOCKET_TYPE,
+        kind: TypeKind::Opaque,
+        fields: &[],
+    },
+    BuiltinType {
+        name: DATAGRAM_TYPE,
+        kind: TypeKind::Record,
+        fields: DATAGRAM_FIELDS,
+    },
+    BuiltinType {
+        name: DATAGRAM_TEXT_TYPE,
+        kind: TypeKind::Record,
+        fields: DATAGRAM_TEXT_FIELDS,
+    },
+    BuiltinType {
+        name: URL_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+];
+
+pub(crate) static NET: BuiltinModule = BuiltinModule {
+    name: "net",
+    functions: NET_FUNCTIONS,
+    types: NET_TYPES,
+    source: Some(BuiltinSource {
+        rule: InjectionRule::WhenImported,
+        loader: source_file,
+    }),
+    resolver: None,
+};
+
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
 }
 
 pub(crate) fn is_net_call(name: &str) -> bool {
-    matches!(
-        name,
-        LOOKUP
-            | CONNECT_TCP
-            | LISTEN_TCP
-            | ACCEPT
-            | POLL
-            | READ
-            | READ_TEXT
-            | WRITE
-            | WRITE_TEXT
-            | CLOSE
-            | LOCAL_ADDRESS
-            | REMOTE_ADDRESS
-            | SET_READ_TIMEOUT
-            | SET_WRITE_TIMEOUT
-            | BIND_UDP
-            | RECEIVE_FROM
-            | RECEIVE_TEXT_FROM
-            | SEND_TO
-            | SEND_TEXT_TO
-            | TO_URL
-            | PERCENT_DECODE
-            | PARSE_QUERY
-    )
+    DefaultResolver::contains(&NET, name)
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    matches!(
-        name,
-        SOCKET_TYPE
-            | LISTENER_TYPE
-            | ADDRESS_TYPE
-            | UDP_SOCKET_TYPE
-            | DATAGRAM_TYPE
-            | DATAGRAM_TEXT_TYPE
-            | URL_TYPE
-    )
+    NET.types.iter().any(|ty| ty.name == name)
 }
 
+// `builtin_type_fields` returns a `&'static` borrowed shape and reports an
+// opaque/record's fields; it stays a static literal PINNED equal to `NET`'s type
+// records by `parity_matches_descriptor` (`Url` is a record whose fields live in
+// the source companion, so like the legacy helper it reports `None` here).
 pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match name {
-        ADDRESS_TYPE => Some(&[("host", "String"), ("port", "Integer")]),
-        DATAGRAM_TYPE => Some(&[("from", "Address"), ("bytes", "List OF Byte")]),
-        DATAGRAM_TEXT_TYPE => Some(&[("from", "Address"), ("value", "String")]),
+        ADDRESS_TYPE => Some(ADDRESS_FIELDS),
+        DATAGRAM_TYPE => Some(DATAGRAM_FIELDS),
+        DATAGRAM_TEXT_TYPE => Some(DATAGRAM_TEXT_FIELDS),
         _ => None,
     }
 }
@@ -100,13 +276,14 @@ pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
     }
 }
 
+// `call_param_names` returns a `&'static` borrowed shape the owned
+// `DefaultResolver` (which yields `Vec`) cannot produce, so it stays a static
+// literal PINNED equal to `NET` by `parity_matches_descriptor`. `connectTcp`'s
+// overloads do not share a positional layout, so it returns `None` here and its
+// names live in `call_param_name_overloads`.
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         LOOKUP => Some(&[&["host"], &["port"]]),
-        // CONNECT_TCP's overloads do not share a positional layout (`timeoutMs`
-        // is param 1 of the Address forms and param 2 of the host/port forms), so
-        // it cannot be described by a merged per-position alias table. It has a
-        // per-overload table instead; see `call_param_name_overloads`.
         LISTEN_TCP => Some(&[&["host"], &["port"], &["backlog"]]),
         ACCEPT => Some(&[&["listener"], &["timeoutMs"]]),
         POLL => Some(&[&["sock"], &["timeoutMs"]]),
@@ -129,9 +306,11 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 }
 
 /// Per-overload parameter names for a builtin whose overloads have structurally
-/// different positional layouts, so a named argument binds to a different index
-/// depending on which overload it selects. Each entry is one overload's parameter
-/// names, in order.
+/// different positional layouts. `connectTcp`'s `timeoutMs` is param 1 of the
+/// `Address` forms and param 2 of the host/port forms, so a named argument binds
+/// to a different index depending on which overload it selects. Returns a
+/// `&'static` borrowed shape PINNED equal to `NET`'s four overloads by
+/// `parity_matches_descriptor`.
 pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         CONNECT_TCP => Some(&[
@@ -145,27 +324,7 @@ pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    match name {
-        LOOKUP => Some("List OF Address"),
-        CONNECT_TCP | ACCEPT => Some(SOCKET_TYPE),
-        LISTEN_TCP => Some(LISTENER_TYPE),
-        // `poll` is overloaded: `Boolean` for a single socket and `List OF
-        // Boolean` for a list. `resolve_call` returns the precise type; this
-        // nominal value only flags the call as a recognized builtin.
-        POLL => Some("Boolean"),
-        READ => Some("List OF Byte"),
-        READ_TEXT => Some("String"),
-        WRITE | WRITE_TEXT | CLOSE | SET_READ_TIMEOUT | SET_WRITE_TIMEOUT | SEND_TO
-        | SEND_TEXT_TO => Some("Nothing"),
-        LOCAL_ADDRESS | REMOTE_ADDRESS => Some(ADDRESS_TYPE),
-        BIND_UDP => Some(UDP_SOCKET_TYPE),
-        RECEIVE_FROM => Some(DATAGRAM_TYPE),
-        RECEIVE_TEXT_FROM => Some(DATAGRAM_TEXT_TYPE),
-        TO_URL => Some(URL_TYPE),
-        PERCENT_DECODE => Some("String"),
-        PARSE_QUERY => Some("Map OF String TO String"),
-        _ => None,
-    }
+    DefaultResolver::return_type_name(&NET, name)
 }
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
@@ -242,6 +401,9 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
     Some(ResolvedCall { return_type })
 }
 
+// `expected_arguments` uses bespoke `"or"`-phrased strings the descriptor's
+// per-position type rendering cannot reproduce, so it stays hand-authored (not
+// descriptor-derived); the parity harness opts out of this row. BB removes it.
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         LOOKUP => Some("String, Integer"),
@@ -272,6 +434,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 /// list literal as `List OF Byte`). Only the non-overloaded calls return a
 /// machine-splittable signature; overloaded calls (`connectTcp`, `poll`,
 /// `close`, `localAddress`) return `None` and rely on explicit argument types.
+/// A joined-string shape the descriptor's per-position types cannot render, so it
+/// stays hand-authored (the parity harness opts out of this row).
 pub(crate) fn argument_types(name: &str) -> Option<&'static str> {
     match name {
         LOOKUP => Some("String, Integer"),
@@ -303,32 +467,15 @@ pub(crate) fn consumes_argument(name: &str, index: usize) -> bool {
 }
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    match name {
-        LOOKUP => Some((1, 2)),
-        CONNECT_TCP => Some((1, 3)),
-        LISTEN_TCP => Some((2, 3)),
-        ACCEPT => Some((1, 2)),
-        POLL => Some((1, 2)),
-        READ | READ_TEXT | WRITE | WRITE_TEXT | SET_READ_TIMEOUT | SET_WRITE_TIMEOUT | BIND_UDP
-        | RECEIVE_FROM | RECEIVE_TEXT_FROM => Some((2, 2)),
-        SEND_TO | SEND_TEXT_TO => Some((3, 3)),
-        CLOSE | LOCAL_ADDRESS | REMOTE_ADDRESS | TO_URL | PERCENT_DECODE | PARSE_QUERY => {
-            Some((1, 1))
-        }
-        _ => None,
-    }
+    DefaultResolver::arity(&NET, name)
 }
 
 /// The internal source-companion target for a source-backed `net` call
 /// (`net_package.mfb`). Native calls (sockets/DNS/UDP) return `None` and stay
-/// `net.*` runtime-helper calls.
+/// `net.*` runtime-helper calls. Derived from the descriptor's per-name
+/// `Implementation::Rewrite`.
 pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
-    match name {
-        TO_URL => Some(INTERNAL_TO_URL),
-        PERCENT_DECODE => Some(INTERNAL_PERCENT_DECODE),
-        PARSE_QUERY => Some(INTERNAL_PARSE_QUERY),
-        _ => None,
-    }
+    DefaultResolver::implementation_name(&NET, name)
 }
 
 super::package_source_glue!(
@@ -687,6 +834,8 @@ mod tests {
     #[test]
     fn implementation_name_to_url_only() {
         assert_eq!(implementation_name(TO_URL), Some(INTERNAL_TO_URL));
+        assert_eq!(implementation_name(PERCENT_DECODE), Some(INTERNAL_PERCENT_DECODE));
+        assert_eq!(implementation_name(PARSE_QUERY), Some(INTERNAL_PARSE_QUERY));
         assert_eq!(implementation_name(LOOKUP), None);
         assert_eq!(implementation_name("net.bogus"), None);
     }
@@ -722,5 +871,42 @@ mod tests {
             augmented_project(&ast).expect("a").files.len(),
             ast.files.len()
         );
+    }
+
+    // plan-72-R migration gate: prove `NET` reproduces every legacy helper answer
+    // for every `net.*` name (and an unknown name) — membership, arity, param
+    // names, per-overload param names (connectTcp's four overloads), nominal
+    // return type, per-name implementation rewrite, and builtin-type record
+    // fields — pinning the borrowed statics equal to `NET`. `resolve_call` (type-set
+    // argument acceptance), `expected_arguments` (`"or"`-phrased), and
+    // `argument_types` (joined strings) are not descriptor-derivable and are
+    // checked by the dedicated tests above. Keep until plan-72-BB.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::parity;
+
+        let calls: Vec<&str> = NET_FUNCTIONS.iter().map(|f| f.name).collect();
+        let legacy = parity::LegacySet {
+            is_call: &is_net_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            return_type_name: &call_return_type_name,
+            // `"or"`-phrased and joined-string shapes; kept hand-authored and
+            // checked separately.
+            expected_arguments: None,
+            param_name_overloads: Some(&|name| {
+                call_param_name_overloads(name)
+                    .map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            }),
+            argument_types: None,
+            implementation_name: Some(&implementation_name),
+            default_padding: None,
+            builtin_type_fields: Some(&builtin_type_fields),
+        };
+        let mut probe = calls.clone();
+        probe.push("net.bogus");
+        parity::assert_parity(&NET, &probe, &legacy, &[]);
     }
 }

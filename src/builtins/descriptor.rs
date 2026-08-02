@@ -612,7 +612,9 @@ impl BuiltinRegistry {
 ///
 /// Migrated so far: `app` (B), `bits` (D), `collections` (E), `csv` (G),
 /// `crypto` (F), `audio` (C), `datetime` (H), `encoding` (I), `errorCode` (J),
-/// `io` (N), `general` (L), `fs` (K), `http` (M).
+/// `fs` (K), `general` (L), `http` (M), `io` (N), `json` (O), `math` (P),
+/// `money` (Q), `net` (R), `os` (S), `regex` (T), `resource` (U), `strings` (V),
+/// `term` (W), `testing` (X).
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::bits::BITS,
@@ -627,6 +629,16 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::general::GENERAL,
     &crate::builtins::fs::FS,
     &crate::builtins::http::HTTP,
+    &crate::builtins::regex::REGEX,
+    &crate::builtins::resource::RESOURCE,
+    &crate::builtins::strings::STRINGS,
+    &crate::builtins::term::TERM,
+    &crate::builtins::testing::TESTING,
+    &crate::builtins::json::JSON,
+    &crate::builtins::math::MATH,
+    &crate::builtins::money::MONEY,
+    &crate::builtins::net::NET,
+    &crate::builtins::os::OS,
 ]);
 
 /// The migration parity harness (plan-72).
@@ -1223,15 +1235,16 @@ mod tests {
     #[test]
     fn production_registry_holds_migrated_packages() {
         // Migrated packages (app plan-72-B, bits plan-72-D) are registered and
-        // resolvable by module name and by qualified function name. `math` is not
+        // resolvable by module name and by qualified function name. `tls` is not
         // migrated yet, so it is absent and its calls fall back to the legacy
-        // helper.
+        // helper. (This used `math` until plan-72-P migrated it, then `regex`
+        // until plan-72-T; the example tracks a still-unmigrated package.)
         assert!(REGISTRY.module("app").is_some());
         assert!(REGISTRY.function("app.setMode").is_some());
         assert!(REGISTRY.module("bits").is_some());
         assert!(REGISTRY.function("bits.band").is_some());
-        assert!(REGISTRY.module("math").is_none());
-        assert!(REGISTRY.function("math.abs").is_none());
+        assert!(REGISTRY.module("tls").is_none());
+        assert!(REGISTRY.function("tls.connect").is_none());
         // The registry's names stay unique as packages are appended.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

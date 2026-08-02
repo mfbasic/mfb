@@ -1,6 +1,11 @@
 use std::borrow::Cow;
 use std::path::Path;
 
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, DefaultResolver,
+    DefaultValue, Implementation, InjectionRule, Lowering, Parameter, ParameterType, ReturnType,
+};
+
 const MATCH: &str = "regex.match";
 const FIND: &str = "regex.find";
 const FIND_ALL: &str = "regex.findAll";
@@ -10,15 +15,110 @@ const INTERNAL_FIND: &str = "__regex_find";
 const INTERNAL_FIND_ALL: &str = "__regex_findAll";
 const INTERNAL_REPLACE: &str = "__regex_replace";
 
+// plan-72-T: `REGEX` is the descriptor authority. Despite the census `custom 2`,
+// `regex` needs NO resolver — its two "custom" helpers are both data-shaped:
+// `implementation_name` is a fixed per-name `Implementation::Rewrite(__regex_*)`
+// (argument-independent), and `default_argument_padding` is a plain trailing
+// `DefaultValue::Fill("Integer","0")` on `find`/`findAll`'s `start` (verified
+// equal to the legacy padding for every provided count by the parity test). Each
+// function has one fixed-return overload, so `resolve_call`, `call_return_type_
+// name`, `arity`, and `default_padding` all derive from `DefaultResolver`. Only
+// `expected_arguments` stays hand-authored: `find`/`findAll` render the optional
+// `start` as `String, String[, Integer]`, a bracket phrasing the descriptor's
+// per-position type list cannot produce (the `collections` precedent). The source
+// companion is bespoke (engine + generated Unicode table combined into one file)
+// but its injection rule is the standard `WhenImported`.
+const PARAMS_MATCH: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter::required("pattern", "String"),
+];
+// find/findAll(value, pattern, [start=0]) — trailing `start` default-pads to 0.
+const PARAMS_FIND: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter::required("pattern", "String"),
+    Parameter {
+        name: "start",
+        aliases: &[],
+        ty: ParameterType::Named("Integer"),
+        default: DefaultValue::Fill {
+            type_name: "Integer",
+            expr: "0",
+        },
+    },
+];
+const PARAMS_REPLACE: &[Parameter] = &[
+    Parameter::required("value", "String"),
+    Parameter::required("pattern", "String"),
+    Parameter::required("replacement", "String"),
+];
+
+const fn regex_fn(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+    implementation: &'static str,
+) -> BuiltinFunction {
+    BuiltinFunction {
+        name,
+        doc_slug: slug,
+        overloads,
+        implementation: Implementation::Rewrite(implementation),
+        lowering: Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+
+const OV_MATCH: &[BuiltinOverload] = &[BuiltinOverload {
+    params: PARAMS_MATCH,
+    return_type: ReturnType::Fixed("Boolean"),
+}];
+const OV_FIND: &[BuiltinOverload] = &[BuiltinOverload {
+    params: PARAMS_FIND,
+    return_type: ReturnType::Fixed("Integer"),
+}];
+const OV_FIND_ALL: &[BuiltinOverload] = &[BuiltinOverload {
+    params: PARAMS_FIND,
+    return_type: ReturnType::Fixed("List OF Integer"),
+}];
+const OV_REPLACE: &[BuiltinOverload] = &[BuiltinOverload {
+    params: PARAMS_REPLACE,
+    return_type: ReturnType::Fixed("String"),
+}];
+
+const REGEX_FUNCTIONS: &[BuiltinFunction] = &[
+    regex_fn(MATCH, "match", OV_MATCH, INTERNAL_MATCH),
+    regex_fn(FIND, "find", OV_FIND, INTERNAL_FIND),
+    regex_fn(FIND_ALL, "findAll", OV_FIND_ALL, INTERNAL_FIND_ALL),
+    regex_fn(REPLACE, "replace", OV_REPLACE, INTERNAL_REPLACE),
+];
+
+pub(crate) static REGEX: BuiltinModule = BuiltinModule {
+    name: "regex",
+    functions: REGEX_FUNCTIONS,
+    types: &[],
+    source: Some(BuiltinSource {
+        rule: InjectionRule::WhenImported,
+        loader: source_file,
+    }),
+    resolver: None,
+};
+
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
 }
 
 pub(crate) fn is_regex_call(name: &str) -> bool {
-    matches!(name, MATCH | FIND | FIND_ALL | REPLACE)
+    DefaultResolver::contains(&REGEX, name)
 }
 
+// `call_param_names` returns a `&'static` borrowed shape the owned
+// `DefaultResolver::param_names` cannot produce, so it stays a static table,
+// PINNED equal to `REGEX` by the parity test until plan-72-BB. Each position has a
+// single spelling (no aliases).
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         MATCH => Some(&[&["value"], &["pattern"]]),
@@ -29,35 +129,19 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    match name {
-        MATCH => Some("Boolean"),
-        FIND => Some("Integer"),
-        FIND_ALL => Some("List OF Integer"),
-        REPLACE => Some("String"),
-        _ => None,
-    }
+    DefaultResolver::return_type_name(&REGEX, name)
 }
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
-    let return_type = match name {
-        MATCH if exact(arg_types, &["String", "String"]) => Cow::Borrowed("Boolean"),
-        FIND if exact(arg_types, &["String", "String"])
-            || exact(arg_types, &["String", "String", "Integer"]) =>
-        {
-            Cow::Borrowed("Integer")
-        }
-        FIND_ALL
-            if exact(arg_types, &["String", "String"])
-                || exact(arg_types, &["String", "String", "Integer"]) =>
-        {
-            Cow::Borrowed("List OF Integer")
-        }
-        REPLACE if exact(arg_types, &["String", "String", "String"]) => Cow::Borrowed("String"),
-        _ => return None,
-    };
-    Some(ResolvedCall { return_type })
+    DefaultResolver::resolve_call(&REGEX, name, arg_types).map(|return_type| ResolvedCall {
+        return_type: Cow::Borrowed(return_type),
+    })
 }
 
+// Bespoke `[, Integer]` bracket phrasing for the optional `start` — the
+// descriptor's per-position type list renders `String, String, Integer`, so this
+// stays hand-authored (the `collections` precedent) and is NOT asserted against
+// the descriptor by the parity test.
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         MATCH => Some("String, String"),
@@ -68,27 +152,18 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 }
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    match name {
-        MATCH => Some((2, 2)),
-        FIND | FIND_ALL => Some((2, 3)),
-        REPLACE => Some((3, 3)),
-        _ => None,
-    }
+    DefaultResolver::arity(&REGEX, name)
 }
 
 pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
-    match name {
-        MATCH => Some(INTERNAL_MATCH),
-        FIND => Some(INTERNAL_FIND),
-        FIND_ALL => Some(INTERNAL_FIND_ALL),
-        REPLACE => Some(INTERNAL_REPLACE),
-        _ => None,
-    }
+    DefaultResolver::implementation_name(&REGEX, name)
 }
 
 /// Default trailing arguments injected during IR lowering so the internal
-/// `__regex_find`/`__regex_findAll` always receive `start`. Mirrors the
-/// `tls.connect` default-padding pattern.
+/// `__regex_find`/`__regex_findAll` always receive `start`. Returns a `&'static`
+/// slice the owned `DefaultResolver::default_padding` cannot produce, so it stays
+/// a static table, PINNED equal to `REGEX`'s trailing `Fill` by the parity test
+/// (asserted over every provided count) until plan-72-BB.
 pub(crate) fn default_argument_padding(
     name: &str,
     provided: usize,
@@ -139,8 +214,6 @@ pub(crate) fn augmented_project(
     augmented.files.push(source_file()?);
     Ok(augmented)
 }
-
-use super::exact;
 
 #[cfg(test)]
 mod tests {
@@ -294,5 +367,51 @@ mod tests {
             augmented_project(&ast).expect("a").files.len(),
             ast.files.len()
         );
+    }
+
+    // plan-72-T migration gate: prove `REGEX` reproduces every legacy answer
+    // (membership, arity, param names, return type, implementation-name rewrite,
+    // and default padding over every provided count) for all four members + a
+    // non-member. `expected_arguments` is bespoke (`[, Integer]`) and is NOT
+    // asserted against the descriptor. Kept until plan-72-BB.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::{parity, DefaultResolver, REGISTRY};
+
+        let legacy = parity::LegacySet {
+            is_call: &is_regex_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            return_type_name: &call_return_type_name,
+            // Bespoke bracket phrasing — not descriptor-derivable.
+            expected_arguments: None,
+            param_name_overloads: None,
+            argument_types: None,
+            implementation_name: Some(&implementation_name),
+            default_padding: Some(&|name, provided| default_argument_padding(name, provided).to_vec()),
+            builtin_type_fields: None,
+        };
+        parity::assert_parity(&REGEX, &[MATCH, FIND, FIND_ALL, REPLACE, "regex.nope"], &legacy, &[]);
+
+        // resolve_call exact-argument-match parity, incl. the optional trailing
+        // `start` (2 or 3 args) and rejection of a wrong 3rd-arg type.
+        assert_eq!(rt(FIND, &["String", "String"]), Some("Integer".to_string()));
+        assert_eq!(rt(FIND, &["String", "String", "Integer"]), Some("Integer".to_string()));
+        assert_eq!(rt(FIND, &["String", "String", "String"]), None);
+        assert_eq!(rt(REPLACE, &["String", "String", "String"]), Some("String".to_string()));
+
+        // Source companion: `WhenImported`, loader parses.
+        let source = REGEX.source.expect("regex has a source companion");
+        assert_eq!(source.rule, crate::builtins::descriptor::InjectionRule::WhenImported);
+        assert!((source.loader)().is_ok());
+
+        // Registered and well-formed alongside every other package.
+        assert!(REGISTRY.module("regex").is_some());
+        assert!(REGISTRY.function(MATCH).is_some());
+        assert!(DefaultResolver::contains(&REGEX, REPLACE));
+        assert_eq!(REGISTRY.duplicate_module_name(), None);
+        assert_eq!(REGISTRY.duplicate_function_name(), None);
     }
 }

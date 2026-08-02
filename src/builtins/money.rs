@@ -7,17 +7,90 @@
 //! writing the per-arena rounding-mode field. This module owns the syntaxcheck
 //! metadata (arity, parameter names, return types) and the source-package
 //! plumbing that makes the enum visible.
+//!
+//! plan-72-Q: `MONEY` is the descriptor authority. money is fully data-only —
+//! every call has fixed positional argument types and a fixed return, so
+//! `resolve_call`, `argument_types`, `expected_arguments`, `arity`, and
+//! `call_return_type_name` all derive from the descriptor with no resolver. The
+//! calls lower inline (no implementation rewrite → `Implementation::Same`). The
+//! `Rounding` enum is a builtin type; the `package_source_glue!` companion is
+//! `WhenImported`.
 
 use std::borrow::Cow;
+
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, BuiltinType,
+    DefaultResolver, Implementation, InjectionRule, Lowering, Parameter, ReturnType, TypeKind,
+};
 
 const SET_ROUNDING: &str = "money.setRounding";
 const GET_ROUNDING: &str = "money.getRounding";
 const ROUND: &str = "money.round";
 
+const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload {
+    BuiltinOverload {
+        params,
+        return_type: ReturnType::Fixed(ret),
+    }
+}
+
+const fn money_fn(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+) -> BuiltinFunction {
+    BuiltinFunction {
+        name,
+        doc_slug: slug,
+        overloads,
+        implementation: Implementation::Same,
+        lowering: Lowering::Inline,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+
+const P_MODE: &[Parameter] = &[Parameter::required("mode", "Rounding")];
+const P_ROUND: &[Parameter] = &[
+    Parameter::required("value", "Money"),
+    Parameter::required("decimals", "Integer"),
+];
+
+const OV_SET_ROUNDING: &[BuiltinOverload] = &[ov(P_MODE, "Nothing")];
+const OV_GET_ROUNDING: &[BuiltinOverload] = &[ov(&[], "Rounding")];
+const OV_ROUND: &[BuiltinOverload] = &[ov(P_ROUND, "Money")];
+
+const MONEY_FUNCTIONS: &[BuiltinFunction] = &[
+    money_fn(SET_ROUNDING, "setRounding", OV_SET_ROUNDING),
+    money_fn(GET_ROUNDING, "getRounding", OV_GET_ROUNDING),
+    money_fn(ROUND, "round", OV_ROUND),
+];
+
+/// The public rounding-mode enum defined in `money_package.mfb`, referenced bare
+/// (`Rounding`) like every other builtin type.
+const MONEY_TYPES: &[BuiltinType] = &[BuiltinType {
+    name: "Rounding",
+    kind: TypeKind::Enum,
+    fields: &[],
+}];
+
+pub(crate) static MONEY: BuiltinModule = BuiltinModule {
+    name: "money",
+    functions: MONEY_FUNCTIONS,
+    types: MONEY_TYPES,
+    source: Some(BuiltinSource {
+        rule: InjectionRule::WhenImported,
+        loader: source_file,
+    }),
+    resolver: None,
+};
+
 /// The public rounding-mode enum defined in `money_package.mfb`, referenced bare
 /// (`Rounding`) like every other builtin type.
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    name == "Rounding"
+    MONEY.types.iter().any(|ty| ty.name == name)
 }
 
 #[derive(Clone)]
@@ -26,9 +99,12 @@ pub(crate) struct ResolvedCall<'a> {
 }
 
 pub(crate) fn is_money_call(name: &str) -> bool {
-    matches!(name, SET_ROUNDING | GET_ROUNDING | ROUND)
+    DefaultResolver::contains(&MONEY, name)
 }
 
+// `call_param_names` returns a `&'static` borrowed shape the owned
+// `DefaultResolver` (which yields `Vec`) cannot produce, so it stays a static
+// literal PINNED equal to `MONEY` by `parity_matches_descriptor`.
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     let params: &'static [&'static [&'static str]] = match name {
         SET_ROUNDING => &[&["mode"]],
@@ -40,27 +116,18 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    let type_ = match name {
-        SET_ROUNDING => "Nothing",
-        GET_ROUNDING => "Rounding",
-        ROUND => "Money",
-        _ => return None,
-    };
-    Some(type_)
+    DefaultResolver::return_type_name(&MONEY, name)
 }
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
-    let return_type: &str = match name {
-        SET_ROUNDING if exact(arg_types, &["Rounding"]) => "Nothing",
-        GET_ROUNDING if arg_types.is_empty() => "Rounding",
-        ROUND if exact(arg_types, &["Money", "Integer"]) => "Money",
-        _ => return None,
-    };
-    Some(ResolvedCall {
+    DefaultResolver::resolve_call(&MONEY, name, arg_types).map(|return_type| ResolvedCall {
         return_type: Cow::Borrowed(return_type),
     })
 }
 
+// `expected_arguments` returns a `&'static str` the owned `DefaultResolver`
+// (which yields `String`) cannot produce, so it stays a static literal PINNED
+// equal to `MONEY`'s per-position type rendering by `parity_matches_descriptor`.
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     let text = match name {
         SET_ROUNDING => "Rounding",
@@ -74,9 +141,9 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 /// The machine-readable positional argument-type signature (bug-340 A1): the
 /// concrete per-parameter types IR lowering hands to `call_argument_expected_type`.
 /// `getRounding` takes no arguments (nothing to type), so it — like an overloaded
-/// or generic call — returns `None`. This is the same shape `term::param_types`
-/// uses and the reason `money` no longer has to be recovered by parsing the
-/// `expected_arguments` diagnostic string.
+/// or generic call — returns `None`. Returns a `&'static` borrowed slice the owned
+/// `DefaultResolver::argument_types` (which yields `Vec`) cannot produce, so it
+/// stays a static literal PINNED equal to `MONEY` by `parity_matches_descriptor`.
 pub(crate) fn argument_types(name: &str) -> Option<&'static [&'static str]> {
     match name {
         SET_ROUNDING => Some(&["Rounding"]),
@@ -86,13 +153,7 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static [&'static str]> {
 }
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    let span = match name {
-        SET_ROUNDING => (1, 1),
-        GET_ROUNDING => (0, 0),
-        ROUND => (2, 2),
-        _ => return None,
-    };
-    Some(span)
+    DefaultResolver::arity(&MONEY, name)
 }
 
 super::package_source_glue!(
@@ -101,8 +162,6 @@ super::package_source_glue!(
     "builtins/money.mfb",
     include_str!("money_package.mfb")
 );
-
-use super::exact;
 
 #[cfg(test)]
 mod tests {
@@ -185,5 +244,44 @@ mod tests {
         // getRounding takes no arguments -> nothing to type.
         assert_eq!(argument_types(GET_ROUNDING), None);
         assert_eq!(argument_types("money.nope"), None);
+    }
+
+    #[test]
+    fn source_file_parses() {
+        assert!(source_file().is_ok());
+    }
+
+    // plan-72-Q migration gate: prove `MONEY` reproduces every legacy helper
+    // answer for every `money.*` name (and an unknown name) — membership, arity,
+    // param names, return type, expected arguments, and the machine argument-type
+    // table — pinning the borrowed `call_param_names`/`expected_arguments`/
+    // `argument_types` statics equal to `MONEY`, and the `Rounding` enum type.
+    // Keep until plan-72-BB deletes the legacy helpers.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::parity;
+
+        let calls: Vec<&str> = MONEY_FUNCTIONS.iter().map(|f| f.name).collect();
+        let legacy = parity::LegacySet {
+            is_call: &is_money_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            return_type_name: &call_return_type_name,
+            expected_arguments: Some(&|name| expected_arguments(name).map(str::to_string)),
+            param_name_overloads: None,
+            argument_types: Some(&|name| argument_types(name).map(|types| types.to_vec())),
+            implementation_name: None,
+            default_padding: None,
+            builtin_type_fields: None,
+        };
+        let mut probe = calls.clone();
+        probe.push("money.nope");
+        parity::assert_parity(&MONEY, &probe, &legacy, &[]);
+
+        // The Rounding enum is the descriptor's builtin-type authority.
+        assert!(is_builtin_type("Rounding"));
+        assert!(!is_builtin_type("Money"));
     }
 }

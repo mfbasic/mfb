@@ -1,11 +1,63 @@
 # bug-398: compiler-side untrusted JSON decode via tinyjson has no recursion depth guard → stack-overflow abort on `project.json` / `mfb.lock` / package manifests
 
-Last updated: 2026-07-28
+Last updated: 2026-08-01
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Security (DoS on untrusted input)
 
-Status: Open
+Status: FIXED (main 4c51d2758)
+
+## STATUS: FIXED (main 4c51d2758)
+
+Root cause was exactly as documented: every compiler-side decode of untrusted
+JSON called `tinyjson` 2.5's recursive-descent `str::parse::<JsonValue>()` with no
+nesting-depth cap, so a deeply nested `project.json` / `mfb.lock` / dependency
+manifest overflowed the native thread stack and aborted `mfb` (SIGABRT) before any
+validation ran.
+
+Fix (commit `5419aad76`): a single crate-root helper
+`crate::json::parse_json_bounded` runs an **iterative** bracket-depth pre-scan
+(`check_json_depth`, skipping string literals and honouring `\"`/`\\` escapes) and
+rejects input past `MAX_JSON_NESTING_DEPTH` = 256 (matching the front-end
+`MAX_EXPR_DEPTH` / `MAX_IR_NESTING_DEPTH` ceilings) *before* `tinyjson` recurses.
+Every production untrusted-decode site now routes through it:
+
+- `src/manifest/mod.rs` `parse_project_json` (covers `pkg` `run_remove`/`add_*`/
+  `verify_packages`).
+- `src/manifest/mod.rs` `load` (the positioned-diagnostic project.json validator,
+  mod.rs:127) — an **unlisted** production site found during the fix; it guards
+  depth via the exposed `check_json_depth` so it keeps `tinyjson`'s line/column
+  error for ordinary malformed input.
+- `src/cli/resolve.rs` `read_lock`.
+- `src/manifest/json_edit.rs` (all three `packages`-entry slice parses).
+- `src/audit/collect/lockfile.rs`.
+- `src/resolver/packages.rs` `read_manifest`.
+
+Deviations from the doc's Blast Radius:
+- `src/audit/collect/findings.rs:476` and `src/audit/collect/dependencies.rs:152`
+  are inside `#[cfg(test)] mod tests` (fixtures on trusted string literals), **not**
+  production — left unchanged.
+- `src/manifest/mod.rs` `load` (mod.rs:127) was a production decode site the doc
+  did not list; guarded.
+
+Verification:
+- Original reproduction (`project.json` = `[`×120000`]`×120000, `mfb pkg verify`)
+  now exits 1 with `error: failed to parse './project.json': JSON nested too deeply
+  (maximum 256 levels)` — no SIGABRT. Confirmed on the merged main debug binary.
+- `mfb pkg install` on a valid project + deep `mfb.lock`, and `mfb build` on a deep
+  `project.json` (the positioned-diagnostic path), both yield a bounded error.
+- Full `cargo test` on the merged worktree: `CARGO_EXIT=0`, 39 test binaries ok,
+  4179 tests passed, 0 failed.
+
+Regression tests (commit `5419aad76`):
+- `tests/cli_json_depth_limit.rs` — drives the real `mfb` binary
+  (`pkg_verify_rejects_deeply_nested_project_json`,
+  `pkg_install_rejects_deeply_nested_mfb_lock`); asserts a bounded error (normal
+  exit code, no signal death). Confirmed RED (SIGABRT / signal 6) against the
+  pre-fix binary.
+- `src/json.rs` unit tests — cap boundary (256 accepted), over-cap rejection, the
+  120k overflow shape, and bracket/escape handling inside string literals.
+
 Regression Test: tests/ — a CLI fixture: `mfb pkg verify` (or `build`) in a project
 whose `project.json` is `[`×N…`]`×N returns a clean error, not a stack-overflow
 abort.

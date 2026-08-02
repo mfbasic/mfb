@@ -33,16 +33,20 @@ projects.
 
 ### Phase S1 — descriptor and wrappers
 
-- [ ] Add `pub(crate) static OS: BuiltinModule` with every function,
-      overload, parameter (canonical + aliases), argument types, return
-      type, implementation, and default.
-- [ ] Rewrite the 6 metadata helpers as wrappers over `OS`.
-- [ ] Register `OS` with the `BuiltinRegistry` from plan-72-A.
-- [ ] Parity tests for every `os.*` name and unknown-name behavior.
+- [x] Add `pub(crate) static OS: BuiltinModule` with every function,
+      overload, parameter, argument types, return type, implementation
+      (`Same` — runtime helper, no rewrite), and default (none).
+- [x] Rewrite the 6 metadata helpers as wrappers over `OS`
+      (`is_os_call`/`arity`/`call_return_type_name`/`resolve_call` delegate to
+      `DefaultResolver`; `call_param_names` borrowed static pinned by parity;
+      `expected_arguments` stays hand-authored for the niladic `"no arguments"`
+      phrasing — opted out of parity, like io).
+- [x] Register `OS` with the `BuiltinRegistry` from plan-72-A.
+- [x] Parity tests for every `os.*` name and unknown-name behavior.
 
 Acceptance: `cargo test` passes; every `os.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
-Commit: —
+Commit: b14b1f701
 
 ## Validation
 
@@ -52,4 +56,11 @@ Commit: —
 
 ## Corrections
 
-Filled during execution.
+- **`expected_arguments` stays hand-authored (opted out of parity).** os's nine
+  niladic calls (`environ`/`args`/`pid`/…) render their expected arguments as
+  the bespoke `"no arguments"` phrasing, which the descriptor's per-position
+  rendering (`"()"`) cannot reproduce, so `expected_arguments` remains a
+  hand-authored static and the parity harness opts out of that row — exactly the
+  precedent set by io (plan-72-N). Everything else (membership, arity, param
+  names, return type, `resolve_call`) is descriptor-derived. os has no builtin
+  types, no source companion, and no resolver.
