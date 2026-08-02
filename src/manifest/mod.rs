@@ -15,9 +15,8 @@ pub(crate) fn parse_project_json(
     contents: &str,
     project_path: &Path,
 ) -> Result<HashMap<String, JsonValue>, String> {
-    let manifest: JsonValue = contents.parse().map_err(|err: tinyjson::JsonParseError| {
-        format!("failed to parse '{}': {err}", project_path.display())
-    })?;
+    let manifest = crate::json::parse_json_bounded(contents)
+        .map_err(|err| format!("failed to parse '{}': {err}", project_path.display()))?;
     manifest
         .get::<HashMap<String, JsonValue>>()
         .cloned()
@@ -124,6 +123,22 @@ pub(crate) fn validate_project_manifest(
             1,
         );
     })?;
+
+    // bug-398: bound nesting depth before tinyjson recurses, so an untrusted
+    // deeply nested project.json yields a clean diagnostic instead of a
+    // stack-overflow abort. Ordinary malformed input keeps tinyjson's positional
+    // error below.
+    if let Err(message) = crate::json::check_json_depth(&contents) {
+        rules::show_diagnostic(
+            "PROJECT_JSON_PARSE_FAILED",
+            &message,
+            project_path,
+            1,
+            1,
+            1,
+        );
+        return Err(());
+    }
 
     let manifest: JsonValue = contents.parse().map_err(|err: tinyjson::JsonParseError| {
         let column = err.column().max(1);

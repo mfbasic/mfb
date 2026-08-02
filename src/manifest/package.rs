@@ -374,6 +374,14 @@ pub(crate) fn verify_foreign_type_abi_consistency(packages: &[PathBuf]) -> Resul
             // When the owner is installed alongside, its current ABI must match
             // what the importer was built against.
             if let Some(dir) = owner_dir {
+                // bug-395: `fref.owner` is decoded verbatim from an untrusted
+                // dependency `.mfp` and here becomes a filename joined onto that
+                // package's directory. A hostile owner (`../../etc/foo`, or an
+                // absolute path) would escape the directory — an existence oracle
+                // plus an attacker-triggered read of an out-of-tree `.mfp`.
+                // Validate it as a bare package name before the join, the same
+                // guard `packages/<name>.mfp` names already carry.
+                validate_package_name(&fref.owner)?;
                 let owner_path = dir.join(format!("{}.mfp", fref.owner));
                 if owner_path.is_file() {
                     let owner_hashes = binary_repr::read_package_type_export_hashes(&owner_path)?;
