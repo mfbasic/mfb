@@ -1273,8 +1273,8 @@ mod tests {
             "munmap",
         ]
         .into_iter()
-            .map(|s| (s.to_string(), "libc.so.6".to_string()))
-            .collect();
+        .map(|s| (s.to_string(), "libc.so.6".to_string()))
+        .collect();
         platform
             .emit_program_entry(&spec, &imports)
             .expect("emit program entry")
@@ -1292,9 +1292,7 @@ mod tests {
         let rv = probe_entry(&riscv64());
         // References the flag global via a relocation.
         assert!(
-            rv.relocations
-                .iter()
-                .any(|r| r.to == HAS_RVV_GLOBAL_SYMBOL),
+            rv.relocations.iter().any(|r| r.to == HAS_RVV_GLOBAL_SYMBOL),
             "riscv64 entry must reference {HAS_RVV_GLOBAL_SYMBOL}"
         );
         // The scan's loop labels are present, delimiting the probe.
@@ -1329,7 +1327,10 @@ mod tests {
         }
 
         // Other arches: no scan, no flag reference (byte-identity preserved).
-        for other in [&aarch64() as &dyn CodegenPlatform, &x86_64() as &dyn CodegenPlatform] {
+        for other in [
+            &aarch64() as &dyn CodegenPlatform,
+            &x86_64() as &dyn CodegenPlatform,
+        ] {
             let entry = probe_entry(other);
             assert!(
                 !entry

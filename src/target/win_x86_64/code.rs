@@ -26,9 +26,9 @@ use crate::target::shared::code::{
     self, AppEntrySpec, AppHookBody, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation,
     FsPathOperation, MirPlan, NativeCodePlan, ProgramEntrySpec, RelocIntent,
 };
-use crate::target::win_x86_64::app;
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
+use crate::target::win_x86_64::app;
 
 const KERNEL32: &str = "kernel32.dll";
 const ADVAPI32: &str = "advapi32.dll";
@@ -122,7 +122,13 @@ fn emit_wide_slot_to_utf8(
         abi::move_immediate(abi::ARG[3], "Integer", "0"),
         abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1), // cchWideChar = -1
     ]);
-    call_external(from, "WideCharToMultiByte", KERNEL32, instructions, relocations);
+    call_external(
+        from,
+        "WideCharToMultiByte",
+        KERNEL32,
+        instructions,
+        relocations,
+    );
 }
 
 /// Emit `MultiByteToWideChar(CP_UTF8, 0, [src_slot], -1, [dst_slot], wchar_cap)`,
@@ -150,7 +156,13 @@ fn emit_utf8_slot_to_wide(
         abi::move_immediate(abi::ARG[3], "Integer", "0"),
         abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1), // cbMultiByte = -1 (NUL-terminated)
     ]);
-    call_external(from, "MultiByteToWideChar", KERNEL32, instructions, relocations);
+    call_external(
+        from,
+        "MultiByteToWideChar",
+        KERNEL32,
+        instructions,
+        relocations,
+    );
 }
 
 fn emit_marshal_path(
@@ -456,7 +468,6 @@ fn emit_ioctl_fionbio(
     instructions.push(abi::add_stack(FRAME));
 }
 
-
 impl code::CodegenPlatform for Platform {
     fn target(&self) -> &'static str {
         "windows-x86_64"
@@ -514,7 +525,13 @@ impl code::CodegenPlatform for Platform {
             abi::move_register(abi::ARG[0], abi::return_register()), // lpCmdLine
             abi::add_immediate(abi::ARG[1], abi::stack_pointer(), ARGC), // &argc
         ]);
-        call_external(from, "CommandLineToArgvW", SHELL32, instructions, relocations);
+        call_external(
+            from,
+            "CommandLineToArgvW",
+            SHELL32,
+            instructions,
+            relocations,
+        );
         instructions.extend([
             abi::store_u64(abi::return_register(), abi::stack_pointer(), WARGV),
             // arena-alloc the UTF-8 argv array: (argc+1) * 8 bytes.
@@ -956,11 +973,11 @@ impl code::CodegenPlatform for Platform {
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // avail = 0
             abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0x30), // &avail
             abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x20), // 5th arg lpTotalBytesAvail
-            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28),   // 6th arg NULL
-            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x38),  // hStdin
-            abi::move_immediate(abi::ARG[1], "Integer", "0"),        // lpBuffer NULL
-            abi::move_immediate(abi::ARG[2], "Integer", "0"),        // nBufferSize 0
-            abi::move_immediate(abi::ARG[3], "Integer", "0"),        // lpBytesRead NULL
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28), // 6th arg NULL
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x38), // hStdin
+            abi::move_immediate(abi::ARG[1], "Integer", "0"),      // lpBuffer NULL
+            abi::move_immediate(abi::ARG[2], "Integer", "0"),      // nBufferSize 0
+            abi::move_immediate(abi::ARG[3], "Integer", "0"),      // lpBytesRead NULL
         ]);
         call_external(from, "PeekNamedPipe", KERNEL32, instructions, relocations);
         instructions.extend([
@@ -992,7 +1009,13 @@ impl code::CodegenPlatform for Platform {
             abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x38), // hStdin
             abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x40), // dwMilliseconds
         ]);
-        call_external(from, "WaitForSingleObject", KERNEL32, instructions, relocations);
+        call_external(
+            from,
+            "WaitForSingleObject",
+            KERNEL32,
+            instructions,
+            relocations,
+        );
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"), // WAIT_OBJECT_0
             abi::branch_eq(&ready),
@@ -1248,7 +1271,13 @@ impl code::CodegenPlatform for Platform {
         let (fill_loop, fill_scan, fill_scan_done, fill_skip, fill_done) =
             (l("fl"), l("fs"), l("fsd"), l("fk"), l("fd"));
         instructions.push(abi::subtract_stack(0x70));
-        call_external(from, "GetEnvironmentStringsW", KERNEL32, instructions, relocations);
+        call_external(
+            from,
+            "GetEnvironmentStringsW",
+            KERNEL32,
+            instructions,
+            relocations,
+        );
         instructions.extend([
             abi::store_u64(abi::return_register(), abi::stack_pointer(), BLOCK),
             abi::move_register(abi::ARG[0], abi::return_register()), // cursor (entry start)
@@ -1342,7 +1371,13 @@ impl code::CodegenPlatform for Platform {
             // FreeEnvironmentStringsW(block).
             abi::load_u64(abi::ARG[0], abi::stack_pointer(), BLOCK),
         ]);
-        call_external(from, "FreeEnvironmentStringsW", KERNEL32, instructions, relocations);
+        call_external(
+            from,
+            "FreeEnvironmentStringsW",
+            KERNEL32,
+            instructions,
+            relocations,
+        );
         instructions.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), ARRAY),
             abi::add_stack(0x70),
@@ -1421,7 +1456,13 @@ impl code::CodegenPlatform for Platform {
             abi::subtract_stack(0x20),
             abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8),
         ]);
-        call_external(from, "SetConsoleOutputCP", KERNEL32, instructions, relocations);
+        call_external(
+            from,
+            "SetConsoleOutputCP",
+            KERNEL32,
+            instructions,
+            relocations,
+        );
         instructions.push(abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8));
         call_external(from, "SetConsoleCP", KERNEL32, instructions, relocations);
         instructions.push(abi::add_stack(0x20));
@@ -1458,14 +1499,27 @@ impl code::CodegenPlatform for Platform {
         arena_alloc_to_slot(from, "65536", WVAL_SLOT, instructions, relocations);
         arena_alloc_to_slot(from, "131072", U8VAL_SLOT, instructions, relocations);
         // name (UTF-8) -> wide name.
-        emit_utf8_slot_to_wide(from, NAME_SLOT, WNAME_SLOT, "32768", instructions, relocations);
+        emit_utf8_slot_to_wide(
+            from,
+            NAME_SLOT,
+            WNAME_SLOT,
+            "32768",
+            instructions,
+            relocations,
+        );
         // GetEnvironmentVariableW(wideName, wideVal, 32768) -> char count (0 = unset).
         instructions.extend([
             abi::load_u64(abi::ARG[0], abi::stack_pointer(), WNAME_SLOT),
             abi::load_u64(abi::ARG[1], abi::stack_pointer(), WVAL_SLOT),
             abi::move_immediate(abi::ARG[2], "Integer", "32768"),
         ]);
-        call_external(from, "GetEnvironmentVariableW", KERNEL32, instructions, relocations);
+        call_external(
+            from,
+            "GetEnvironmentVariableW",
+            KERNEL32,
+            instructions,
+            relocations,
+        );
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_eq(&not_found),
@@ -1482,7 +1536,13 @@ impl code::CodegenPlatform for Platform {
             abi::move_immediate(abi::ARG[3], "Integer", "0"),
             abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1), // cchWideChar = -1
         ]);
-        call_external(from, "WideCharToMultiByte", KERNEL32, instructions, relocations);
+        call_external(
+            from,
+            "WideCharToMultiByte",
+            KERNEL32,
+            instructions,
+            relocations,
+        );
         instructions.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), U8VAL_SLOT), // UTF-8 value ptr
             abi::branch(&done),
@@ -1519,7 +1579,14 @@ impl code::CodegenPlatform for Platform {
             abi::store_u64(abi::ARG[1], abi::stack_pointer(), VAL_SLOT),
         ]);
         arena_alloc_to_slot(from, "65536", WNAME_SLOT, instructions, relocations);
-        emit_utf8_slot_to_wide(from, NAME_SLOT, WNAME_SLOT, "32768", instructions, relocations);
+        emit_utf8_slot_to_wide(
+            from,
+            NAME_SLOT,
+            WNAME_SLOT,
+            "32768",
+            instructions,
+            relocations,
+        );
         // value == 0 → delete (wideValue = NULL); else marshal the value.
         instructions.extend([
             abi::load_u64(abi::ARG[0], abi::stack_pointer(), VAL_SLOT),
@@ -1527,7 +1594,14 @@ impl code::CodegenPlatform for Platform {
             abi::branch_eq(&set_null),
         ]);
         arena_alloc_to_slot(from, "131072", WVAL_SLOT, instructions, relocations);
-        emit_utf8_slot_to_wide(from, VAL_SLOT, WVAL_SLOT, "65536", instructions, relocations);
+        emit_utf8_slot_to_wide(
+            from,
+            VAL_SLOT,
+            WVAL_SLOT,
+            "65536",
+            instructions,
+            relocations,
+        );
         instructions.extend([
             abi::branch(&do_set),
             abi::label(&set_null),
@@ -1536,7 +1610,13 @@ impl code::CodegenPlatform for Platform {
             abi::load_u64(abi::ARG[0], abi::stack_pointer(), WNAME_SLOT),
             abi::load_u64(abi::ARG[1], abi::stack_pointer(), WVAL_SLOT),
         ]);
-        call_external(from, "SetEnvironmentVariableW", KERNEL32, instructions, relocations);
+        call_external(
+            from,
+            "SetEnvironmentVariableW",
+            KERNEL32,
+            instructions,
+            relocations,
+        );
         // SetEnvironmentVariableW returns BOOL (nonzero = success); invert to the
         // POSIX setenv/unsetenv convention (0 = success, nonzero = failure) the
         // shared helper's branch expects.
@@ -1587,7 +1667,13 @@ impl code::CodegenPlatform for Platform {
                     abi::load_u64(abi::ARG[1], abi::stack_pointer(), WIDE_SLOT),
                     abi::add_immediate(abi::ARG[2], abi::stack_pointer(), SIZE_SLOT),
                 ]);
-                call_external(from, "GetComputerNameExW", KERNEL32, instructions, relocations);
+                call_external(
+                    from,
+                    "GetComputerNameExW",
+                    KERNEL32,
+                    instructions,
+                    relocations,
+                );
                 instructions.push(abi::compare_immediate(abi::return_register(), "0"));
                 instructions.push(abi::branch_eq(&fail)); // BOOL 0 = failure
             }
@@ -1610,7 +1696,13 @@ impl code::CodegenPlatform for Platform {
                     abi::load_u64(abi::ARG[1], abi::stack_pointer(), WIDE_SLOT),
                     abi::move_immediate(abi::ARG[2], "Integer", "2048"),
                 ]);
-                call_external(from, "GetModuleFileNameW", KERNEL32, instructions, relocations);
+                call_external(
+                    from,
+                    "GetModuleFileNameW",
+                    KERNEL32,
+                    instructions,
+                    relocations,
+                );
                 instructions.push(abi::compare_immediate(abi::return_register(), "0"));
                 instructions.push(abi::branch_eq(&fail));
             }
@@ -2042,8 +2134,8 @@ impl code::CodegenPlatform for Platform {
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // hTemplateFile = NULL
             abi::load_u64(abi::ARG[0], abi::stack_pointer(), WIDE), // lpFileName
             abi::move_immediate(abi::ARG[1], "Integer", "3221225472"), // GENERIC_READ|GENERIC_WRITE
-            abi::move_immediate(abi::ARG[2], "Integer", "0"), // dwShareMode
-            abi::move_immediate(abi::ARG[3], "Integer", "0"), // lpSecurityAttributes NULL
+            abi::move_immediate(abi::ARG[2], "Integer", "0"),      // dwShareMode
+            abi::move_immediate(abi::ARG[3], "Integer", "0"),      // lpSecurityAttributes NULL
         ]);
         call_external(from, "CreateFileW", KERNEL32, instructions, relocations);
         instructions.extend([
@@ -2394,7 +2486,13 @@ impl code::CodegenPlatform for Platform {
             abi::load_u64(abi::ARG[2], abi::stack_pointer(), REQOUT_SLOT),
             abi::move_immediate(abi::ARG[3], "Integer", "0"),
         ]);
-        call_external(from, "GetFullPathNameW", KERNEL32, instructions, relocations);
+        call_external(
+            from,
+            "GetFullPathNameW",
+            KERNEL32,
+            instructions,
+            relocations,
+        );
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_eq(&fail),

@@ -142,7 +142,9 @@ mod tests {
     fn descriptor_is_registered_and_empty() {
         use crate::builtins::descriptor::{DefaultResolver, REGISTRY};
 
-        let module = REGISTRY.module("errorCode").expect("errorCode is registered");
+        let module = REGISTRY
+            .module("errorCode")
+            .expect("errorCode is registered");
         assert_eq!(module.name, "errorCode");
         assert!(module.functions.is_empty());
         assert!(module.types.is_empty());
@@ -150,10 +152,16 @@ mod tests {
         assert!(module.resolver.is_none());
 
         // No callable is owned: membership and every derivation is empty/None.
-        assert!(!DefaultResolver::contains(&ERRORCODE, "errorCode.ErrNotFound"));
+        assert!(!DefaultResolver::contains(
+            &ERRORCODE,
+            "errorCode.ErrNotFound"
+        ));
         assert!(REGISTRY.function("errorCode.ErrNotFound").is_none());
         assert!(REGISTRY.function("errorCode.anything").is_none());
-        assert_eq!(DefaultResolver::arity(&ERRORCODE, "errorCode.ErrNotFound"), None);
+        assert_eq!(
+            DefaultResolver::arity(&ERRORCODE, "errorCode.ErrNotFound"),
+            None
+        );
 
         // The registry stays well-formed with `errorCode` appended.
         assert_eq!(REGISTRY.duplicate_module_name(), None);

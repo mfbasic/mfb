@@ -156,7 +156,12 @@ pub(super) fn lower_get_env(
     // leaving a UTF-8 value C-string pointer (0 = unset) in the return register —
     // the same contract the not-found/build-string tail below expects (plan-66-B).
     if platform.family() == PlatformFamily::Windows {
-        platform.emit_env_get(symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_env_get(
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
     } else {
         platform.emit_libc_call(
             "getenv",
@@ -294,7 +299,12 @@ pub(super) fn lower_has_env(
     // value pointer when the variable exists, 0 when unset — the same nonzero-means-
     // present test as POSIX getenv (plan-66-B).
     if platform.family() == PlatformFamily::Windows {
-        platform.emit_env_get(symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_env_get(
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
     } else {
         platform.emit_libc_call(
             "getenv",
@@ -394,7 +404,12 @@ pub(super) fn lower_set_env(
     // marshals both and returns the POSIX convention (0 = success) the branch below
     // expects (plan-66-B).
     if platform.family() == PlatformFamily::Windows {
-        platform.emit_env_set(symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_env_set(
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
     } else {
         platform.emit_libc_call(
             "setenv",
@@ -491,7 +506,12 @@ pub(super) fn lower_unset_env(
     // value pointer in ARG[1] selects the delete path in emit_env_set (plan-66-B).
     if platform.family() == PlatformFamily::Windows {
         instructions.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
-        platform.emit_env_set(symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_env_set(
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
     } else {
         platform.emit_libc_call(
             "unsetenv",

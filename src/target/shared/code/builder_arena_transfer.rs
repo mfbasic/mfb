@@ -155,7 +155,11 @@ impl CodeBuilder<'_> {
             // payload for determinism. `ResultIsOk` reads the tag; the block is
             // freed by its stored `size` (+8), never a walk of the absent Error.
             self.emit(abi::move_immediate(&scratch9, "Integer", "0"));
-            self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), payload_slot));
+            self.emit(abi::store_u64(
+                &scratch9,
+                abi::stack_pointer(),
+                payload_slot,
+            ));
             let bare = self.emit_build_result_inline(tag_slot, "Integer", payload_slot)?;
             self.emit(abi::store_u64(&bare, abi::stack_pointer(), result_slot));
         } else {
@@ -244,7 +248,11 @@ impl CodeBuilder<'_> {
             ));
             let own = self.label("raw_worker_error_own");
             let done = self.label("raw_worker_error_done");
-            self.emit(abi::load_u64(scratch9, abi::stack_pointer(), source_raw_slot));
+            self.emit(abi::load_u64(
+                scratch9,
+                abi::stack_pointer(),
+                source_raw_slot,
+            ));
             self.emit(abi::compare_immediate(scratch9, "0"));
             self.emit(abi::branch_eq(&own));
             let copied_source = self.copy_value_to_current_arena("ErrorLoc", scratch9)?;
@@ -385,7 +393,11 @@ impl CodeBuilder<'_> {
     /// Deep-copy a non-flat record: size it, `arena_alloc`, whole-block `memcpy`
     /// (fixed slots + inlined flat fields), then deep-copy its pointer fields so
     /// nothing aliases the source arena. Twin of `copy_union_to_current_arena`.
-    fn copy_record_to_current_arena(&mut self, type_: &str, source: &str) -> Result<String, String> {
+    fn copy_record_to_current_arena(
+        &mut self,
+        type_: &str,
+        source: &str,
+    ) -> Result<String, String> {
         let source_slot = self.allocate_stack_object("thread_copy_record_source", 8);
         let size_slot = self.allocate_stack_object("thread_copy_record_size", 8);
         let result_slot = self.allocate_stack_object("thread_copy_record_result", 8);
@@ -405,9 +417,17 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
-        self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), size_slot));
         self.emit_copy_bytes(abi::RET[1], &scratch9, &scratch13, "thread_copy_record_raw");
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));

@@ -740,8 +740,8 @@ fn emit_riscv_hwcap_probe(
     relocations: &mut Vec<CodeRelocation>,
 ) {
     const AT_HWCAP: &str = "16"; // auxv key for the HWCAP bitmask
-    // Four temporaries — kept to the caller-saved scratch pool so no callee-saved
-    // register is disturbed at the top of the entry.
+                                 // Four temporaries — kept to the caller-saved scratch pool so no callee-saved
+                                 // register is disturbed at the top of the entry.
     let cursor = abi::SCRATCH[0]; // walking stack pointer, live across the scan
     let a = abi::SCRATCH[1]; // argc / auxv key / (later) the flag byte `has`
     let b = abi::SCRATCH[2]; // skip amount / auxv value / (later) the global address
@@ -767,7 +767,7 @@ fn emit_riscv_hwcap_probe(
         abi::add_immediate(cursor, cursor, 8),
         // Loop the auxv key/value pairs.
         abi::label("entry_hwcap_auxv_loop"),
-        abi::load_u64(a, cursor, 0), // key
+        abi::load_u64(a, cursor, 0),    // key
         abi::compare_immediate(a, "0"), // AT_NULL → not found, leave the default 0
         abi::branch_eq("entry_hwcap_done"),
         abi::compare_immediate(a, AT_HWCAP),
@@ -780,7 +780,13 @@ fn emit_riscv_hwcap_probe(
         abi::and_registers(a, b, one),
     ]);
     // Store the flag byte into `_mfb_rt_has_rvv` (its address goes in `b`).
-    push_symbol_address(entry_symbol, HAS_RVV_GLOBAL_SYMBOL, b, instructions, relocations);
+    push_symbol_address(
+        entry_symbol,
+        HAS_RVV_GLOBAL_SYMBOL,
+        b,
+        instructions,
+        relocations,
+    );
     instructions.extend([
         abi::store_u8(a, b, 0),
         abi::branch("entry_hwcap_done"),

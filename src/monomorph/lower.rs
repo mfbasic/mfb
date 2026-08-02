@@ -1832,9 +1832,7 @@ impl<'a> Monomorphizer<'a> {
                 .and_then(|value| self.expression_type(value, context))
                 .map(|element| format!("List OF {element}"))
                 .or_else(|| Some("List OF Unknown".to_string())),
-            Expression::SetLiteral { element_type, .. } => {
-                Some(format!("Set OF {element_type}"))
-            }
+            Expression::SetLiteral { element_type, .. } => Some(format!("Set OF {element_type}")),
             Expression::MapLiteral {
                 key_type,
                 value_type,

@@ -489,13 +489,19 @@ mod tests {
     #[test]
     fn without_packages_missing_array_errors() {
         let err = project_json_without_packages("{}", &["x"]).unwrap_err();
-        assert!(err.contains("could not locate project.json `packages` array"), "{err}");
+        assert!(
+            err.contains("could not locate project.json `packages` array"),
+            "{err}"
+        );
     }
 
     #[test]
     fn updated_version_missing_array_errors() {
         let err = project_json_with_updated_version("{}", "x", "2.0.0", None).unwrap_err();
-        assert!(err.contains("could not locate project.json `packages` array"), "{err}");
+        assert!(
+            err.contains("could not locate project.json `packages` array"),
+            "{err}"
+        );
     }
 
     #[test]

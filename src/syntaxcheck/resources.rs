@@ -640,14 +640,7 @@ mod resources_tests {
             files: vec![],
         };
         let checker = SyntaxChecker::new(std::path::Path::new("."), &project);
-        let thread = || {
-            Type::Thread(
-                Box::new(Type::Integer),
-                None,
-                None,
-                Box::new(Type::Integer),
-            )
-        };
+        let thread = || Type::Thread(Box::new(Type::Integer), None, None, Box::new(Type::Integer));
         let set_of_thread = Type::Set(Box::new(thread()));
         assert!(
             checker.contains_thread(&set_of_thread),

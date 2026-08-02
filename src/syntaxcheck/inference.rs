@@ -2765,17 +2765,17 @@ END FUNC
     fn expect_trap_zero_args_uses_range_arity_message() {
         // inference.rs:1055 — expectTrap has a (1,2) range arity, so a zero-arg
         // call formats the "min–max" branch (distinct from the min==max branch).
-        assert!(rejects_with(&tcase("      expectTrap()"), "TESTING_EXPECT_ARITY"));
+        assert!(rejects_with(
+            &tcase("      expectTrap()"),
+            "TESTING_EXPECT_ARITY"
+        ));
     }
 
     #[test]
     fn expect_trap_on_package_constant_call_is_rejected() {
         // inference.rs:1186-1194 — a package-constant "call" (`math::pi()`) is not
         // a fallible call, so trap-guarding it is rejected.
-        let src = format!(
-            "IMPORT math\n{}",
-            tcase("      expectTrap(math::pi())")
-        );
+        let src = format!("IMPORT math\n{}", tcase("      expectTrap(math::pi())"));
         assert!(
             rejects_with(&src, "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE"),
             "{:?}",

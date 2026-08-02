@@ -86,7 +86,9 @@ fn build_ok(root: &Path, name: &str) -> String {
 fn install(root: &Path, from_pkg: &str, into_pkg: &str, mfp: &str) {
     fs::copy(
         root.join(from_pkg).join(format!("{mfp}.mfp")),
-        root.join(into_pkg).join("packages").join(format!("{mfp}.mfp")),
+        root.join(into_pkg)
+            .join("packages")
+            .join(format!("{mfp}.mfp")),
     )
     .unwrap_or_else(|e| panic!("install {mfp}.mfp into {into_pkg}: {e}"));
 }
@@ -125,7 +127,14 @@ fn recursive_node_survives_a_thread_transfer_bare_and_in_a_record() {
     write_project(&root, "dom391", "package", &[], false, DOM_SRC);
     build_ok(&root, "dom391");
 
-    write_project(&root, "worker391", "package", &["dom391"], false, WORKER_SRC);
+    write_project(
+        &root,
+        "worker391",
+        "package",
+        &["dom391"],
+        false,
+        WORKER_SRC,
+    );
     install(&root, "dom391", "worker391", "dom391");
     build_ok(&root, "worker391");
 

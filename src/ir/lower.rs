@@ -1477,9 +1477,7 @@ fn statement_can_terminate(statement: &Statement) -> bool {
             else_body,
             ..
         } => block_can_terminate(then_body) || block_can_terminate(else_body),
-        Statement::Match { cases, .. } => {
-            cases.iter().any(|case| block_can_terminate(&case.body))
-        }
+        Statement::Match { cases, .. } => cases.iter().any(|case| block_can_terminate(&case.body)),
         Statement::For { body, .. }
         | Statement::ForEach { body, .. }
         | Statement::While { body, .. }
@@ -2678,7 +2676,8 @@ fn lower_expression_with_expected(
             // empty list literal and a `Map OF ...` default (http's `headers`) to an
             // empty map literal, not a scalar const; every other default is a const.
             let mut args = args;
-            for (type_, value) in builtins::default_argument_padding(&canonical_callee, args.len()) {
+            for (type_, value) in builtins::default_argument_padding(&canonical_callee, args.len())
+            {
                 if type_.starts_with("List OF ") {
                     args.push(IrValue::ListLiteral {
                         type_: (*type_).to_string(),

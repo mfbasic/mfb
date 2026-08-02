@@ -426,7 +426,10 @@ mod tests {
         // Section 10 declares one entry but carries no data for it.
         let payload = container(&[
             (1, manifest_section(1, 0)),
-            (2, string_pool(&["", "alice", "", "snd", "linux", "x86_64", "libsnd.a"])),
+            (
+                2,
+                string_pool(&["", "alice", "", "snd", "linux", "x86_64", "libsnd.a"]),
+            ),
             (10, vec![1u8, 0, 0, 0]),
         ]);
         let artifact = serialize("alice", "", payload);
@@ -469,7 +472,10 @@ mod tests {
         put_u32(&mut meta, text.len() as u32);
         meta.extend_from_slice(text.as_bytes());
         let payload = container(&[
-            (2, string_pool(&["", "alice", "", "snd", "linux", "x86_64", "libsnd.a"])),
+            (
+                2,
+                string_pool(&["", "alice", "", "snd", "linux", "x86_64", "libsnd.a"]),
+            ),
             (10, vendor_table(&[0x22; 32])),
             (18, meta),
         ]);

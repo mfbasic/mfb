@@ -25,12 +25,12 @@ use std::collections::HashMap;
 
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
-    CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation, RelocIntent,
-    AppEntrySpec, AppHookBody, ARENA_ALLOC_SYMBOL, MACAPP_PROGRAM_SYMBOL, RESULT_OK_TAG,
-    RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER, ARENA_STATE_REGISTER, TERM_STATE_ACTIVE_OFFSET,
-    TERM_STATE_FG_OFFSET, TERM_STATE_BG_OFFSET, TERM_STATE_BOLD_OFFSET, TERM_STATE_UNDERLINE_OFFSET,
-    TERM_STATE_CURSOR_VISIBLE_OFFSET, RESULT_ERR_TAG, RESULT_ERROR_MESSAGE_REGISTER,
-    ERR_UNSUPPORTED_CODE, ERR_UNSUPPORTED_SYMBOL,
+    AppEntrySpec, AppHookBody, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction,
+    CodeRelocation, RelocIntent, ARENA_ALLOC_SYMBOL, ARENA_STATE_REGISTER, ERR_UNSUPPORTED_CODE,
+    ERR_UNSUPPORTED_SYMBOL, MACAPP_PROGRAM_SYMBOL, RESULT_ERROR_MESSAGE_REGISTER, RESULT_ERR_TAG,
+    RESULT_OK_TAG, RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER, TERM_STATE_ACTIVE_OFFSET,
+    TERM_STATE_BG_OFFSET, TERM_STATE_BOLD_OFFSET, TERM_STATE_CURSOR_VISIBLE_OFFSET,
+    TERM_STATE_FG_OFFSET, TERM_STATE_UNDERLINE_OFFSET,
 };
 
 const KERNEL32: &str = "kernel32.dll";
@@ -55,7 +55,7 @@ const TUI_CELL_H: usize = 16;
 const TUI_MEMDC_SYM: &str = "_mfb_winapp_tui_memdc"; // off-screen HDC
 const TUI_ROW_SYM: &str = "_mfb_winapp_tui_row"; // cursor row (0-based)
 const TUI_COL_SYM: &str = "_mfb_winapp_tui_col"; // cursor col (0-based)
-// GDI / window message constants.
+                                                 // GDI / window message constants.
 const WM_PAINT: &str = "15"; // 0x000F
 const SW_HIDE: &str = "0";
 const SW_SHOW: &str = "5";
@@ -194,7 +194,12 @@ fn load_addr(
 /// `_mfb_arena_alloc(size, align=2) -> RET[1] = ptr`. Size in the return register,
 /// align in `ARG[1]` (matches `emit_marshal_path`). The 64 KiB requests never OOM
 /// (the arena maps fresh 1 MiB+ blocks), so the Result tag is not checked.
-fn arena_alloc(size: &str, from: &str, ins: &mut Vec<CodeInstruction>, rel: &mut Vec<CodeRelocation>) {
+fn arena_alloc(
+    size: &str,
+    from: &str,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) {
     ins.push(abi::move_immediate(abi::return_register(), "Integer", size));
     ins.push(abi::move_immediate(abi::ARG[1], "Integer", "2"));
     ins.push(abi::branch_link(ARENA_ALLOC_SYMBOL));
@@ -207,7 +212,12 @@ fn arena_alloc(size: &str, from: &str, ins: &mut Vec<CodeInstruction>, rel: &mut
     });
 }
 
-fn code_function(name: &str, symbol: &str, ins: Vec<CodeInstruction>, rel: Vec<CodeRelocation>) -> CodeFunction {
+fn code_function(
+    name: &str,
+    symbol: &str,
+    ins: Vec<CodeInstruction>,
+    rel: Vec<CodeRelocation>,
+) -> CodeFunction {
     CodeFunction {
         name: name.to_string(),
         symbol: symbol.to_string(),
@@ -264,36 +274,66 @@ fn emit_main() -> CodeFunction {
     // hInstance = GetModuleHandleW(NULL)
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
     call_external(from, "GetModuleHandleW", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), HINSTANCE));
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        HINSTANCE,
+    ));
 
     // headless = GetEnvironmentVariableW(L"MFB_WINAPP_HEADLESS", NULL, 0) != 0
     load_addr(abi::ARG[0], HEADLESS_ENV_SYM, from, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
     ins.push(abi::move_immediate(abi::ARG[2], "Integer", "0"));
-    call_external(from, "GetEnvironmentVariableW", KERNEL32, &mut ins, &mut rel);
+    call_external(
+        from,
+        "GetEnvironmentVariableW",
+        KERNEL32,
+        &mut ins,
+        &mut rel,
+    );
     ins.push(abi::compare_immediate(abi::return_register(), "0"));
     ins.push(abi::branch_ne("headless_spawn"));
 
     // ---- GUI path: build + show the window (byte-equivalent to spike.rs) ----
     // Zero the 80-byte WNDCLASSEXW (10 qwords).
     for i in 0..10 {
-        ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), WNDCLASS + i * 8));
+        ins.push(abi::store_u64(
+            abi::ZERO,
+            abi::stack_pointer(),
+            WNDCLASS + i * 8,
+        ));
     }
     // cbSize = 80 (store_u64 → cbSize@0=80, style@4=0).
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "80"));
     ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), WNDCLASS));
     // lpfnWndProc = &WndProc (@+8).
     load_addr(abi::ARG[0], WNDPROC_SYMBOL, from, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), WNDCLASS + 8));
+    ins.push(abi::store_u64(
+        abi::ARG[0],
+        abi::stack_pointer(),
+        WNDCLASS + 8,
+    ));
     // hInstance (@+24).
     ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), HINSTANCE));
-    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), WNDCLASS + 24));
+    ins.push(abi::store_u64(
+        abi::ARG[0],
+        abi::stack_pointer(),
+        WNDCLASS + 24,
+    ));
     // lpszClassName = &class (@+64).
     load_addr(abi::ARG[0], CLASS_NAME_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), WNDCLASS + 64));
+    ins.push(abi::store_u64(
+        abi::ARG[0],
+        abi::stack_pointer(),
+        WNDCLASS + 64,
+    ));
 
     // RegisterClassExW(&wndclass)
-    ins.push(abi::add_immediate(abi::ARG[0], abi::stack_pointer(), WNDCLASS));
+    ins.push(abi::add_immediate(
+        abi::ARG[0],
+        abi::stack_pointer(),
+        WNDCLASS,
+    ));
     call_external(from, "RegisterClassExW", USER32, &mut ins, &mut rel);
 
     // CreateWindowExW(0, &class, &title, style, CW, CW, 400, 300, 0, 0, hInst, 0).
@@ -313,13 +353,21 @@ fn emit_main() -> CodeFunction {
     ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), HINSTANCE));
     ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x50)); // hInstance
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x58)); // lpParam
-    // Register args, ARG[2] (lpWindowName = &title) set last.
+                                                                     // Register args, ARG[2] (lpWindowName = &title) set last.
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
     load_addr(abi::ARG[1], CLASS_NAME_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::ARG[3], "Integer", WS_OVERLAPPED_VISIBLE));
+    ins.push(abi::move_immediate(
+        abi::ARG[3],
+        "Integer",
+        WS_OVERLAPPED_VISIBLE,
+    ));
     load_addr(abi::ARG[2], TITLE_SYM, from, &mut ins, &mut rel);
     call_external(from, "CreateWindowExW", USER32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), HWND));
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        HWND,
+    ));
     // Stash the main HWND so the worker's finish helper can signal the UI thread.
     ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), HWND));
     load_addr(abi::ARG[1], MAIN_HWND_SYM, from, &mut ins, &mut rel);
@@ -356,8 +404,16 @@ fn emit_main() -> CodeFunction {
     // ---- plan-66-J-4 input wiring (GUI path) ----
     // CreatePipe(&hRead, &hWrite, NULL, 0): a byte pipe whose READ end becomes the
     // worker's stdin (fd 0) and whose WRITE end the EDIT subclass feeds keystrokes.
-    ins.push(abi::add_immediate(abi::ARG[0], abi::stack_pointer(), PIPEREAD)); // &hRead
-    ins.push(abi::add_immediate(abi::ARG[1], abi::stack_pointer(), PIPEWRITE)); // &hWrite
+    ins.push(abi::add_immediate(
+        abi::ARG[0],
+        abi::stack_pointer(),
+        PIPEREAD,
+    )); // &hRead
+    ins.push(abi::add_immediate(
+        abi::ARG[1],
+        abi::stack_pointer(),
+        PIPEWRITE,
+    )); // &hWrite
     ins.push(abi::move_immediate(abi::ARG[2], "Integer", "0")); // lpPipeAttributes = NULL
     ins.push(abi::move_immediate(abi::ARG[3], "Integer", "0")); // nSize = 0 (default buffer)
     call_external(from, "CreatePipe", KERNEL32, &mut ins, &mut rel);
@@ -365,7 +421,11 @@ fn emit_main() -> CodeFunction {
     // fd 0, which win emit_read_file resolves via GetStdHandle(-10); redirecting it
     // to the pipe read end makes readLine drain window keystrokes (plan-66-J-4).
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
-    ins.push(abi::subtract_immediate(abi::ARG[0], abi::ARG[0], STD_INPUT_FD)); // -10
+    ins.push(abi::subtract_immediate(
+        abi::ARG[0],
+        abi::ARG[0],
+        STD_INPUT_FD,
+    )); // -10
     ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), PIPEREAD)); // hRead
     call_external(from, "SetStdHandle", KERNEL32, &mut ins, &mut rel);
     // Stash hWrite in its global so the EDIT subclass (UI thread) can commit bytes.
@@ -378,7 +438,11 @@ fn emit_main() -> CodeFunction {
     load_addr(abi::ARG[0], EDIT_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0)); // edit hwnd
     ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
-    ins.push(abi::subtract_immediate(abi::ARG[1], abi::ARG[1], GWLP_WNDPROC)); // -4
+    ins.push(abi::subtract_immediate(
+        abi::ARG[1],
+        abi::ARG[1],
+        GWLP_WNDPROC,
+    )); // -4
     load_addr(abi::ARG[2], EDITPROC_SYMBOL, from, &mut ins, &mut rel); // &editproc
     call_external(from, "SetWindowLongPtrW", USER32, &mut ins, &mut rel);
     load_addr(abi::ARG[1], EDIT_OLDPROC_SYM, from, &mut ins, &mut rel);
@@ -392,7 +456,11 @@ fn emit_main() -> CodeFunction {
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20)); // dwCreationFlags
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28)); // lpThreadId
     call_external(from, "CreateThread", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), WORKERH));
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        WORKERH,
+    ));
 
     // ---- plan-66-J-4 keystroke injection (test affordance) ----
     // If MFB_WINAPP_INPUT is set, post each of its characters as a WM_CHAR to the
@@ -403,8 +471,18 @@ fn emit_main() -> CodeFunction {
     load_addr(abi::ARG[0], INPUT_ENV_SYM, from, &mut ins, &mut rel);
     load_addr(abi::ARG[1], INPUT_BUF_SYM, from, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::ARG[2], "Integer", "250"));
-    call_external(from, "GetEnvironmentVariableW", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), INJ_N)); // count
+    call_external(
+        from,
+        "GetEnvironmentVariableW",
+        KERNEL32,
+        &mut ins,
+        &mut rel,
+    );
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        INJ_N,
+    )); // count
     ins.push(abi::compare_immediate(abi::return_register(), "0"));
     ins.push(abi::branch_eq("inject_enter")); // unset/empty → just send Enter? no — skip all
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), INJ_I)); // i = 0
@@ -413,7 +491,7 @@ fn emit_main() -> CodeFunction {
     ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), INJ_N));
     ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
     ins.push(abi::branch_ge("inject_enter")); // i >= n → done, send Enter
-    // ch = inputbuf[i] (a UTF-16 code unit); PostMessageW(edit, WM_CHAR, ch, 0).
+                                              // ch = inputbuf[i] (a UTF-16 code unit); PostMessageW(edit, WM_CHAR, ch, 0).
     load_addr(abi::ARG[1], INPUT_BUF_SYM, from, &mut ins, &mut rel);
     ins.push(abi::shift_left_immediate(abi::ARG[0], abi::ARG[0], 1)); // i*2
     ins.push(abi::add_registers(abi::ARG[1], abi::ARG[1], abi::ARG[0]));
@@ -432,7 +510,13 @@ fn emit_main() -> CodeFunction {
     load_addr(abi::ARG[0], INPUT_ENV_SYM, from, &mut ins, &mut rel);
     load_addr(abi::ARG[1], INPUT_BUF_SYM, from, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::ARG[2], "Integer", "250"));
-    call_external(from, "GetEnvironmentVariableW", KERNEL32, &mut ins, &mut rel);
+    call_external(
+        from,
+        "GetEnvironmentVariableW",
+        KERNEL32,
+        &mut ins,
+        &mut rel,
+    );
     ins.push(abi::compare_immediate(abi::return_register(), "0"));
     ins.push(abi::branch_eq("inject_done")); // MFB_WINAPP_INPUT unset → no injection at all
     load_addr(abi::ARG[0], EDIT_HWND_SYM, from, &mut ins, &mut rel);
@@ -452,8 +536,8 @@ fn emit_main() -> CodeFunction {
     call_external(from, "GetMessageW", USER32, &mut ins, &mut rel);
     ins.push(abi::compare_immediate(abi::return_register(), "0"));
     ins.push(abi::branch_le("main_done")); // 0 = WM_QUIT, -1 = error
-    // The worker's finish posts WM_APP_QUIT (msg.message @ MSG+8); catch it and exit
-    // the loop so the UI thread does teardown (a worker ExitProcess faults in GDI).
+                                           // The worker's finish posts WM_APP_QUIT (msg.message @ MSG+8); catch it and exit
+                                           // the loop so the UI thread does teardown (a worker ExitProcess faults in GDI).
     ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), MSG + 8));
     ins.push(abi::move_immediate(abi::ARG[2], "Integer", "4294967295"));
     ins.push(abi::and_registers(abi::ARG[1], abi::ARG[1], abi::ARG[2])); // low 32 = message
@@ -474,7 +558,11 @@ fn emit_main() -> CodeFunction {
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20));
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28));
     call_external(from, "CreateThread", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), WORKERH));
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        WORKERH,
+    ));
     // WaitForSingleObject(worker, INFINITE = 0xFFFFFFFF via 0 - 1).
     ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), WORKERH));
     ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
@@ -495,7 +583,13 @@ fn emit_main() -> CodeFunction {
     load_addr(abi::ARG[0], DUMP_ENV_SYM, from, &mut ins, &mut rel);
     load_addr(abi::ARG[1], "_mfb_winapp_testbuf", from, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::ARG[2], "Integer", "200"));
-    call_external(from, "GetEnvironmentVariableW", KERNEL32, &mut ins, &mut rel);
+    call_external(
+        from,
+        "GetEnvironmentVariableW",
+        KERNEL32,
+        &mut ins,
+        &mut rel,
+    );
     ins.push(abi::compare_immediate(abi::return_register(), "0"));
     ins.push(abi::branch_eq("main_exit"));
     ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x60));
@@ -504,13 +598,29 @@ fn emit_main() -> CodeFunction {
     load_addr(abi::ARG[3], "_mfb_winapp_testbuf", from, &mut ins, &mut rel);
     call_external(from, "SendMessageW", USER32, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::ARG[1], "Integer", "65535"));
-    ins.push(abi::and_registers(abi::return_register(), abi::return_register(), abi::ARG[1]));
-    ins.push(abi::shift_left_immediate(abi::ARG[0], abi::return_register(), 1));
+    ins.push(abi::and_registers(
+        abi::return_register(),
+        abi::return_register(),
+        abi::ARG[1],
+    ));
+    ins.push(abi::shift_left_immediate(
+        abi::ARG[0],
+        abi::return_register(),
+        1,
+    ));
     ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x68)); // nbytes
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
-    ins.push(abi::subtract_immediate(abi::ARG[0], abi::ARG[0], FILE_FLAG_STDOUT_FD));
+    ins.push(abi::subtract_immediate(
+        abi::ARG[0],
+        abi::ARG[0],
+        FILE_FLAG_STDOUT_FD,
+    ));
     call_external(from, "GetStdHandle", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), 0x70));
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        0x70,
+    ));
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x78));
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20));
     ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x70));
@@ -577,13 +687,21 @@ fn emit_wndproc() -> CodeFunction {
     ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
     ins.push(abi::compare_immediate(abi::ARG[0], "0"));
     ins.push(abi::branch_eq("wnd_default")); // no surface → normal paint
-    // BeginPaint(hwnd, &ps) → hdc
+                                             // BeginPaint(hwnd, &ps) → hdc
     ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), H0));
     ins.push(abi::add_immediate(abi::ARG[1], abi::stack_pointer(), PS));
     call_external(from, "BeginPaint", USER32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), HDC));
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        HDC,
+    ));
     // BitBlt(hdc, 0, 0, W, H, memDC, 0, 0, SRCCOPY) — args 5..9 on the stack.
-    ins.push(abi::move_immediate(abi::ARG[2], "Integer", &(TUI_ROWS * TUI_CELL_H).to_string()));
+    ins.push(abi::move_immediate(
+        abi::ARG[2],
+        "Integer",
+        &(TUI_ROWS * TUI_CELL_H).to_string(),
+    ));
     ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20)); // height (5th)
     load_addr(abi::ARG[2], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::ARG[2], abi::ARG[2], 0));
@@ -595,7 +713,11 @@ fn emit_wndproc() -> CodeFunction {
     ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), HDC)); // hdcDest
     ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0")); // xDest
     ins.push(abi::move_immediate(abi::ARG[2], "Integer", "0")); // yDest
-    ins.push(abi::move_immediate(abi::ARG[3], "Integer", &(TUI_COLS * TUI_CELL_W).to_string())); // width
+    ins.push(abi::move_immediate(
+        abi::ARG[3],
+        "Integer",
+        &(TUI_COLS * TUI_CELL_W).to_string(),
+    )); // width
     call_external(from, "BitBlt", GDI32, &mut ins, &mut rel);
     // EndPaint(hwnd, &ps)
     ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), H0));
@@ -676,14 +798,26 @@ fn emit_editproc() -> CodeFunction {
     // WriteFile(hWrite, &byte, 1, &written, NULL)
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), OVERLAPPED)); // 5th arg NULL
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), WRITTEN));
-    ins.push(abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTEBUF)); // &byte
+    ins.push(abi::add_immediate(
+        abi::ARG[1],
+        abi::stack_pointer(),
+        BYTEBUF,
+    )); // &byte
     ins.push(abi::move_immediate(abi::ARG[2], "Integer", "1"));
-    ins.push(abi::add_immediate(abi::ARG[3], abi::stack_pointer(), WRITTEN)); // &written
+    ins.push(abi::add_immediate(
+        abi::ARG[3],
+        abi::stack_pointer(),
+        WRITTEN,
+    )); // &written
     call_external(from, "WriteFile", KERNEL32, &mut ins, &mut rel);
     // chain: CallWindowProcW(oldproc, hwnd, msg, wParam, lParam) — 5th arg on stack.
     ins.push(abi::label("chain"));
     ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), LPARAM));
-    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), OVERLAPPED)); // lParam (5th)
+    ins.push(abi::store_u64(
+        abi::ARG[0],
+        abi::stack_pointer(),
+        OVERLAPPED,
+    )); // lParam (5th)
     load_addr(abi::ARG[0], EDIT_OLDPROC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0)); // oldproc (rcx)
     ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), HWND)); // rdx
@@ -746,11 +880,15 @@ pub(super) fn emit_app_io_write_helper(
     const HANDLE: usize = 0x48;
     const EDITH: usize = 0x50; // transcript EDIT HWND
     const WBUF: usize = 0x58; // arena UTF-16 buffer
-    // plan-66-J-5 TUI grid path slots.
+                              // plan-66-J-5 TUI grid path slots.
     const GI: usize = 0x60; // per-char loop index
     const GWCH: usize = 0x68; // one UTF-16 code unit for TextOutW
     const GMEMDC: usize = 0x70; // cached memory DC
-    let std_fd = if stderr { FILE_FLAG_STDERR_FD } else { FILE_FLAG_STDOUT_FD };
+    let std_fd = if stderr {
+        FILE_FLAG_STDERR_FD
+    } else {
+        FILE_FLAG_STDOUT_FD
+    };
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
     ins.push(abi::label("entry"));
@@ -759,7 +897,11 @@ pub(super) fn emit_app_io_write_helper(
     // plan-66-J-5: while TUI mode is active, render into the GDI grid instead of the
     // transcript EDIT (the grid is what the window shows in TUI mode).
     if let Some(tso) = term_state_offset {
-        ins.push(abi::load_u64(abi::ARG[0], ARENA_STATE_REGISTER, tso + TERM_STATE_ACTIVE_OFFSET));
+        ins.push(abi::load_u64(
+            abi::ARG[0],
+            ARENA_STATE_REGISTER,
+            tso + TERM_STATE_ACTIVE_OFFSET,
+        ));
         ins.push(abi::compare_immediate(abi::ARG[0], "0"));
         ins.push(abi::branch_ne("term_grid_path"));
     }
@@ -799,7 +941,11 @@ pub(super) fn emit_app_io_write_helper(
     // below uses), clamp to ≤ 32767, then use that wchar count. A failed conversion
     // returns 0 → NUL at wbuf[0], which is safe.
     ins.push(abi::move_immediate(abi::ARG[1], "Integer", "4294967295"));
-    ins.push(abi::and_registers(abi::ARG[0], abi::return_register(), abi::ARG[1])); // low 32 bits
+    ins.push(abi::and_registers(
+        abi::ARG[0],
+        abi::return_register(),
+        abi::ARG[1],
+    )); // low 32 bits
     ins.push(abi::compare_immediate(abi::ARG[0], "32767"));
     ins.push(abi::branch_le("nul_len_ok"));
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "32767")); // clamp to wbuf capacity
@@ -810,7 +956,11 @@ pub(super) fn emit_app_io_write_helper(
     ins.push(abi::store_u16(abi::ZERO, abi::ARG[0], 0));
     // caretEnd = SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0)
     ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), EDITH));
-    ins.push(abi::move_immediate(abi::ARG[1], "Integer", WM_GETTEXTLENGTH));
+    ins.push(abi::move_immediate(
+        abi::ARG[1],
+        "Integer",
+        WM_GETTEXTLENGTH,
+    ));
     ins.push(abi::move_immediate(abi::ARG[2], "Integer", "0"));
     ins.push(abi::move_immediate(abi::ARG[3], "Integer", "0"));
     call_external(symbol, "SendMessageW", USER32, &mut ins, &mut rel);
@@ -818,7 +968,11 @@ pub(super) fn emit_app_io_write_helper(
     // WM_GETTEXTLENGTH returns a C `int`; mask off the garbage high word of rax so
     // the caret position is not a wild value.
     ins.push(abi::move_immediate(abi::ARG[2], "Integer", "4294967295"));
-    ins.push(abi::and_registers(abi::return_register(), abi::return_register(), abi::ARG[2]));
+    ins.push(abi::and_registers(
+        abi::return_register(),
+        abi::return_register(),
+        abi::ARG[2],
+    ));
     ins.push(abi::move_register(abi::ARG[2], abi::return_register()));
     ins.push(abi::move_register(abi::ARG[3], abi::return_register()));
     ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), EDITH));
@@ -838,7 +992,11 @@ pub(super) fn emit_app_io_write_helper(
         load_addr(abi::ARG[3], CRLF_SYM, symbol, &mut ins, &mut rel);
         call_external(symbol, "SendMessageW", USER32, &mut ins, &mut rel);
     }
-    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
 
@@ -848,7 +1006,11 @@ pub(super) fn emit_app_io_write_helper(
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
     ins.push(abi::subtract_immediate(abi::ARG[0], abi::ARG[0], std_fd));
     call_external(symbol, "GetStdHandle", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE));
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        HANDLE,
+    ));
     // WriteFile(handle, str+8, str[0], &written, NULL)
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), WRITTEN));
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), OVERLAPPED));
@@ -856,7 +1018,11 @@ pub(super) fn emit_app_io_write_helper(
     ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), STR)); // str ptr
     ins.push(abi::load_u64(abi::ARG[2], abi::ARG[1], 0)); // len = str[0]
     ins.push(abi::add_immediate(abi::ARG[1], abi::ARG[1], 8)); // buf = str+8
-    ins.push(abi::add_immediate(abi::ARG[3], abi::stack_pointer(), WRITTEN));
+    ins.push(abi::add_immediate(
+        abi::ARG[3],
+        abi::stack_pointer(),
+        WRITTEN,
+    ));
     call_external(symbol, "WriteFile", KERNEL32, &mut ins, &mut rel);
     if newline {
         ins.push(abi::move_immediate(abi::ARG[0], "Integer", "10"));
@@ -864,12 +1030,24 @@ pub(super) fn emit_app_io_write_helper(
         ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), WRITTEN));
         ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), OVERLAPPED));
         ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), HANDLE));
-        ins.push(abi::add_immediate(abi::ARG[1], abi::stack_pointer(), NL_BYTE));
+        ins.push(abi::add_immediate(
+            abi::ARG[1],
+            abi::stack_pointer(),
+            NL_BYTE,
+        ));
         ins.push(abi::move_immediate(abi::ARG[2], "Integer", "1"));
-        ins.push(abi::add_immediate(abi::ARG[3], abi::stack_pointer(), WRITTEN));
+        ins.push(abi::add_immediate(
+            abi::ARG[3],
+            abi::stack_pointer(),
+            WRITTEN,
+        ));
         call_external(symbol, "WriteFile", KERNEL32, &mut ins, &mut rel);
     }
-    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
 
@@ -884,11 +1062,19 @@ pub(super) fn emit_app_io_write_helper(
         ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), GMEMDC));
         ins.push(abi::compare_immediate(abi::ARG[0], "0"));
         ins.push(abi::branch_eq("std_path")); // no surface built → inherited handle
-        // SetTextColor(memDC, fg); SetBkColor(memDC, bg).
-        ins.push(abi::load_u64(abi::ARG[1], ARENA_STATE_REGISTER, tso + TERM_STATE_FG_OFFSET));
+                                              // SetTextColor(memDC, fg); SetBkColor(memDC, bg).
+        ins.push(abi::load_u64(
+            abi::ARG[1],
+            ARENA_STATE_REGISTER,
+            tso + TERM_STATE_FG_OFFSET,
+        ));
         ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), GMEMDC));
         call_external(symbol, "SetTextColor", GDI32, &mut ins, &mut rel);
-        ins.push(abi::load_u64(abi::ARG[1], ARENA_STATE_REGISTER, tso + TERM_STATE_BG_OFFSET));
+        ins.push(abi::load_u64(
+            abi::ARG[1],
+            ARENA_STATE_REGISTER,
+            tso + TERM_STATE_BG_OFFSET,
+        ));
         ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), GMEMDC));
         call_external(symbol, "SetBkColor", GDI32, &mut ins, &mut rel);
         // for i in 0..len(str[0]) { ... }
@@ -962,7 +1148,11 @@ pub(super) fn emit_app_io_write_helper(
         ins.push(abi::branch("term_loop"));
         ins.push(abi::label("term_grid_done"));
         invalidate_main(symbol, &mut ins, &mut rel);
-        ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+        ins.push(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_OK_TAG,
+        ));
         ins.push(abi::add_stack(FRAME));
         ins.push(abi::return_());
     }
@@ -1020,7 +1210,11 @@ pub(super) fn emit_app_raw_input_mode() -> Result<(), String> {
 pub(super) fn emit_app_io_flush_helper(_symbol: &str) -> AppHookBody {
     let mut ins: Vec<CodeInstruction> = Vec::new();
     ins.push(abi::label("entry"));
-    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     ins.push(abi::return_());
     (
         CodeFrame {
@@ -1039,7 +1233,11 @@ pub(super) fn emit_app_io_is_terminal_helper(_symbol: &str) -> AppHookBody {
     let mut ins: Vec<CodeInstruction> = Vec::new();
     ins.push(abi::label("entry"));
     ins.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "1"));
-    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     ins.push(abi::return_());
     (
         CodeFrame {
@@ -1104,9 +1302,23 @@ fn emit_term_draw_unsupported(symbol: &str) -> AppHookBody {
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
     ins.push(abi::label("entry"));
-    ins.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_UNSUPPORTED_CODE));
-    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG));
-    load_addr(RESULT_ERROR_MESSAGE_REGISTER, ERR_UNSUPPORTED_SYMBOL, symbol, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(
+        RESULT_VALUE_REGISTER,
+        "Integer",
+        ERR_UNSUPPORTED_CODE,
+    ));
+    ins.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_ERR_TAG,
+    ));
+    load_addr(
+        RESULT_ERROR_MESSAGE_REGISTER,
+        ERR_UNSUPPORTED_SYMBOL,
+        symbol,
+        &mut ins,
+        &mut rel,
+    );
     ins.push(abi::return_());
     term_body(ins, rel)
 }
@@ -1130,7 +1342,11 @@ fn emit_term_on(symbol: &str, tso: usize) -> AppHookBody {
     // hdcScreen = GetDC(NULL)
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
     call_external(from, "GetDC", USER32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), 0x30));
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        0x30,
+    ));
     // memDC = CreateCompatibleDC(hdcScreen); store the global.
     ins.push(abi::move_register(abi::ARG[0], abi::return_register()));
     call_external(from, "CreateCompatibleDC", GDI32, &mut ins, &mut rel);
@@ -1138,8 +1354,16 @@ fn emit_term_on(symbol: &str, tso: usize) -> AppHookBody {
     ins.push(abi::store_u64(abi::return_register(), abi::ARG[1], 0));
     // bmp = CreateCompatibleBitmap(hdcScreen, W, H)
     ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x30));
-    ins.push(abi::move_immediate(abi::ARG[1], "Integer", &(TUI_COLS * TUI_CELL_W).to_string()));
-    ins.push(abi::move_immediate(abi::ARG[2], "Integer", &(TUI_ROWS * TUI_CELL_H).to_string()));
+    ins.push(abi::move_immediate(
+        abi::ARG[1],
+        "Integer",
+        &(TUI_COLS * TUI_CELL_W).to_string(),
+    ));
+    ins.push(abi::move_immediate(
+        abi::ARG[2],
+        "Integer",
+        &(TUI_ROWS * TUI_CELL_H).to_string(),
+    ));
     call_external(from, "CreateCompatibleBitmap", GDI32, &mut ins, &mut rel);
     // SelectObject(memDC, bmp) — stage bmp (rax) into ARG[1] before loading memDC.
     ins.push(abi::move_register(abi::ARG[1], abi::return_register()));
@@ -1159,7 +1383,11 @@ fn emit_term_on(symbol: &str, tso: usize) -> AppHookBody {
     call_external(from, "SelectObject", GDI32, &mut ins, &mut rel);
     ins.push(abi::label("on_have_dc"));
     // Clear the grid to black: PatBlt(memDC, 0, 0, W, H, BLACKNESS = 0x42).
-    ins.push(abi::move_immediate(abi::ARG[2], "Integer", &(TUI_ROWS * TUI_CELL_H).to_string()));
+    ins.push(abi::move_immediate(
+        abi::ARG[2],
+        "Integer",
+        &(TUI_ROWS * TUI_CELL_H).to_string(),
+    ));
     ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20)); // height (5th)
     ins.push(abi::move_immediate(abi::ARG[2], "Integer", "66")); // BLACKNESS (6th)
     ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28));
@@ -1167,22 +1395,42 @@ fn emit_term_on(symbol: &str, tso: usize) -> AppHookBody {
     ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
     ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
     ins.push(abi::move_immediate(abi::ARG[2], "Integer", "0"));
-    ins.push(abi::move_immediate(abi::ARG[3], "Integer", &(TUI_COLS * TUI_CELL_W).to_string()));
+    ins.push(abi::move_immediate(
+        abi::ARG[3],
+        "Integer",
+        &(TUI_COLS * TUI_CELL_W).to_string(),
+    ));
     call_external(from, "PatBlt", GDI32, &mut ins, &mut rel);
     // cursor = (0, 0); term state: active = 1, fg = white, bg = black.
     reset_cursor(from, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "1"));
-    ins.push(abi::store_u64(abi::ARG[0], ARENA_STATE_REGISTER, tso + TERM_STATE_ACTIVE_OFFSET));
+    ins.push(abi::store_u64(
+        abi::ARG[0],
+        ARENA_STATE_REGISTER,
+        tso + TERM_STATE_ACTIVE_OFFSET,
+    ));
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "16777215")); // 0xFFFFFF white
-    ins.push(abi::store_u64(abi::ARG[0], ARENA_STATE_REGISTER, tso + TERM_STATE_FG_OFFSET));
-    ins.push(abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, tso + TERM_STATE_BG_OFFSET));
+    ins.push(abi::store_u64(
+        abi::ARG[0],
+        ARENA_STATE_REGISTER,
+        tso + TERM_STATE_FG_OFFSET,
+    ));
+    ins.push(abi::store_u64(
+        abi::ZERO,
+        ARENA_STATE_REGISTER,
+        tso + TERM_STATE_BG_OFFSET,
+    ));
     // Hide the transcript EDIT, then invalidate the window to present the grid.
     load_addr(abi::ARG[0], EDIT_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
     ins.push(abi::move_immediate(abi::ARG[1], "Integer", SW_HIDE));
     call_external(from, "ShowWindow", USER32, &mut ins, &mut rel);
     invalidate_main(from, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     term_body(ins, rel)
@@ -1196,13 +1444,21 @@ fn emit_term_off(symbol: &str, tso: usize) -> AppHookBody {
     let mut rel: Vec<CodeRelocation> = Vec::new();
     ins.push(abi::label("entry"));
     ins.push(abi::subtract_stack(FRAME));
-    ins.push(abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, tso + TERM_STATE_ACTIVE_OFFSET));
+    ins.push(abi::store_u64(
+        abi::ZERO,
+        ARENA_STATE_REGISTER,
+        tso + TERM_STATE_ACTIVE_OFFSET,
+    ));
     load_addr(abi::ARG[0], EDIT_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
     ins.push(abi::move_immediate(abi::ARG[1], "Integer", SW_SHOW));
     call_external(from, "ShowWindow", USER32, &mut ins, &mut rel);
     invalidate_main(from, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     term_body(ins, rel)
@@ -1220,7 +1476,11 @@ fn emit_term_clear(symbol: &str) -> AppHookBody {
     ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
     ins.push(abi::compare_immediate(abi::ARG[0], "0"));
     ins.push(abi::branch_eq("clear_done"));
-    ins.push(abi::move_immediate(abi::ARG[2], "Integer", &(TUI_ROWS * TUI_CELL_H).to_string()));
+    ins.push(abi::move_immediate(
+        abi::ARG[2],
+        "Integer",
+        &(TUI_ROWS * TUI_CELL_H).to_string(),
+    ));
     ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20));
     ins.push(abi::move_immediate(abi::ARG[2], "Integer", "66"));
     ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28));
@@ -1228,11 +1488,19 @@ fn emit_term_clear(symbol: &str) -> AppHookBody {
     ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
     ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
     ins.push(abi::move_immediate(abi::ARG[2], "Integer", "0"));
-    ins.push(abi::move_immediate(abi::ARG[3], "Integer", &(TUI_COLS * TUI_CELL_W).to_string()));
+    ins.push(abi::move_immediate(
+        abi::ARG[3],
+        "Integer",
+        &(TUI_COLS * TUI_CELL_W).to_string(),
+    ));
     call_external(from, "PatBlt", GDI32, &mut ins, &mut rel);
     reset_cursor(from, &mut ins, &mut rel);
     ins.push(abi::label("clear_done"));
-    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     term_body(ins, rel)
@@ -1248,7 +1516,11 @@ fn emit_term_move_to(symbol: &str) -> AppHookBody {
     ins.push(abi::store_u64(abi::ARG[0], abi::ARG[2], 0)); // row
     load_addr(abi::ARG[2], TUI_COL_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::ARG[1], abi::ARG[2], 0)); // col
-    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     ins.push(abi::return_());
     term_body(ins, rel)
 }
@@ -1262,8 +1534,16 @@ fn emit_term_set_color(tso: usize, field: usize) -> AppHookBody {
     ins.push(abi::shift_left_immediate(abi::ARG[2], abi::ARG[2], 16));
     ins.push(abi::or_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]));
     ins.push(abi::or_registers(abi::ARG[0], abi::ARG[0], abi::ARG[2]));
-    ins.push(abi::store_u64(abi::ARG[0], ARENA_STATE_REGISTER, tso + field));
-    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::store_u64(
+        abi::ARG[0],
+        ARENA_STATE_REGISTER,
+        tso + field,
+    ));
+    ins.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     ins.push(abi::return_());
     term_body(ins, Vec::new())
 }
@@ -1272,8 +1552,16 @@ fn emit_term_set_color(tso: usize, field: usize) -> AppHookBody {
 fn emit_term_set_flag(tso: usize, field: usize) -> AppHookBody {
     let mut ins: Vec<CodeInstruction> = Vec::new();
     ins.push(abi::label("entry"));
-    ins.push(abi::store_u64(abi::ARG[0], ARENA_STATE_REGISTER, tso + field));
-    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::store_u64(
+        abi::ARG[0],
+        ARENA_STATE_REGISTER,
+        tso + field,
+    ));
+    ins.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     ins.push(abi::return_());
     term_body(ins, Vec::new())
 }
@@ -1288,7 +1576,11 @@ fn emit_term_cursor_visible(tso: usize, value: &str) -> AppHookBody {
         ARENA_STATE_REGISTER,
         tso + TERM_STATE_CURSOR_VISIBLE_OFFSET,
     ));
-    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     ins.push(abi::return_());
     term_body(ins, Vec::new())
 }
@@ -1306,7 +1598,11 @@ fn emit_term_sync(symbol: &str) -> AppHookBody {
     load_addr(abi::ARG[0], MAIN_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
     call_external(from, "UpdateWindow", USER32, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     term_body(ins, rel)
@@ -1332,11 +1628,23 @@ fn emit_term_size(symbol: &str) -> AppHookBody {
         binding: "internal".to_string(),
         library: None,
     });
-    ins.push(abi::move_immediate(abi::ARG[0], "Integer", &TUI_COLS.to_string()));
+    ins.push(abi::move_immediate(
+        abi::ARG[0],
+        "Integer",
+        &TUI_COLS.to_string(),
+    ));
     ins.push(abi::store_u64(abi::ARG[0], abi::RET[1], 0)); // columns@0
-    ins.push(abi::move_immediate(abi::ARG[0], "Integer", &TUI_ROWS.to_string()));
+    ins.push(abi::move_immediate(
+        abi::ARG[0],
+        "Integer",
+        &TUI_ROWS.to_string(),
+    ));
     ins.push(abi::store_u64(abi::ARG[0], abi::RET[1], 8)); // rows@8
-    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG)); // RET[1]=ptr survives
+    ins.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    )); // RET[1]=ptr survives
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     term_body(ins, rel)
@@ -1462,9 +1770,18 @@ mod tests {
         let symbols: Vec<&str> = fns.iter().map(|f| f.symbol.as_str()).collect();
         // The PE entry MUST be "_main" (the image entry symbol in app mode), plus
         // the worker and WndProc the bootstrap references.
-        assert!(symbols.contains(&MAIN_SYMBOL), "entry _main present: {symbols:?}");
-        assert!(symbols.contains(&WORKER_SYMBOL), "worker present: {symbols:?}");
-        assert!(symbols.contains(&WNDPROC_SYMBOL), "wndproc present: {symbols:?}");
+        assert!(
+            symbols.contains(&MAIN_SYMBOL),
+            "entry _main present: {symbols:?}"
+        );
+        assert!(
+            symbols.contains(&WORKER_SYMBOL),
+            "worker present: {symbols:?}"
+        );
+        assert!(
+            symbols.contains(&WNDPROC_SYMBOL),
+            "wndproc present: {symbols:?}"
+        );
     }
 
     #[test]
@@ -1484,7 +1801,10 @@ mod tests {
             "WaitForSingleObject",
             "ExitProcess",
         ] {
-            assert!(targets.contains(&want), "_main references {want}: {targets:?}");
+            assert!(
+                targets.contains(&want),
+                "_main references {want}: {targets:?}"
+            );
         }
     }
 
@@ -1506,7 +1826,10 @@ mod tests {
     fn io_write_newline_variant_writes_twice() {
         let (_frame, ins, rel) = emit_app_io_write_helper("_test_io", false, true, None);
         let writes = rel.iter().filter(|r| r.to == "WriteFile").count();
-        assert_eq!(writes, 2, "newline variant issues the text + '\\n' WriteFile");
+        assert_eq!(
+            writes, 2,
+            "newline variant issues the text + '\\n' WriteFile"
+        );
         assert!(rel.iter().any(|r| r.to == "GetStdHandle"));
         assert!(!ins.is_empty());
     }
@@ -1544,7 +1867,10 @@ mod tests {
             2,
             "_main creates the main window and the transcript EDIT child"
         );
-        assert!(targets.contains(&EDIT_CLASS_SYM), "references the L\"EDIT\" class");
+        assert!(
+            targets.contains(&EDIT_CLASS_SYM),
+            "references the L\"EDIT\" class"
+        );
         assert!(targets.contains(&EDIT_HWND_SYM) && targets.contains(&MAIN_HWND_SYM));
         // The finish helper must NOT ExitProcess on the worker (that faults in GDI
         // teardown); it posts WM_APP_QUIT so the UI thread tears down.
@@ -1567,7 +1893,10 @@ mod tests {
         // Stashes the pipe write handle and the EDIT's original proc for editproc.
         assert!(targets.contains(&STDIN_WRITE_SYM) && targets.contains(&EDIT_OLDPROC_SYM));
         // The subclass function is emitted and installed.
-        assert!(targets.contains(&EDITPROC_SYMBOL), "installs editproc as the subclass");
+        assert!(
+            targets.contains(&EDITPROC_SYMBOL),
+            "installs editproc as the subclass"
+        );
         assert!(
             fns.iter().any(|f| f.symbol == EDITPROC_SYMBOL),
             "editproc function is emitted"
@@ -1582,13 +1911,22 @@ mod tests {
         let fns = emit_app_program_entry(&spec(), &HashMap::new()).unwrap();
         let ep = fns.iter().find(|f| f.symbol == EDITPROC_SYMBOL).unwrap();
         let targets: Vec<&str> = ep.relocations.iter().map(|r| r.to.as_str()).collect();
-        assert!(targets.contains(&"WriteFile"), "editproc writes keystrokes to the pipe");
+        assert!(
+            targets.contains(&"WriteFile"),
+            "editproc writes keystrokes to the pipe"
+        );
         assert!(
             targets.contains(&"CallWindowProcW"),
             "editproc chains to the original EDIT proc (no J-3 regression)"
         );
-        assert!(targets.contains(&STDIN_WRITE_SYM), "reads the pipe write handle global");
-        assert!(targets.contains(&EDIT_OLDPROC_SYM), "reads the saved original proc");
+        assert!(
+            targets.contains(&STDIN_WRITE_SYM),
+            "reads the pipe write handle global"
+        );
+        assert!(
+            targets.contains(&EDIT_OLDPROC_SYM),
+            "reads the saved original proc"
+        );
     }
 
     #[test]
@@ -1597,8 +1935,14 @@ mod tests {
         // which drains fd 0 — the window input pipe.
         let (_frame, _ins, rel) = emit_app_io_input_helper("_test_input");
         let targets: Vec<&str> = rel.iter().map(|r| r.to.as_str()).collect();
-        assert!(targets.contains(&IO_WRITE_SYMBOL), "renders the prompt via io.write");
-        assert!(targets.contains(&IO_READ_LINE_SYMBOL), "reads the line via io.readLine");
+        assert!(
+            targets.contains(&IO_WRITE_SYMBOL),
+            "renders the prompt via io.write"
+        );
+        assert!(
+            targets.contains(&IO_READ_LINE_SYMBOL),
+            "reads the line via io.readLine"
+        );
     }
 
     #[test]
@@ -1651,7 +1995,13 @@ mod tests {
         let (_f, _i, rel) = emit_term_on("_t", 0);
         let t: Vec<&str> = rel.iter().map(|r| r.to.as_str()).collect();
         // Builds the off-screen surface, clears it, and hides the transcript EDIT.
-        for want in ["CreateCompatibleDC", "CreateCompatibleBitmap", "GetStockObject", "PatBlt", "ShowWindow"] {
+        for want in [
+            "CreateCompatibleDC",
+            "CreateCompatibleBitmap",
+            "GetStockObject",
+            "PatBlt",
+            "ShowWindow",
+        ] {
             assert!(t.contains(&want), "term::on missing {want}");
         }
         assert!(t.contains(&TUI_MEMDC_SYM) && t.contains(&EDIT_HWND_SYM));
@@ -1663,7 +2013,10 @@ mod tests {
         let wp = fns.iter().find(|f| f.symbol == WNDPROC_SYMBOL).unwrap();
         let t: Vec<&str> = wp.relocations.iter().map(|r| r.to.as_str()).collect();
         assert!(t.contains(&"BeginPaint") && t.contains(&"BitBlt") && t.contains(&"EndPaint"));
-        assert!(t.contains(&TUI_MEMDC_SYM), "WM_PAINT gates on the memory DC");
+        assert!(
+            t.contains(&TUI_MEMDC_SYM),
+            "WM_PAINT gates on the memory DC"
+        );
     }
 
     #[test]
@@ -1674,7 +2027,10 @@ mod tests {
         let t: Vec<&str> = rel_term.iter().map(|r| r.to.as_str()).collect();
         assert!(t.contains(&"TextOutW") && t.contains(&"SetTextColor"));
         let (_f2, _i2, rel_plain) = emit_app_io_write_helper("_t", false, true, None);
-        assert!(!rel_plain.iter().any(|r| r.to == "TextOutW"), "no grid path without term state");
+        assert!(
+            !rel_plain.iter().any(|r| r.to == "TextOutW"),
+            "no grid path without term state"
+        );
     }
 
     #[test]
