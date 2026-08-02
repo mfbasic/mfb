@@ -32,19 +32,23 @@ References: plan-72 overview, `src/builtins/money.rs`,
 
 ### Phase Q1 — descriptor and wrappers
 
-- [ ] Add `pub(crate) static MONEY: BuiltinModule` with every function,
-      overload, parameter (canonical + aliases), argument types, return
-      type, implementation, and default.
-- [ ] Add `BuiltinType` entry for `Rounding`.
-- [ ] Model the `package_source_glue!` companion as
+- [x] Add `pub(crate) static MONEY: BuiltinModule` with every function,
+      overload, parameter, argument types, return type, implementation
+      (`Same` — inline lowering, no rewrite), and default.
+- [x] Add `BuiltinType` entry for `Rounding` (`TypeKind::Enum`).
+- [x] Model the `package_source_glue!` companion as
       `BuiltinSource { rule: InjectionRule::WhenImported, .. }`.
-- [ ] Rewrite the 8 metadata helpers as wrappers over `MONEY`.
-- [ ] Register `MONEY` with the `BuiltinRegistry` from plan-72-A.
-- [ ] Parity tests for every `money.*` name and the `Rounding` type.
+- [x] Rewrite the 8 metadata helpers as wrappers over `MONEY`
+      (fully descriptor-derivable — `resolve_call`/`arity`/
+      `call_return_type_name` delegate to `DefaultResolver`;
+      `call_param_names`/`expected_arguments`/`argument_types` stay borrowed
+      statics pinned by parity).
+- [x] Register `MONEY` with the `BuiltinRegistry` from plan-72-A.
+- [x] Parity tests for every `money.*` name and the `Rounding` type.
 
 Acceptance: `cargo test` passes; every `money.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
-Commit: —
+Commit: <Q-hash>
 
 ## Validation
 
@@ -54,4 +58,12 @@ Commit: —
 
 ## Corrections
 
-Filled during execution.
+- **money is fully descriptor-derivable (no hand-authored resolution).** Unlike
+  json/net, money's every call has fixed positional argument types and a fixed
+  return, so `resolve_call` delegates to `DefaultResolver::resolve_call` and
+  `argument_types`/`expected_arguments` are pinned equal to the descriptor's
+  per-position rendering. The only reason `call_param_names`/
+  `expected_arguments`/`argument_types` stay hand-authored is that they return
+  `&'static` borrowed shapes the owned `DefaultResolver` (yielding `Vec`/`String`)
+  cannot produce; they are PINNED equal to `MONEY` by the parity test. `Rounding`
+  is `TypeKind::Enum` (no record fields).

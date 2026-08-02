@@ -51,7 +51,7 @@ source companion, no builtin type, and no custom resolver. Fixture load is
 
 Acceptance: `cargo test` passes; every `math.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
-Commit: <P-hash>
+Commit: f47850c75
 
 ## Validation
 

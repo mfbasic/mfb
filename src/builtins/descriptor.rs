@@ -612,7 +612,7 @@ impl BuiltinRegistry {
 ///
 /// Migrated so far: `app` (B), `bits` (D), `collections` (E), `csv` (G),
 /// `crypto` (F), `audio` (C), `datetime` (H), `encoding` (I), `json` (O),
-/// `math` (P).
+/// `math` (P), `money` (Q).
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::bits::BITS,
@@ -624,6 +624,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::encoding::ENCODING,
     &crate::builtins::json::JSON,
     &crate::builtins::math::MATH,
+    &crate::builtins::money::MONEY,
 ]);
 
 /// The migration parity harness (plan-72).
