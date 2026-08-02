@@ -247,3 +247,144 @@ fn foreign_type_export_without_owner_sibling_skips_fill() {
         "owner absent, so fields cannot be filled"
     );
 }
+
+/// A Widget-owning package whose internal identity (and thus the `owner_package`
+/// a consumer interns for the re-exported type) is `name`. `encode_project`
+/// bypasses the build-time `validate_metadata` gate, so `name` may be a
+/// traversing string a hand-crafted hostile `.mfp` could carry — the ABI is
+/// signed over whatever `name` is, so the container still validates on read.
+fn widget_owner_mfp(name: &str) -> Vec<u8> {
+    wrap_mfp(
+        &encode_project(&dep_with_type_project(), &dep_meta(name)),
+        name,
+        name,
+        "1.0.0",
+    )
+}
+
+/// bug-395: `read_package_type_exports_resolved` locates a re-exported foreign
+/// type's owner by joining the decoded `owner_package` onto the package's own
+/// directory. That owner is an untrusted string; if it contains `..` or a path
+/// separator the join walks out of the packages directory — `<dir>/../evil.mfp`
+/// is `stat`ed (an existence oracle for any `*.mfp` on the victim's disk) and,
+/// if present, recursively decoded and its type definitions spliced in. The
+/// owner must be validated as a bare package name (the same rule dependency
+/// names obey) before the join, exactly as the sibling native-library `source`
+/// locator already is.
+#[test]
+fn foreign_type_reexport_rejects_traversing_owner() {
+    let root = tempfile::tempdir().unwrap();
+    let sub = root.path().join("sub");
+    std::fs::create_dir(&sub).unwrap();
+
+    // Build `app` against a Widget-owning dependency whose internal name is the
+    // traversing string `../evil`, so the re-exported foreign type interns
+    // `../evil` as its owner and app's ABI is signed over it.
+    let hostile_dep = sub.join("builddep.mfp");
+    std::fs::write(&hostile_dep, widget_owner_mfp("../evil")).unwrap();
+
+    let mut app = empty_project("app");
+    let mut make = fn_named("makeWidget", "export", "function", "Widget");
+    make.returns = "Widget".to_string();
+    app.functions = vec![make];
+    let mut app_meta = dep_meta("app");
+    app_meta.dependencies = vec![dependency("../evil")];
+    let app_inner =
+        build_package_binary_repr_bytes(&app, &app_meta, std::slice::from_ref(&hostile_dep))
+            .expect("build app");
+    std::fs::remove_file(&hostile_dep).unwrap();
+
+    // Ship app.mfp inside the `sub/` subdirectory.
+    let app_path = sub.join("app.mfp");
+    std::fs::write(&app_path, wrap_mfp(&app_inner, "app", "app", "1.0.0")).unwrap();
+
+    // Plant the traversal target OUTSIDE app's directory: `sub/../evil.mfp`.
+    // Without the guard the resolver reads this out-of-directory file and fills
+    // Widget's fields from it; with the guard the hostile owner is rejected.
+    std::fs::write(root.path().join("evil.mfp"), widget_owner_mfp("evil")).unwrap();
+
+    let err = match read_package_type_exports(&app_path) {
+        Ok(_) => panic!(
+            "a traversing foreign_owner was resolved instead of rejected — the join escaped \
+             app's directory and read the planted out-of-directory evil.mfp"
+        ),
+        Err(err) => err,
+    };
+    assert!(err.contains("not a valid path component"), "unexpected: {err}");
+}
+
+/// A Widget-owning package whose `Widget.id` field is a `String` (not the
+/// `Integer` of [`dep_with_type_project`]), so its Widget carries a *different*
+/// ABI hash — enough to make [`verify_foreign_type_abi_consistency`] observably
+/// react to reading it.
+fn variant_widget_owner_mfp(name: &str) -> Vec<u8> {
+    use crate::ir::{IrField, IrType};
+    let mut dep = empty_project(name);
+    dep.types = vec![IrType {
+        kind: "type".to_string(),
+        visibility: "export".to_string(),
+        name: "Widget".to_string(),
+        fields: vec![IrField {
+            visibility: Some("export".to_string()),
+            name: "id".to_string(),
+            type_: "String".to_string(),
+            loc: IrSourceLoc::default(),
+        }],
+        includes: vec![],
+        variants: vec![],
+        members: vec![],
+        loc: IrSourceLoc::default(),
+        file: "src/main.mfb".to_string(),
+    }];
+    wrap_mfp(&encode_project(&dep, &dep_meta(name)), name, name, "1.0.0")
+}
+
+/// bug-395 (second site): `verify_foreign_type_abi_consistency` — reached on the
+/// normal build path for every installed dependency `.mfp` — joins each foreign
+/// type ref's decoded `owner` onto the package's directory to cross-check the
+/// owner's current ABI. That `owner` is untrusted; a traversing value escapes
+/// the packages directory the same way, `stat`ing and reading an arbitrary
+/// out-of-directory `*.mfp`. It must be validated as a bare package name before
+/// the join.
+#[test]
+fn foreign_type_abi_check_rejects_traversing_owner() {
+    let root = tempfile::tempdir().unwrap();
+    let sub = root.path().join("sub");
+    std::fs::create_dir(&sub).unwrap();
+
+    // app re-exports Widget owned by a dependency whose internal name is the
+    // traversing string `../evil` (Widget.id: Integer → abi hash h1).
+    let hostile_dep = sub.join("builddep.mfp");
+    std::fs::write(&hostile_dep, widget_owner_mfp("../evil")).unwrap();
+
+    let mut app = empty_project("app");
+    let mut make = fn_named("makeWidget", "export", "function", "Widget");
+    make.returns = "Widget".to_string();
+    app.functions = vec![make];
+    let mut app_meta = dep_meta("app");
+    app_meta.dependencies = vec![dependency("../evil")];
+    let app_inner =
+        build_package_binary_repr_bytes(&app, &app_meta, std::slice::from_ref(&hostile_dep))
+            .expect("build app");
+    std::fs::remove_file(&hostile_dep).unwrap();
+
+    let app_path = sub.join("app.mfp");
+    std::fs::write(&app_path, wrap_mfp(&app_inner, "app", "app", "1.0.0")).unwrap();
+
+    // Plant an ABI-DIFFERENT Widget owner at the traversal target `sub/../evil.mfp`
+    // (Widget.id: String → abi hash h2 ≠ h1). Without the guard the check reads
+    // this out-of-directory file and reports an ABI mismatch — proof the read
+    // happened; with the guard the hostile owner is rejected first.
+    std::fs::write(root.path().join("evil.mfp"), variant_widget_owner_mfp("evil")).unwrap();
+
+    let err = match crate::manifest::package::verify_foreign_type_abi_consistency(
+        std::slice::from_ref(&app_path),
+    ) {
+        Ok(()) => panic!(
+            "a traversing foreign owner passed the ABI check unrejected (the join did not read \
+             the planted evil.mfp, so the oracle stat still executed)"
+        ),
+        Err(err) => err,
+    };
+    assert!(err.contains("not a valid path component"), "unexpected: {err}");
+}

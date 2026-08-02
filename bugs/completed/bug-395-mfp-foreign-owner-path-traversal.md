@@ -5,9 +5,34 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Security
 
-Status: Open
-Regression Test: tests/ — add a binary_repr unit test asserting a `foreign_owner`
-of `../evil` / absolute path is rejected (bare-name validated) before the join.
+Status: FIXED (df5ee6a88, merged to main 42066fbdc)
+Regression Test: `src/binary_repr/tests/cross_package_tests.rs` —
+`foreign_type_reexport_rejects_traversing_owner` (site 1) and
+`foreign_type_abi_check_rejects_traversing_owner` (site 2). Each crafts a package
+whose re-exported owner is `../evil` (built via `encode_project`, which bypasses
+the build-time `validate_metadata` gate), plants an owned `.mfp` at the traversal
+target, and proves the resolver read that out-of-directory file before the fix
+(site 1 resolved the fields; site 2 reported an ABI mismatch against the planted
+file) — now rejected with "not a valid path component".
+
+## STATUS: FIXED (df5ee6a88)
+
+Both sites now validate the untrusted owner with
+`manifest::package::validate_package_name` (the exact `packages/<name>.mfp` rule,
+the bug-58/bug-195 class this doc cites) **before** the `dir.join`, turning a
+traversing/absolute owner into a clean decode error instead of a filesystem
+access outside the packages directory:
+
+- `src/binary_repr/mod.rs` `read_package_type_exports_resolved` — `validate_package_name(&owner)?` before `dir.join`.
+- `src/manifest/package.rs` `verify_foreign_type_abi_consistency` — `validate_package_name(&fref.owner)?` before `dir.join`.
+
+Deviation from the suggested fix: used `validate_package_name` rather than
+`source_is_bare`. Both were sanctioned by the doc; `validate_package_name` is the
+semantically exact rule for a package name (the owner *is* a package name) and
+its "not a valid path component" message is what the two sibling-name path-join
+guards (bug-58/bug-195) already emit. Legitimate bare-owner resolution
+(bug-390's feature) is unaffected — the two pre-existing re-export tests still
+pass. Full `cargo test` green post-merge (23 crates ok, main bin 3694 passed).
 
 `read_package_type_exports_resolved` (`src/binary_repr/mod.rs:581`) resolves a
 package's re-exported foreign types (bug-390, kind-12 `FOREIGN_TYPE`) by locating
