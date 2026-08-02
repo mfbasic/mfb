@@ -338,6 +338,40 @@ bug-394/396/397 fixes, which had no overlap with the builtins descriptor files):
   (so the binary is bit-for-bit main's), and it reproduces on isolated re-run —
   an environmental network flake, not a regression.
 
+## Finalize log (Y–BB — plan complete)
+
+Letters Y (thread), Z (tls), AA (vector), and BB (aggregate cleanup) landed on
+`worktree-P-72`, completing the plan. Highlights:
+
+- **Y/Z/AA**: thread, tls, vector migrated to `BuiltinModule` descriptors; the
+  registry is now exhaustive (26 packages). Z corrected: tls needs no `TlsResolver`
+  for padding (data-derivable via `DefaultValue::Fill`). AA repointed the two
+  "unmigrated-example" tests (no unmigrated package remains).
+- **BB**: every computed-return package got a resolver; the mod.rs aggregates
+  (`resolve_call_return_type`, `call_return_type_name`, `is_builtin_call`,
+  `is_builtin_type`, `builtin_type_fields`, `arity`, `expected_arguments`,
+  `argument_types`, `default_argument_padding`) now iterate the registry; the
+  syntaxcheck `BUILTIN_PACKAGES` fn-pointer table collapsed to a `name→ArgMode`
+  map + registry dispatch; ir/verify/compat, type_utils, monomorph, and ir/lower's
+  return-type lookups route through the aggregates (gated to preserve narrow sets).
+  All 71 dead per-package metadata wrappers deleted with their parity/unit tests;
+  414 man citations repointed to the descriptor statics; 09_modules.md updated.
+- **Acceptance**: descriptor-owned **metadata-QUERY** external call sites → **0**
+  (the strict BB1 target; `is_*_call` routing + `implementation_name` codegen remain
+  by the Non-goals). Full workspace `cargo test`: green. `artifact-gate.sh`:
+  **0 diffs across 1513 goldens** (after regenerating one stale main-side http
+  windows golden proven wrong by pure main). `test-accept.sh`: **4 mismatches, all
+  the documented pre-existing baseline** (libsnd/SoundFile ×2, native-link, tls-google
+  network) — 0 new reds. Merged main (57 commits) cleanly mid-finalize and re-validated.
+- **A regression only `test-accept` could catch**: the byte-identity gate checks
+  codegen, not the diagnostic text of *invalid* programs. Collapsing `expected_arguments`
+  onto an aggregate first dropped the `[optional]` bracket / range-prose phrasing for
+  `strings.find`/`regex.find`/`fs.*`/`datetime.*` (and `datetime::expected_arguments`
+  was wrongly deleted as renderable). Fixed: the aggregate now reads every package's
+  own `expected_arguments` before the descriptor fallback, and `datetime`'s was
+  restored (`app`/`money` are genuinely renderable and stay deleted). Lesson: run
+  `test-accept` for a metadata migration — the gate alone is blind to diagnostic prose.
+
 ## Summary
 
 This is a metadata authority migration, not a language feature. The risk is not
