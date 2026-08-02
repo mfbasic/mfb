@@ -48,6 +48,14 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
 * No compound background jobs — one command each. Don't wait on completion notices;
   poll the effect (`pgrep -f` ERE `"a|b"`). No-completion-record job = dead; re-derive.
 
+## Auto memory rules
+* Record only durable, transferable lessons — things that would burn a future session
+  writing code (gotchas, ABI/codegen invariants, tooling traps, rules the source doesn't reveal).
+* Never record ticket/plan STATUS in memory: no "DONE", "MERGED", "ARCHIVED", "IN PROGRESS",
+  "next: ...", commit hashes, or worktree state. Git and the bug tracker own that.
+* When a bug is fixed: do NOT leave it in memory as a status line. If the fix taught a durable lesson,
+  record ONLY the lesson, stripped of ticket state. If it didn't, record nothing. Never keep a completed/archived plan in MEMORY.md.
+
 ## Read before that kind of work
 
 * Compiler / built-ins / IR / native codegen / runtime helpers / diagnostics →
