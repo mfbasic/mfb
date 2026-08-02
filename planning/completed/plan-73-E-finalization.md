@@ -145,11 +145,12 @@ commit below.
       post-merge. Pre-merge: 3661 passed, 0 failed. **Post-merge** (after merging
       main's plan-72 descriptor refactor): **4155 tests passed across 38 binaries,
       0 failed, 0 errors/panics**.
-- [~] `scripts/artifact-gate.sh` (debug) diffs=0, with `.ncodesum` regenerated for
-      all targets on the macOS host (per `fast-codegen-gate`). — pre-merge gate
-      IN FLIGHT; then re-run after the main merge. (io + tls + http .ncodesum were
-      regenerated for all five targets in F/D and pass a scoped N=3 determinism
-      check.)
+- [x] `scripts/artifact-gate.sh` (debug) diffs=0, with `.ncodesum` regenerated for
+      all targets on the macOS host (per `fast-codegen-gate`). — DONE (post-merge,
+      authoritative): **`artifact-gate: 1119 tests, 1261 build(s), 1511 golden(s)
+      checked, 0 diff(s)`**. The gate caught 13 stale goldens across two rounds (all
+      legitimate refreshes from the runtime-proven A/C/D/F migrations — see E-C4);
+      after regenerating them the tree-wide re-run is literal diffs=0.
 - [x] Acceptance golden harness for all touched fixtures (`scripts/sync-goldens.sh`),
       avoiding the non-deterministic full `test-accept.sh` perf-table trap. — DONE
       per-phase + here: F synced `func_io_pollInput_valid` + `byte-identity/io`;
@@ -157,15 +158,16 @@ commit below.
       `func_io_pollInput_valid` execution golden was re-validated post-merge via a
       hermetic `/tmp` copy → stdout `TRUE TRUE TRUE 77050002` matches. Tree-wide
       byte-identity confirmation is the artifact-gate row below.
-- [~] Merge current `main` into `worktree-P-73` (main advanced 594235307→a60ce43f8,
+- [x] Merge current `main` into `worktree-P-73` (main advanced 594235307→a60ce43f8,
       plan-72 descriptor refactor — disjoint file set) and re-run `cargo test` +
-      `artifact-gate` per the follow-plan finish rule. — MERGE DONE (clean, zero
-      conflicts; merged tree rebuilds warning-free in 14.5s). Post-merge `cargo
-      test` + `artifact-gate` re-run in progress.
-- [ ] Move plan-73-A..F to `planning/completed/` (per `completed-plans-go-to-old-plans`).
+      `artifact-gate` per the follow-plan finish rule. — DONE: merge was clean (zero
+      conflicts); post-merge `cargo test` (4155 passed, 0 failed) and post-merge
+      `artifact-gate` (diffs=0) both GREEN.
+- [x] Move plan-73-A..F to `planning/completed/` (per `completed-plans-go-to-old-plans`).
+      — DONE in the archive commit below.
 
 Acceptance: all gates green tree-wide (after the main merge); plan-73 archived.
-Commit: —
+— MET. Commit: (archive commit below)
 
 ## Validation Plan
 
