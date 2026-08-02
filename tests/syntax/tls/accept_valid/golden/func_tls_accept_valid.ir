@@ -20,7 +20,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 8, "mutable": false, "name": "server", "type": "TlsListener", "value": { "kind": "call", "type": "TlsListener", "target": "tls.listen", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "8443" }, { "kind": "const", "type": "String", "value": "cert.pem" }, { "kind": "const", "type": "String", "value": "key.pem" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "line": 9, "mutable": false, "name": "blocking", "type": "TlsSocket", "value": { "kind": "call", "type": "TlsSocket", "target": "tls.accept", "args": [{ "kind": "local", "name": "server" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "blocking", "type": "TlsSocket", "value": { "kind": "call", "type": "TlsSocket", "target": "tls.accept", "args": [{ "kind": "local", "name": "server" }, { "kind": "const", "type": "Integer", "value": "9223372036854775808" }] } },
     { "op": "bind", "line": 10, "mutable": false, "name": "timed", "type": "TlsSocket", "value": { "kind": "call", "type": "TlsSocket", "target": "tls.accept", "args": [{ "kind": "local", "name": "server" }, { "kind": "const", "type": "Integer", "value": "2500" }] } },
     { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "tls.writeText", "args": [{ "kind": "local", "name": "blocking" }, { "kind": "const", "type": "String", "value": "one\n" }] } },
     { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "tls.writeText", "args": [{ "kind": "local", "name": "timed" }, { "kind": "const", "type": "String", "value": "two\n" }] } },

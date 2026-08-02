@@ -3094,7 +3094,7 @@
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 1179, "mutable": false, "name": "sock", "type": "TlsSocket", "value": { "kind": "call", "type": "TlsSocket", "target": "tls.accept", "args": [{ "kind": "local", "name": "listener" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 1179, "mutable": false, "name": "sock", "type": "TlsSocket", "value": { "kind": "call", "type": "TlsSocket", "target": "tls.accept", "args": [{ "kind": "local", "name": "listener" }, { "kind": "const", "type": "Integer", "value": "9223372036854775808" }] } },
     { "op": "bind", "line": 1180, "mutable": true, "name": "raw", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
     { "op": "bind", "line": 1181, "mutable": true, "name": "reading", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
     { "op": "bind", "line": 1182, "mutable": true, "name": "oversize", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
