@@ -66,7 +66,7 @@ under `scripts/test-accept.sh target/debug/mfb target/accept-actual`,
 including the existing `tests/byte-identity/vector` cohort.
 (`cargo test --bin mfb builtins::` → 417 passed; full acceptance +
 byte-identity at finalization.)
-Commit: —
+Commit: dca516956
 
 ## Validation
 
