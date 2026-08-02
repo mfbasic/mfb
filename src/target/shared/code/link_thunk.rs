@@ -616,7 +616,35 @@ fn lower_link_thunk(
         || (returns_value
             && function.abi_return_ctype == "CPtr"
             && function.return_type == "String");
+    // `needs_float` gates the `d0`-stash below (a `double` ABI *return* arrives
+    // in `d0`, not `x0`), so it must stay narrow to the direct-return case.
     let needs_float = returns_value && function.abi_return_ctype == "CDouble";
+    // bug-409: two other marshalling paths branch to the same `nan_fail` /
+    // `inf_fail` labels without the ABI return being a `CDouble`, so gating the
+    // labels on `needs_float` alone left a dangling branch — a hard build failure
+    // ("branch target label does not resolve"). Mirror `struct_has_cstring_field`:
+    // emit the labels whenever any path can reach them.
+    //
+    // (1) `marshal_struct_out` emits the finiteness gate for every `CDouble`
+    //     record field of the returned CSTRUCT (`RETURN structOut`, ABI return a
+    //     status). Checked against the result struct's declared fields, the same
+    //     way `struct_has_cstring_field` reads declared fields.
+    let struct_result_has_cdouble_field = result_var
+        .and_then(|name| {
+            struct_slots
+                .iter()
+                .find(|(idx, ..)| function.abi_slots[*idx].name == name)
+        })
+        .is_some_and(|(_, _, _, decl)| decl.fields.iter().any(|f| f.ctype == "CDouble"));
+    // (2) a `CDouble` OUT-slot result (bug-238) runs the same finiteness gate in
+    //     the OUT-slot marshalling arm (`RETURN dblOut`, ABI return a status).
+    let out_result_is_cdouble = function.abi_slots.iter().any(|slot| {
+        result_var == Some(slot.name.as_str())
+            && slot.direction.writes_back()
+            && slot.ctype == "CDouble"
+    });
+    let needs_float_labels =
+        needs_float || struct_result_has_cdouble_field || out_result_is_cdouble;
 
     let alloc_fail = format!("{symbol}_alloc_fail");
     let call_fail = format!("{symbol}_call_fail");
@@ -1628,13 +1656,13 @@ fn lower_link_thunk(
             ERR_ENCODING_SYMBOL,
         ),
         (
-            needs_float,
+            needs_float_labels,
             &nan_fail,
             ERR_FLOAT_NAN_CODE,
             ERR_FLOAT_NAN_SYMBOL,
         ),
         (
-            needs_float,
+            needs_float_labels,
             &inf_fail,
             ERR_FLOAT_INF_CODE,
             ERR_FLOAT_INF_SYMBOL,
@@ -2531,8 +2559,166 @@ fn marshal_struct_out(
 mod tests {
     use super::*;
     use crate::ir::{
-        abi_ctype_valid_as_argument, abi_ctype_valid_as_return, IrAbiSlot, IrLinkFunction,
+        abi_ctype_valid_as_argument, abi_ctype_valid_as_return, IrAbiSlot, IrCStruct,
+        IrCStructField, IrLinkFunction,
     };
+
+    /// bug-409: every label-targeting branch a lowered thunk emits must name a
+    /// label the same thunk defines. This is the exact invariant
+    /// `CodeFunction::validate` enforces (`validation.rs` bug-300 E9); a dangling
+    /// branch here is a hard build failure ("branch target label does not
+    /// resolve") on an otherwise valid binding. Asserting it directly, rather
+    /// than through the full `validate` (which also demands populated symbol
+    /// tables), keeps the test focused on the label gap.
+    fn assert_branch_labels_resolve(function: &CodeFunction) {
+        let defined = function
+            .instructions
+            .iter()
+            .filter(|i| i.op == CodeOp::Label)
+            .filter_map(|i| i.get("name"))
+            .collect::<std::collections::HashSet<_>>();
+        for instruction in &function.instructions {
+            if !matches!(
+                instruction.op,
+                CodeOp::Branch
+                    | CodeOp::BranchEq
+                    | CodeOp::BranchNe
+                    | CodeOp::BranchGe
+                    | CodeOp::BranchGt
+                    | CodeOp::BranchLe
+                    | CodeOp::BranchLt
+                    | CodeOp::BranchHi
+                    | CodeOp::BranchLo
+                    | CodeOp::BranchLs
+                    | CodeOp::BranchMi
+                    | CodeOp::BranchVc
+                    | CodeOp::BranchVs
+            ) {
+                continue;
+            }
+            if let Some(target) = instruction.get("target") {
+                assert!(
+                    defined.contains(target),
+                    "thunk '{}' branches to undefined label '{target}'",
+                    function.symbol
+                );
+            }
+        }
+    }
+
+    /// bug-409: a LINK function returning a CSTRUCT with a `CDouble` field
+    /// (`RETURN structOut`, ABI return a status `CInt32`) branches to
+    /// `nan_fail`/`inf_fail` in `marshal_struct_out`, but `needs_float` — which
+    /// gated the label emission — was true only for a direct `CDouble` ABI
+    /// return. The labels were never emitted, leaving a dangling branch.
+    #[test]
+    fn struct_out_cdouble_field_emits_float_fail_labels() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let cstruct = IrCStruct {
+            alias: "lib".to_string(),
+            name: "Pair".to_string(),
+            maps_to: "PairRec".to_string(),
+            fields: vec![
+                IrCStructField {
+                    name: "n".to_string(),
+                    ctype: "CInt32".to_string(),
+                },
+                IrCStructField {
+                    name: "x".to_string(),
+                    ctype: "CDouble".to_string(),
+                },
+            ],
+        };
+        let mut record_fields = HashMap::new();
+        record_fields.insert(
+            "PairRec".to_string(),
+            vec![
+                ("n".to_string(), "Integer".to_string()),
+                ("x".to_string(), "Float".to_string()),
+            ],
+        );
+        let function = IrLinkFunction {
+            alias: "lib".to_string(),
+            name: "make_pair".to_string(),
+            library: "demo".to_string(),
+            symbol: "demo_make_pair".to_string(),
+            params: vec![],
+            return_type: "PairRec".to_string(),
+            return_resource: false,
+            return_state_type: None,
+            abi_slots: vec![IrAbiSlot {
+                name: "out".to_string(),
+                ctype: "Pair".to_string(),
+                direction: crate::ir::AbiDirection::Out,
+            }],
+            abi_return_name: "status".to_string(),
+            abi_return_ctype: "CInt32".to_string(),
+            consts: vec![],
+            bind_in: vec![],
+            bind_state: None,
+            bind_state_resource: None,
+            success_on: None,
+            result: Some(IrLinkExpr::Var("out".to_string())),
+            free: None,
+            buffers: vec![],
+            result_length: None,
+        };
+        let lowered = lower_link_thunk(
+            &function,
+            std::slice::from_ref(&cstruct),
+            &record_fields,
+            TEST_THUNK_CONTEXT,
+            &HashSet::new(),
+            false,
+        )
+        .expect("struct-out CDouble thunk must lower");
+        assert_branch_labels_resolve(&lowered);
+    }
+
+    /// bug-409: a `CDouble` OUT-slot result (`RETURN dblOut`, ABI return a status
+    /// `CInt32`) branches to `nan_fail`/`inf_fail` in the OUT-slot marshalling
+    /// arm (bug-238), but likewise left `needs_float` false — so the labels were
+    /// never emitted.
+    #[test]
+    fn out_slot_cdouble_emits_float_fail_labels() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let function = IrLinkFunction {
+            alias: "lib".to_string(),
+            name: "read_double".to_string(),
+            library: "demo".to_string(),
+            symbol: "demo_read_double".to_string(),
+            params: vec![],
+            return_type: "Float".to_string(),
+            return_resource: false,
+            return_state_type: None,
+            abi_slots: vec![IrAbiSlot {
+                name: "out".to_string(),
+                ctype: "CDouble".to_string(),
+                direction: crate::ir::AbiDirection::Out,
+            }],
+            abi_return_name: "status".to_string(),
+            abi_return_ctype: "CInt32".to_string(),
+            consts: vec![],
+            bind_in: vec![],
+            bind_state: None,
+            bind_state_resource: None,
+            success_on: None,
+            result: Some(IrLinkExpr::Var("out".to_string())),
+            free: None,
+            buffers: vec![],
+            result_length: None,
+        };
+        let lowered = lower_link_thunk(
+            &function,
+            &[],
+            &HashMap::new(),
+            TEST_THUNK_CONTEXT,
+            &HashSet::new(),
+            false,
+        )
+        .expect("OUT-slot CDouble thunk must lower");
+        assert_branch_labels_resolve(&lowered);
+    }
 
     /// plan-59-A Phase 3: a native `LINK` resource must never reach the
     /// buffer-free path in `emit_resource_block_reclaim`.

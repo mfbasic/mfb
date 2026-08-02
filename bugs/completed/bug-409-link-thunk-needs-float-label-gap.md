@@ -1,13 +1,31 @@
 # bug-409: LINK thunk emits `nan_fail`/`inf_fail` branches for a CDouble struct-field / OUT-slot but never emits the labels → dangling-label build failure
 
-Last updated: 2026-07-28
+Last updated: 2026-08-01
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (dangling branch label → hard build failure on a valid binding)
 
-Status: Open
-Regression Test: tests/ — a LINK fixture returning a CSTRUCT with a `CDouble`
-field (or a `CDouble` OUT slot) must build successfully.
+STATUS: FIXED (968068c24)
+
+`emit_link_thunk` now derives a broader `needs_float_labels` (the existing
+`needs_float` OR `struct_result_has_cdouble_field` OR `out_result_is_cdouble`)
+and gates the `nan_fail`/`inf_fail` label emission on it, mirroring
+`needs_encoding`'s `struct_has_cstring_field` term. `needs_float` itself stays
+narrow — it still gates only the `d0`-return stash, which must not fire for the
+stack-loaded struct/OUT cases. Byte-identical for every in-tree binding: the
+sole in-tree `CDouble` use (`native-link-sqlite-rt` `columnDouble`) is a direct
+ABI return, where `needs_float` was already true, so `needs_float_labels ==
+needs_float` there and no golden shifts. Verified: `grep -rl CDouble` finds no
+struct-out or OUT-slot CDouble fixture, so artifact-gate would exercise none of
+the new paths — the new behaviour is proven by two RED→GREEN unit tests instead.
+
+Regression Test: `src/target/shared/code/link_thunk.rs::tests` —
+`struct_out_cdouble_field_emits_float_fail_labels` and
+`out_slot_cdouble_emits_float_fail_labels` lower each shape and assert every
+label-targeting branch resolves (the exact `CodeFunction::validate` invariant).
+Both were RED (dangling `inf_fail`) before the fix, GREEN after.
+
+Commit: 968068c24
 
 In `emit_link_thunk` (`src/target/shared/code/link_thunk.rs`), the `nan_fail` /
 `inf_fail` failure epilogues are emitted only when `needs_float` is true, defined
