@@ -18,7 +18,8 @@ A map of the compiler's source modules and their responsibilities.
 | Source formatter[[src/fmt.rs]] | Lexical source formatter for `mfb fmt`. |
 | Documentation renderer[[src/doc/mod.rs]] | Documentation model and HTML renderer for `mfb doc` / `mfb pkg doc`. |
 | Project audit[[src/audit/]] | `mfb audit`: fallible-call/cleanup/permission/dependency reporting (collect/json/text/report). |
-| Built-in dispatch[[src/builtins/mod.rs]] | Built-in package dispatch and parameter name tables. |
+| Built-in dispatch[[src/builtins/mod.rs]] | Built-in package dispatch: the aggregate helpers iterate the descriptor registry (membership, arity, return type, expected arguments, argument types, default padding, builtin types), plus the parameter-name and source-injection tables. |
+| Built-in descriptors[[src/builtins/descriptor.rs]] | The `BuiltinModule` descriptor registry — the compiler-owned source of truth for every builtin package's functions, overloads, parameters, return types, builtin types, source-injection rule, and resolver. Each `src/builtins/<pkg>.rs` exposes one `static <PKG>: BuiltinModule`; `DefaultResolver` derives every data-only answer from it and a `BuiltinResolver` supplies the argument-dependent ones. |
 | Filesystem built-ins[[src/builtins/fs.rs]] | Filesystem built-in signatures and validation. |
 | General built-ins[[src/builtins/general.rs]] | General-purpose built-in signatures. |
 | Collections built-ins[[src/builtins/collections.rs]] | Collections (`List`/`Map`) built-in signatures. |
