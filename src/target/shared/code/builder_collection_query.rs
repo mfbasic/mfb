@@ -26,7 +26,11 @@ impl CodeBuilder<'_> {
     ) {
         self.emit(abi::load_u64(count, collection, COLLECTION_OFFSET_COUNT));
         self.emit(abi::move_immediate(index, "Integer", "0"));
-        self.emit(abi::add_immediate(entry, collection, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            entry,
+            collection,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::label(loop_label));
         self.emit(abi::compare_registers(index, count));
         self.emit(abi::branch_ge(not_found));
@@ -56,7 +60,13 @@ impl CodeBuilder<'_> {
         collection_type: &str,
         element_type: &str,
     ) -> Result<ValueResult, String> {
-        self.lower_list_get_common(collection_slot, key_slot, None, collection_type, element_type)
+        self.lower_list_get_common(
+            collection_slot,
+            key_slot,
+            None,
+            collection_type,
+            element_type,
+        )
     }
 
     /// Shared body of list `get`/`getOr`: bounds-check the index and load the

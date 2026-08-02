@@ -265,7 +265,8 @@ pub(super) fn package_type_exports(
             // bug-390: a re-exported dependency type carries no local field data;
             // emit a marker naming the owning package. `read_package_type_exports`
             // fills in the real definition from the owner's sibling `.mfp`.
-            let owner = string_at(&package.project.strings.values, entry.owner_package)?.to_string();
+            let owner =
+                string_at(&package.project.strings.values, entry.owner_package)?.to_string();
             exports.push(BinaryReprTypeExport {
                 name,
                 kind: export.kind,

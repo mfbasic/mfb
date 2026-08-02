@@ -117,13 +117,18 @@ const P_ACCEPT: &[Parameter] = &[
     req("listener", &[], TLS_LISTENER_TYPE),
     fill("timeoutMs", "Integer", SENTINEL),
 ];
-const P_READ: &[Parameter] = &[req("sock", &[], TLS_SOCKET_TYPE), req("maxBytes", &[], "Integer")];
+const P_READ: &[Parameter] = &[
+    req("sock", &[], TLS_SOCKET_TYPE),
+    req("maxBytes", &[], "Integer"),
+];
 const P_WRITE: &[Parameter] = &[
     req("sock", &[], TLS_SOCKET_TYPE),
     req("bytes", &[], "List OF Byte"),
 ];
-const P_WRITE_TEXT: &[Parameter] =
-    &[req("sock", &[], TLS_SOCKET_TYPE), req("value", &[], "String")];
+const P_WRITE_TEXT: &[Parameter] = &[
+    req("sock", &[], TLS_SOCKET_TYPE),
+    req("value", &[], "String"),
+];
 // `close` accepts either handle; the union is validated in the hand-authored
 // `resolve_call`. The param's type feeds only the descriptor's `argument_types`/
 // `expected_arguments` rendering, both of which tls keeps hand-authored, so the
@@ -593,5 +598,4 @@ mod tests {
         assert!(!func.flags.internal_only);
         assert!(!func.flags.return_type_overloaded);
     }
-
 }

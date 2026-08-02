@@ -921,8 +921,16 @@ fn emit_load_grid(
         abi::load_u64(rows, gp, 0),
         abi::load_u64(cols, gp, 8),
         abi::add_immediate(back, gp, term_grid::HDR_SIZE),
-        abi::load_u64(fg, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_FG_OFFSET),
-        abi::load_u64(bg, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_BG_OFFSET),
+        abi::load_u64(
+            fg,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_FG_OFFSET,
+        ),
+        abi::load_u64(
+            bg,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_BG_OFFSET,
+        ),
         abi::load_u64(
             bold,
             ARENA_STATE_REGISTER,
@@ -1009,7 +1017,13 @@ fn emit_draw_line(
     } else {
         &TERM_VLINE_CODEPOINTS
     };
-    emit_select_glyph(ord, glyph, table, &format!("{symbol}_dl_glyph"), instructions);
+    emit_select_glyph(
+        ord,
+        glyph,
+        table,
+        &format!("{symbol}_dl_glyph"),
+        instructions,
+    );
     emit_stamp_run(
         &ctx,
         is_horizontal,
@@ -1038,11 +1052,7 @@ fn emit_draw_line(
 /// edge and corner is clamped independently, so a box partly off the grid draws
 /// the visible part; a fully off-grid box draws nothing. Shown on the next
 /// `term::sync`; a no-op while TUI mode is off.
-fn emit_draw_box(
-    symbol: &str,
-    term_state_offset: usize,
-    instructions: &mut Vec<CodeInstruction>,
-) {
+fn emit_draw_box(symbol: &str, term_state_offset: usize, instructions: &mut Vec<CodeInstruction>) {
     let inactive = format!("{symbol}_inactive");
     let ord = "%v9";
     let ax1 = "%v10";
@@ -1125,12 +1135,48 @@ fn emit_draw_box(
         abi::label(&y_ok),
     ]);
     // Resolve the edge glyphs (this style's H/V forms) and the four corner glyphs.
-    emit_select_glyph(ord, hglyph, &TERM_HLINE_CODEPOINTS, &format!("{symbol}_box_h"), instructions);
-    emit_select_glyph(ord, vglyph, &TERM_VLINE_CODEPOINTS, &format!("{symbol}_box_v"), instructions);
-    emit_select_glyph(ord, ctl, &TERM_CORNER_TL_CODEPOINTS, &format!("{symbol}_box_tl"), instructions);
-    emit_select_glyph(ord, ctr, &TERM_CORNER_TR_CODEPOINTS, &format!("{symbol}_box_tr"), instructions);
-    emit_select_glyph(ord, cbl, &TERM_CORNER_BL_CODEPOINTS, &format!("{symbol}_box_bl"), instructions);
-    emit_select_glyph(ord, cbr, &TERM_CORNER_BR_CODEPOINTS, &format!("{symbol}_box_br"), instructions);
+    emit_select_glyph(
+        ord,
+        hglyph,
+        &TERM_HLINE_CODEPOINTS,
+        &format!("{symbol}_box_h"),
+        instructions,
+    );
+    emit_select_glyph(
+        ord,
+        vglyph,
+        &TERM_VLINE_CODEPOINTS,
+        &format!("{symbol}_box_v"),
+        instructions,
+    );
+    emit_select_glyph(
+        ord,
+        ctl,
+        &TERM_CORNER_TL_CODEPOINTS,
+        &format!("{symbol}_box_tl"),
+        instructions,
+    );
+    emit_select_glyph(
+        ord,
+        ctr,
+        &TERM_CORNER_TR_CODEPOINTS,
+        &format!("{symbol}_box_tr"),
+        instructions,
+    );
+    emit_select_glyph(
+        ord,
+        cbl,
+        &TERM_CORNER_BL_CODEPOINTS,
+        &format!("{symbol}_box_bl"),
+        instructions,
+    );
+    emit_select_glyph(
+        ord,
+        cbr,
+        &TERM_CORNER_BR_CODEPOINTS,
+        &format!("{symbol}_box_br"),
+        instructions,
+    );
     // Four edges (each clamped/skipped independently), then four corners on top.
     // top: row ylo, cols xlo..xhi ; bottom: row yhi.
     let edges: &[(bool, &str, &str, &str, &str, &str)] = &[
@@ -1179,11 +1225,7 @@ fn emit_draw_box(
 /// horizontal run per row (reusing the line stamper), so the region clamps to the
 /// grid the same way; a fully off-grid rectangle fills nothing. Shown on the next
 /// `term::sync`; a no-op while TUI mode is off.
-fn emit_fill_rect(
-    symbol: &str,
-    term_state_offset: usize,
-    instructions: &mut Vec<CodeInstruction>,
-) {
+fn emit_fill_rect(symbol: &str, term_state_offset: usize, instructions: &mut Vec<CodeInstruction>) {
     let inactive = format!("{symbol}_inactive");
     let ord = "%v9";
     let ax1 = "%v10";
@@ -1483,11 +1525,7 @@ fn emit_draw_glyph(
 /// edge (columns before 0 are skipped; the run stops at the last column). Control
 /// characters are skipped (not stamped) but still advance a column. A no-op if `y`
 /// is off the grid or TUI mode is off. Shown on the next `term::sync`.
-fn emit_draw_text(
-    symbol: &str,
-    term_state_offset: usize,
-    instructions: &mut Vec<CodeInstruction>,
-) {
+fn emit_draw_text(symbol: &str, term_state_offset: usize, instructions: &mut Vec<CodeInstruction>) {
     let inactive = format!("{symbol}_inactive");
     let x = "%v9";
     let y = "%v10";

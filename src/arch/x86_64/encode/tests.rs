@@ -3631,17 +3631,26 @@ fn sxtw_sign_extends_low_32() {
 fn store_zero_immediate_by_width() {
     // str_u64 xzr, [rax+0] : mov qword [rax], 0 → 48 C7 80 00000000 00000000
     assert_eq!(
-        bytes("str_u64", &[("src", "xzr"), ("base", "rax"), ("offset", "0")]),
+        bytes(
+            "str_u64",
+            &[("src", "xzr"), ("base", "rax"), ("offset", "0")]
+        ),
         [0x48, 0xC7, 0x80, 0, 0, 0, 0, 0, 0, 0, 0]
     );
     // str_u32 xzr, [r8+0] : mov dword [r8], 0 (REX.B) → 41 C7 80 00000000 00000000
     assert_eq!(
-        bytes("str_u32", &[("src", "xzr"), ("base", "r8"), ("offset", "0")]),
+        bytes(
+            "str_u32",
+            &[("src", "xzr"), ("base", "r8"), ("offset", "0")]
+        ),
         [0x41, 0xC7, 0x80, 0, 0, 0, 0, 0, 0, 0, 0]
     );
     // str_u16 xzr, [r8+0] : mov word [r8], 0 (66 prefix + REX.B) → 66 41 C7 80 00000000 0000
     assert_eq!(
-        bytes("str_u16", &[("src", "xzr"), ("base", "r8"), ("offset", "0")]),
+        bytes(
+            "str_u16",
+            &[("src", "xzr"), ("base", "r8"), ("offset", "0")]
+        ),
         [0x66, 0x41, 0xC7, 0x80, 0, 0, 0, 0, 0, 0]
     );
     // str_u8 xzr, [r8+0] : mov byte [r8], 0 (REX.B) → 41 C6 80 00000000 00
@@ -3656,7 +3665,10 @@ fn variable_shift_targeting_rcx_is_rejected() {
     // rcx carries the shift count, so a `dst == rcx` shift has no correct
     // expansion — it must be an encoding error.
     let mut ins = CodeInstruction::new("lslv");
-    ins = ins.field("dst", "rcx").field("lhs", "rax").field("rhs", "rdx");
+    ins = ins
+        .field("dst", "rcx")
+        .field("lhs", "rax")
+        .field("rhs", "rdx");
     assert!(enc_err(&ins).contains("cannot target rcx"));
 }
 

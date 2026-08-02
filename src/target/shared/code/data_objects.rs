@@ -143,9 +143,7 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     // `_mfb_str_error_wrong_mode` data object so the gate's relocation resolves
     // (the bug-256 class). Over-approximated to any `app::`-using app build; an
     // unreferenced pooled string is harmless dead data.
-    if module.build_mode.is_app()
-        && module_uses_any_call(module, &["app.getMode", "app.setMode"])
-    {
+    if module.build_mode.is_app() && module_uses_any_call(module, &["app.getMode", "app.setMode"]) {
         push_string_value(&mut values, ERR_WRONG_MODE_MESSAGE.to_string());
     }
     if module_uses_any_call(

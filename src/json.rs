@@ -130,8 +130,7 @@ mod tests {
 
     #[test]
     fn bounded_parse_rejects_nesting_past_the_cap() {
-        let json =
-            "[".repeat(MAX_JSON_NESTING_DEPTH + 1) + &"]".repeat(MAX_JSON_NESTING_DEPTH + 1);
+        let json = "[".repeat(MAX_JSON_NESTING_DEPTH + 1) + &"]".repeat(MAX_JSON_NESTING_DEPTH + 1);
         let err = parse_json_bounded(&json).expect_err("over-cap nesting is rejected");
         assert!(err.contains("nested too deeply"), "unexpected error: {err}");
     }

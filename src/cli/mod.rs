@@ -472,7 +472,13 @@ pub(crate) mod tests {
         // Exactly one file, and no leftover `.part` staging file.
         let names: Vec<String> = std::fs::read_dir(&target)
             .expect("read dir")
-            .map(|entry| entry.expect("entry").file_name().to_string_lossy().into_owned())
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
             .collect();
         assert_eq!(names, vec!["libfoo.so".to_string()]);
     }

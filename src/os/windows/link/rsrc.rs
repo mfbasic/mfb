@@ -174,7 +174,13 @@ fn serialize_tree(rsrc_rva: u32, resources: &[Resource]) -> Vec<u8> {
     // Level 3 language directories + data entries + blobs.
     for (li, leaf) in leaves(resources).into_iter().enumerate() {
         write_dir_header(&mut buf, l3_off[li], 1);
-        write_dir_entry(&mut buf, l3_off[li] + dir_hdr, LANG_EN_US as u32, de_off[li] as u32, false);
+        write_dir_entry(
+            &mut buf,
+            l3_off[li] + dir_hdr,
+            LANG_EN_US as u32,
+            de_off[li] as u32,
+            false,
+        );
         // IMAGE_RESOURCE_DATA_ENTRY.
         put_u32(&mut buf, de_off[li], rsrc_rva + blob_off[li] as u32);
         put_u32(&mut buf, de_off[li] + 4, leaf.data.len() as u32);
@@ -203,7 +209,12 @@ fn leaves(resources: &[Resource]) -> Vec<&Resource> {
     let mut out = Vec::new();
     for t in types {
         for id in ids_of_type(resources, t) {
-            out.push(resources.iter().find(|r| r.type_id == t && r.res_id == id).unwrap());
+            out.push(
+                resources
+                    .iter()
+                    .find(|r| r.type_id == t && r.res_id == id)
+                    .unwrap(),
+            );
         }
     }
     out
@@ -221,7 +232,11 @@ fn write_dir_header(buf: &mut [u8], off: usize, id_entries: usize) {
 
 fn write_dir_entry(buf: &mut [u8], off: usize, id: u32, target: u32, is_dir: bool) {
     put_u32(buf, off, id);
-    put_u32(buf, off + 4, if is_dir { target | 0x8000_0000 } else { target });
+    put_u32(
+        buf,
+        off + 4,
+        if is_dir { target | 0x8000_0000 } else { target },
+    );
 }
 
 fn align4(n: usize) -> usize {
@@ -294,7 +309,13 @@ fn build_version_info(version: &str) -> Vec<u8> {
     let mut translation = Vec::new();
     translation.extend_from_slice(&LANG_EN_US.to_le_bytes());
     translation.extend_from_slice(&0x04B0u16.to_le_bytes());
-    let var = vnode("Translation", 0, &translation, translation.len() as u16, &[]);
+    let var = vnode(
+        "Translation",
+        0,
+        &translation,
+        translation.len() as u16,
+        &[],
+    );
     let var_file_info = vnode("VarFileInfo", 1, &[], 0, &[var]);
 
     vnode(
@@ -363,7 +384,11 @@ mod tests {
         // The root node's wLength must equal the emitted byte length.
         let v = build_version_info("3.1.4.1");
         let w_length = u16::from_le_bytes([v[0], v[1]]) as usize;
-        assert_eq!(w_length, v.len(), "VS_VERSION_INFO wLength must match its bytes");
+        assert_eq!(
+            w_length,
+            v.len(),
+            "VS_VERSION_INFO wLength must match its bytes"
+        );
         // wValueLength == 52 (VS_FIXEDFILEINFO byte count).
         assert_eq!(u16::from_le_bytes([v[2], v[3]]), 52);
     }
@@ -376,7 +401,10 @@ mod tests {
         // Walk to the one data entry: L1(16+8) → L2(16+8) → L3(16+8) → data entry.
         let de = 24 + 24 + 24;
         let off = u32::from_le_bytes([bytes[de], bytes[de + 1], bytes[de + 2], bytes[de + 3]]);
-        assert!(off >= rva && off < rva + bytes.len() as u32, "data RVA in-section");
+        assert!(
+            off >= rva && off < rva + bytes.len() as u32,
+            "data RVA in-section"
+        );
     }
 
     #[test]

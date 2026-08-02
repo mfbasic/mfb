@@ -116,9 +116,12 @@ fn emit_set_mode(
         presentation_mode_offset,
     ));
     // plan-62-B seam (no-op default; filled by plan-62-C/D). `None` = state-only.
-    if let Some(result) =
-        platform.emit_app_mode_reconcile(symbol, presentation_mode_offset, instructions, relocations)
-    {
+    if let Some(result) = platform.emit_app_mode_reconcile(
+        symbol,
+        presentation_mode_offset,
+        instructions,
+        relocations,
+    ) {
         result?;
     }
     instructions.push(abi::move_immediate(

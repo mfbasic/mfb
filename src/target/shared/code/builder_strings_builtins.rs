@@ -543,7 +543,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&ascii_size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&ascii_alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         // ARENA_ALLOC clobbers caller-saved registers; reload source ptr/len.
         self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch21, &scratch20, 0));

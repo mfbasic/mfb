@@ -247,7 +247,11 @@ mod tests {
             "Provenance [[nosuch/file.rs:Sym]] cited here.",
         )];
         let broken = unresolved_citations(root, pages.into_iter());
-        assert_eq!(broken.len(), 1, "missing-file citation reported: {broken:?}");
+        assert_eq!(
+            broken.len(),
+            1,
+            "missing-file citation reported: {broken:?}"
+        );
         assert!(broken[0].contains("[[nosuch/file.rs:Sym]]"));
     }
 

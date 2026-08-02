@@ -9,10 +9,10 @@
 mod common;
 use common::run_bounded;
 use common::temp_project;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
-use std::fs;
 
 fn build_project(project: &Path) -> PathBuf {
     let output = Command::new(common::mfb_exe())

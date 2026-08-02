@@ -1199,7 +1199,11 @@ impl CodeBuilder<'_> {
         // be reloaded and rewritten after each (possibly reallocating) insert.
         let result = self.lower_empty_collection(type_)?;
         let set_slot = self.allocate_stack_object("set_lit", 8);
-        self.emit(abi::store_u64(&result.location, abi::stack_pointer(), set_slot));
+        self.emit(abi::store_u64(
+            &result.location,
+            abi::stack_pointer(),
+            set_slot,
+        ));
         // A reusable 1-byte `Boolean` TRUE — every element maps to it.
         let true_slot = self.allocate_stack_object("set_lit_true", 8);
         let true_reg = self.allocate_register()?;

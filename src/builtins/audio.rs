@@ -143,21 +143,97 @@ const OPEN_OV1: &[Parameter] = &[
 
 const AUDIO_FUNCTIONS: &[BuiltinFunction] = &[
     af(DEVICES, "devices", &[ov(&[], "List OF AudioDevice")]),
-    af(OPEN_INPUT, "openInput", &[ov(OPEN_OV0, AUDIO_INPUT_TYPE), ov(OPEN_OV1, AUDIO_INPUT_TYPE)]),
-    af(OPEN_OUTPUT, "openOutput", &[ov(OPEN_OV0, AUDIO_OUTPUT_TYPE), ov(OPEN_OV1, AUDIO_OUTPUT_TYPE)]),
-    af(READ, "read", &[ov(&[req("input", AUDIO_INPUT_TYPE), req("frames", "Integer"), opt("timeoutMs", "Integer")], "List OF Byte")]),
-    af(WRITE, "write", &[ov(&[req("output", AUDIO_OUTPUT_TYPE), req("bytes", "List OF Byte")], "Nothing")]),
-    af(POLL, "poll", &[ov(&[req("stream", AUDIO_INPUT_TYPE), opt("timeoutMs", "Integer")], "Boolean")]),
-    af(AVAILABLE, "available", &[ov(&[req("stream", AUDIO_INPUT_TYPE)], "Integer")]),
-    af(XRUNS, "xruns", &[ov(&[req("stream", AUDIO_INPUT_TYPE)], "Integer")]),
-    af(CLOSE, "close", &[ov(&[req("stream", AUDIO_INPUT_TYPE)], "Nothing")]),
-    af(RENDER, "render", &[ov(&[req("note", AUDIO_NOTE_TYPE)], "List OF Byte")]),
-    af(PLAY, "play", &[ov(&[req("output", AUDIO_OUTPUT_TYPE), reqa("mml", &["tracks"], "String")], "Nothing")]),
+    af(
+        OPEN_INPUT,
+        "openInput",
+        &[
+            ov(OPEN_OV0, AUDIO_INPUT_TYPE),
+            ov(OPEN_OV1, AUDIO_INPUT_TYPE),
+        ],
+    ),
+    af(
+        OPEN_OUTPUT,
+        "openOutput",
+        &[
+            ov(OPEN_OV0, AUDIO_OUTPUT_TYPE),
+            ov(OPEN_OV1, AUDIO_OUTPUT_TYPE),
+        ],
+    ),
+    af(
+        READ,
+        "read",
+        &[ov(
+            &[
+                req("input", AUDIO_INPUT_TYPE),
+                req("frames", "Integer"),
+                opt("timeoutMs", "Integer"),
+            ],
+            "List OF Byte",
+        )],
+    ),
+    af(
+        WRITE,
+        "write",
+        &[ov(
+            &[
+                req("output", AUDIO_OUTPUT_TYPE),
+                req("bytes", "List OF Byte"),
+            ],
+            "Nothing",
+        )],
+    ),
+    af(
+        POLL,
+        "poll",
+        &[ov(
+            &[req("stream", AUDIO_INPUT_TYPE), opt("timeoutMs", "Integer")],
+            "Boolean",
+        )],
+    ),
+    af(
+        AVAILABLE,
+        "available",
+        &[ov(&[req("stream", AUDIO_INPUT_TYPE)], "Integer")],
+    ),
+    af(
+        XRUNS,
+        "xruns",
+        &[ov(&[req("stream", AUDIO_INPUT_TYPE)], "Integer")],
+    ),
+    af(
+        CLOSE,
+        "close",
+        &[ov(&[req("stream", AUDIO_INPUT_TYPE)], "Nothing")],
+    ),
+    af(
+        RENDER,
+        "render",
+        &[ov(&[req("note", AUDIO_NOTE_TYPE)], "List OF Byte")],
+    ),
+    af(
+        PLAY,
+        "play",
+        &[ov(
+            &[
+                req("output", AUDIO_OUTPUT_TYPE),
+                reqa("mml", &["tracks"], "String"),
+            ],
+            "Nothing",
+        )],
+    ),
 ];
 
 const AUDIO_TYPES: &[BuiltinType] = &[
-    BuiltinType { name: AUDIO_INPUT_TYPE, kind: TypeKind::Opaque, fields: &[] },
-    BuiltinType { name: AUDIO_OUTPUT_TYPE, kind: TypeKind::Opaque, fields: &[] },
+    BuiltinType {
+        name: AUDIO_INPUT_TYPE,
+        kind: TypeKind::Opaque,
+        fields: &[],
+    },
+    BuiltinType {
+        name: AUDIO_OUTPUT_TYPE,
+        kind: TypeKind::Opaque,
+        fields: &[],
+    },
     BuiltinType {
         name: AUDIO_DEVICE_TYPE,
         kind: TypeKind::Record,
@@ -699,7 +775,10 @@ mod tests {
         assert_eq!(o.ty, ParameterType::Named("Integer"));
         assert_eq!(
             o.default,
-            DefaultValue::Fill { type_name: "Integer", expr: "" }
+            DefaultValue::Fill {
+                type_name: "Integer",
+                expr: ""
+            }
         );
         assert!(o.aliases.is_empty());
 
@@ -709,7 +788,10 @@ mod tests {
         assert_eq!(overload.return_type, ReturnType::Fixed(AUDIO_INPUT_TYPE));
         let niladic = ov(&[], "List OF AudioDevice");
         assert!(niladic.params.is_empty());
-        assert_eq!(niladic.return_type, ReturnType::Fixed("List OF AudioDevice"));
+        assert_eq!(
+            niladic.return_type,
+            ReturnType::Fixed("List OF AudioDevice")
+        );
 
         const OV: &[BuiltinOverload] = &[ov(&[req("note", AUDIO_NOTE_TYPE)], "List OF Byte")];
         let func = af(RENDER, "render", OV);
@@ -748,16 +830,16 @@ mod tests {
     fn source_implementation_name_dispatch() {
         // render always maps to its body; play picks single- vs multi-track by the
         // second argument's type; native calls return None.
-        assert_eq!(source_implementation_name(RENDER, &[]), Some(INTERNAL_RENDER));
+        assert_eq!(
+            source_implementation_name(RENDER, &[]),
+            Some(INTERNAL_RENDER)
+        );
         assert_eq!(
             source_implementation_name(PLAY, &strings(&[AUDIO_OUTPUT_TYPE, "String"])),
             Some(INTERNAL_PLAY)
         );
         assert_eq!(
-            source_implementation_name(
-                PLAY,
-                &strings(&[AUDIO_OUTPUT_TYPE, "List OF String"])
-            ),
+            source_implementation_name(PLAY, &strings(&[AUDIO_OUTPUT_TYPE, "List OF String"])),
             Some(INTERNAL_PLAY_TRACKS)
         );
         assert_eq!(source_implementation_name(DEVICES, &[]), None);

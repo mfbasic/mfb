@@ -613,10 +613,7 @@ fn parses_set_type_variants() {
     assert_eq!(type_of("Set OF String"), "Set OF String");
     // A nested collection element parses structurally here (the comparability
     // rejection is ir::verify's job, not the parser's).
-    assert_eq!(
-        type_of("Set OF List OF Integer"),
-        "Set OF List OF Integer"
-    );
+    assert_eq!(type_of("Set OF List OF Integer"), "Set OF List OF Integer");
 }
 
 #[test]

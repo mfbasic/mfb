@@ -348,9 +348,9 @@ fn write_executable(
         }
         // `LinuxApp`/`WindowsApp` are other-toolkit selections; they never reach
         // the macOS backend (the CLI picks the build mode from the target OS).
-        NativeBuildMode::LinuxApp | NativeBuildMode::WindowsApp => Err(
-            "internal error: macOS backend received a non-macOS app build mode".to_string(),
-        ),
+        NativeBuildMode::LinuxApp | NativeBuildMode::WindowsApp => {
+            Err("internal error: macOS backend received a non-macOS app build mode".to_string())
+        }
     }
 }
 

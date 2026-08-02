@@ -2417,8 +2417,11 @@ mod tests {
         let proof = format!(
             "{{\"owner\":\"{owner}\",\"ident\":\"{ident}\",\"version\":\"{version}\",\"identFingerprint\":\"{ident_fingerprint}\",\"signingFingerprint\":\"{signing_fingerprint}\"}}"
         );
-        let mut proof_sig =
-            crypto::sign(&ident_private, &crypto::proof_signing_input(proof.as_bytes())).unwrap();
+        let mut proof_sig = crypto::sign(
+            &ident_private,
+            &crypto::proof_signing_input(proof.as_bytes()),
+        )
+        .unwrap();
         let attestation = format!(
             "{{\"repoFingerprint\":\"{repo_fingerprint}\",\"owner\":\"{owner}\",\"ident\":\"{ident}\",\"version\":\"{version}\",\"identFingerprint\":\"{ident_fingerprint}\",\"signingFingerprint\":\"{signing_fingerprint}\"}}"
         );
@@ -2562,8 +2565,7 @@ mod tests {
     fn classify_signed_package_without_a_pinned_server_key_is_untrusted() {
         let _lock = crate::cli::tests::ENV_LOCK.lock().unwrap();
         let home = tempfile::tempdir().unwrap();
-        let _mfb =
-            crate::cli::tests::EnvVarGuard::set("MFB_HOME", home.path().to_str().unwrap());
+        let _mfb = crate::cli::tests::EnvVarGuard::set("MFB_HOME", home.path().to_str().unwrap());
         let dir = tempfile::tempdir().unwrap();
         let fx = build_signed_fixture("ada#shape", "1.0.0", SignedTamper::None);
         let path = write_mfp(dir.path(), &fx.bytes);
@@ -2579,8 +2581,7 @@ mod tests {
     fn classify_pinned(fx: &SignedFixture) -> PackageClassification {
         let _lock = crate::cli::tests::ENV_LOCK.lock().unwrap();
         let home = tempfile::tempdir().unwrap();
-        let _mfb =
-            crate::cli::tests::EnvVarGuard::set("MFB_HOME", home.path().to_str().unwrap());
+        let _mfb = crate::cli::tests::EnvVarGuard::set("MFB_HOME", home.path().to_str().unwrap());
         let _fp = crate::cli::tests::EnvVarGuard::unset("MFB_REPO_SERVER_FINGERPRINT");
         let repo_url = mfb_repository::client::repo_url_from_env();
         let paths = crate::cli::local_paths_for_repo(&repo_url).unwrap();
@@ -2667,8 +2668,7 @@ mod tests {
     fn verify_and_report_accepts_a_verified_dependency() {
         let _lock = crate::cli::tests::ENV_LOCK.lock().unwrap();
         let home = tempfile::tempdir().unwrap();
-        let _mfb =
-            crate::cli::tests::EnvVarGuard::set("MFB_HOME", home.path().to_str().unwrap());
+        let _mfb = crate::cli::tests::EnvVarGuard::set("MFB_HOME", home.path().to_str().unwrap());
         let _fp = crate::cli::tests::EnvVarGuard::unset("MFB_REPO_SERVER_FINGERPRINT");
         let fx = build_signed_fixture("sec#signed", "0.1.0", SignedTamper::None);
         let repo_url = mfb_repository::client::repo_url_from_env();
@@ -2750,11 +2750,7 @@ mod tests {
         )
         .expect("manifest");
         std::fs::create_dir_all(dir.join("src")).expect("src dir");
-        std::fs::write(
-            dir.join("src").join("main.mfb"),
-            "SUB main()\nEND SUB\n",
-        )
-        .expect("source");
+        std::fs::write(dir.join("src").join("main.mfb"), "SUB main()\nEND SUB\n").expect("source");
     }
 
     /// A missing `icon` is a hard error in app mode, on each app-capable target's
@@ -2861,17 +2857,11 @@ mod tests {
             ),
         )
         .unwrap();
-        let options = parse_test_options(s(&["--coverage", dir.path().to_str().unwrap()]))
-            .expect("options");
+        let options =
+            parse_test_options(s(&["--coverage", dir.path().to_str().unwrap()])).expect("options");
         build_project(&options).expect("coverage test passes");
-        assert!(dir
-            .path()
-            .join(crate::testing::COVMAP_FILE)
-            .is_file());
-        assert!(dir
-            .path()
-            .join(crate::testing::COVERAGE_HTML)
-            .is_file());
+        assert!(dir.path().join(crate::testing::COVMAP_FILE).is_file());
+        assert!(dir.path().join(crate::testing::COVERAGE_HTML).is_file());
     }
 
     /// An unknown project `kind` is a warning, not an error: the build validates
@@ -2938,8 +2928,9 @@ mod tests {
     fn build_project_rejects_sign_with_output_flags() {
         let dir = tempfile::tempdir().unwrap();
         write_executable_project(dir.path());
-        let options = parse_build_options(s(&["--sign", "ada", "--ast", dir.path().to_str().unwrap()]))
-            .expect("options");
+        let options =
+            parse_build_options(s(&["--sign", "ada", "--ast", dir.path().to_str().unwrap()]))
+                .expect("options");
         assert!(build_project(&options).is_err());
     }
 
@@ -2950,12 +2941,11 @@ mod tests {
     fn build_project_sign_without_a_local_ident_key_fails() {
         let _lock = crate::cli::tests::ENV_LOCK.lock().unwrap();
         let home = tempfile::tempdir().unwrap();
-        let _mfb =
-            crate::cli::tests::EnvVarGuard::set("MFB_HOME", home.path().to_str().unwrap());
+        let _mfb = crate::cli::tests::EnvVarGuard::set("MFB_HOME", home.path().to_str().unwrap());
         let dir = tempfile::tempdir().unwrap();
         write_executable_project(dir.path());
-        let options =
-            parse_build_options(s(&["--sign", "ada", dir.path().to_str().unwrap()])).expect("options");
+        let options = parse_build_options(s(&["--sign", "ada", dir.path().to_str().unwrap()]))
+            .expect("options");
         assert!(build_project(&options).is_err());
     }
 
@@ -3080,7 +3070,11 @@ mod tests {
         // The `.so` need not be a real library, so both flavors may share bytes.
         std::fs::create_dir_all(dir.path().join("vendor")).unwrap();
         for blob in &blobs {
-            std::fs::write(dir.path().join("vendor").join(blob), b"\x7fELF dummy vendor blob").unwrap();
+            std::fs::write(
+                dir.path().join("vendor").join(blob),
+                b"\x7fELF dummy vendor blob",
+            )
+            .unwrap();
         }
         let options =
             parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
@@ -3189,8 +3183,7 @@ mod tests {
     fn verify_and_report_refuses_a_tampered_dependency() {
         let _lock = crate::cli::tests::ENV_LOCK.lock().unwrap();
         let home = tempfile::tempdir().unwrap();
-        let _mfb =
-            crate::cli::tests::EnvVarGuard::set("MFB_HOME", home.path().to_str().unwrap());
+        let _mfb = crate::cli::tests::EnvVarGuard::set("MFB_HOME", home.path().to_str().unwrap());
         // No pinned server key -> the signed package fails attestation -> Tampered.
         let fx = build_signed_fixture("sec#signed", "0.1.0", SignedTamper::None);
         let dir = tempfile::tempdir().unwrap();
@@ -3281,7 +3274,11 @@ mod tests {
         )
         .expect("manifest");
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
-        std::fs::write(dir.path().join("src").join("main.mfb"), "SUB main()\nEND SUB\n").unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "SUB main()\nEND SUB\n",
+        )
+        .unwrap();
         let options = parse_build_options(s(&[
             "-app",
             "-target",
@@ -3321,8 +3318,8 @@ mod tests {
         )
         .unwrap();
         // `zed` does not own `ada#app`, so signing_ident rejects it.
-        let options =
-            parse_build_options(s(&["--sign", "zed", dir.path().to_str().unwrap()])).expect("options");
+        let options = parse_build_options(s(&["--sign", "zed", dir.path().to_str().unwrap()]))
+            .expect("options");
         assert!(build_project(&options).is_err());
     }
 
@@ -3535,7 +3532,10 @@ mod tests {
         let mut restore = std::fs::metadata(dir.path()).unwrap().permissions();
         restore.set_mode(0o755);
         std::fs::set_permissions(dir.path(), restore).unwrap();
-        assert!(result.is_err(), "write_package into a read-only dir must fail");
+        assert!(
+            result.is_err(),
+            "write_package into a read-only dir must fail"
+        );
     }
 
     /// Every artifact-dump writer surfaces its write error when the output location
@@ -3548,7 +3548,9 @@ mod tests {
         if running_as_root() {
             return;
         }
-        for flag in ["-ast", "-ir", "-br", "-nir", "-nplan", "-nobj", "-ncode", "-mir"] {
+        for flag in [
+            "-ast", "-ir", "-br", "-nir", "-nplan", "-nobj", "-ncode", "-mir",
+        ] {
             let dir = tempfile::tempdir().unwrap();
             write_executable_project(dir.path());
             let mut perm = std::fs::metadata(dir.path()).unwrap().permissions();
@@ -3560,7 +3562,10 @@ mod tests {
             let mut restore = std::fs::metadata(dir.path()).unwrap().permissions();
             restore.set_mode(0o755);
             std::fs::set_permissions(dir.path(), restore).unwrap();
-            assert!(result.is_err(), "{flag}: a read-only location must fail the dump");
+            assert!(
+                result.is_err(),
+                "{flag}: a read-only location must fail the dump"
+            );
         }
     }
 }
