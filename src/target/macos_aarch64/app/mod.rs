@@ -185,6 +185,18 @@ const SEL_KEY_DOWN: (&str, &str) = ("_mfb_macapp_sel_keyDown", "keyDown:");
 const SEL_CHARACTERS: (&str, &str) = ("_mfb_macapp_sel_characters", "characters");
 const SEL_LENGTH: (&str, &str) = ("_mfb_macapp_sel_length", "length");
 const SEL_CHAR_AT_INDEX: (&str, &str) = ("_mfb_macapp_sel_characterAtIndex", "characterAtIndex:");
+// plan-70-D Phase 2: AppKit's own extended-grapheme-cluster segmentation. Returns
+// the NSRange of the composed character sequence (grapheme cluster) at an index —
+// groups a base + combining marks and emoji ZWJ sequences into one cluster.
+const SEL_RANGE_COMPOSED: (&str, &str) = (
+    "_mfb_macapp_sel_rangeOfComposedCharacterSequenceAtIndex",
+    "rangeOfComposedCharacterSequenceAtIndex:",
+);
+// Copy a range of UTF-16 units into a caller buffer (for pooling a cluster).
+const SEL_GET_CHARACTERS: (&str, &str) = (
+    "_mfb_macapp_sel_getCharactersRange",
+    "getCharacters:range:",
+);
 const SEL_APPEND_STRING: (&str, &str) = ("_mfb_macapp_sel_appendString", "appendString:");
 const SEL_SET_STRING: (&str, &str) = ("_mfb_macapp_sel_setString", "setString:");
 const SEL_DELETE_RANGE: (&str, &str) = (
@@ -455,7 +467,22 @@ const TV_GLYPH_Y_OFFSET: usize = 272; // i64 row
 // NSString `withObject:` argument, like mfbWriteString:).
 const TV_TEXT_X_OFFSET: usize = 280; // i64 start column
 const TV_TEXT_Y_OFFSET: usize = 288; // i64 row
-const TV_STATE_SIZE: usize = 296;
+// plan-70-D Phase 2: per-cell EGC pool base (a calloc'd byte arena, rows*cols
+// slots of APP_POOL_BYTES_PER_CELL each; cell i's slot = base + i*POOL). 0 when
+// unallocated. Position-indexed like the console pool, so scroll/resize shift it
+// in lockstep with the cells.
+const TV_POOL_OFFSET: usize = 296; // TermCell-parallel EGC pool base (u8* heap)
+const TV_STATE_SIZE: usize = 304;
+// A multi-scalar grapheme cluster (combining sequence, ZWJ emoji family, flag)
+// whose UTF-8 exceeds the 3 bytes that fit... no: the cell glyph is a u32
+// codepoint, so a cluster of >1 scalar is stored in the cell's pool slot. 64
+// covers a base + long combining run / a 4-emoji ZWJ family (25 bytes UTF-8).
+const APP_POOL_BYTES_PER_CELL: usize = 64;
+// Glyph-word tag for a pooled cell: top byte 0xC0, low 24 bits the UTF-8 byte
+// length in the slot. A codepoint is <= U+10FFFF (top byte <= 0x10), so 0xC0 never
+// collides; APP_WIDE_TRAIL (0xFFFF_FFFF) is distinct and handled first.
+const APP_GLYPH_POOLED_TAG: &str = "3221225472"; // 0xC000_0000
+const APP_GLYPH_POOLED_LEN_MASK: &str = "16777215"; // 0x00FF_FFFF
 /// Default foreground packed value (white), shared by term_init and the helpers.
 const TERM_DEFAULT_FG_PACKED: &str = "16777215";
 
@@ -657,8 +684,8 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_term_draw_line_helper(),
         emit_term_draw_box_helper(),
         emit_term_fill_rect_helper(),
-        emit_term_draw_glyph_helper(),
-        emit_term_draw_text_helper(),
+        emit_term_draw_glyph_helper(spec.uses_term),
+        emit_term_draw_text_helper(spec.uses_term),
         emit_term_accepts_first_responder(),
         emit_term_key_down_helper(),
         emit_term_set_frame_size_helper(),
@@ -781,6 +808,8 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         SEL_CHARACTERS,
         SEL_LENGTH,
         SEL_CHAR_AT_INDEX,
+        SEL_RANGE_COMPOSED,
+        SEL_GET_CHARACTERS,
         SEL_APPEND_STRING,
         SEL_SET_STRING,
         SEL_DELETE_RANGE,

@@ -117,19 +117,47 @@ correct table-gating). The pixel-level GUI proof (`"👍 日本語 A"` as single
 glyphs) is this plan's explicit **human-convergence step** ("converges with Human
 on the verify loop") — an interactive window-server session is required; a scripted
 screenshot in this automated session did not composite the window (even ASCII did
-not paint, so it is a compositing/session limit, not the glyph path). Commit: —
+not paint, so it is a compositing/session limit, not the glyph path). Commit: e4171323c
 
 ### Phase 2 — EGC pool for multi-scalar clusters + draw helpers
 
-- [ ] Per-view EGC pool (or per-cell retained NSString); pool-aware drawRect.
-- [ ] Grapheme segmentation for combining/ZWJ; `"café"` (NFD) and `"👨‍👩‍👧‍👦"` as
-      single glyphs.
-- [ ] `mfbDrawText:`/`mfbDrawGlyph:`/`mfbDrawBox:`/`mfbFillRect:`/`mfbDrawLine:`
-      width/cluster-aware; overwrite clears the wide pair.
-- [ ] Resize (`setFrameSize:`) + scroll + clear carry the width/pool fields.
+- [x] Per-view EGC pool (`calloc(rows*cols, 64)` in the init helper, stored at
+      `TV_POOL_OFFSET`; per-cell fixed slot `pool_base + idx*64`, mirroring B's
+      lifecycle-free model). The `mfbWriteString:` writer pools a multi-scalar
+      cluster's UTF-16 units (`getCharacters:range:`) into the cell's slot and tags
+      the glyph `APP_GLYPH_POOLED_TAG | len` (inline iff cluster length == base-scalar
+      unit count). Pool-aware `drawRect:` rebuilds the whole grapheme from the slot
+      via `stringWithCharacters:length:` when the glyph top byte is `0xC0`.
+- [x] Grapheme segmentation for combining/ZWJ via AppKit's own
+      `rangeOfComposedCharacterSequenceAtIndex:` (gated on `uses_term`); the writer
+      and `mfbDrawText:` advance by the cluster's UTF-16 length so `"café"` (NFD) and
+      the ZWJ family land in one cell each.
+- [x] `mfbDrawGlyph:`/`mfbDrawText:` width/cluster/astral-aware (charwidth lookup via
+      the shared `app_emit_charwidth`, `WIDE_TRAIL` for width 2, astral surrogate
+      decode, `mfbDrawText:` pools multi-scalar clusters and advances the column by
+      display width); `mfbDrawBox:`/`mfbFillRect:` (`app_stamp_run`) and the box
+      corners (`app_stamp_cell`) clear the orphaned half of any wide glyph they
+      overwrite (`app_clear_wide_pair`). `app_stamp_attrs` now writes the width byte
+      (=1) on every stamp so a narrow stamp resets a stale wide cell. All width/table
+      paths gated on `uses_term`.
+- [x] Scroll (`term_scroll`) memmoves the pool slots in lockstep with the cells;
+      resize (`setFrameSize:`) reallocs + overlap-copies the pool alongside the grid
+      (OOM-safe: a pool-calloc failure frees the new cells and bails, leaving both old
+      buffers). Clear zeroes the cell glyph (drawRect skips glyph 0), so stale pool
+      bytes are never read — no separate pool clear needed.
 
-Acceptance: NFD `"café"`, ZWJ family, and a `drawBox` around CJK all render/align
-on the macOS host; resize reflows without corrupting wide cells. Commit: —
+Acceptance: implementation complete and verified by the autonomous means available
+on this host — a term app drawing CJK/astral-emoji/NFD/ZWJ through the writer AND
+`drawText`/`drawGlyph`/`drawBox` builds (codegen assembles: no bad register/label)
+and runs headless (`MFB_MACAPP_HEADLESS=1`) to a clean exit 42 with the writer's
+UTF-8 output intact; `scripts/test-macapp.sh` all cases pass (no regression); the
+`macos-app-mode-term` `.ncodesum` and the `-io`/`-plumbing` `.ncode` regenerated
+(the non-term goldens grew a uniform +39.5 KB of shared term-helper codegen, NOT the
+~1.5 MB table — the `uses_term` gate holds; only `.ncode` changed, IR/plan untouched,
+Windows sums unchanged). The pixel-level GUI proof (NFD `"café"`, the ZWJ family, and
+a `drawBox` around CJK rendering/aligning, resize reflow) remains this plan's
+**human-convergence step** (§ Phase 1 acceptance — an interactive window-server
+session; not compositable in this automated session). Commit: —
 
 ## Validation Plan
 
@@ -171,4 +199,41 @@ on the macOS host; resize reflows without corrupting wide cells. Commit: —
   `emit_*_free` helpers not lowering cleanly in that context, the two-stage trie +
   `(flags>>4)&3` was written directly with `asm.local_address(UNICODE_*_SYMBOL)` —
   whose `_mfb_unicode_*` relocation is exactly what the shared build's
-  `references_unicode_table` gate keys on to embed the table.
+  `references_unicode_table` gate keys on to embed the table. Phase 2 factored that
+  inline block into `app_emit_charwidth` (byte-identical for the writer) so
+  `drawGlyph`/`drawText` reuse it.
+
+- **2026-08-02 (Phase 2) — the pool is a per-cell fixed slot, carried by scroll AND
+  resize, not just allocated.** The EGC pool is `rows*cols` slots of 64 bytes,
+  TermCell-parallel (`slot = pool_base + idx*64`). The trap: the cell grid and the
+  pool are two separate `calloc`s, so EVERY grid mutation that moves cells must move
+  the pool in lockstep or a pooled cluster reads another cell's units. `term_scroll`
+  gained a second memmove+bzero over the pool; `setFrameSize:` gained a parallel
+  realloc + row-by-row overlap copy (POOL-stride), made OOM-safe by allocating the
+  new pool up front and freeing the new cells + bailing if it fails (so old cells and
+  old pool stay consistent). Clear needs nothing — it zeroes the cell glyph and
+  drawRect skips glyph 0, so stale pool bytes are never read.
+
+- **2026-08-02 (Phase 2) — pooled width comes from the base scalar, so the stamp
+  takes an explicit width, not a re-lookup.** A pooled glyph field is a tag
+  (`0xC0…`), not a scalar, so looking up its charwidth would wrongly yield 1. The
+  positioned-stamp helper (`app_stamp_cluster`) therefore takes the width the caller
+  already computed from the cluster's BASE scalar (before pooling overwrites the
+  glyph reg with the tag). `drawText` also needs that width to advance its running
+  column, so it computes width once, spills it across the pool `getCharacters:`
+  msgSend, and reloads it for both the stamp and the column advance.
+
+- **2026-08-02 (Phase 2) — `app_stamp_cluster`'s internal `{tag}_done` label must not
+  equal the caller's `skip` label.** Passing `skip="dgl_done"` with `tag="dgl"` made
+  the helper's own `"dgl_done"` convergence label collide with the function's end
+  label (`AArch64: duplicate label`). Fixed by giving the helper a distinct tag
+  (`"dgl_s"`/`"dt_s"`) from the function's `done`/`skip` label.
+
+- **2026-08-02 (Phase 2) — `drawText` had to switch from an `i`-indexed column to a
+  running column.** The old `col = xstart + i` (one column per UTF-16 unit) can't
+  place wide glyphs or skip combining marks. `drawText` now tracks a running column
+  in the freed `xstart` register that advances by display width, advances `i` by the
+  cluster's UTF-16 length, decodes astral pairs, pools multi-scalar clusters, clips a
+  wide glyph off the right edge (stops), and skips (but keeps advancing past) a
+  column left of the grid. `selfv` (dead after state resolution) doubles as the
+  decoded codepoint register since all other callee-saved locals were taken.
