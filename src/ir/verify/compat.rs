@@ -206,7 +206,7 @@ impl TypeEnv {
         // the ported `expression_compatible` — the same data syntaxcheck's
         // `check_term_builtin_call` uses, so term's signature is single-source.
         if builtins::term::is_term_call(target) {
-            if let Some((min, max)) = builtins::term::arity(target) {
+            if let Some((min, max)) = builtins::arity(target) {
                 if self.builtin_arity_errored(target, arg_types.len(), min, max) {
                     return;
                 }
@@ -233,12 +233,12 @@ impl TypeEnv {
         // `collections`/`general` builtins: per-name arity, then arg-typed
         // overload resolution (syntaxcheck's check_general_builtin_call arms).
         if builtins::collections::is_collections_call(target) {
-            if let Some((min, max)) = builtins::collections::arity(target) {
+            if let Some((min, max)) = builtins::arity(target) {
                 if self.builtin_arity_errored(target, arg_types.len(), min, max) {
                     return;
                 }
             }
-            if builtins::collections::resolve_call(target, &arg_types).is_none() {
+            if builtins::resolve_call_return_type(target, &arg_types).is_none() {
                 let expected = builtins::collections::expected_arguments(target)
                     .unwrap_or("supported overload");
                 self.emit(
@@ -252,12 +252,12 @@ impl TypeEnv {
             return;
         }
         if builtins::general::is_general_call(target) {
-            if let Some((min, max)) = builtins::general::arity(target) {
+            if let Some((min, max)) = builtins::arity(target) {
                 if self.builtin_arity_errored(target, arg_types.len(), min, max) {
                     return;
                 }
             }
-            if builtins::general::resolve_call(target, &arg_types).is_none() {
+            if builtins::resolve_call_return_type(target, &arg_types).is_none() {
                 // A package-provided override may accept what the built-in
                 // rejects (plan-01-overload §A.3.2) — never reject those.
                 if builtins::general::is_overridable(target)
@@ -285,41 +285,26 @@ impl TypeEnv {
         // `resolve_call_return_type`'s (no term/collections/general — handled
         // above — and no crypto/json/csv/…), so it must stay an explicit table:
         // widening it would reject programs codegen currently accepts.
+        // plan-72-BB: the narrow membership stays an explicit list (widening it
+        // would reject programs codegen accepts — see the note above), but the
+        // per-package `resolve_call` probes collapse to the registry aggregate,
+        // which resolves each of these packages byte-identically to its own
+        // `resolve_call` (proven by the descriptor parity tests + artifact-gate).
         type IsCall = fn(&str) -> bool;
-        type Unresolved = fn(&str, &[String]) -> bool;
-        let checked: [(IsCall, Unresolved); 9] = [
-            (builtins::math::is_math_call, |t, a| {
-                builtins::math::resolve_call(t, a).is_none()
-            }),
-            (builtins::bits::is_bits_call, |t, a| {
-                builtins::bits::resolve_call(t, a).is_none()
-            }),
-            (builtins::vector::is_vector_call, |t, a| {
-                builtins::vector::resolve_call(t, a).is_none()
-            }),
-            (builtins::strings::is_strings_call, |t, a| {
-                builtins::strings::resolve_call(t, a).is_none()
-            }),
-            (builtins::encoding::is_encoding_call, |t, a| {
-                builtins::encoding::resolve_call(t, a).is_none()
-            }),
-            (builtins::io::is_io_call, |t, a| {
-                builtins::io::resolve_call(t, a).is_none()
-            }),
-            (builtins::fs::is_fs_call, |t, a| {
-                builtins::fs::resolve_call(t, a).is_none()
-            }),
-            (builtins::net::is_net_call, |t, a| {
-                builtins::net::resolve_call(t, a).is_none()
-            }),
-            (builtins::os::is_os_call, |t, a| {
-                builtins::os::resolve_call(t, a).is_none()
-            }),
+        let checked: [IsCall; 9] = [
+            builtins::math::is_math_call,
+            builtins::bits::is_bits_call,
+            builtins::vector::is_vector_call,
+            builtins::strings::is_strings_call,
+            builtins::encoding::is_encoding_call,
+            builtins::io::is_io_call,
+            builtins::fs::is_fs_call,
+            builtins::net::is_net_call,
+            builtins::os::is_os_call,
         ];
-        let Some((_, probe)) = checked.into_iter().find(|(is_call, _)| is_call(target)) else {
-            return;
-        };
-        if probe(target, &arg_types) {
+        if checked.iter().any(|is_call| is_call(target))
+            && builtins::resolve_call_return_type(target, &arg_types).is_none()
+        {
             self.emit(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 format!("Arguments to `{target}` do not match any overload."),
