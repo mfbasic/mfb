@@ -395,9 +395,15 @@ impl DefaultResolver {
     }
 
     /// The canonical overload's per-position expected type names — legacy
-    /// `argument_types`.
+    /// `argument_types`. A zero-parameter call has nothing to type and returns
+    /// `None`, matching the shared convention (`app.getMode`,
+    /// `money.getRounding`): the machine table lists only functions with typed
+    /// positional arguments.
     pub(crate) fn argument_types(module: &BuiltinModule, name: &str) -> Option<Vec<&'static str>> {
         let overload = module.function(name)?.overloads.first()?;
+        if overload.params.is_empty() {
+            return None;
+        }
         Some(overload.params.iter().map(|param| param.ty.name()).collect())
     }
 
@@ -423,10 +429,16 @@ impl DefaultResolver {
 
     /// The human-readable expected-argument rendering — legacy
     /// `expected_arguments`. Renders the canonical overload's parameter type
-    /// names joined by `", "` (`"Integer, Integer"`). A function whose overloads
-    /// need a bespoke phrasing supplies it through its resolver's error path.
+    /// names joined by `", "` (`"Integer, Integer"`), or `"()"` for a
+    /// zero-parameter call, matching the shared convention (`app.getMode`,
+    /// `money.getRounding`, `crypto.generateP256`, `datetime.now`). A function
+    /// whose overloads need a bespoke phrasing supplies it through its resolver's
+    /// error path.
     pub(crate) fn expected_arguments(module: &BuiltinModule, name: &str) -> Option<String> {
         let overload = module.function(name)?.overloads.first()?;
+        if overload.params.is_empty() {
+            return Some("()".to_string());
+        }
         Some(
             overload
                 .params
@@ -468,6 +480,35 @@ impl DefaultResolver {
                 DefaultValue::None => None,
             })
             .collect()
+    }
+
+    /// Resolve a call against its `Fixed`-return overloads by exact argument-type
+    /// match — the data-only equivalent of a package's `resolve_call`. Returns
+    /// the matched overload's fixed return type, or `None` if no overload accepts
+    /// these argument types. A call whose return is argument-dependent
+    /// (`ReturnType::Custom`) is resolver-owned and is not answered here.
+    pub(crate) fn resolve_call(
+        module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<&'static str> {
+        let function = module.function(name)?;
+        for overload in function.overloads {
+            if arg_types.len() < overload.min_args() || arg_types.len() > overload.max_args() {
+                continue;
+            }
+            let matches = overload
+                .params
+                .iter()
+                .zip(arg_types.iter())
+                .all(|(param, actual)| param.ty.name() == actual);
+            if matches {
+                if let ReturnType::Fixed(return_type) = overload.return_type {
+                    return Some(return_type);
+                }
+            }
+        }
+        None
     }
 }
 
@@ -544,11 +585,14 @@ impl BuiltinRegistry {
     }
 }
 
-/// The production registry. Empty in plan-72-A: no package is migrated yet, so
-/// every adapter in `mod.rs` that consults it falls back to the legacy
-/// per-package helper. Each letter B..AA appends its `&<PKG>` here; BB then
-/// deletes the legacy helpers the adapters fall back to.
-pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[]);
+/// The production registry. Each letter B..AA appends its migrated package's
+/// `&<PKG>` descriptor here; a package not yet listed is still served by its
+/// legacy per-package helper (the `mod.rs` adapters fall back on a registry
+/// miss). BB then deletes the legacy helpers the adapters fall back to.
+///
+/// Migrated so far: `app` (plan-72-B).
+pub(crate) static REGISTRY: BuiltinRegistry =
+    BuiltinRegistry::new(&[&crate::builtins::app::APP]);
 
 /// The migration parity harness (plan-72).
 ///
@@ -845,9 +889,26 @@ mod tests {
         },
     ];
 
+    // A zero-argument function, to pin the shared zero-arg conventions
+    // (`expected_arguments` → "()", `argument_types` → None).
+    const NOW: BuiltinFunction = BuiltinFunction {
+        name: "t.now",
+        doc_slug: "now",
+        overloads: &[BuiltinOverload {
+            params: &[],
+            return_type: ReturnType::Fixed("Integer"),
+        }],
+        implementation: Implementation::Same,
+        lowering: Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    };
+
     const TEST_MODULE: BuiltinModule = BuiltinModule {
         name: "t",
-        functions: &[ADD, EMIT, PICK],
+        functions: &[ADD, EMIT, PICK, NOW],
         types: TEST_TYPES,
         // A real source loader (borrowed from `app`) so the source rule and
         // loader fields are exercised end to end without a bespoke stub.
@@ -924,6 +985,8 @@ mod tests {
             DefaultResolver::argument_types(&TEST_MODULE, "t.emit"),
             Some(vec!["String", "List OF Byte"])
         );
+        // Zero-argument call: nothing to type -> None (shared convention).
+        assert_eq!(DefaultResolver::argument_types(&TEST_MODULE, "t.now"), None);
         assert_eq!(DefaultResolver::argument_types(&TEST_MODULE, "t.missing"), None);
     }
 
@@ -951,6 +1014,11 @@ mod tests {
         assert_eq!(
             DefaultResolver::expected_arguments(&TEST_MODULE, "t.emit").as_deref(),
             Some("String, List OF Byte")
+        );
+        // Zero-argument call renders as "()" (shared convention).
+        assert_eq!(
+            DefaultResolver::expected_arguments(&TEST_MODULE, "t.now").as_deref(),
+            Some("()")
         );
         assert_eq!(DefaultResolver::expected_arguments(&TEST_MODULE, "t.missing"), None);
     }
@@ -982,6 +1050,45 @@ mod tests {
         assert!(DefaultResolver::default_padding(&TEST_MODULE, "t.emit", 2).is_empty());
         // Unknown call → no padding.
         assert!(DefaultResolver::default_padding(&TEST_MODULE, "t.missing", 0).is_empty());
+    }
+
+    fn types(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn resolve_call_exact_argument_match() {
+        // Exact-match resolution returns the matched overload's fixed return.
+        assert_eq!(
+            DefaultResolver::resolve_call(&TEST_MODULE, "t.add", &types(&["Integer", "Integer"])),
+            Some("Integer")
+        );
+        // Zero-arg function resolves with no arguments.
+        assert_eq!(
+            DefaultResolver::resolve_call(&TEST_MODULE, "t.now", &[]),
+            Some("Integer")
+        );
+        // `emit` accepts its required arg alone (the optional trailing arg omitted).
+        assert_eq!(
+            DefaultResolver::resolve_call(&TEST_MODULE, "t.emit", &types(&["String"])),
+            Some("String")
+        );
+        // Wrong argument type / arity / name -> None.
+        assert_eq!(
+            DefaultResolver::resolve_call(&TEST_MODULE, "t.add", &types(&["Integer", "String"])),
+            None
+        );
+        assert_eq!(
+            DefaultResolver::resolve_call(&TEST_MODULE, "t.add", &types(&["Integer"])),
+            None
+        );
+        assert_eq!(DefaultResolver::resolve_call(&TEST_MODULE, "t.now", &types(&["Integer"])), None);
+        assert_eq!(DefaultResolver::resolve_call(&TEST_MODULE, "t.missing", &[]), None);
+        // A `Custom`-return call is resolver-owned, not answered here.
+        assert_eq!(
+            DefaultResolver::resolve_call(&TEST_MODULE, "t.pick", &types(&["Integer"])),
+            None
+        );
     }
 
     #[test]
@@ -1064,12 +1171,17 @@ mod tests {
         BuiltinRegistry::new(&[&TEST_MODULE, &COLLIDING_MODULE]);
 
     #[test]
-    fn production_registry_is_empty_in_letter_a() {
-        // No package is migrated in A, so the production registry is empty and
-        // the mod.rs adapters always fall back to legacy helpers.
-        assert!(REGISTRY.modules().is_empty());
+    fn production_registry_holds_migrated_packages() {
+        // `app` is migrated (plan-72-B), so it is registered and resolvable by
+        // module name and by qualified function name. `bits` is not migrated yet,
+        // so it is absent and its calls fall back to the legacy helper.
+        assert!(REGISTRY.module("app").is_some());
+        assert!(REGISTRY.function("app.setMode").is_some());
         assert!(REGISTRY.module("bits").is_none());
         assert!(REGISTRY.function("bits.band").is_none());
+        // The registry's names stay unique as packages are appended.
+        assert_eq!(REGISTRY.duplicate_module_name(), None);
+        assert_eq!(REGISTRY.duplicate_function_name(), None);
     }
 
     #[test]
