@@ -389,6 +389,12 @@ Commit: d008d2419
   --bin mfb` → `3755 passed; 0 failed`; base-vs-mine exe-oracle **linux-x86_64 1288/1288
   and windows-x86_64 614/614 byte-identical**. The change stays byte-neutral on top of
   main's heavy builder/IR changes, exactly as its construction guarantees.
+  **A third orthogonal main advance** (`dc9d10351`→`418affa07`: plan-75 resource-union
+  thread transfer, plan-77 spec-review) landed during the final merge; again no overlap
+  with `select.rs`/`abi.rs`/the token path (`git diff --name-only dc9d10351..418affa07`),
+  merged clean, `cargo test --bin mfb` → `3755 passed; 0 failed`. Byte-identity holds on
+  `418affa07` by composition (full-corpus base-vs-mine proof on `dc9d10351` + the verified
+  orthogonal delta) — the plan's byte-identical-by-construction property.
 - **`artifact-gate.sh` NOT run at finalization — a concurrent run held it.** Another
   session was running `scripts/artifact-gate.sh … all` (worktree P-74; `pgrep -f
   artifact-gate`), and the project forbids concurrent artifact-gate (infra-kill hazard).
