@@ -382,6 +382,13 @@ Commit: d008d2419
   612/612 byte-identical**. AArch64/RISC-V are untouched (the change is entirely in
   `arch/x86_64/`; their selectors never call `remap_x86_abi`) and were proven
   byte-identical across all five targets on the pre-merge base (Phase 2 gate).
+  **Main advanced a second time during finalization** (`17c019d7f`→`dc9d10351`:
+  plan-74 resource-union STATE, plan-76 async I/O, and a tree-wide `cargo fmt --all`
+  reformat). Still no overlap with `select.rs` or `abi.rs` (the token vocabulary), so
+  clean merge; re-ran the same re-proof on the `dc9d10351`-merged tree: `cargo test
+  --bin mfb` → `3755 passed; 0 failed`; base-vs-mine exe-oracle **linux-x86_64 1288/1288
+  and windows-x86_64 614/614 byte-identical**. The change stays byte-neutral on top of
+  main's heavy builder/IR changes, exactly as its construction guarantees.
 - **`artifact-gate.sh` NOT run at finalization — a concurrent run held it.** Another
   session was running `scripts/artifact-gate.sh … all` (worktree P-74; `pgrep -f
   artifact-gate`), and the project forbids concurrent artifact-gate (infra-kill hazard).
