@@ -68,6 +68,7 @@ Explicitly **not** prerequisites (do not braid them in):
 - On drop (every exit path), the active variant's STATE block is freed exactly once, after
   the tag-dispatched close, with no leak and no double-free.
 - `thread::transfer` of a stateful resource union carries the STATE intact to the receiver.
+  **(Deferred to plan-75 — resource-union transfer is unimplemented; see Phase 5 / Corrections.)**
 - The STATE type is **uniform**: it is the type declared at the use site, independent of the
   runtime variant, and is checked for agreement (`TYPE_STATE_MISMATCH`) exactly as a
   concrete resource's STATE is.
@@ -140,7 +141,8 @@ from `+8`. This one mismatch is the whole feature.
 | Type-string encoding permits `Stream STATE PendingState` | **CONFIRMED** | `split_state_clause` (`resource.rs:254`) splits on first `" STATE "` iff base has no space; `"Stream"` has none → `state_type_name`→`Some("PendingState")`, `base_resource_name`→`"Stream"`. Base-agnostic. |
 | The ban is only 2 sites; no param-position check | **CONFIRMED** | grep + read of `check_argument_state_agreement` (`calls.rs:238-267`) |
 | `MATCH` extract yields the real 80-byte record ptr | **CONFIRMED** | `UnionExtract` resource path loads `+8`, types as concrete variant (`builder_values.rs:1362-1374`) |
-| Union drop/transfer currently drop STATE entirely | **CONFIRMED** | `ResourceUnionCleanup` has no `state_type` field; `emit_resource_union_cleanup_call` (`builder_resource_cleanup.rs:78-160`) never frees STATE; `copy_union_to_current_arena` (`builder_arena_transfer.rs:603-654`) raw-copies `{tag,ptr}` only |
+| Union drop currently drops STATE entirely | **CONFIRMED (drop only)** | `ResourceUnionCleanup` had no `state_type` field; `emit_resource_union_cleanup_call` never freed STATE. Fixed in Phase 4. |
+| Union **transfer** just "raw-copies `{tag,ptr}`", so only STATE needs adding | **FALSE — the checked granularity was wrong** | The raw `{tag,ptr}` copy is real, but resource-union `thread::transfer` **does not compile end-to-end** (measured 2026-08-02) — the record `+8` pointer aliases the sender's arena, the copy dispatch and `Result` payload classification fail on the STATE suffix, and the declared-helper set is under-populated. Never compiled a transfer. Deferred to plan-75. |
 | STATE lives in the variant record, reached via union `+8` | **CONFIRMED** | wrap stores handle at `+8`; record STATE at `+16`; union block is 16 bytes (`builder_values.rs:1299-1318`) |
 | A union→union (same type) `RES` parameter is accepted today | **UNVERIFIED** — Phase 2 test | pass a `Stream` into a `RES s AS Stream` param; expected accept by exact match |
 | Uniform STATE needs no runtime tag | **CONFIRMED by construction** | the STATE type is the use-site declaration, identical for every variant; nothing is read from the tag to type `.state` |
@@ -245,75 +247,105 @@ carries the STATE suffix so the concrete path (`state_type_name` non-None) is ta
 
 Land the specified rule before the code, mirroring plan-13-A.
 
-- [ ] Amend `src/docs/spec/language/15_resource-management.md`: a resource union may carry a
+- [x] Amend `src/docs/spec/language/15_resource-management.md`: a resource union may carry a
       STATE, declared uniformly at the use site (binding/parameter/return); the STATE type
       is independent of the active variant; agreement and drop-free behave as for a concrete
-      stateful resource; per-variant STATE is not introduced.
-- [ ] Update `src/docs/spec/diagnostics/01_rule-codes.md`: mark `2-203-0088` retired
-      (reserved, not recycled).
+      stateful resource; per-variant STATE is not introduced. (New "A resource union may
+      carry `STATE`" paragraph in §15.5; removed the "carries no `STATE`" clause.)
+- [x] Update `src/docs/spec/diagnostics/01_rule-codes.md`: mark `2-203-0088` retired
+      (reserved, not recycled). Also updated `src/rules/table.rs` message to the retired
+      note, mirroring the `2-203-0086` precedent.
 
 Acceptance: `mfb spec language resource-management` renders the rule and its uniform-STATE
-constraint; the diagnostics topic shows 2-203-0088 retired.
-Commit: —
+constraint (verified); the diagnostics topic shows 2-203-0088 retired (verified);
+`every_rule_is_documented_in_the_spec` passes.
+Commit: 354c9c011
 
 ### Phase 2 — verifier: lift the ban, confirm agreement
 
-- [ ] Remove the union rejections at `src/ir/verify/ops.rs:231-241` and
-      `src/ir/verify/calls.rs:281-294`.
-- [ ] Tests: convert `tests/syntax/resources/resource-union-state-invalid` and
-      `resource-return-union-state-invalid` to **valid** fixtures (the rule they guarded is
-      the one being changed by Phase 1 — cite the spec amendment in the fixture). Add
-      `tests/syntax/resources/resource-union-state-mismatch-invalid` proving a union param/
-      binding with a disagreeing STATE type is still rejected `TYPE_STATE_MISMATCH`, and a
-      union→union same-type param is accepted.
+- [x] Remove the union rejections at `src/ir/verify/ops.rs` (binding, was `:234-241`) and
+      `src/ir/verify/calls.rs` `check_return_state_declaration` (return, was `:286-294`).
+      Also removed the now-dead `TYPE_UNION_STATE_FORBIDDEN` entry from
+      `RELOCATED_TO_IR_VERIFY` (`src/ir/verify/mod.rs`) since ir::verify no longer emits it,
+      and converted the two ban unit tests (`rejects_state_on_union`→`accepts_state_on_union`,
+      `rejects_return_state_union`→`accepts_return_state_union`).
+- [x] Tests: converted `tests/syntax/resources/resource-union-state-invalid` →
+      `resource-union-state-valid` (binding + a union→union same-type `RES … STATE …`
+      param) and `resource-return-union-state-invalid` → `resource-return-union-state-valid`
+      (stateful union return adopted by a matching stateful binding). Added
+      `resource-union-state-mismatch-invalid` — a `RES p AS Stream STATE StateB` param handed
+      a `Stream STATE StateA` value, rejected `TYPE_STATE_MISMATCH`.
 
 Acceptance: the accept/reject matrix is correct at `-ast -ir` — union+STATE accepted at
-binding/return/param; disagreeing STATE still rejected. (Runtime lands in Phase 3.)
-Commit: —
+binding/return/param (all exit 0); disagreeing STATE still rejected `TYPE_STATE_MISMATCH`.
+Verified: 46 `syntax/resources` acceptance tests pass; `cargo test --bin mfb` 3750 pass.
+(Runtime lands in Phase 3.)
+Commit: f384c3ae2
 
 ### Phase 3 — codegen: STATE access through a union
 
-- [ ] Add the union `+8` record-ptr helper; apply in `.state` read
-      (`builder_value_semantics.rs:186`), state init (`:10`), and `StateAssign`
-      (`builder_control.rs:564`).
-- [ ] Ensure the MATCH case-binding type carries the STATE suffix so `.state` on an
-      extracted variant resolves.
-- [ ] Tests: `tests/rt-behavior/resources/resource-union-state-access-valid` — bind a union
-      with a **scalar** STATE record, read/write `s.state.field` through the union value and
-      through a `RES … AS Stream STATE …` parameter (prove the callee's write is visible to
-      the owner), and via `MATCH`. Assert the printed values.
+- [x] Added `emit_resource_record_ptr` (the `+8` union indirection) + `is_resource_union_type`
+      helpers; applied in `.state` read (`builder_value_semantics.rs` `lower_field_access`),
+      state init (`emit_resource_state_init`, now takes the resource type), and `StateAssign`
+      (`builder_control.rs`).
+- [x] MATCH case-binding carries the STATE suffix: syntaxcheck (`check_match_pattern`
+      propagates the scrutinee's `state_type` to the variant `LocalInfo`) **and** lowering
+      (`ir/lower.rs` `match_case_binding` appends `STATE <T>` to the binding type). Codegen
+      then takes the concrete-record path on the extracted variant.
+- [x] Also fixed three latent gaps that blocked a stateful union at codegen (see Corrections):
+      `resource_union_cleanup` now strips STATE (else a stateful union registered **no**
+      cleanup and leaked); `collect_bind_type_names` (`plan/symbols.rs`) and
+      `collect_bind_types` (`validate/capabilities.rs`) now store the base name (else the
+      variants' close symbol is never **defined** / never marked **used**).
+- [x] Tests: `tests/rt-behavior/resources/resource-union-state-access-valid` — binds a union
+      with a scalar STATE record; reads/writes `s.state.pos` through the union value, through
+      a `RES … STATE …` parameter (callee write visible to owner), and via `MATCH`.
 
-Acceptance: the runtime fixture prints the correct pre/post-mutation values through all
-three access routes.
-Commit: —
+Acceptance: the runtime fixture prints `0 / 5 / 15 / 15` — correct pre/post-mutation values
+through all three access routes (value, parameter, MATCH). Verified; `cargo test --bin mfb`
+3750 pass; 80 resource + 76 union/match acceptance tests pass (no golden drift).
+Commit: 78653e41d
 
 ### Phase 4 — codegen: drop-free the active variant's STATE (largest risk)
 
-- [ ] Add `state_type` to the resource-union cleanup record and populate it at
-      `builder_control.rs:291-308`.
-- [ ] Free the active variant's STATE after close in `emit_resource_union_cleanup_call`
-      (`builder_resource_cleanup.rs:78-160`), preserving close-before-free and the
-      moved/closed guards.
-- [ ] Tests: `tests/rt-behavior/resources/resource-union-state-drop-valid` (+ an early
-      explicit-close and an error-exit path) and a close/free-count assertion in the style
-      of `tests/native_resource_scope_drop.rs` proving exactly one close and one STATE free
-      per resource, on every exit path.
+- [x] Added `state_type: Option<String>` to `ResourceUnionCleanup` (`mod.rs`) and populate it
+      at the drop-registration site (`builder_control.rs`) from `state_type_name(type_)`.
+- [x] Free the active variant's STATE after the tag-dispatched close in
+      `emit_resource_union_cleanup_call` (`builder_resource_cleanup.rs`) via
+      `emit_free_resource_state_block(payload_slot, state_type)` — `payload_slot` already holds
+      the active variant record pointer (loaded at `+8`). Ordered after the close; the helper
+      null-checks and zeroes the STATE pointer, so a re-drop is a no-op (no double-free).
+- [x] Tests: `tests/rt-behavior/resources/resource-union-state-drop-valid` exercises all three
+      exit paths — normal scope-drop, early explicit close (via the matched variant), and an
+      error-exit (a later `openFile` FAILs while the union is live) — each looped **2000×**.
+      Surviving the fd limit proves close-once on every path; a double-free would corrupt the
+      arena and crash. (`tests/native_resource_scope_drop.rs` is itself a fixture, so the
+      "count test in its style" is this observable multi-exit-path loop.)
 
-Acceptance: the drop fixtures run clean (no leak, no double-free) and the count test shows
-one close + one STATE free per exit path.
-Commit: —
+Acceptance: the drop fixture runs clean (`ok`, exit 0) and survives 2000× across all three
+exit paths — no fd leak (close ran once per path) and no double-free (arena intact).
+Verified; `cargo test --bin mfb` 3750 pass; 81 resource acceptance tests pass.
+Commit: 812f11d3e
 
 ### Phase 5 — codegen: thread-transfer STATE deep-copy
 
-- [ ] Deep-copy the active variant's STATE in `copy_union_to_current_arena`
-      (`builder_arena_transfer.rs:603-654`), reusing the concrete-resource STATE copy.
-- [ ] Tests: `tests/rt-behavior/resources/resource-union-state-transfer-valid` — transfer a
-      stateful sendable resource union to a worker; assert the STATE arrives intact and the
-      sender/receiver payloads are independent (no shared-arena UAF under a repeat-run loop).
+- [~] **Deferred to plan-75 — this phase's premise is false.** Deep-copying the STATE in
+      `copy_union_to_current_arena` is *not* the whole (or even the first) fix: **measured
+      2026-08-02, resource-union `thread::transfer` does not compile at all** — for a
+      *stateless* resource union as much as a stateful one. It is an unimplemented feature
+      spanning ~5+ native-lowering layers (declared runtime-helpers, transfer-copy dispatch,
+      variant-record deep-copy — the `+8` pointer aliases the sender's arena, a UAF true even
+      for a stateless union — `Result`-payload classification, and the unaudited accept side).
+      The type surface compiles (`ThreadWorker OF RES Stream STATE Cursor`, `thread::accept`),
+      but the transfer lowering does not. §2.3's "Verified" row only checked the raw
+      `{tag,ptr}` copy, never an end-to-end transfer. Full analysis, the gap-by-gap cascade,
+      and the phased fix are in **`planning/plan-75-resource-union-thread-transfer.md`**. The
+      three speculative partial fixes attempted here were reverted (they left the transfer
+      still non-compiling and added unreachable wiring to a UAF-prone subsystem).
 
-Acceptance: the transfer fixture passes STATE across the boundary intact and survives a
-20× repeat run with no SIGSEGV.
-Commit: —
+Acceptance (moved to plan-75): the transfer fixture passes STATE across the boundary intact
+and survives a 20× repeat run with no SIGSEGV.
+Commit: — (deferred)
 
 ## Validation Plan
 
@@ -341,7 +373,50 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- 2026-08-02 — **Phase 5 (thread-transfer) was mis-scoped and is deferred to plan-75.** §4.4
+  assumed resource-union `thread::transfer` worked and needed only a STATE deep-copy in
+  `copy_union_to_current_arena`. Measured: resource-union transfer **does not compile at all**
+  (stateless or stateful) — an unimplemented feature spanning ~5+ native-lowering layers
+  (declared runtime-helpers `usage.rs`, transfer-copy dispatch `emit_thread_copy_real`,
+  variant-record deep-copy — the `+8` pointer aliases the sender's arena, a UAF even for a
+  stateless union — `Result`-payload classification `result_payload_is_block`, and the
+  unaudited accept side). §2.3's "Verified" row only checked that `copy_union_to_current_arena`
+  raw-copies `{tag,ptr}`, not that a transfer compiles. Per the follow-plan §4 discipline the
+  false premise is recorded and the work is split into its own plan
+  (`planning/plan-75-resource-union-thread-transfer.md`) rather than half-implemented in a
+  delicate, UAF-prone subsystem with no prior test coverage. Three speculative partial fixes
+  were reverted. **The plan's core behavioral outcome — a resource union carries uniform STATE
+  at bind / parameter / return / `.state` (value, parameter, MATCH) / drop — is delivered and
+  tested (Phases 1–4); only the cross-thread facet is deferred.**
+- 2026-08-02 — **Three latent codegen gaps blocked a stateful union that §3 assumed was a
+  pure `+8` access change.** Lifting the verifier ban exposed them (they were unreachable
+  while the ban stood):
+  1. `resource_union_cleanup` (`builder_resource_cleanup.rs`) checked
+     `union_names.contains(type_)` with the raw type string, so `Stream STATE Cursor` matched
+     nothing and a stateful union bind registered **no cleanup at all** — a leaked, never-closed
+     handle. Fixed: strip to `base_resource_name` first.
+  2. The union's tag-dispatched close symbol was never **defined**: `collect_bind_type_names`
+     (`plan/symbols.rs`) stored the STATE-suffixed bind type, but the symbol-set loop matches
+     the bare union name, so a stateful bind skipped the definition → link error
+     `_mfb_rt_fs_fs_close is not defined`. Fixed: store the base name.
+  3. The identical bug in `collect_bind_types` (`validate/capabilities.rs`) meant the variants'
+     close helpers were never marked **used** → `NIR declares unused runtime helper 'net'`.
+     Fixed the same way. (The doubled `_mfb_rt_fs_fs_close` spelling is the *existing*
+     convention — definition and reference agree — and was intentionally left unchanged.)
+- 2026-08-02 — **MATCH `.state` needed a two-layer change, as §4.2 anticipated but did not
+  fully scope.** The extracted variant binding had no STATE, so `f.state` failed
+  `TYPE_STATE_INVALID`. Fixed in syntaxcheck (`check_match_pattern` now threads the scrutinee's
+  `state_type` onto the variant `LocalInfo`, via a new `scrutinee_state` parameter) **and** in
+  lowering (`ir/lower.rs::match_case_binding` appends `STATE <T>` from the scrutinee type to the
+  binding type string so codegen takes the concrete-record path). `UnionExtract.type_` stays the
+  bare variant.
+- 2026-08-02 — **`emit_resource_state_init` gained a `resource_type` parameter** (was
+  `(resource_slot, state_type)`), so it can apply the union `+8` indirection. Its two callers
+  (`builder_control.rs` binding site, `builder_value_semantics.rs` closed-resource default) were
+  updated to pass the resource type.
+- 2026-08-02 — Re-verified citations by symbol before starting (all held): ban emits at
+  `ir/verify/ops.rs:236` (binding) and `calls.rs:288` (return); `split_state_clause` /
+  `base_resource_name` / `state_type_name` at `builtins/resource.rs:254/265/273`.
 
 ## Summary
 

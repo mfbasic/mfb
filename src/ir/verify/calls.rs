@@ -267,31 +267,22 @@ impl TypeEnv {
     }
 
     /// Apply the STATE payload-type rules to a **declared return**: the state type
-    /// must be defaultable (`TYPE_STATE_INVALID`) and its base must not be a
-    /// resource union (`TYPE_UNION_STATE_FORBIDDEN`) — the same two rules the
-    /// binding position has always enforced, since they are properties of the
-    /// state type itself and do not care which position declares it.
+    /// must be defaultable (`TYPE_STATE_INVALID`). plan-74 lifted the former
+    /// `TYPE_UNION_STATE_FORBIDDEN` ban here — a resource union may now return a
+    /// uniform STATE just as a concrete stateful resource does; the defaultable
+    /// rule is a property of the STATE type itself and does not care which position
+    /// declares it.
     ///
-    /// These were unreachable from a return for a subtle reason worth recording:
+    /// This was unreachable from a return for a subtle reason worth recording:
     /// the binding rules pattern-match `" STATE "` in a type string, and the return
     /// type string never contained it (plan-52-D restored that append). But the
-    /// append alone does **not** make them fire — they run over `IrOp::Bind`, and a
+    /// append alone does **not** make it fire — it runs over `IrOp::Bind`, and a
     /// function's return is not a binding. The same omission that rejected the
-    /// legal stateful `RETURN` also hid these two, and each needs its own fix.
+    /// legal stateful `RETURN` also hid it, and each needed its own fix.
     pub(super) fn check_return_state_declaration(&self, function: &IrFunction) {
         let Some(state_type) = crate::builtins::resource::state_type_name(&function.returns) else {
             return;
         };
-        let base = resource_base_type(&function.returns);
-        if self.unions.contains_key(base) {
-            self.emit(
-                "TYPE_UNION_STATE_FORBIDDEN",
-                format!(
-                    "FUNC `{}` returns resource union `{base}` with STATE `{state_type}`; a resource union carries no STATE — use a concrete stateful resource.",
-                    function.name
-                ),
-            );
-        }
         if !self.is_defaultable(state_type, &mut HashSet::new()) {
             self.emit(
                 "TYPE_STATE_INVALID",

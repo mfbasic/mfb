@@ -1675,9 +1675,19 @@ fn match_case_binding(
                 };
             }
             // coverage:on
+            // A stateful resource union's STATE is uniform across variants, so the
+            // extracted variant binding carries the same STATE suffix as the
+            // scrutinee (plan-74) — this is what lets `f.state` on `CASE File(f)`
+            // resolve and lower through the concrete-record path. The `UnionExtract`
+            // itself stays keyed on the bare variant type (it loads the variant
+            // record pointer at `+8`).
+            let binding_type = match crate::builtins::resource::state_type_name(matched_type) {
+                Some(state) => format!("{type_name} STATE {state}"),
+                None => type_name.clone(),
+            };
             Some((
                 binding.clone(),
-                type_name.clone(),
+                binding_type,
                 IrValue::UnionExtract {
                     type_: type_name.clone(),
                     value: Box::new(IrValue::Local(matched_local.to_string())),

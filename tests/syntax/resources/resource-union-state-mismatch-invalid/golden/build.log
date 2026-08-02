@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-union-state-mismatch-invalid
+  25 | FUNC main AS Integer
+  26 |   RES s AS Stream STATE StateA = fs::createTempFile()
+  27 |   observe(s)
+     | ^
+tests/syntax/resources/resource-union-state-mismatch-invalid/src/main.mfb:27 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               Argument 1 for `observe` is declared `STATE StateB` but carries STATE `StateA`; a parameter observes a resource's state, it cannot re-type it.
+[exit 1]

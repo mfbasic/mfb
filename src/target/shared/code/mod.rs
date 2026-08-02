@@ -491,6 +491,10 @@ struct ResourceUnionCleanup {
     /// `(tag, close_symbol)` per active variant; drop reads the union tag and
     /// calls the matching close op on the variant's resource pointer.
     variants: Vec<(usize, String)>,
+    /// The union's uniform `STATE` type, when it declared one (plan-74). Carried
+    /// from the bind so the tag-dispatched drop can free the active variant
+    /// record's STATE block after the close — mirrors `ResourceCleanup.state_type`.
+    state_type: Option<String>,
 }
 
 /// A per-scope runtime owned-list (§15.6): the close obligations for resources

@@ -417,6 +417,7 @@ impl<'a> SyntaxChecker<'a> {
         file: &AstFile,
         pattern: &MatchPattern,
         matched_type: &Type,
+        scrutinee_state: Option<&str>,
         case_locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) {
@@ -431,6 +432,7 @@ impl<'a> SyntaxChecker<'a> {
                         file,
                         &MatchPattern::Literal(expression.clone()),
                         matched_type,
+                        scrutinee_state,
                         case_locals,
                         line,
                     );
@@ -461,7 +463,12 @@ impl<'a> SyntaxChecker<'a> {
                             LocalInfo {
                                 type_: Type::User(type_name.clone()),
                                 mutable: false,
-                                state_type: None,
+                                // A resource union's STATE is uniform across its
+                                // variants, so a MATCH-extracted variant carries the
+                                // same STATE the scrutinee declared (plan-74).
+                                // Without this, `f.state` on `CASE File(f)` of a
+                                // stateful union fails to resolve.
+                                state_type: scrutinee_state.map(str::to_string),
                             },
                         );
                     }
