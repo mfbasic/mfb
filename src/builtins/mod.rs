@@ -420,28 +420,14 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
     if audio::is_audio_internal_call(name) {
         return false;
     }
-    app::is_app_call(name)
-        || audio::is_audio_call(name)
+    // plan-72-BB: descriptor membership is every package's `is_<pkg>_call`
+    // (`DefaultResolver::contains`). The two non-descriptor member surfaces stay
+    // explicit: `collections`' source-generic functions and `vector`'s
+    // dynamically-parsed constants. The `call_return_type_name` tail preserves the
+    // pre-existing admission of lowered-only names whose return type is known
+    // (e.g. `tls.closeListener`).
+    descriptor::REGISTRY.function(name).is_some()
         || collections::is_collections_call(name)
-        || general::is_general_call(name)
-        || strings::is_strings_call(name)
-        || math::is_math_call(name)
-        || bits::is_bits_call(name)
-        || crypto::is_crypto_call(name)
-        || encoding::is_encoding_call(name)
-        || fs::is_fs_call(name)
-        || io::is_io_call(name)
-        || json::is_json_call(name)
-        || csv::is_csv_call(name)
-        || regex::is_regex_call(name)
-        || datetime::is_datetime_call(name)
-        || money::is_money_call(name)
-        || net::is_net_call(name)
-        || os::is_os_call(name)
-        || http::is_http_call(name)
-        || term::is_term_call(name)
-        || thread::is_thread_call(name)
-        || tls::is_tls_call(name)
         || vector::is_vector_call(name)
         || call_return_type_name(name).is_some()
 }
