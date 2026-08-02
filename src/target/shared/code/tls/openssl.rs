@@ -2201,6 +2201,202 @@ pub(super) fn lower_tls_read_openssl(
 }
 
 // ---------------------------------------------------------------------------
+// tls.poll  (plan-76-B: tls::poll(sock[, timeoutMs]) AS Boolean)
+// ---------------------------------------------------------------------------
+
+// plan-76-B Phase 2: complete and compile-verified. Not yet wired into the
+// `tls.poll` dispatch — the fan-out (`tls/mod.rs`) is exhaustive over all three
+// backends, and the macOS backend is blocked on an architecture decision
+// (plan-76-B Corrections B-macos-blocker: Network.framework cannot answer a
+// non-blocking readiness poll without a data-losing race, so it needs an
+// outstanding-receive re-architecture). The 3-backend dispatch must land
+// atomically, so this stays unwired until that is resolved.
+#[allow(dead_code)]
+/// TLS readiness on OpenSSL. `readable = SSL_pending(ssl) > 0 OR poll(fd, POLLIN)`:
+/// the `SSL_pending` fast-path catches decrypted app bytes already buffered in the
+/// TLS layer with the fd idle (which an fd-only poll would miss), and the `poll(2)`
+/// fallback carries the plan-73 timeout (sentinel→block, `<0`→invalid, `>0`→clamp
+/// `INT_MAX`, EINTR-retry — the `net::poll` policy). `x0` = sock record, `x1` =
+/// timeoutMs. Returns `Boolean`.
+pub(super) fn lower_tls_poll_openssl(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    const FRAME_SIZE: usize = 64;
+    const TIMEOUT_OFFSET: usize = 8;
+    const SSL_OFFSET: usize = 16;
+    const FD_OFFSET: usize = 24;
+    const HANDLE_OFFSET: usize = 32;
+    const FNPTR_OFFSET: usize = 40;
+    const POLLFD_OFFSET: usize = 48; // pollfd { fd; events; revents }
+
+    let closed = format!("{symbol}_closed");
+    let invalid = format!("{symbol}_invalid");
+    let load_fail = format!("{symbol}_load_fail");
+    let poll_infinite = format!("{symbol}_poll_infinite");
+    let timeout_ok = format!("{symbol}_timeout_ok");
+    let ready = format!("{symbol}_ready");
+    let not_ready = format!("{symbol}_not_ready");
+    let poll_retry = format!("{symbol}_poll_retry");
+    let poll_fail = format!("{symbol}_poll_fail");
+    let done = format!("{symbol}_done");
+
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    instructions.extend([
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_CLOSED),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&closed),
+        abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_SSL),
+        abi::store_u64("%v9", abi::stack_pointer(), SSL_OFFSET),
+        // Save the fd now — the record pointer in x0 is clobbered by the SSL_pending
+        // call below, so the fd for the poll fallback must come from a stack slot.
+        abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_FD),
+        abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        // Normalize the timeout (net::poll policy): sentinel→-1 (block), <0→invalid,
+        // >0→clamp INT_MAX. Store the effective value back.
+        abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers("%v9", "%v10"),
+        abi::branch_eq(&poll_infinite),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_lt(&invalid),
+        abi::move_immediate("%v10", "Integer", "2147483647"),
+        abi::compare_registers("%v9", "%v10"),
+        abi::branch_le(&timeout_ok),
+        abi::move_register("%v9", "%v10"),
+        abi::branch(&timeout_ok),
+        abi::label(&poll_infinite),
+        abi::bitwise_not("%v9", abi::ZERO),
+        abi::label(&timeout_ok),
+        abi::store_u64("%v9", abi::stack_pointer(), TIMEOUT_OFFSET),
+    ]);
+    // SSL_pending fast-path: buffered decrypted bytes => readable now (skip poll).
+    emit_dlopen_libssl(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        HANDLE_OFFSET,
+        &load_fail,
+    )?;
+    emit_dlsym(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        HANDLE_OFFSET,
+        "SSL_pending",
+        FNPTR_OFFSET,
+        &load_fail,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+        // SSL_pending returns a C int count; sign-extend before the signed compare.
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_gt(&ready),
+        // No buffered bytes: poll the raw fd (reloaded from its stack slot, since the
+        // record pointer in x0 was clobbered by the SSL_pending call). Build
+        // pollfd{ fd, POLLIN }.
+        abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
+        abi::move_immediate("%v10", "Integer", "1"), // POLLIN
+        abi::store_u8("%v10", abi::stack_pointer(), POLLFD_OFFSET + 4),
+        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 5),
+        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 6),
+        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 7),
+        abi::label(&poll_retry),
+        abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFFSET),
+    ]);
+    platform.emit_libc_call(
+        "poll",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&poll_fail),
+        abi::branch_eq(&not_ready),
+        abi::label(&ready),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&not_ready),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&poll_fail),
+    ]);
+    // EINTR → re-issue the poll; any other errno → resource-closed (the readiness
+    // check failed, matching net::poll's hard-error class).
+    platform.emit_errno(
+        symbol,
+        "%v9",
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate("%v9", "4"), // EINTR
+        abi::branch_eq(&poll_retry),
+    ]);
+    emit_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&load_fail));
+    emit_fail(
+        symbol,
+        ERR_TLS_FAILED_CODE,
+        ERR_TLS_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&invalid));
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&closed));
+    emit_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+// ---------------------------------------------------------------------------
 // tls.write / tls.writeText
 // ---------------------------------------------------------------------------
 

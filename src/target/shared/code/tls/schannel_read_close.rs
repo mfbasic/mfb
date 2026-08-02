@@ -475,3 +475,101 @@ pub(super) fn lower_tls_close(
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
     Ok((frame, ins, rel, slots))
 }
+
+// plan-76-B: tls::poll(sock[, timeoutMs]) AS Boolean on schannel.
+// readable = STATE[LEFT_LEN] > 0 (undelivered decrypted plaintext already buffered
+// from a prior DecryptMessage) OR WSAPoll(fd, POLLRDNORM) indicates the socket is
+// readable. The buffered fast-path is mandatory: a DecryptMessage can leave plaintext
+// in the carry-over buffer with the socket idle, which an fd-only poll would miss.
+// x0 = sock record, x1 = timeoutMs.
+// plan-76-B Phase 3: complete and compile-verified; unwired pending the macOS
+// backend architecture decision (B-macos-blocker) — the 3-backend `tls.poll`
+// dispatch must land atomically.
+#[allow(dead_code)]
+pub(super) fn lower_tls_poll(
+    symbol: &str,
+    imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    const TIMEOUT: usize = 8;
+    const POLLFD: usize = 16; // WSAPOLLFD { SOCKET fd; SHORT events; SHORT revents } (16 bytes)
+    const FRAME_SIZE: usize = 48;
+
+    let closed = format!("{symbol}_closed");
+    let invalid = format!("{symbol}_invalid");
+    let ready = format!("{symbol}_ready");
+    let not_ready = format!("{symbol}_not_ready");
+    let poll_fail = format!("{symbol}_poll_fail");
+    let poll_infinite = format!("{symbol}_poll_infinite");
+    let timeout_ok = format!("{symbol}_timeout_ok");
+    let done = format!("{symbol}_done");
+
+    let mut ins = vec![abi::label("entry")];
+    let mut rel = Vec::new();
+    ins.extend([
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), TIMEOUT),
+        abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_CLOSED),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&closed),
+        // Buffered decrypted plaintext? STATE ptr is at record[16] (schannel repurposes
+        // the SSL slot; the read helper loads it from the same literal offset);
+        // LEFT_LEN is the undelivered plaintext byte count.
+        abi::load_u64("%v9", abi::return_register(), 16),
+        abi::load_u64("%v10", "%v9", st::LEFT_LEN),
+        abi::compare_immediate("%v10", "0"),
+        abi::branch_gt(&ready),
+        // Normalize the timeout (net::poll policy): sentinel→-1 (block), <0→invalid,
+        // >0→clamp INT_MAX. No external call precedes WSAPoll, so the record pointer in
+        // x0 stays live for the fd load below.
+        abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT),
+        abi::move_immediate("%v10", "Integer", super::super::TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers("%v9", "%v10"),
+        abi::branch_eq(&poll_infinite),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_lt(&invalid),
+        abi::move_immediate("%v10", "Integer", "2147483647"),
+        abi::compare_registers("%v9", "%v10"),
+        abi::branch_le(&timeout_ok),
+        abi::move_register("%v9", "%v10"),
+        abi::branch(&timeout_ok),
+        abi::label(&poll_infinite),
+        abi::bitwise_not("%v9", abi::ZERO),
+        abi::label(&timeout_ok),
+        abi::store_u64("%v9", abi::stack_pointer(), TIMEOUT),
+        // WSAPOLLFD { fd; events = POLLRDNORM; revents = 0 }
+        abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_FD),
+        abi::store_u64("%v9", abi::stack_pointer(), POLLFD),
+        abi::move_immediate("%v10", "Integer", POLLRDNORM),
+        abi::store_u16("%v10", abi::stack_pointer(), POLLFD + 8),
+        abi::store_u16(abi::ZERO, abi::stack_pointer(), POLLFD + 10),
+        abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT),
+    ]);
+    platform.emit_libc_call("WSAPoll", symbol, imports, &mut ins, &mut rel)?;
+    ins.extend([
+        // WSAPoll returns a C int; sign-extend before the signed compares.
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&poll_fail),
+        abi::branch_eq(&not_ready),
+        abi::label(&ready),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&not_ready),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        // WSAPoll has no EINTR (no POSIX signals); a negative return is a hard error.
+        abi::label(&poll_fail),
+    ]);
+    emit_fail(symbol, ERR_NETWORK_FAILED_CODE, ERR_NETWORK_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+    ins.push(abi::label(&invalid));
+    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &done);
+    ins.push(abi::label(&closed));
+    emit_fail(symbol, ERR_RESOURCE_CLOSED_CODE, ERR_RESOURCE_CLOSED_SYMBOL, &mut ins, &mut rel, &done);
+    ins.extend([abi::label(&done), abi::return_()]);
+    let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
+    Ok((frame, ins, rel, slots))
+}

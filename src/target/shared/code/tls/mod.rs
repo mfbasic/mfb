@@ -71,6 +71,10 @@ pub(super) const TLS_SYMBOLS: &[&str] = &[
     "SSL_connect",
     "SSL_get_verify_result",
     "SSL_read",
+    // plan-76-B: non-consuming count of already-decrypted, buffered app bytes —
+    // the readiness fast-path for `tls::poll` (a TLS record can hold app bytes with
+    // the fd idle, so an fd-only poll would under-report).
+    "SSL_pending",
     "SSL_write",
     "SSL_shutdown",
     "SSL_free",

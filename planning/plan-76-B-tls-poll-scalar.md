@@ -234,7 +234,7 @@ guards with a buffered-then-idle runtime fixture and a repeat loop.
 Acceptance: a written per-backend readiness recipe (query + wait), with the symbol/offset each uses.
 No code yet. If a backend has no non-consuming query, its Phase design is revised here. **DONE** —
 recipe above; macOS design revised (receive-driven shim, Phase 4).
-Commit: (recorded next commit)
+Commit: b7c91adaa
 
 ### Phase 1 — surface (descriptor + resolver + padding)
 
@@ -252,11 +252,15 @@ Commit: (recorded next commit)
 Acceptance: at `-ast -ir` the overload resolves to `Boolean`; `cargo test --bin mfb` green
 (3750 passed, 0 failed); syntax fixtures pass `test-accept.sh`. ✅ (Native lowering not added yet —
 a TLS program that calls `tls::poll` at native build hits the `mod.rs` catch-all until Phase 2–4.)
-Commit: (recorded next commit)
+Commit: b7c91adaa
 
 ### Phase 2 — openssl backend (Linux/BSD)
 
-- [ ] `lower_tls_poll_openssl`: `SSL_pending` fast-path + `poll(fd)` + shared timeout block + EINTR.
+- [~] `lower_tls_poll_openssl` **written** (`tls/openssl.rs`): `SSL_pending` fast-path (added
+      `"SSL_pending"` to `TLS_SYMBOLS`) → `poll(fd, POLLIN)` fallback + net::poll timeout
+      normalization + EINTR-retry. Compiles (dead-code until the `tls.poll` dispatch is wired — see
+      Corrections B-macos-blocker: the dispatch fan-out is exhaustive over 3 backends, so it cannot
+      be wired until the macOS arm is resolved). **Not yet runtime-proven** (needs the Linux box).
 - [ ] Tests: `tests/rt-behavior/tls/tls-poll-rt` (run on the Linux/openssl box): connect to a test
       TLS endpoint, prove (a) after a partial `tls::read` that leaves buffered bytes, `tls::poll(sock,
       0)` is `TRUE` with the fd idle; (b) `tls::poll(sock, 0)` is `FALSE` before any data; (c)
@@ -268,25 +272,52 @@ Commit: —
 
 ### Phase 3 — schannel backend (Windows)
 
-- [ ] `lower_tls_poll_schannel`: carry-over fast-path + `WSAPoll(POLLRDNORM)` + shared timeout block.
+- [~] `lower_tls_poll` for schannel **written** (`tls/schannel_read_close.rs`): `STATE[LEFT_LEN]`
+      carry-over fast-path → `WSAPoll(POLLRDNORM)` fallback + net::poll timeout normalization (no
+      EINTR on Windows). Compiles (dead-code until dispatch wired — same blocker as Phase 2).
+      **Not yet runtime-proven** (needs the Windows box, reachable at port 2230).
 - [ ] Tests: the same four cases on the Windows box (codegen verified per the Windows
       codegen-verification convention; runtime on-box where available).
 
 Acceptance: the four cases hold on Windows, buffered case included.
 Commit: —
 
-### Phase 4 — macOS Network.framework backend (largest risk, last)
+### Phase 4 — macOS Network.framework backend (BLOCKED — needs re-architecture; see B-macos-blocker)
 
-- [ ] `lower_tls_poll_macos`: ring-occupancy fast-path; `0` → immediate `FALSE`; `> 0`/omit →
-      bounded/indefinite semaphore wait re-checking the ring + terminal state; no semaphore leak, no
-      stolen read signal.
-- [ ] Tests: run `tls-poll-rt` locally on macOS; add a case that reads a large response in two
-      `tls::read` calls and asserts `tls::poll(sock, 0)` is `TRUE` between them (buffered data,
-      idle "fd"); ≥1000× connect/poll/read/close loop proving no `dispatch_semaphore` leak
-      (`macos/mod.rs:418` hazard).
+> **The plan's Phase-4 design is UNSOUND and cannot be implemented as written.** The
+> "ring-occupancy fast-path + bounded semaphore wait" rests on a decrypted-byte ring
+> that does not exist (Corrections B0-macOS), and the only fallback — post a receive and
+> wait — LOSES DATA on a non-blocking/bounded poll, because a posted
+> `nw_connection_receive` cannot be cancelled: on timeout `poll` returns `FALSE` while
+> the outstanding receive later fires and delivers bytes into `CTX_CONTENT` that no one
+> consumes (or that the next `read` double-receives past). `tls::poll(sock, 0)` — the
+> exact call `http::ready` makes — is the unsound case. See Corrections B-macos-blocker.
 
-Acceptance: all readiness cases hold on macOS; the leak loop is flat; `cargo test --bin mfb` +
-`artifact-gate.sh` green; goldens regenerated if tls codegen shifts.
+**Revised design (outstanding-receive model — the sound architecture, unscoped by the
+original plan):** re-architect the macOS TLS read path so exactly one
+`nw_connection_receive` is always in flight, its completion block stashing the mapped
+bytes into a persistent per-connection pending buffer (new ctx slots
+`CTX_PEND_BUF/LEN/OFF`, ctx size 48→≥72, zeroed at both connection-ctx alloc sites —
+`client.rs:107`, `server.rs:1434` — but NOT colliding with the listener ring at 48+,
+which is a separate allocation) and re-arming the next receive. Then:
+- `tls::poll` reads the pending-buffer state (and terminal `CTX_STATE`) **non-blocking**
+  for `0`; for `>0`/omit it waits on the semaphore bounded by a `dispatch_time` deadline
+  (the connect path, `client.rs:498-568`) and re-checks, never posting its own receive.
+- `tls::read` drains the pending buffer first (copy `min(maxBytes, len-off)`, advance
+  `off`; free + re-arm when drained), falling back to a fresh receive only when empty.
+This is a genuine change to the read path (byte-parity risk for existing `tls::read`) and
+to the completion block, with the dispatch-queue/owning-thread concurrency ordered by the
+semaphore. It is substantially larger than "add a poll helper." **Blocked pending the
+scope decision in B-macos-blocker.**
+
+- [ ] `lower_tls_poll_macos` + the outstanding-receive read-path re-architecture (above).
+- [ ] Tests: `tls-poll-rt` locally on macOS — `poll(0)` FALSE before data, TRUE after a
+      buffered partial read, omit blocks-then-TRUE; a two-`tls::read` large-response case;
+      ≥1000× connect/poll/read/close loop proving no `dispatch_data`/semaphore leak and no
+      dropped/duplicated bytes.
+
+Acceptance: all readiness cases hold on macOS with NO data loss under the poll/read
+interleave; leak loop flat; `cargo test` + `artifact-gate` green; tls goldens regenerated.
 Commit: —
 
 ### Phase 5 — docs
@@ -341,7 +372,25 @@ Commit: —
   `Optional`.** tls (unlike net) HAS `default_argument_padding` (`tls.rs:315`), so the omitted
   `timeoutMs` is padded there with `TIMEOUT_UNBOUNDED_SENTINEL` (mirroring `accept`), not padded in
   `builder_values.rs`. §4.1 already says pad in `default_argument_padding`; recorded here so the param
-  array uses the `fill`/`ACCEPT_DEFAULTS` shape, not net's `opt`.
+  array uses the `fill`/`ACCEPT_DEFAULTS` shape, not net's `opt`. **DONE** (Phase 1).
+- **B-macos-blocker (Phase 4, core-premise defect): the macOS `tls::poll` mechanism the plan
+  specifies is UNSOUND; the sound fix is unscoped new architecture.** Network.framework exposes NO
+  non-blocking data-readiness query and a posted `nw_connection_receive` CANNOT be cancelled. So a
+  bounded/zero-timeout poll that posts a receive and waits will, on timeout, return `FALSE` while the
+  outstanding receive later fires and delivers bytes into `CTX_CONTENT` — data the poll ignored, then
+  lost or double-received by the next `read`. `tls::poll(sock, 0)` (what `http::ready` calls) is
+  exactly this unsound case. The plan's Phase-4 "ring-occupancy + bounded semaphore wait" also rests
+  on a decrypted-byte ring that does not exist (B0-macOS). The only correct design is an
+  *outstanding-receive* model (one receive always in flight, its completion block stashes into a
+  persistent pending buffer and re-arms; poll reads that buffer non-blocking; read drains it) — a
+  substantial re-architecture of the delicate macOS async read path (ctx-layout change at two alloc
+  sites, read-path modification with byte-parity risk, dispatch-queue/owning-thread concurrency), NOT
+  the "add a poll helper" the plan scoped. Because the plan mandates all three backends ship together
+  ("a readiness primitive that lies on two platforms is worse than none"), the completed & compiling
+  openssl (Phase 2) and schannel (Phase 3) helpers cannot be wired/committed until the macOS approach
+  is decided. **Surfaced to the user for a scope decision.** Measured by the Phase-0 audit + the
+  read-helper analysis (`tls/macos/client.rs:806-1052`): the receive→map→copy→release path keeps no
+  persistent buffer and the completion is uncancellable.
 
 ## Summary
 
