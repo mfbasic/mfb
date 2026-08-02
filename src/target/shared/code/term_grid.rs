@@ -329,7 +329,11 @@ fn emit_scroll_back(
         abi::label(&clr_done),
         // --- shift the per-cell EGC pool slots up one row too (plan-70-B P2) ---
         // pool_base = back + ncells*(2*CELL + OUTBUF); dst = pool_base.
-        abi::move_immediate(word, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
+        abi::move_immediate(
+            word,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string(),
+        ),
         abi::multiply_registers(dst, ncells, word),
         abi::add_registers(dst, back, dst),
         // src = pool_base + cols*POOL_BYTES_PER_CELL (row 1's slots).
@@ -424,7 +428,11 @@ pub(super) fn emit_grid_alloc(
         abi::store_u64(colsv, abi::stack_pointer(), cols_slot),
         // size = HDR_SIZE + rows*cols*(2*CELL_SIZE + OUTBUF_PER_CELL)
         abi::multiply_registers(t, rowsv, colsv),
-        abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string()),
+        abi::move_immediate(
+            m,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string(),
+        ),
         abi::multiply_registers(t, t, m),
         abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::move_register(abi::return_register(), t),
@@ -440,7 +448,11 @@ pub(super) fn emit_grid_alloc(
         abi::load_u64(rowsv, abi::stack_pointer(), rows_slot),
         abi::load_u64(colsv, abi::stack_pointer(), cols_slot),
         abi::multiply_registers(t, rowsv, colsv),
-        abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string()),
+        abi::move_immediate(
+            m,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string(),
+        ),
         abi::multiply_registers(t, t, m),
         abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::shift_right_immediate(wc, t, 3),
@@ -494,7 +506,11 @@ pub(super) fn emit_grid_free(
         abi::load_u64(rowsv, gp, H_ROWS),
         abi::load_u64(colsv, gp, H_COLS),
         abi::multiply_registers(t, rowsv, colsv),
-        abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string()),
+        abi::move_immediate(
+            m,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string(),
+        ),
         abi::multiply_registers(t, t, m),
         abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::move_register(abi::return_register(), gp),
@@ -843,7 +859,11 @@ pub(super) fn emit_grid_write(
         // pool_base = gp + HDR_SIZE + ncells*(2*CELL + OUTBUF) (the pool region
         // follows back+front+outbuf); slot = pool_base + cellidx*POOL_BYTES_PER_CELL.
         abi::multiply_registers(ncells, rows, cols),
-        abi::move_immediate(sa, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
+        abi::move_immediate(
+            sa,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string(),
+        ),
         abi::multiply_registers(sa, ncells, sa),
         abi::add_immediate(sa, sa, HDR_SIZE),
         abi::add_registers(poolbase, gp, sa),
@@ -1049,7 +1069,11 @@ pub(super) fn emit_grid_resize(
         abi::store_u64(gp, sp, S_OLDGP),
         // new block = arena_alloc(HDR + newR*newC*(2*CELL+OUTBUF), 8)
         abi::multiply_registers(t, newr, newc),
-        abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string()),
+        abi::move_immediate(
+            m,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string(),
+        ),
         abi::multiply_registers(t, t, m),
         abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::move_register(abi::return_register(), t),
@@ -1066,7 +1090,11 @@ pub(super) fn emit_grid_resize(
         abi::load_u64(newr, sp, S_NEWR),
         abi::load_u64(newc, sp, S_NEWC),
         abi::multiply_registers(t, newr, newc),
-        abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string()),
+        abi::move_immediate(
+            m,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string(),
+        ),
         abi::multiply_registers(t, t, m),
         abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::shift_right_immediate(wc, t, 3),
@@ -1194,7 +1222,11 @@ pub(super) fn emit_grid_resize(
         abi::load_u64(oldc, sp, S_OLDC),
         abi::load_u64(gp, sp, S_OLDGP),
         abi::multiply_registers(t, oldr, oldc),
-        abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string()),
+        abi::move_immediate(
+            m,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string(),
+        ),
         abi::multiply_registers(t, t, m),
         abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::move_register(abi::return_register(), gp),
@@ -1458,7 +1490,11 @@ pub(super) fn emit_grid_present(
         abi::move_immediate(pe_sc, "Integer", &GLYPH_POOLED_LEN_MASK.to_string()),
         abi::and_registers(pe_len, glyph, pe_sc),
         // pool_base = gp + HDR_SIZE + ncells*(2*CELL + OUTBUF).
-        abi::move_immediate(pe_sc, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
+        abi::move_immediate(
+            pe_sc,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string(),
+        ),
         abi::multiply_registers(pe_base, ncells, pe_sc),
         abi::add_immediate(pe_base, pe_base, HDR_SIZE),
         abi::add_registers(pe_base, gp, pe_base),

@@ -597,7 +597,11 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     asm.push(abi::branch_eq("draw_col_next"));
     // plan-70-D: a wide-trailing sentinel draws nothing — the wide primary's glyph
     // already spans this column (its background was filled above). Skip the glyph.
-    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", APP_WIDE_TRAIL));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        APP_WIDE_TRAIL,
+    ));
     asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
     asm.push(abi::branch_eq("draw_col_next"));
     // [attrs setObject:[color from cell.fg] forKey:NSForegroundColorAttributeName]
@@ -667,7 +671,11 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     // plan-70-D Phase 2: a pooled multi-scalar cluster (combining marks, ZWJ emoji)
     // rebuilds its whole grapheme from the pool slot; lone scalars fall through to
     // the inline surrogate build below.
-    asm.push(abi::shift_right_immediate(abi::SCRATCH[1], abi::SCRATCH[0], 24));
+    asm.push(abi::shift_right_immediate(
+        abi::SCRATCH[1],
+        abi::SCRATCH[0],
+        24,
+    ));
     asm.push(abi::compare_immediate(abi::SCRATCH[1], "192")); // 0xC0 pooled tag
     asm.push(abi::branch_ne("draw_not_pooled"));
     asm.push(abi::move_immediate(
@@ -675,14 +683,38 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
         "Integer",
         APP_GLYPH_POOLED_LEN_MASK,
     ));
-    asm.push(abi::and_registers(abi::SCRATCH[4], abi::SCRATCH[0], abi::SCRATCH[1])); // unit count
-    asm.push(abi::load_u64(abi::SCRATCH[2], abi::LOCAL[0], TV_POOL_OFFSET));
+    asm.push(abi::and_registers(
+        abi::SCRATCH[4],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    )); // unit count
+    asm.push(abi::load_u64(
+        abi::SCRATCH[2],
+        abi::LOCAL[0],
+        TV_POOL_OFFSET,
+    ));
     asm.push(abi::compare_immediate(abi::SCRATCH[2], "0"));
     asm.push(abi::branch_eq("draw_col_next")); // no pool -> nothing to draw
-    asm.push(abi::multiply_registers(abi::SCRATCH[3], abi::LOCAL[4], abi::LOCAL[3])); // row*cols
-    asm.push(abi::add_registers(abi::SCRATCH[3], abi::SCRATCH[3], abi::LOCAL[5])); // +col
-    asm.push(abi::shift_left_immediate(abi::SCRATCH[3], abi::SCRATCH[3], 6)); // *POOL(64)
-    asm.push(abi::add_registers(abi::SCRATCH[2], abi::SCRATCH[2], abi::SCRATCH[3])); // pool slot
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[3],
+        abi::LOCAL[4],
+        abi::LOCAL[3],
+    )); // row*cols
+    asm.push(abi::add_registers(
+        abi::SCRATCH[3],
+        abi::SCRATCH[3],
+        abi::LOCAL[5],
+    )); // +col
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[3],
+        abi::SCRATCH[3],
+        6,
+    )); // *POOL(64)
+    asm.push(abi::add_registers(
+        abi::SCRATCH[2],
+        abi::SCRATCH[2],
+        abi::SCRATCH[3],
+    )); // pool slot
     asm.push(abi::load_u64("x1", abi::stack_pointer(), off_swc_sel));
     asm.external_data("x0", CLASS_NS_STRING, LIB_FOUNDATION);
     asm.push(abi::move_register("x2", abi::SCRATCH[2])); // units buffer
@@ -694,16 +726,44 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
     asm.push(abi::branch_lt("draw_bmp"));
     // astral: cp -= 0x10000; hi = 0xD800 + (cp>>10); lo = 0xDC00 + (cp & 0x3FF)
-    asm.push(abi::subtract_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[1]));
-    asm.push(abi::shift_right_immediate(abi::SCRATCH[2], abi::SCRATCH[0], 10));
+    asm.push(abi::subtract_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
+    asm.push(abi::shift_right_immediate(
+        abi::SCRATCH[2],
+        abi::SCRATCH[0],
+        10,
+    ));
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "55296"));
-    asm.push(abi::add_registers(abi::SCRATCH[2], abi::SCRATCH[2], abi::SCRATCH[1])); // hi
+    asm.push(abi::add_registers(
+        abi::SCRATCH[2],
+        abi::SCRATCH[2],
+        abi::SCRATCH[1],
+    )); // hi
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "1023")); // 0x3FF
-    asm.push(abi::and_registers(abi::SCRATCH[3], abi::SCRATCH[0], abi::SCRATCH[1]));
+    asm.push(abi::and_registers(
+        abi::SCRATCH[3],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "56320"));
-    asm.push(abi::add_registers(abi::SCRATCH[3], abi::SCRATCH[3], abi::SCRATCH[1])); // lo
-    asm.push(abi::shift_left_immediate(abi::SCRATCH[3], abi::SCRATCH[3], 16));
-    asm.push(abi::or_registers(abi::SCRATCH[0], abi::SCRATCH[2], abi::SCRATCH[3])); // hi | lo<<16
+    asm.push(abi::add_registers(
+        abi::SCRATCH[3],
+        abi::SCRATCH[3],
+        abi::SCRATCH[1],
+    )); // lo
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[3],
+        abi::SCRATCH[3],
+        16,
+    ));
+    asm.push(abi::or_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[2],
+        abi::SCRATCH[3],
+    )); // hi | lo<<16
     asm.push(abi::move_immediate(abi::SCRATCH[4], "Integer", "2"));
     asm.push(abi::branch("draw_len_set"));
     asm.push(abi::label("draw_bmp"));
@@ -720,7 +780,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     asm.push(abi::move_register("x3", abi::SCRATCH[4]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::label("draw_have_string")); // inline + pooled paths converge (x0 = string)
-    // [s drawAtPoint:(col*cellW, row*cellH) withAttributes:attrs]
+                                              // [s drawAtPoint:(col*cellW, row*cellH) withAttributes:attrs]
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
         abi::LOCAL[0],
@@ -964,9 +1024,21 @@ pub(super) fn emit_term_init_helper() -> CodeFunction {
 
     // plan-70-D Phase 2: pool = calloc(rows*cols, APP_POOL_BYTES_PER_CELL) — the
     // per-cell EGC byte arena for multi-scalar clusters.
-    asm.push(abi::load_u64(abi::SCRATCH[0], abi::LOCAL[1], TV_COLS_OFFSET));
-    asm.push(abi::load_u64(abi::SCRATCH[1], abi::LOCAL[1], TV_ROWS_OFFSET));
-    asm.push(abi::multiply_registers("x0", abi::SCRATCH[0], abi::SCRATCH[1]));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[1],
+        TV_COLS_OFFSET,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::LOCAL[1],
+        TV_ROWS_OFFSET,
+    ));
+    asm.push(abi::multiply_registers(
+        "x0",
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
     asm.push(abi::move_immediate(
         "x1",
         "Integer",
@@ -1307,15 +1379,7 @@ struct AppStampCtx {
 /// the two internal labels unique. The `_mfb_unicode_*` relocations these
 /// `local_address` loads emit are exactly what make the shared build embed the ~1.5 MB
 /// property table (mod.rs `references_unicode_table`) — call ONLY under `uses_term`.
-fn app_emit_charwidth(
-    asm: &mut Asm,
-    cp: &str,
-    out: &str,
-    s1: &str,
-    s2: &str,
-    s3: &str,
-    tag: &str,
-) {
+fn app_emit_charwidth(asm: &mut Asm, cp: &str, out: &str, s1: &str, s2: &str, s3: &str, tag: &str) {
     let lookup = format!("{tag}_lookup");
     let done = format!("{tag}_done");
     asm.push(abi::move_immediate(out, "Integer", "1114112")); // 0x110000
@@ -1910,15 +1974,7 @@ pub(super) fn emit_term_draw_glyph_helper(uses_term: bool) -> CodeFunction {
     // plan-70-D Phase 2: the glyph's display width (gated on uses_term so a non-term
     // app never references the table); a wide glyph reserves a WIDE_TRAIL neighbour.
     if uses_term {
-        app_emit_charwidth(
-            &mut asm,
-            glyph,
-            width,
-            ctx.idx,
-            ctx.cell,
-            ctx.tmp,
-            "dgl_w",
-        );
+        app_emit_charwidth(&mut asm, glyph, width, ctx.idx, ctx.cell, ctx.tmp, "dgl_w");
     } else {
         asm.push(abi::move_immediate(width, "Integer", "1"));
     }
@@ -2020,7 +2076,7 @@ pub(super) fn emit_term_draw_text_helper(uses_term: bool) -> CodeFunction {
     asm.push(abi::load_u64(cols, state, TV_COLS_OFFSET));
     asm.push(abi::load_u64(rows, state, TV_ROWS_OFFSET));
     asm.push(abi::load_u64(col, state, TV_TEXT_X_OFFSET)); // running column
-    // Row must be on the grid.
+                                                           // Row must be on the grid.
     asm.push(abi::load_u64(y, state, TV_TEXT_Y_OFFSET));
     asm.push(abi::compare_immediate(y, "0"));
     asm.push(abi::branch_lt("dt_done"));
@@ -2053,7 +2109,11 @@ pub(super) fn emit_term_draw_text_helper(uses_term: bool) -> CodeFunction {
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(cp, "x0"));
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
-    asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), off_base));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_base,
+    ));
     // Astral decode from a UTF-16 surrogate pair (mirrors mfbWriteString:).
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "55296")); // 0xD800
     asm.push(abi::compare_registers(cp, abi::SCRATCH[0]));
@@ -2076,16 +2136,40 @@ pub(super) fn emit_term_draw_text_helper(uses_term: bool) -> CodeFunction {
     asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
     asm.push(abi::branch_ge("dt_not_surr"));
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "55296"));
-    asm.push(abi::subtract_registers(abi::SCRATCH[2], cp, abi::SCRATCH[1]));
-    asm.push(abi::shift_left_immediate(abi::SCRATCH[2], abi::SCRATCH[2], 10));
+    asm.push(abi::subtract_registers(
+        abi::SCRATCH[2],
+        cp,
+        abi::SCRATCH[1],
+    ));
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[2],
+        abi::SCRATCH[2],
+        10,
+    ));
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "56320"));
-    asm.push(abi::subtract_registers(abi::SCRATCH[3], abi::SCRATCH[0], abi::SCRATCH[1]));
-    asm.push(abi::add_registers(abi::SCRATCH[2], abi::SCRATCH[2], abi::SCRATCH[3]));
+    asm.push(abi::subtract_registers(
+        abi::SCRATCH[3],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[2],
+        abi::SCRATCH[2],
+        abi::SCRATCH[3],
+    ));
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "65536"));
-    asm.push(abi::add_registers(abi::SCRATCH[2], abi::SCRATCH[2], abi::SCRATCH[1]));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[2],
+        abi::SCRATCH[2],
+        abi::SCRATCH[1],
+    ));
     asm.push(abi::move_register(cp, abi::SCRATCH[2])); // full codepoint
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "2")); // base scalar = 2 units
-    asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), off_base));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_base,
+    ));
     asm.push(abi::label("dt_not_surr"));
     // Control char (< 0x20): advance i by L, leave the column unchanged.
     asm.push(abi::compare_immediate(cp, "32"));
@@ -2108,7 +2192,11 @@ pub(super) fn emit_term_draw_text_helper(uses_term: bool) -> CodeFunction {
     // Pool a multi-scalar cluster (L > base units) into the (y,col) cell's slot.
     if uses_term {
         asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_l));
-        asm.push(abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), off_base));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            off_base,
+        ));
         asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
         asm.push(abi::branch_eq("dt_pool_done"));
         // col must be on the grid to own a pool slot; else the stamp clips it anyway.
@@ -2121,16 +2209,32 @@ pub(super) fn emit_term_draw_text_helper(uses_term: bool) -> CodeFunction {
         asm.push(abi::branch_le("dt_pool_len_ok"));
         asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "32"));
         asm.push(abi::label("dt_pool_len_ok"));
-        asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), off_clamped));
+        asm.push(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_clamped,
+        ));
         // buffer = pool_base + (y*cols + col)*POOL
         asm.push(abi::load_u64(abi::SCRATCH[2], state, TV_POOL_OFFSET));
         asm.push(abi::compare_immediate(abi::SCRATCH[2], "0"));
         asm.push(abi::branch_eq("dt_pool_done"));
         asm.push(abi::load_u64(abi::SCRATCH[0], state, TV_TEXT_Y_OFFSET));
-        asm.push(abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], cols));
+        asm.push(abi::multiply_registers(
+            abi::SCRATCH[0],
+            abi::SCRATCH[0],
+            cols,
+        ));
         asm.push(abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], col));
-        asm.push(abi::shift_left_immediate(abi::SCRATCH[0], abi::SCRATCH[0], 6));
-        asm.push(abi::add_registers(abi::SCRATCH[2], abi::SCRATCH[2], abi::SCRATCH[0]));
+        asm.push(abi::shift_left_immediate(
+            abi::SCRATCH[0],
+            abi::SCRATCH[0],
+            6,
+        ));
+        asm.push(abi::add_registers(
+            abi::SCRATCH[2],
+            abi::SCRATCH[2],
+            abi::SCRATCH[0],
+        ));
         // [str getCharacters:buffer range:{i, clampedL}]
         asm.load_selector(SEL_GET_CHARACTERS.0);
         asm.push(abi::move_register("x2", abi::SCRATCH[2]));
@@ -2139,8 +2243,16 @@ pub(super) fn emit_term_draw_text_helper(uses_term: bool) -> CodeFunction {
         asm.push(abi::move_register("x0", strv));
         asm.call_external("_objc_msgSend", LIB_OBJC);
         // cp = APP_GLYPH_POOLED_TAG | clampedL
-        asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_clamped));
-        asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", APP_GLYPH_POOLED_TAG));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_clamped,
+        ));
+        asm.push(abi::move_immediate(
+            abi::SCRATCH[1],
+            "Integer",
+            APP_GLYPH_POOLED_TAG,
+        ));
         asm.push(abi::or_registers(cp, abi::SCRATCH[1], abi::SCRATCH[0]));
         asm.push(abi::label("dt_pool_done"));
     }
@@ -2239,13 +2351,21 @@ pub(super) fn emit_term_scroll_helper() -> CodeFunction {
     asm.push(abi::branch_eq("scroll_pool_done"));
     // memmove(pool, pool + poolRowBytes, (rows-1)*poolRowBytes)
     asm.push(abi::subtract_immediate(abi::SCRATCH[0], abi::LOCAL[2], 1));
-    asm.push(abi::multiply_registers("x2", abi::SCRATCH[0], abi::LOCAL[4]));
+    asm.push(abi::multiply_registers(
+        "x2",
+        abi::SCRATCH[0],
+        abi::LOCAL[4],
+    ));
     asm.push(abi::move_register("x0", abi::LOCAL[3]));
     asm.push(abi::add_registers("x1", abi::LOCAL[3], abi::LOCAL[4]));
     asm.call_external("_memmove", LIB_SYSTEM);
     // bzero(pool + (rows-1)*poolRowBytes, poolRowBytes)
     asm.push(abi::subtract_immediate(abi::SCRATCH[0], abi::LOCAL[2], 1));
-    asm.push(abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::LOCAL[4]));
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::LOCAL[4],
+    ));
     asm.push(abi::add_registers("x0", abi::LOCAL[3], abi::SCRATCH[0]));
     asm.push(abi::move_register("x1", abi::LOCAL[4]));
     asm.call_external("_bzero", LIB_SYSTEM);
@@ -2364,7 +2484,7 @@ pub(super) fn emit_term_write_string_helper(uses_term: bool) -> CodeFunction {
     asm.push(abi::move_register("x0", abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[8], "x0")); // char code
-    // base-scalar unit count: 1 unless the astral decode below combines a pair.
+                                                       // base-scalar unit count: 1 unless the astral decode below combines a pair.
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
     asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 96));
 
@@ -2383,7 +2503,7 @@ pub(super) fn emit_term_write_string_helper(uses_term: bool) -> CodeFunction {
     asm.push(abi::add_immediate(abi::SCRATCH[0], abi::LOCAL[4], 1)); // i+1
     asm.push(abi::compare_registers(abi::SCRATCH[0], abi::LOCAL[5]));
     asm.push(abi::branch_ge("w_not_surrogate")); // no next unit
-    // lo = [str characterAtIndex:(i+1)]
+                                                 // lo = [str characterAtIndex:(i+1)]
     asm.load_selector(SEL_CHAR_AT_INDEX.0);
     asm.push(abi::add_immediate("x2", abi::LOCAL[4], 1)); // i+1 (SCRATCH may be clobbered by load_selector)
     asm.push(abi::move_register("x0", abi::LOCAL[1]));
@@ -2395,17 +2515,37 @@ pub(super) fn emit_term_write_string_helper(uses_term: bool) -> CodeFunction {
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "57344")); // 0xE000
     asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
     asm.push(abi::branch_ge("w_not_surrogate")); // lo >= 0xE000 → not a low surrogate
-    // codepoint = 0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00)
+                                                 // codepoint = 0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00)
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "55296"));
-    asm.push(abi::subtract_registers(abi::SCRATCH[2], abi::LOCAL[8], abi::SCRATCH[1]));
-    asm.push(abi::shift_left_immediate(abi::SCRATCH[2], abi::SCRATCH[2], 10));
+    asm.push(abi::subtract_registers(
+        abi::SCRATCH[2],
+        abi::LOCAL[8],
+        abi::SCRATCH[1],
+    ));
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[2],
+        abi::SCRATCH[2],
+        10,
+    ));
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "56320"));
-    asm.push(abi::subtract_registers(abi::SCRATCH[3], abi::SCRATCH[0], abi::SCRATCH[1]));
-    asm.push(abi::add_registers(abi::SCRATCH[2], abi::SCRATCH[2], abi::SCRATCH[3]));
+    asm.push(abi::subtract_registers(
+        abi::SCRATCH[3],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[2],
+        abi::SCRATCH[2],
+        abi::SCRATCH[3],
+    ));
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "65536"));
-    asm.push(abi::add_registers(abi::SCRATCH[2], abi::SCRATCH[2], abi::SCRATCH[1]));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[2],
+        abi::SCRATCH[2],
+        abi::SCRATCH[1],
+    ));
     asm.push(abi::move_register(abi::LOCAL[8], abi::SCRATCH[2])); // full codepoint
-    // (the cluster length L spilled at sp+88 advances i past both surrogate units)
+                                                                  // (the cluster length L spilled at sp+88 advances i past both surrogate units)
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "2")); // base scalar = 2 units
     asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 96));
     asm.push(abi::label("w_not_surrogate"));
@@ -2465,15 +2605,31 @@ pub(super) fn emit_term_write_string_helper(uses_term: bool) -> CodeFunction {
         asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 80)); // width
         asm.push(abi::compare_immediate(abi::SCRATCH[0], "2"));
         asm.push(abi::branch_ne("w_wide_ok"));
-        asm.push(abi::load_u64(abi::SCRATCH[1], abi::LOCAL[2], TV_CURSOR_COL_OFFSET));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[1],
+            abi::LOCAL[2],
+            TV_CURSOR_COL_OFFSET,
+        ));
         asm.push(abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 1)); // col+1
         asm.push(abi::compare_registers(abi::SCRATCH[1], abi::LOCAL[6]));
         asm.push(abi::branch_lt("w_wide_ok"));
         asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
-        asm.push(abi::store_u64(abi::SCRATCH[1], abi::LOCAL[2], TV_CURSOR_COL_OFFSET));
-        asm.push(abi::load_u64(abi::SCRATCH[1], abi::LOCAL[2], TV_CURSOR_ROW_OFFSET));
+        asm.push(abi::store_u64(
+            abi::SCRATCH[1],
+            abi::LOCAL[2],
+            TV_CURSOR_COL_OFFSET,
+        ));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[1],
+            abi::LOCAL[2],
+            TV_CURSOR_ROW_OFFSET,
+        ));
         asm.push(abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 1));
-        asm.push(abi::store_u64(abi::SCRATCH[1], abi::LOCAL[2], TV_CURSOR_ROW_OFFSET));
+        asm.push(abi::store_u64(
+            abi::SCRATCH[1],
+            abi::LOCAL[2],
+            TV_CURSOR_ROW_OFFSET,
+        ));
         asm.push(abi::label("w_wide_ok"));
     }
     // scroll if cursor_row >= rows
@@ -2510,17 +2666,45 @@ pub(super) fn emit_term_write_string_helper(uses_term: bool) -> CodeFunction {
         asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "32"));
         asm.push(abi::label("w_pool_len_ok"));
         asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 104)); // clampedL
-        // buffer = pool_base + (row*cols + col) * APP_POOL_BYTES_PER_CELL
-        asm.push(abi::load_u64(abi::SCRATCH[2], abi::LOCAL[2], TV_POOL_OFFSET));
+                                                                              // buffer = pool_base + (row*cols + col) * APP_POOL_BYTES_PER_CELL
+        asm.push(abi::load_u64(
+            abi::SCRATCH[2],
+            abi::LOCAL[2],
+            TV_POOL_OFFSET,
+        ));
         asm.push(abi::compare_immediate(abi::SCRATCH[2], "0"));
         asm.push(abi::branch_eq("w_pool_done")); // no pool -> inline base scalar
-        asm.push(abi::load_u64(abi::SCRATCH[0], abi::LOCAL[2], TV_CURSOR_ROW_OFFSET));
-        asm.push(abi::load_u64(abi::SCRATCH[1], abi::LOCAL[2], TV_CURSOR_COL_OFFSET));
-        asm.push(abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::LOCAL[6])); // row*cols
-        asm.push(abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[1])); // +col
-        asm.push(abi::shift_left_immediate(abi::SCRATCH[0], abi::SCRATCH[0], 6)); // *POOL(64)
-        asm.push(abi::add_registers(abi::SCRATCH[2], abi::SCRATCH[2], abi::SCRATCH[0])); // buffer ptr
-        // [str getCharacters:buffer range:{i, clampedL}]  (NSRange in x3/x4)
+        asm.push(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::LOCAL[2],
+            TV_CURSOR_ROW_OFFSET,
+        ));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[1],
+            abi::LOCAL[2],
+            TV_CURSOR_COL_OFFSET,
+        ));
+        asm.push(abi::multiply_registers(
+            abi::SCRATCH[0],
+            abi::SCRATCH[0],
+            abi::LOCAL[6],
+        )); // row*cols
+        asm.push(abi::add_registers(
+            abi::SCRATCH[0],
+            abi::SCRATCH[0],
+            abi::SCRATCH[1],
+        )); // +col
+        asm.push(abi::shift_left_immediate(
+            abi::SCRATCH[0],
+            abi::SCRATCH[0],
+            6,
+        )); // *POOL(64)
+        asm.push(abi::add_registers(
+            abi::SCRATCH[2],
+            abi::SCRATCH[2],
+            abi::SCRATCH[0],
+        )); // buffer ptr
+            // [str getCharacters:buffer range:{i, clampedL}]  (NSRange in x3/x4)
         asm.load_selector(SEL_GET_CHARACTERS.0);
         asm.push(abi::move_register("x2", abi::SCRATCH[2])); // buffer
         asm.push(abi::move_register("x3", abi::LOCAL[4])); // range.location = i
@@ -2534,7 +2718,11 @@ pub(super) fn emit_term_write_string_helper(uses_term: bool) -> CodeFunction {
             "Integer",
             APP_GLYPH_POOLED_TAG,
         ));
-        asm.push(abi::or_registers(abi::LOCAL[8], abi::SCRATCH[1], abi::SCRATCH[0]));
+        asm.push(abi::or_registers(
+            abi::LOCAL[8],
+            abi::SCRATCH[1],
+            abi::SCRATCH[0],
+        ));
         asm.push(abi::label("w_pool_done"));
     }
     // cell = cells + (row*cols + col)*CELL_SIZE
@@ -2619,26 +2807,86 @@ pub(super) fn emit_term_write_string_helper(uses_term: bool) -> CodeFunction {
         // guaranteed col <= cols-2) and advances the cursor two columns; drawRect
         // skips the trail.
         asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 80)); // width
-        asm.push(abi::store_u8(abi::SCRATCH[0], abi::SCRATCH[3], CELL_WIDTH_OFFSET));
+        asm.push(abi::store_u8(
+            abi::SCRATCH[0],
+            abi::SCRATCH[3],
+            CELL_WIDTH_OFFSET,
+        ));
         asm.push(abi::compare_immediate(abi::SCRATCH[0], "2"));
         asm.push(abi::branch_ne("w_advance_one"));
-        asm.push(abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[3], CELL_SIZE)); // trail cell
-        asm.push(abi::move_immediate(abi::SCRATCH[2], "Integer", APP_WIDE_TRAIL));
-        asm.push(abi::store_u32(abi::SCRATCH[2], abi::SCRATCH[1], CELL_GLYPH_OFFSET));
-        asm.push(abi::load_u64(abi::SCRATCH[4], abi::LOCAL[2], TV_CUR_FG_OFFSET));
-        asm.push(abi::store_u32(abi::SCRATCH[4], abi::SCRATCH[1], CELL_FG_OFFSET));
-        asm.push(abi::load_u64(abi::SCRATCH[4], abi::LOCAL[2], TV_CUR_BG_OFFSET));
-        asm.push(abi::store_u32(abi::SCRATCH[4], abi::SCRATCH[1], CELL_BG_OFFSET));
-        asm.push(abi::load_u64(abi::SCRATCH[4], abi::LOCAL[2], TV_CUR_BOLD_OFFSET));
-        asm.push(abi::store_u8(abi::SCRATCH[4], abi::SCRATCH[1], CELL_BOLD_OFFSET));
-        asm.push(abi::load_u64(abi::SCRATCH[4], abi::LOCAL[2], TV_CUR_UNDERLINE_OFFSET));
-        asm.push(abi::store_u8(abi::SCRATCH[4], abi::SCRATCH[1], CELL_UNDERLINE_OFFSET));
+        asm.push(abi::add_immediate(
+            abi::SCRATCH[1],
+            abi::SCRATCH[3],
+            CELL_SIZE,
+        )); // trail cell
+        asm.push(abi::move_immediate(
+            abi::SCRATCH[2],
+            "Integer",
+            APP_WIDE_TRAIL,
+        ));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[2],
+            abi::SCRATCH[1],
+            CELL_GLYPH_OFFSET,
+        ));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[4],
+            abi::LOCAL[2],
+            TV_CUR_FG_OFFSET,
+        ));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[4],
+            abi::SCRATCH[1],
+            CELL_FG_OFFSET,
+        ));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[4],
+            abi::LOCAL[2],
+            TV_CUR_BG_OFFSET,
+        ));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[4],
+            abi::SCRATCH[1],
+            CELL_BG_OFFSET,
+        ));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[4],
+            abi::LOCAL[2],
+            TV_CUR_BOLD_OFFSET,
+        ));
+        asm.push(abi::store_u8(
+            abi::SCRATCH[4],
+            abi::SCRATCH[1],
+            CELL_BOLD_OFFSET,
+        ));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[4],
+            abi::LOCAL[2],
+            TV_CUR_UNDERLINE_OFFSET,
+        ));
+        asm.push(abi::store_u8(
+            abi::SCRATCH[4],
+            abi::SCRATCH[1],
+            CELL_UNDERLINE_OFFSET,
+        ));
         asm.push(abi::move_immediate(abi::SCRATCH[4], "Integer", "0"));
-        asm.push(abi::store_u8(abi::SCRATCH[4], abi::SCRATCH[1], CELL_WIDTH_OFFSET));
+        asm.push(abi::store_u8(
+            abi::SCRATCH[4],
+            abi::SCRATCH[1],
+            CELL_WIDTH_OFFSET,
+        ));
         // cursor_col += 2
-        asm.push(abi::load_u64(abi::SCRATCH[2], abi::LOCAL[2], TV_CURSOR_COL_OFFSET));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[2],
+            abi::LOCAL[2],
+            TV_CURSOR_COL_OFFSET,
+        ));
         asm.push(abi::add_immediate(abi::SCRATCH[2], abi::SCRATCH[2], 2));
-        asm.push(abi::store_u64(abi::SCRATCH[2], abi::LOCAL[2], TV_CURSOR_COL_OFFSET));
+        asm.push(abi::store_u64(
+            abi::SCRATCH[2],
+            abi::LOCAL[2],
+            TV_CURSOR_COL_OFFSET,
+        ));
         asm.push(abi::branch("w_next"));
         asm.push(abi::label("w_advance_one"));
     }
@@ -2753,7 +3001,11 @@ pub(super) fn emit_term_write_string_helper(uses_term: bool) -> CodeFunction {
     asm.push(abi::label("w_next"));
     // plan-70-D Phase 2: advance i by the cluster's UTF-16 unit length (sp+88).
     asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 88));
-    asm.push(abi::add_registers(abi::LOCAL[4], abi::LOCAL[4], abi::SCRATCH[0]));
+    asm.push(abi::add_registers(
+        abi::LOCAL[4],
+        abi::LOCAL[4],
+        abi::SCRATCH[0],
+    ));
     asm.push(abi::branch("w_loop"));
 
     // Grid mutation is complete. Redraw is present-driven (plan-35-D §3): the
@@ -3214,8 +3466,16 @@ pub(super) fn emit_term_set_frame_size_helper() -> CodeFunction {
 
     // newPool = calloc(newRows*newCols, POOL); on OOM free newCells and bail so the
     // old grid + pool stay consistent (both old-geometry). Cache old/new pool ptrs.
-    asm.push(abi::load_u64(abi::SCRATCH[0], abi::LOCAL[1], TV_POOL_OFFSET)); // oldPool
-    asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), off_old_pool));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[1],
+        TV_POOL_OFFSET,
+    )); // oldPool
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_old_pool,
+    ));
     asm.push(abi::multiply_registers("x0", abi::LOCAL[5], abi::LOCAL[6]));
     asm.push(abi::move_immediate(
         "x1",
@@ -3304,26 +3564,62 @@ pub(super) fn emit_term_set_frame_size_helper() -> CodeFunction {
 
     // Copy the EGC pool overlap (same min extents, POOL(64)-byte stride). newPool is
     // guaranteed non-null here; guard only the old pool.
-    asm.push(abi::load_u64(abi::SCRATCH[3], abi::stack_pointer(), off_old_pool));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[3],
+        abi::stack_pointer(),
+        off_old_pool,
+    ));
     asm.push(abi::compare_immediate(abi::SCRATCH[3], "0"));
     asm.push(abi::branch_eq("sfs_pool_copy_done"));
     asm.push(abi::move_immediate(abi::LOCAL[8], "Integer", "0")); // r = 0
     asm.push(abi::label("sfs_pool_copy_loop"));
-    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_min_rows));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_min_rows,
+    ));
     asm.push(abi::compare_registers(abi::LOCAL[8], abi::SCRATCH[0]));
     asm.push(abi::branch_ge("sfs_pool_copy_done"));
     // dst = newPool + (r*newCols)*POOL
-    asm.push(abi::load_u64(abi::SCRATCH[2], abi::stack_pointer(), off_new_pool));
-    asm.push(abi::multiply_registers(abi::SCRATCH[0], abi::LOCAL[8], abi::LOCAL[6]));
-    asm.push(abi::shift_left_immediate(abi::SCRATCH[0], abi::SCRATCH[0], 6));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[2],
+        abi::stack_pointer(),
+        off_new_pool,
+    ));
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[0],
+        abi::LOCAL[8],
+        abi::LOCAL[6],
+    ));
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        6,
+    ));
     asm.push(abi::add_registers("x0", abi::SCRATCH[2], abi::SCRATCH[0]));
     // src = oldPool + (r*oldCols)*POOL
-    asm.push(abi::load_u64(abi::SCRATCH[3], abi::stack_pointer(), off_old_pool));
-    asm.push(abi::multiply_registers(abi::SCRATCH[1], abi::LOCAL[8], abi::LOCAL[4]));
-    asm.push(abi::shift_left_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 6));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[3],
+        abi::stack_pointer(),
+        off_old_pool,
+    ));
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[1],
+        abi::LOCAL[8],
+        abi::LOCAL[4],
+    ));
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[1],
+        abi::SCRATCH[1],
+        6,
+    ));
     asm.push(abi::add_registers("x1", abi::SCRATCH[3], abi::SCRATCH[1]));
     // len = minCols * POOL
-    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_min_cols));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_min_cols,
+    ));
     asm.push(abi::shift_left_immediate("x2", abi::SCRATCH[0], 6));
     asm.call_external("_memcpy", LIB_SYSTEM);
     asm.push(abi::add_immediate(abi::LOCAL[8], abi::LOCAL[8], 1));
@@ -3345,9 +3641,21 @@ pub(super) fn emit_term_set_frame_size_helper() -> CodeFunction {
     asm.push(abi::label("sfs_freed"));
 
     // Publish + free the EGC pool in lockstep with the cell grid.
-    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_new_pool));
-    asm.push(abi::store_u64(abi::SCRATCH[0], abi::LOCAL[1], TV_POOL_OFFSET));
-    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_old_pool));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_new_pool,
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[1],
+        TV_POOL_OFFSET,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_old_pool,
+    ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq("sfs_pool_freed"));
     asm.push(abi::move_register("x0", abi::SCRATCH[0]));

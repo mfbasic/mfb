@@ -193,10 +193,8 @@ const SEL_RANGE_COMPOSED: (&str, &str) = (
     "rangeOfComposedCharacterSequenceAtIndex:",
 );
 // Copy a range of UTF-16 units into a caller buffer (for pooling a cluster).
-const SEL_GET_CHARACTERS: (&str, &str) = (
-    "_mfb_macapp_sel_getCharactersRange",
-    "getCharacters:range:",
-);
+const SEL_GET_CHARACTERS: (&str, &str) =
+    ("_mfb_macapp_sel_getCharactersRange", "getCharacters:range:");
 const SEL_APPEND_STRING: (&str, &str) = ("_mfb_macapp_sel_appendString", "appendString:");
 const SEL_SET_STRING: (&str, &str) = ("_mfb_macapp_sel_setString", "setString:");
 const SEL_DELETE_RANGE: (&str, &str) = (
@@ -467,10 +465,10 @@ const TV_GLYPH_Y_OFFSET: usize = 272; // i64 row
                                       // NSString `withObject:` argument, like mfbWriteString:).
 const TV_TEXT_X_OFFSET: usize = 280; // i64 start column
 const TV_TEXT_Y_OFFSET: usize = 288; // i64 row
-// plan-70-D Phase 2: per-cell EGC pool base (a calloc'd byte arena, rows*cols
-// slots of APP_POOL_BYTES_PER_CELL each; cell i's slot = base + i*POOL). 0 when
-// unallocated. Position-indexed like the console pool, so scroll/resize shift it
-// in lockstep with the cells.
+                                     // plan-70-D Phase 2: per-cell EGC pool base (a calloc'd byte arena, rows*cols
+                                     // slots of APP_POOL_BYTES_PER_CELL each; cell i's slot = base + i*POOL). 0 when
+                                     // unallocated. Position-indexed like the console pool, so scroll/resize shift it
+                                     // in lockstep with the cells.
 const TV_POOL_OFFSET: usize = 296; // TermCell-parallel EGC pool base (u8* heap)
 const TV_STATE_SIZE: usize = 304;
 // A multi-scalar grapheme cluster (combining sequence, ZWJ emoji family, flag)
@@ -496,11 +494,11 @@ const CELL_FG_OFFSET: usize = 4; // u32 packed r|g<<8|b<<16
 const CELL_BG_OFFSET: usize = 8; // u32 packed r|g<<8|b<<16
 const CELL_BOLD_OFFSET: usize = 12; // u8
 const CELL_UNDERLINE_OFFSET: usize = 13; // u8
-// plan-70-D: display width (0/1/2) of the cell's scalar, from A's charwidth table.
+                                         // plan-70-D: display width (0/1/2) of the cell's scalar, from A's charwidth table.
 const CELL_WIDTH_OFFSET: usize = 14; // u8
-// A wide scalar occupies its primary cell (width 2) plus this wide-trailing
-// sentinel in the next column; drawRect skips it. 0xFFFF_FFFF is not a valid
-// Unicode scalar (max U+10FFFF), so it never collides with a real glyph.
+                                     // A wide scalar occupies its primary cell (width 2) plus this wide-trailing
+                                     // sentinel in the next column; drawRect skips it. 0xFFFF_FFFF is not a valid
+                                     // Unicode scalar (max U+10FFFF), so it never collides with a real glyph.
 const APP_WIDE_TRAIL: &str = "4294967295";
 
 /// Initial TermView frame (matches the window content rect set in the bootstrap).

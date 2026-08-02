@@ -258,12 +258,18 @@ pub(super) fn lower_term_helper(
         "term.drawVLine" => emit_draw_line(symbol, term_state_offset, false, &mut instructions),
         "term.drawBox" => emit_draw_box(symbol, term_state_offset, &mut instructions),
         "term.fillRect" => emit_fill_rect(symbol, term_state_offset, &mut instructions),
-        "term.drawText" => {
-            emit_draw_text(symbol, term_state_offset, &mut instructions, &mut relocations)
-        }
-        "term.drawGlyph" => {
-            emit_draw_glyph(symbol, term_state_offset, &mut instructions, &mut relocations)
-        }
+        "term.drawText" => emit_draw_text(
+            symbol,
+            term_state_offset,
+            &mut instructions,
+            &mut relocations,
+        ),
+        "term.drawGlyph" => emit_draw_glyph(
+            symbol,
+            term_state_offset,
+            &mut instructions,
+            &mut relocations,
+        ),
         "term.getForeground" => emit_get_color(
             symbol,
             term_state_offset,
@@ -1609,7 +1615,12 @@ fn emit_draw_glyph(
         relocations,
     );
     super::private::unicode::emit_read_boundclass_icb_charwidth_free(
-        prop, wa, wb, width, wc, instructions,
+        prop,
+        wa,
+        wb,
+        width,
+        wc,
+        instructions,
     );
     instructions.extend([
         abi::compare_immediate(width, "0"),
@@ -1617,7 +1628,16 @@ fn emit_draw_glyph(
         abi::move_immediate(width, "Integer", "1"),
         abi::label(&w_have),
     ]);
-    emit_stamp_cell(&ctx, y, x, glyph, width, &format!("{symbol}_dgp"), &inactive, instructions);
+    emit_stamp_cell(
+        &ctx,
+        y,
+        x,
+        glyph,
+        width,
+        &format!("{symbol}_dgp"),
+        &inactive,
+        instructions,
+    );
     instructions.extend([
         // Wide glyph: stamp the wide-trailing sentinel at x+1 (clipped by
         // emit_stamp_cell if off the right edge).
@@ -1627,7 +1647,16 @@ fn emit_draw_glyph(
         abi::move_immediate(trailglyph, "Integer", term_grid::WIDE_TRAIL),
         abi::move_immediate(wa, "Integer", "0"),
     ]);
-    emit_stamp_cell(&ctx, y, trailc, trailglyph, wa, &format!("{symbol}_dgt"), &after_trail, instructions);
+    emit_stamp_cell(
+        &ctx,
+        y,
+        trailc,
+        trailglyph,
+        wa,
+        &format!("{symbol}_dgt"),
+        &after_trail,
+        instructions,
+    );
     instructions.push(abi::label(&after_trail));
     instructions.push(abi::label(&inactive));
     instructions.push(abi::move_immediate(
@@ -1828,7 +1857,12 @@ fn emit_draw_text(
         relocations,
     );
     super::private::unicode::emit_read_boundclass_icb_charwidth_free(
-        prop, sbc, sicb, width, sa, instructions,
+        prop,
+        sbc,
+        sicb,
+        width,
+        sa,
+        instructions,
     );
     instructions.push(abi::move_register(clen, len));
     instructions.push(abi::label(&peek_top));
@@ -1884,7 +1918,12 @@ fn emit_draw_text(
         relocations,
     );
     super::private::unicode::emit_read_boundclass_icb_charwidth_free(
-        pprop, pbc, picb, pwidth, sa, instructions,
+        pprop,
+        pbc,
+        picb,
+        pwidth,
+        sa,
+        instructions,
     );
     super::private::unicode::emit_grapheme_break_branch_free(
         &format!("{symbol}_dtpb"),
@@ -1965,7 +2004,16 @@ fn emit_draw_text(
         abi::label(&store_inline),
     ]);
     // Stamp the primary at (y, col) — off-grid (col<0 or off-row) skips to advance.
-    emit_stamp_cell(&ctx, y, col, glyph, width, &format!("{symbol}_dtp"), &advance, instructions);
+    emit_stamp_cell(
+        &ctx,
+        y,
+        col,
+        glyph,
+        width,
+        &format!("{symbol}_dtp"),
+        &advance,
+        instructions,
+    );
     instructions.extend([
         // Wide glyph: stamp the wide-trailing sentinel at col+1.
         abi::compare_immediate(width, "2"),
@@ -1974,7 +2022,16 @@ fn emit_draw_text(
         abi::move_immediate(trailg, "Integer", term_grid::WIDE_TRAIL),
         abi::move_immediate(sa, "Integer", "0"),
     ]);
-    emit_stamp_cell(&ctx, y, trailc, trailg, sa, &format!("{symbol}_dtt"), &advance, instructions);
+    emit_stamp_cell(
+        &ctx,
+        y,
+        trailc,
+        trailg,
+        sa,
+        &format!("{symbol}_dtt"),
+        &advance,
+        instructions,
+    );
     instructions.extend([
         abi::label(&advance),
         abi::add_registers(col, col, width),

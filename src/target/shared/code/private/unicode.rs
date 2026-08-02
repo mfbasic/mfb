@@ -402,7 +402,11 @@ impl CodeBuilder<'_> {
     ) {
         let mask = self.temporary_vreg();
         let mask = mask.as_str();
-        self.emit(abi::load_u16(output, property, UNICODE_PROPERTY_OFFSET_FLAGS));
+        self.emit(abi::load_u16(
+            output,
+            property,
+            UNICODE_PROPERTY_OFFSET_FLAGS,
+        ));
         self.emit(abi::shift_right_immediate(output, output, 4));
         self.emit(abi::move_immediate(mask, "Integer", "3"));
         self.emit(abi::and_registers(output, output, mask));
@@ -1260,13 +1264,21 @@ pub(in crate::target::shared::code) fn emit_read_boundclass_icb_charwidth_free(
     scratch: &str,
     instrs: &mut Vec<CodeInstruction>,
 ) {
-    instrs.push(abi::load_u16(bc_out, prop, UNICODE_PROPERTY_OFFSET_BOUNDCLASS));
+    instrs.push(abi::load_u16(
+        bc_out,
+        prop,
+        UNICODE_PROPERTY_OFFSET_BOUNDCLASS,
+    ));
     instrs.push(abi::load_u16(
         icb_out,
         prop,
         UNICODE_PROPERTY_OFFSET_INDIC_CONJUNCT_BREAK,
     ));
-    instrs.push(abi::load_u16(width_out, prop, UNICODE_PROPERTY_OFFSET_FLAGS));
+    instrs.push(abi::load_u16(
+        width_out,
+        prop,
+        UNICODE_PROPERTY_OFFSET_FLAGS,
+    ));
     instrs.push(abi::shift_right_immediate(width_out, width_out, 4));
     instrs.push(abi::move_immediate(scratch, "Integer", "3"));
     instrs.push(abi::and_registers(width_out, width_out, scratch));
@@ -1311,13 +1323,19 @@ pub(in crate::target::shared::code) fn emit_grapheme_break_branch_free(
     // GB4: (CR|LF|Control) ÷.
     instrs.push(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_CR));
     instrs.push(abi::branch_lo(&gb4_not_control));
-    instrs.push(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_CONTROL));
+    instrs.push(abi::compare_immediate(
+        state_bc,
+        GRAPHEME_BOUNDCLASS_CONTROL,
+    ));
     instrs.push(abi::branch_le(&maybe_break));
     instrs.push(abi::label(&gb4_not_control));
     // GB5: ÷ (CR|LF|Control).
     instrs.push(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_CR));
     instrs.push(abi::branch_lo(&gb5_not_control));
-    instrs.push(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_CONTROL));
+    instrs.push(abi::compare_immediate(
+        current_bc,
+        GRAPHEME_BOUNDCLASS_CONTROL,
+    ));
     instrs.push(abi::branch_le(&maybe_break));
     instrs.push(abi::label(&gb5_not_control));
     // GB6: L × (L|V|LV|LVT).
@@ -1354,7 +1372,10 @@ pub(in crate::target::shared::code) fn emit_grapheme_break_branch_free(
     instrs.push(abi::label(&gb8_no));
     // GB9/GB9a/GB9b: × (Extend|ZWJ|SpacingMark), Prepend ×.
     instrs.push(abi::label(&gb9_check));
-    instrs.push(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_EXTEND));
+    instrs.push(abi::compare_immediate(
+        current_bc,
+        GRAPHEME_BOUNDCLASS_EXTEND,
+    ));
     instrs.push(abi::branch_eq(&no_break));
     instrs.push(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_ZWJ));
     instrs.push(abi::branch_eq(&no_break));
@@ -1363,7 +1384,10 @@ pub(in crate::target::shared::code) fn emit_grapheme_break_branch_free(
         GRAPHEME_BOUNDCLASS_SPACINGMARK,
     ));
     instrs.push(abi::branch_eq(&no_break));
-    instrs.push(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_PREPEND));
+    instrs.push(abi::compare_immediate(
+        state_bc,
+        GRAPHEME_BOUNDCLASS_PREPEND,
+    ));
     instrs.push(abi::branch_eq(&no_break));
     // GB11: ExtPict ZWJ × ExtPict (state E_ZWG).
     instrs.push(abi::label(&gb11_check));
@@ -1388,7 +1412,10 @@ pub(in crate::target::shared::code) fn emit_grapheme_break_branch_free(
     instrs.push(abi::branch_eq(&no_break));
     // GB9c: Consonant [Extend] Linker × Consonant.
     instrs.push(abi::label(&maybe_break));
-    instrs.push(abi::compare_immediate(state_icb, INDIC_CONJUNCT_BREAK_LINKER));
+    instrs.push(abi::compare_immediate(
+        state_icb,
+        INDIC_CONJUNCT_BREAK_LINKER,
+    ));
     instrs.push(abi::branch_ne(&gb9c_break));
     instrs.push(abi::compare_immediate(
         current_icb,
@@ -1435,9 +1462,15 @@ pub(in crate::target::shared::code) fn emit_grapheme_state_update_free(
         INDIC_CONJUNCT_BREAK_CONSONANT,
     ));
     instrs.push(abi::branch_eq(&icb_existing_consonant));
-    instrs.push(abi::compare_immediate(state_icb, INDIC_CONJUNCT_BREAK_EXTEND));
+    instrs.push(abi::compare_immediate(
+        state_icb,
+        INDIC_CONJUNCT_BREAK_EXTEND,
+    ));
     instrs.push(abi::branch_eq(&icb_existing_extend));
-    instrs.push(abi::compare_immediate(state_icb, INDIC_CONJUNCT_BREAK_LINKER));
+    instrs.push(abi::compare_immediate(
+        state_icb,
+        INDIC_CONJUNCT_BREAK_LINKER,
+    ));
     instrs.push(abi::branch_eq(&icb_linker));
     instrs.push(abi::branch(&icb_done));
     instrs.push(abi::label(&icb_consonant));
@@ -1450,7 +1483,10 @@ pub(in crate::target::shared::code) fn emit_grapheme_state_update_free(
     instrs.push(abi::move_register(state_icb, current_icb));
     instrs.push(abi::branch(&icb_done));
     instrs.push(abi::label(&icb_linker));
-    instrs.push(abi::compare_immediate(current_icb, INDIC_CONJUNCT_BREAK_EXTEND));
+    instrs.push(abi::compare_immediate(
+        current_icb,
+        INDIC_CONJUNCT_BREAK_EXTEND,
+    ));
     instrs.push(abi::branch_eq(&icb_linker_extend));
     instrs.push(abi::move_register(state_icb, current_icb));
     instrs.push(abi::branch(&icb_done));
@@ -1475,7 +1511,10 @@ pub(in crate::target::shared::code) fn emit_grapheme_state_update_free(
         GRAPHEME_BOUNDCLASS_EXTENDED_PICTOGRAPHIC,
     ));
     instrs.push(abi::branch_ne(&bc_set_current));
-    instrs.push(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_EXTEND));
+    instrs.push(abi::compare_immediate(
+        current_bc,
+        GRAPHEME_BOUNDCLASS_EXTEND,
+    ));
     instrs.push(abi::branch_eq(&bc_extpic_extend));
     instrs.push(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_ZWJ));
     instrs.push(abi::branch_eq(&bc_extpic_zwj));
@@ -1491,10 +1530,13 @@ pub(in crate::target::shared::code) fn emit_grapheme_state_update_free(
     ));
     instrs.push(abi::branch(&bc_done));
     instrs.push(abi::label(&bc_extpic_zwj));
-    instrs.push(abi::move_immediate(state_bc, "Integer", GRAPHEME_BOUNDCLASS_E_ZWG));
+    instrs.push(abi::move_immediate(
+        state_bc,
+        "Integer",
+        GRAPHEME_BOUNDCLASS_E_ZWG,
+    ));
     instrs.push(abi::branch(&bc_done));
     instrs.push(abi::label(&bc_set_current));
     instrs.push(abi::move_register(state_bc, current_bc));
     instrs.push(abi::label(&bc_done));
 }
-

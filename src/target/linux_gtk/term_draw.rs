@@ -418,7 +418,11 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_immediate("x9", "Integer", GTK_POOL_TAG));
     asm.push(abi::compare_registers("x13", "x9"));
     asm.push(abi::branch_ne("d_inline_text"));
-    asm.push(abi::move_immediate("x11", "Integer", &TERM_MAX_COLS.to_string()));
+    asm.push(abi::move_immediate(
+        "x11",
+        "Integer",
+        &TERM_MAX_COLS.to_string(),
+    ));
     asm.push(abi::multiply_registers("x12", "x20", "x11"));
     asm.push(abi::add_registers("x12", "x12", "x21"));
     asm.push(abi::shift_left_immediate("x12", "x12", 5)); // idx*32 (pool stride)
@@ -554,8 +558,8 @@ pub(super) fn emit_term_scroll_helper() -> Result<CodeFunction, String> {
     asm.push(abi::multiply_registers("x19", "x19", "x9")); // cells = (rows-1)*MAX_COLS
                                                            // memmove each array up one (fixed-stride) row: 4B per cell for all three
                                                            // (chars became u32 in bug-203, matching fg/bg).
-    // plan-70-E Phase 3: the EGC pool (GTK_POOL_BYTES=32=1<<5 per cell) shifts with
-    // the char/fg/bg arrays so a scrolled pooled cluster keeps its slot.
+                                                           // plan-70-E Phase 3: the EGC pool (GTK_POOL_BYTES=32=1<<5 per cell) shifts with
+                                                           // the char/fg/bg arrays so a scrolled pooled cluster keeps its slot.
     for (base, shift) in [
         (ST_TERM_CHARS, 2u8),
         (ST_TERM_FG, 2),
@@ -623,9 +627,9 @@ pub(super) fn emit_term_init_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_register("x0", "x20"));
     asm.call_external("cairo_create");
     asm.push(abi::move_register("x19", "x0")); // cr
-    // plan-70-E: measure the cell from the SAME Pango monospace font that draws it
-    // (so the grid geometry matches the rendered glyphs). desc = "monospace 16";
-    // layout of "M"; its logical PangoRectangle gives {width, height} in pixels.
+                                               // plan-70-E: measure the cell from the SAME Pango monospace font that draws it
+                                               // (so the grid geometry matches the rendered glyphs). desc = "monospace 16";
+                                               // layout of "M"; its logical PangoRectangle gives {width, height} in pixels.
     asm.local_address("x0", STR_MONO_DESC.0);
     asm.call_external("pango_font_description_from_string");
     asm.push(abi::store_u64("x0", abi::stack_pointer(), off_desc));
@@ -951,7 +955,7 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
     asm.load_state("x11", ST_TERM_CUR_BG);
     asm.push(abi::store_u64("x11", abi::stack_pointer(), off_bgval));
     asm.push(abi::move_immediate("x21", "Integer", "0")); // i
-    // plan-70-E Phase 3: last base cell = none (-1) — a combining mark folds into it.
+                                                          // plan-70-E Phase 3: last base cell = none (-1) — a combining mark folds into it.
     asm.push(abi::move_immediate("x9", "Integer", "0"));
     asm.push(abi::bitwise_not("x9", "x9")); // -1
     asm.push(abi::store_u64("x9", abi::stack_pointer(), off_lastbase));

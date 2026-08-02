@@ -304,7 +304,8 @@ fn parse_properties() -> Vec<PackedProperty> {
             // must go through `parse_value` (which maps both), NOT `parse_bool`
             // (which panics on `0`). Verified by reading rows 0/1 of the table.
             let charwidth = to_u16(parse_value(fields[16]));
-            flags |= (charwidth << PackedProperty::CHARWIDTH_SHIFT) & PackedProperty::CHARWIDTH_MASK;
+            flags |=
+                (charwidth << PackedProperty::CHARWIDTH_SHIFT) & PackedProperty::CHARWIDTH_MASK;
             if parse_value(fields[17]) != 0 {
                 flags |= PackedProperty::AMBIGUOUS;
             }
