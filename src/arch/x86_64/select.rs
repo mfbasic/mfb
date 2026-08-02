@@ -212,7 +212,11 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>, abi: X86Abi) {
     // `MFB_BUG387_AUDIT` unset every emitted byte is unchanged: the deferred tokens
     // are realized to exactly the `xN` `select_x86` used to hand us, and `mapped`
     // is still what gets written. See the `audit`/pre-pass block below.
-    let mismatches = remap_x86_abi_inner(instructions, abi, std::env::var_os("MFB_BUG387_AUDIT").is_some());
+    let mismatches = remap_x86_abi_inner(
+        instructions,
+        abi,
+        std::env::var_os("MFB_BUG387_AUDIT").is_some(),
+    );
     for line in mismatches {
         eprintln!("{line}");
     }
@@ -1465,7 +1469,10 @@ mod tests {
                 Some(reg)
             );
         }
-        for (n, reg) in ["rdi", "rsi", "rdx", "r10", "r8", "r9"].into_iter().enumerate() {
+        for (n, reg) in ["rdi", "rsi", "rdx", "r10", "r8", "r9"]
+            .into_iter()
+            .enumerate()
+        {
             assert_eq!(
                 map_token_direct(&format!("%sysarg{n}"), X86Abi::SysV).as_deref(),
                 Some(reg)
@@ -1477,8 +1484,14 @@ mod tests {
                 Some(reg)
             );
         }
-        assert_eq!(map_token_direct("%sysnr", X86Abi::SysV).as_deref(), Some("rax"));
-        assert_eq!(map_token_direct("%sysret", X86Abi::SysV).as_deref(), Some("rax"));
+        assert_eq!(
+            map_token_direct("%sysnr", X86Abi::SysV).as_deref(),
+            Some("rax")
+        );
+        assert_eq!(
+            map_token_direct("%sysret", X86Abi::SysV).as_deref(),
+            Some("rax")
+        );
         // Win64 reads the *_WIN64 tables.
         for (n, reg) in ["rcx", "rdx", "r8", "r9"].into_iter().enumerate() {
             assert_eq!(
@@ -1486,22 +1499,41 @@ mod tests {
                 Some(reg)
             );
         }
-        assert_eq!(map_token_direct("%ret0", X86Abi::Win64).as_deref(), Some("rax"));
-        assert_eq!(map_token_direct("%ret2", X86Abi::Win64).as_deref(), Some("r8"));
+        assert_eq!(
+            map_token_direct("%ret0", X86Abi::Win64).as_deref(),
+            Some("rax")
+        );
+        assert_eq!(
+            map_token_direct("%ret2", X86Abi::Win64).as_deref(),
+            Some("r8")
+        );
     }
 
     #[test]
     fn is_abi_role_token_covers_only_role_tokens() {
-        for role in ["%arg0", "%arg7", "%sysarg0", "%sysarg5", "%ret0", "%ret3", "%sysnr", "%sysret"] {
+        for role in [
+            "%arg0", "%arg7", "%sysarg0", "%sysarg5", "%ret0", "%ret3", "%sysnr", "%sysret",
+        ] {
             assert!(is_abi_role_token(role), "{role} should be a role token");
         }
         // Off-the-end indices and every non-role token are NOT deferred — they stay
         // realized in `select_x86` exactly as before (so their bytes never move).
         for other in [
-            "%arg8", "%sysarg6", "%ret4", "%scratch0", "%local0", "%mathpool", "%sysnr_darwin",
-            "x0", "rdi", "%v3",
+            "%arg8",
+            "%sysarg6",
+            "%ret4",
+            "%scratch0",
+            "%local0",
+            "%mathpool",
+            "%sysnr_darwin",
+            "x0",
+            "rdi",
+            "%v3",
         ] {
-            assert!(!is_abi_role_token(other), "{other} must not be a role token");
+            assert!(
+                !is_abi_role_token(other),
+                "{other} must not be a role token"
+            );
         }
     }
 
@@ -1519,7 +1551,10 @@ mod tests {
             ci("ret", &[]),
         ];
         let mismatches = remap_x86_abi_inner(&mut call, X86Abi::SysV, true);
-        assert!(mismatches.is_empty(), "clean call case diverged: {mismatches:?}");
+        assert!(
+            mismatches.is_empty(),
+            "clean call case diverged: {mismatches:?}"
+        );
         let vals = values(&call);
         for reg in ["rdi", "rsi", "r9", "rax"] {
             assert!(vals.contains(&reg.to_string()), "missing {reg} in {vals:?}");
@@ -1534,7 +1569,10 @@ mod tests {
             ci("ret", &[]),
         ];
         let mismatches = remap_x86_abi_inner(&mut sys, X86Abi::SysV, true);
-        assert!(mismatches.is_empty(), "clean syscall case diverged: {mismatches:?}");
+        assert!(
+            mismatches.is_empty(),
+            "clean syscall case diverged: {mismatches:?}"
+        );
         let vals = values(&sys);
         for reg in ["rdi", "r10", "rax"] {
             assert!(vals.contains(&reg.to_string()), "missing {reg} in {vals:?}");
@@ -1552,7 +1590,11 @@ mod tests {
             ci("ret", &[]),
         ];
         let mismatches = remap_x86_abi_inner(&mut stream, X86Abi::SysV, true);
-        assert_eq!(mismatches.len(), 1, "expected exactly one mismatch: {mismatches:?}");
+        assert_eq!(
+            mismatches.len(),
+            1,
+            "expected exactly one mismatch: {mismatches:?}"
+        );
         let line = &mismatches[0];
         assert!(line.contains("BUG387-MISMATCH"), "{line}");
         assert!(line.contains("token=%ret0"), "{line}");
