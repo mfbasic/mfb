@@ -53,7 +53,7 @@ passed`, `builtins::descriptor → 19 passed`); `testing.*` fixtures verified
 byte-identical in the consolidated T–X acceptance at finalization (this change is
 a metadata-only wrapper proven equal by the parity test, and the descriptor
 `REGISTRY` is never read in production dispatch).
-Commit: —
+Commit: 92b5f2576
 
 ## Validation
 
