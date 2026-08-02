@@ -612,7 +612,7 @@ impl BuiltinRegistry {
 ///
 /// Migrated so far: `app` (B), `bits` (D), `collections` (E), `csv` (G),
 /// `crypto` (F), `audio` (C), `datetime` (H), `encoding` (I), `json` (O),
-/// `math` (P), `money` (Q), `os` (S).
+/// `math` (P), `money` (Q), `net` (R), `os` (S).
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::bits::BITS,
@@ -625,6 +625,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::json::JSON,
     &crate::builtins::math::MATH,
     &crate::builtins::money::MONEY,
+    &crate::builtins::net::NET,
     &crate::builtins::os::OS,
 ]);
 

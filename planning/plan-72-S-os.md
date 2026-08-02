@@ -46,7 +46,7 @@ projects.
 
 Acceptance: `cargo test` passes; every `os.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
-Commit: <S-hash>
+Commit: b14b1f701
 
 ## Validation
 

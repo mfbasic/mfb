@@ -40,25 +40,39 @@ plan.
 
 ### Phase R1 — descriptor and resolver
 
-- [ ] Add `pub(crate) static NET: BuiltinModule` with every function,
+- [x] Add `pub(crate) static NET: BuiltinModule` with every function,
       overload, parameter (canonical + aliases per overload), argument
-      types, return type, implementation, and default.
-- [ ] Add `BuiltinType` entries for both net builtin types with record
-      fields preserved.
-- [ ] Model the `package_source_glue!` companion as
+      types, return type, implementation, and default. `connectTcp` is
+      modelled as four `BuiltinOverload`s; the optional trailing arguments
+      (`lookup.port`, `listenTcp.backlog`, `accept/poll.timeoutMs`) are
+      `DefaultValue::Optional`.
+- [x] Add `BuiltinType` entries for all seven net builtin types with record
+      fields preserved (`Address`, `Datagram`, `DatagramText` records; the
+      rest opaque; `Url`'s fields live in the source companion → reported as
+      absent here, matching the legacy `builtin_type_fields`).
+- [x] Model the `package_source_glue!` companion as
       `BuiltinSource { rule: InjectionRule::WhenImported, .. }`.
-- [ ] Implement `NetResolver` for `call_param_name_overloads` and
-      `implementation_name`.
-- [ ] Rewrite the 11 metadata helpers as wrappers over
-      `NET`/`NetResolver`.
-- [ ] Register `NET` with the `BuiltinRegistry` from plan-72-A.
-- [ ] Parity tests: every `net.*` name, both builtin types, every
+- [x] ~~Implement `NetResolver` for `call_param_name_overloads` and
+      `implementation_name`.~~ — moot: neither needs a resolver.
+      `call_param_name_overloads` derives from
+      `DefaultResolver::param_name_overloads` (connectTcp's four overloads);
+      `implementation_name` is a fixed per-name rewrite
+      (`Implementation::Rewrite(__net_*)` for toUrl/percentDecode/parseQuery,
+      `Same` elsewhere). net is data-only. See Corrections.
+- [x] Rewrite the 11 metadata helpers as wrappers over `NET`
+      (`is_net_call`/`arity`/`call_return_type_name`/`implementation_name`
+      delegate; `call_param_names`/`call_param_name_overloads`/
+      `builtin_type_fields` are borrowed statics pinned by parity;
+      `resolve_call`/`expected_arguments`/`argument_types` stay hand-authored —
+      type-set acceptance and `"or"`-phrased/joined strings).
+- [x] Register `NET` with the `BuiltinRegistry` from plan-72-A.
+- [x] Parity tests: every `net.*` name, all builtin types, every
       parameter-name overload, and every implementation-name case.
 
 Acceptance: `cargo test` passes; every `net.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual`, including
 the existing `tests/byte-identity/net` cohort.
-Commit: —
+Commit: <R-hash>
 
 ## Validation
 
@@ -68,4 +82,24 @@ Commit: —
 
 ## Corrections
 
-Filled during execution.
+- **net needs no resolver (the plan's `NetResolver` is moot).** The plan
+  specified a `NetResolver` for `call_param_name_overloads` and
+  `implementation_name`. In fact the descriptor models both natively:
+  `connectTcp`'s four structurally-different overloads become four
+  `BuiltinOverload`s, so `DefaultResolver::param_name_overloads` reproduces the
+  legacy per-overload name table (and `param_names` correctly yields `None`);
+  and net's `implementation_name` is a fixed per-name rewrite
+  (`Implementation::Rewrite(__net_toUrl / __net_percentDecode / __net_parseQuery)`,
+  `Same` for the native calls), which `DefaultResolver::implementation_name`
+  derives. So `NET` is `resolver: None`, and the `resolve_overload_target`
+  production path (the only production consumer of the registry) is a no-op for
+  it — same as before registration. Evidence:
+  `src/builtins/net.rs:call_param_name_overloads` was a single-name match on
+  `connectTcp` and `implementation_name` a fixed 3-arm `match`, neither
+  argument-dependent.
+- **net's return type is fixed per name.** Although several calls are overloaded
+  on *argument* types (`connectTcp`, `close`, `localAddress`, the timeout
+  setters), every overload of a given call returns the same type, so
+  `call_return_type_name` delegates to `DefaultResolver::return_type_name`. The
+  argument-type-set *acceptance* (which arguments resolve at all) is what stays
+  hand-authored in `resolve_call`.
