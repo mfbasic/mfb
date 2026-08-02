@@ -9,6 +9,12 @@
 
 use std::borrow::Cow;
 
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
+    BuiltinType, DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
+    ParameterType, ReturnType, TypeKind,
+};
+
 // Public, documented surface. Each maps to an internal `__datetime_<name>`
 // implementation in the `.mfb` (see `implementation_name`), except the three
 // OS-seam intrinsics, which stay as runtime-helper calls.
@@ -61,6 +67,177 @@ const NOW_NANOS: &str = "datetime.nowNanos";
 const MONOTONIC_NANOS: &str = "datetime.monotonicNanos";
 const LOCAL_OFFSET: &str = "datetime.localOffset";
 
+// plan-72-H: `DATETIME` is the descriptor authority. Every function's return is
+// fixed, so `call_return_type_name`/`arity` derive from the descriptor.
+// `instant`/`duration` (5 overloads) and `fixedOffset` (2) carry per-overload
+// parameter tables (`call_param_name_overloads`, bug-349); `time`/`parse` have
+// optional trailing parameters (`time`'s drive the `default_argument_padding`).
+// Argument VALIDATION (`resolve_call`) and arity-keyed `implementation_name`
+// (`__datetime_instant{argc}`) are argument-dependent → `DatetimeResolver`. The
+// 9 builtin types are enums/records with no descriptor-modelled fields.
+const fn req(name: &'static str, ty: &'static str) -> Parameter {
+    Parameter::required(name, ty)
+}
+// Optional trailing parameter that is default-PADDED (`time`'s `second`/`nanos`
+// → `0`): drives `default_argument_padding`.
+const fn opt(name: &'static str, ty: &'static str, default: &'static str) -> Parameter {
+    Parameter {
+        name,
+        aliases: &[],
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::Fill {
+            type_name: ty,
+            expr: default,
+        },
+    }
+}
+// Optional trailing parameter that widens arity but is NOT padded (`parse`'s
+// trailing `zone` selects `__datetime_parse{argc}` by count instead).
+const fn optn(name: &'static str, ty: &'static str) -> Parameter {
+    Parameter {
+        name,
+        aliases: &[],
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::Optional,
+    }
+}
+const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload {
+    BuiltinOverload {
+        params,
+        return_type: ReturnType::Fixed(ret),
+    }
+}
+const fn df(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+) -> BuiltinFunction {
+    BuiltinFunction {
+        name,
+        doc_slug: slug,
+        overloads,
+        implementation: Implementation::Custom,
+        lowering: Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+
+const I: &str = "Integer";
+// The `instant`/`duration` arity overloads drop components off the front.
+const DT_COMPONENTS: &[BuiltinOverload] = &[
+    ov(&[req("seconds", I)], "Duration"),
+    ov(&[req("seconds", I), req("nanos", I)], "Duration"),
+    ov(&[req("mins", I), req("seconds", I), req("nanos", I)], "Duration"),
+    ov(&[req("hours", I), req("mins", I), req("seconds", I), req("nanos", I)], "Duration"),
+    ov(&[req("days", I), req("hours", I), req("mins", I), req("seconds", I), req("nanos", I)], "Duration"),
+];
+const INSTANT_OVERLOADS: &[BuiltinOverload] = &[
+    ov(&[req("seconds", I)], "Instant"),
+    ov(&[req("seconds", I), req("nanos", I)], "Instant"),
+    ov(&[req("mins", I), req("seconds", I), req("nanos", I)], "Instant"),
+    ov(&[req("hours", I), req("mins", I), req("seconds", I), req("nanos", I)], "Instant"),
+    ov(&[req("days", I), req("hours", I), req("mins", I), req("seconds", I), req("nanos", I)], "Instant"),
+];
+
+const DATETIME_FUNCTIONS: &[BuiltinFunction] = &[
+    df(NOW, "now", &[ov(&[], "Instant")]),
+    df(MONOTONIC, "monotonic", &[ov(&[], "Duration")]),
+    df(INSTANT, "instant", INSTANT_OVERLOADS),
+    df(DATE, "date", &[ov(&[req("year", I), req("month", I), req("day", I)], "Date")]),
+    df(TIME, "time", &[ov(&[req("hour", I), req("minute", I), opt("second", I, "0"), opt("nanos", I, "0")], "Time")]),
+    df(DURATION, "duration", DT_COMPONENTS),
+    df(UTC, "utc", &[ov(&[], "Zone")]),
+    df(LOCAL, "local", &[ov(&[], "Zone")]),
+    df(FIXED_OFFSET, "fixedOffset", &[ov(&[req("offsetSeconds", I)], "Zone"), ov(&[req("hours", I), req("mins", I)], "Zone")]),
+    df(OFFSET_AT, "offsetAt", &[ov(&[req("zone", "Zone"), req("at", "Instant")], I)]),
+    df(IN_ZONE, "inZone", &[ov(&[req("at", "Instant"), req("zone", "Zone")], "DateTime")]),
+    df(TO_UTC, "toUtc", &[ov(&[req("at", "Instant")], "DateTime")]),
+    df(TO_LOCAL, "toLocal", &[ov(&[req("at", "Instant")], "DateTime")]),
+    df(RESOLVE, "resolve", &[ov(&[req("dt", "DateTime")], "Instant")]),
+    df(CIVIL, "civil", &[ov(&[req("date", "Date"), req("time", "Time"), req("zone", "Zone")], "DateTime")]),
+    df(WITH_ZONE, "withZone", &[ov(&[req("dt", "DateTime"), req("zone", "Zone")], "DateTime")]),
+    df(ADD, "add", &[ov(&[req("at", "Instant"), req("by", "Duration")], "Instant")]),
+    df(SUBTRACT, "subtract", &[ov(&[req("at", "Instant"), req("by", "Duration")], "Instant")]),
+    df(BETWEEN, "between", &[ov(&[req("start", "Instant"), req("finish", "Instant")], "Duration")]),
+    df(ADD_DAYS, "addDays", &[ov(&[req("dt", "DateTime"), req("days", I)], "DateTime")]),
+    df(ADD_MONTHS, "addMonths", &[ov(&[req("dt", "DateTime"), req("months", I)], "DateTime")]),
+    df(COMPARE, "compare", &[ov(&[req("a", "Instant"), req("b", "Instant")], I)]),
+    df(IS_BEFORE, "isBefore", &[ov(&[req("a", "Instant"), req("b", "Instant")], "Boolean")]),
+    df(IS_AFTER, "isAfter", &[ov(&[req("a", "Instant"), req("b", "Instant")], "Boolean")]),
+    df(EQUALS, "equals", &[ov(&[req("a", "Instant"), req("b", "Instant")], "Boolean")]),
+    df(NEGATE, "negate", &[ov(&[req("d", "Duration")], "Duration")]),
+    df(PLUS, "plus", &[ov(&[req("a", "Duration"), req("b", "Duration")], "Duration")]),
+    df(MINUS, "minus", &[ov(&[req("a", "Duration"), req("b", "Duration")], "Duration")]),
+    df(WEEKDAY, "weekday", &[ov(&[req("dt", "DateTime")], "Weekday")]),
+    df(DAY_OF_YEAR, "dayOfYear", &[ov(&[req("dt", "DateTime")], I)]),
+    df(IS_LEAP_YEAR, "isLeapYear", &[ov(&[req("year", I)], "Boolean")]),
+    df(DAYS_IN_MONTH, "daysInMonth", &[ov(&[req("year", I), req("month", I)], I)]),
+    df(START_OF_DAY, "startOfDay", &[ov(&[req("dt", "DateTime")], "DateTime")]),
+    df(TO_MILLIS, "toMillis", &[ov(&[req("at", "Instant")], I)]),
+    df(TO_NANOS, "toNanos", &[ov(&[req("at", "Instant")], I)]),
+    df(FROM_MILLIS, "fromMillis", &[ov(&[req("millis", I)], "Instant")]),
+    df(FORMAT, "format", &[ov(&[req("dt", "DateTime"), req("pattern", "String")], "String")]),
+    df(PARSE, "parse", &[ov(&[req("value", "String"), req("pattern", "String"), optn("zone", "Zone")], "DateTime")]),
+    df(TO_ISO, "toIso", &[ov(&[req("dt", "DateTime")], "String")]),
+    df(PARSE_ISO, "parseIso", &[ov(&[req("value", "String")], "DateTime")]),
+    df(FORMAT_DURATION, "formatDuration", &[ov(&[req("d", "Duration")], "String")]),
+    df(NOW_NANOS, "nowNanos", &[ov(&[], I)]),
+    df(MONOTONIC_NANOS, "monotonicNanos", &[ov(&[], I)]),
+    df(LOCAL_OFFSET, "localOffset", &[ov(&[req("epochSeconds", I)], I)]),
+];
+
+const DATETIME_TYPES: &[BuiltinType] = &[
+    BuiltinType { name: "Instant", kind: TypeKind::Record, fields: &[] },
+    BuiltinType { name: "Duration", kind: TypeKind::Record, fields: &[] },
+    BuiltinType { name: "Date", kind: TypeKind::Record, fields: &[] },
+    BuiltinType { name: "Time", kind: TypeKind::Record, fields: &[] },
+    BuiltinType { name: "Zone", kind: TypeKind::Record, fields: &[] },
+    BuiltinType { name: "DateTime", kind: TypeKind::Record, fields: &[] },
+    BuiltinType { name: "ZoneKind", kind: TypeKind::Enum, fields: &[] },
+    BuiltinType { name: "Weekday", kind: TypeKind::Enum, fields: &[] },
+    BuiltinType { name: "Month", kind: TypeKind::Enum, fields: &[] },
+];
+
+/// Argument-dependent resolution for datetime: `resolve_call` argument validation
+/// and the arity-keyed `__datetime_*{argc}` implementation selection. Both
+/// delegate to the retained `dispatch_*` helpers (`implementation_name` reads only
+/// the argument COUNT, so the resolver forwards `arg_types.len()`).
+struct DatetimeResolver;
+impl BuiltinResolver for DatetimeResolver {
+    fn resolve_return_type(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        dispatch_resolve(name, arg_types).map(|resolved| resolved.return_type.into_owned())
+    }
+
+    fn implementation_name(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        dispatch_implementation_name(name, arg_types.len())
+    }
+}
+static DATETIME_RESOLVER: DatetimeResolver = DatetimeResolver;
+
+pub(crate) static DATETIME: BuiltinModule = BuiltinModule {
+    name: "datetime",
+    functions: DATETIME_FUNCTIONS,
+    types: DATETIME_TYPES,
+    source: Some(BuiltinSource {
+        rule: InjectionRule::WhenImported,
+        loader: source_file,
+    }),
+    resolver: Some(&DATETIME_RESOLVER),
+};
+
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
@@ -69,69 +246,19 @@ pub(crate) struct ResolvedCall<'a> {
 /// The public copyable record/enum types defined in `datetime_package.mfb`.
 /// Referenced bare (`Instant`, `DateTime`, …) like every other builtin type.
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    matches!(
-        name,
-        "Instant"
-            | "Duration"
-            | "Date"
-            | "Time"
-            | "Zone"
-            | "DateTime"
-            | "ZoneKind"
-            | "Weekday"
-            | "Month"
-    )
+    DATETIME.types.iter().any(|ty| ty.name == name)
 }
 
 pub(crate) fn is_datetime_call(name: &str) -> bool {
-    matches!(
-        name,
-        NOW | MONOTONIC
-            | INSTANT
-            | DATE
-            | TIME
-            | DURATION
-            | UTC
-            | LOCAL
-            | FIXED_OFFSET
-            | OFFSET_AT
-            | IN_ZONE
-            | TO_UTC
-            | TO_LOCAL
-            | RESOLVE
-            | CIVIL
-            | WITH_ZONE
-            | ADD
-            | SUBTRACT
-            | BETWEEN
-            | ADD_DAYS
-            | ADD_MONTHS
-            | COMPARE
-            | IS_BEFORE
-            | IS_AFTER
-            | EQUALS
-            | NEGATE
-            | PLUS
-            | MINUS
-            | WEEKDAY
-            | DAY_OF_YEAR
-            | IS_LEAP_YEAR
-            | DAYS_IN_MONTH
-            | START_OF_DAY
-            | TO_MILLIS
-            | TO_NANOS
-            | FROM_MILLIS
-            | FORMAT
-            | PARSE
-            | TO_ISO
-            | PARSE_ISO
-            | FORMAT_DURATION
-            | NOW_NANOS
-            | MONOTONIC_NANOS
-            | LOCAL_OFFSET
-    )
+    DefaultResolver::contains(&DATETIME, name)
 }
 
+// `call_param_names`/`call_param_name_overloads` return `&'static` borrowed
+// shapes the owned `DefaultResolver` cannot produce; they stay static, PINNED
+// equal to `DATETIME` by the parity test (`DefaultResolver::param_names`/
+// `param_name_overloads` derive them — None for multi-overload / single-overload
+// respectively, exactly the bug-349 split). `expected_arguments`/`argument_types`
+// use bespoke phrasing and stay static. BB removes them.
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     let params: &'static [&'static [&'static str]] = match name {
         NOW | MONOTONIC | UTC | LOCAL => &[],
@@ -202,28 +329,22 @@ pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    let type_ = match name {
-        NOW | INSTANT | RESOLVE | FROM_MILLIS => "Instant",
-        MONOTONIC | DURATION | BETWEEN | NEGATE | PLUS | MINUS => "Duration",
-        DATE => "Date",
-        TIME => "Time",
-        UTC | LOCAL | FIXED_OFFSET => "Zone",
-        IN_ZONE | TO_UTC | TO_LOCAL | CIVIL | WITH_ZONE | ADD_DAYS | ADD_MONTHS | START_OF_DAY => {
-            "DateTime"
-        }
-        ADD | SUBTRACT => "Instant",
-        OFFSET_AT | COMPARE | DAY_OF_YEAR | DAYS_IN_MONTH | TO_MILLIS | TO_NANOS | NOW_NANOS
-        | MONOTONIC_NANOS | LOCAL_OFFSET => "Integer",
-        IS_BEFORE | IS_AFTER | EQUALS | IS_LEAP_YEAR => "Boolean",
-        WEEKDAY => "Weekday",
-        FORMAT | TO_ISO | FORMAT_DURATION => "String",
-        PARSE | PARSE_ISO => "DateTime",
-        _ => return None,
-    };
-    Some(type_)
+    DefaultResolver::return_type_name(&DATETIME, name)
 }
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    let return_type = DATETIME
+        .resolver?
+        .resolve_return_type(&DATETIME, name, arg_types)?;
+    Some(ResolvedCall {
+        return_type: Cow::Owned(return_type),
+    })
+}
+
+/// The argument-validating return-type resolution, invoked through the descriptor
+/// resolver by `resolve_call`. The component builders accept 1..=5 (or 1..=2)
+/// `Integer` args; the others require exact typed signatures.
+fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let all_integer = |types: &[String]| types.iter().all(|t| t == "Integer");
     let return_type: &str = match name {
         NOW if arg_types.is_empty() => "Instant",
@@ -338,29 +459,24 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static [&'static str]> {
 }
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    let span = match name {
-        NOW | MONOTONIC | UTC | LOCAL | NOW_NANOS | MONOTONIC_NANOS => (0, 0),
-        INSTANT | DURATION => (1, 5),
-        FIXED_OFFSET => (1, 2),
-        TIME => (2, 4),
-        PARSE => (2, 3),
-        DATE | CIVIL => (3, 3),
-        DAYS_IN_MONTH | OFFSET_AT | IN_ZONE | WITH_ZONE | ADD | SUBTRACT | BETWEEN | ADD_DAYS
-        | ADD_MONTHS | COMPARE | IS_BEFORE | IS_AFTER | EQUALS | PLUS | MINUS | FORMAT => (2, 2),
-        TO_UTC | TO_LOCAL | RESOLVE | WEEKDAY | DAY_OF_YEAR | IS_LEAP_YEAR | START_OF_DAY
-        | TO_MILLIS | TO_NANOS | FROM_MILLIS | TO_ISO | PARSE_ISO | FORMAT_DURATION | NEGATE
-        | LOCAL_OFFSET => (1, 1),
-        _ => return None,
-    };
-    Some(span)
+    DefaultResolver::arity(&DATETIME, name)
 }
 
 /// The internal `__datetime_*` implementation for a public call, given the
-/// supplied argument count. Returns `None` for the OS-seam intrinsics (which
-/// stay as `datetime.*` runtime-helper calls). For the arity-overloaded
-/// constructors and `parse`, the count selects a distinct internal name so the
-/// `.mfb` need not rely on overload resolution through the implementation seam.
+/// supplied argument count. Routes through the descriptor resolver (which reads
+/// only the count). Returns `None` for the OS-seam intrinsics (runtime helpers).
 pub(crate) fn implementation_name(name: &str, argc: usize) -> Option<String> {
+    // The resolver hook takes argument TYPES, but datetime's selection depends
+    // only on the COUNT, so pass a length-`argc` placeholder.
+    let arg_types = vec![String::new(); argc];
+    DATETIME
+        .resolver?
+        .implementation_name(&DATETIME, name, &arg_types)
+}
+
+/// The arity-keyed `__datetime_*{argc}` implementation selection, invoked through
+/// the descriptor resolver by `implementation_name`.
+fn dispatch_implementation_name(name: &str, argc: usize) -> Option<String> {
     let internal = match name {
         NOW_NANOS | MONOTONIC_NANOS | LOCAL_OFFSET => return None,
         INSTANT => format!("__datetime_instant{argc}"),
@@ -375,7 +491,9 @@ pub(crate) fn implementation_name(name: &str, argc: usize) -> Option<String> {
 /// Default trailing arguments injected during IR lowering. Only `time` carries
 /// trailing defaults (`second`, `nanos` default to 0); the overloaded
 /// constructors return EMPTY so the supplied argument count selects the right
-/// `.mfb` overload (§5.1.1).
+/// `.mfb` overload (§5.1.1). Returns a `&'static` borrowed slice, so it stays
+/// static — PINNED equal to `time`'s optional parameters by the parity test
+/// (`DefaultResolver::default_padding` derives the same slots).
 pub(crate) fn default_argument_padding(
     name: &str,
     provided: usize,
@@ -919,5 +1037,90 @@ mod tests {
             augmented_project(&ast).expect("a").files.len(),
             ast.files.len()
         );
+    }
+
+    // plan-72-H migration gate: prove `DATETIME` + `DatetimeResolver` reproduce
+    // the legacy answers — membership/arity/param-names, the bug-349 per-overload
+    // tables for instant/duration/fixedOffset, the 9 builtin types — via the
+    // descriptor, and resolve_call + arity-keyed implementation_name via resolver
+    // samples, plus `time`'s default padding derived from optional parameters.
+    // Keep until BB.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::{parity, DefaultResolver};
+
+        let calls: Vec<&str> = DATETIME_FUNCTIONS.iter().map(|f| f.name).collect();
+        let legacy = parity::LegacySet {
+            is_call: &is_datetime_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            return_type_name: &|_| None, // resolver-backed: skipped; verified below
+            expected_arguments: None,    // custom phrasing
+            param_name_overloads: Some(&|name| {
+                call_param_name_overloads(name)
+                    .map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            }),
+            argument_types: None,
+            implementation_name: None,
+            default_padding: None,
+            builtin_type_fields: None, // enums/records, no descriptor fields
+        };
+        let mut probe = calls.clone();
+        probe.push("datetime.nope");
+
+        // resolve_call + arity-keyed implementation_name across representative
+        // shapes: the 5-arity constructor overloads, fixedOffset's two forms,
+        // parse's optional zone, and typed members.
+        let sample = |call, arg_types, ret: &'static str, imp: Option<&'static str>| {
+            parity::ResolverSample {
+                call,
+                arg_types,
+                expected_return: Some(ret),
+                expected_impl: imp,
+                expected_padding: None,
+                expected_overload_target: None,
+            }
+        };
+        let samples = [
+            sample(NOW, &[], "Instant", Some("__datetime_now")),
+            sample(INSTANT, &["Integer"], "Instant", Some("__datetime_instant1")),
+            sample(INSTANT, &["Integer", "Integer", "Integer"], "Instant", Some("__datetime_instant3")),
+            sample(DURATION, &["Integer", "Integer", "Integer", "Integer", "Integer"], "Duration", Some("__datetime_duration5")),
+            sample(FIXED_OFFSET, &["Integer"], "Zone", Some("__datetime_fixedOffset1")),
+            sample(FIXED_OFFSET, &["Integer", "Integer"], "Zone", Some("__datetime_fixedOffset2")),
+            sample(TIME, &["Integer", "Integer"], "Time", Some("__datetime_time")),
+            sample(DATE, &["Integer", "Integer", "Integer"], "Date", Some("__datetime_date")),
+            sample(PARSE, &["String", "String"], "DateTime", Some("__datetime_parse2")),
+            sample(PARSE, &["String", "String", "Zone"], "DateTime", Some("__datetime_parse3")),
+            sample(CIVIL, &["Date", "Time", "Zone"], "DateTime", Some("__datetime_civil")),
+            sample(ADD, &["Instant", "Duration"], "Instant", Some("__datetime_add")),
+            sample(FORMAT, &["DateTime", "String"], "String", Some("__datetime_format")),
+        ];
+        parity::assert_parity(&DATETIME, &probe, &legacy, &samples);
+
+        // OS-seam intrinsics keep their surface name (no source implementation).
+        assert_eq!(implementation_name("datetime.nowNanos", 0), None);
+
+        // call_return_type_name (descriptor-derived) matches legacy, and `time`
+        // default padding derives from its optional parameters.
+        assert_eq!(call_return_type_name(NOW), Some("Instant"));
+        assert_eq!(call_return_type_name(WEEKDAY), Some("Weekday"));
+        for provided in 2..=4 {
+            assert_eq!(
+                DefaultResolver::default_padding(&DATETIME, TIME, provided),
+                default_argument_padding(TIME, provided).to_vec(),
+                "time padding @ {provided}"
+            );
+        }
+        // parse's optional zone widens arity but is NOT padded.
+        assert!(DefaultResolver::default_padding(&DATETIME, PARSE, 2).is_empty());
+        assert_eq!(default_argument_padding(PARSE, 2), &[]);
+        // The 9 builtin types are members.
+        for t in ["Instant", "Duration", "Date", "Time", "Zone", "DateTime", "ZoneKind", "Weekday", "Month"] {
+            assert!(is_builtin_type(t), "{t}");
+        }
+        assert!(!is_builtin_type("Nope"));
     }
 }

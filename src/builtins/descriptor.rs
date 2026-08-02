@@ -68,11 +68,17 @@ pub(crate) enum ReturnType {
 pub(crate) enum DefaultValue {
     /// A required parameter — no default.
     None,
-    /// An optional parameter padded with `(type_name, expr)`.
+    /// An optional parameter padded with `(type_name, expr)` when omitted — IR
+    /// lowering injects the literal (`time`'s `second`/`nanos` → `0`).
     Fill {
         type_name: &'static str,
         expr: &'static str,
     },
+    /// An optional parameter that widens arity but is NOT default-padded — the
+    /// implementation selects a distinct body by argument count instead
+    /// (`datetime.parse`'s trailing `zone`). Contributes to the arity range like
+    /// `Fill`, but `default_padding` skips it.
+    Optional,
 }
 
 /// One parameter of one overload.
@@ -486,7 +492,7 @@ impl DefaultResolver {
             .skip(provided)
             .filter_map(|param| match param.default {
                 DefaultValue::Fill { type_name, expr } => Some((type_name, expr)),
-                DefaultValue::None => None,
+                DefaultValue::None | DefaultValue::Optional => None,
             })
             .collect()
     }
@@ -600,7 +606,7 @@ impl BuiltinRegistry {
 /// miss). BB then deletes the legacy helpers the adapters fall back to.
 ///
 /// Migrated so far: `app` (B), `bits` (D), `collections` (E), `csv` (G),
-/// `crypto` (F), `audio` (C).
+/// `crypto` (F), `audio` (C), `datetime` (H).
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::bits::BITS,
@@ -608,6 +614,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::csv::CSV,
     &crate::builtins::crypto::CRYPTO,
     &crate::builtins::audio::AUDIO,
+    &crate::builtins::datetime::DATETIME,
 ]);
 
 /// The migration parity harness (plan-72).
