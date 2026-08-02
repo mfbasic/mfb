@@ -253,6 +253,42 @@ pub(crate) fn is_datetime_call(name: &str) -> bool {
     DefaultResolver::contains(&DATETIME, name)
 }
 
+/// The expected-argument phrasing for a `datetime::` argument-mismatch diagnostic.
+/// Kept hand-authored (plan-72-BB): the optional-argument `[...]` brackets
+/// (`time`'s `"Integer, Integer[, Integer[, Integer]]"`, `parse`'s
+/// `"String, String[, Zone]"`) and the range prose (`"1 to 5 Integer"`) are shapes
+/// the descriptor's per-position type join cannot reproduce, so `builtins::expected_arguments`
+/// reads this before falling back to `DefaultResolver`.
+pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
+    let text = match name {
+        NOW | MONOTONIC | UTC | LOCAL | NOW_NANOS | MONOTONIC_NANOS => "()",
+        INSTANT | DURATION => "1 to 5 Integer",
+        DATE => "Integer, Integer, Integer",
+        TIME => "Integer, Integer[, Integer[, Integer]]",
+        FIXED_OFFSET => "Integer[, Integer]",
+        OFFSET_AT => "Zone, Instant",
+        IN_ZONE => "Instant, Zone",
+        TO_UTC | TO_LOCAL => "Instant",
+        RESOLVE | WEEKDAY | DAY_OF_YEAR | START_OF_DAY | TO_ISO => "DateTime",
+        CIVIL => "Date, Time, Zone",
+        WITH_ZONE => "DateTime, Zone",
+        ADD | SUBTRACT => "Instant, Duration",
+        BETWEEN | COMPARE | IS_BEFORE | IS_AFTER | EQUALS => "Instant, Instant",
+        ADD_DAYS | ADD_MONTHS => "DateTime, Integer",
+        NEGATE => "Duration",
+        PLUS | MINUS => "Duration, Duration",
+        IS_LEAP_YEAR | FROM_MILLIS | LOCAL_OFFSET => "Integer",
+        DAYS_IN_MONTH => "Integer, Integer",
+        TO_MILLIS | TO_NANOS => "Instant",
+        FORMAT => "DateTime, String",
+        PARSE => "String, String[, Zone]",
+        PARSE_ISO => "String",
+        FORMAT_DURATION => "Duration",
+        _ => return None,
+    };
+    Some(text)
+}
+
 // `call_param_names`/`call_param_name_overloads` return `&'static` borrowed
 // shapes the owned `DefaultResolver` cannot produce; they stay static, PINNED
 // equal to `DATETIME` by the parity test (`DefaultResolver::param_names`/

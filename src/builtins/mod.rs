@@ -430,6 +430,13 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
     if let Some(text) = term::expected_arguments(name) {
         return Some(text);
     }
+    // Every package that still owns an `expected_arguments` free function keeps its
+    // hand-authored phrasing — the `[optional]` bracket (`strings.find`'s
+    // `"String, String[, Integer]"`), the `"or"`-union, or prose — that the
+    // descriptor's per-position join cannot reproduce. Each returns `Some` only for
+    // its own calls, so the chain yields the owner's string; a package whose
+    // `expected_arguments` was deletable (renderable == `DefaultResolver`, i.e.
+    // `app`/`datetime`/`money`) falls through to the descriptor rendering below.
     if let Some(text) = encoding::expected_arguments(name)
         .or_else(|| crypto::expected_arguments(name))
         .or_else(|| math::expected_arguments(name))
@@ -438,11 +445,18 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| audio::expected_arguments(name))
         .or_else(|| http::expected_arguments(name))
         .or_else(|| vector::expected_arguments(name))
-        // The bespoke-checker packages keep their own hand-authored phrasing too
-        // (`"or"`-phrased / prose).
         .or_else(|| collections::expected_arguments(name))
         .or_else(|| general::expected_arguments(name))
         .or_else(|| thread::expected_arguments(name))
+        .or_else(|| strings::expected_arguments(name))
+        .or_else(|| regex::expected_arguments(name))
+        .or_else(|| fs::expected_arguments(name))
+        .or_else(|| os::expected_arguments(name))
+        .or_else(|| io::expected_arguments(name))
+        .or_else(|| json::expected_arguments(name))
+        .or_else(|| csv::expected_arguments(name))
+        .or_else(|| bits::expected_arguments(name))
+        .or_else(|| datetime::expected_arguments(name))
     {
         return Some(text.to_string());
     }
