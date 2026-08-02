@@ -3,7 +3,10 @@ use super::super::*;
 /// `EINTR` — a syscall interrupted by a signal handler before it transferred any
 /// bytes. Its numeric value is `4` on both Linux and macOS/BSD (bug-62), so the
 /// EINTR-retry guards can compare against a single literal on every backend.
-const EINTR_ERRNO: &str = "4";
+/// `pub(in ...)` so sibling emit sites (e.g. the `term::` present-write loop's
+/// bug-410 retry test) can assert against the canonical value rather than a
+/// restated `"4"`.
+pub(in crate::target::shared::code) const EINTR_ERRNO: &str = "4";
 
 /// Whether this program links the platform's `errno` accessor (`___error` on
 /// macOS, `__errno_location` on Linux). Both `fs::` (a `File` only comes from

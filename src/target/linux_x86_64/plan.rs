@@ -183,6 +183,24 @@ mod tests {
         }
     }
 
+    /// bug-410: the `term::sync` present-write loop retries EINTR, but x86-64's
+    /// `write` is a raw `svc` returning `-errno`, so the retry classifies EINTR
+    /// without the accessor. The `__errno_location` import must therefore stay off
+    /// this arm (a dead dynsym on x86, the mirror of `write_is_never_imported`); the
+    /// libc-write backends (aarch64/riscv64/macOS) add it under `!raw_write`.
+    #[test]
+    fn term_sync_does_not_import_errno_accessor() {
+        let spec =
+            crate::target::shared::runtime::spec_for_call("term.sync").expect("term.sync spec");
+        assert!(
+            platform()
+                .runtime_imports(spec)
+                .iter()
+                .all(|imp| imp.symbol != "__errno_location"),
+            "term.sync must not import __errno_location on x86 (raw write returns -errno)"
+        );
+    }
+
     /// The io.print family raw-syscalls `write`, so its import arm is empty.
     #[test]
     fn io_print_imports_nothing() {
