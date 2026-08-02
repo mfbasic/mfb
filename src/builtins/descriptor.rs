@@ -282,14 +282,19 @@ pub(crate) trait BuiltinResolver: Sync {
         None
     }
 
-    /// Monomorph/override target for an overloaded call. Default: none.
+    /// Monomorph target for an overloaded call, using the argument types and the
+    /// contextual expected type. `Ok(None)` when the callee is not this package's
+    /// overloaded name; `Err(())` when a return-type overload cannot be resolved
+    /// without an expected type (`encoding.utf8Encode` with no
+    /// `List OF Byte`/`List OF Integer` context). Default: `Ok(None)`.
     fn resolve_overload_target(
         &self,
         _module: &BuiltinModule,
         _name: &str,
         _arg_types: &[String],
-    ) -> Option<String> {
-        None
+        _expected_type: Option<&str>,
+    ) -> Result<Option<String>, ()> {
+        Ok(None)
     }
 
     /// Custom source-companion use predicate for [`InjectionRule::WhenUsed`].
@@ -606,7 +611,7 @@ impl BuiltinRegistry {
 /// miss). BB then deletes the legacy helpers the adapters fall back to.
 ///
 /// Migrated so far: `app` (B), `bits` (D), `collections` (E), `csv` (G),
-/// `crypto` (F), `audio` (C), `datetime` (H).
+/// `crypto` (F), `audio` (C), `datetime` (H), `encoding` (I).
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::bits::BITS,
@@ -615,6 +620,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::crypto::CRYPTO,
     &crate::builtins::audio::AUDIO,
     &crate::builtins::datetime::DATETIME,
+    &crate::builtins::encoding::ENCODING,
 ]);
 
 /// The migration parity harness (plan-72).
@@ -672,6 +678,9 @@ pub(crate) mod parity {
         pub expected_return: Option<&'a str>,
         pub expected_impl: Option<&'a str>,
         pub expected_padding: Option<Vec<(&'static str, &'static str)>>,
+        /// The contextual expected type driving a return-type overload
+        /// (`encoding.utf8Encode`). Passed to `resolve_overload_target`.
+        pub expected_type: Option<&'a str>,
         pub expected_overload_target: Option<&'a str>,
     }
 
@@ -811,10 +820,13 @@ pub(crate) mod parity {
             }
             if let Some(expected) = sample.expected_overload_target {
                 assert_eq!(
-                    resolver
-                        .resolve_overload_target(module, sample.call, &arg_types)
-                        .as_deref(),
-                    Some(expected),
+                    resolver.resolve_overload_target(
+                        module,
+                        sample.call,
+                        &arg_types,
+                        sample.expected_type
+                    ),
+                    Ok(Some(expected.to_string())),
                     "resolver overload-target parity for {} {:?}",
                     sample.call,
                     sample.arg_types
@@ -1430,15 +1442,16 @@ mod tests {
             _module: &BuiltinModule,
             name: &str,
             arg_types: &[String],
-        ) -> Option<String> {
+            _expected_type: Option<&str>,
+        ) -> Result<Option<String>, ()> {
             if name != "s.pick" {
-                return None;
+                return Ok(None);
             }
-            Some(if arg_types.len() >= 2 {
+            Ok(Some(if arg_types.len() >= 2 {
                 "s.pick#1".to_string()
             } else {
                 "s.pick#0".to_string()
-            })
+            }))
         }
 
         fn uses_source(
@@ -1523,6 +1536,7 @@ mod tests {
                 expected_return: Some("Integer"),
                 expected_impl: Some("__s_pick1"),
                 expected_padding: Some(vec![("Integer", "0")]),
+                expected_type: None,
                 expected_overload_target: Some("s.pick#0"),
             },
             parity::ResolverSample {
@@ -1531,6 +1545,7 @@ mod tests {
                 expected_return: Some("Integer"),
                 expected_impl: Some("__s_pick2"),
                 expected_padding: Some(vec![]),
+                expected_type: None,
                 expected_overload_target: Some("s.pick#1"),
             },
         ];

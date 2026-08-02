@@ -975,36 +975,43 @@ mod tests {
             parity::ResolverSample {
                 call: SHA256, arg_types: &[BYTES], expected_return: Some(BYTES),
                 expected_impl: Some("__crypto_sha256_bytes"), expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
                 call: SHA256, arg_types: &["String"], expected_return: Some(BYTES),
                 expected_impl: Some("__crypto_sha256_text"), expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
                 call: HMAC_SHA256, arg_types: &[BYTES, "String"], expected_return: Some(BYTES),
                 expected_impl: Some("__crypto_hmacSha256_text"), expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
                 call: AES256_GCM_SEAL, arg_types: &[BYTES, BYTES, BYTES], expected_return: Some(SEALED_TYPE),
                 expected_impl: Some("__crypto_aes256GcmSeal"), expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
                 call: GENERATE_P256, arg_types: &[], expected_return: Some(KEYPAIR_TYPE),
                 expected_impl: Some("__crypto_generateP256"), expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
                 call: UUID4, arg_types: &[], expected_return: Some("String"),
                 expected_impl: Some("__crypto_uuid4"), expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
                 call: CONSTANT_TIME_EQUAL, arg_types: &[BYTES, BYTES], expected_return: Some("Boolean"),
                 expected_impl: Some("__crypto_constantTimeEqual"), expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
         ];

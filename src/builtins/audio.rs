@@ -943,6 +943,7 @@ mod tests {
             expected_return: Some(ret),
             expected_impl: None,
             expected_padding: None,
+            expected_type: None,
             expected_overload_target: None,
         }
     }

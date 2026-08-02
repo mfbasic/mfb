@@ -1185,7 +1185,9 @@ impl<'a> Monomorphizer<'a> {
                 // the argument types and (for the return-type overload) the
                 // expected type (plan-02-encoding.md Part B).
                 if crate::builtins::encoding::is_overloaded(callee) {
-                    match crate::builtins::encoding::resolve_overload_target(
+                    // plan-72-I: resolve the overload target through the descriptor
+                    // registry API rather than the encoding-specific free function.
+                    match crate::builtins::resolve_overload_target(
                         callee,
                         &arg_types,
                         expected_type,
@@ -1196,7 +1198,7 @@ impl<'a> Monomorphizer<'a> {
                             // resolver accepts it and IR maps it to its internal
                             // implementation, like the other encoding functions.
                             return Expression::Call {
-                                callee: target.to_string(),
+                                callee: target,
                                 arguments: lowered_args,
                                 line: *call_line,
                                 column: *column,

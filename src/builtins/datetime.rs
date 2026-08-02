@@ -1080,6 +1080,7 @@ mod tests {
                 expected_return: Some(ret),
                 expected_impl: imp,
                 expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             }
         };
