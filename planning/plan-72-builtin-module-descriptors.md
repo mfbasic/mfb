@@ -44,12 +44,15 @@ References:
 These are a precondition on the whole feature. Every letter re-runs this table
 before starting.
 
+Baselines updated after letter A landed (A added the `descriptor.rs`
+infrastructure module and its test references). See Corrections.
+
 | Must be true | Command | Status |
 |---|---|---|
-| Only plan-72 files listed in this overview are present | `find planning planning/completed -type f -name 'plan-72*' \| sort → matches roadmap` | MET on 2026-08-01 |
-| The 26 builtin modules still exist | `ls src/builtins/*.rs \| grep -v mod.rs \| wc -l → 26` | MET on 2026-08-01 |
-| Total builtin descriptor-owned helper population is unchanged for this plan | `grep -cE '^(pub\(crate\) )?fn (is_.*call\|call_param_names\|call_return_type_name\|arity\|resolve_call\|implementation_name\|argument_types\|expected_arguments\|uses_package\|source_file\|augmented_project\|default_argument_padding\|param_types\|builtin_type_fields\|is_builtin_type\|call_param_name_overloads\|resolve_overload_target\|is_overloaded)' src/builtins/*.rs \| awk -F: '{s+=$2} END {print s}' → 209` | MET on 2026-08-01 |
-| Total direct helper call sites across all builtins is unchanged | `rg -o 'builtins::[a-z_]+::[a-zA-Z0-9_]+' src \| wc -l → 449` | MET on 2026-08-01 |
+| Only plan-72 files listed in this overview are present | `find planning planning/completed -type f -name 'plan-72*' \| sort -u \| wc -l → 29` (was `find planning planning/completed … → matches roadmap`; that command double-counts anything under `planning/completed` because `planning` already contains it — `sort -u` de-dupes) | MET on 2026-08-01 (re-verified for B) |
+| The 26 builtin **packages** still exist | `ls src/builtins/*.rs \| grep -vE 'mod.rs\|descriptor.rs' \| wc -l → 26` (excludes A's `descriptor.rs` infrastructure module, which is not a package) | MET on 2026-08-01 (re-verified for B) |
+| Total builtin descriptor-owned helper population is unchanged for this plan | `grep -cE '^(pub\(crate\) )?fn (is_.*call\|call_param_names\|call_return_type_name\|arity\|resolve_call\|implementation_name\|argument_types\|expected_arguments\|uses_package\|source_file\|augmented_project\|default_argument_padding\|param_types\|builtin_type_fields\|is_builtin_type\|call_param_name_overloads\|resolve_overload_target\|is_overloaded)' src/builtins/*.rs \| awk -F: '{s+=$2} END {print s}' → 209` (descriptor.rs's `DefaultResolver` methods are indented inside `impl`, so `^fn`/`^pub(crate) fn` does not match them; count stays 209 through BB, which deletes the wrappers) | MET on 2026-08-01 (re-verified for B) |
+| Total direct helper call sites across all builtins is unchanged | `rg -o 'builtins::[a-z_]+::[a-zA-Z0-9_]+' src \| wc -l → 451` (was 449; +2 are A's `crate::builtins::app::source_file` references in `descriptor.rs` tests; B adds `crate::builtins::app::APP` in the production registry — these are descriptor plumbing, not new legacy-helper dispatch) | MET on 2026-08-01 (re-verified for B, remeasured per letter) |
 
 Everything below is written against the world where these hold. If any row
 changes, update the measured-population table in this overview before editing
@@ -291,7 +294,28 @@ as a regression unless proven stale under AGENTS.md.
 
 ## Corrections
 
-Filled during execution.
+- **Prerequisites baselines shifted once letter A landed (corrected during B).**
+  A added `src/builtins/descriptor.rs` (the descriptor infrastructure) and test
+  references to it, which the original Prerequisites commands did not anticipate:
+  - Row 1 command double-counts: `find planning planning/completed` descends into
+    `planning/completed` twice (it is a subdir of `planning`), so the archived
+    `plan-72-A` was counted twice → `30`. Fixed with `sort -u | wc -l → 29`.
+  - Row 2 measured `27` because `descriptor.rs` is a non-package file under
+    `src/builtins/`. Command now excludes it → `26` packages.
+  - Row 4 measured `451` (was `449`): +2 from A's `crate::builtins::app::source_file`
+    references in `descriptor.rs` tests. B adds one more
+    (`crate::builtins::app::APP` in the production registry). These are descriptor
+    plumbing, not legacy-helper dispatch; expected count grows per migrated letter.
+  - Row 3 stayed `209` (descriptor's `DefaultResolver` methods are indented inside
+    `impl`, so the `^fn` anchor does not count them). MET unchanged.
+  None of these indicated a blocker — letter A (the actual dependency) is complete;
+  the table was a pre-A snapshot. Re-verified all rows MET before starting B.
+- **Corrected A's `DefaultResolver` zero-argument renderings (done in B).** A's
+  `expected_arguments` rendered `""` and `argument_types` returned `Some([])` for a
+  zero-parameter call. The shared convention (proven across `app`, `money`,
+  `crypto`, `datetime`) is `"()"` and `None`. Fixed in `descriptor.rs` and pinned
+  by new unit tests; this is a general vocabulary fix, not app-specific tuning
+  (respects A's non-goal). Evidence: `rg -n '=> "\(\)"' src/builtins/` (4 packages).
 
 ## Summary
 
