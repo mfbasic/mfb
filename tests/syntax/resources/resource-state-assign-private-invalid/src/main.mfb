@@ -1,0 +1,6 @@
+PRIVATE MUT g AS Integer = 0
+
+FUNC main AS Integer
+  g.state = 5
+  RETURN 0
+END FUNC
