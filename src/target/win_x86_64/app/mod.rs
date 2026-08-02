@@ -29,8 +29,7 @@ use crate::target::shared::code::{
     AppEntrySpec, AppHookBody, ARENA_ALLOC_SYMBOL, MACAPP_PROGRAM_SYMBOL, RESULT_OK_TAG,
     RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER, ARENA_STATE_REGISTER, TERM_STATE_ACTIVE_OFFSET,
     TERM_STATE_FG_OFFSET, TERM_STATE_BG_OFFSET, TERM_STATE_BOLD_OFFSET, TERM_STATE_UNDERLINE_OFFSET,
-    TERM_STATE_CURSOR_VISIBLE_OFFSET, RESULT_ERR_TAG, RESULT_ERROR_MESSAGE_REGISTER,
-    ERR_UNSUPPORTED_CODE, ERR_UNSUPPORTED_SYMBOL,
+    TERM_STATE_CURSOR_VISIBLE_OFFSET,
 };
 
 const KERNEL32: &str = "kernel32.dll";
@@ -1272,24 +1271,445 @@ pub(super) fn emit_app_term_helper(call: &str, symbol: &str, tso: usize) -> Opti
         // `ErrUnsupported` here. Console builds still get the real draw via the
         // shared lowering (this arm is app-mode-only). GDI drawing is a follow-up
         // (plan-69 open decision / plan-66 GDI TUI backend).
-        "term.drawHLine" | "term.drawVLine" | "term.drawBox" | "term.fillRect"
-        | "term.drawText" | "term.drawGlyph" => emit_term_draw_unsupported(symbol),
+        // plan-70-F Phase 3: the six positioned draw helpers stamp directly into the
+        // persistent memDC (immediate mode). Box/line/fill use Light box-drawing
+        // glyphs; drawText/drawGlyph render through the CJK font at correct width.
+        "term.drawHLine" => emit_term_draw_line(symbol, tso, true),
+        "term.drawVLine" => emit_term_draw_line(symbol, tso, false),
+        "term.drawBox" => emit_term_draw_box(symbol, tso),
+        "term.fillRect" => emit_term_fill_rect(symbol, tso),
+        "term.drawText" => emit_term_draw_text_at(symbol, tso),
+        "term.drawGlyph" => emit_term_draw_glyph_at(symbol, tso),
         _ => return None,
     };
     Some(b)
 }
 
-/// App-mode guard for the `term::` draw helpers: raise the trappable
-/// `ErrUnsupported` (the GDI surface has no cell grid to stamp into). Mirrors the
-/// shared console `emit_unsupported` error shape — tag/code/message with no frame,
-/// so the `ErrWrongMode` gate the caller prepends stays valid.
-fn emit_term_draw_unsupported(symbol: &str) -> AppHookBody {
+/// plan-70-F: `SetTextColor`/`SetBkColor` on the memDC (stack slot `memdc_off`) from
+/// the current term state colours.
+fn win_set_colors(
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+    from: &str,
+    tso: usize,
+    memdc_off: usize,
+) {
+    ins.push(abi::load_u64(abi::ARG[1], ARENA_STATE_REGISTER, tso + TERM_STATE_FG_OFFSET));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), memdc_off));
+    call_external(from, "SetTextColor", GDI32, ins, rel);
+    ins.push(abi::load_u64(abi::ARG[1], ARENA_STATE_REGISTER, tso + TERM_STATE_BG_OFFSET));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), memdc_off));
+    call_external(from, "SetBkColor", GDI32, ins, rel);
+}
+
+/// plan-70-F: stamp one BMP glyph (slot `glyph_off`) at grid `(col slot, row slot)`
+/// into the memDC (slot `memdc_off`), staging the UTF-16 unit at `wch_off`. The 5th
+/// TextOutW arg (count = 1) rides the shadow-adjacent 0x20 slot. Clobbers ARG[0..3].
+fn win_stamp_bmp(
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+    from: &str,
+    memdc_off: usize,
+    col_off: usize,
+    row_off: usize,
+    glyph_off: usize,
+    wch_off: usize,
+) {
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), glyph_off));
+    ins.push(abi::store_u16(abi::ARG[0], abi::stack_pointer(), wch_off));
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "1"));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x20)); // 5th arg count
+    ins.push(abi::add_immediate(abi::ARG[3], abi::stack_pointer(), wch_off)); // &wch
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), col_off));
+    ins.push(abi::shift_left_immediate(abi::ARG[1], abi::ARG[1], 3)); // x = col*8
+    ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), row_off));
+    ins.push(abi::shift_left_immediate(abi::ARG[2], abi::ARG[2], 4)); // y = row*16
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), memdc_off));
+    call_external(from, "TextOutW", GDI32, ins, rel);
+}
+
+/// plan-70-F: `term::drawGlyph(x, y, codepoint)` — stamp one glyph at the cell,
+/// astral-capable, in the current colours. Args: ARG[0]=x, ARG[1]=y, ARG[2]=cp.
+fn emit_term_draw_glyph_at(symbol: &str, tso: usize) -> AppHookBody {
+    const FRAME: usize = 0x58; // ≡ 8 (mod 16)
+    const WCH: usize = 0x30;
+    const MEMDC: usize = 0x38;
+    const SX: usize = 0x40;
+    const SY: usize = 0x48;
+    const SCP: usize = 0x50;
+    let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
     ins.push(abi::label("entry"));
-    ins.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_UNSUPPORTED_CODE));
-    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG));
-    load_addr(RESULT_ERROR_MESSAGE_REGISTER, ERR_UNSUPPORTED_SYMBOL, symbol, &mut ins, &mut rel);
+    ins.push(abi::subtract_stack(FRAME));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), SX));
+    ins.push(abi::store_u64(abi::ARG[1], abi::stack_pointer(), SY));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), SCP));
+    load_addr(abi::ARG[0], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), MEMDC));
+    ins.push(abi::compare_immediate(abi::ARG[0], "0"));
+    ins.push(abi::branch_eq("dg_done"));
+    win_set_colors(&mut ins, &mut rel, from, tso, MEMDC);
+    // Build UTF-16 units from cp; count → 0x20 (TextOutW 5th arg).
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), SCP));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "65536"));
+    ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+    ins.push(abi::branch_lt("dg_bmp"));
+    ins.push(abi::subtract_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1])); // cp - 0x10000
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "1023")); // 0x3FF
+    ins.push(abi::and_registers(abi::ARG[2], abi::ARG[0], abi::ARG[2])); // low 10
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "56320")); // 0xDC00
+    ins.push(abi::add_registers(abi::ARG[2], abi::ARG[2], abi::ARG[1])); // lo
+    ins.push(abi::shift_right_immediate(abi::ARG[0], abi::ARG[0], 10)); // high 10
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "55296")); // 0xD800
+    ins.push(abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1])); // hi
+    ins.push(abi::store_u16(abi::ARG[0], abi::stack_pointer(), WCH)); // hi @ +0
+    ins.push(abi::store_u16(abi::ARG[2], abi::stack_pointer(), WCH + 2)); // lo @ +2
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "2"));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x20));
+    ins.push(abi::branch("dg_units"));
+    ins.push(abi::label("dg_bmp"));
+    ins.push(abi::store_u16(abi::ARG[0], abi::stack_pointer(), WCH));
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "1"));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x20));
+    ins.push(abi::label("dg_units"));
+    // TextOutW(memDC, x*8, y*16, &WCH, count)
+    ins.push(abi::add_immediate(abi::ARG[3], abi::stack_pointer(), WCH));
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), SX));
+    ins.push(abi::shift_left_immediate(abi::ARG[1], abi::ARG[1], 3));
+    ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), SY));
+    ins.push(abi::shift_left_immediate(abi::ARG[2], abi::ARG[2], 4));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), MEMDC));
+    call_external(from, "TextOutW", GDI32, &mut ins, &mut rel);
+    ins.push(abi::label("dg_done"));
+    invalidate_main(from, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+    term_body(ins, rel)
+}
+
+/// plan-70-F: `term::drawHLine`/`drawVLine(style, fixed, a, b)` — stamp a Light
+/// box-drawing run. Args: ARG[0]=style (ignored — Light), ARG[1]=fixed
+/// (row for H / col for V), ARG[2]=a, ARG[3]=b. Clips to the grid.
+fn emit_term_draw_line(symbol: &str, tso: usize, horizontal: bool) -> AppHookBody {
+    const FRAME: usize = 0x68; // ≡ 8 (mod 16)
+    const WCH: usize = 0x30;
+    const MEMDC: usize = 0x38;
+    const FIXED: usize = 0x40; // row (H) or col (V)
+    const POS: usize = 0x48; // running a..b
+    const ENDV: usize = 0x50;
+    const GLYPH: usize = 0x58;
+    let from = symbol;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::subtract_stack(FRAME));
+    ins.push(abi::store_u64(abi::ARG[1], abi::stack_pointer(), FIXED));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), POS));
+    ins.push(abi::store_u64(abi::ARG[3], abi::stack_pointer(), ENDV));
+    // glyph = ─ (9472) for H, │ (9474) for V.
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", if horizontal { "9472" } else { "9474" }));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), GLYPH));
+    load_addr(abi::ARG[0], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), MEMDC));
+    ins.push(abi::compare_immediate(abi::ARG[0], "0"));
+    ins.push(abi::branch_eq("dln_done"));
+    win_set_colors(&mut ins, &mut rel, from, tso, MEMDC);
+    ins.push(abi::label("dln_loop"));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), POS));
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), ENDV));
+    ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+    ins.push(abi::branch_gt("dln_done"));
+    // H: col=POS, row=FIXED ; V: col=FIXED, row=POS.
+    let (col_off, row_off) = if horizontal { (POS, FIXED) } else { (FIXED, POS) };
+    win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, col_off, row_off, GLYPH, WCH);
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), POS));
+    ins.push(abi::add_immediate(abi::ARG[0], abi::ARG[0], 1));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), POS));
+    ins.push(abi::branch("dln_loop"));
+    ins.push(abi::label("dln_done"));
+    invalidate_main(from, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+    term_body(ins, rel)
+}
+
+/// plan-70-F: `term::drawBox(style, x1, y1, x2, y2)` — Light box: two H edges, two V
+/// edges, four corners. Args ARG[0]=style (ignored), ARG[1]=x1, ARG[2]=y1,
+/// ARG[3]=x2, and y2 is the 5th (incoming stack) arg.
+fn emit_term_draw_box(symbol: &str, tso: usize) -> AppHookBody {
+    const FRAME: usize = 0x78; // ≡ 8 (mod 16)
+    const WCH: usize = 0x30;
+    const MEMDC: usize = 0x38;
+    const X1: usize = 0x40;
+    const Y1: usize = 0x48;
+    const X2: usize = 0x50;
+    const Y2: usize = 0x58;
+    const POS: usize = 0x60;
+    const GLYPH: usize = 0x68;
+    let from = symbol;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::subtract_stack(FRAME));
+    ins.push(abi::store_u64(abi::ARG[1], abi::stack_pointer(), X1));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), Y1));
+    ins.push(abi::store_u64(abi::ARG[3], abi::stack_pointer(), X2));
+    // y2 = 5th incoming arg: caller placed it above our return addr at sp+FRAME+0x28.
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), FRAME + 0x28));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), Y2));
+    load_addr(abi::ARG[0], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), MEMDC));
+    ins.push(abi::compare_immediate(abi::ARG[0], "0"));
+    ins.push(abi::branch_eq("dbx_done"));
+    win_set_colors(&mut ins, &mut rel, from, tso, MEMDC);
+    // Top + bottom edges (─) across x1..x2 at y1 / y2.
+    for (yslot, tag) in [(Y1, "dbx_top"), (Y2, "dbx_bot")] {
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), X1));
+        ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), POS));
+        ins.push(abi::move_immediate(abi::ARG[0], "Integer", "9472")); // ─
+        ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), GLYPH));
+        ins.push(abi::label(&format!("{tag}_loop")));
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), POS));
+        ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), X2));
+        ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+        ins.push(abi::branch_gt(&format!("{tag}_done")));
+        win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, POS, yslot, GLYPH, WCH);
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), POS));
+        ins.push(abi::add_immediate(abi::ARG[0], abi::ARG[0], 1));
+        ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), POS));
+        ins.push(abi::branch(&format!("{tag}_loop")));
+        ins.push(abi::label(&format!("{tag}_done")));
+    }
+    // Left + right edges (│) down y1..y2 at x1 / x2.
+    for (xslot, tag) in [(X1, "dbx_left"), (X2, "dbx_right")] {
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), Y1));
+        ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), POS));
+        ins.push(abi::move_immediate(abi::ARG[0], "Integer", "9474")); // │
+        ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), GLYPH));
+        ins.push(abi::label(&format!("{tag}_loop")));
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), POS));
+        ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), Y2));
+        ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+        ins.push(abi::branch_gt(&format!("{tag}_done")));
+        win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, xslot, POS, GLYPH, WCH);
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), POS));
+        ins.push(abi::add_immediate(abi::ARG[0], abi::ARG[0], 1));
+        ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), POS));
+        ins.push(abi::branch(&format!("{tag}_loop")));
+        ins.push(abi::label(&format!("{tag}_done")));
+    }
+    // Corners: ┌ x1y1, ┐ x2y1, └ x1y2, ┘ x2y2.
+    for (xslot, yslot, cp, _tag) in [
+        (X1, Y1, "9484", "tl"),
+        (X2, Y1, "9488", "tr"),
+        (X1, Y2, "9492", "bl"),
+        (X2, Y2, "9496", "br"),
+    ] {
+        ins.push(abi::move_immediate(abi::ARG[0], "Integer", cp));
+        ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), GLYPH));
+        win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, xslot, yslot, GLYPH, WCH);
+    }
+    ins.push(abi::label("dbx_done"));
+    invalidate_main(from, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+    term_body(ins, rel)
+}
+
+/// plan-70-F: `term::fillRect(style, x1, y1, x2, y2)` — fill the cell rect with a
+/// space in the current bg (the block glyph would ignore bg). Args as drawBox.
+fn emit_term_fill_rect(symbol: &str, tso: usize) -> AppHookBody {
+    const FRAME: usize = 0x78;
+    const WCH: usize = 0x30;
+    const MEMDC: usize = 0x38;
+    const X1: usize = 0x40;
+    const Y1: usize = 0x48;
+    const X2: usize = 0x50;
+    const Y2: usize = 0x58;
+    const CX: usize = 0x60;
+    const CY: usize = 0x68;
+    const GLYPH: usize = 0x70;
+    let from = symbol;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::subtract_stack(FRAME));
+    ins.push(abi::store_u64(abi::ARG[1], abi::stack_pointer(), X1));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), Y1));
+    ins.push(abi::store_u64(abi::ARG[3], abi::stack_pointer(), X2));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), FRAME + 0x28)); // y2 (5th arg)
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), Y2));
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "32")); // space (paints bg)
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), GLYPH));
+    load_addr(abi::ARG[0], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), MEMDC));
+    ins.push(abi::compare_immediate(abi::ARG[0], "0"));
+    ins.push(abi::branch_eq("dfr_done"));
+    win_set_colors(&mut ins, &mut rel, from, tso, MEMDC);
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), Y1));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), CY));
+    ins.push(abi::label("dfr_row"));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), CY));
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), Y2));
+    ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+    ins.push(abi::branch_gt("dfr_done"));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), X1));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), CX));
+    ins.push(abi::label("dfr_col"));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), CX));
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), X2));
+    ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+    ins.push(abi::branch_gt("dfr_row_next"));
+    win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, CX, CY, GLYPH, WCH);
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), CX));
+    ins.push(abi::add_immediate(abi::ARG[0], abi::ARG[0], 1));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), CX));
+    ins.push(abi::branch("dfr_col"));
+    ins.push(abi::label("dfr_row_next"));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), CY));
+    ins.push(abi::add_immediate(abi::ARG[0], abi::ARG[0], 1));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), CY));
+    ins.push(abi::branch("dfr_row"));
+    ins.push(abi::label("dfr_done"));
+    invalidate_main(from, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+    term_body(ins, rel)
+}
+
+/// plan-70-F: `term::drawText(x, y, text)` — stamp a UTF-8 string at `(x, y)`, one
+/// grapheme per cell at its display width, no wrap (clips at the right edge). Args:
+/// ARG[0]=x, ARG[1]=y, ARG[2]=text ptr `{len@0, bytes@8}`.
+fn emit_term_draw_text_at(symbol: &str, tso: usize) -> AppHookBody {
+    const FRAME: usize = 0x98; // ≡ 8 (mod 16)
+    const MEMDC: usize = 0x38;
+    const SX: usize = 0x40; // starting column
+    const SY: usize = 0x48; // row
+    const WBUF: usize = 0x50;
+    const WCC: usize = 0x58; // UTF-16 unit count
+    const GI: usize = 0x60; // unit index
+    const CPSLOT: usize = 0x68;
+    const UCOUNT: usize = 0x70;
+    const WIDTHSLOT: usize = 0x78;
+    const CURCOL: usize = 0x80;
+    let from = symbol;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::subtract_stack(FRAME));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), SX));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), CURCOL)); // running col = x
+    ins.push(abi::store_u64(abi::ARG[1], abi::stack_pointer(), SY));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x88)); // text ptr scratch
+    load_addr(abi::ARG[0], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), MEMDC));
+    ins.push(abi::compare_immediate(abi::ARG[0], "0"));
+    ins.push(abi::branch_eq("dt_done"));
+    win_set_colors(&mut ins, &mut rel, from, tso, MEMDC);
+    // Convert UTF-8 → UTF-16 into a 64 KB arena buffer.
+    arena_alloc("65536", from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), WBUF));
+    ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), WBUF));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20));
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "32767"));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28));
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
+    ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x88)); // text ptr
+    ins.push(abi::load_u64(abi::ARG[3], abi::ARG[2], 0)); // len
+    ins.push(abi::add_immediate(abi::ARG[2], abi::ARG[2], 8)); // bytes
+    call_external(from, "MultiByteToWideChar", KERNEL32, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "4294967295"));
+    ins.push(abi::and_registers(abi::ARG[0], abi::return_register(), abi::ARG[1]));
+    ins.push(abi::compare_immediate(abi::ARG[0], "32767"));
+    ins.push(abi::branch_le("dt_wc_ok"));
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "32767"));
+    ins.push(abi::label("dt_wc_ok"));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), WCC));
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), GI));
+    ins.push(abi::label("dt_loop"));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), GI));
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), WCC));
+    ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+    ins.push(abi::branch_ge("dt_done"));
+    // clip at the right edge (col only grows).
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), CURCOL));
+    ins.push(abi::compare_immediate(abi::ARG[0], &TUI_COLS.to_string()));
+    ins.push(abi::branch_ge("dt_done"));
+    ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), WBUF));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), GI));
+    ins.push(abi::shift_left_immediate(abi::ARG[1], abi::ARG[0], 1));
+    ins.push(abi::add_registers(abi::ARG[2], abi::ARG[2], abi::ARG[1]));
+    ins.push(abi::load_u16(abi::ARG[0], abi::ARG[2], 0)); // unit
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "1"));
+    ins.push(abi::store_u64(abi::ARG[1], abi::stack_pointer(), UCOUNT));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), CPSLOT));
+    // astral?
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "55296"));
+    ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+    ins.push(abi::branch_lt("dt_have_cp"));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "56320"));
+    ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+    ins.push(abi::branch_ge("dt_have_cp"));
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), GI));
+    ins.push(abi::add_immediate(abi::ARG[1], abi::ARG[1], 1));
+    ins.push(abi::load_u64(abi::ARG[3], abi::stack_pointer(), WCC));
+    ins.push(abi::compare_registers(abi::ARG[1], abi::ARG[3]));
+    ins.push(abi::branch_ge("dt_have_cp"));
+    ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), WBUF));
+    ins.push(abi::shift_left_immediate(abi::ARG[1], abi::ARG[1], 1));
+    ins.push(abi::add_registers(abi::ARG[2], abi::ARG[2], abi::ARG[1]));
+    ins.push(abi::load_u16(abi::ARG[1], abi::ARG[2], 0)); // lo
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "55296"));
+    ins.push(abi::subtract_registers(abi::ARG[0], abi::ARG[0], abi::ARG[2]));
+    ins.push(abi::shift_left_immediate(abi::ARG[0], abi::ARG[0], 10));
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "56320"));
+    ins.push(abi::subtract_registers(abi::ARG[1], abi::ARG[1], abi::ARG[2]));
+    ins.push(abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]));
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "65536"));
+    ins.push(abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[2]));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), CPSLOT));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "2"));
+    ins.push(abi::store_u64(abi::ARG[1], abi::stack_pointer(), UCOUNT));
+    ins.push(abi::label("dt_have_cp"));
+    emit_win_wide_width(&mut ins, CPSLOT, WIDTHSLOT);
+    // TextOutW(memDC, curcol*8, y*16, &wbuf[i], unitCount)
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), UCOUNT));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x20));
+    ins.push(abi::load_u64(abi::ARG[3], abi::stack_pointer(), WBUF));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), GI));
+    ins.push(abi::shift_left_immediate(abi::ARG[0], abi::ARG[0], 1));
+    ins.push(abi::add_registers(abi::ARG[3], abi::ARG[3], abi::ARG[0]));
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), CURCOL));
+    ins.push(abi::shift_left_immediate(abi::ARG[1], abi::ARG[1], 3));
+    ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), SY));
+    ins.push(abi::shift_left_immediate(abi::ARG[2], abi::ARG[2], 4));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), MEMDC));
+    call_external(from, "TextOutW", GDI32, &mut ins, &mut rel);
+    // curcol += width; i += unitCount.
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), CURCOL));
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), WIDTHSLOT));
+    ins.push(abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), CURCOL));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), GI));
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), UCOUNT));
+    ins.push(abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), GI));
+    ins.push(abi::branch("dt_loop"));
+    ins.push(abi::label("dt_done"));
+    invalidate_main(from, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     term_body(ins, rel)
 }
