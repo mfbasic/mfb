@@ -771,10 +771,18 @@ impl<'a> Monomorphizer<'a> {
     }
 
     fn instantiate_type(&mut self, name: &str, args: &[String]) -> String {
-        let concrete_name = mangle_name(name, args);
+        // The mangled symbol is a lossy encoding (every non-alphanumeric collapses
+        // to `$`), so two distinct same-arity type-argument tuples can produce the
+        // same symbol; without disambiguation the second instantiation would
+        // overwrite the first in `concrete_types` and both use-sites would rewrite
+        // to one shared, possibly-wrong concrete type. The `name<args>` key IS
+        // unambiguous, so claim the symbol against it exactly as
+        // `instantiate_function` does (bug-226 fixed the function half but left this
+        // one unguarded — bug-400). A symbol claimed by only one key is unchanged.
+        let key = format!("{name}<{}>", args.join(","));
+        let concrete_name = self.unique_concrete_symbol(mangle_name(name, args), &key);
         self.type_instantiations
             .insert(concrete_name.clone(), (name.to_string(), args.to_vec()));
-        let key = format!("{name}<{}>", args.join(","));
         if !self.emitted_type_keys.insert(key) {
             return concrete_name;
         }
@@ -2109,6 +2117,59 @@ END SUB
             super::super::MAX_TOTAL_INSTANTIATIONS,
             "no charge is admitted past the budget"
         );
+    }
+
+    #[test]
+    fn instantiate_type_disambiguates_mangle_colliding_arguments() {
+        // `mangle_name` is lossy: `sanitize_type_name` collapses every
+        // non-alphanumeric character to `$`, so two distinct type-argument strings
+        // that differ only in punctuation produce one shared mangled symbol.
+        // `instantiate_function` guards this via `unique_concrete_symbol` (bug-226);
+        // `instantiate_type` must too, or the second instantiation overwrites the
+        // first in `concrete_types` and both use-sites bind one shared — and
+        // possibly wrong — concrete type (bug-400). Driven directly against
+        // `instantiate_type` because no *valid* source spelling reaches the
+        // collision (the grammar fixes each punctuation slot relative to the alnum
+        // tokens; the mangled symbol is the only lossy layer), which is exactly why
+        // bug-226/bug-400 are latent — the same reason
+        // `total_instantiation_budget_halts_wide_fanout` drives its counter directly.
+        let ast = project(&[(
+            "src/main.mfb",
+            "TYPE Box OF T\n  value AS T\nEND TYPE\nFUNC main() AS Integer\n  RETURN 0\nEND FUNC\n",
+        )]);
+        let dir = std::env::temp_dir();
+        let mut mono = Monomorphizer::new(&dir, &ast);
+
+        // Two distinct type-argument strings that `sanitize_type_name` maps to the
+        // same suffix — `(`/`)` and `{`/`}` both sanitize to `$`.
+        let a = "FUNC(Integer) AS Nothing".to_string();
+        let b = "FUNC{Integer} AS Nothing".to_string();
+        assert_ne!(a, b);
+        assert_eq!(
+            super::mangle_name("Box", std::slice::from_ref(&a)),
+            super::mangle_name("Box", std::slice::from_ref(&b)),
+            "the two arguments must mangle-collide for this test to exercise the guard"
+        );
+
+        let name_a = mono.instantiate_type("Box", std::slice::from_ref(&a));
+        let name_b = mono.instantiate_type("Box", std::slice::from_ref(&b));
+
+        // Each colliding instantiation must keep its own distinct concrete symbol...
+        assert_ne!(
+            name_a, name_b,
+            "colliding type arguments must resolve to distinct concrete symbols"
+        );
+        // ...and its own concrete type declaration (no overwrite).
+        let type_a = mono
+            .concrete_types
+            .get(&name_a)
+            .expect("first concrete Box survives");
+        let type_b = mono
+            .concrete_types
+            .get(&name_b)
+            .expect("second concrete Box survives");
+        assert_eq!(type_a.fields[0].type_name, a, "first keeps its field type");
+        assert_eq!(type_b.fields[0].type_name, b, "second keeps its field type");
     }
 
     #[test]
