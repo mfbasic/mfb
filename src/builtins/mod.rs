@@ -1227,35 +1227,38 @@ mod tests {
 
     #[test]
     fn adapters_fall_back_for_unmigrated_packages() {
-        // `math` is not migrated, so it is absent from the production registry
+        // `regex` is not migrated, so it is absent from the production registry
         // and every adapter falls back to — and returns exactly — the legacy
         // helper. This is what keeps production dispatch unchanged for packages
-        // that have not yet moved onto descriptors.
+        // that have not yet moved onto descriptors. (This test used `math` as the
+        // unmigrated example until plan-72-P migrated it; `math.abs`'s type-set
+        // `expected_arguments` phrasing is not descriptor-derivable, so the
+        // example moved to a still-unmigrated package.)
         assert!(registry_is_call(
             &descriptor::REGISTRY,
-            "math.abs",
-            math::is_math_call
+            "regex.match",
+            regex::is_regex_call
         ));
         assert!(!registry_is_call(
             &descriptor::REGISTRY,
-            "math.nope",
-            math::is_math_call
+            "regex.nope",
+            regex::is_regex_call
         ));
         assert_eq!(
-            registry_arity(&descriptor::REGISTRY, "math.abs", math::arity),
-            math::arity("math.abs")
+            registry_arity(&descriptor::REGISTRY, "regex.match", regex::arity),
+            regex::arity("regex.match")
         );
         assert_eq!(
             registry_return_type_name(
                 &descriptor::REGISTRY,
-                "math.abs",
-                math::call_return_type_name
+                "regex.match",
+                regex::call_return_type_name
             ),
-            math::call_return_type_name("math.abs")
+            regex::call_return_type_name("regex.match")
         );
         assert_eq!(
-            registry_expected_arguments(&descriptor::REGISTRY, "math.abs", |name| math::expected_arguments(name).map(str::to_string)),
-            math::expected_arguments("math.abs").map(str::to_string)
+            registry_expected_arguments(&descriptor::REGISTRY, "regex.match", |name| regex::expected_arguments(name).map(str::to_string)),
+            regex::expected_arguments("regex.match").map(str::to_string)
         );
     }
 

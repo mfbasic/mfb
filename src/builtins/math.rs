@@ -1,5 +1,10 @@
 use std::borrow::Cow;
 
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, DefaultResolver, DefaultValue,
+    Implementation, Lowering, Parameter, ParameterType, ReturnType,
+};
+
 const PI: &str = "math.pi";
 const PI_FIXED: &str = "math.piFixed";
 const TWO_OVER_PI: &str = "math.twoOverPi";
@@ -41,30 +46,117 @@ pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
 }
 
-pub(crate) fn is_math_call(name: &str) -> bool {
-    matches!(
+// plan-72-P: `MATH` is the descriptor authority for the 21 math *callables*
+// (the constants `math.pi` etc. are handled separately by `is_math_constant`,
+// which is not descriptor-owned). Every callable has `Implementation::Same` (no
+// rewrite) and a single overload. Return types are `Fixed` only where the legacy
+// nominal `call_return_type_name` is fixed — `Integer` for floor/ceil/round,
+// `Nothing` for seed — and `Custom` for every argument-type-preserving call
+// (abs/min/max/sqrt/…/rand), so `DefaultResolver::return_type_name` reproduces
+// the legacy `None`/`Some` exactly. Parameter *types* are documentation only: a
+// call like `abs` accepts `Integer | Float | Fixed | Money` (and their lists), a
+// type set a single `ParameterType` cannot express, and no delegating wrapper
+// reads them — `resolve_call` (the SIMD/type-preserving resolution) and
+// `expected_arguments` (bespoke `"|"`-phrased strings) stay hand-authored. math
+// has no source companion, no builtin types, and no resolver.
+const fn ov(params: &'static [Parameter], ret: ReturnType) -> BuiltinOverload {
+    BuiltinOverload {
+        params,
+        return_type: ret,
+    }
+}
+
+const fn mf(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+) -> BuiltinFunction {
+    BuiltinFunction {
         name,
-        ABS | MIN
-            | MAX
-            | CLAMP
-            | FLOOR
-            | CEIL
-            | ROUND
-            | SQRT
-            | POW
-            | EXP
-            | LOG
-            | LOG10
-            | SIN
-            | COS
-            | TAN
-            | ASIN
-            | ACOS
-            | ATAN
-            | ATAN2
-            | RAND
-            | SEED
-    )
+        doc_slug: slug,
+        overloads,
+        implementation: Implementation::Same,
+        lowering: Lowering::Inline,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+
+const fn req(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
+    Parameter {
+        name,
+        aliases,
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::None,
+    }
+}
+
+const P_VALUE: &[Parameter] = &[req("value", &[], "Float")];
+const P_MINMAX: &[Parameter] = &[req("a", &["left"], "Float"), req("b", &["right"], "Float")];
+const P_CLAMP: &[Parameter] = &[
+    req("value", &[], "Float"),
+    req("low", &["minimum"], "Float"),
+    req("high", &["maximum"], "Float"),
+];
+const P_POW: &[Parameter] = &[
+    req("base", &["value"], "Float"),
+    req("exponent", &["power"], "Float"),
+];
+const P_ATAN2: &[Parameter] = &[req("y", &[], "Float"), req("x", &[], "Float")];
+const P_RAND: &[Parameter] = &[
+    req("min", &["minimum"], "Integer"),
+    req("max", &["maximum"], "Integer"),
+];
+const P_SEED: &[Parameter] = &[req("value", &["seed"], "Integer")];
+
+// Argument-type-preserving calls carry `ReturnType::Custom` (their precise return
+// is computed by `resolve_call`); floor/ceil/round return a fixed `Integer` and
+// seed a fixed `Nothing`, matching the legacy nominal `call_return_type_name`.
+const OV_UNARY_CUSTOM: &[BuiltinOverload] = &[ov(P_VALUE, ReturnType::Custom)];
+const OV_UNARY_INTEGER: &[BuiltinOverload] = &[ov(P_VALUE, ReturnType::Fixed("Integer"))];
+const OV_MINMAX: &[BuiltinOverload] = &[ov(P_MINMAX, ReturnType::Custom)];
+const OV_CLAMP: &[BuiltinOverload] = &[ov(P_CLAMP, ReturnType::Custom)];
+const OV_POW: &[BuiltinOverload] = &[ov(P_POW, ReturnType::Custom)];
+const OV_ATAN2: &[BuiltinOverload] = &[ov(P_ATAN2, ReturnType::Custom)];
+const OV_RAND: &[BuiltinOverload] = &[ov(P_RAND, ReturnType::Custom)];
+const OV_SEED: &[BuiltinOverload] = &[ov(P_SEED, ReturnType::Fixed("Nothing"))];
+
+const MATH_FUNCTIONS: &[BuiltinFunction] = &[
+    mf(ABS, "abs", OV_UNARY_CUSTOM),
+    mf(MIN, "min", OV_MINMAX),
+    mf(MAX, "max", OV_MINMAX),
+    mf(CLAMP, "clamp", OV_CLAMP),
+    mf(FLOOR, "floor", OV_UNARY_INTEGER),
+    mf(CEIL, "ceil", OV_UNARY_INTEGER),
+    mf(ROUND, "round", OV_UNARY_INTEGER),
+    mf(SQRT, "sqrt", OV_UNARY_CUSTOM),
+    mf(POW, "pow", OV_POW),
+    mf(EXP, "exp", OV_UNARY_CUSTOM),
+    mf(LOG, "log", OV_UNARY_CUSTOM),
+    mf(LOG10, "log10", OV_UNARY_CUSTOM),
+    mf(SIN, "sin", OV_UNARY_CUSTOM),
+    mf(COS, "cos", OV_UNARY_CUSTOM),
+    mf(TAN, "tan", OV_UNARY_CUSTOM),
+    mf(ASIN, "asin", OV_UNARY_CUSTOM),
+    mf(ACOS, "acos", OV_UNARY_CUSTOM),
+    mf(ATAN, "atan", OV_UNARY_CUSTOM),
+    mf(ATAN2, "atan2", OV_ATAN2),
+    mf(RAND, "rand", OV_RAND),
+    mf(SEED, "seed", OV_SEED),
+];
+
+pub(crate) static MATH: BuiltinModule = BuiltinModule {
+    name: "math",
+    functions: MATH_FUNCTIONS,
+    types: &[],
+    source: None,
+    resolver: None,
+};
+
+pub(crate) fn is_math_call(name: &str) -> bool {
+    DefaultResolver::contains(&MATH, name)
 }
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
@@ -81,18 +173,18 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     }
 }
 
+// The nominal return type: `Integer` for floor/ceil/round, `Nothing` for seed,
+// and `None` for every argument-type-dependent call (abs/min/max/sqrt/…/rand,
+// whose precise return `resolve_call` computes). This is exactly what the
+// descriptor's `Fixed`/`Custom` split encodes, so it delegates to
+// `DefaultResolver::return_type_name`.
+//
+// bug-300 E6: `rand` is argument-type dependent -- `resolve_call` gives
+// `rand(Money, Money) AS Money` -- so a fixed answer here would be a second,
+// disagreeing return-type table. It is `ReturnType::Custom` in the descriptor
+// (→ `None`), like the other arg-typed builtins, deferring to the resolver.
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    match name {
-        SQRT | POW | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS | ATAN | ATAN2 => None,
-        FLOOR | CEIL | ROUND => Some("Integer"),
-        // bug-300 E6: `rand` is argument-type dependent -- `resolve_call` gives
-        // `rand(Money, Money) AS Money` -- so a fixed answer here is a second,
-        // disagreeing return-type table. `None` is what the other arg-typed
-        // builtins (abs/min/max) already return, deferring to the resolver.
-        RAND => None,
-        SEED => Some("Nothing"),
-        _ => None,
-    }
+    DefaultResolver::return_type_name(&MATH, name)
 }
 
 pub(crate) fn is_math_constant(name: &str) -> bool {
@@ -207,13 +299,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 }
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    match name {
-        ABS | FLOOR | CEIL | ROUND | SQRT | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS
-        | ATAN | SEED => Some((1, 1)),
-        MIN | MAX | POW | ATAN2 | RAND => Some((2, 2)),
-        CLAMP => Some((3, 3)),
-        _ => None,
-    }
+    DefaultResolver::arity(&MATH, name)
 }
 
 fn all_same_numeric(arg_types: &[String], min: usize, max: usize) -> bool {
@@ -612,5 +698,44 @@ mod tests {
         assert!(!two_integers(&strings(&["Integer", "Float"])));
         assert!(one_numeric_list(&strings(&["List OF Float"]), "Float"));
         assert!(!one_numeric_list(&strings(&["List OF Float"]), "Fixed"));
+    }
+
+    // plan-72-P migration gate: prove `MATH` reproduces every legacy helper answer
+    // for every math callable (and an unknown name) — membership, arity, param
+    // names (canonical + aliases), and nominal return type — pinning the borrowed
+    // `call_param_names` static equal to `MATH`. `expected_arguments` (bespoke
+    // `"|"`-phrased type sets) and `resolve_call` (SIMD/type-preserving
+    // resolution) are not descriptor-derivable and are checked by the dedicated
+    // tests above. Keep until plan-72-BB deletes the legacy helpers.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::parity;
+
+        let calls: Vec<&str> = MATH_FUNCTIONS.iter().map(|f| f.name).collect();
+        let legacy = parity::LegacySet {
+            is_call: &is_math_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            return_type_name: &call_return_type_name,
+            // Bespoke `"|"`-phrased type-set strings the descriptor's per-position
+            // types cannot render; kept hand-authored and checked separately.
+            expected_arguments: None,
+            param_name_overloads: None,
+            argument_types: None,
+            implementation_name: None,
+            default_padding: None,
+            builtin_type_fields: None,
+        };
+        let mut probe = calls.clone();
+        probe.push("math.bogus");
+        // A constant name is not a callable — the descriptor must reject it.
+        probe.push(PI);
+        parity::assert_parity(&MATH, &probe, &legacy, &[]);
+
+        // math contributes no builtin types and no source companion.
+        assert!(MATH.types.is_empty());
+        assert!(MATH.source.is_none());
     }
 }

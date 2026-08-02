@@ -53,7 +53,7 @@ at line 94. Fixture load is 8 projects.
 
 Acceptance: `cargo test` passes; every `json.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
-Commit: <O-hash>
+Commit: 2987e695d
 
 ## Validation
 
