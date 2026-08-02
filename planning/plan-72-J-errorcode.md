@@ -38,12 +38,16 @@ Fixture load is 1 project.
 
 ### Phase J1 — descriptor entry
 
-- [ ] Add `pub(crate) static ERRORCODE: BuiltinModule` — empty function list
+- [x] Add `pub(crate) static ERRORCODE: BuiltinModule` — empty function list
       is acceptable if the module truly exposes none; document what the
-      descriptor carries (constants, source companion, or types).
-- [ ] Register `ERRORCODE` with the `BuiltinRegistry` from plan-72-A.
-- [ ] Parity tests: the registry lookup for `errorcode` succeeds and returns
+      descriptor carries (constants, source companion, or types). Done: empty
+      functions/types, no source/resolver; the generated `ERRORCODE_CONSTANTS`
+      table stays the constant authority (the descriptor vocabulary models
+      callables, not folded constants). Name is `"errorCode"` (import spelling).
+- [x] Register `ERRORCODE` with the `BuiltinRegistry` from plan-72-A.
+- [x] Parity tests: the registry lookup for `errorcode` succeeds and returns
       the expected shape; unknown-name lookups against it fail cleanly.
+      (`descriptor_is_registered_and_empty` in `errorcode.rs`.)
 
 Acceptance: `cargo test` passes; the `errorcode` fixture continues to run
 clean under `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
