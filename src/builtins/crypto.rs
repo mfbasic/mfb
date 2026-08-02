@@ -17,6 +17,12 @@
 
 use std::borrow::Cow;
 
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
+    BuiltinType, DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
+    ParameterType, ReturnType, TypeKind,
+};
+
 pub(crate) const SEALED_TYPE: &str = "Sealed";
 pub(crate) const KEYPAIR_TYPE: &str = "KeyPair";
 
@@ -103,54 +109,190 @@ pub(crate) fn is_native_crypto_call(name: &str) -> bool {
     )
 }
 
+// plan-72-F: `CRYPTO` is the descriptor authority. Every function's return type
+// is fixed (the overloading is on ARGUMENT types, not the return), so
+// `call_return_type_name` and `arity` derive from the descriptor. `resolve_call`
+// (bytes/String overloads, variadic AEAD `aad`) and typed `implementation_name`
+// (`_bytes`/`_text`) are argument-dependent and live on `CryptoResolver`.
+// `default_argument_padding` (AEAD `aad`) derives from the optional `aad`
+// parameter. `Sealed`/`KeyPair` are opaque builtin types; `WhenImported` source.
+const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload {
+    BuiltinOverload {
+        params,
+        return_type: ReturnType::Fixed(ret),
+    }
+}
+
+const fn cf(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+) -> BuiltinFunction {
+    BuiltinFunction {
+        name,
+        doc_slug: slug,
+        overloads,
+        // Implementation is argument-dependent (native vs typed source body), so
+        // the resolver owns it; `DefaultResolver::implementation_name` returns
+        // None for `Custom` and the wrapper routes to `CryptoResolver`.
+        implementation: Implementation::Custom,
+        lowering: Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+
+const fn req(name: &'static str, ty: &'static str) -> Parameter {
+    Parameter::required(name, ty)
+}
+
+// The AEAD `aad` argument is optional and defaults to the empty byte list; this
+// `Fill` is what `DefaultResolver::default_padding` reads to reproduce the legacy
+// `default_argument_padding`, and what makes AEAD arity `(3,4)`/`(4,5)`.
+const AAD: Parameter = Parameter {
+    name: "aad",
+    aliases: &[],
+    ty: ParameterType::Named(BYTES),
+    default: DefaultValue::Fill {
+        type_name: BYTES,
+        expr: "",
+    },
+};
+
+const P_DATA: &[Parameter] = &[req("data", BYTES)];
+const P_HMAC: &[Parameter] = &[req("key", BYTES), req("data", BYTES)];
+const P_HKDF: &[Parameter] = &[
+    req("ikm", BYTES),
+    req("salt", BYTES),
+    req("info", BYTES),
+    req("length", "Integer"),
+];
+const P_PBKDF2: &[Parameter] = &[
+    req("password", BYTES),
+    req("salt", BYTES),
+    req("iterations", "Integer"),
+    req("length", "Integer"),
+];
+const P_SEAL: &[Parameter] = &[req("key", BYTES), req("nonce", BYTES), req("plaintext", BYTES), AAD];
+const P_OPEN: &[Parameter] = &[
+    req("key", BYTES),
+    req("nonce", BYTES),
+    req("ciphertext", BYTES),
+    req("tag", BYTES),
+    AAD,
+];
+const P_COUNT: &[Parameter] = &[req("count", "Integer")];
+const P_MINMAX: &[Parameter] = &[req("min", "Integer"), req("max", "Integer")];
+const P_SIGN: &[Parameter] = &[req("privateKey", BYTES), req("message", BYTES)];
+const P_VERIFY: &[Parameter] = &[req("publicKey", BYTES), req("message", BYTES), req("signature", BYTES)];
+const P_AB: &[Parameter] = &[req("a", BYTES), req("b", BYTES)];
+
+const CRYPTO_FUNCTIONS: &[BuiltinFunction] = &[
+    cf(SHA256, "sha256", &[ov(P_DATA, BYTES)]),
+    cf(SHA224, "sha224", &[ov(P_DATA, BYTES)]),
+    cf(SHA512, "sha512", &[ov(P_DATA, BYTES)]),
+    cf(SHA384, "sha384", &[ov(P_DATA, BYTES)]),
+    cf(HMAC_SHA256, "hmacSha256", &[ov(P_HMAC, BYTES)]),
+    cf(HMAC_SHA512, "hmacSha512", &[ov(P_HMAC, BYTES)]),
+    cf(HKDF_SHA256, "hkdfSha256", &[ov(P_HKDF, BYTES)]),
+    cf(HKDF_SHA512, "hkdfSha512", &[ov(P_HKDF, BYTES)]),
+    cf(PBKDF2_SHA256, "pbkdf2Sha256", &[ov(P_PBKDF2, BYTES)]),
+    cf(PBKDF2_SHA512, "pbkdf2Sha512", &[ov(P_PBKDF2, BYTES)]),
+    cf(AES256_GCM_SEAL, "aes256GcmSeal", &[ov(P_SEAL, SEALED_TYPE)]),
+    cf(AES256_GCM_OPEN, "aes256GcmOpen", &[ov(P_OPEN, BYTES)]),
+    cf(CHACHA20_POLY1305_SEAL, "chacha20Poly1305Seal", &[ov(P_SEAL, SEALED_TYPE)]),
+    cf(CHACHA20_POLY1305_OPEN, "chacha20Poly1305Open", &[ov(P_OPEN, BYTES)]),
+    cf(RANDOM_BYTES, "randomBytes", &[ov(P_COUNT, BYTES)]),
+    cf(RANDOM_INT, "randomInt", &[ov(P_MINMAX, "Integer")]),
+    cf(UUID4, "uuid4", &[ov(&[], "String")]),
+    cf(GENERATE_ED25519, "generateEd25519", &[ov(&[], KEYPAIR_TYPE)]),
+    cf(GENERATE_P256, "generateP256", &[ov(&[], KEYPAIR_TYPE)]),
+    cf(GENERATE_P384, "generateP384", &[ov(&[], KEYPAIR_TYPE)]),
+    cf(GENERATE_P521, "generateP521", &[ov(&[], KEYPAIR_TYPE)]),
+    cf(GENERATE_P256_RAW, "generateP256Raw", &[ov(&[], BYTES)]),
+    cf(GENERATE_P384_RAW, "generateP384Raw", &[ov(&[], BYTES)]),
+    cf(GENERATE_P521_RAW, "generateP521Raw", &[ov(&[], BYTES)]),
+    cf(ED25519_SIGN, "ed25519Sign", &[ov(P_SIGN, BYTES)]),
+    cf(ED25519_VERIFY, "ed25519Verify", &[ov(P_VERIFY, "Boolean")]),
+    cf(P256_SIGN, "p256Sign", &[ov(P_SIGN, BYTES)]),
+    cf(P256_VERIFY, "p256Verify", &[ov(P_VERIFY, "Boolean")]),
+    cf(P384_SIGN, "p384Sign", &[ov(P_SIGN, BYTES)]),
+    cf(P384_VERIFY, "p384Verify", &[ov(P_VERIFY, "Boolean")]),
+    cf(P521_SIGN, "p521Sign", &[ov(P_SIGN, BYTES)]),
+    cf(P521_VERIFY, "p521Verify", &[ov(P_VERIFY, "Boolean")]),
+    cf(CONSTANT_TIME_EQUAL, "constantTimeEqual", &[ov(P_AB, "Boolean")]),
+];
+
+const CRYPTO_TYPES: &[BuiltinType] = &[
+    BuiltinType {
+        name: SEALED_TYPE,
+        kind: TypeKind::Opaque,
+        fields: &[],
+    },
+    BuiltinType {
+        name: KEYPAIR_TYPE,
+        kind: TypeKind::Opaque,
+        fields: &[],
+    },
+];
+
+/// Argument-dependent resolution for crypto: bytes/String overload validation
+/// (return type), and the `_bytes`/`_text` typed implementation body selection.
+/// Both delegate to the retained `dispatch_*` helpers (the pre-migration logic).
+struct CryptoResolver;
+impl BuiltinResolver for CryptoResolver {
+    fn resolve_return_type(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        dispatch_resolve(name, arg_types).map(|resolved| resolved.return_type.into_owned())
+    }
+
+    fn implementation_name(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        dispatch_implementation_name(name, arg_types)
+    }
+}
+static CRYPTO_RESOLVER: CryptoResolver = CryptoResolver;
+
+pub(crate) static CRYPTO: BuiltinModule = BuiltinModule {
+    name: "crypto",
+    functions: CRYPTO_FUNCTIONS,
+    types: CRYPTO_TYPES,
+    source: Some(BuiltinSource {
+        rule: InjectionRule::WhenImported,
+        loader: source_file,
+    }),
+    resolver: Some(&CRYPTO_RESOLVER),
+};
+
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    matches!(name, SEALED_TYPE | KEYPAIR_TYPE)
+    CRYPTO.types.iter().any(|ty| ty.name == name)
 }
 
 pub(crate) fn is_crypto_call(name: &str) -> bool {
-    matches!(
-        name,
-        SHA256
-            | SHA224
-            | SHA512
-            | SHA384
-            | HMAC_SHA256
-            | HMAC_SHA512
-            | HKDF_SHA256
-            | HKDF_SHA512
-            | PBKDF2_SHA256
-            | PBKDF2_SHA512
-            | AES256_GCM_SEAL
-            | AES256_GCM_OPEN
-            | CHACHA20_POLY1305_SEAL
-            | CHACHA20_POLY1305_OPEN
-            | RANDOM_BYTES
-            | RANDOM_INT
-            | UUID4
-            | GENERATE_ED25519
-            | GENERATE_P256
-            | GENERATE_P384
-            | GENERATE_P521
-            | GENERATE_P256_RAW
-            | GENERATE_P384_RAW
-            | GENERATE_P521_RAW
-            | ED25519_SIGN
-            | ED25519_VERIFY
-            | P256_SIGN
-            | P256_VERIFY
-            | P384_SIGN
-            | P384_VERIFY
-            | P521_SIGN
-            | P521_VERIFY
-            | CONSTANT_TIME_EQUAL
-    )
+    DefaultResolver::contains(&CRYPTO, name)
 }
 
+// `call_param_names`, `expected_arguments`, and `argument_types` return `&'static`
+// borrowed shapes the owned `DefaultResolver` cannot produce, and
+// `expected_arguments`/`argument_types` use bespoke phrasing the descriptor's
+// per-position types cannot render. They stay static: `call_param_names` PINNED
+// equal to `CRYPTO` by the parity test; the other two not descriptor-derivable
+// (documented). BB removes them.
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     let params: &'static [&'static [&'static str]] = match name {
         SHA256 | SHA224 | SHA512 | SHA384 => &[&["data"]],
@@ -178,52 +320,11 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    let type_ = match name {
-        SHA256
-        | SHA224
-        | SHA512
-        | SHA384
-        | HMAC_SHA256
-        | HMAC_SHA512
-        | HKDF_SHA256
-        | HKDF_SHA512
-        | PBKDF2_SHA256
-        | PBKDF2_SHA512
-        | AES256_GCM_OPEN
-        | CHACHA20_POLY1305_OPEN
-        | RANDOM_BYTES
-        | ED25519_SIGN
-        | P256_SIGN
-        | P384_SIGN
-        | P521_SIGN
-        | GENERATE_P256_RAW
-        | GENERATE_P384_RAW
-        | GENERATE_P521_RAW => BYTES,
-        AES256_GCM_SEAL | CHACHA20_POLY1305_SEAL => SEALED_TYPE,
-        GENERATE_ED25519 | GENERATE_P256 | GENERATE_P384 | GENERATE_P521 => KEYPAIR_TYPE,
-        RANDOM_INT => "Integer",
-        UUID4 => "String",
-        ED25519_VERIFY | P256_VERIFY | P384_VERIFY | P521_VERIFY | CONSTANT_TIME_EQUAL => "Boolean",
-        _ => return None,
-    };
-    Some(type_)
+    DefaultResolver::return_type_name(&CRYPTO, name)
 }
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    let span = match name {
-        UUID4 | GENERATE_ED25519 | GENERATE_P256 | GENERATE_P384 | GENERATE_P521
-        | GENERATE_P256_RAW | GENERATE_P384_RAW | GENERATE_P521_RAW => (0, 0),
-        RANDOM_BYTES => (1, 1),
-        SHA256 | SHA224 | SHA512 | SHA384 => (1, 1),
-        RANDOM_INT | HMAC_SHA256 | HMAC_SHA512 | CONSTANT_TIME_EQUAL | ED25519_SIGN | P256_SIGN
-        | P384_SIGN | P521_SIGN => (2, 2),
-        ED25519_VERIFY | P256_VERIFY | P384_VERIFY | P521_VERIFY => (3, 3),
-        AES256_GCM_SEAL | CHACHA20_POLY1305_SEAL => (3, 4),
-        HKDF_SHA256 | HKDF_SHA512 | PBKDF2_SHA256 | PBKDF2_SHA512 => (4, 4),
-        AES256_GCM_OPEN | CHACHA20_POLY1305_OPEN => (4, 5),
-        _ => return None,
-    };
-    Some(span)
+    DefaultResolver::arity(&CRYPTO, name)
 }
 
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
@@ -253,6 +354,18 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 }
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    let return_type = CRYPTO
+        .resolver?
+        .resolve_return_type(&CRYPTO, name, arg_types)?;
+    Some(ResolvedCall {
+        return_type: Cow::Owned(return_type),
+    })
+}
+
+/// The argument-validating return-type resolution, invoked through the descriptor
+/// resolver by `resolve_call`. Overloaded hashes/HMAC/PBKDF2 accept `List OF Byte`
+/// or `String`; AEAD accepts an optional trailing `aad`.
+fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let bytes_or_text = |t: &str| t == BYTES || t == "String";
     let return_type: &str = match name {
         SHA256 | SHA224 | SHA512 | SHA384
@@ -332,7 +445,10 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static str> {
 
 /// The `aad` argument of the AEAD operations defaults to the empty byte list.
 /// Returned as a `List OF Byte` default so IR lowering injects an empty list
-/// literal (mirroring `http`'s empty-map default padding).
+/// literal (mirroring `http`'s empty-map default padding). Returns a `&'static`
+/// borrowed slice the owned `DefaultResolver::default_padding` cannot produce, so
+/// it stays static — PINNED equal to `CRYPTO`'s optional `aad` parameter by the
+/// parity test (`DefaultResolver::default_padding` derives the same slots).
 pub(crate) fn default_argument_padding(
     name: &str,
     provided: usize,
@@ -356,6 +472,14 @@ pub(crate) fn default_argument_padding(
 /// hash/HMAC/PBKDF2 functions carry a `String` overload, so the relevant
 /// argument's type selects a `_bytes`/`_text` body (type-aware, like `vector::`).
 pub(crate) fn implementation_name(name: &str, arg_types: &[String]) -> Option<String> {
+    CRYPTO
+        .resolver?
+        .implementation_name(&CRYPTO, name, arg_types)
+}
+
+/// The typed `__crypto_*` implementation selection, invoked through the descriptor
+/// resolver by `implementation_name`.
+fn dispatch_implementation_name(name: &str, arg_types: &[String]) -> Option<String> {
     if is_native_crypto_call(name) {
         return None;
     }
@@ -810,5 +934,98 @@ mod tests {
             augmented_project(&ast).expect("a").files.len(),
             ast.files.len()
         );
+    }
+
+    // plan-72-F migration gate: prove `CRYPTO` + `CryptoResolver` reproduce the
+    // legacy answers — membership/arity/param-names via the descriptor, typed
+    // return + implementation via resolver samples, AEAD default padding derived
+    // from the optional `aad` parameter, and the two opaque builtin types. Keep
+    // until plan-72-BB.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::{parity, DefaultResolver};
+
+        let calls: Vec<&str> = CRYPTO_FUNCTIONS.iter().map(|f| f.name).collect();
+        let legacy = parity::LegacySet {
+            is_call: &is_crypto_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            // Return/impl/padding are resolver- or descriptor-owned and checked
+            // below; the harness skips them for a resolver-backed module.
+            return_type_name: &|_| None,
+            expected_arguments: None, // custom "or"-phrased strings
+            param_name_overloads: None,
+            argument_types: None, // custom joined strings
+            implementation_name: None,
+            default_padding: None,
+            builtin_type_fields: Some(&|name| match name {
+                SEALED_TYPE | KEYPAIR_TYPE => Some(&[] as &'static [(&'static str, &'static str)]),
+                _ => None,
+            }),
+        };
+        let mut probe = calls.clone();
+        probe.push("crypto.bogus");
+
+        let samples = [
+            // hash: bytes vs text implementation selection.
+            parity::ResolverSample {
+                call: SHA256, arg_types: &[BYTES], expected_return: Some(BYTES),
+                expected_impl: Some("__crypto_sha256_bytes"), expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: SHA256, arg_types: &["String"], expected_return: Some(BYTES),
+                expected_impl: Some("__crypto_sha256_text"), expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: HMAC_SHA256, arg_types: &[BYTES, "String"], expected_return: Some(BYTES),
+                expected_impl: Some("__crypto_hmacSha256_text"), expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: AES256_GCM_SEAL, arg_types: &[BYTES, BYTES, BYTES], expected_return: Some(SEALED_TYPE),
+                expected_impl: Some("__crypto_aes256GcmSeal"), expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: GENERATE_P256, arg_types: &[], expected_return: Some(KEYPAIR_TYPE),
+                expected_impl: Some("__crypto_generateP256"), expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: UUID4, arg_types: &[], expected_return: Some("String"),
+                expected_impl: Some("__crypto_uuid4"), expected_padding: None,
+                expected_overload_target: None,
+            },
+            parity::ResolverSample {
+                call: CONSTANT_TIME_EQUAL, arg_types: &[BYTES, BYTES], expected_return: Some("Boolean"),
+                expected_impl: Some("__crypto_constantTimeEqual"), expected_padding: None,
+                expected_overload_target: None,
+            },
+        ];
+        parity::assert_parity(&CRYPTO, &probe, &legacy, &samples);
+
+        // call_return_type_name (descriptor-derived Fixed) matches legacy values,
+        // and AEAD default padding derives from the optional `aad` parameter.
+        assert_eq!(call_return_type_name(SHA256), Some(BYTES));
+        assert_eq!(call_return_type_name(AES256_GCM_SEAL), Some(SEALED_TYPE));
+        assert_eq!(call_return_type_name(GENERATE_ED25519), Some(KEYPAIR_TYPE));
+        for name in [AES256_GCM_SEAL, CHACHA20_POLY1305_SEAL, AES256_GCM_OPEN, CHACHA20_POLY1305_OPEN] {
+            let (_, max) = arity(name).unwrap();
+            for provided in 0..=max {
+                assert_eq!(
+                    DefaultResolver::default_padding(&CRYPTO, name, provided),
+                    default_argument_padding(name, provided).to_vec(),
+                    "padding parity {name} @ {provided}"
+                );
+            }
+        }
+
+        // native entry points resolve to no source implementation.
+        assert_eq!(implementation_name(RANDOM_BYTES, &strings(&["Integer"])), None);
+        assert_eq!(implementation_name(P256_SIGN, &strings(&[BYTES, BYTES])), None);
     }
 }
