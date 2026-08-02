@@ -154,11 +154,70 @@ fn emit_gtk_charwidth(
     asm.push(abi::load_u16(out, s2, 16)); // flags @ 16
     asm.push(abi::shift_right_immediate(out, out, 4));
     asm.push(abi::move_immediate(s3, "Integer", "3"));
-    asm.push(abi::and_registers(out, out, s3)); // (flags>>4)&3
-    asm.push(abi::compare_immediate(out, "0"));
-    asm.push(abi::branch_ne(&done));
-    asm.push(abi::move_immediate(out, "Integer", "1")); // width 0 -> 1 (lone scalar)
+    asm.push(abi::and_registers(out, out, s3)); // (flags>>4)&3 -> raw width 0/1/2
     asm.push(abi::label(&done));
+    // NOTE: width 0 (a combining mark / zero-width scalar) is returned raw; the
+    // writer folds it into the previous cell's EGC pool (plan-70-E Phase 3), or, if
+    // there is no base to attach to, treats it as a lone width-1 cell.
+}
+
+/// plan-70-E Phase 3: fold a combining mark (UTF-8 bytes packed LE in `mark`, length
+/// `marklen`) into the previous base cell's EGC pool slot. `charoff` is the base
+/// cell's byte offset into the CHAR array (`idx*4`); the parallel pool slot is at
+/// `idx*32 == charoff*8`. The slot is length-prefixed: `pool[0]` = total byte length,
+/// `pool[1..]` = the cluster's UTF-8 bytes. On the first mark the base's own bytes seed
+/// the slot and its CHAR word becomes `GTK_POOL_TAG`; a cluster that would exceed the
+/// slot drops the tail (rare, long ZWJ). Uses caller-saved x11-x17; preserves
+/// `mark`/`marklen`/`charoff` and the callee-saved loop registers.
+fn emit_gtk_pool_append(asm: &mut Asm, charoff: &str, mark: &str, marklen: &str, tag: &str) {
+    let pooled = format!("{tag}_pooled");
+    let bl = format!("{tag}_bl");
+    let write = format!("{tag}_write");
+    let skip = format!("{tag}_skip");
+    // pool slot addr (x11) = ST_TERM_POOL + charoff*8; base char addr (x12).
+    asm.state_array("x11", ST_TERM_POOL);
+    asm.push(abi::shift_left_immediate("x17", charoff, 3));
+    asm.push(abi::add_registers("x11", "x11", "x17"));
+    asm.state_array("x12", ST_TERM_CHARS);
+    asm.push(abi::add_registers("x12", "x12", charoff));
+    asm.push(abi::load_u32("x13", "x12", 0)); // base word (packed bytes OR POOL_TAG)
+    asm.push(abi::move_immediate("x14", "Integer", GTK_POOL_TAG));
+    asm.push(abi::compare_registers("x13", "x14"));
+    asm.push(abi::branch_eq(&pooled));
+    // First mark: seed the slot with the base's UTF-8 bytes. blen from the lead byte.
+    asm.push(abi::move_immediate("x14", "Integer", "255"));
+    asm.push(abi::and_registers("x15", "x13", "x14")); // lead byte
+    asm.push(abi::move_immediate("x17", "Integer", "1"));
+    asm.push(abi::compare_immediate("x15", "192"));
+    asm.push(abi::branch_lt(&bl));
+    asm.push(abi::move_immediate("x17", "Integer", "2"));
+    asm.push(abi::compare_immediate("x15", "224"));
+    asm.push(abi::branch_lt(&bl));
+    asm.push(abi::move_immediate("x17", "Integer", "3"));
+    asm.push(abi::compare_immediate("x15", "240"));
+    asm.push(abi::branch_lt(&bl));
+    asm.push(abi::move_immediate("x17", "Integer", "4"));
+    asm.push(abi::label(&bl));
+    // base bytes at pool[1..] — via an address register (offset 1 is an unaligned u32).
+    asm.push(abi::add_immediate("x15", "x11", 1));
+    asm.push(abi::store_u32("x13", "x15", 0));
+    asm.push(abi::store_u8("x17", "x11", 0)); // pool[0] = blen
+    asm.push(abi::move_immediate("x14", "Integer", GTK_POOL_TAG));
+    asm.push(abi::store_u32("x14", "x12", 0)); // CHAR = POOL_TAG
+    asm.push(abi::branch(&write));
+    asm.push(abi::label(&pooled));
+    asm.push(abi::load_u8("x17", "x11", 0)); // current length
+    asm.push(abi::label(&write));
+    // Guard the 4-byte store against the 32-byte slot end (curlen <= 27 leaves room).
+    asm.push(abi::compare_immediate("x17", "27"));
+    asm.push(abi::branch_gt(&skip));
+    // write pos = pool + 1 + curlen; store the mark's ≤4 bytes; pool[0] += marklen.
+    asm.push(abi::add_immediate("x13", "x11", 1));
+    asm.push(abi::add_registers("x13", "x13", "x17"));
+    asm.push(abi::store_u32(mark, "x13", 0));
+    asm.push(abi::add_registers("x14", "x17", marklen));
+    asm.push(abi::store_u8("x14", "x11", 0));
+    asm.push(abi::label(&skip));
 }
 
 /// Emit `cairo_set_source_rgb(cr, r/255, g/255, b/255)` from a packed RGB value in
@@ -350,13 +409,30 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.push(abi::signed_convert_to_float_d("d2", "x9"));
     asm.call_external("cairo_set_source_rgb");
     asm.push(abi::label("d_fg_done"));
-    // plan-70-E: pango_layout_set_text(layout, charbuf, -1); move_to(col*cellW,
-    // row*cellH) — Pango draws the layout from the current point as its TOP-LEFT (not
-    // a baseline) — then pango_cairo_show_layout in the fg colour set above.
-    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_layout));
+    // plan-70-E: pango_layout_set_text; move_to(col*cellW, row*cellH) — Pango draws
+    // the layout from the current point as its TOP-LEFT (not a baseline) — then
+    // pango_cairo_show_layout in the fg colour set above. A pooled cluster
+    // (char == POOL_TAG) feeds the length-prefixed EGC slot (Pango composes the
+    // combining marks); a lone scalar feeds the NUL-terminated 4-byte charbuf.
+    asm.push(abi::load_u32("x13", abi::stack_pointer(), off_buf));
+    asm.push(abi::move_immediate("x9", "Integer", GTK_POOL_TAG));
+    asm.push(abi::compare_registers("x13", "x9"));
+    asm.push(abi::branch_ne("d_inline_text"));
+    asm.push(abi::move_immediate("x11", "Integer", &TERM_MAX_COLS.to_string()));
+    asm.push(abi::multiply_registers("x12", "x20", "x11"));
+    asm.push(abi::add_registers("x12", "x12", "x21"));
+    asm.push(abi::shift_left_immediate("x12", "x12", 5)); // idx*32 (pool stride)
+    asm.state_array("x9", ST_TERM_SNAP_POOL);
+    asm.push(abi::add_registers("x9", "x9", "x12")); // pool slot
+    asm.push(abi::load_u8("x2", "x9", 0)); // length prefix
+    asm.push(abi::add_immediate("x1", "x9", 1)); // cluster bytes
+    asm.push(abi::branch("d_set_text"));
+    asm.push(abi::label("d_inline_text"));
     asm.push(abi::add_immediate("x1", abi::stack_pointer(), off_buf));
     asm.push(abi::move_immediate("x2", "Integer", "0"));
     asm.push(abi::bitwise_not("x2", "x2")); // length -1 => NUL-terminated (no neg immediate)
+    asm.push(abi::label("d_set_text"));
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_layout));
     asm.call_external("pango_layout_set_text");
     asm.push(abi::move_register("x0", "x19"));
     emit_cell_dim_to_d(&mut asm, "d0", "x21", ST_TERM_CELL_W); // x = col*cellW
@@ -478,7 +554,14 @@ pub(super) fn emit_term_scroll_helper() -> Result<CodeFunction, String> {
     asm.push(abi::multiply_registers("x19", "x19", "x9")); // cells = (rows-1)*MAX_COLS
                                                            // memmove each array up one (fixed-stride) row: 4B per cell for all three
                                                            // (chars became u32 in bug-203, matching fg/bg).
-    for (base, shift) in [(ST_TERM_CHARS, 2u8), (ST_TERM_FG, 2), (ST_TERM_BG, 2)] {
+    // plan-70-E Phase 3: the EGC pool (GTK_POOL_BYTES=32=1<<5 per cell) shifts with
+    // the char/fg/bg arrays so a scrolled pooled cluster keeps its slot.
+    for (base, shift) in [
+        (ST_TERM_CHARS, 2u8),
+        (ST_TERM_FG, 2),
+        (ST_TERM_BG, 2),
+        (ST_TERM_POOL, 5),
+    ] {
         asm.state_array("x0", base); // dst = row 0
         asm.state_array("x1", base + TERM_MAX_COLS * (1 << shift)); // src = row 1
         asm.push(abi::shift_left_immediate("x2", "x19", shift)); // cells * elemSize
@@ -487,16 +570,17 @@ pub(super) fn emit_term_scroll_helper() -> Result<CodeFunction, String> {
     // Blank the last active row (offset = cells*4): all three arrays to 0. chars
     // clears to 0 rather than ' ' — `memset` writes whole bytes, so ' ' over u32
     // cells would pack FOUR spaces per cell; the draw skips 0 (bug-203).
-    for base in [ST_TERM_CHARS, ST_TERM_FG, ST_TERM_BG] {
+    for (base, shift, rowbytes) in [
+        (ST_TERM_CHARS, 2u8, TERM_MAX_COLS * 4),
+        (ST_TERM_FG, 2, TERM_MAX_COLS * 4),
+        (ST_TERM_BG, 2, TERM_MAX_COLS * 4),
+        (ST_TERM_POOL, 5, TERM_MAX_COLS * GTK_POOL_BYTES),
+    ] {
         asm.state_array("x0", base);
-        asm.push(abi::shift_left_immediate("x9", "x19", 2)); // cells*4
+        asm.push(abi::shift_left_immediate("x9", "x19", shift)); // cells*elemSize
         asm.push(abi::add_registers("x0", "x0", "x9"));
         asm.push(abi::move_immediate("x1", "Integer", "0"));
-        asm.push(abi::move_immediate(
-            "x2",
-            "Integer",
-            &(TERM_MAX_COLS * 4).to_string(),
-        ));
+        asm.push(abi::move_immediate("x2", "Integer", &rowbytes.to_string()));
         asm.call_external("memset");
     }
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
@@ -706,6 +790,16 @@ fn emit_term_snapshot_copy(asm: &mut Asm) {
         ));
         asm.call_external("memcpy");
     }
+    // plan-70-E Phase 3: the EGC pool (GTK_POOL_BYTES/cell) rides the same snapshot so
+    // the draw callback rebuilds pooled clusters from a consistent frame.
+    asm.state_array("x0", ST_TERM_SNAP_POOL);
+    asm.state_array("x1", ST_TERM_POOL);
+    asm.push(abi::move_immediate(
+        "x2",
+        "Integer",
+        &(TERM_MAX_COLS * TERM_MAX_ROWS * GTK_POOL_BYTES).to_string(),
+    ));
+    asm.call_external("memcpy");
 }
 
 /// Main-thread idle: PRESENT the term:: surface (plan-35-E). Marshal a consistent
@@ -802,6 +896,9 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
     let frame = 128;
     let (off_fgval, off_bgval) = (80usize, 88usize);
     let (off_glyph, off_width) = (104usize, 112usize);
+    // plan-70-E Phase 3: byte offset (idx*4) of the last base cell written, or -1 —
+    // a following combining mark (width 0) folds into its pool slot.
+    let off_lastbase = 120usize;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(
@@ -854,6 +951,10 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
     asm.load_state("x11", ST_TERM_CUR_BG);
     asm.push(abi::store_u64("x11", abi::stack_pointer(), off_bgval));
     asm.push(abi::move_immediate("x21", "Integer", "0")); // i
+    // plan-70-E Phase 3: last base cell = none (-1) — a combining mark folds into it.
+    asm.push(abi::move_immediate("x9", "Integer", "0"));
+    asm.push(abi::bitwise_not("x9", "x9")); // -1
+    asm.push(abi::store_u64("x9", abi::stack_pointer(), off_lastbase));
 
     asm.push(abi::label("tw_loop"));
     asm.push(abi::compare_registers("x21", "x22"));
@@ -876,6 +977,19 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
     // uses_term so a non-term GTK app never references the property table.
     if uses_term {
         emit_gtk_charwidth(&mut asm, "x10", "x19", "x15", "x16", "x17", "x14", "tw_cw");
+        // plan-70-E Phase 3: width 0 = combining mark. Fold it into the previous base
+        // cell's EGC pool (so Pango composes the cluster), advancing i but not the
+        // column. With no base to attach to, fall through as a lone width-1 cell.
+        asm.push(abi::compare_immediate("x15", "0"));
+        asm.push(abi::branch_ne("tw_not_combine"));
+        asm.push(abi::load_u64("x16", abi::stack_pointer(), off_lastbase));
+        asm.push(abi::compare_immediate("x16", "0"));
+        asm.push(abi::branch_lt("tw_lone_combine")); // -1 => no base
+        emit_gtk_pool_append(&mut asm, "x16", "x10", "x19", "tw_pa");
+        asm.push(abi::branch("tw_next")); // fold complete; advance i, keep the column
+        asm.push(abi::label("tw_lone_combine"));
+        asm.push(abi::move_immediate("x15", "Integer", "1"));
+        asm.push(abi::label("tw_not_combine"));
     } else {
         asm.push(abi::move_immediate("x15", "Integer", "1"));
     }
@@ -920,6 +1034,9 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
     asm.push(abi::load_u64("x9", abi::stack_pointer(), off_bgval));
     asm.push(abi::add_registers("x14", "x28", "x13"));
     asm.push(abi::store_u32("x9", "x14", 0));
+    // plan-70-E Phase 3: this cell is now the base a following combining mark folds
+    // into (x13 = idx*4, the CHAR/pool byte offset).
+    asm.push(abi::store_u64("x13", abi::stack_pointer(), off_lastbase));
     // Wide (width 2): the next cell is a WIDE_TRAIL sentinel (col+1 is on the grid
     // after the wide-at-edge wrap above). char[idx+1]=0xFFFFFFFF, fg/bg copied, width 0.
     asm.push(abi::compare_immediate("x15", "2"));

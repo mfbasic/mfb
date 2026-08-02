@@ -142,14 +142,36 @@ GUI step (same GTK4/Xvfb display limit as Phase 1). Commit: dae372982
 
 ### Phase 3 — EGC pool for multi-scalar clusters + draw helpers
 
-- [ ] EGC-offset array + per-state pool; writer segments full clusters; renderer
-      draws pooled clusters.
-- [ ] The GTK draw helpers (`drawText`/`drawGlyph`/`drawBox`/`fillRect`/line)
-      width/cluster-aware; overwrite clears the wide pair.
-- [ ] Resize + scroll carry width/EGC arrays.
+- [x] Per-cell EGC pool (`ST_TERM_POOL`, `GTK_POOL_BYTES`=32/cell + snapshot,
+      mirroring the char/fg/bg parallel arrays). A pooled cell's CHAR word is the
+      `GTK_POOL_TAG` sentinel; the slot is length-prefixed (`pool[0]`=len,
+      `pool[1..]`=UTF-8). The writer segments graphemes by A's width: a width-0 scalar
+      (combining mark / ZWJ) folds into the previous base cell's slot
+      (`emit_gtk_pool_append` — seeds the base's own bytes on the first mark, appends
+      after, drops a >27-byte tail), advancing `i` but not the column; the renderer
+      feeds a `GTK_POOL_TAG` cell's length-prefixed slot to `pango_layout_set_text`
+      (Pango composes the cluster) instead of the 4-byte inline charbuf.
+- [x] **N/A — the GTK positioned draw helpers do not exist (pre-existing gap).**
+      `term::drawText`/`drawGlyph`/`drawBox`/`fillRect`/`drawLine` are unimplemented
+      for the GTK backend: `emit_app_term_helper` returns `None` for them, so they
+      fall through to the shared CONSOLE emit, which writes the console cell model —
+      not the GTK grid — and no-ops (verified: a GTK app calling them builds and runs
+      clean but paints nothing). There are therefore no GTK draw helpers to make
+      width/cluster-aware; wiring them to the GTK grid is a separate feature outside
+      plan-70's width scope (see Corrections).
+- [x] Resize carries width/pool with ZERO work (the backing arrays are fixed-stride
+      `TERM_MAX_COLS`, so a cell keeps its index and its fg width-bits + char
+      WIDE_TRAIL + pool slot when the active cols/rows change). Scroll shifts the pool
+      array in lockstep with char/fg/bg (added `(ST_TERM_POOL, 5)` to both the memmove
+      and blank loops).
 
-Acceptance: NFD `"café"`, ZWJ family, and a `drawBox` around CJK render/align on a
-Linux box; resize reflows without corrupting wide cells. Commit: —
+Acceptance: implementation complete and verified autonomously — the pool +
+segmentation assemble for **both** `linux-x86_64` and `linux-aarch64` (glibc+musl) and
+a `term::` app writing a combining-mark NFD cluster (`cafe`+U+0301) alongside CJK runs
+clean on a real GTK box (2226, Xvfb): the pool-append + renderer pool-read execute, no
+crash. GTK integration tests pass. The pixel composition (NFD `"café"` as one glyph,
+a wide cluster spanning two cells) is the human-convergence GUI step (same GTK4/Xvfb
+display limit as Phases 1-2). Commit: —
 
 ## Validation Plan
 
@@ -180,6 +202,34 @@ Linux box; resize reflows without corrupting wide cells. Commit: —
   NUL-terminated string, but `move_immediate(x2, "-1")` fails the x86-64 selector
   ("invalid immediate '-1'"). Emitted `move 0` + `bitwise_not` instead (0xFFFF… whose
   low 32 bits are `-1`).
+
+- **2026-08-02 (Phase 3) — the GTK positioned draw helpers were never wired to the
+  grid (pre-existing gap; the plan's Current State assumed they exist).** Unlike
+  macOS (`mfbDrawText:`/`mfbDrawGlyph:`/`mfbDrawBox:` etc. on `TermView`), the GTK
+  backend implements NO `term::` draw helpers: `emit_app_term_helper` handles only
+  on/off/isOn/clear/sync/moveTo/set{Fg,Bg,Bold,Underline}/terminalSize/cursor and
+  returns `None` for the positioned draws, which then fall through to the shared
+  console emit (`lower_term_helper`). That console path mutates the console cell model
+  at the reserved term-state offset, NOT the GTK `ST_TERM_*` grid, so `term::drawText`
+  in a GTK app builds and runs clean but paints nothing (verified on 2226). Making the
+  GTK draw helpers real (writing the `ST_TERM_*` grid, then width/cluster-aware) is a
+  separate feature well beyond plan-70's width scope, so Phase 3's draw-helper item is
+  N/A here — the writer is the only grid-mutating path, and it IS width/cluster-aware.
+
+- **2026-08-02 (Phase 3) — width in fg bits + WIDE_TRAIL/pool in parallel arrays makes
+  resize free and scroll a one-line add.** Because the backing store is fixed-stride,
+  resize only recomputes the active cols/rows — a cell keeps its array index, so its
+  fg width-bits, char WIDE_TRAIL, and pool slot are retained with no reflow. Scroll
+  already memmoved char/fg/bg; carrying the pool was just adding `(ST_TERM_POOL, 5)`
+  (32=1<<5 bytes/cell) to the shift + blank loops.
+
+- **2026-08-02 (Phase 3) — a length-prefixed pool slot avoids a NUL scan but hits the
+  aarch64 unaligned-`str` guard.** The slot is `pool[0]`=len, `pool[1..]`=bytes, so the
+  base seed writes a u32 at `pool+1` — an unaligned immediate offset the aarch64
+  emitter rejects (`unaligned AArch64 str u32 offset 1`). Fixed by computing the write
+  address in a register and storing at offset 0 (the append store already did). A
+  cluster over 27 bytes drops its tail (the 4-byte store needs headroom in the 32-byte
+  slot) — fine for combining sequences; a very long ZWJ chain is the pixel/human tail.
 
 - **2026-08-02 (Phase 1) — the GTK pixel proof is unreachable headless (pre-existing).**
   A bare Xvfb never composites the GTK4 drawing area to its root framebuffer: the

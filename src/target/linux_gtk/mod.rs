@@ -135,11 +135,20 @@ const ST_TERM_BG: usize = ST_TERM_FG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 const ST_TERM_SNAP_CHARS: usize = ST_TERM_BG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 const ST_TERM_SNAP_FG: usize = ST_TERM_SNAP_CHARS + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 const ST_TERM_SNAP_BG: usize = ST_TERM_SNAP_FG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
+// plan-70-E Phase 3: the EGC pool — a per-cell fixed slot of GTK_POOL_BYTES holding a
+// multi-scalar grapheme cluster's UTF-8 bytes (NUL-terminated). A pooled cell's CHAR
+// word is the GTK_POOL_TAG sentinel; the renderer rebuilds the cluster from the slot.
+// Snapshot copy + scroll shift it in lockstep with the char/fg/bg arrays, just like
+// the macOS TermView pool (per-cell slot, lifecycle-free).
+const GTK_POOL_BYTES: usize = 32;
+const GTK_POOL_TAG: &str = "4294967294"; // 0xFFFFFFFE (distinct from 0/32/WIDE_TRAIL)
+const ST_TERM_POOL: usize = ST_TERM_SNAP_BG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
+const ST_TERM_SNAP_POOL: usize = ST_TERM_POOL + TERM_MAX_COLS * TERM_MAX_ROWS * GTK_POOL_BYTES;
 /// plan-62-D: 1 while a `g_application_hold` is in effect (windowless `None` mode),
 /// 0 while a window owns the app's aliveness (`Console`). The reconcile keeps
 /// exactly one aliveness source by toggling this: hold+set on entering `None`,
 /// release+clear on entering `Console` (Open Decision 1).
-const ST_HELD: usize = ST_TERM_SNAP_BG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
+const ST_HELD: usize = ST_TERM_SNAP_POOL + TERM_MAX_COLS * TERM_MAX_ROWS * GTK_POOL_BYTES;
 const STATE_SIZE: usize = ST_HELD + 8;
 
 // fg/bg cell encoding: low 24 bits = packed RGB (r|g<<8|b<<16, the console
