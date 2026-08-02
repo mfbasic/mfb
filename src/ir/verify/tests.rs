@@ -607,6 +607,41 @@ fn union(name: &str, variants: &[&str]) -> IrType {
     }
 }
 
+/// plan-13-A: a variant type name widens to its resource union in a
+/// (non-owning) parameter position, but the reverse is rejected. `compatible`
+/// is the sole seam that decides this on the IR call-argument path
+/// (`check_call_argument_types`) and the return path — the directionality here
+/// is what keeps every concrete-typed close op, `thread::transfer`, and
+/// `thread::accept` unreachable by a whole union (a use-after-free class bug if
+/// widening were symmetric). The `RES` ownership marker is stripped on both
+/// sides, so a `RES`-marked parameter widens identically.
+#[test]
+fn resource_union_parameter_widening_is_directional() {
+    let proj = project(vec![], vec![union("Stream", &["File", "Socket"])]);
+    let env = super::TypeEnv::build(&proj);
+    // variant -> union (widen): accepted
+    assert!(env.compatible("Stream", "File"), "File must widen to Stream");
+    assert!(env.compatible("Stream", "Socket"), "Socket must widen to Stream");
+    // union -> concrete (reverse): rejected
+    assert!(
+        !env.compatible("File", "Stream"),
+        "a Stream union must not narrow into a concrete File parameter"
+    );
+    assert!(
+        !env.compatible("Socket", "Stream"),
+        "a Stream union must not narrow into a concrete Socket parameter"
+    );
+    // the RES ownership marker is stripped, so widening/narrowing is unchanged
+    assert!(
+        env.compatible("RES Stream", "RES File"),
+        "the RES marker must not block variant->union widening"
+    );
+    assert!(
+        !env.compatible("RES File", "RES Stream"),
+        "the RES marker must not enable union->concrete narrowing"
+    );
+}
+
 #[test]
 fn rejects_union_wrap_of_foreign_variant() {
     let body = vec![IrOp::Return {
