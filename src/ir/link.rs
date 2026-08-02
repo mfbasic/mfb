@@ -896,6 +896,15 @@ pub(crate) enum IrLinkExpr {
     Sub(Box<IrLinkExpr>, Box<IrLinkExpr>),
 }
 
+/// The six comparison operators an `IrLinkExpr::Compare` may carry
+/// (`= <> < > <= >=`). This is the single source of truth shared by the decoder
+/// — which rejects any other operator on the package (`.mfp`) path (bug-403),
+/// exactly as [`AbiDirection::from_code`] rejects an unknown direction — and by
+/// `link_thunk`'s codegen, whose comparison `match` is exhaustive over this set.
+pub(crate) fn link_compare_op_valid(op: &str) -> bool {
+    matches!(op, "=" | "<>" | "<" | ">" | "<=" | ">=")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

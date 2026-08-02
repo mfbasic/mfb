@@ -2053,7 +2053,12 @@ fn emit_link_expr(
                 ">" => abi::branch_gt(&end),
                 "<=" => abi::branch_le(&end),
                 ">=" => abi::branch_ge(&end),
-                _ => abi::branch_eq(&end),
+                // Unreachable after validation: the frontend's `lower_link_expr`
+                // only ever emits these six operators, and the package (`.mfp`)
+                // decoder rejects any other via `link_compare_op_valid` (bug-403).
+                // A loud panic here (never a silent `=`) keeps a future decode gap
+                // from miscompiling instead of failing.
+                other => unreachable!("invalid LINK Compare operator {other:?} reached codegen"),
             };
             instructions.push(abi::compare_registers(&lhs_reg, &rhs_reg));
             instructions.push(abi::move_immediate(&dst, "Integer", "1"));
