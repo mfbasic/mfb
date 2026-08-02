@@ -5,11 +5,15 @@ Effort: small (<1h) code change; HIGH-priority security fix
 Severity: HIGH
 Class: Security (TLS certificate hostname-verification bypass → MITM)
 
-Status: Open
-Regression Test: tests/ — a **negative** Windows TLS test: `tls::connect` to a
-server presenting a CA-valid certificate issued for a *different* hostname must
-fail (ErrTls), not succeed. (A positive same-hostname test passes either way, which
-is why this went unnoticed.)
+Status: FIXED (bc8aecd5a)
+Regression Test: `verify_hostname_tests::server_name_pointer_stored_at_pwsz_server_name_offset`
+in `src/target/shared/code/tls/schannel_io.rs` — a codegen-inspection test that
+lowers `emit_verify_hostname` with the shared `TestPlatform` and asserts the loaded
+wide server-name pointer is stored at `SSLPARA + 16` (`pwszServerName`), never
+`SSLPARA + 8` (`fdwChecks`). Chosen over the doc's runtime negative test because the
+bug is Windows/Schannel-only and unreproducible on the macOS host; the doc's own
+Failing Reproduction is a static ABI proof, and this test pins that exact ABI fact
+(RED at offset 72, GREEN at 80).
 
 `emit_verify_hostname` (`src/target/shared/code/tls/schannel_io.rs`) performs the
 one certificate check Schannel does NOT do automatically:
@@ -95,3 +99,22 @@ A negative test (connect to `example.com` presenting a valid cert for
   `SSLPARA + 16` (leave `fdwChecks@8` as the zeroed 0). This is the only site.
 - Verify no other consumer relies on the current (wrong) `fdwChecks` value being
   non-zero.
+
+## Resolution — FIXED (bc8aecd5a)
+
+Single-line ABI fix, exactly as scoped: `emit_verify_hostname` now stores the wide
+server-name pointer at `SSLPARA + 16` (`pwszServerName`) instead of `SSLPARA + 8`.
+`fdwChecks@8` stays 0 (from the zeroing loop) — no other consumer read it; the low
+32 bits of the name pointer are no longer scribbled there, so the accidental
+`SECURITY_FLAG_IGNORE_CERT_CN_INVALID` risk is also gone. Chain-trust validation
+(the non-goal) is untouched.
+
+- Commit: `5eef6230e` (fix + RED-then-GREEN codegen test), merged to `main` via
+  fast-forward `bc8aecd5a`.
+- Verification: the regression test is RED at store offset 72 (SSLPARA+8) and GREEN
+  at 80 (SSLPARA+16). Full suite green after merging `main` (bug-411): `cargo test`
+  EXIT=0, mfb bin `3739 passed; 0 failed`. Windows/Schannel path has no
+  `.ncodesum` golden (artifact-gate skips it), so no golden shifted; the change is
+  confined to the Windows codegen path. The runtime negative-cert test in the doc's
+  matrix remains unrunnable on this host (no Windows box + MITM harness); the ABI is
+  pinned instead.
