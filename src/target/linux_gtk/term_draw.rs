@@ -78,9 +78,11 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(TERM_DRAW_SYMBOL);
     // lr@0, x19(cr)@8, x20(row)@16, x21(col)@24, x22(lastBold)@32, x23(charsBase)@40,
     // x24(fgBase)@48, x25(bgBase)@56, x26(cols)@64, x27(rows)@72, fg@80, bg@88,
-    // charbuf@96 (5B: up to 4 UTF-8 bytes + NUL).
-    let frame = 112;
+    // charbuf@96 (5B: up to 4 UTF-8 bytes + NUL). plan-70-E: pango layout@104,
+    // desc@112 — created once, reused per cell (Pango draws with font fallback).
+    let frame = 128;
     let (off_fg, off_bg, off_buf) = (80usize, 88usize, 96usize);
+    let (off_layout, off_desc) = (104usize, 112usize);
     let saved = [
         ("x19", 8),
         ("x20", 16),
@@ -113,8 +115,17 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.call_external("cairo_set_source_rgb");
     asm.push(abi::move_register("x0", "x19"));
     asm.call_external("cairo_paint");
-    // Normal-weight monospace at TERM_FONT_SIZE; lastBold tracks the selected weight.
-    emit_term_select_font(&mut asm, "x19", false);
+    // plan-70-E: one Pango layout + monospace font description for the whole frame,
+    // reused per cell (set_text + show_layout). Pango cascades fonts, so CJK/emoji
+    // render instead of tofu. desc weight starts normal; lastBold tracks it.
+    asm.local_address("x0", STR_MONO_DESC.0);
+    asm.call_external("pango_font_description_from_string");
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), off_desc));
+    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("pango_cairo_create_layout");
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), off_layout));
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), off_desc));
+    asm.call_external("pango_layout_set_font_description");
     asm.push(abi::move_immediate("x22", "Integer", "0"));
     // Render the draw-owned SNAPSHOT arrays (plan-35-E): a present copies the live
     // worker arrays here on the main loop before queue_draw, so this callback never
@@ -186,19 +197,26 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.push(abi::branch_eq("d_next"));
     asm.push(abi::compare_immediate("x13", "32"));
     asm.push(abi::branch_eq("d_next"));
-    // Re-select font weight if bold changed.
+    // plan-70-E: re-weight the Pango font description if bold changed (700 bold /
+    // 400 normal), then reapply it to the layout.
     asm.push(abi::load_u64("x14", abi::stack_pointer(), off_fg));
     asm.push(abi::move_immediate("x9", "Integer", &BOLD_FLAG.to_string()));
     asm.push(abi::and_registers("x9", "x14", "x9")); // 0 or BOLD_FLAG
     asm.push(abi::compare_registers("x9", "x22"));
     asm.push(abi::branch_eq("d_bold_ok"));
     asm.push(abi::move_register("x22", "x9"));
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_desc));
     asm.push(abi::compare_immediate("x9", "0"));
     asm.push(abi::branch_eq("d_sel_normal"));
-    emit_term_select_font(&mut asm, "x19", true);
-    asm.push(abi::branch("d_bold_ok"));
+    asm.push(abi::move_immediate("x1", "Integer", "700")); // PANGO_WEIGHT_BOLD
+    asm.push(abi::branch("d_sel_apply"));
     asm.push(abi::label("d_sel_normal"));
-    emit_term_select_font(&mut asm, "x19", false);
+    asm.push(abi::move_immediate("x1", "Integer", "400")); // PANGO_WEIGHT_NORMAL
+    asm.push(abi::label("d_sel_apply"));
+    asm.call_external("pango_font_description_set_weight");
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_layout));
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), off_desc));
+    asm.call_external("pango_layout_set_font_description");
     asm.push(abi::label("d_bold_ok"));
     // Foreground color: explicit or white.
     asm.push(abi::load_u64("x14", abi::stack_pointer(), off_fg));
@@ -216,19 +234,21 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.push(abi::signed_convert_to_float_d("d2", "x9"));
     asm.call_external("cairo_set_source_rgb");
     asm.push(abi::label("d_fg_done"));
-    // move_to(col*cellW, (row+1)*cellH - 4); show_text(charbuf). Load cellH BEFORE
-    // forming row+1 in x9 — load_state clobbers x9 as its address scratch.
+    // plan-70-E: pango_layout_set_text(layout, charbuf, -1); move_to(col*cellW,
+    // row*cellH) — Pango draws the layout from the current point as its TOP-LEFT (not
+    // a baseline) — then pango_cairo_show_layout in the fg colour set above.
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_layout));
+    asm.push(abi::add_immediate("x1", abi::stack_pointer(), off_buf));
+    asm.push(abi::move_immediate("x2", "Integer", "0"));
+    asm.push(abi::bitwise_not("x2", "x2")); // length -1 => NUL-terminated (no neg immediate)
+    asm.call_external("pango_layout_set_text");
     asm.push(abi::move_register("x0", "x19"));
-    emit_cell_dim_to_d(&mut asm, "d0", "x21", ST_TERM_CELL_W);
-    asm.load_state("x10", ST_TERM_CELL_H);
-    asm.push(abi::add_immediate("x9", "x20", 1));
-    asm.push(abi::multiply_registers("x9", "x9", "x10"));
-    asm.push(abi::subtract_immediate("x9", "x9", 4));
-    asm.push(abi::signed_convert_to_float_d("d1", "x9"));
+    emit_cell_dim_to_d(&mut asm, "d0", "x21", ST_TERM_CELL_W); // x = col*cellW
+    emit_cell_dim_to_d(&mut asm, "d1", "x20", ST_TERM_CELL_H); // y = row*cellH (top)
     asm.call_external("cairo_move_to");
     asm.push(abi::move_register("x0", "x19"));
-    asm.push(abi::add_immediate("x1", abi::stack_pointer(), off_buf));
-    asm.call_external("cairo_show_text");
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), off_layout));
+    asm.call_external("pango_cairo_show_layout");
     // Underline: a 2px rect at the cell bottom in the (already-set) fg color.
     asm.push(abi::load_u64("x14", abi::stack_pointer(), off_fg));
     asm.push(abi::move_immediate(
@@ -263,6 +283,11 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.load_state("x21", ST_TERM_COL);
     emit_term_cell_rect(&mut asm, "x19", "x21", "x20");
     asm.push(abi::label("d_no_cursor"));
+    // plan-70-E: release the per-frame Pango layout + font description.
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_layout));
+    asm.call_external("g_object_unref");
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_desc));
+    asm.call_external("pango_font_description_free");
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     for (reg, off) in saved {
         asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
@@ -270,23 +295,6 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
     asm.finish(TERM_DRAW_SYMBOL, "Nothing")
-}
-
-/// cairo_select_font_face(cr, "monospace", NORMAL, weight) + set_font_size.
-fn emit_term_select_font(asm: &mut Asm, cr: &str, bold: bool) {
-    asm.push(abi::move_register("x0", cr));
-    asm.local_address("x1", STR_MONOSPACE.0);
-    asm.push(abi::move_immediate("x2", "Integer", "0")); // CAIRO_FONT_SLANT_NORMAL
-    asm.push(abi::move_immediate(
-        "x3",
-        "Integer",
-        if bold { "1" } else { "0" },
-    ));
-    asm.call_external("cairo_select_font_face");
-    asm.push(abi::move_register("x0", cr));
-    asm.push(abi::move_immediate("x9", "Integer", TERM_FONT_SIZE));
-    asm.push(abi::signed_convert_to_float_d("d0", "x9"));
-    asm.call_external("cairo_set_font_size");
 }
 
 /// `dst (d-reg) = index * cellSize` as a double, where the cell size (px) is read
@@ -390,10 +398,13 @@ pub(super) fn emit_term_scroll_helper() -> Result<CodeFunction, String> {
 pub(super) fn emit_term_init_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(TERM_INIT_SYMBOL);
     // lr@0, x19(cr)@8, x20(surf)@16, extents buffer@24 (48B, fits both font_extents
-    // and the larger text_extents). cr/surf are callee-saved so they survive the
-    // cairo calls.
-    let frame = 80;
+    // and the larger text_extents; plan-70-E also holds Pango's 16B PangoRectangle).
+    // cr/surf are callee-saved so they survive the cairo calls. plan-70-E:
+    // layout@72, desc@80 hold the throwaway Pango layout + font description used to
+    // measure the cell from the same font that draws it.
+    let frame = 96;
     let fe = 24usize;
+    let (off_layout, off_desc) = (72usize, 80usize);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(
@@ -412,30 +423,38 @@ pub(super) fn emit_term_init_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_register("x0", "x20"));
     asm.call_external("cairo_create");
     asm.push(abi::move_register("x19", "x0")); // cr
-                                               // select monospace at TERM_FONT_SIZE.
-    emit_term_select_font(&mut asm, "x19", false);
-    // cell_h = ceil(font_extents.height @ +16). font_extents_t: ascent,descent,
-    // height,max_x_advance,max_y_advance.
+    // plan-70-E: measure the cell from the SAME Pango monospace font that draws it
+    // (so the grid geometry matches the rendered glyphs). desc = "monospace 16";
+    // layout of "M"; its logical PangoRectangle gives {width, height} in pixels.
+    asm.local_address("x0", STR_MONO_DESC.0);
+    asm.call_external("pango_font_description_from_string");
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), off_desc));
     asm.push(abi::move_register("x0", "x19"));
-    asm.push(abi::add_immediate("x1", abi::stack_pointer(), fe));
-    asm.call_external("cairo_font_extents");
-    asm.push(abi::load_u64("x9", abi::stack_pointer(), fe + 16));
-    asm.push(abi::float_move_d_from_x("d0", "x9"));
-    asm.push(abi::float_ceil_to_signed_x("x10", "d0"));
-    emit_clamp_low(&mut asm, "x10", 1, "ch");
-    asm.store_state("x10", ST_TERM_CELL_H);
-    // cell_w = ceil(text_extents("M").x_advance @ +32). Using a real glyph's advance
-    // (not font_extents.max_x_advance, which is the widest glyph in the whole font).
-    // text_extents_t: x_bearing,y_bearing,width,height,x_advance,y_advance.
-    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("pango_cairo_create_layout");
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), off_layout));
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), off_desc));
+    asm.call_external("pango_layout_set_font_description");
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_layout));
     asm.local_address("x1", STR_M.0);
+    asm.push(abi::move_immediate("x2", "Integer", "1")); // "M" is 1 byte
+    asm.call_external("pango_layout_set_text");
+    // pango_layout_get_pixel_extents(layout, ink=NULL, logical=&rect@fe). The
+    // PangoRectangle is {x@0, y@4, width@8, height@12} (i32 each).
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_layout));
+    asm.push(abi::move_immediate("x1", "Integer", "0"));
     asm.push(abi::add_immediate("x2", abi::stack_pointer(), fe));
-    asm.call_external("cairo_text_extents");
-    asm.push(abi::load_u64("x9", abi::stack_pointer(), fe + 32));
-    asm.push(abi::float_move_d_from_x("d0", "x9"));
-    asm.push(abi::float_ceil_to_signed_x("x10", "d0"));
+    asm.call_external("pango_layout_get_pixel_extents");
+    asm.push(abi::load_u32("x10", abi::stack_pointer(), fe + 8)); // logical.width
     emit_clamp_low(&mut asm, "x10", 1, "cw");
     asm.store_state("x10", ST_TERM_CELL_W);
+    asm.push(abi::load_u32("x10", abi::stack_pointer(), fe + 12)); // logical.height
+    emit_clamp_low(&mut asm, "x10", 1, "ch");
+    asm.store_state("x10", ST_TERM_CELL_H);
+    // Pango cleanup before the cairo teardown (the layout holds a ref on cr).
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_layout));
+    asm.call_external("g_object_unref");
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_desc));
+    asm.call_external("pango_font_description_free");
     // cleanup
     asm.push(abi::move_register("x0", "x19"));
     asm.call_external("cairo_destroy");

@@ -156,7 +156,6 @@ const TERM_DEFAULT_FG: &str = "16777215"; // 0xFFFFFF white (matches console def
 // exceed these.
 const TERM_MAX_COLS: usize = 160;
 const TERM_MAX_ROWS: usize = 48;
-const TERM_FONT_SIZE: &str = "16";
 // Window content area used to size the grid (matches the default window size, like
 // macOS sizing from the TermView frame).
 const TERM_AREA_W: usize = 900;
@@ -229,7 +228,9 @@ const STR_EXIT_PREFIX: (&str, &str) =
 /// `app/mod.rs` STR_STDERR_PREFIX), visually distinguishing stderr (plan-05 §5.4).
 const STR_STDERR_PREFIX: (&str, &str) = ("_mfb_gtkapp_str_stderr_prefix", "[stderr] ");
 /// Cairo font family for the term:: grid.
-const STR_MONOSPACE: (&str, &str) = ("_mfb_gtkapp_str_monospace", "monospace");
+/// plan-70-E: the Pango font-description string ("family size"), parsed once by
+/// `pango_font_description_from_string` into the layout's cached description.
+const STR_MONO_DESC: (&str, &str) = ("_mfb_gtkapp_str_mono_desc", "monospace 16");
 /// Representative glyph used to measure the monospace cell width.
 const STR_M: (&str, &str) = ("_mfb_gtkapp_str_m", "M");
 
@@ -259,6 +260,10 @@ const GOBJECT: &str = "libgobject-2.0.so.0";
 const GLIB: &str = "libglib-2.0.so.0";
 const GIO: &str = "libgio-2.0.so.0";
 const CAIRO: &str = "libcairo.so.2";
+// plan-70-E: the TUI grid draws through Pango (font cascade for CJK/emoji),
+// replacing the Cairo toy font API which has no fallback.
+const PANGO: &str = "libpango-1.0.so.0";
+const PANGOCAIRO: &str = "libpangocairo-1.0.so.0";
 
 /// The C-library sonames an app-mode build binds to (plan-56-A §4.1), resolved
 /// by the calling backend's `Platform` so `linux_gtk` needs to know neither the
@@ -776,13 +781,20 @@ pub(crate) fn app_mode_imports(
         (CAIRO, "cairo_paint"),
         (CAIRO, "cairo_rectangle"),
         (CAIRO, "cairo_fill"),
-        (CAIRO, "cairo_select_font_face"),
-        (CAIRO, "cairo_set_font_size"),
         (CAIRO, "cairo_move_to"),
-        (CAIRO, "cairo_show_text"),
-        // Font-metric measurement at init (sizes the grid from cell extents).
-        (CAIRO, "cairo_font_extents"),
-        (CAIRO, "cairo_text_extents"),
+        // plan-70-E: Pango draws each cell's grapheme with font fallback (CJK/emoji)
+        // that the Cairo toy API lacks; the layout is created once per draw/measure
+        // and reused per cell (set_text + show_layout). This replaced the Cairo toy
+        // font API (select_font_face / show_text / font_extents / text_extents).
+        (PANGOCAIRO, "pango_cairo_create_layout"),
+        (PANGOCAIRO, "pango_cairo_show_layout"),
+        (PANGO, "pango_layout_set_text"),
+        (PANGO, "pango_layout_set_font_description"),
+        (PANGO, "pango_layout_get_pixel_extents"),
+        (PANGO, "pango_font_description_from_string"),
+        (PANGO, "pango_font_description_set_weight"),
+        (PANGO, "pango_font_description_free"),
+        (GOBJECT, "g_object_unref"),
         (CAIRO, "cairo_image_surface_create"),
         (CAIRO, "cairo_create"),
         (CAIRO, "cairo_destroy"),
@@ -852,7 +864,7 @@ pub(crate) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         STR_RESIZE,
         STR_EXIT_PREFIX,
         STR_STDERR_PREFIX,
-        STR_MONOSPACE,
+        STR_MONO_DESC,
         STR_M,
         STR_ENV_A11Y,
         STR_ENV_IM,

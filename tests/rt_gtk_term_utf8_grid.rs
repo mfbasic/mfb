@@ -6,7 +6,10 @@
 //!
 //! A char cell is now a `u32` holding one code point's UTF-8 bytes packed
 //! little-endian, so a `str_u32` into a 5-byte buffer lays the sequence out in
-//! order for `cairo_show_text`, NUL-terminated.
+//! order for the per-cell draw, NUL-terminated. plan-70-E migrated that draw from
+//! the Cairo toy font API (`cairo_show_text`) to a Pango layout
+//! (`pango_layout_set_text` + `pango_cairo_show_layout`) so CJK/emoji cascade
+//! across fonts instead of rendering as tofu.
 //!
 //! These assert on the emitted code plan, not on pixels. Rendering is a Cairo
 //! draw callback that needs a real display; the GTK VM available here has no
