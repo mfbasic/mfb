@@ -167,7 +167,7 @@ commit below.
       — DONE in the archive commit below.
 
 Acceptance: all gates green tree-wide (after the main merge); plan-73 archived.
-— MET. Commit: (archive commit below)
+— MET. Commit: feb2ede03
 
 ## Validation Plan
 
