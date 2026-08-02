@@ -48,6 +48,10 @@ jobs:
   acceptance:
     needs: build
     runs-on: ubuntu-latest
+    # Backstop against a wedged fixture: test-accept.sh already caps each fixture's
+    # build and execution at 300s (run_with_watchdog), so a healthy run finishes
+    # well under this. Without it, a hang would burn GitHub's 6-hour job default.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
