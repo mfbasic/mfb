@@ -43,9 +43,9 @@ References (read first):
 
 | Must be true | Command | Status |
 |---|---|---|
-| Working tree builds & tests green at HEAD | `cargo test --bin mfb` (full suite) | UNMEASURED — re-run at start |
-| Codegen artifact baseline clean | `scripts/artifact-gate.sh target/debug/mfb` → diffs=0 | UNMEASURED — re-run at start |
-| No competing in-flight edits to `src/builtins/{net,tls,http}.rs`, `src/builtins/{net,http}_package.mfb`, `src/target/shared/code/{net,tls}/**` | `git status` on those paths | UNMEASURED — re-run at start |
+| Working tree builds & tests green at HEAD | `cargo test --bin mfb` (full suite) | MET — 3750 passed; 0 failed (2026-08-02, worktree P-76) |
+| Codegen artifact baseline clean | `scripts/artifact-gate.sh target/debug/mfb all` → diffs=0 | IN PROGRESS — full `all` gate running as baseline (see Corrections C1: command needs the `all` selector now) |
+| No competing in-flight edits to `src/builtins/{net,tls,http}.rs`, `src/builtins/{net,http}_package.mfb`, `src/target/shared/code/{net,tls}/**` | `git status` on those paths | MET — fresh worktree forked from main; tree clean |
 | `List OF RES <resource>` compiles and runs (resources-in-collections landed) | fixtures exist: `ls tests/rt-behavior/resources/resource-collection-floats-runtime` | MET (verified — see Verified properties) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run every
@@ -217,18 +217,30 @@ proven poll/EINTR/sentinel block verbatim; only the array build + result selecti
 
 ### Phase 1 — falsify the borrowed-resource return (design uncertainty first)
 
-- [ ] Write the smallest experiment that a builtin (or `collections::get`) returning `RES Socket`
-      aliasing a `List OF RES Socket` element is expressible: a fixture binding
-      `RES ready AS Socket = <borrowed-return>` inside a scope that owns the list, then closing the
-      list's scope, under a repeat loop; observe no double-free/leak (mirror
-      `tests/rt-behavior/resources/resource-collection-not-owner-valid`).
-- [ ] If it is NOT expressible with the existing escape/`.mfp` machinery, STOP and switch to Open
-      Decision 1 (Integer-index return) before Phase 2/3 — do not half-build the resource return.
+- [x] ~~Write the smallest experiment that a builtin (or `collections::get`) returning `RES Socket`
+      aliasing a `List OF RES Socket` element is expressible…~~ — moot: **already proven** by an
+      existing precedent, so no throwaway experiment is needed. `RES g AS File =
+      collections::get(xs, 0)` on a `List OF RES File` binds a NON-owning alias (bug-375 fix), proven
+      at runtime by `tests/rt-behavior/resources/res-rebind-alias-runtime` (peekViaGet / peekViaForEach
+      then a post-call use of the still-open handle) and legalised at compile time by
+      `tests/syntax/resources/resource-collection-not-owner-valid` (`RES elem AS File =
+      collections::get(handles, 0)`, build.log `[exit 0]`). `net::poll(List OF RES Socket) AS RES
+      Socket` is structurally identical (returns a pointer to an element the list still owns).
+- [x] ~~If it is NOT expressible … STOP and switch to Open Decision 1.~~ — moot: it **is**
+      expressible; no fallback needed.
 
-Acceptance: a documented yes/no with a runtime fixture. Yes → proceed with `AS RES Socket`. No →
-adopt the index form and adjust Phases 2–3 (return `Integer`, `-1` when none for the `0`/expiry
-case, or keep `ErrTimeout`).
-Commit: —
+**Decision (YES → `AS RES Socket`):** proceed with the borrowed `RES Socket` return. The single
+wiring hook is `value_aliases_live_resource` (`src/target/shared/code/builder_values.rs:192-201`),
+which today hardcodes the borrowed-return recognition to the `collections::get`/`getOr` targets. The
+list-poll overload is remapped to a distinct NIR target `net.pollList` (mirroring how
+`net.connectTcp(Address)` remaps to `net.connectTcpAddr`, `builder_values.rs:1925-1931`); Phase 2/3
+teach `value_aliases_live_resource` that `net.pollList` returns a borrowed pointer (generalised via a
+`builtins::returns_borrowed_resource(target)` predicate rather than another hardcoded name), so the
+`RES ready = net::poll(socks)` bind registers NO close obligation and the list stays the sole owner.
+No escape-analysis change and no `.mfp` format change are required (borrow is a pure
+lowering-site property; the return serialises as the bare type `Socket`). The ≥1000× leak-loop that
+proves no double-close of the borrowed return is folded into the Phase 3 runtime fixture.
+Commit: (recorded next commit)
 
 ### Phase 2 — resolver + descriptor surface
 
@@ -297,7 +309,23 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **C1 (Prerequisites): the artifact-gate command is stale.** The plan (and B/C/D
+  which point back here) wrote `scripts/artifact-gate.sh target/debug/mfb`, but the
+  gate now *requires* a `<builtin|all>` selector — a bare invocation prints usage and
+  runs nothing. Baseline command corrected to `scripts/artifact-gate.sh
+  target/debug/mfb all`. Measured via `head -40 scripts/artifact-gate.sh` (the usage
+  block). Matches memory note *fast-codegen-gate*.
+- **C2 (Current State / Verified properties): the borrowed-resource return is
+  EXPRESSIBLE — falsified NO already.** The plan's Phase-1 UNVERIFIED risk ("a builtin
+  can return a pointer to a list-argument element as a borrow") is answered YES by an
+  existing precedent: `RES g AS File = collections::get(xs, 0)` on a `List OF RES File`
+  binds a non-owning ALIAS (bug-375 fix), proven at runtime by
+  `tests/rt-behavior/resources/res-rebind-alias-runtime` and legalised by
+  `tests/syntax/resources/resource-collection-not-owner-valid`. The plan's cited
+  `resource-collection-not-owner-valid` lives under `tests/syntax/resources/`, not
+  `tests/rt-behavior/resources/`. Remaining Phase-1 work is narrowed to WIRING
+  `net.poll(List)` into the same non-owning-return classification `collections::get`
+  uses (so the returned binding registers no close obligation), not proving feasibility.
 
 ## Summary
 

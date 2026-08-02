@@ -431,7 +431,30 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **D1 (§1, §3, §4.1, Phase 1): declare the union with BARE variant ids `UNION Stream { Socket
+  TlsSocket }`, NOT the qualified `{ net::Socket net::TlsSocket }` the plan illustrates.** Union
+  variant names are the ONE type position the parser does NOT normalize a `pkg::Type` qualifier on:
+  `parse_union_variant` (`src/ast/items.rs:364-369`) calls `parse_qualified_name` (which only turns
+  `::`→`.`), skipping the `qualified_builtin_type` normalization every other type annotation gets
+  (e.g. `expr.rs:854-859`). So `net::Socket` reaches NIR as `net.Socket`, and EVERY close-wiring
+  lookup — `resource_union_cleanup` (`builder_resource_cleanup.rs:63-67`), the 3-site define/used/
+  declared (`symbols.rs:161`, `validate/capabilities.rs`, `runtime/usage.rs:121`), and
+  `is_resource_type` — keys on the bare id via `BUILTIN_RESOURCES` and silently MISSES: no cleanup
+  registered, close helpers never defined/declared → the socket LEAKS with no diagnostic. The shipped
+  plan-74 fixtures (`resource-union-state-*`) all declare `UNION Stream { File Socket }` with bare ids
+  over cross-package variants (`File` from fs, `Socket` from net), so bare imported-builtin variants
+  are the PROVEN path. Consequently the MATCH `CASE` labels in §4.1–4.4 must also be bare (`CASE
+  Socket(p)` / `CASE TlsSocket(t)`), not `CASE net::TlsSocket(t)`. (Alternative — add
+  `qualified_builtin_type` normalization to `parse_union_variant` — is deferred; not needed if we use
+  bare names.) Measured by the D-Phase-1 research audit.
+- **D2 (§3, Verified properties): `native_resources` is irrelevant here; close resolution is
+  registry-based.** The plan's Phase-1 risk cites [[imported-package-resource-two-spellings]] (decoded
+  `.mfp` packages carry no `native_resources`). But `Socket`/`TlsSocket` are BUILTIN resources
+  resolved through the always-present `BUILTIN_RESOURCES` registry (`resource.rs:138-239`), not
+  through `native_resources` (which only carries user `RESOURCE T CLOSE BY` decls). And `http` is
+  source-injected (`augmented_project`, `mod.rs:67`), not `.mfp`-decoded. So the imported-variant
+  close-op wiring resolves through the same registry the plan-74 fixtures already exercise — no
+  `native_resources` involvement. The real (and only) hazard is D1's qualified-name spelling.
 
 ## Summary
 

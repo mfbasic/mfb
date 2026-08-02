@@ -42,8 +42,9 @@ Feature-wide gate: see plan-76-A Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| Each TLS backend exposes a "decrypted bytes buffered?" query or an equivalent non-consuming peek | read `openssl.rs` (`SSL_pending`), `macos/mod.rs` (ring occupancy), `schannel_io.rs`/`schannel_read_close.rs` (carry-over buffer) | UNMEASURED — Phase 0 audits |
-| TLS runtime boxes reachable | `.ai/remote_systems.md` (Linux openssl, Windows schannel) | UNMEASURED |
+| Each TLS backend exposes a "decrypted bytes buffered?" query or an equivalent non-consuming peek | read `openssl.rs` (`SSL_pending`), `macos/mod.rs` (ring occupancy), `schannel_io.rs`/`schannel_read_close.rs` (carry-over buffer) | **PARTIALLY MET** — openssl YES (`SSL_pending`, symbol must be added), schannel YES (`STATE[LEFT_LEN]` @ STATE+64), **macOS NO** (no user-space decrypted-byte buffer — see Corrections B0-macOS; needs a receive-driven readiness shim). Phase 0 audit done. |
+| Feature-wide gate (tree green, gate clean) | see plan-76-A Prerequisites | MET (tests 3750/0; gate baseline — see plan-76-A) |
+| TLS runtime boxes reachable | `.ai/remote_systems.md` (Linux openssl, Windows schannel) | UNMEASURED — needed for Phase 2/3 runtime proof |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run and update
 > before continuing and before stopping; report all rows if you stop.
@@ -117,7 +118,7 @@ Feature-wide gate: see plan-76-A Prerequisites. Additionally:
 | A TLS socket can hold decrypted bytes with an idle fd | **CONFIRMED (by protocol)** | One TLS record → many app bytes; `SSL_read`/NW-receive drains a record and buffers the remainder, so `SSL_pending`/ring can be > 0 with the fd not readable. This is the whole reason fd-only poll is wrong. |
 | openssl exposes a non-consuming buffered-count query | **UNVERIFIED** — Phase 0 | `SSL_pending(ssl)` is the standard call; confirm it is linkable/available in the vendored openssl and returns decrypted-app-byte count (not record bytes). |
 | schannel carry-over buffer is queryable without consuming | **UNVERIFIED** — Phase 0 | Read `schannel_io.rs`/`schannel_read_close.rs` for the carry-over slot and whether its length is inspectable pre-read. |
-| macOS ring occupancy is inspectable without dequeue, and a bounded wait exists | **UNVERIFIED** — Phase 0 | Read `macos/mod.rs`/`client.rs` for the ring head/tail + the `dispatch_semaphore` wait used by read. |
+| macOS ring occupancy is inspectable without dequeue, and a bounded wait exists | **FALSIFIED (bytes) / bounded-wait CONFIRMED** — Phase 0 | The `macos/mod.rs:104` ring is the **listener's pending-connection** ring (for `accept`), NOT a decrypted-app-byte buffer. The read path (`client.rs:820-936`) has a single-slot `CTX_CONTENT` consumed immediately — no user-space byte buffer exists, so there is NO non-consuming "bytes buffered?" query on macOS. A bounded wait DOES exist (`dispatch_semaphore_wait(sem, dispatch_time(...))`, connect path `client.rs:498-568`). See Corrections B0-macOS. |
 
 ## 3. Design Overview
 
@@ -191,14 +192,49 @@ guards with a buffered-then-idle runtime fixture and a repeat loop.
 
 ### Phase 0 — backend readiness audit (design uncertainty first)
 
-- [ ] For each backend, confirm and document the exact non-consuming buffered-bytes query and the
-      bounded-wait primitive: openssl `SSL_pending` availability/semantics; schannel carry-over
-      length inspection; macOS ring occupancy + which semaphore the read waits on. Record any
-      backend that cannot answer without consuming, and its alternative.
+- [x] Per-backend non-consuming buffered-bytes query + bounded-wait primitive documented (recipe below).
+      **Shared record layout** (POSIX family, `tls/mod.rs:24-28`): `TLS_OFFSET_FD=0`,
+      `TLS_OFFSET_CLOSED=8`, `TLS_OFFSET_SSL=16` (openssl `SSL*`; schannel repurposes to the per-conn
+      STATE block ptr), `TLS_OFFSET_CTX=24`. macOS differs (`macos/mod.rs:83-87`: `REC_CONN=0`,
+      `REC_CLOSED=8`, `REC_QUEUE=16`, `REC_CTX=24`, **no fd**). Dispatch fan-out: `mod.rs:2131-2158`
+      → `tls/mod.rs:373-408` by `PlatformFamily`.
+
+  **openssl (Linux/BSD)** — buffered? **YES, non-consuming** via `SSL_pending(ssl)` (`ssl` @
+  record+16). `SSL_pending`/`SSL_has_pending` are NOT yet in `TLS_SYMBOLS` (`tls/mod.rs:62-78`); add
+  `"SSL_pending"` there + one `emit_dlsym` (pattern `openssl.rs:2016` for `SSL_read`) + a call. fd
+  readable? → `poll({fd@record+0, POLLIN}, 1, ms)` (pattern `openssl.rs:1590-1607`). Readiness =
+  `SSL_pending>0 || poll>0`.
+
+  **schannel (Windows)** — buffered? **YES, non-consuming, already present.** `STATE = record[16]`,
+  then `bytesBuffered = STATE[st::LEFT_LEN]` (STATE+64, `schannel.rs:63`); serve path at
+  `schannel_read_close.rs:48-53` proves it is pre-read-inspectable and mutation-free. fd readable? →
+  `WSAPoll({fd@record+0, POLLRDNORM=256}, 1, ms)` (pattern `schannel_server.rs:665-674`). Readiness =
+  `STATE[LEFT_LEN]>0 || WSAPoll>0`.
+
+  **macOS (Network.framework)** — buffered? **NO non-consuming query exists** (see Corrections
+  B0-macOS). No fd; the read path posts `nw_connection_receive(min=1,max=maxBytes)` into a single
+  `CTX_CONTENT` slot (`macos/mod.rs:99`) consumed immediately (`client.rs:912-936`) — there is no
+  user-space leftover buffer for decrypted app bytes. The `mod.rs:104-115` ring
+  (`LCTX_HEAD`@48/`LCTX_TAIL`@56/`LCTX_RING`@64, cap 16) is the **listener's pending-connection**
+  ring for `accept`, NOT decrypted bytes. Terminal state: `CTX_STATE` (`macos/mod.rs:98`), ready=3,
+  failed=4, cancelled=5 (`client.rs:864-868`). Wait primitive available: bounded
+  `dispatch_semaphore_wait(sem, dispatch_time(NOW, ms*1e6))` (connect path `client.rs:498-568`; both
+  symbols already in `SYMBOLS` `mod.rs:147-148`) — must respect the `emit_fresh_sem` release/pairing
+  invariant (`mod.rs:412-427`). **Design revision (Phase 4):** macOS `tls::poll` needs a
+  receive-driven readiness shim — post a bounded `nw_connection_receive`, stash the returned bytes in
+  a NEW ctx pending-plaintext slot, and have `tls::read` drain that slot first (mirroring schannel's
+  `LEFT` carry-over). This is the added scope Phase 4 must build; see Corrections B0-macOS.
+
+  **Shared timeout plumbing to reuse:** `net/poll.rs:38-60` (sentinel→-1/block, negative→invalid,
+  `>=0`→clamp INT_MAX) + EINTR retry `net/poll.rs:101-114`; `net_symbol(NetSymbol::Poll)` renames
+  `poll`→`WSAPoll` on Windows (`net/mod.rs:59-88`); `emit_pollfd_events` writes the per-platform
+  events field (`net/mod.rs:99-122`). Note `net.poll` reads `FILE_OFFSET_FD/CLOSED`; `tls::poll` must
+  read `TLS_OFFSET_FD/CLOSED` (0/8) instead.
 
 Acceptance: a written per-backend readiness recipe (query + wait), with the symbol/offset each uses.
-No code yet. If a backend has no non-consuming query, its Phase design is revised here.
-Commit: —
+No code yet. If a backend has no non-consuming query, its Phase design is revised here. **DONE** —
+recipe above; macOS design revised (receive-driven shim, Phase 4).
+Commit: (recorded next commit)
 
 ### Phase 1 — surface (descriptor + resolver + padding)
 
@@ -277,7 +313,27 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **B0-macOS (Phase 0 / §3 / Verified properties): macOS has NO non-consuming buffered-bytes
+  query — the plan's "ring occupancy" premise is false for `TlsSocket` readiness.** The plan (§2,
+  §3, Open Decision 1) assumed macOS Network.framework keeps decrypted app bytes in an inspectable
+  "single-producer/single-consumer ring" at `macos/mod.rs:106`. That ring
+  (`LCTX_HEAD`@48/`LCTX_TAIL`@56/`LCTX_RING`@64) is the **listener's pending-connection** ring used by
+  `tls::accept`, not a decrypted-byte buffer. The read path (`client.rs:820-936`) posts
+  `nw_connection_receive(min=1, max=maxBytes)` into a single `CTX_CONTENT` slot consumed immediately
+  — there is no user-space leftover for decrypted app bytes, so "are decrypted bytes buffered?"
+  cannot be answered non-consuming on macOS. **Design revision:** macOS `tls::poll` (Phase 4) must
+  add a receive-driven readiness shim: a NEW ctx pending-plaintext slot filled by a bounded
+  `nw_connection_receive`, drained first by `tls::read` (mirroring schannel's `LEFT` carry-over at
+  `STATE+56/+64`). This makes `tls::read` on macOS buffered-aware (a change to the read path, not just
+  a new poll), and is the added scope of Phase 4. Measured by the Phase-0 audit of
+  `tls/macos/{mod,client}.rs` (no leftover/carry buffer; `CTX_CONTENT` single-slot at `mod.rs:99`).
+  Open Decision 1 ("reuse the read semaphore") stands only for the WAIT half; the READINESS half needs
+  the shim.
+- **B0-tls.rs (Phase 1 surface): the optional `timeoutMs` should use `Fill(SENTINEL)`, not bare
+  `Optional`.** tls (unlike net) HAS `default_argument_padding` (`tls.rs:315`), so the omitted
+  `timeoutMs` is padded there with `TIMEOUT_UNBOUNDED_SENTINEL` (mirroring `accept`), not padded in
+  `builder_values.rs`. §4.1 already says pad in `default_argument_padding`; recorded here so the param
+  array uses the `fill`/`ACCEPT_DEFAULTS` shape, not net's `opt`.
 
 ## Summary
 
