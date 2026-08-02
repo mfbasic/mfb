@@ -55,6 +55,12 @@ const TUI_CELL_H: usize = 16;
 const TUI_MEMDC_SYM: &str = "_mfb_winapp_tui_memdc"; // off-screen HDC
 const TUI_ROW_SYM: &str = "_mfb_winapp_tui_row"; // cursor row (0-based)
 const TUI_COL_SYM: &str = "_mfb_winapp_tui_col"; // cursor col (0-based)
+// plan-70-F: a real fixed-pitch CJK-capable font (CreateFontW) replaces the legacy
+// SYSTEM_FIXED_FONT bitmap face, which has no CJK/emoji glyphs. DEFAULT_CHARSET lets
+// GDI font-linking supply CJK from the system fallback (MS Gothic/JhengHei/Malgun,
+// present on the box). The HFONT is cached so it is created once with the surface.
+const TUI_FONT_SYM: &str = "_mfb_winapp_tui_font"; // cached HFONT (0 until term::on)
+const FONT_NAME_SYM: &str = "_mfb_winapp_tui_fontname"; // L"Consolas"
 // GDI / window message constants.
 const WM_PAINT: &str = "15"; // 0x000F
 const SW_HIDE: &str = "0";
@@ -1115,8 +1121,11 @@ fn emit_term_draw_unsupported(symbol: &str) -> AppHookBody {
 /// bitmap + a fixed-pitch stock font), clear it, mark TUI state active, hide the
 /// transcript EDIT so the grid shows through, and invalidate the window.
 fn emit_term_on(symbol: &str, tso: usize) -> AppHookBody {
-    // Frame: shadow[0..0x20], PatBlt stack args h@0x20/rop@0x28, hdcScreen@0x30.
-    const FRAME: usize = 0x38;
+    // Frame: shadow[0..0x20]. plan-70-F: CreateFontW takes 14 args — its 5th-14th ride
+    // the stack at 0x20..0x68, so the reused scratch (PatBlt height/rop @0x20/0x28) and
+    // hdcScreen moved to 0x70 to clear that window. Frame rounded to 0x80 (16-aligned).
+    const FRAME: usize = 0x80;
+    const HDC_SCREEN: usize = 0x70;
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
@@ -1130,14 +1139,14 @@ fn emit_term_on(symbol: &str, tso: usize) -> AppHookBody {
     // hdcScreen = GetDC(NULL)
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
     call_external(from, "GetDC", USER32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), 0x30));
+    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), HDC_SCREEN));
     // memDC = CreateCompatibleDC(hdcScreen); store the global.
     ins.push(abi::move_register(abi::ARG[0], abi::return_register()));
     call_external(from, "CreateCompatibleDC", GDI32, &mut ins, &mut rel);
     load_addr(abi::ARG[1], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::return_register(), abi::ARG[1], 0));
     // bmp = CreateCompatibleBitmap(hdcScreen, W, H)
-    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x30));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), HDC_SCREEN));
     ins.push(abi::move_immediate(abi::ARG[1], "Integer", &(TUI_COLS * TUI_CELL_W).to_string()));
     ins.push(abi::move_immediate(abi::ARG[2], "Integer", &(TUI_ROWS * TUI_CELL_H).to_string()));
     call_external(from, "CreateCompatibleBitmap", GDI32, &mut ins, &mut rel);
@@ -1148,11 +1157,35 @@ fn emit_term_on(symbol: &str, tso: usize) -> AppHookBody {
     call_external(from, "SelectObject", GDI32, &mut ins, &mut rel);
     // ReleaseDC(NULL, hdcScreen)
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
-    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x30));
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), HDC_SCREEN));
     call_external(from, "ReleaseDC", USER32, &mut ins, &mut rel);
-    // font = GetStockObject(SYSTEM_FIXED_FONT = 16); SelectObject(memDC, font).
-    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "16"));
-    call_external(from, "GetStockObject", GDI32, &mut ins, &mut rel);
+    // plan-70-F: font = CreateFontW(16, 0, 0, 0, FW_NORMAL=400, 0,0,0,
+    //   DEFAULT_CHARSET=1, 0,0,0, FIXED_PITCH|FF_MODERN=49, L"Consolas"); cache it +
+    //   SelectObject(memDC, font). DEFAULT_CHARSET drives GDI font-linking so CJK
+    //   renders through the system fallback instead of tofu. The 5th-14th args ride
+    //   the stack at 0x20..0x68 (Win64), the shadow space is 0x00..0x1F.
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "400"));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x20)); // fnWeight
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28)); // fdwItalic
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30)); // fdwUnderline
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38)); // fdwStrikeOut
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "1"));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x40)); // DEFAULT_CHARSET
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x48)); // OutputPrecision
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x50)); // ClipPrecision
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x58)); // Quality
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "49"));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x60)); // FIXED_PITCH|FF_MODERN
+    load_addr(abi::ARG[0], FONT_NAME_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x68)); // lpszFace
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", &TUI_CELL_H.to_string())); // nHeight
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0")); // nWidth (font default)
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "0")); // nEscapement
+    ins.push(abi::move_immediate(abi::ARG[3], "Integer", "0")); // nOrientation
+    call_external(from, "CreateFontW", GDI32, &mut ins, &mut rel);
+    // cache the HFONT, then SelectObject(memDC, font).
+    load_addr(abi::ARG[1], TUI_FONT_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::return_register(), abi::ARG[1], 0));
     ins.push(abi::move_register(abi::ARG[1], abi::return_register()));
     load_addr(abi::ARG[0], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
@@ -1410,6 +1443,9 @@ pub(super) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         writable_qword(TUI_MEMDC_SYM),
         writable_qword(TUI_ROW_SYM),
         writable_qword(TUI_COL_SYM),
+        // plan-70-F: cached CJK-capable HFONT + its face name.
+        writable_qword(TUI_FONT_SYM),
+        utf16z_data_object(FONT_NAME_SYM, "Consolas"),
         CodeDataObject {
             symbol: "_mfb_winapp_testbuf".to_string(),
             kind: "raw".to_string(),
