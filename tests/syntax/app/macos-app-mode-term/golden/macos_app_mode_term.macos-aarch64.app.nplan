@@ -24,6 +24,7 @@
   { "library": "libSystem", "symbol": "_tcsetattr", "requiredBy": "_mfb_rt_term_term_off" },
   { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_term_term_sync" },
   { "library": "libSystem", "symbol": "_ioctl", "requiredBy": "_mfb_rt_term_term_sync" },
+  { "library": "libSystem", "symbol": "___error", "requiredBy": "_mfb_rt_term_term_sync" },
   { "library": "libobjc", "symbol": "_objc_msgSend", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_objc_msgSendSuper", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_sel_registerName", "requiredBy": "_main" },

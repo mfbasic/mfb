@@ -164,6 +164,28 @@ mod tests {
         }
     }
 
+    /// bug-410: `term::sync` presents the frame with a libc `write` on aarch64
+    /// (nothing raw-syscalls here), and its present loop retries EINTR by re-reading
+    /// `errno` through the accessor. Without importing `__errno_location` the retry
+    /// helper cannot classify EINTR and silently gives up mid-frame, so the import
+    /// must be live on both flavors. `term::off`/auto-restore reuse the same helper.
+    #[test]
+    fn term_sync_imports_errno_accessor_for_eintr_retry() {
+        let spec =
+            crate::target::shared::runtime::spec_for_call("term.sync").expect("term.sync spec");
+        for flavor in [LinuxFlavor::Glibc, LinuxFlavor::Musl] {
+            let platform = Platform { flavor };
+            assert!(
+                platform
+                    .runtime_imports(spec)
+                    .iter()
+                    .any(|imp| imp.symbol == "__errno_location"),
+                "term.sync must import __errno_location so its present-write EINTR \
+                 retry can classify errno on aarch64 ({flavor:?})"
+            );
+        }
+    }
+
     /// The glibc pthread soname is per-backend (x86-64 declares libc instead),
     /// so it is a `LinuxAbi` field rather than a shared constant.
     #[test]
