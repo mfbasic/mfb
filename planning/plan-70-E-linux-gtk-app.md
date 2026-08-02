@@ -138,7 +138,7 @@ scalar-decode + trie assembles for **both** `linux-x86_64` and `linux-aarch64`
 (glibc+musl) and a `term::` app writing `"日本語ABC|"` runs clean on a real GTK box
 (2226, Xvfb): the table embeds, the trie + WIDE_TRAIL path execute, no crash. GTK
 integration tests pass. The pixel alignment (`|` at column 6) is the human-convergence
-GUI step (same GTK4/Xvfb display limit as Phase 1). Commit: —
+GUI step (same GTK4/Xvfb display limit as Phase 1). Commit: dae372982
 
 ### Phase 3 — EGC pool for multi-scalar clusters + draw helpers
 
