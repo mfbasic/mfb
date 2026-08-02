@@ -1590,20 +1590,8 @@ impl Store {
         // first page — an offset past the end of an empty result set is still
         // empty.
         if idents.is_empty() && offset == 0 {
-            let mut statement = conn
-                .prepare(
-                    "SELECT p.ident, o.owner_display FROM packages p
-                     JOIN owners o ON o.id = p.owner_id",
-                )
-                .map_err(|err| format!("failed to prepare fuzzy query: {err}"))?;
-            let rows = statement
-                .query_map([], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })
-                .map_err(|err| format!("failed to scan packages: {err}"))?;
             let mut fuzzy = Vec::new();
-            for row in rows {
-                let (ident, owner) = row.map_err(|err| format!("failed to read package: {err}"))?;
+            for (ident, owner) in fuzzy_search_candidates(&conn, folded.chars().count())? {
                 if within_edit_distance_one(&ident.to_lowercase(), &folded) {
                     fuzzy.push((ident, owner));
                 }
@@ -3003,6 +2991,43 @@ fn add_column_if_missing(conn: &Connection, table: &str, column_def: &str) -> Re
 
 /// Whether two strings are within Levenshtein edit distance 1 (a single
 /// insert, delete, or substitution), used for the typosquat warning.
+/// Length-bounded candidate set for the fuzzy search tail (bug-420 item 3).
+///
+/// `within_edit_distance_one` can only return true when the two strings' lengths
+/// differ by at most one, so the fuzzy tail never needs to look at a package
+/// whose ident length is outside `[query_len - 1, query_len + 1]`. Pushing that
+/// bound into SQL keeps the anonymous no-match search path from pulling every
+/// `(ident, owner)` row into Rust and paying a per-row `Vec<char>` allocation +
+/// Levenshtein — the O(n) full-scan amplification bug-420 flagged. It is a
+/// *candidate* filter only: the exact edit-distance check still runs in Rust, so
+/// results are identical to the old unbounded scan. (Idents are validated ASCII,
+/// so SQLite's `length()` matches the Rust `chars().count()` the distance check
+/// uses.)
+fn fuzzy_search_candidates(
+    conn: &Connection,
+    query_len: usize,
+) -> Result<Vec<(String, String)>, String> {
+    let low = query_len.saturating_sub(1) as i64;
+    let high = query_len.saturating_add(1) as i64;
+    let mut statement = conn
+        .prepare(
+            "SELECT p.ident, o.owner_display FROM packages p
+             JOIN owners o ON o.id = p.owner_id
+             WHERE length(p.ident) BETWEEN ?1 AND ?2",
+        )
+        .map_err(|err| format!("failed to prepare fuzzy query: {err}"))?;
+    let rows = statement
+        .query_map(params![low, high], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|err| format!("failed to scan packages: {err}"))?;
+    let mut candidates = Vec::new();
+    for row in rows {
+        candidates.push(row.map_err(|err| format!("failed to read package: {err}"))?);
+    }
+    Ok(candidates)
+}
+
 fn within_edit_distance_one(a: &str, b: &str) -> bool {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
@@ -3180,6 +3205,61 @@ pub(crate) mod tests {
             .publish_log_entry("axb#pkg", "1.0.%")
             .unwrap()
             .is_none());
+    }
+
+    /// bug-420 item 3: the anonymous fuzzy-search tail must only pull
+    /// length-compatible rows out of SQL, not the whole `packages` table.
+    /// `within_edit_distance_one` can never match when the ident length differs
+    /// by more than one, so scanning every row (and allocating a `Vec<char>`
+    /// per row) on a no-match query is wasted O(n) work an anonymous client can
+    /// force. Without the SQL length bound this returns every package.
+    #[test]
+    fn fuzzy_search_only_scans_length_compatible_candidates() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        // Idents of deliberately varied lengths (8, 12, and 27 chars).
+        for ident in ["alice#db", "alice#sqlite", "alice#reallylongpackagename"] {
+            store
+                .publish_package_version(
+                    alice_id,
+                    ident,
+                    "1.0.0",
+                    "hash",
+                    "path",
+                    "{}",
+                    &[],
+                    &PublishMetadata::default(),
+                )
+                .unwrap();
+        }
+
+        // A 12-char query (one edit from "alice#sqlite") must only surface
+        // candidates within one character of that length.
+        let query = "alice#sqlitx";
+        let query_len = query.chars().count();
+        let candidates = fuzzy_search_candidates(&store.conn(), query_len).unwrap();
+        let returned: Vec<&str> = candidates.iter().map(|(i, _)| i.as_str()).collect();
+
+        assert!(
+            returned.contains(&"alice#sqlite"),
+            "the length-compatible candidate must be present: {returned:?}"
+        );
+        assert!(
+            !returned.contains(&"alice#db"),
+            "a far-shorter ident must not be pulled into the scan: {returned:?}"
+        );
+        assert!(
+            !returned.contains(&"alice#reallylongpackagename"),
+            "a far-longer ident must not be pulled into the scan: {returned:?}"
+        );
+        for (ident, _) in &candidates {
+            let len = ident.chars().count();
+            assert!(
+                (query_len - 1..=query_len + 1).contains(&len),
+                "candidate {ident:?} (len {len}) is outside the edit-distance-1 length window"
+            );
+        }
     }
 
     #[test]
