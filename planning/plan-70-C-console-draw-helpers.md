@@ -93,7 +93,7 @@ absorbs.
 Acceptance: verified on the macOS host — `drawText` of CJK/emoji/clusters aligns
 the following column; `drawGlyph` of `😀` now correctly occupies 2 columns (the
 `func_term_drawGlyph_valid` golden updated — the old one encoded the pre-plan-70
-1-column bug); 0 NUL bytes. `cargo test` 3748 passed. Commit: —
+1-column bug); 0 NUL bytes. `cargo test` 3748 passed. Commit: f96ea74c4
 
 ### Phase 2 — line/box/fill respect wide neighbors
 
@@ -106,7 +106,7 @@ the following column; `drawGlyph` of `😀` now correctly occupies 2 columns (th
       trailing half of `日` → its orphaned primary is blanked, leaving `_X本`).
 
 Acceptance: verified — overwriting half a wide glyph leaves no stray column
-(` X本`); all 35 term acceptance fixtures green; `cargo test` 3748 passed. Commit: —
+(` X本`); all 35 term acceptance fixtures green; `cargo test` 3748 passed. Commit: f96ea74c4
 
 ## Validation Plan
 
