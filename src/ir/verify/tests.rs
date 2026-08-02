@@ -620,8 +620,14 @@ fn resource_union_parameter_widening_is_directional() {
     let proj = project(vec![], vec![union("Stream", &["File", "Socket"])]);
     let env = super::TypeEnv::build(&proj);
     // variant -> union (widen): accepted
-    assert!(env.compatible("Stream", "File"), "File must widen to Stream");
-    assert!(env.compatible("Stream", "Socket"), "Socket must widen to Stream");
+    assert!(
+        env.compatible("Stream", "File"),
+        "File must widen to Stream"
+    );
+    assert!(
+        env.compatible("Stream", "Socket"),
+        "Socket must widen to Stream"
+    );
     // union -> concrete (reverse): rejected
     assert!(
         !env.compatible("File", "Stream"),
