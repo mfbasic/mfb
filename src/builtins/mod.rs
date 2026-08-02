@@ -441,6 +441,65 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
     descriptor::DefaultResolver::expected_arguments(module, function.name)
 }
 
+/// The concrete per-position argument-type signature IR lowering uses for literal
+/// coercion (bug-340 A1), or `None` when the call has no single positional
+/// signature (generic/overloaded members, or a bracketed/`"or"`-phrased
+/// description). plan-72-BB: this is the exact heuristic ir/lower previously
+/// inlined, relocated here so the per-package reads live behind one aggregate.
+/// Packages carrying a machine-readable positional table are read directly;
+/// `collections`/`vector` are absent on purpose (every member is generic or
+/// overloaded, so the monomorphizer types them).
+pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
+    let machine_table = term::param_types(callee)
+        .or_else(|| datetime::argument_types(callee))
+        .or_else(|| encoding::argument_types(callee))
+        .or_else(|| money::argument_types(callee))
+        .or_else(|| app::argument_types(callee));
+    if let Some(types) = machine_table {
+        return Some(types.iter().map(|type_| (*type_).to_string()).collect());
+    }
+
+    let expected = general::expected_arguments(callee)
+        .or_else(|| strings::expected_arguments(callee))
+        .or_else(|| math::expected_arguments(callee))
+        .or_else(|| bits::expected_arguments(callee))
+        .or_else(|| fs::expected_arguments(callee))
+        .or_else(|| os::expected_arguments(callee))
+        .or_else(|| io::expected_arguments(callee))
+        .or_else(|| json::expected_arguments(callee))
+        .or_else(|| csv::expected_arguments(callee))
+        .or_else(|| regex::expected_arguments(callee))
+        .or_else(|| net::argument_types(callee))
+        .or_else(|| tls::argument_types(callee))
+        .or_else(|| audio::argument_types(callee))
+        .or_else(|| crypto::argument_types(callee))
+        .or_else(|| http::expected_arguments(callee))
+        .or_else(|| thread::expected_arguments(callee))?;
+    // Overloaded/optional-argument descriptions (e.g. `strings.find`'s
+    // `"String, String[, Integer]"`) are not a concrete positional signature; skip
+    // them so we don't hand the lowerer a bracket-mangled expected type.
+    if expected.contains('[') || expected.contains(" or ") {
+        return None;
+    }
+    let params = expected.split(", ").map(str::to_string).collect::<Vec<_>>();
+    if params.iter().any(|param| uses_generic_placeholder(param)) {
+        return None;
+    }
+    Some(params)
+}
+
+/// Whether a type name is a generic placeholder (`T`/`K`/`V` bare or inside a
+/// container), used by [`argument_types`] to skip generic member signatures.
+fn uses_generic_placeholder(type_: &str) -> bool {
+    matches!(type_, "T" | "K" | "V")
+        || type_.contains(" OF T")
+        || type_.contains(" OF K")
+        || type_.contains(" OF V")
+        || type_.contains(" TO T")
+        || type_.contains(" TO K")
+        || type_.contains(" TO V")
+}
+
 /// Whether parameter `index` of the built-in `callee` is a compiler-known
 /// *non-escaping* callback position: the callee is
 /// guaranteed to invoke the callback only synchronously during the call, never

@@ -2127,7 +2127,7 @@ fn call_argument_expected_type(
     if callee == "toString" && index == 1 && arguments.len() == 2 {
         return Some("Byte".to_string());
     }
-    if let Some(params) = builtin_argument_types(&canonical_callee) {
+    if let Some(params) = builtins::argument_types(&canonical_callee) {
         return params.get(index).cloned();
     }
     context
@@ -2141,53 +2141,6 @@ fn call_argument_expected_type(
                 .and_then(|type_| function_param_types_from_type(type_))
                 .and_then(|params| params.get(index).cloned())
         })
-}
-
-fn builtin_argument_types(callee: &str) -> Option<Vec<String>> {
-    // bug-340 A1: packages carrying a machine-readable positional-signature table
-    // are read directly — the diagnostic-string parse below is not consulted for
-    // them. `term` (`param_types`) plus `datetime`/`encoding`/`money`
-    // (`argument_types`) were previously OMITTED from this dispatch entirely, so
-    // their calls silently received no argument types at all. `collections` and
-    // `vector` remain absent on purpose: every one of their members is generic or
-    // overloaded and has no single positional signature (a flat list would be
-    // wrong), so the monomorphizer types them instead.
-    let machine_table = builtins::term::param_types(callee)
-        .or_else(|| builtins::datetime::argument_types(callee))
-        .or_else(|| builtins::encoding::argument_types(callee))
-        .or_else(|| builtins::money::argument_types(callee))
-        .or_else(|| builtins::app::argument_types(callee));
-    if let Some(types) = machine_table {
-        return Some(types.iter().map(|type_| (*type_).to_string()).collect());
-    }
-
-    let expected = builtins::general::expected_arguments(callee)
-        .or_else(|| builtins::strings::expected_arguments(callee))
-        .or_else(|| builtins::math::expected_arguments(callee))
-        .or_else(|| builtins::bits::expected_arguments(callee))
-        .or_else(|| builtins::fs::expected_arguments(callee))
-        .or_else(|| builtins::os::expected_arguments(callee))
-        .or_else(|| builtins::io::expected_arguments(callee))
-        .or_else(|| builtins::json::expected_arguments(callee))
-        .or_else(|| builtins::csv::expected_arguments(callee))
-        .or_else(|| builtins::regex::expected_arguments(callee))
-        .or_else(|| builtins::net::argument_types(callee))
-        .or_else(|| builtins::tls::argument_types(callee))
-        .or_else(|| builtins::audio::argument_types(callee))
-        .or_else(|| builtins::crypto::argument_types(callee))
-        .or_else(|| builtins::http::expected_arguments(callee))
-        .or_else(|| builtins::thread::expected_arguments(callee))?;
-    // Overloaded/optional-argument descriptions (e.g. `strings.find`'s
-    // `"String, String[, Integer]"`) are not a concrete positional signature;
-    // skip them so we don't hand the lowerer a bracket-mangled expected type.
-    if expected.contains('[') || expected.contains(" or ") {
-        return None;
-    }
-    let params = expected.split(", ").map(str::to_string).collect::<Vec<_>>();
-    if params.iter().any(|param| uses_generic_placeholder(param)) {
-        return None;
-    }
-    Some(params)
 }
 
 fn normalize_builtin_call_arguments<'a>(
@@ -2353,16 +2306,6 @@ fn call_arg_value(argument: &CallArg) -> &Expression {
         CallArg::Positional(value) => value,
         CallArg::Named { value, .. } => value,
     }
-}
-
-fn uses_generic_placeholder(type_: &str) -> bool {
-    matches!(type_, "T" | "K" | "V")
-        || type_.contains(" OF T")
-        || type_.contains(" OF K")
-        || type_.contains(" OF V")
-        || type_.contains(" TO T")
-        || type_.contains(" TO K")
-        || type_.contains(" TO V")
 }
 
 fn lower_expression(
