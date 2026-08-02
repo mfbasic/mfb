@@ -493,6 +493,79 @@ fn accept_stores_zero_queue_slot() {
     );
 }
 
+/// bug-412: a cancel-drain loop that blocks on the arena ctx's semaphore
+/// (offset `CTX_SEM`) until the terminal `cancelled` state is observed at
+/// `CTX_STATE`, so no queued state-changed handler can dereference the freed
+/// arena ctx after the exit returns and the program tears the arena down.
+/// Mirrors the connect-path drain (bug-380, `client.rs`). Detected
+/// structurally within `win`: the loop's back-edge label, an
+/// `ldr_u32 [ctx+CTX_STATE]`, a `cmp_imm <cancelled_state>`, and a
+/// `b.ne <drain_label>` that closes the loop.
+fn has_cancel_drain(win: &[CodeInstruction], drain_label: &str, cancelled_state: &str) -> bool {
+    let has_drain_label = win
+        .iter()
+        .any(|i| i.op == CodeOp::Label && i.get("name") == Some(drain_label));
+    let reads_state = win
+        .iter()
+        .any(|i| i.op == CodeOp::LdrU32 && i.get("offset") == Some(&CTX_STATE.to_string()));
+    let checks_cancelled = win
+        .iter()
+        .any(|i| i.op == CodeOp::CmpImm && i.get("rhs") == Some(cancelled_state));
+    let loops_back = win
+        .iter()
+        .any(|i| i.op == CodeOp::BranchNe && i.get("target") == Some(drain_label));
+    has_drain_label && reads_state && checks_cancelled && loops_back
+}
+
+// bug-412: `accept`'s handshake-failure exits cancel the accepted connection
+// (`nw_connection_cancel` is asynchronous) and used to return immediately. The
+// per-connection state handler runs over the arena-allocated CCTX on the
+// listener's shared serial queue; if the server exits before the async
+// `cancelled` transition fires, that pending handler dereferences the freed
+// CCTX (EXC_BAD_ACCESS). Each fail exit must drain to `cancelled` (connection
+// state 5) before returning, mirroring the connect-path drain bug-380 added.
+#[test]
+fn accept_failure_exits_drain_to_cancelled() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    let (_f, ins, _r, _s) =
+        lower_tls_accept_macos("t_a", &imports, &TlsReadTestPlatform).expect("lower");
+    for (exit, end, drain) in [
+        ("t_a_conn_fail", "t_a_hs_timeout", "t_a_conn_fail_drain"),
+        ("t_a_hs_timeout", "t_a_accept_timeout", "t_a_hs_timeout_drain"),
+    ] {
+        let win = window(&ins, exit, end);
+        assert!(
+            has_cancel_drain(win, drain, "5"),
+            "{exit} must drain to the connection `cancelled` state (5) before failing, \
+             so a queued state handler cannot run against the freed CCTX"
+        );
+    }
+}
+
+// bug-412: `closeListener` cancels the listener (`nw_listener_cancel` is
+// asynchronous) and used to return immediately. The listener's state handler
+// runs over the arena-allocated LCTX and still fires the `cancelled`
+// transition; a process exit before it runs dereferences the freed LCTX.
+// closeListener must drain to the listener `cancelled` state (listener state 4)
+// before returning.
+#[test]
+fn close_listener_drains_to_cancelled() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    let (_f, ins, rel, _s) =
+        lower_tls_close_listener_macos("t_ll", &imports, &TlsReadTestPlatform).expect("lower");
+    assert!(
+        has_cancel_drain(&ins, "t_ll_lcancel_drain", "4"),
+        "closeListener must drain to the listener `cancelled` state (4) before returning, \
+         so a queued listener state handler cannot run against the freed LCTX"
+    );
+    assert!(
+        rel.iter().any(|r| r.to.contains("dispatch_semaphore_wait")),
+        "the closeListener drain must resolve dispatch_semaphore_wait to block on LCTX->sem"
+    );
+}
+
 // bug-55: closeListener releases the listener, its queue, and the listener
 // ctx semaphore; before the fix it only cancelled the listener.
 #[test]
