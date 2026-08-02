@@ -111,9 +111,13 @@ Notable parse rules and deviations:
   surrogate (`U+DC00`–`U+DFFF`), combined into one astral code point; a lone or
   mismatched surrogate fails. Hex digits accept both cases.
   [[src/builtins/json_package.mfb:__json_parseUnicodeEscape]]
-- The parser is fully recursive (each nested value/array-item/object-member is a
-  recursive call), so depth is bounded by the runtime call stack, not an explicit
-  limit.
+- Sibling array items and object members are accumulated iteratively, but each
+  level of structural *nesting* is a recursive call, so nesting depth would
+  otherwise be bounded only by the runtime call stack. Because MFBASIC has no
+  tail-call optimization, an adversarially deep document would overflow that stack
+  and crash the process, so the parser caps structural nesting at an explicit fixed
+  depth (256 levels of arrays and objects combined) and rejects anything deeper
+  with `77050003`. [[src/builtins/json_package.mfb:__json_parseValue]]
 
 ## Stringify output form
 

@@ -1,0 +1,5 @@
+deep array: err:77050003
+deep object: err:77050003
+legit array: ok
+legit object: ok
+roundtrip={"a":[1,2.5,true,null],"b":"x"}

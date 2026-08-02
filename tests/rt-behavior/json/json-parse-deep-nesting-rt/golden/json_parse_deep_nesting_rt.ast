@@ -1,0 +1,92 @@
+{
+  "project": "json_parse_deep_nesting_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 11 },
+    { "module": "json", "line": 12 },
+    { "module": "strings", "line": 13 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "tryParse",
+      "line": 18,
+      "params": [
+      { "name": "s", "type": "String", "default": null, "line": 18 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "string", "value": "ok" }, "line": 20 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 21,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "err:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 22 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "deepArray",
+      "line": 26,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 26 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "[" }, { "kind": "identifier", "value": "n" }] }, "right": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "]" }, { "kind": "identifier", "value": "n" }] } }, "line": 27 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "deepObject",
+      "line": 30,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 30 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "{\"a\":" }, { "kind": "identifier", "value": "n" }] }, "right": { "kind": "string", "value": "1" } }, "right": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "}" }, { "kind": "identifier", "value": "n" }] } }, "line": 31 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 34,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "deep array: " }, "right": { "kind": "call", "callee": "tryParse", "arguments": [{ "kind": "call", "callee": "deepArray", "arguments": [{ "kind": "number", "value": "5000" }] }] } }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "deep object: " }, "right": { "kind": "call", "callee": "tryParse", "arguments": [{ "kind": "call", "callee": "deepObject", "arguments": [{ "kind": "number", "value": "5000" }] }] } }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "legit array: " }, "right": { "kind": "call", "callee": "tryParse", "arguments": [{ "kind": "call", "callee": "deepArray", "arguments": [{ "kind": "number", "value": "200" }] }] } }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "legit object: " }, "right": { "kind": "call", "callee": "tryParse", "arguments": [{ "kind": "call", "callee": "deepObject", "arguments": [{ "kind": "number", "value": "200" }] }] } }] }, "line": 43 },
+      { "kind": "binding", "mutable": false, "name": "obj", "type": "Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "{\"a\": [1, 2.5, true, null], \"b\": \"x\"}" }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "roundtrip=" }, "right": { "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "obj" }] } }] }, "line": 47 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 48 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 49,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "unexpected trap: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 50 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 51 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}
