@@ -64,7 +64,7 @@ previous). Phase 0 measured before scheduling the rest.
 
 ### Phase 0 — measure & confirm the gaps (acceptance: every gap confirmed by symbol; accept side audited)
 
-Commit: ad5fd7bb6 (prereq gate) + this phase's commit
+Commit: ad5fd7bb6 (prereq gate) + 2aaa73b7a (Phase 0 findings)
 
 - [x] Write a failing worker(`union_xfer_workers`)+consumer fixture transferring
   `RES Stream STATE Cursor` (`UNION Stream { File, Socket }`). The worker package's type
@@ -108,7 +108,7 @@ Commit: ad5fd7bb6 (prereq gate) + this phase's commit
 
 ### Phase 1 — send-side fixes, gaps 1–4 (acceptance: the `/tmp/p75repro` consumer builds & links; a stateless-union transfer also builds)
 
-Commit: (this phase's commit)
+Commit: af740239d
 
 - [x] Gap 1: base-strip the `resource_union_closes` lookup in `push_op_helpers`
   (`src/target/shared/runtime/usage.rs`) so a transferred stateful union declares its
@@ -131,7 +131,7 @@ Commit: (this phase's commit)
 
 ### Phase 2 — accept-side agreement & end-to-end run (acceptance: the transfer runs and prints 99; STATE independent across the boundary)
 
-Commit: (this phase's commit)
+Commit: af740239d
 
 - [x] Build & run the `/tmp/p75repro` end-to-end transfer; it prints `99` (STATE arrived
   intact across the boundary).
@@ -146,15 +146,23 @@ Commit: (this phase's commit)
 
 ### Phase 3 — committed fixtures (acceptance: rt-behavior fixtures green in test-accept; artifact-gate green)
 
-Commit:
+Commit: (this phase's commit)
 
-- [ ] Add a worker package under `tools/thread-package-sources/union_xfer_workers/` and
-  regenerate its `.mfp` via `scripts/sync-package-mfp.sh` with the **release** build.
-- [ ] Add a stateful rt-behavior fixture
+- [x] Add worker packages under `tools/thread-package-sources/`: `union_xfer_workers`
+  (stateful, exports `takeUnionCursor`) and `union_xfer_stateless_workers` (stateless,
+  exports `takeUnionVariant`). `.mfp`s regenerated with the **release** build; verified via
+  `scripts/sync-package-mfp.sh` (my packages `unchanged`; the one unrelated churn —
+  `regex_thread_workers.mfp` — was **pre-existing staleness on main**, reproduced
+  byte-identically by the pristine main binary, so restored to HEAD; see Corrections). **Two
+  packages, not one** — a single package exporting the Cursor-referencing `takeUnionCursor`
+  made the stateless consumer fail import (`references unknown type Cursor`); see Corrections.
+- [x] Add a stateful rt-behavior fixture
   `tests/rt-behavior/threads/thread-transfer-union-state-rt/` (transfers a stateful union,
-  asserts `99`) with goldens synced via `scripts/sync-goldens.sh`.
-- [ ] Add a **stateless** resource-union transfer fixture too — it was equally broken.
-- [ ] `scripts/test-accept.sh`, `scripts/artifact-gate.sh` green.
+  asserts `99`); goldens synced via `scripts/sync-goldens.sh`.
+- [x] Add a **stateless** resource-union transfer fixture
+  `tests/rt-behavior/threads/thread-transfer-union-stateless-rt/` (asserts `1` = File).
+- [x] `scripts/test-accept.sh …thread-transfer-union-*` → "acceptance tests passed (2 tests)".
+  Full `test-accept.sh` + `artifact-gate.sh` run at finalization (below).
 
 ## Validation
 
@@ -183,3 +191,15 @@ acceptance suite — a resource-union classification change can ripple to `Resul
 - **The stateless-union aliasing UAF was fixed in the same change and filed as a bug**
   (`bugs/completed/bug-425-...`), per the plan's Phase 1 instruction and the project's
   fix-bugs-in-the-same-change rule.
+- **Phase 3 needed TWO worker packages, not one.** A single package exporting
+  `takeUnionCursor` (whose parameter references the STATE type `Cursor`) forced *every*
+  importer to define `Cursor`; the stateless consumer, which has no `Cursor`, failed the
+  package import with `error[6-605-0001 PACKAGE_INVALID]: … references unknown type Cursor`.
+  Split into `union_xfer_workers` (stateful) and `union_xfer_stateless_workers` (stateless)
+  so each fixture imports only the signature its module can resolve.
+- **`sync-package-mfp.sh` refreshed an unrelated stale `.mfp`
+  (`thread-regex-rt/regex_thread_workers.mfp`).** Proven pre-existing on main: the pristine
+  main release binary (built before this plan) produces bytes differing from the committed
+  HEAD copy, and my binary reproduces the main binary's bytes exactly (`cmp` SAME). It is
+  orthogonal to plan-75 staleness, so restored to HEAD (`git checkout --`) rather than
+  smuggled into this plan's commit.
