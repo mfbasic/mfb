@@ -150,9 +150,13 @@ commit below.
       IN FLIGHT; then re-run after the main merge. (io + tls + http .ncodesum were
       regenerated for all five targets in F/D and pass a scoped N=3 determinism
       check.)
-- [ ] Acceptance golden harness for all touched fixtures (`scripts/sync-goldens.sh`),
-      avoiding the non-deterministic full `test-accept.sh` perf-table trap
-      (`perf-goldens-break-execution-acceptance`).
+- [x] Acceptance golden harness for all touched fixtures (`scripts/sync-goldens.sh`),
+      avoiding the non-deterministic full `test-accept.sh` perf-table trap. — DONE
+      per-phase + here: F synced `func_io_pollInput_valid` + `byte-identity/io`;
+      C/D synced net/tls/http; E regenerated `byte-identity/{fs,thread}` (E-C4). The
+      `func_io_pollInput_valid` execution golden was re-validated post-merge via a
+      hermetic `/tmp` copy → stdout `TRUE TRUE TRUE 77050002` matches. Tree-wide
+      byte-identity confirmation is the artifact-gate row below.
 - [~] Merge current `main` into `worktree-P-73` (main advanced 594235307→a60ce43f8,
       plan-72 descriptor refactor — disjoint file set) and re-run `cargo test` +
       `artifact-gate` per the follow-plan finish rule. — MERGE DONE (clean, zero
