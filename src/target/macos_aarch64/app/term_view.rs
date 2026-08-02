@@ -595,6 +595,11 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     asm.push(abi::branch_eq("draw_col_next"));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "32")); // space = blank
     asm.push(abi::branch_eq("draw_col_next"));
+    // plan-70-D: a wide-trailing sentinel draws nothing — the wide primary's glyph
+    // already spans this column (its background was filled above). Skip the glyph.
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", APP_WIDE_TRAIL));
+    asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
+    asm.push(abi::branch_eq("draw_col_next"));
     // [attrs setObject:[color from cell.fg] forKey:NSForegroundColorAttributeName]
     asm.push(abi::load_u32(
         abi::SCRATCH[2],
@@ -647,12 +652,35 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     asm.push(abi::move_register("x0", abi::LOCAL[6]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::label("draw_ul_done"));
-    // s = [NSString stringWithCharacters:&glyph length:1]
+    // s = [NSString stringWithCharacters:&units length:len]
+    // plan-70-D: the cell glyph now holds a full Unicode scalar. A BMP scalar is
+    // one UTF-16 unit; an astral scalar (>= U+10000) is written back as its
+    // surrogate pair (two units) so it renders as one glyph instead of tofu. The
+    // two u16 units pack into one u32 (hi in bytes 0-1, lo in bytes 2-3, LE).
     asm.push(abi::load_u32(
         abi::SCRATCH[0],
         abi::LOCAL[8],
         CELL_GLYPH_OFFSET,
     ));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "65536")); // 0x10000
+    asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
+    asm.push(abi::branch_lt("draw_bmp"));
+    // astral: cp -= 0x10000; hi = 0xD800 + (cp>>10); lo = 0xDC00 + (cp & 0x3FF)
+    asm.push(abi::subtract_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[1]));
+    asm.push(abi::shift_right_immediate(abi::SCRATCH[2], abi::SCRATCH[0], 10));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "55296"));
+    asm.push(abi::add_registers(abi::SCRATCH[2], abi::SCRATCH[2], abi::SCRATCH[1])); // hi
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "1023")); // 0x3FF
+    asm.push(abi::and_registers(abi::SCRATCH[3], abi::SCRATCH[0], abi::SCRATCH[1]));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "56320"));
+    asm.push(abi::add_registers(abi::SCRATCH[3], abi::SCRATCH[3], abi::SCRATCH[1])); // lo
+    asm.push(abi::shift_left_immediate(abi::SCRATCH[3], abi::SCRATCH[3], 16));
+    asm.push(abi::or_registers(abi::SCRATCH[0], abi::SCRATCH[2], abi::SCRATCH[3])); // hi | lo<<16
+    asm.push(abi::move_immediate(abi::SCRATCH[4], "Integer", "2"));
+    asm.push(abi::branch("draw_len_set"));
+    asm.push(abi::label("draw_bmp"));
+    asm.push(abi::move_immediate(abi::SCRATCH[4], "Integer", "1"));
+    asm.push(abi::label("draw_len_set"));
     asm.push(abi::store_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -661,7 +689,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     asm.push(abi::load_u64("x1", abi::stack_pointer(), off_swc_sel));
     asm.external_data("x0", CLASS_NS_STRING, LIB_FOUNDATION);
     asm.push(abi::add_immediate("x2", abi::stack_pointer(), off_glyph));
-    asm.push(abi::move_immediate("x3", "Integer", "1"));
+    asm.push(abi::move_register("x3", abi::SCRATCH[4]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     // [s drawAtPoint:(col*cellW, row*cellH) withAttributes:attrs]
     asm.push(abi::load_u64(
@@ -1875,7 +1903,14 @@ pub(super) fn emit_term_scroll_helper() -> CodeFunction {
 /// with the other surface ops (§6.4). The write does **not** request a redraw —
 /// the surface repaints only on the next present (`term::sync`/`io::flush`), so
 /// redraw is present-driven (plan-35-D §3, mandatory present).
-pub(super) fn emit_term_write_string_helper() -> CodeFunction {
+pub(super) fn emit_term_write_string_helper(uses_term: bool) -> CodeFunction {
+    // plan-70-D: the width path looks up A's charwidth table, whose `_mfb_unicode_*`
+    // relocations make the shared build embed the ~1.5 MB unicode table. Emit it
+    // ONLY when the app actually uses `term::` — otherwise a non-term app would
+    // carry the table for a helper it never calls (the bootstrap always wires the
+    // TermView class, so this function is always emitted, but its body is dead code
+    // for a non-term app). The astral surrogate decode below is table-free and
+    // stays unconditional.
     let mut asm = Asm::new(MFB_WRITE_STRING_SYMBOL);
     // Frame: lr@0, x19(self)@8, x20(str)@16, x21(state)@24, x22(cells)@32,
     // x23(i)@40, x24(n)@48, x25(cols)@56, x26(rows)@64, x27(char)@72.
@@ -1932,6 +1967,46 @@ pub(super) fn emit_term_write_string_helper() -> CodeFunction {
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[8], "x0")); // char code
 
+    // plan-70-D: decode an astral scalar from a UTF-16 surrogate pair so it lands
+    // in ONE cell holding the full codepoint (fixes the surrogate-splitting tofu).
+    // A high surrogate is U+D800..U+DBFF; if a low surrogate U+DC00..U+DFFF
+    // follows, combine them and consume both units. Constants go through a register
+    // because aarch64 `cmp`/`sub` immediates are 12-bit. `LOCAL[8]` (char, callee-
+    // saved) survives the inner msgSend; `SCRATCH` (caller-saved) does not.
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "55296")); // 0xD800
+    asm.push(abi::compare_registers(abi::LOCAL[8], abi::SCRATCH[0]));
+    asm.push(abi::branch_lt("w_not_surrogate"));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "56320")); // 0xDC00
+    asm.push(abi::compare_registers(abi::LOCAL[8], abi::SCRATCH[0]));
+    asm.push(abi::branch_ge("w_not_surrogate")); // >= 0xDC00 → not a HIGH surrogate
+    asm.push(abi::add_immediate(abi::SCRATCH[0], abi::LOCAL[4], 1)); // i+1
+    asm.push(abi::compare_registers(abi::SCRATCH[0], abi::LOCAL[5]));
+    asm.push(abi::branch_ge("w_not_surrogate")); // no next unit
+    // lo = [str characterAtIndex:(i+1)]
+    asm.load_selector(SEL_CHAR_AT_INDEX.0);
+    asm.push(abi::add_immediate("x2", abi::LOCAL[4], 1)); // i+1 (SCRATCH may be clobbered by load_selector)
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::SCRATCH[0], "x0")); // lo
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "56320")); // 0xDC00
+    asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
+    asm.push(abi::branch_lt("w_not_surrogate"));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "57344")); // 0xE000
+    asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
+    asm.push(abi::branch_ge("w_not_surrogate")); // lo >= 0xE000 → not a low surrogate
+    // codepoint = 0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00)
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "55296"));
+    asm.push(abi::subtract_registers(abi::SCRATCH[2], abi::LOCAL[8], abi::SCRATCH[1]));
+    asm.push(abi::shift_left_immediate(abi::SCRATCH[2], abi::SCRATCH[2], 10));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "56320"));
+    asm.push(abi::subtract_registers(abi::SCRATCH[3], abi::SCRATCH[0], abi::SCRATCH[1]));
+    asm.push(abi::add_registers(abi::SCRATCH[2], abi::SCRATCH[2], abi::SCRATCH[3]));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "65536"));
+    asm.push(abi::add_registers(abi::SCRATCH[2], abi::SCRATCH[2], abi::SCRATCH[1]));
+    asm.push(abi::move_register(abi::LOCAL[8], abi::SCRATCH[2])); // full codepoint
+    asm.push(abi::add_immediate(abi::LOCAL[4], abi::LOCAL[4], 1)); // consume the low surrogate
+    asm.push(abi::label("w_not_surrogate"));
+
     asm.push(abi::compare_immediate(abi::LOCAL[8], "10")); // \n
     asm.push(abi::branch_eq("w_newline"));
     asm.push(abi::compare_immediate(abi::LOCAL[8], "13")); // \r
@@ -1939,7 +2014,49 @@ pub(super) fn emit_term_write_string_helper() -> CodeFunction {
     asm.push(abi::compare_immediate(abi::LOCAL[8], "9")); // \t
     asm.push(abi::branch_eq("w_tab"));
 
-    // printable: wrap if cursor_col >= cols
+    if uses_term {
+    // plan-70-D: display width (0/1/2) of this scalar via A's two-stage property
+    // trie + charwidth bits. A scalar >= U+110000 (impossible after a valid decode)
+    // maps to width 1. Spilled to sp+80 (a free frame slot) because the scroll call
+    // below clobbers caller-saved registers. The `_mfb_unicode_*` relocations these
+    // `local_address` loads emit make the shared build embed the table (mod.rs).
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1114112")); // 0x110000
+    asm.push(abi::compare_registers(abi::LOCAL[8], abi::SCRATCH[0]));
+    asm.push(abi::branch_lt("w_width_lookup"));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    asm.push(abi::branch("w_width_done"));
+    asm.push(abi::label("w_width_lookup"));
+    asm.push(abi::shift_right_immediate(abi::SCRATCH[1], abi::LOCAL[8], 8));
+    asm.push(abi::shift_left_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 1));
+    asm.local_address(abi::SCRATCH[2], crate::target::shared::code::UNICODE_STAGE1_SYMBOL);
+    asm.push(abi::add_registers(abi::SCRATCH[2], abi::SCRATCH[2], abi::SCRATCH[1]));
+    asm.push(abi::load_u16(abi::SCRATCH[1], abi::SCRATCH[2], 0));
+    asm.push(abi::move_immediate(abi::SCRATCH[3], "Integer", "255"));
+    asm.push(abi::and_registers(abi::SCRATCH[3], abi::LOCAL[8], abi::SCRATCH[3]));
+    asm.push(abi::add_registers(abi::SCRATCH[1], abi::SCRATCH[1], abi::SCRATCH[3]));
+    asm.push(abi::shift_left_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 1));
+    asm.local_address(abi::SCRATCH[2], crate::target::shared::code::UNICODE_STAGE2_SYMBOL);
+    asm.push(abi::add_registers(abi::SCRATCH[2], abi::SCRATCH[2], abi::SCRATCH[1]));
+    asm.push(abi::load_u16(abi::SCRATCH[1], abi::SCRATCH[2], 0));
+    asm.push(abi::move_immediate(abi::SCRATCH[3], "Integer", "24")); // property record size
+    asm.push(abi::multiply_registers(abi::SCRATCH[1], abi::SCRATCH[1], abi::SCRATCH[3]));
+    asm.local_address(abi::SCRATCH[2], crate::target::shared::code::UNICODE_PROPERTIES_SYMBOL);
+    asm.push(abi::add_registers(abi::SCRATCH[2], abi::SCRATCH[2], abi::SCRATCH[1]));
+    // width = (flags @ offset 16 >> 4) & 0b11
+    asm.push(abi::load_u16(abi::SCRATCH[0], abi::SCRATCH[2], 16));
+    asm.push(abi::shift_right_immediate(abi::SCRATCH[0], abi::SCRATCH[0], 4));
+    asm.push(abi::move_immediate(abi::SCRATCH[3], "Integer", "3"));
+    asm.push(abi::and_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[3]));
+    // width 0 → 1 (a lone zero-width scalar still takes one cell; the EGC pool that
+    // folds combining marks into the base is plan-70-D Phase 2).
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne("w_width_done"));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    asm.push(abi::label("w_width_done"));
+    asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 80)); // spill width
+    }
+
+    // printable: wrap if cursor_col >= cols (wide-at-edge handled after w_col_ok)
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
         abi::LOCAL[2],
@@ -1965,6 +2082,23 @@ pub(super) fn emit_term_write_string_helper() -> CodeFunction {
         TV_CURSOR_ROW_OFFSET,
     ));
     asm.push(abi::label("w_col_ok"));
+    if uses_term {
+        // plan-70-D: a width-2 glyph at the last column wraps rather than straddling
+        // the right edge.
+        asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 80)); // width
+        asm.push(abi::compare_immediate(abi::SCRATCH[0], "2"));
+        asm.push(abi::branch_ne("w_wide_ok"));
+        asm.push(abi::load_u64(abi::SCRATCH[1], abi::LOCAL[2], TV_CURSOR_COL_OFFSET));
+        asm.push(abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 1)); // col+1
+        asm.push(abi::compare_registers(abi::SCRATCH[1], abi::LOCAL[6]));
+        asm.push(abi::branch_lt("w_wide_ok"));
+        asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+        asm.push(abi::store_u64(abi::SCRATCH[1], abi::LOCAL[2], TV_CURSOR_COL_OFFSET));
+        asm.push(abi::load_u64(abi::SCRATCH[1], abi::LOCAL[2], TV_CURSOR_ROW_OFFSET));
+        asm.push(abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 1));
+        asm.push(abi::store_u64(abi::SCRATCH[1], abi::LOCAL[2], TV_CURSOR_ROW_OFFSET));
+        asm.push(abi::label("w_wide_ok"));
+    }
     // scroll if cursor_row >= rows
     asm.push(abi::load_u64(
         abi::SCRATCH[1],
@@ -2058,7 +2192,36 @@ pub(super) fn emit_term_write_string_helper() -> CodeFunction {
         abi::SCRATCH[3],
         CELL_UNDERLINE_OFFSET,
     ));
-    // cursor_col++
+    if uses_term {
+        // plan-70-D: store the display width. A wide glyph (width 2) reserves the
+        // next cell as a wide-trailing sentinel (same row: the wide-at-edge wrap
+        // guaranteed col <= cols-2) and advances the cursor two columns; drawRect
+        // skips the trail.
+        asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 80)); // width
+        asm.push(abi::store_u8(abi::SCRATCH[0], abi::SCRATCH[3], CELL_WIDTH_OFFSET));
+        asm.push(abi::compare_immediate(abi::SCRATCH[0], "2"));
+        asm.push(abi::branch_ne("w_advance_one"));
+        asm.push(abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[3], CELL_SIZE)); // trail cell
+        asm.push(abi::move_immediate(abi::SCRATCH[2], "Integer", APP_WIDE_TRAIL));
+        asm.push(abi::store_u32(abi::SCRATCH[2], abi::SCRATCH[1], CELL_GLYPH_OFFSET));
+        asm.push(abi::load_u64(abi::SCRATCH[4], abi::LOCAL[2], TV_CUR_FG_OFFSET));
+        asm.push(abi::store_u32(abi::SCRATCH[4], abi::SCRATCH[1], CELL_FG_OFFSET));
+        asm.push(abi::load_u64(abi::SCRATCH[4], abi::LOCAL[2], TV_CUR_BG_OFFSET));
+        asm.push(abi::store_u32(abi::SCRATCH[4], abi::SCRATCH[1], CELL_BG_OFFSET));
+        asm.push(abi::load_u64(abi::SCRATCH[4], abi::LOCAL[2], TV_CUR_BOLD_OFFSET));
+        asm.push(abi::store_u8(abi::SCRATCH[4], abi::SCRATCH[1], CELL_BOLD_OFFSET));
+        asm.push(abi::load_u64(abi::SCRATCH[4], abi::LOCAL[2], TV_CUR_UNDERLINE_OFFSET));
+        asm.push(abi::store_u8(abi::SCRATCH[4], abi::SCRATCH[1], CELL_UNDERLINE_OFFSET));
+        asm.push(abi::move_immediate(abi::SCRATCH[4], "Integer", "0"));
+        asm.push(abi::store_u8(abi::SCRATCH[4], abi::SCRATCH[1], CELL_WIDTH_OFFSET));
+        // cursor_col += 2
+        asm.push(abi::load_u64(abi::SCRATCH[2], abi::LOCAL[2], TV_CURSOR_COL_OFFSET));
+        asm.push(abi::add_immediate(abi::SCRATCH[2], abi::SCRATCH[2], 2));
+        asm.push(abi::store_u64(abi::SCRATCH[2], abi::LOCAL[2], TV_CURSOR_COL_OFFSET));
+        asm.push(abi::branch("w_next"));
+        asm.push(abi::label("w_advance_one"));
+    }
+    // cursor_col++ (the sole advance for a non-term app; the width==1 arm otherwise)
     asm.push(abi::load_u64(
         abi::SCRATCH[2],
         abi::LOCAL[2],

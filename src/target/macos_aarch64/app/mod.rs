@@ -464,11 +464,17 @@ const TERM_DEFAULT_FG_PACKED: &str = "16777215";
 const CELL_SIZE: usize = 16;
 // Cell field offsets, consumed by the TermView write/render path
 // (`term_view.rs`).
-const CELL_GLYPH_OFFSET: usize = 0; // u32 unichar (0 / space = blank)
+const CELL_GLYPH_OFFSET: usize = 0; // u32 Unicode scalar (0 / space = blank; plan-70-D: astral-capable)
 const CELL_FG_OFFSET: usize = 4; // u32 packed r|g<<8|b<<16
 const CELL_BG_OFFSET: usize = 8; // u32 packed r|g<<8|b<<16
 const CELL_BOLD_OFFSET: usize = 12; // u8
 const CELL_UNDERLINE_OFFSET: usize = 13; // u8
+// plan-70-D: display width (0/1/2) of the cell's scalar, from A's charwidth table.
+const CELL_WIDTH_OFFSET: usize = 14; // u8
+// A wide scalar occupies its primary cell (width 2) plus this wide-trailing
+// sentinel in the next column; drawRect skips it. 0xFFFF_FFFF is not a valid
+// Unicode scalar (max U+10FFFF), so it never collides with a real glyph.
+const APP_WIDE_TRAIL: &str = "4294967295";
 
 /// Initial TermView frame (matches the window content rect set in the bootstrap).
 const TERM_VIEW_WIDTH: u32 = 900;
@@ -647,7 +653,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_term_init_helper(),
         emit_term_clear_helper(),
         emit_term_scroll_helper(),
-        emit_term_write_string_helper(),
+        emit_term_write_string_helper(spec.uses_term),
         emit_term_draw_line_helper(),
         emit_term_draw_box_helper(),
         emit_term_fill_rect_helper(),

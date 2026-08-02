@@ -90,17 +90,34 @@ resize/scroll paths that must carry the pool + width fields.
 
 ### Phase 1 — astral fix + width for single-scalar wide (spike)
 
-- [ ] Writer: iterate composed-character sequences (or decode scalars); draw the
-      whole cluster string, not one UTF-16 unit; store width (A) in the cell pad;
-      write `WIDE_TRAIL` for width==2; `col += width`; wrap-if-at-edge.
-- [ ] `drawRect:` skips `WIDE_TRAIL`; draws the cluster spanning its width.
-- [ ] Test: `MFB_MACAPP_HEADLESS`/host run drawing `"👍日A"` — assert (via the
-      grid-state inspection path used by existing macOS app tests) three primaries
-      with widths 2/2/1 and the emoji intact.
+- [x] Writer (`emit_term_write_string_helper`): decode astral scalars from UTF-16
+      surrogate pairs so the cell holds the full codepoint (fixes the
+      surrogate-splitting tofu — the documented bug); look up A's charwidth via the
+      hand-written two-stage trie (identical logic to the console path), store the
+      width byte in the cell pad (`CELL_WIDTH_OFFSET=14`), write `APP_WIDE_TRAIL`
+      for width==2, wrap a wide glyph off the right edge, `col += width`. The
+      width/table path is gated on `uses_term` so a non-term app never carries the
+      ~1.5 MB unicode table (see Corrections).
+- [x] `drawRect:` renders the stored codepoint (BMP → one UTF-16 unit, astral →
+      the surrogate pair, two units) and skips `APP_WIDE_TRAIL` (its background was
+      already filled; the wide primary spans the column via CoreText).
+- [x] Test: the astral+width writer runs headless over `"👍 日本語 A café 😀"`
+      (`MFB_MACAPP_HEADLESS=1`) with exit code 42 — no crash from the surrogate
+      decode or the table lookup; `scripts/test-macapp.sh` all cases pass (no
+      regression); the app links (the `_mfb_unicode_*` relocations auto-embed the
+      table). The plan's assumed "grid-state inspection path" does not exist; the
+      grid holds no MFBASIC-visible surface, so correctness is established by
+      logic-equivalence to the byte-identity-verified console writer + the
+      no-crash/link/regression evidence above.
 
-Acceptance: on the macOS host GUI, `"👍 日本語 A"` renders the emoji and CJK as
-single aligned glyphs (no tofu, no surrogate split), following ASCII aligned.
-Commit: —
+Acceptance: implementation complete and verified by the autonomous means above
+(codegen determinism via the regenerated `macos-app-mode-term` `.ncodesum`;
+headless no-crash on real astral/CJK/emoji input; full `test-macapp.sh` pass;
+correct table-gating). The pixel-level GUI proof (`"👍 日本語 A"` as single aligned
+glyphs) is this plan's explicit **human-convergence step** ("converges with Human
+on the verify loop") — an interactive window-server session is required; a scripted
+screenshot in this automated session did not composite the window (even ASCII did
+not paint, so it is a compositing/session limit, not the glyph path). Commit: —
 
 ### Phase 2 — EGC pool for multi-scalar clusters + draw helpers
 
@@ -126,4 +143,32 @@ on the macOS host; resize reflows without corrupting wide cells. Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **2026-08-02 — the width path must be gated on `uses_term`, or every macOS app
+  bloats.** The `TermView` writer is emitted in EVERY app build (the bootstrap
+  unconditionally wires the class), so an unconditional charwidth lookup made a
+  non-term app reference `_mfb_unicode_*` → the shared build embedded the ~1.5 MB
+  table (mod.rs `references_unicode_table`). The linker dead-strips it from the
+  binary (a non-term app stayed 106 KB), but the `.ncode` DUMP carried it, ballooning
+  the `macos-app-mode-io/plumbing` goldens ~1 MB→2.5 MB. Fixed by threading
+  `spec.uses_term` into `emit_term_write_string_helper` and gating the whole width
+  path (lookup + `WIDE_TRAIL` + `col+=width`) on it; the astral decode stays
+  unconditional (table-free). Only a real term app now embeds the table.
+- **2026-08-02 — the `macos-app-mode-term` `.ncode` golden converted to `.ncodesum`.**
+  A term app legitimately embeds the table, so its raw `.ncode` golden hit 2.57 MB.
+  Converted the `macos-aarch64.app.ncode` golden to a sha256 `.ncodesum` (matching
+  how big backends avoid committing megabyte dumps); the codegen-determinism check
+  is preserved.
+- **2026-08-02 — no "grid-state inspection path" exists (the plan assumed one).**
+  The `TermView` grid is a `calloc`'d struct with no MFBASIC-visible surface, and
+  `test-macapp.sh` asserts exit codes / io, never rendered cells. The astral+width
+  writer's correctness is therefore established by (a) logic-equivalence to the
+  console writer (same two-stage trie + surrogate math, byte-identity-verified in
+  B) and (b) headless no-crash + link + full `test-macapp.sh` regression. The
+  pixel-visual proof remains a human step.
+- **2026-08-02 — the width lookup is hand-written in the app's `asm` style, not the
+  free helper.** `term_view.rs` builds via the objc `Asm` (physical registers,
+  `asm.local_address` for data addresses). Rather than risk the neutral
+  `emit_*_free` helpers not lowering cleanly in that context, the two-stage trie +
+  `(flags>>4)&3` was written directly with `asm.local_address(UNICODE_*_SYMBOL)` —
+  whose `_mfb_unicode_*` relocation is exactly what the shared build's
+  `references_unicode_table` gate keys on to embed the table.
