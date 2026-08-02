@@ -152,9 +152,11 @@ commit below.
 - [ ] Acceptance golden harness for all touched fixtures (`scripts/sync-goldens.sh`),
       avoiding the non-deterministic full `test-accept.sh` perf-table trap
       (`perf-goldens-break-execution-acceptance`).
-- [ ] Merge current `main` into `worktree-P-73` (main advanced 594235307→a60ce43f8,
+- [~] Merge current `main` into `worktree-P-73` (main advanced 594235307→a60ce43f8,
       plan-72 descriptor refactor — disjoint file set) and re-run `cargo test` +
-      `artifact-gate` per the follow-plan finish rule.
+      `artifact-gate` per the follow-plan finish rule. — MERGE DONE (clean, zero
+      conflicts; merged tree rebuilds warning-free in 14.5s). Post-merge `cargo
+      test` + `artifact-gate` re-run in progress.
 - [ ] Move plan-73-A..F to `planning/completed/` (per `completed-plans-go-to-old-plans`).
 
 Acceptance: all gates green tree-wide (after the main merge); plan-73 archived.
