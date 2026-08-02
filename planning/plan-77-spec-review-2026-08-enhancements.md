@@ -1,5 +1,19 @@
 # Spec-review enhancements ledger (2026-08-02)
 
+Last updated: 2026-08-02
+
+> **Execution note (2026-08-02):** the sections above are the verified *research
+> ledger*. The **Prerequisites**, **Implementation phases**, and **Corrections**
+> sections at the bottom of this file make the ledger executable: every
+> ✅-Confirmed item is turned into an ordered, independently-landable phase.
+> Overall effort: **huge (>3d)** — 15 phases across 5 domains. Phases are ordered
+> value-dense-and-tractable first (size → regex perf → csv), highest-risk last
+> (R2 external-data, M6 new-analysis-pass). The domains are mutually independent:
+> no phase depends on an earlier phase's *code* (only on the green baseline), so
+> the order is a value/risk ranking, not a dependency chain. Anchors below were
+> re-verified against source on 2026-08-02 (5-way read-only fan-out); drifted
+> line numbers and the M6/R2 re-framings are in **Corrections**.
+
 Source: a batch of ~35 AI-generated "suggestions" across unicode, threads, memory, regex, datetime, and csv. Every claim was verified against current source/spec (read-only fan-out, one verifier per domain). This file collects the ones that **verified as real, non-defect work** (perf / size / feature). The one real *correctness* bug is filed separately as **bug-425** (failed `thread::transfer` leaks the sender fd). Items marked ❌ below are recorded here **so they are not re-filed** — they are already-fixed, misreadings, or would regress intended behavior.
 
 Nothing here is a correctness defect. None is urgent. Pick up individually if/when the size or hot-path cost matters.
@@ -79,3 +93,299 @@ Roughly **~110 KB shaved from every generated binary** if all three land, plus f
 - **D1 — localOffset cache is unsafe where it's hottest.** The "every call" premise is false (UTC/fixed zones never hit the seam), and `__datetime_resolveLocal` deliberately calls `offsetAt` with four *different* epochSeconds to bracket a DST transition; a range-keyed cache spanning that window would return the wrong offset across exactly the boundary the code is probing.
 - **D4 — validating the `E` weekday is a debatable strictness change, not a fix.** The weekday is redundant with the date; lenient handling matches common formatters and rejecting mismatches would break inputs that parse today. Treat as an opt-in strict-mode feature at most, not a bug. (For the record: 2026-08-01 is a Saturday, so the suggestion's example was factually right.)
 - **M1 / M3 / M5 / T2 / T3 / T4 — intentional design tradeoffs**, documented in spec/source (deferred-coalescing arena; value-semantics + move elision; resource tombstone; bounded stdin backpressure; per-arena LINK slots; cooperative-only cancellation). Any of these is a redesign/feature, not a defect.
+
+---
+
+# Prerequisites
+
+This ledger has no cross-plan dependency. The only gate is a **green baseline** in
+the worktree, so every phase's acceptance can be attributed to that phase.
+
+| # | Check | Command | Status |
+| --- | --- | --- | --- |
+| P1 | Release binary builds | `cargo build --release --bin mfb` → exit 0 | UNMEASURED (build running) |
+| P2 | Compiler unit tests green | `cargo test --bin mfb` → `test result: ok` | UNMEASURED |
+
+Both MET → phases run to completion. Either NOT MET → stop and report both rows.
+
+# Standing requirements (fold into every phase)
+
+- **Compiler/codegen/runtime/diagnostics work** → read `.ai/compiler.md` first
+  (runtime completion gate, register lifetimes, validation/function tests).
+- **Editing an embedded builtin `.mfb`** (`regex_package.mfb`, `csv_package.mfb`,
+  `datetime_package.mfb`, `unicode_gencat.mfb`) **ripples to importer `.ir`/`.ast`
+  goldens** of every fixture that imports it, and often to per-target `.ncodesum`.
+  Grep the symbol in `tests/**/*.ir`, regenerate with `sync-goldens.sh`, and prove
+  the delta is only the intended change. (mem: builtin-mfb-source-ripples-to-importer-ir-goldens)
+- **Any byte change to an embedded unicode table** shifts `.ncode` of ~every
+  string-using fixture; goldens are RELEASE-generated, no accept mode — regen via
+  `-ncode` + `shasum` per target (mem: unicode-table-byte-change-wide-golden-blast).
+- **Do NOT run the full artifact-gate per phase** (~15–20 min); do a targeted
+  per-phase check, ONE full gate at finalization (mem: dont-run-full-gate-per-phase,
+  no-concurrent-artifact-gate). `mfb_exe()` may reuse a stale release binary — `rm`
+  target/release/mfb before a CLI subprocess test if in doubt.
+- **Never edit/weaken a golden or test to pass** — prove-4 first (AGENTS.md).
+
+# Implementation phases
+
+Ordering = value/risk ranking (§Execution note). Each phase is independently
+landable and lands with its goldens regenerated + a green targeted suite.
+
+## Phase 1 — Size/U2: drop the dead `sequences` table (~25 KB)
+
+Anchors (verified): symbol `UNICODE_SEQUENCES_SYMBOL` def `error_constants.rs:1004`;
+emission `data_objects.rs:552-558` (symbol line 553); **zero read sites**
+(`grep -rn UNICODE_SEQUENCES_SYMBOL src/` → def+emit+1 doc ref only); table
+`tables.sequences` len 12961 × u16 ≈ 25 KB (`runtime_tables.rs:486`). Distinct from
+the live `nfd_/uppercase_/lowercase_/casefold_sequences`.
+
+- [ ] Remove the 7th data object (`UNICODE_SEQUENCES_SYMBOL`) from the vec in `data_objects.rs:552-558` and renumber the surrounding emission.
+- [ ] Delete the now-unused const at `error_constants.rs:1004`; `grep -rn UNICODE_SEQUENCES_SYMBOL src/` returns 0.
+- [ ] Drop the `.sequences` field build if it is now dead (`runtime_tables.rs` — confirm no other consumer with `grep -rn '\.sequences\b' src/`; the NFD/case sequences are separate fields).
+- [ ] Update the spec reference at `src/docs/spec/unicode/01_tables-and-algorithms.md:150`.
+- [ ] Regenerate every affected `.ncodesum` / byte-identity golden (wide blast — every string-using fixture; use `-ncode` + `shasum` per target).
+- **Acceptance:** `nm`/symbol scan of a generated binary shows `_mfb_unicode_sequences` absent; `cargo test --bin mfb` green; unicode/strings byte-identity + rt-behavior suites green with only the intended golden delta; measured binary-size drop reported.
+- **Commit:** _(fill on land)_
+
+## Phase 2 — Size/U1: repack `PackedProperty`, strip 5 unread fields (~82 KB)
+
+Anchors: struct `runtime_tables.rs:25-38`, **24-byte stride** (11×u16 + pad@22),
+**8385 records**; codegen reads only offsets 0/12/14/16/18/20 (`private/unicode.rs:4-13`
+constants; read sites 335/353/361/369/377/388/408/1270/1275/1280). Dead: offsets
+2/4/6/8/10 = `decomp_type`, `decomp_seqindex`, `casefold_seqindex`,
+`uppercase_seqindex`, `lowercase_seqindex`. NB the in-file comment `unicode.rs:5-8`
+only names 6/8/10 — it undercounts; the real dead set is 5.
+
+- [ ] Remove the 5 dead fields from `struct PackedProperty` (`runtime_tables.rs:26-38`) and their writes in the table builder.
+- [ ] Recompute the packed byte layout in `encode_le` (`runtime_tables.rs:~84`): new stride, new offsets for the 6 live fields, trailing pad if alignment needs it.
+- [ ] Update `UNICODE_PROPERTY_SIZE` and all `UNICODE_PROPERTY_OFFSET_*` constants (`private/unicode.rs:3-13`) to the new offsets; all 10 read sites recompute automatically via the constants.
+- [ ] Update the fixed-size assertion `runtime_tables.rs:499` (`properties.len() * <newstride> * 2`).
+- [ ] Correct the undercounting comment at `unicode.rs:5-8` to name all 5 dead fields.
+- [ ] Regenerate the wide `.ncodesum`/byte-identity golden blast.
+- **Acceptance:** every `strings::upper/lower/caseFold/normalizeNfc/graphemes/displayWidth` rt-behavior fixture still produces identical *runtime output* (correctness of the surviving offsets); `cargo test --bin mfb` green; measured stride 24→~14 and ~82 KB binary drop reported.
+- **Commit:** _(fill on land)_
+
+## Phase 3 — Size/U5: feature-flag the 14-table emission
+
+Anchors: gate `mod.rs:1680` (`references_unicode_table || module_uses_unicode_runtime_tables`);
+emit `data_objects.rs:528-630` (single 14-object vec); coarse detector
+`module_analysis.rs:917-987`, match arm **929-936**. No case/normalization/grapheme
+split exists yet. Shared-by-all: stage1/stage2/properties (objects 1-3).
+
+- [ ] Replace the monolithic bool out of `module_uses_unicode_runtime_tables` with a family set (`uses_case_mapping` / `uses_normalization` / `uses_graphemes`; `displayWidth`→properties only) — forked at `module_analysis.rs:929-936`.
+- [ ] Make `unicode_runtime_data_objects()` (`data_objects.rs:528`) subset-aware: always emit shared 1-3; emit case tables (9-14) only for case-mapping; combinations+nfd (5-8) only for normalization; boundclass/indic-bearing properties for graphemes.
+- [ ] Narrow the relocation scan `mod.rs:1675-1679` from the bare `_mfb_unicode_` prefix to per-family symbol prefixes so a reloc doesn't drag in all 14.
+- [ ] Add a rt-behavior/byte-identity fixture that uses ONLY `strings::graphemes` and assert its binary omits the case-mapping symbols.
+- **Acceptance:** a graphemes-only program's binary contains no `_mfb_unicode_casefold_*`/`_uppercase_*`/`_lowercase_*` symbols (symbol scan) while still producing correct grapheme output; full unicode suites green (nothing that *does* use case mapping regressed).
+- **Commit:** _(fill on land)_
+
+## Phase 4 — Regex/R3: single-pass code points in `makeCtx`
+
+Anchors: `__regex_scalarToCp` `regex_package.mfb:205-211`; `__regex_toScalars`
+`:213-226` (computes `cps` via `encoding::utf32Encode` line 219, **discards** it);
+`__regex_makeCtx` `:228-235` rebuilds cps per-scalar via `__regex_scalarToCp`
+(line 232); `TYPE __regex_Ctx` `:126-130` = `{text, cps, n}`.
+
+- [ ] Have `__regex_toScalars` return both the scalar strings and the `cps` it already computed (parallel return / small struct), instead of discarding cps.
+- [ ] Populate `__regex_Ctx.cps` in `makeCtx` from that returned array; delete the per-scalar `__regex_scalarToCp` loop.
+- [ ] Regenerate regex importer goldens (`tests/rt-behavior/regex/*`, `tests/rt-behavior/threads/thread-regex-rt`).
+- **Acceptance:** all regex rt-behavior fixtures produce identical match results; N per-scalar `utf32Encode` calls eliminated (verify via the lowered `.ir` no longer inlining `#regex_scalarToCp` in the ctx loop).
+- **Commit:** _(fill on land)_
+
+## Phase 5 — Regex/R4: ASCII bitset for char classes
+
+Anchors: `__regex_classMatchOne` `:588-610` (linear `FOR EACH item` over the 4-arm
+union, re-run per position); types `__regex_Range/Single/Short/Prop` `:29-48`,
+`TYPE __regex_Class` `:58-62`; caller `__regex_classMatch` `:620-639` (handles
+`neg`/`fold`); class construction site `:1286+`.
+
+- [ ] Add a precomputed `0..127` membership representation to `TYPE __regex_Class` (`:58-62`) — e.g. `ascii AS List OF Boolean` (128 entries) or a bitmask list.
+- [ ] Populate it once at class construction (`:1286+`) by evaluating the items for cp 0..127 (bake in `fold`; leave `neg` to the matcher).
+- [ ] In `__regex_classMatch` (`:620`), for `cp <= 127` index the bitset directly; fall back to `__regex_classMatchOne` only for cp > 127.
+- [ ] Regenerate regex goldens.
+- **Acceptance:** all regex rt-behavior fixtures (esp. `regex-posix-classes-rt`, which pins all 6 POSIX classes) produce identical results; class matches for ASCII inputs no longer walk the item list (verify via lowered `.ir`).
+- **Commit:** _(fill on land)_
+
+## Phase 6 — Regex/R5: literal-prefix fast-skip in `searchFrom`
+
+Anchors: `__regex_searchFrom` `:968-981` (resets `__regex_steps`, then
+`WHILE s <= ctx.n` tries `__regex_tryAt` at *every* offset); `TYPE __regex_Lit`
+`:51-54`; `prog.root` `TYPE __regex_Program` `:132-136`, root union `:83-92`,
+`__regex_Concat` `:67-69`.
+
+- [ ] Derive a required first scalar/cp from `prog.root` when it is a leading `__regex_Lit` (or the first part of a `__regex_Concat` that is a `Lit`); compute once per search.
+- [ ] In the `WHILE` at `:973`, when a required first cp exists, advance `s` to the next `ctx.cps` position equal to it before calling `__regex_tryAt` (respect the step budget / bug-315 semantics).
+- [ ] Fall back to the current every-offset behavior when no literal prefix exists.
+- [ ] Regenerate regex goldens.
+- **Acceptance:** all regex rt-behavior fixtures identical; a literal-prefixed pattern over a long non-matching string skips offsets (verify match count/behavior unchanged; step budget still catches pathological patterns).
+- **Commit:** _(fill on land)_
+
+## Phase 7 — csv/C5: single pre-sized builder in `stringify`
+
+Anchors: `__csv_stringify` `csv_package.mfb:174-186` (per-row `out = out & …`,
+O(rows²)); `__csv_stringifyRow` `:188-200`; `__csv_encodeField` `:202-207`;
+`__csv_quoteField` `:225-235` (grapheme-by-grapheme concat, `strings::graphemes`
+materializes a list). Parse side already uses the buffer approach (plan-64 A3).
+
+- [ ] Thread one shared string buffer through `__csv_stringify` → `__csv_stringifyRow` → `__csv_encodeField`/`__csv_quoteField` so each level appends into it instead of returning a fresh String the caller re-concatenates (collapse points :181/:183, :195/:197, :229/:231).
+- [ ] Replace the grapheme-by-grapheme loop in `__csv_quoteField` with a scan that appends escaped runs into the buffer without a `strings::graphemes` list.
+- [ ] Regenerate the two csv `.ir` goldens (`tests/byte-identity/csv/...`, `tests/rt-behavior/csv/...`) — they hard-code source line numbers, so even additive edits shift them.
+- **Acceptance:** `tests/rt-behavior/csv` fixtures produce byte-identical stringify output; intermediate per-cell/per-row String allocations gone (verify lowered `.ir`); `cargo test --bin mfb` green.
+- **Commit:** _(fill on land)_
+
+## Phase 8 — csv/C3: dialect config (additive)
+
+Non-goal: **must not** change the existing `csv.parse(String)` / `csv.stringify(grid)`
+signatures. Anchors: descriptors `csv.rs:18-36` (parse) / `:37-50` (stringify),
+single overload each, `DefaultValue::None`; hard-coded delimiter 44, quote 34,
+CR/LF 13/10, output `"\n"` in `csv_package.mfb` (parse :47/:70/:80/:145/:155-168;
+stringify :181/:195/:209-223/:226-234). Static parity tables `csv.rs:71-85`.
+
+- [ ] Design a dialect record (delimiter / quote char / output EOL) and add it as an **optional trailing parameter or a second overload** on `csv.parse` and `csv.stringify` (`csv.rs`), keeping the 1-arg overloads resolving unchanged.
+- [ ] Update the mirrored static tables `call_param_names`/`expected_arguments` (`csv.rs:71-85`) and the parity test.
+- [ ] Thread the dialect scalars into `__csv_parse`/`__csv_stringify` (`csv_package.mfb`), replacing the hard-coded 44/34/`"\n"` with the passed values (default to RFC-4180 when absent).
+- [ ] Add man/spec entries for the new option surface (per `.ai/man_template.md` / `.ai/specifications.md`).
+- [ ] Add rt-behavior fixtures: TSV (delimiter 9), single-quote, `\r\n` output; regenerate csv goldens.
+- **Acceptance:** new fixtures round-trip a non-comma dialect correctly; existing 1-arg csv fixtures unchanged (byte-identical); man/spec updated; suites green.
+- **Commit:** _(fill on land)_
+
+## Phase 9 — csv/C4: streaming `csv.Reader` resource
+
+Anchors: `csv.parse` returns whole grid (`csv.rs:28`, `csv_package.mfb:31`
+accumulates `rows`, `RETURN rows :99`); no streaming entry point (grep 0).
+Mirror the resource-handle pattern (`resource.rs` `ResourceRegistry`/`ResourceInfo`;
+precedents `fs.rs` File, `net.rs` Socket/Listener) — a `csv.Reader` open/next/close
+triad registered through the resource table, additive (leaves `csv.parse` intact).
+
+- [ ] Define a `csv.Reader` resource type + `RESOURCE_TABLE`/`LINK … CLOSE BY …` wiring, modeled on `fs.rs`/`net.rs`, registered in `resource.rs`.
+- [ ] Add `csv::parseStream(String) AS csv.Reader` (or a reader-from-source ctor) and a `readRow(reader) AS List OF String` / iteration surface that yields one row at a time; close reclaims the reader.
+- [ ] Ensure the reader carries the parse cursor/state incrementally (reuse `__csv_*` field/record decode helpers without materializing the full grid).
+- [ ] man/spec entries for the streaming API.
+- [ ] rt-behavior fixture: stream a multi-row csv, assert row-by-row equality with `csv.parse`; resource close verified (no leak).
+- **Acceptance:** streaming a csv yields the same rows as `csv.parse` in order; the `csv.Reader` resource opens/closes with no leak (resource-state verify); suites green.
+- **Commit:** _(fill on land)_
+
+## Phase 10 — Unicode perf/U4: SWAR/NEON lead-byte counting in find/mid
+
+Anchors: `lower_find` `builder_search.rs:4`, `lower_mid` `:572`; helper
+`emit_scalar_skip_continuations` `private/unicode.rs:53-72` (per-byte
+load/AND 0xC0/cmp 0x80/branch); 4 call sites (find :187, :229; mid :734, :756),
+each `add cursor,1; sub remaining,1; skip; label(advanced); add scalar_index,1`.
+
+- [ ] Add a block lead-byte-count primitive: over 16-byte blocks, count bytes with `b & 0xC0 != 0x80`, bump `scalar_index` by that popcount, advance cursor 16 (SWAR; NEON where available). Keep the existing per-byte path as the `<16 bytes remaining` tail.
+- [ ] Slot the block scan in at the loop-head level of all 4 call sites (find locate + advance_candidate; mid locate_start + locate_end).
+- [ ] Regenerate any `.ncodesum` / byte-identity goldens for strings fixtures.
+- **Acceptance:** `strings::find`/`strings::mid` rt-behavior fixtures produce identical indices/substrings across ASCII + multibyte inputs (correctness of the block count vs the byte scan); long-string case walks in blocks (verify lowered `.ir`/disasm).
+- **Commit:** _(fill on land)_
+
+## Phase 11 — Unicode perf/U3+U6+U7: marginal normalization/grapheme fast-paths
+
+All in `builder_strings_builtins.rs`. Marginal (tiny inputs / error-path only) —
+grouped as one phase. U3 gnome sort `order_loop:958-991`; U6 recompose
+`compose_loop:1004-1091` (scan :1052-1062, `comb_length` :1033); U7 `graphemeAt`
+`lower_strings_grapheme_at:2802` (OOB gap after :2822, before the full segmentation :2823).
+
+- [ ] U7: add an early OOB short-circuit in `lower_strings_grapheme_at` after the index type-check/spill (:2822) and before `lower_strings_graphemes` (:2823) — load `value` byte length (String layout offset 0, cf. `builder_search.rs:715`), branch to `invalid` when `index < 0 || index >= byte_len`. Success path unchanged.
+- [ ] U3: bound/streamline the gnome-sort back-step (`order_loop`) — it only runs over ≤3-mark runs, so a small insertion sort or a run-length cap is a correctness-preserving tidy; keep output identical.
+- [ ] U6: leave the sorted-table early-out as-is unless a cheap win exists; document if no change is warranted (mark moot with evidence).
+- [ ] Regenerate affected strings goldens.
+- **Acceptance:** `strings::graphemeAt` out-of-range raises `77...` without segmenting (verify error path); normalizeNfc rt-behavior fixtures byte-identical; any moot sub-task carries its evidence.
+- **Commit:** _(fill on land)_
+
+## Phase 12 — datetime/D2: hard-coded fixed-width ISO writer
+
+Anchors: `__datetime_toIso` `datetime_package.mfb:730-732` = `__datetime_format(dt,
+"yyyy-MM-dd'T'HH:mm:ss.fffZ")`; delegate `__datetime_format` `:697-728` is a
+char-by-char pattern interpreter. Golden ripple: `.ir`/`.ast` + `.ncodesum` across
+5 targets.
+
+- [ ] Replace `__datetime_toIso` body with direct field extraction + zero-padding emitting the 24-char `yyyy-MM-ddTHH:mm:ss.fffZ` layout in one pass (no pattern scan, no `__datetime_formatToken` dispatch). Truncate fractional seconds (matches D3 verdict — do NOT round).
+- [ ] Regenerate datetime `.ir`/`.ast` goldens and the 5-target `.ncodesum`.
+- **Acceptance:** `strings`/datetime rt-behavior fixtures calling `toIso` produce byte-identical output vs the old formatter across a spread of datetimes (incl. sub-second, Z); suites green.
+- **Commit:** _(fill on land)_
+
+## Phase 13 — Memory/M4: optional threshold compaction on in-place value-grow
+
+Anchors: maps `map_mutate.rs:242-289` (`value_grow` tail-append leaves dead slack;
+reads via `valueOffset`); lists `collection_mutate.rs:200-229` (bug-365 comment).
+Implicit compaction already happens at every tight copy (`copy_collection_tight`
+`builder_collection_layout.rs:364`; fixup `emit_offset_compaction_fixup`
+`collection_buffer.rs:337`). OPTIONAL — only helps repeated in-place grows with no
+intervening copy.
+
+- [ ] Add a `deadSlack / dataLength > threshold` guard after the tail-append + repoint in the `value_grow` block (`map_mutate.rs:~289`); on trip, compact via `copy_collection_tight` + `emit_offset_compaction_fixup`.
+- [ ] Pick + justify the threshold; ensure no regression to the common (single-grow) path.
+- [ ] Regenerate affected goldens.
+- **Acceptance:** a fixture that grows one map value many times in place shows bounded data-region slack (measured) while producing identical reads; existing collection/map suites byte-identical. If measurement shows no meaningful win, mark the phase moot with the numbers.
+- **Commit:** _(fill on land)_
+
+## Phase 14 — Regex/R2: full Unicode script table for `\p{Script=…}`
+
+**Open decision / risk:** needs an external `Scripts.txt` (Unicode 16.0.0) — Python
+`unicodedata` has no script API. Anchors: `__regex_scriptTest`
+`regex_package.mfb:371-460` (10 hand-coded scripts, else FALSE); gc precedent =
+generated `src/builtins/unicode_gencat.mfb` via `scripts/gen_regex_unicode.py`,
+embedded through `include_str!` + `.replace` (`strings.rs:523`); regeneration guarded
+by `scripts/check-generated.sh` (Unicode 16.0.0 pin).
+
+- [ ] Obtain the Unicode 16.0.0 `Scripts.txt` data source (record provenance); resolve the Open Decision on how it is vendored/fetched for `check-generated.sh`.
+- [ ] Extend `gen_regex_unicode.py` to emit a run-length `__regex_scriptOf(cp) AS String` (or per-script range table) into a new generated `.mfb`, mirroring the gc generator.
+- [ ] Embed it the same `include_str!`/`.replace` way; replace the 10-branch `__regex_scriptTest` (`:371-460`) with a lookup against the generated table.
+- [ ] Wire the new generated file into `scripts/check-generated.sh`.
+- [ ] man/spec: document the now-full `\p{Script=…}` support; regenerate regex + generated-file goldens.
+- **Acceptance:** `\p{Script=…}` matches scripts beyond the original 10 (rt-behavior fixture over e.g. Armenian/Thai/Devanagari), the original 10 still match, unknown script names still parse-then-not-match; `check-generated.sh` green.
+- **Commit:** _(fill on land)_
+
+## Phase 15 — Memory/M6: closure escape analysis + recursive scope-drop (HIGHEST RISK)
+
+**Re-framed (see Corrections):** there is *no* closure escape analysis today and
+closures are *never* freed — this is a new analysis pass **plus** a new recursive
+free, with two-sided correctness exposure. Anchors (`builder_values.rs`): closure
+arm `434-553`, env block `471-513` (`arena_alloc captures.len()*8`; captures
+deep-copied via `lower_value_owned` :500 — a native `d` float :507 is stored by
+value, **must not** be freed), object `514-547` (`CLOSURE_OBJECT_SIZE`=16,
+`error_constants.rs:283-285`); `is_freeable_flat_value` `225-232` (excludes
+closures). A closure = **N+2 arena blocks** (object + env + one per flat capture).
+Address-taken-local hazard flagged at `builder_exits.rs:231`.
+
+- [ ] Build a closure escape analysis: a closure is non-escaping iff it is not returned, not stored in a binding/global/collection/record, and not passed to an escaping call. Be conservative — default to "escapes" on any doubt (a false non-escape → UAF).
+- [ ] Add a recursive closure free path: load env ptr (offset 8), walk N slots, free each *freeable-flat* capture (recurse into nested composites), free env, free the 16-byte object — in that order; skip native by-value slots (the `d` float at :507).
+- [ ] Gate the free on the escape verdict; integrate with the existing owned-value scope-drop (extend beyond `is_freeable_flat_value`, or a dedicated closure drop).
+- [ ] RED tests first (per `.ai/compiler.md`): (a) a non-escaping closure with String/record captures frees all N+2 blocks (no leak); (b) an escaping closure (returned/stored) is NOT freed (no UAF); (c) the address-taken-local hazard case.
+- **Acceptance:** the RED tests pass; a leak-check fixture shows a non-escaping capturing closure's env + captures reclaimed; no escaping-closure UAF; full `cargo test --bin mfb` + strings/closure rt-behavior green.
+- **Commit:** _(fill on land)_
+
+# Finalization
+
+- [ ] Merge current `main` if it advanced; re-run acceptance.
+- [ ] `cargo fmt --all` + second pass `--manifest-path repository/Cargo.toml`; commit churn.
+- [ ] ONE full `artifact-gate.sh` run (execution-free codegen gate) — green.
+- [ ] Full acceptance/CI green in the worktree.
+
+# Corrections
+
+- **M6 re-framed (verified 2026-08-02).** Plan-77's ledger said "non-escaping
+  closures aren't scope-dropped." Reality (fan-out over `builder_values.rs`,
+  `src/ir/resource_escape.rs`, all `escape*` machinery): **no closure escape
+  analysis exists at all** — the `escape`/`non_escaping` code is exclusively about
+  `RES` resources and vector-promotion. Closures are *never* freed (simply excluded
+  from `is_freeable_flat_value:225-232`). So M6 is not "add a drop for the
+  non-escaping case"; it is *build the escape analysis from scratch* + *a recursive
+  N+2-block free*. Effort raised to large, risk to highest, placed last (Phase 15).
+- **R2 needs external data (verified 2026-08-02).** The gc generator
+  `scripts/gen_regex_unicode.py` uses Python `unicodedata`, which has **no script
+  API**; a full script table requires an external Unicode 16.0.0 `Scripts.txt`.
+  Added as an Open Decision in Phase 14 (how to vendor/fetch it under
+  `check-generated.sh`).
+- **Line-number drift corrected against source (2026-08-02):** U2 `UNICODE_SEQUENCES_SYMBOL`
+  def is `error_constants.rs:1004` (ledger said ~1005), emission `data_objects.rs:552-558`
+  symbol line 553 (ledger said 554-557). R3 `__regex_toScalars` is `:213-226` and
+  `__regex_makeCtx` `:228-235` (ledger's `:213-235` conflated the two). R4
+  `__regex_classMatchOne` body runs to `:610` (ledger `:588-609`). D2 delegate is
+  `__datetime_format` (ledger wrote bare `format`). M6 closure arm is `434-553`
+  (ledger's `474-522` is only the env-alloc sub-block). All other anchors verified
+  exact.
+- **U1 dead-field set is 5, not the 3 the source comment names.** The in-file
+  comment `private/unicode.rs:5-8` names only offsets 6/8/10; the actual unread set
+  is 2/4/6/8/10 (`decomp_type`, `decomp_seqindex`, + the 3 case seqindexes). Phase 2
+  fixes the comment too.
