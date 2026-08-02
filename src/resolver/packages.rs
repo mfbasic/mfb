@@ -205,7 +205,7 @@ pub(super) fn dependency_packages(
 
 pub(super) fn read_manifest(path: &Path) -> Option<HashMap<String, JsonValue>> {
     let contents = fs::read_to_string(path).ok()?;
-    let json = contents.parse::<JsonValue>().ok()?;
+    let json = crate::json::parse_json_bounded(&contents).ok()?;
     json.get::<HashMap<String, JsonValue>>().cloned()
 }
 

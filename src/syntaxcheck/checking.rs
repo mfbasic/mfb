@@ -348,9 +348,15 @@ impl<'a> SyntaxChecker<'a> {
                 line,
             } => {
                 let Some(local) = locals.get(resource).cloned() else {
+                    // bug-396: a file-PRIVATE top-level `resource` arrives mangled
+                    // (`#<hash>$name`); demangle it so the message names the plain
+                    // source identifier rather than the untypeable internal form.
                     self.report(
                         "TYPE_UNKNOWN_VALUE",
-                        &format!("State assignment target `{resource}` is not a local binding."),
+                        &format!(
+                            "State assignment target `{}` is not a local binding.",
+                            crate::internal_name::display_name(resource)
+                        ),
                         file,
                         *line,
                     );

@@ -123,8 +123,9 @@ pub(crate) fn project_json_with_updated_ident_key(
             return Err("malformed project.json `packages` entry".to_string());
         };
         let object = &contents[object_start..=object_end];
-        let is_target = object
-            .parse::<JsonValue>()
+        // bug-398: bound the untrusted manifest slice so a deeply nested entry
+        // cannot recurse tinyjson off the stack.
+        let is_target = crate::json::parse_json_bounded(object)
             .ok()
             .and_then(|value| {
                 value
@@ -202,8 +203,9 @@ pub(crate) fn project_json_without_packages(
             return Err("malformed project.json `packages` entry".to_string());
         };
         let object = &contents[object_start..=object_end];
-        let entry_ident = object
-            .parse::<JsonValue>()
+        // bug-398: bound the untrusted manifest slice so a deeply nested entry
+        // cannot recurse tinyjson off the stack.
+        let entry_ident = crate::json::parse_json_bounded(object)
             .ok()
             .and_then(|value| value.get::<HashMap<String, JsonValue>>().cloned())
             .and_then(|entry| {
@@ -276,8 +278,9 @@ pub(crate) fn project_json_with_updated_version(
             return Err("malformed project.json `packages` entry".to_string());
         };
         let object = &contents[object_start..=object_end];
-        let entry = object
-            .parse::<JsonValue>()
+        // bug-398: bound the untrusted manifest slice so a deeply nested entry
+        // cannot recurse tinyjson off the stack.
+        let entry = crate::json::parse_json_bounded(object)
             .ok()
             .and_then(|value| value.get::<HashMap<String, JsonValue>>().cloned());
         let entry_ident = entry.as_ref().and_then(|entry| {

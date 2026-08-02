@@ -611,6 +611,90 @@ fn sub_borrow_zero_token_rhs_subtracts_immediate_zero() {
     );
 }
 
+#[test]
+fn cmp_zero_token_rhs_compares_immediate_zero() {
+    // bug-397: `cmp lhs, xzr` must compare against a true zero. The zero token is
+    // sentinel 16, which the raw `alu_rr` reg field would encode as r8 (48 39 →
+    // 4C 39 C0 = `cmp rax, r8`), folding a caller's leftover r8 into the compare.
+    // Route it through the immediate form instead: cmp rax, 0 = 48 81 F8 00000000.
+    assert_eq!(
+        bytes("cmp", &[("lhs", "rax"), ("rhs", "xzr")]),
+        [0x48, 0x81, 0xF8, 0, 0, 0, 0]
+    );
+    // r13 exercises a high `lhs` (REX.B on the rm): cmp r13, 0 = 49 81 FD 00000000.
+    assert_eq!(
+        bytes("cmp", &[("lhs", "r13"), ("rhs", "xzr")]),
+        [0x49, 0x81, 0xFD, 0, 0, 0, 0]
+    );
+}
+
+#[test]
+fn cmp_zero_token_lhs_rejected() {
+    // bug-397: `cmp xzr, rhs` (flags of `0 - rhs`) has no scratch-free x86 form,
+    // and letting sentinel 16 reach `alu_rr`'s rm would silently encode r8. No
+    // producer emits it — reject loudly rather than miscompile.
+    let ins = CodeInstruction::new("cmp")
+        .field("lhs", "xzr")
+        .field("rhs", "rax");
+    let err = enc_err(&ins);
+    assert!(err.contains("zero-token lhs"), "got: {err}");
+}
+
+#[test]
+fn cmp_imm_zero_token_lhs_rejected() {
+    // bug-397: a zero-token `lhs` on cmp_imm would encode via enc_alu_imm32's
+    // rm=16 as r8. `cmp 0, imm` is degenerate and unproduced — reject loudly.
+    let ins = CodeInstruction::new("cmp_imm")
+        .field("lhs", "xzr")
+        .field("rhs", "5");
+    let err = enc_err(&ins);
+    assert!(err.contains("zero-token lhs"), "got: {err}");
+}
+
+#[test]
+fn add_carry_zero_token_lhs_commutes() {
+    // bug-397: a zero-token `lhs` (dst = 0 + rhs + carry) must not let sentinel 16
+    // reach enc_mov as r8. add commutes, so `0 + rdi + 0` is just dst = rdi.
+    // mov rbx, rdi (48 89 FB) ; carry_out=xzr → no setcc.
+    assert_eq!(
+        bytes(
+            "add_carry",
+            &[
+                ("dst", "rbx"),
+                ("carry_out", "xzr"),
+                ("lhs", "xzr"),
+                ("rhs", "rdi"),
+                ("carry_in", "xzr")
+            ]
+        ),
+        [0x48, 0x89, 0xFB]
+    );
+    // Both operands zero → result is carry_in only; unproduced, reject loudly.
+    let ins = CodeInstruction::new("add_carry")
+        .field("dst", "rbx")
+        .field("carry_out", "xzr")
+        .field("lhs", "xzr")
+        .field("rhs", "xzr")
+        .field("carry_in", "xzr");
+    let err = enc_err(&ins);
+    assert!(err.contains("both operands the zero token"), "got: {err}");
+}
+
+#[test]
+fn sub_borrow_zero_token_lhs_rejected() {
+    // bug-397: `dst = 0 - rhs - borrow` does not commute like add_carry's and has
+    // no scratch-free form preserving the borrow flag; sentinel 16 would reach
+    // enc_mov as r8. Unproduced — reject loudly.
+    let ins = CodeInstruction::new("sub_borrow")
+        .field("dst", "rbx")
+        .field("borrow_out", "xzr")
+        .field("lhs", "xzr")
+        .field("rhs", "rdi")
+        .field("borrow_in", "xzr");
+    let err = enc_err(&ins);
+    assert!(err.contains("zero-token lhs"), "got: {err}");
+}
+
 /// Encode and return the error string (the `Encoded` Ok value has no `Debug`).
 fn enc_err(ins: &CodeInstruction) -> String {
     match encode_instruction(ins) {
