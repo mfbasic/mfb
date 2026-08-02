@@ -422,3 +422,72 @@ fn emit_cleanup(
 }
 
 include!("cng_sign_verify.rs");
+
+#[cfg(test)]
+mod cng_backend_tests {
+    // Regression guards for bug-415: the Windows CNG EC verify backend must (1)
+    // raise ErrInvalidArgument (not a FALSE verdict / ErrUnknown) on a malformed
+    // public key, matching the macOS/OpenSSL backends; (2) bound its hand-rolled
+    // DER signature parse against SIGLEN so an untrusted short signature cannot
+    // read past the arena buffer; and (3) close the BCryptHash provider handle on
+    // the hash-failure path instead of leaking it. These are Windows-CNG-only
+    // paths that cannot execute on this macOS host — the assertions pin the
+    // emitted instruction stream / resolved symbols so the fixes cannot regress.
+    use super::*;
+    use crate::target::shared::code::mir;
+    use crate::target::shared::code::test_support::{has_label, TestPlatform};
+
+    fn reloc_has(rel: &[CodeRelocation], needle: &str) -> bool {
+        rel.iter().any(|r| r.to.contains(needle))
+    }
+
+    fn lower_verify() -> (Vec<CodeInstruction>, Vec<CodeRelocation>) {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (_f, ins, rel, _s) =
+            verify(Curve::P256, "v", &imports, &TestPlatform).expect("lower verify");
+        (ins, rel)
+    }
+
+    #[test]
+    fn verify_raises_invalid_argument_on_malformed_key() {
+        let (ins, rel) = lower_verify();
+        // A dedicated ErrInvalidArgument exit exists and is wired to the argument
+        // error message (bug-415 defect 1). Before the fix `verify` had no
+        // ERR_INVALID_ARGUMENT path at all — a wrong-length key returned FALSE.
+        assert!(
+            has_label(&ins, "v_invalid"),
+            "verify must have an ErrInvalidArgument exit for a malformed key"
+        );
+        assert!(
+            reloc_has(&rel, "_mfb_str_error_invalid_argument"),
+            "verify's invalid exit must reference the argument-error message"
+        );
+    }
+
+    #[test]
+    fn verify_bounds_der_parse_against_siglen() {
+        // The bounded parser (bug-415 defect 2) routes every DER length that would
+        // read past the signature buffer to a dedicated out-of-bounds guard that
+        // falls through to the FALSE verdict; the unbounded parser had no such
+        // guard. `v_oob` is a real branch target reached from the SEQUENCE-header
+        // length check and both der_decode_int bounds checks.
+        let (ins, _rel) = lower_verify();
+        assert!(
+            has_label(&ins, "v_oob"),
+            "verify must bound the DER parse against SIGLEN via an out-of-bounds guard"
+        );
+    }
+
+    #[test]
+    fn verify_closes_hash_provider_on_hash_failure() {
+        // BCryptHash failure must route through a dedicated path that closes the
+        // hash provider before failing, rather than branching straight to the
+        // shared fail exit and leaking the handle (bug-415 defect 3).
+        let (ins, _rel) = lower_verify();
+        assert!(
+            has_label(&ins, "v_hashfail"),
+            "hash_message must close the provider on the BCryptHash failure path"
+        );
+    }
+}

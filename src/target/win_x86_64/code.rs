@@ -34,8 +34,9 @@ const KERNEL32: &str = "kernel32.dll";
 const ADVAPI32: &str = "advapi32.dll";
 const SHELL32: &str = "shell32.dll";
 const WS2_32: &str = "ws2_32.dll";
-// ioctlsocket command to toggle blocking mode: FIONBIO = 0x8004667E.
-const FIONBIO: &str = "2147767422";
+// ioctlsocket command to toggle blocking mode: FIONBIO = 0x8004667E
+// (_IOW('f', 126, u_long); the 'f' magic byte is 0x66 — bug-417).
+const FIONBIO: &str = "2147772030";
 // MAKEWORD(2, 2) — the Winsock version WSAStartup requests.
 const WINSOCK_VERSION: &str = "514"; // 0x0202
                                      // VirtualAlloc flAllocationType = MEM_COMMIT (0x1000) | MEM_RESERVE (0x2000).
@@ -2912,5 +2913,37 @@ impl code::CodegenPlatform for Platform {
 
     fn app_mode_data_objects(&self, project_name: &str) -> Vec<CodeDataObject> {
         app::app_mode_data_objects(project_name)
+    }
+}
+
+#[cfg(test)]
+mod fionbio_tests {
+    use super::*;
+    use crate::arch::ops::CodeOp;
+
+    /// bug-417: the `ioctlsocket(fd, cmd, &argp)` command immediate emitted by
+    /// `emit_ioctl_fionbio` must be the real Winsock `FIONBIO`
+    /// (`_IOW('f', 126, u_long)` = 0x8004667E = 2147772030). Before the fix the
+    /// literal was 2147767422 (0x8004547E) — the `'f'` magic byte (0x66) corrupted
+    /// to 0x54 — so `ioctlsocket` returned WSAEINVAL and Windows sockets never went
+    /// non-blocking (connect timeouts never fired). This pins the exact immediate
+    /// moved into `ARG[1]` (the `cmd`), so the corruption cannot silently return.
+    #[test]
+    fn ioctl_cmd_immediate_is_fionbio() {
+        for nonblocking in [true, false] {
+            let mut instructions = Vec::new();
+            let mut relocations = Vec::new();
+            emit_ioctl_fionbio("t", 0x10, nonblocking, &mut instructions, &mut relocations);
+            let cmd = instructions
+                .iter()
+                .find(|ins| ins.op == CodeOp::MovImm && ins.get("dst") == Some(abi::ARG[1]))
+                .and_then(|ins| ins.get("value"))
+                .expect("emit_ioctl_fionbio must move the FIONBIO cmd into ARG[1]");
+            assert_eq!(
+                cmd, "2147772030",
+                "bug-417: ioctlsocket cmd must be FIONBIO 0x8004667E (2147772030), \
+                 not the corrupted 0x8004547E (nonblocking={nonblocking})"
+            );
+        }
     }
 }

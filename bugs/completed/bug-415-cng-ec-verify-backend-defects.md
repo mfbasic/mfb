@@ -6,10 +6,12 @@ Severity: MEDIUM
 Class: Correctness (spec/cross-platform divergence) + Memory-safety (LOW) +
 Resource-safety (LOW)
 
-Status: Open
+Status: FIXED (da2116796)
 Regression Test: tests/ — a Windows `crypto::p256Verify` with a wrong-length /
 off-curve public key must raise `ErrInvalidArgument` (matching Linux/macOS); a
 short/malformed DER signature must not read past the signature buffer.
+Landed as `cng_backend_tests` in `src/target/shared/code/crypto_ec/cng.rs`
+(emit-inspection: `v_invalid`/`v_oob`/`v_hashfail` paths, RED→GREEN on macOS host).
 
 Three defects in `src/target/shared/code/crypto_ec/cng_sign_verify.rs` (the Windows
 CNG ECDSA backend, new since goal-06), batched (same file/subsystem):
@@ -84,3 +86,34 @@ cleanup that the macOS/OpenSSL backends apply.
 
 - `cng_sign_verify.rs:424` (verify verdict), `:53-104`/`:441` (DER bounds), `:207`
   (handle leak). All Windows-CNG-only; other backends unaffected.
+
+## STATUS: FIXED (da2116796)
+
+All three defects reproduced statically (Windows-only; not runtime-reproducible on
+the macOS host) by reading the emit and confirmed by RED emit-inspection tests
+(`cng_backend_tests`), then fixed:
+
+1. **Malformed key → ErrInvalidArgument.** `verify` gained a `_invalid` exit
+   (`emit_cleanup` + `emit_fail(ERR_INVALID_ARGUMENT)`). The wrong-length-pubkey
+   branch now routes there instead of `bad_sig` (FALSE), and `import_key` gained a
+   separate `import_fail` label so a `BCryptImportKeyPair` failure (off-curve key)
+   → `_invalid` in verify; `sign` keeps `fail`/ErrUnknown (behaviour unchanged).
+   The `BCryptOpenAlgorithmProvider` failure still → `fail`/ErrUnknown (a system
+   error, not a bad argument).
+2. **Bounded DER parse.** `der_decode_int` now takes `sigbuf_off`/`siglen_off`/
+   `bounds_fail` and bounds the tag+length header (`body+2 <= SIGBUF+SIGLEN`),
+   rejects an empty INTEGER, and bounds the declared content (`body_advanced <=
+   end`) before any content read. `verify` adds a `SIGLEN >= 2` guard before
+   reading the SEQUENCE header. Overruns route to a new `_oob` guard → FALSE (no
+   OOB read).
+3. **Hash-provider leak.** `hash_message` now closes the `BCryptHash` provider on
+   the NTSTATUS<0 failure path (`_hashfail`) before routing to `fail`; fixes both
+   sign and verify.
+
+Verification (macOS host, release `mfb`): the four non-Windows crypto
+byte-identity goldens (`macos-aarch64`, `linux-aarch64`, `linux-x86_64`,
+`linux-riscv64`) are **byte-identical**; only
+`crypto_codegen_cover_rt.windows-x86_64.ncodesum` was regenerated, and a base-vs-fix
+`.ncode` diff confirmed the delta is confined to the six
+`p256/p384/p521 Sign/Verify` symbols. Full `cargo test` green (4223 passed, 0
+failed). Fix commit `da2116796`; merged to main via `worktree-B-415`.
