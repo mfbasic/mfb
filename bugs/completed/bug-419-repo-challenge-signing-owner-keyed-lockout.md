@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Security (targeted denial-of-service / account availability)
 
-Status: Open
+Status: FIXED (see block at end)
 Regression Test: repository/tests — a flood of `/auth/challenge {"owner":"victim"}`
 from one IP must not cause the victim's own challenge/login to return 429.
 
@@ -79,3 +79,41 @@ consume any account's challenge/signing allowance.
 - `repository/src/server.rs:953` (challenge), `:2534` (signing) — re-key to peer IP
   like `/register`/`/login`. Check for any other handler whose rate-limit key is an
   unauthenticated request field.
+
+## STATUS: FIXED (a7ce385b7; fast-forwarded to main, tip 0633b2b54)
+
+Reproduced from source (a live server was not required — the mechanism is direct):
+each handler's first statement is `rate_limiter.allow(&format!("<route>:{}",
+request.owner), ...)`, with `request.owner` unauthenticated attacker input and the
+check preceding all auth. A RED test
+(`challenge_rate_limit_cannot_lock_out_a_victim_by_owner_name`) confirmed the exact
+mechanism: under owner-keying, an attacker's 25-request flood naming "victim" from
+`10.9.9.9` made the victim's *own* valid challenge from `10.1.1.1` return **429**
+(not a proxy — the victim used their real auth fingerprint, so only the rate limiter
+could 429 it). The signing twin was proven the same way (the second-IP victim got
+429 instead of the expected 400).
+
+Fix: both buckets re-keyed to `peer.ip()` via a `ConnectInfo<SocketAddr>` extractor,
+with `AUTH_GLOBAL_CEILING` as a secondary backstop, exactly following the per-IP
+precedent bug-188/REPO-12 gave `/register` and `/login`. New `CHALLENGE_PER_IP_MAX
+= 20` / `SIGNING_PER_IP_MAX = 60` preserve the prior numeric budgets, now spent per
+client instead of per victim-name.
+
+Blast-radius sweep: the only other `rate_limiter.allow` sites keyed on a request
+field are `blob:{claims.sub}` and `{route}:{claims.sub}` — both derived from the
+*authenticated* session, so they are safe and unchanged. The non-goals hold: owner
+existence probe and crypto auth checks are untouched.
+
+Tests: `challenge_rate_limit_cannot_lock_out_a_victim_by_owner_name` (new);
+`signing_is_rate_limited_per_owner` rewritten to
+`signing_is_rate_limited_per_client_ip`;
+`challenge_rate_limit_trips_after_the_window_cap` retargeted to the per-IP constant;
+~20 existing per-IP call sites threaded a peer IP. Full `mfb-repo` suite (the
+workspace this fix lives in): **314 + 21 passed**, re-verified after merging main
+(bug-417, disjoint) in.
+
+Deviation: skipped `cargo fmt --all` (§9). Local rustfmt 1.9.0 churns ~513 committed
+files (the repo is not maintained fmt-clean under it); the new blocks were
+hand-formatted to match the in-file `/login` precedent instead.
+
+Commit: `a7ce385b7` (worktree-B-419)
