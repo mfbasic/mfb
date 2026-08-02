@@ -276,7 +276,7 @@ Commit: c107bff93
 Acceptance: `cargo test --bin mfb arch::x86_64::select` green (**27 passed**);
 `bug387-gate.sh … full` PASS with audit unset (byte-identical everywhere, **met**);
 a real full `cargo test --bin mfb` shows `test result: ok. 3751 passed; 0 failed`.
-Commit: —
+Commit: e2355e0b3
 
 ### Phase 3 — corpus census
 
@@ -302,7 +302,7 @@ Commit: —
 Acceptance: `planning/plan-71-census.md` exists with a measured, bucketed divergence
 inventory and a concrete B-onward split whose sizes derive from the census counts
 (every count carries its command, no `~`) — **met**.
-Commit: —
+Commit: d008d2419
 
 ## Validation Plan
 
