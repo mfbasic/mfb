@@ -1,5 +1,10 @@
 use std::borrow::Cow;
 
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinType, DefaultResolver,
+    DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType, TypeKind,
+};
+
 pub(crate) const FILE_TYPE: &str = "File";
 
 const FILE_EXISTS: &str = "fs.fileExists";
@@ -44,60 +49,161 @@ const LIST_DIRECTORY: &str = "fs.listDirectory";
 const CURRENT_DIRECTORY: &str = "fs.currentDirectory";
 const SET_CURRENT_DIRECTORY: &str = "fs.setCurrentDirectory";
 
+// plan-72-K: `FS` is the descriptor authority for this package. Every function has
+// a single fixed-return overload and its `resolve_call` arms are pure per-position
+// exact-type matches, so `is_fs_call`, `arity`, `call_return_type_name`, and
+// `resolve_call` all derive from the descriptor via `DefaultResolver`. Optional
+// trailing arguments (`open*`'s `mode`, `createTempFile`'s `directory`) are
+// `DefaultValue::Optional` — they widen arity without default padding (fs has no
+// default-padding helper). `File` is the one opaque builtin resource type.
+// `call_param_names` (a `&'static` borrowed shape) and `expected_arguments`
+// (bespoke `"String[, String]"` / `"no arguments"` phrasing) stay hand-authored
+// statics pinned by parity where derivable. `resource_close_function` and
+// `consumes_argument` are fs-specific (not descriptor-generic) and untouched.
+const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload {
+    BuiltinOverload {
+        params,
+        return_type: ReturnType::Fixed(ret),
+    }
+}
+
+const fn ffn(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+) -> BuiltinFunction {
+    BuiltinFunction {
+        name,
+        doc_slug: slug,
+        overloads,
+        implementation: Implementation::Same,
+        lowering: Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+
+const fn req(name: &'static str, ty: &'static str) -> Parameter {
+    Parameter::required(name, ty)
+}
+
+// `bytes` accepts the alias `value` (writeBytes/appendBytes/writeAllBytes).
+const BYTES_VALUE: Parameter = Parameter {
+    name: "bytes",
+    aliases: &["value"],
+    ty: ParameterType::Named("List OF Byte"),
+    default: DefaultValue::None,
+};
+const fn opt(name: &'static str, ty: &'static str) -> Parameter {
+    Parameter {
+        name,
+        aliases: &[],
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::Optional,
+    }
+}
+
+const P_PATH: &[Parameter] = &[req("path", "String")];
+const P_FILE: &[Parameter] = &[req("file", "File")];
+const P_NONE: &[Parameter] = &[];
+const P_PATH_BYTES: &[Parameter] = &[req("path", "String"), BYTES_VALUE];
+const P_PATH_VALUE: &[Parameter] = &[req("path", "String"), req("value", "String")];
+const P_OPEN: &[Parameter] = &[req("path", "String"), req("mode", "String")];
+const P_OPEN_FILE: &[Parameter] = &[req("path", "String"), opt("mode", "String")];
+const P_OPEN_WITHIN: &[Parameter] =
+    &[req("root", "String"), req("relPath", "String"), opt("mode", "String")];
+const P_CREATE_TEMP: &[Parameter] = &[opt("directory", "String")];
+const P_FILE_VALUE: &[Parameter] = &[req("file", "File"), req("value", "String")];
+const P_FILE_BYTES: &[Parameter] = &[req("file", "File"), BYTES_VALUE];
+const P_FILE_ENABLED: &[Parameter] = &[req("file", "File"), req("enabled", "Boolean")];
+// `base`/`child` accept the aliases `path`/`parent`.
+const P_IS_WITHIN: &[Parameter] = &[
+    Parameter {
+        name: "base",
+        aliases: &["path"],
+        ty: ParameterType::Named("String"),
+        default: DefaultValue::None,
+    },
+    Parameter {
+        name: "child",
+        aliases: &["parent"],
+        ty: ParameterType::Named("String"),
+        default: DefaultValue::None,
+    },
+];
+const P_PARTS: &[Parameter] = &[req("parts", "List OF String")];
+
+const FS_FUNCTIONS: &[BuiltinFunction] = &[
+    ffn(FILE_EXISTS, "fileExists", &[ov(P_PATH, "Boolean")]),
+    ffn(DIRECTORY_EXISTS, "directoryExists", &[ov(P_PATH, "Boolean")]),
+    ffn(EXISTS, "exists", &[ov(P_PATH, "Boolean")]),
+    ffn(READ_BYTES, "readBytes", &[ov(P_PATH, "List OF Byte")]),
+    ffn(READ_TEXT, "readText", &[ov(P_PATH, "String")]),
+    ffn(WRITE_BYTES, "writeBytes", &[ov(P_PATH_BYTES, "Nothing")]),
+    ffn(WRITE_TEXT, "writeText", &[ov(P_PATH_VALUE, "Nothing")]),
+    ffn(WRITE_BYTES_ATOMIC, "writeBytesAtomic", &[ov(P_PATH_BYTES, "Nothing")]),
+    ffn(WRITE_TEXT_ATOMIC, "writeTextAtomic", &[ov(P_PATH_VALUE, "Nothing")]),
+    ffn(APPEND_BYTES, "appendBytes", &[ov(P_PATH_BYTES, "Nothing")]),
+    ffn(APPEND_TEXT, "appendText", &[ov(P_PATH_VALUE, "Nothing")]),
+    ffn(OPEN, "open", &[ov(P_OPEN, FILE_TYPE)]),
+    ffn(OPEN_FILE, "openFile", &[ov(P_OPEN_FILE, FILE_TYPE)]),
+    ffn(OPEN_FILE_NO_FOLLOW, "openFileNoFollow", &[ov(P_OPEN_FILE, FILE_TYPE)]),
+    ffn(OPEN_WITHIN, "openWithin", &[ov(P_OPEN_WITHIN, FILE_TYPE)]),
+    ffn(CREATE_TEMP_FILE, "createTempFile", &[ov(P_CREATE_TEMP, FILE_TYPE)]),
+    ffn(TEMP_DIRECTORY, "tempDirectory", &[ov(P_NONE, "String")]),
+    ffn(READ_LINE, "readLine", &[ov(P_FILE, "String")]),
+    ffn(READ_ALL, "readAll", &[ov(P_FILE, "String")]),
+    ffn(READ_ALL_BYTES, "readAllBytes", &[ov(P_FILE, "List OF Byte")]),
+    ffn(WRITE_ALL, "writeAll", &[ov(P_FILE_VALUE, "Nothing")]),
+    ffn(WRITE_ALL_BYTES, "writeAllBytes", &[ov(P_FILE_BYTES, "Nothing")]),
+    ffn(SET_BUFFERED, "setBuffered", &[ov(P_FILE_ENABLED, "Nothing")]),
+    ffn(IS_BUFFERED, "isBuffered", &[ov(P_FILE, "Boolean")]),
+    ffn(FLUSH, "flush", &[ov(P_FILE, "Nothing")]),
+    ffn(CLOSE, "close", &[ov(P_FILE, "Nothing")]),
+    ffn(EOF, "eof", &[ov(P_FILE, "Boolean")]),
+    ffn(CANONICAL_PATH, "canonicalPath", &[ov(P_PATH, "String")]),
+    ffn(IS_WITHIN, "isWithin", &[ov(P_IS_WITHIN, "Boolean")]),
+    ffn(PATH_JOIN, "pathJoin", &[ov(P_PARTS, "String")]),
+    ffn(PATH_DIR_NAME, "pathDirName", &[ov(P_PATH, "String")]),
+    ffn(PATH_BASE_NAME, "pathBaseName", &[ov(P_PATH, "String")]),
+    ffn(PATH_EXTENSION, "pathExtension", &[ov(P_PATH, "String")]),
+    ffn(PATH_NORMALIZE, "pathNormalize", &[ov(P_PATH, "String")]),
+    ffn(DELETE_FILE, "deleteFile", &[ov(P_PATH, "Nothing")]),
+    ffn(CREATE_DIRECTORY, "createDirectory", &[ov(P_PATH, "Nothing")]),
+    ffn(CREATE_DIRECTORIES, "createDirectories", &[ov(P_PATH, "Nothing")]),
+    ffn(DELETE_DIRECTORY, "deleteDirectory", &[ov(P_PATH, "Nothing")]),
+    ffn(LIST_DIRECTORY, "listDirectory", &[ov(P_PATH, "List OF String")]),
+    ffn(CURRENT_DIRECTORY, "currentDirectory", &[ov(P_NONE, "String")]),
+    ffn(SET_CURRENT_DIRECTORY, "setCurrentDirectory", &[ov(P_PATH, "Nothing")]),
+];
+
+const FS_TYPES: &[BuiltinType] = &[BuiltinType {
+    name: FILE_TYPE,
+    kind: TypeKind::Opaque,
+    fields: &[],
+}];
+
+pub(crate) static FS: BuiltinModule = BuiltinModule {
+    name: "fs",
+    functions: FS_FUNCTIONS,
+    types: FS_TYPES,
+    source: None,
+    resolver: None,
+};
+
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
 }
 
 pub(crate) fn is_fs_call(name: &str) -> bool {
-    matches!(
-        name,
-        FILE_EXISTS
-            | DIRECTORY_EXISTS
-            | EXISTS
-            | READ_BYTES
-            | READ_TEXT
-            | WRITE_BYTES
-            | WRITE_TEXT
-            | WRITE_BYTES_ATOMIC
-            | WRITE_TEXT_ATOMIC
-            | APPEND_BYTES
-            | APPEND_TEXT
-            | OPEN
-            | OPEN_FILE
-            | OPEN_FILE_NO_FOLLOW
-            | OPEN_WITHIN
-            | CREATE_TEMP_FILE
-            | TEMP_DIRECTORY
-            | READ_LINE
-            | READ_ALL
-            | READ_ALL_BYTES
-            | WRITE_ALL
-            | WRITE_ALL_BYTES
-            | SET_BUFFERED
-            | IS_BUFFERED
-            | FLUSH
-            | CLOSE
-            | EOF
-            | CANONICAL_PATH
-            | IS_WITHIN
-            | PATH_JOIN
-            | PATH_DIR_NAME
-            | PATH_BASE_NAME
-            | PATH_EXTENSION
-            | PATH_NORMALIZE
-            | DELETE_FILE
-            | CREATE_DIRECTORY
-            | CREATE_DIRECTORIES
-            | DELETE_DIRECTORY
-            | LIST_DIRECTORY
-            | CURRENT_DIRECTORY
-            | SET_CURRENT_DIRECTORY
-    )
+    DefaultResolver::contains(&FS, name)
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    name == FILE_TYPE
+    FS.types.iter().any(|ty| ty.name == name)
 }
 
 pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
@@ -144,98 +250,13 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    match name {
-        FILE_EXISTS | DIRECTORY_EXISTS | EXISTS | EOF | IS_WITHIN | IS_BUFFERED => Some("Boolean"),
-        READ_BYTES | READ_ALL_BYTES => Some("List OF Byte"),
-        READ_TEXT | READ_LINE | READ_ALL | CANONICAL_PATH | PATH_JOIN | PATH_DIR_NAME
-        | PATH_BASE_NAME | PATH_EXTENSION | PATH_NORMALIZE | CURRENT_DIRECTORY | TEMP_DIRECTORY => {
-            Some("String")
-        }
-        WRITE_BYTES
-        | WRITE_TEXT
-        | WRITE_BYTES_ATOMIC
-        | WRITE_TEXT_ATOMIC
-        | APPEND_BYTES
-        | APPEND_TEXT
-        | WRITE_ALL
-        | WRITE_ALL_BYTES
-        | SET_BUFFERED
-        | FLUSH
-        | CLOSE
-        | DELETE_FILE
-        | CREATE_DIRECTORY
-        | CREATE_DIRECTORIES
-        | DELETE_DIRECTORY
-        | SET_CURRENT_DIRECTORY => Some("Nothing"),
-        OPEN | OPEN_FILE | OPEN_FILE_NO_FOLLOW | OPEN_WITHIN | CREATE_TEMP_FILE => Some(FILE_TYPE),
-        LIST_DIRECTORY => Some("List OF String"),
-        _ => None,
-    }
+    DefaultResolver::return_type_name(&FS, name)
 }
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
-    let return_type = match name {
-        FILE_EXISTS
-        | DIRECTORY_EXISTS
-        | EXISTS
-        | READ_BYTES
-        | READ_TEXT
-        | CANONICAL_PATH
-        | PATH_DIR_NAME
-        | PATH_BASE_NAME
-        | PATH_EXTENSION
-        | PATH_NORMALIZE
-        | DELETE_FILE
-        | CREATE_DIRECTORY
-        | CREATE_DIRECTORIES
-        | DELETE_DIRECTORY
-        | LIST_DIRECTORY
-        | SET_CURRENT_DIRECTORY
-            if exact(arg_types, &["String"]) =>
-        {
-            Cow::Borrowed(call_return_type_name(name)?)
-        }
-        WRITE_BYTES | WRITE_BYTES_ATOMIC | APPEND_BYTES
-            if exact(arg_types, &["String", "List OF Byte"]) =>
-        {
-            Cow::Borrowed("Nothing")
-        }
-        WRITE_TEXT | WRITE_TEXT_ATOMIC | APPEND_TEXT if exact(arg_types, &["String", "String"]) => {
-            Cow::Borrowed("Nothing")
-        }
-        OPEN if exact(arg_types, &["String", "String"]) => Cow::Borrowed(FILE_TYPE),
-        OPEN_FILE | OPEN_FILE_NO_FOLLOW
-            if exact(arg_types, &["String"]) || exact(arg_types, &["String", "String"]) =>
-        {
-            Cow::Borrowed(FILE_TYPE)
-        }
-        OPEN_WITHIN
-            if exact(arg_types, &["String", "String"])
-                || exact(arg_types, &["String", "String", "String"]) =>
-        {
-            Cow::Borrowed(FILE_TYPE)
-        }
-        CREATE_TEMP_FILE if arg_types.is_empty() || exact(arg_types, &["String"]) => {
-            Cow::Borrowed(FILE_TYPE)
-        }
-        TEMP_DIRECTORY if arg_types.is_empty() => Cow::Borrowed("String"),
-        READ_LINE | READ_ALL if exact(arg_types, &[FILE_TYPE]) => Cow::Borrowed("String"),
-        READ_ALL_BYTES if exact(arg_types, &[FILE_TYPE]) => Cow::Borrowed("List OF Byte"),
-        WRITE_ALL if exact(arg_types, &[FILE_TYPE, "String"]) => Cow::Borrowed("Nothing"),
-        WRITE_ALL_BYTES if exact(arg_types, &[FILE_TYPE, "List OF Byte"]) => {
-            Cow::Borrowed("Nothing")
-        }
-        CLOSE if exact(arg_types, &[FILE_TYPE]) => Cow::Borrowed("Nothing"),
-        FLUSH if exact(arg_types, &[FILE_TYPE]) => Cow::Borrowed("Nothing"),
-        IS_BUFFERED if exact(arg_types, &[FILE_TYPE]) => Cow::Borrowed("Boolean"),
-        SET_BUFFERED if exact(arg_types, &[FILE_TYPE, "Boolean"]) => Cow::Borrowed("Nothing"),
-        EOF if exact(arg_types, &[FILE_TYPE]) => Cow::Borrowed("Boolean"),
-        IS_WITHIN if exact(arg_types, &["String", "String"]) => Cow::Borrowed("Boolean"),
-        PATH_JOIN if exact(arg_types, &["List OF String"]) => Cow::Borrowed("String"),
-        CURRENT_DIRECTORY if arg_types.is_empty() => Cow::Borrowed("String"),
-        _ => return None,
-    };
-    Some(ResolvedCall { return_type })
+    DefaultResolver::resolve_call(&FS, name, arg_types).map(|return_type| ResolvedCall {
+        return_type: Cow::Borrowed(return_type),
+    })
 }
 
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
@@ -285,37 +306,12 @@ pub(crate) fn consumes_argument(name: &str, index: usize) -> bool {
 }
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    match name {
-        FILE_EXISTS
-        | DIRECTORY_EXISTS
-        | EXISTS
-        | READ_BYTES
-        | READ_TEXT
-        | CANONICAL_PATH
-        | PATH_DIR_NAME
-        | PATH_BASE_NAME
-        | PATH_EXTENSION
-        | PATH_NORMALIZE
-        | DELETE_FILE
-        | CREATE_DIRECTORY
-        | CREATE_DIRECTORIES
-        | DELETE_DIRECTORY
-        | LIST_DIRECTORY
-        | SET_CURRENT_DIRECTORY => Some((1, 1)),
-        WRITE_BYTES | WRITE_BYTES_ATOMIC | APPEND_BYTES | WRITE_TEXT | WRITE_TEXT_ATOMIC
-        | APPEND_TEXT | OPEN | WRITE_ALL | WRITE_ALL_BYTES | IS_WITHIN | SET_BUFFERED => {
-            Some((2, 2))
-        }
-        OPEN_FILE | OPEN_FILE_NO_FOLLOW => Some((1, 2)),
-        OPEN_WITHIN => Some((2, 3)),
-        CREATE_TEMP_FILE => Some((0, 1)),
-        READ_LINE | READ_ALL | READ_ALL_BYTES | CLOSE | EOF | IS_BUFFERED | FLUSH => Some((1, 1)),
-        PATH_JOIN => Some((1, 1)),
-        CURRENT_DIRECTORY | TEMP_DIRECTORY => Some((0, 0)),
-        _ => None,
-    }
+    DefaultResolver::arity(&FS, name)
 }
 
+// `exact` is no longer used by production `fs` code (resolve_call now derives from
+// the descriptor); only the `exact_helper` unit test exercises the shared helper.
+#[cfg(test)]
 use super::exact;
 
 #[cfg(test)]
@@ -709,5 +705,53 @@ mod tests {
         assert!(!exact(&types(&["String"]), &["String", "String"]));
         assert!(!exact(&types(&["Integer"]), &["String"]));
         assert!(exact(&types(&[]), &[]));
+    }
+
+    // plan-72-K migration gate: prove `FS` reproduces every legacy helper answer
+    // for every `fs.*` name (and an unknown name) — membership, arity, param
+    // names, return type — pins the borrowed `call_param_names` static equal to
+    // `FS`, and confirms `resolve_call` derives byte-identically across the whole
+    // surface (checked exhaustively by the resolve_* tests above). `File` is the
+    // one opaque builtin type. `expected_arguments` is opted out (bespoke
+    // `"String[, String]"` / `"no arguments"` phrasing). Keep until plan-72-BB.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::parity;
+
+        let calls: Vec<&str> = FS_FUNCTIONS.iter().map(|f| f.name).collect();
+        let legacy = parity::LegacySet {
+            is_call: &is_fs_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            return_type_name: &call_return_type_name,
+            expected_arguments: None, // bespoke optional-argument / "no arguments" phrasing
+            param_name_overloads: None,
+            argument_types: None,
+            implementation_name: None,
+            default_padding: None,
+            // `File` is opaque (no record fields) and fs has no builtin_type_fields
+            // helper; membership is asserted below.
+            builtin_type_fields: None,
+        };
+        let mut probe = calls.clone();
+        probe.push("fs.nope");
+        parity::assert_parity(&FS, &probe, &legacy, &[]);
+
+        // The one opaque builtin resource type and its close function.
+        assert!(is_builtin_type(FILE_TYPE));
+        assert!(!is_builtin_type("Directory"));
+        assert_eq!(FS.types.iter().map(|ty| ty.name).collect::<Vec<_>>(), vec![FILE_TYPE]);
+        assert_eq!(resource_close_function(FILE_TYPE), Some(CLOSE));
+
+        // resolve_call parity spot-checks across the overloaded / optional forms.
+        assert_eq!(ret(OPEN_FILE, &["String"]), Some(FILE_TYPE.to_string()));
+        assert_eq!(ret(OPEN_FILE, &["String", "String"]), Some(FILE_TYPE.to_string()));
+        assert!(ret(OPEN_FILE, &["Integer"]).is_none());
+        assert_eq!(ret(CREATE_TEMP_FILE, &[]), Some(FILE_TYPE.to_string()));
+        assert!(ret(CREATE_TEMP_FILE, &["String", "String"]).is_none());
+        assert_eq!(ret(WRITE_BYTES, &["String", "List OF Byte"]), Some("Nothing".to_string()));
+        assert!(ret(WRITE_BYTES, &["String", "String"]).is_none());
     }
 }

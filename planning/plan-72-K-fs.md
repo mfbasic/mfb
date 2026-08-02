@@ -35,13 +35,24 @@ window on this letter is the largest per-package run in the plan.
 
 ### Phase K1 — descriptor and wrappers
 
-- [ ] Add `pub(crate) static FS: BuiltinModule` with every function,
+- [x] Add `pub(crate) static FS: BuiltinModule` with every function,
       overload, parameter (canonical + aliases), argument types, return
-      type, implementation, and default.
-- [ ] Add `BuiltinType` entry for the fs builtin type.
-- [ ] Rewrite the 7 metadata helpers as wrappers over `FS`.
-- [ ] Register `FS` with the `BuiltinRegistry` from plan-72-A.
-- [ ] Parity tests: every `fs.*` name and the builtin type.
+      type, implementation, and default. Done: 41 functions, single
+      fixed-return overloads; `open*`'s `mode` and `createTempFile`'s
+      `directory` are `DefaultValue::Optional` (arity widening, no padding).
+- [x] Add `BuiltinType` entry for the fs builtin type (`File`, opaque).
+- [x] Rewrite the 7 metadata helpers as wrappers over `FS`.
+      `is_fs_call`→`contains`, `arity`→`arity`, `call_return_type_name`
+      →`return_type_name`, `resolve_call`→`resolve_call` all delegate to
+      `DefaultResolver` (fs's `resolve_call` was pure per-position exact
+      matching); `is_builtin_type` queries `FS.types`; `call_param_names`
+      (borrowed) and `expected_arguments` (bespoke phrasing) stay statics
+      pinned by parity where derivable. `resource_close_function` /
+      `consumes_argument` are fs-specific and untouched.
+- [x] Register `FS` with the `BuiltinRegistry` from plan-72-A.
+- [x] Parity tests: every `fs.*` name and the builtin type
+      (`parity_matches_descriptor`); resolve_* tests already cover the whole
+      resolution surface exhaustively.
 
 Acceptance: `cargo test` passes; every `fs.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
