@@ -590,10 +590,12 @@ impl BuiltinRegistry {
 /// legacy per-package helper (the `mod.rs` adapters fall back on a registry
 /// miss). BB then deletes the legacy helpers the adapters fall back to.
 ///
-/// Migrated so far: `app` (plan-72-B), `bits` (plan-72-D).
+/// Migrated so far: `app` (plan-72-B), `bits` (plan-72-D), `collections`
+/// (plan-72-E).
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::bits::BITS,
+    &crate::builtins::collections::COLLECTIONS,
 ]);
 
 /// The migration parity harness (plan-72).
@@ -628,7 +630,11 @@ pub(crate) mod parity {
         pub arity: &'a dyn Fn(&str) -> Option<(usize, usize)>,
         pub param_names: &'a dyn Fn(&str) -> Option<Vec<Vec<&'static str>>>,
         pub return_type_name: &'a dyn Fn(&str) -> Option<&'static str>,
-        pub expected_arguments: &'a dyn Fn(&str) -> Option<String>,
+        /// Optional: a package whose `expected_arguments` uses a bespoke phrasing
+        /// the descriptor's per-position types cannot render (`collections`'
+        /// `"List OF T, Integer or Map OF K TO V, K"`) sets this to `None` and
+        /// keeps its hand-authored strings.
+        pub expected_arguments: Option<&'a dyn Fn(&str) -> Option<String>>,
         pub param_name_overloads: Option<&'a dyn Fn(&str) -> Option<Vec<Vec<&'static str>>>>,
         pub argument_types: Option<&'a dyn Fn(&str) -> Option<Vec<&'static str>>>,
         pub implementation_name: Option<&'a dyn Fn(&str) -> Option<&'static str>>,
@@ -688,11 +694,13 @@ pub(crate) mod parity {
                     "return-type parity for {call}"
                 );
             }
-            assert_eq!(
-                DefaultResolver::expected_arguments(module, call),
-                (legacy.expected_arguments)(call),
-                "expected-arguments parity for {call}"
-            );
+            if let Some(expected_arguments) = legacy.expected_arguments {
+                assert_eq!(
+                    DefaultResolver::expected_arguments(module, call),
+                    expected_arguments(call),
+                    "expected-arguments parity for {call}"
+                );
+            }
             if let Some(overloads) = legacy.param_name_overloads {
                 assert_eq!(
                     DefaultResolver::param_name_overloads(module, call),
@@ -1318,7 +1326,7 @@ mod tests {
                     .map(|rows| rows.iter().map(|row| row.to_vec()).collect())
             },
             return_type_name: &bits::call_return_type_name,
-            expected_arguments: &|name| bits::expected_arguments(name).map(str::to_string),
+            expected_arguments: Some(&|name| bits::expected_arguments(name).map(str::to_string)),
             // bits is single-overload with no rewrite, argument-type helper, or
             // default padding, and contributes no builtin types.
             param_name_overloads: None,
@@ -1472,7 +1480,7 @@ mod tests {
             // Return type is resolver-owned, so this row is not asserted for a
             // resolver-backed module; supply the data-only default anyway.
             return_type_name: &|_| None,
-            expected_arguments: &|name| (name == "s.pick").then(|| "Integer".to_string()),
+            expected_arguments: Some(&|name| (name == "s.pick").then(|| "Integer".to_string())),
             param_name_overloads: Some(&|name| {
                 (name == "s.pick").then(|| vec![vec!["a"], vec!["a", "b"]])
             }),

@@ -241,7 +241,7 @@ mod tests {
                 call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
             },
             return_type_name: &call_return_type_name,
-            expected_arguments: &|name| expected_arguments(name).map(str::to_string),
+            expected_arguments: Some(&|name| expected_arguments(name).map(str::to_string)),
             param_name_overloads: None,
             argument_types: Some(&|name| {
                 argument_types(name).map(<[&str]>::to_vec)
