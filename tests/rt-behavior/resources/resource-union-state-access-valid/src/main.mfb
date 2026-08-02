@@ -1,0 +1,34 @@
+IMPORT fs
+IMPORT net
+IMPORT io
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+UNION Stream
+  File
+  Socket
+END UNION
+
+' plan-74: mutate a resource union's STATE through a union-typed RES parameter;
+' the write is visible to the owner (the §15.5 alias contract).
+SUB advance(RES p AS Stream STATE Cursor)
+  p.state.pos = p.state.pos + 10
+END SUB
+
+FUNC main AS Integer
+  RES s AS Stream STATE Cursor = fs::createTempFile()
+  io::print(toString(s.state.pos))     ' 0 — default-initialized
+  s.state.pos = 5
+  io::print(toString(s.state.pos))     ' 5 — written through the union value
+  advance(s)
+  io::print(toString(s.state.pos))     ' 15 — callee's write visible to the owner
+  MATCH s
+    CASE File(f)
+      io::print(toString(f.state.pos)) ' 15 — same payload via a MATCH-extracted variant
+    CASE Socket(sock)
+      io::print("-1")
+  END MATCH
+  RETURN 0
+END FUNC

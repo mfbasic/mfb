@@ -1,19 +1,42 @@
 use super::*;
 
 impl CodeBuilder<'_> {
+    /// Resolve a resource *value* pointer (held in `value_ptr`) of declared
+    /// `type_` to the pointer to its 80-byte resource **record**, whose `STATE`
+    /// slot is at `FILE_OFFSET_STATE`. For a concrete resource the value already
+    /// IS the record. For a resource union (plan-74) the value is a
+    /// `{ tag @0, record-ptr @8 }` block, so the record is loaded from `+8` — the
+    /// single indirection that makes every STATE path work for a union.
+    pub(super) fn emit_resource_record_ptr(
+        &mut self,
+        value_ptr: &str,
+        type_: &str,
+    ) -> Result<String, String> {
+        if self.is_resource_union_type(type_) {
+            let record = self.allocate_register()?;
+            self.emit(abi::load_u64(&record, value_ptr, 8));
+            Ok(record)
+        } else {
+            Ok(value_ptr.to_string())
+        }
+    }
+
     /// Default-initialize a `RES` binding's `STATE` payload. The resource value
-    /// at `resource_slot` is a pointer to its record; if the state slot
-    /// (`FILE_OFFSET_STATE`) is null, allocate and store a default `state_type`
-    /// record. A resource that already carries state (moved/returned in) is left
-    /// untouched. Values are spilled to the stack across allocations to avoid
-    /// register aliasing.
+    /// at `resource_slot` is a pointer to its record (a concrete resource) or to a
+    /// `{tag, record-ptr}` union block whose record is at `+8` (`resource_type`
+    /// selects, plan-74); if the state slot (`FILE_OFFSET_STATE`) of the record is
+    /// null, allocate and store a default `state_type` record. A resource that
+    /// already carries state (moved/returned in) is left untouched. Values are
+    /// spilled to the stack across allocations to avoid register aliasing.
     pub(super) fn emit_resource_state_init(
         &mut self,
         resource_slot: usize,
         state_type: &str,
+        resource_type: &str,
     ) -> Result<(), String> {
-        let ptr = self.allocate_register()?;
-        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), resource_slot));
+        let block = self.allocate_register()?;
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), resource_slot));
+        let ptr = self.emit_resource_record_ptr(&block, resource_type)?;
         let current = self.allocate_register()?;
         self.emit(abi::load_u64(&current, &ptr, FILE_OFFSET_STATE));
         let done = self.label("resource_state_init_done");
@@ -26,8 +49,9 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             default_slot,
         ));
-        let ptr2 = self.allocate_register()?;
-        self.emit(abi::load_u64(&ptr2, abi::stack_pointer(), resource_slot));
+        let block2 = self.allocate_register()?;
+        self.emit(abi::load_u64(&block2, abi::stack_pointer(), resource_slot));
+        let ptr2 = self.emit_resource_record_ptr(&block2, resource_type)?;
         let value = self.allocate_register()?;
         self.emit(abi::load_u64(&value, abi::stack_pointer(), default_slot));
         self.emit(abi::store_u64(&value, &ptr2, FILE_OFFSET_STATE));
@@ -135,7 +159,7 @@ impl CodeBuilder<'_> {
                     let state = state.to_string();
                     let slot = self.allocate_stack_object("default_resource_record", 8);
                     self.emit(abi::store_u64(&record, abi::stack_pointer(), slot));
-                    self.emit_resource_state_init(slot, &state)?;
+                    self.emit_resource_state_init(slot, &state, type_)?;
                     self.emit(abi::load_u64(&record, abi::stack_pointer(), slot));
                 }
                 Ok(ValueResult {
@@ -188,12 +212,13 @@ impl CodeBuilder<'_> {
                 crate::builtins::resource::state_type_name(&target_value.type_)
             {
                 let state_type = state_type.to_string();
+                // A resource union value is a `{tag, record-ptr}` block; the STATE
+                // lives in the active variant's record reached via `+8` (plan-74).
+                // For a concrete resource the value already IS the record.
+                let record =
+                    self.emit_resource_record_ptr(&target_value.location, &target_value.type_)?;
                 let register = self.allocate_register()?;
-                self.emit(abi::load_u64(
-                    &register,
-                    &target_value.location,
-                    FILE_OFFSET_STATE,
-                ));
+                self.emit(abi::load_u64(&register, &record, FILE_OFFSET_STATE));
                 return Ok(ValueResult {
                     type_: state_type,
                     location: register,

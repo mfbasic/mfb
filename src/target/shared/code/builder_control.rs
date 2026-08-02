@@ -327,7 +327,7 @@ impl CodeBuilder<'_> {
                         if let Some(state_type) = crate::builtins::resource::state_type_name(type_)
                         {
                             let state_type = state_type.to_string();
-                            self.emit_resource_state_init(stack_offset, &state_type)?;
+                            self.emit_resource_state_init(stack_offset, &state_type, type_)?;
                         }
                     }
                     NirOp::StoreGlobal { name, type_, value } => {
@@ -566,13 +566,14 @@ impl CodeBuilder<'_> {
                         // record pointer into the resource record's state slot.
                         // The resource value is itself a pointer, so the update
                         // is visible to the owner and every other pointer to it.
-                        let stack_offset = self
-                            .locals
-                            .get(resource)
-                            .ok_or_else(|| {
-                                format!("native code state assignment unknown local '{resource}'")
-                            })?
-                            .stack_offset;
+                        let local = self.locals.get(resource).ok_or_else(|| {
+                            format!("native code state assignment unknown local '{resource}'")
+                        })?;
+                        let stack_offset = local.stack_offset;
+                        // A resource union value is a `{tag, record-ptr}` block; the
+                        // STATE lives in the active variant's record at `+8`
+                        // (plan-74). Concrete resources address their record directly.
+                        let resource_type = local.type_.clone();
                         let result = self.lower_value(value)?;
                         // A register-native vector STATE payload materializes to its
                         // block here (identity otherwise; plan-01-vector).
@@ -587,8 +588,9 @@ impl CodeBuilder<'_> {
                         self.observe_float(value, &result)?;
                         let value_slot = self.allocate_stack_object("state_assign_value", 8);
                         self.store_value_at(&result, abi::stack_pointer(), value_slot);
-                        let ptr = self.allocate_register()?;
-                        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), stack_offset));
+                        let block = self.allocate_register()?;
+                        self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
+                        let ptr = self.emit_resource_record_ptr(&block, &resource_type)?;
                         let val = self.allocate_register()?;
                         self.emit(abi::load_u64(&val, abi::stack_pointer(), value_slot));
                         self.emit(abi::store_u64(&val, &ptr, FILE_OFFSET_STATE));

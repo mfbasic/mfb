@@ -96,7 +96,13 @@ pub(super) fn collect_bind_type_names(
     impl NirVisitor for Collector<'_> {
         fn visit_op(&mut self, op: &NirOp) {
             if let NirOp::Bind { type_, .. } = op {
-                self.types.insert(type_.clone());
+                // Strip any `STATE T` suffix (plan-74): a stateful resource-union
+                // bind (`Stream STATE Cursor`) names the same union as its bare
+                // form, and the union close-symbol loop matches against the bare
+                // union type name — so the base must be recorded or the stateful
+                // bind's tag-dispatched close symbol is never defined.
+                self.types
+                    .insert(crate::builtins::resource::base_resource_name(type_).to_string());
             }
             walk_op(self, op);
         }

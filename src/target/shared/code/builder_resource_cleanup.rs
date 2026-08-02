@@ -44,7 +44,13 @@ impl CodeBuilder<'_> {
 
     /// If `type_` is a resource union (every variant is a resource), the
     /// `(tag, close_symbol)` pairs for tag-dispatched drop; otherwise `None`.
+    ///
+    /// The STATE suffix is stripped first (plan-74): a stateful resource union
+    /// (`Stream STATE PendingState`) names the same union as its bare form, so it
+    /// must register the same tag-dispatched close — otherwise a stateful union
+    /// binding would register no cleanup at all and leak its handle.
     pub(super) fn resource_union_cleanup(&self, type_: &str) -> Option<Vec<(usize, String)>> {
+        let type_ = crate::builtins::resource::base_resource_name(type_);
         if !self.type_model.union_names.contains(type_) {
             return None;
         }
@@ -62,6 +68,15 @@ impl CodeBuilder<'_> {
             out.push((tag, symbol));
         }
         Some(out)
+    }
+
+    /// True when `type_`'s base names a resource union (plan-74). A resource union
+    /// *value* is a `{ tag @0, resource-record-ptr @8 }` block — **not** the
+    /// 80-byte resource record itself — so its `STATE` payload lives in the active
+    /// variant's record reached via a `+8` indirection, whereas a concrete
+    /// resource value already *is* that record. The STATE suffix is stripped.
+    pub(super) fn is_resource_union_type(&self, type_: &str) -> bool {
+        self.resource_union_cleanup(type_).is_some()
     }
 
     pub(super) fn deactivate_resource_cleanup(&mut self, name: &str) {

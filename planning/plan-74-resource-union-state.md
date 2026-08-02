@@ -257,7 +257,7 @@ Land the specified rule before the code, mirroring plan-13-A.
 Acceptance: `mfb spec language resource-management` renders the rule and its uniform-STATE
 constraint (verified); the diagnostics topic shows 2-203-0088 retired (verified);
 `every_rule_is_documented_in_the_spec` passes.
-Commit: —
+Commit: 354c9c011
 
 ### Phase 2 — verifier: lift the ban, confirm agreement
 
@@ -278,22 +278,30 @@ Acceptance: the accept/reject matrix is correct at `-ast -ir` — union+STATE ac
 binding/return/param (all exit 0); disagreeing STATE still rejected `TYPE_STATE_MISMATCH`.
 Verified: 46 `syntax/resources` acceptance tests pass; `cargo test --bin mfb` 3750 pass.
 (Runtime lands in Phase 3.)
-Commit: —
+Commit: f384c3ae2
 
 ### Phase 3 — codegen: STATE access through a union
 
-- [ ] Add the union `+8` record-ptr helper; apply in `.state` read
-      (`builder_value_semantics.rs:186`), state init (`:10`), and `StateAssign`
-      (`builder_control.rs:564`).
-- [ ] Ensure the MATCH case-binding type carries the STATE suffix so `.state` on an
-      extracted variant resolves.
-- [ ] Tests: `tests/rt-behavior/resources/resource-union-state-access-valid` — bind a union
-      with a **scalar** STATE record, read/write `s.state.field` through the union value and
-      through a `RES … AS Stream STATE …` parameter (prove the callee's write is visible to
-      the owner), and via `MATCH`. Assert the printed values.
+- [x] Added `emit_resource_record_ptr` (the `+8` union indirection) + `is_resource_union_type`
+      helpers; applied in `.state` read (`builder_value_semantics.rs` `lower_field_access`),
+      state init (`emit_resource_state_init`, now takes the resource type), and `StateAssign`
+      (`builder_control.rs`).
+- [x] MATCH case-binding carries the STATE suffix: syntaxcheck (`check_match_pattern`
+      propagates the scrutinee's `state_type` to the variant `LocalInfo`) **and** lowering
+      (`ir/lower.rs` `match_case_binding` appends `STATE <T>` to the binding type). Codegen
+      then takes the concrete-record path on the extracted variant.
+- [x] Also fixed three latent gaps that blocked a stateful union at codegen (see Corrections):
+      `resource_union_cleanup` now strips STATE (else a stateful union registered **no**
+      cleanup and leaked); `collect_bind_type_names` (`plan/symbols.rs`) and
+      `collect_bind_types` (`validate/capabilities.rs`) now store the base name (else the
+      variants' close symbol is never **defined** / never marked **used**).
+- [x] Tests: `tests/rt-behavior/resources/resource-union-state-access-valid` — binds a union
+      with a scalar STATE record; reads/writes `s.state.pos` through the union value, through
+      a `RES … STATE …` parameter (callee write visible to owner), and via `MATCH`.
 
-Acceptance: the runtime fixture prints the correct pre/post-mutation values through all
-three access routes.
+Acceptance: the runtime fixture prints `0 / 5 / 15 / 15` — correct pre/post-mutation values
+through all three access routes (value, parameter, MATCH). Verified; `cargo test --bin mfb`
+3750 pass; 80 resource + 76 union/match acceptance tests pass (no golden drift).
 Commit: —
 
 ### Phase 4 — codegen: drop-free the active variant's STATE (largest risk)
@@ -350,7 +358,35 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- 2026-08-02 — **Three latent codegen gaps blocked a stateful union that §3 assumed was a
+  pure `+8` access change.** Lifting the verifier ban exposed them (they were unreachable
+  while the ban stood):
+  1. `resource_union_cleanup` (`builder_resource_cleanup.rs`) checked
+     `union_names.contains(type_)` with the raw type string, so `Stream STATE Cursor` matched
+     nothing and a stateful union bind registered **no cleanup at all** — a leaked, never-closed
+     handle. Fixed: strip to `base_resource_name` first.
+  2. The union's tag-dispatched close symbol was never **defined**: `collect_bind_type_names`
+     (`plan/symbols.rs`) stored the STATE-suffixed bind type, but the symbol-set loop matches
+     the bare union name, so a stateful bind skipped the definition → link error
+     `_mfb_rt_fs_fs_close is not defined`. Fixed: store the base name.
+  3. The identical bug in `collect_bind_types` (`validate/capabilities.rs`) meant the variants'
+     close helpers were never marked **used** → `NIR declares unused runtime helper 'net'`.
+     Fixed the same way. (The doubled `_mfb_rt_fs_fs_close` spelling is the *existing*
+     convention — definition and reference agree — and was intentionally left unchanged.)
+- 2026-08-02 — **MATCH `.state` needed a two-layer change, as §4.2 anticipated but did not
+  fully scope.** The extracted variant binding had no STATE, so `f.state` failed
+  `TYPE_STATE_INVALID`. Fixed in syntaxcheck (`check_match_pattern` now threads the scrutinee's
+  `state_type` onto the variant `LocalInfo`, via a new `scrutinee_state` parameter) **and** in
+  lowering (`ir/lower.rs::match_case_binding` appends `STATE <T>` from the scrutinee type to the
+  binding type string so codegen takes the concrete-record path). `UnionExtract.type_` stays the
+  bare variant.
+- 2026-08-02 — **`emit_resource_state_init` gained a `resource_type` parameter** (was
+  `(resource_slot, state_type)`), so it can apply the union `+8` indirection. Its two callers
+  (`builder_control.rs` binding site, `builder_value_semantics.rs` closed-resource default) were
+  updated to pass the resource type.
+- 2026-08-02 — Re-verified citations by symbol before starting (all held): ban emits at
+  `ir/verify/ops.rs:236` (binding) and `calls.rs:288` (return); `split_state_clause` /
+  `base_resource_name` / `state_type_name` at `builtins/resource.rs:254/265/273`.
 
 ## Summary
 
