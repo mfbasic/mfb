@@ -615,6 +615,7 @@ pub(super) fn lower_tls_accept(
     let closed = format!("{symbol}_closed");
     let no_timeout = format!("{symbol}_no_timeout");
     let accept_invalid = format!("{symbol}_accept_invalid");
+    let accept_ts_store = format!("{symbol}_accept_ts_clamped");
     let accept_fail = format!("{symbol}_accept_fail");
     let accept_timeout = format!("{symbol}_accept_timeout");
     let tls_fail = format!("{symbol}_tls_fail");
@@ -652,6 +653,15 @@ pub(super) fn lower_tls_accept(
         abi::branch_eq(&no_timeout),
         abi::compare_immediate("%v9", "0"),
         abi::branch_lt(&accept_invalid),
+        // Clamp `> 0` to INT_MAX and store it back — WSAPoll takes a C `int`, so a
+        // value with bit 31 set would be read as a block-forever timeout; net clamps
+        // identically. WSAPoll and the handshake SO_*TIMEO both reload TIMEOUT.
+        abi::move_immediate("%v10", "Integer", "2147483647"),
+        abi::compare_registers("%v9", "%v10"),
+        abi::branch_le(&accept_ts_store),
+        abi::move_register("%v9", "%v10"),
+        abi::label(&accept_ts_store),
+        abi::store_u64("%v9", abi::stack_pointer(), TIMEOUT),
         abi::load_u64("%v9", abi::stack_pointer(), LISTENFD),
         abi::store_u64("%v9", abi::stack_pointer(), POLLFD),
         abi::move_immediate("%v10", "Integer", POLLRDNORM),

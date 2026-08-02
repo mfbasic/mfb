@@ -77,6 +77,7 @@ pub(super) fn lower_tls_connect_openssl(
         // unbounded sentinel (i64::MIN, allowed → the blocking connect + blocking
         // handshake below); `0`/`> 0` pass through.
         let ts_ok = format!("{symbol}_ts_ok");
+        let ts_store = format!("{symbol}_ts_clamped");
         instructions.extend([
             abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFFSET),
             abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
@@ -84,6 +85,17 @@ pub(super) fn lower_tls_connect_openssl(
             abi::branch_eq(&ts_ok),
             abi::compare_immediate("%v9", "0"),
             abi::branch_lt(&connect_invalid),
+            // Clamp `> 0` to INT_MAX and store it back: poll() and the handshake
+            // SO_*TIMEO take a bounded C `int`, so a value with bit 31 set would be
+            // read as a negative (block-forever) timeout (bug-239). net clamps the
+            // same way (net/poll.rs); tls was missing it. The sentinel skips this
+            // (branch_eq above) and stays in the slot as the block form.
+            abi::move_immediate("%v10", "Integer", "2147483647"),
+            abi::compare_registers("%v9", "%v10"),
+            abi::branch_le(&ts_store),
+            abi::move_register("%v9", "%v10"),
+            abi::label(&ts_store),
+            abi::store_u64("%v9", abi::stack_pointer(), TIMEOUT_OFFSET),
             abi::label(&ts_ok),
         ]);
     }
@@ -1538,6 +1550,7 @@ pub(super) fn lower_tls_accept_openssl(
     let accept_fail = format!("{symbol}_accept_fail");
     let accept_timeout = format!("{symbol}_accept_timeout");
     let accept_invalid = format!("{symbol}_accept_invalid");
+    let accept_ts_store = format!("{symbol}_accept_ts_clamped");
     let ssl_fail = format!("{symbol}_ssl_fail");
     let tls_fail_conn = format!("{symbol}_tls_fail_conn");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -1565,6 +1578,15 @@ pub(super) fn lower_tls_accept_openssl(
         abi::branch_eq(&no_timeout),
         abi::compare_immediate("%v9", "0"),
         abi::branch_lt(&accept_invalid),
+        // Clamp `> 0` to INT_MAX and store it back — poll() takes a C `int`, so a
+        // value with bit 31 set would be read as a block-forever timeout (bug-239);
+        // net clamps identically. The sentinel skips this (branch_eq above).
+        abi::move_immediate("%v10", "Integer", "2147483647"),
+        abi::compare_registers("%v9", "%v10"),
+        abi::branch_le(&accept_ts_store),
+        abi::move_register("%v9", "%v10"),
+        abi::label(&accept_ts_store),
+        abi::store_u64("%v9", abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
         abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
         abi::move_immediate("%v10", "Integer", "1"), // POLLIN

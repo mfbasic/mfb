@@ -245,6 +245,12 @@ pub(super) fn lower_tls_connect(
     const FRAME_SIZE: usize = 0x100;
 
     let fail = format!("{symbol}_fail");
+    // Socket-level (TCP connect / WSAPoll / getsockopt) failures are network
+    // failures; the TLS handshake/verify failures at `fail` are ErrTlsFailed. This
+    // split matches the OpenSSL connect backend and this backend's own accept path
+    // (both distinguish ErrNetworkFailed from ErrTlsFailed), where connect formerly
+    // reported every failure as ErrNetworkFailed.
+    let net_fail = format!("{symbol}_net_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let connect_timeout = format!("{symbol}_connect_timeout");
     let connect_invalid = format!("{symbol}_connect_invalid");
@@ -271,6 +277,7 @@ pub(super) fn lower_tls_connect(
         // getaddrinfo/socket. The omitted overload pads the unbounded sentinel
         // (allowed → an INFINITE WSAPoll + unbounded handshake); `0`/`> 0` pass on.
         let ts_ok = format!("{symbol}_ts_ok");
+        let ts_store = format!("{symbol}_ts_clamped");
         ins.extend([
             abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT),
             abi::move_immediate("%v10", "Integer", super::super::TIMEOUT_UNBOUNDED_SENTINEL),
@@ -278,11 +285,21 @@ pub(super) fn lower_tls_connect(
             abi::branch_eq(&ts_ok),
             abi::compare_immediate("%v9", "0"),
             abi::branch_lt(&connect_invalid),
+            // Clamp `> 0` to INT_MAX and store it back: WSAPoll takes a C `int`, so a
+            // value with bit 31 set would be read as a block-forever (-1) timeout;
+            // net clamps identically. Both socket_connect (WSAPoll) and the handshake
+            // SO_*TIMEO reload TIMEOUT, so both see the clamped value. Sentinel skips.
+            abi::move_immediate("%v10", "Integer", "2147483647"),
+            abi::compare_registers("%v9", "%v10"),
+            abi::branch_le(&ts_store),
+            abi::move_register("%v9", "%v10"),
+            abi::label(&ts_store),
+            abi::store_u64("%v9", abi::stack_pointer(), TIMEOUT),
             abi::label(&ts_ok),
         ]);
     }
 
-    socket_connect(symbol, HOST, PORT, HINTS, RES, HOSTCSTR, FD, TIMEOUT, &connect_timeout, &fail, imports, platform, &mut ins, &mut rel)?;
+    socket_connect(symbol, HOST, PORT, HINTS, RES, HOSTCSTR, FD, TIMEOUT, &connect_timeout, &net_fail, imports, platform, &mut ins, &mut rel)?;
 
     // plan-73-D: bound the TLS handshake recv by SO_RCVTIMEO/SO_SNDTIMEO. The
     // unbounded sentinel => leave it unbounded (omit = block); `0` => the smallest
@@ -642,9 +659,14 @@ pub(super) fn lower_tls_connect(
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&fail_timeout),
     ]);
-    emit_fail(symbol, ERR_NETWORK_FAILED_CODE, ERR_NETWORK_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+    // A handshake/verify failure (not a handshake-recv timeout) => ErrTlsFailed,
+    // matching the OpenSSL connect backend and this backend's accept path.
+    emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut ins, &mut rel, &done);
     ins.push(abi::label(&fail_timeout));
     emit_fail(symbol, ERR_TIMEOUT_CODE, ERR_TIMEOUT_SYMBOL, &mut ins, &mut rel, &done);
+    // A socket-level (TCP connect / WSAPoll / getsockopt) failure => ErrNetworkFailed.
+    ins.push(abi::label(&net_fail));
+    emit_fail(symbol, ERR_NETWORK_FAILED_CODE, ERR_NETWORK_FAILED_SYMBOL, &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);

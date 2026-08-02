@@ -56,6 +56,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_connect_macos(
         // overload pads the unbounded sentinel (i64::MIN), which is allowed (→ FOREVER
         // at the deadline block); `0`/`> 0` pass through.
         let ts_ok = format!("{symbol}_ts_ok");
+        let ts_store = format!("{symbol}_ts_clamped");
         ins.extend([
             abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT),
             abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
@@ -63,6 +64,15 @@ pub(in crate::target::shared::code::tls) fn lower_tls_connect_macos(
             abi::branch_eq(&ts_ok),
             abi::compare_immediate("%v9", "0"),
             abi::branch_lt(&conn_invalid),
+            // Clamp `> 0` to INT_MAX and store it back so `ms * 1e6` cannot overflow
+            // and every backend treats a huge timeout identically (bounded at INT_MAX
+            // ms), matching net and the poll-based backends. Sentinel skips this.
+            abi::move_immediate("%v10", "Integer", "2147483647"),
+            abi::compare_registers("%v9", "%v10"),
+            abi::branch_le(&ts_store),
+            abi::move_register("%v9", "%v10"),
+            abi::label(&ts_store),
+            abi::store_u64("%v9", abi::stack_pointer(), TIMEOUT),
             abi::label(&ts_ok),
         ]);
     }
