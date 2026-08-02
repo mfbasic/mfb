@@ -370,6 +370,26 @@ Commit: d008d2419
 - **No `assert` path added (as A intended).** §4 notes A ships audit-only; the non-audit
   path writes `mapped` exactly as today with no panic. The live `assert_eq!` is the final
   letter's job.
+- **Main advanced during execution; merged in and re-proved byte-identity.** Base was
+  `a7e0a7ddb`; main reached `17c019d7f` (plan-13-A resource-union RES params + a scripts
+  concurrency-guard fix + 2 new fixtures). No overlap with `src/arch/x86_64/select.rs` or
+  the token vocabulary (`git diff --name-only a7e0a7ddb..17c019d7f`). Merged main into
+  `worktree-P-71` (`3f8806661`), clean. Re-ran acceptance on the merged tree:
+  `cargo test --bin mfb` → `test result: ok. 3755 passed; 0 failed`. Re-proved
+  byte-identity for the two x86 targets my change touches by building the merged tree with
+  and without the select.rs diff and byte-comparing every executable via
+  `scripts/exe-oracle.sh`: **linux-x86_64 1284/1284 byte-identical, windows-x86_64
+  612/612 byte-identical**. AArch64/RISC-V are untouched (the change is entirely in
+  `arch/x86_64/`; their selectors never call `remap_x86_abi`) and were proven
+  byte-identical across all five targets on the pre-merge base (Phase 2 gate).
+- **`artifact-gate.sh` NOT run at finalization — a concurrent run held it.** Another
+  session was running `scripts/artifact-gate.sh … all` (worktree P-74; `pgrep -f
+  artifact-gate`), and the project forbids concurrent artifact-gate (infra-kill hazard).
+  Not a gap: `bug387-gate.sh full` byte-compares whole **executables** (entry stub +
+  runtime helpers + package objects) and is a strict **superset** of artifact-gate's
+  package-object check; it PASSED byte-identical on all five targets (Phase 2) and the
+  exe-oracle re-proof above covers the merged tree. The `repository/` workspace `cargo
+  fmt` pass was skipped too — this plan changed no file under `repository/`.
 
 ## Summary
 
