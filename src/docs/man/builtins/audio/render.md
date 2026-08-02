@@ -62,13 +62,13 @@ PCM on every target.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `note` | `AudioNote` | The note to synthesize: `frequencyHz` (Float, cycles per second), `noteFrames` (Integer total length in frames at 48 kHz), `envelope` (an `AudioEnvelope`), and `gainOverall` (Float, nominally 0..1). Construct it with `AudioNote[...]`. [[src/builtins/audio.rs:builtin_type_fields]] |
+| `note` | `AudioNote` | The note to synthesize: `frequencyHz` (Float, cycles per second), `noteFrames` (Integer total length in frames at 48 kHz), `envelope` (an `AudioEnvelope`), and `gainOverall` (Float, nominally 0..1). Construct it with `AudioNote[...]`. [[src/builtins/audio.rs:AUDIO]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | Single-channel mono `s16le` PCM at 48 kHz, exactly `note.noteFrames * 2` bytes; empty when `note.noteFrames <= 0`. [[src/builtins/audio.rs:resolve_call]][[src/builtins/audio_render.mfb:__audio_render]] |
+| `List OF Byte` | Single-channel mono `s16le` PCM at 48 kHz, exactly `note.noteFrames * 2` bytes; empty when `note.noteFrames <= 0`. [[src/builtins/audio.rs:AUDIO]][[src/builtins/audio_render.mfb:__audio_render]] |
 
 ## Errors
 

@@ -28,7 +28,7 @@ result, still as a `Money`. It is the explicit "compute at five places, book at
 two" operation: intermediate `Money` arithmetic keeps all five decimal places
 that the type carries, and `money::round` is what settles a line item or an
 allocation remainder to whole cents (`decimals` `2`) or another scale when it is
-time to record it. [[src/builtins/money.rs:resolve_call]]
+time to record it. [[src/builtins/money.rs:MONEY]]
 
 The computation is exact integer arithmetic on the underlying scaled value, with
 no floating point anywhere: the raw is divided by `10^(5 - decimals)`, the
@@ -77,7 +77,7 @@ entirely, yielding the dimensionless whole-unit `Integer` count;
 
 | Type | Description |
 | --- | --- |
-| `Money` | `value` settled to `decimals` places under the current rounding mode, still a `Money` carrying five decimal places (the places below `decimals` are zero). [[src/builtins/money.rs:call_return_type_name]] |
+| `Money` | `value` settled to `decimals` places under the current rounding mode, still a `Money` carrying five decimal places (the places below `decimals` are zero). [[src/builtins/money.rs:MONEY]] |
 
 ## Errors
 

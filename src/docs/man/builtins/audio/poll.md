@@ -77,14 +77,14 @@ internal body. [[src/builtins/audio.rs:implementation_name]]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `stream` | `AudioInput` or `AudioOutput` | An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Borrowed, not consumed. A closed handle polls as `FALSE`. [[src/builtins/audio.rs:resolve_call]][[src/builtins/audio.rs:consumes_argument]] |
+| `stream` | `AudioInput` or `AudioOutput` | An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Borrowed, not consumed. A closed handle polls as `FALSE`. [[src/builtins/audio.rs:AUDIO]][[src/builtins/audio.rs:consumes_argument]] |
 | `timeoutMs` | `Integer` | Maximum wait in milliseconds (timed overload only). `0` is a non-blocking test; a negative value raises `ErrInvalidArgument`; a positive value is clamped to `2147483647`. [[src/target/shared/code/audio/macos.rs:lower_query]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when the stream is ready (at least one frame readable, or one buffer writable), `FALSE` otherwise — including on a closed handle or, for the timed form, at the deadline. [[src/builtins/audio.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when the stream is ready (at least one frame readable, or one buffer writable), `FALSE` otherwise — including on a closed handle or, for the timed form, at the deadline. [[src/builtins/audio.rs:AUDIO]] |
 
 ## Errors
 

@@ -47,7 +47,7 @@ A, B`, and `partition` produces a `Partition OF T` holding the matched and
 unmatched elements. See `mfb man types pair` and `mfb man types partition`.
 
 The List-only overloads of `find`, `mid`, and `replace` live here; their String
-overloads live in `strings::`. [[src/builtins/collections.rs:resolve_call]]
+overloads live in `strings::`. [[src/builtins/collections.rs:COLLECTIONS]]
 
 ## Errors
 

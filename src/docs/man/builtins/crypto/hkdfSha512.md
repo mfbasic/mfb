@@ -66,7 +66,7 @@ with `encoding::hexEncode` or `encoding::base64Encode`.
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | Exactly `length` pseudorandom bytes of derived key material. [[src/builtins/crypto.rs:call_return_type_name]] |
+| `List OF Byte` | Exactly `length` pseudorandom bytes of derived key material. [[src/builtins/crypto.rs:CRYPTO]] |
 
 ## Errors
 

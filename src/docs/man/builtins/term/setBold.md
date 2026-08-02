@@ -25,7 +25,7 @@ IMPORT term
 
 `term::setBold` sets whether text drawn through the `term::` surface from now on
 is bold. It takes exactly one `Boolean`: `TRUE` enables the attribute, `FALSE`
-disables it. [[src/builtins/term.rs:arity]] [[src/builtins/term.rs:param_types]]
+disables it. [[src/builtins/term.rs:TERM]] [[src/builtins/term.rs:param_types]]
 
 The flag is stored in the module's current-attribute state and **no escape
 sequence is emitted**. Like every other drawing operation on this retained
@@ -57,7 +57,7 @@ The call is gated: while TUI mode is off it does nothing and reports no error.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of setting the current bold attribute. [[src/builtins/term.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of setting the current bold attribute. [[src/builtins/term.rs:TERM]] |
 
 ## Errors
 

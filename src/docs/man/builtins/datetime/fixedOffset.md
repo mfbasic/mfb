@@ -79,7 +79,7 @@ minutes take the sign of `hours`, so the combined offset is
 
 | Type | Description |
 | --- | --- |
-| `Zone` | A `Zone` with a zone kind of `ZoneKind::FixedOffset`, the requested constant offset, and a label of the form `+HH:MM` or `-HH:MM`. For a zero offset the label is `+00:00`. [[src/builtins/datetime.rs:call_return_type_name]] [[src/builtins/datetime_package.mfb:__datetime_offsetLabel]] |
+| `Zone` | A `Zone` with a zone kind of `ZoneKind::FixedOffset`, the requested constant offset, and a label of the form `+HH:MM` or `-HH:MM`. For a zero offset the label is `+00:00`. [[src/builtins/datetime.rs:DATETIME]] [[src/builtins/datetime_package.mfb:__datetime_offsetLabel]] |
 
 ## Errors
 

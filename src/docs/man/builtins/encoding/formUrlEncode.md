@@ -57,7 +57,7 @@ escapes and `+` back into text. [[src/builtins/encoding_package.mfb:__encoding_f
 
 | Type | Description |
 | --- | --- |
-| `String` | The form-encoded form of `text`: ASCII alphanumeric bytes verbatim, space as `+`, all other bytes as `%XX` with uppercase hex. The empty string for empty input. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `String` | The form-encoded form of `text`: ASCII alphanumeric bytes verbatim, space as `+`, all other bytes as `%XX` with uppercase hex. The empty string for empty input. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

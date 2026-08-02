@@ -37,7 +37,7 @@ The input length must be even, because each byte needs a pair of digits. The
 empty string decodes to the empty list. The result always contains exactly half
 as many bytes as there are input characters. This is the inverse of
 `encoding::hexEncode`, which emits lowercase hex; decoding then re-encoding a
-valid string reproduces its lowercase form. [[src/builtins/encoding.rs:call_return_type_name]]
+valid string reproduces its lowercase form. [[src/builtins/encoding.rs:ENCODING]]
 
 ## Parameters
 
@@ -49,7 +49,7 @@ valid string reproduces its lowercase form. [[src/builtins/encoding.rs:call_retu
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The decoded bytes, one per pair of input digits; the empty list for the empty string. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `List OF Byte` | The decoded bytes, one per pair of input digits; the empty list for the empty string. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

@@ -26,7 +26,7 @@ expansion of `replacement`. The text before, between, and after matches is copie
 unchanged. It is the rewriting form of the package: `regex::match` reports only
 whether a match exists, `regex::find` reports where the first one begins,
 `regex::findAll` reports the start of every non-overlapping match, and `replace`
-produces the rewritten text. [[src/builtins/regex.rs:call_return_type_name]]
+produces the rewritten text. [[src/builtins/regex.rs:REGEX]]
 
 Matches are found left to right by the same leftmost, unanchored search
 `regex::findAll` exposes. At each match the engine resolves it by preference
@@ -76,7 +76,7 @@ effects.
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` with every non-overlapping match replaced by the expansion of `replacement`. Equal to `value` when `pattern` matches nothing. [[src/builtins/regex.rs:call_return_type_name]] |
+| `String` | A new `String` with every non-overlapping match replaced by the expansion of `replacement`. Equal to `value` when `pattern` matches nothing. [[src/builtins/regex.rs:REGEX]] |
 
 ## Errors
 

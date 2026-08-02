@@ -38,7 +38,7 @@ single vector does not determine a unique perpendicular, so the operation is not
 well defined. Passing a 3D or 4D vector is a compile-time error, not a runtime
 one. For the higher-dimensional analogue use `vector::cross`, which takes the
 `N - 1` operands needed to pin down a unique orthogonal direction.
-[[src/builtins/vector.rs:resolve_call]]
+[[src/builtins/vector.rs:VECTOR]]
 
 The 2D unary form of `vector::cross` computes the same value. The two are
 nevertheless **separate functions with separate implementations** in the companion
@@ -89,7 +89,7 @@ The same swap and negation in checked 64-bit integer arithmetic. Fails with
 
 | Type | Description |
 | --- | --- |
-| the same type as `v` | The vector `(-v.y, v.x)`: orthogonal to `v`, the same magnitude as `v`, a quarter turn counterclockwise from it. The zero vector maps to the zero vector. [[src/builtins/vector.rs:resolve_call]] |
+| the same type as `v` | The vector `(-v.y, v.x)`: orthogonal to `v`, the same magnitude as `v`, a quarter turn counterclockwise from it. The zero vector maps to the zero vector. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -104,7 +104,7 @@ The same swap and negation in checked 64-bit integer arithmetic. Fails with
 the exact record type of the single argument; a 3D or 4D vector, a non-vector
 argument, or any arity other than one is rejected by the syntax check with the
 message that a 2D vector was expected. The return type is always the argument's
-own type. [[src/builtins/vector.rs:expected_arguments]] [[src/builtins/vector.rs:resolve_call]]
+own type. [[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:VECTOR]]
 
 ## Examples
 

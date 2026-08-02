@@ -44,13 +44,13 @@ state. It reads process state only and has no side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `os::environ` takes no arguments. [[src/builtins/os.rs:arity]] |
+| — | — | `os::environ` takes no arguments. [[src/builtins/os.rs:OS]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Map OF String TO String` | A snapshot of the environment, mapping each variable name to its value. [[src/builtins/os.rs:call_return_type_name]] |
+| `Map OF String TO String` | A snapshot of the environment, mapping each variable name to its value. [[src/builtins/os.rs:OS]] |
 
 ## Errors
 

@@ -55,7 +55,7 @@ yield the same result, and it has no side effects.
 
 | Type | Description |
 | --- | --- |
-| `DateTime` | The `DateTime` `dt` shifted by `days` calendar days, holding the new date, `dt`'s original time of day (re-resolved against `dt`'s zone for the new offset), and `dt`'s original zone. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `DateTime` | The `DateTime` `dt` shifted by `days` calendar days, holding the new date, `dt`'s original time of day (re-resolved against `dt`'s zone for the new offset), and `dt`'s original zone. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

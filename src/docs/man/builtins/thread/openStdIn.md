@@ -73,7 +73,7 @@ Subscribes the calling thread.
 **`thread::openStdIn(t AS Thread OF Msg TO Out) AS Nothing`**
 
 Subscribes the worker behind a parent `Thread` handle. A `ThreadWorker` handle is
-not accepted. [[src/builtins/thread.rs:resolve_call]] [[src/builtins/thread.rs:arity]]
+not accepted. [[src/builtins/thread.rs:THREAD]] [[src/builtins/thread.rs:THREAD]]
 
 ## Parameters
 
@@ -85,7 +85,7 @@ not accepted. [[src/builtins/thread.rs:resolve_call]] [[src/builtins/thread.rs:a
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | No value. On return the target thread is subscribed at the current stream frontier, unless the 128-entry subscriber registry was full. [[src/builtins/thread.rs:resolve_call]] |
+| `Nothing` | No value. On return the target thread is subscribed at the current stream frontier, unless the 128-entry subscriber registry was full. [[src/builtins/thread.rs:THREAD]] |
 
 ## Errors
 

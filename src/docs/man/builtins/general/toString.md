@@ -57,7 +57,7 @@ nothing. [[src/target/shared/code/builder_collection_layout.rs:emit_materialize_
 result `String`. It is defined only for the overloads listed here; calling it on
 records, unions, enums, resources, threads, functions, lambdas, `Map` values, or
 `List` values other than `List OF Byte` is a compile-time type error, with no
-implicit conversion. [[src/builtins/general.rs:resolve_call]]
+implicit conversion. [[src/builtins/general.rs:GENERAL]]
 
 `toString` and `typeName` are diagnostic and formatting conveniences, not security
 boundaries. Do not rely on them to redact secrets or decide whether a value is safe
@@ -136,7 +136,7 @@ of `Integer`, `Byte`, `Boolean`, `String`, `Scalar`, or `List OF Byte`; or a
 `Float`, `Fixed`, or `Money` with an optional trailing `Byte` precision. Any other
 argument type, or any other arity, is rejected at compile time; no implicit
 conversion is performed. Convert to a supported type explicitly, or provide a
-domain-specific formatter. [[src/builtins/general.rs:resolve_call]]
+domain-specific formatter. [[src/builtins/general.rs:GENERAL]]
 
 ## Examples
 

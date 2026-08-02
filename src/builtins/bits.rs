@@ -106,11 +106,6 @@ pub(crate) static BITS: BuiltinModule = BuiltinModule {
     resolver: None,
 };
 
-#[derive(Clone)]
-pub(crate) struct ResolvedCall<'a> {
-    pub(crate) return_type: Cow<'a, str>,
-}
-
 pub(crate) fn is_bits_call(name: &str) -> bool {
     DefaultResolver::contains(&BITS, name)
 }
@@ -139,14 +134,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     }
 }
 
-pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    DefaultResolver::return_type_name(&BITS, name)
-}
-
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    DefaultResolver::arity(&BITS, name)
-}
-
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         BNOT => Some("Integer"),
@@ -157,23 +144,9 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     }
 }
 
-pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
-    DefaultResolver::resolve_call(&BITS, name, arg_types).map(|return_type| ResolvedCall {
-        return_type: Cow::Borrowed(return_type),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn types(items: &[&str]) -> Vec<String> {
-        items.iter().map(|s| s.to_string()).collect()
-    }
-
-    fn ret(name: &str, args: &[&str]) -> Option<String> {
-        resolve_call(name, &types(args)).map(|r| r.return_type.into_owned())
-    }
 
     const UNARY: &[&str] = &[BNOT, CLZ, CTZ, POP_COUNT, BSWAP16, BSWAP32, BSWAP64];
     const BINARY: &[&str] = &[BAND, BOR, BXOR, SL, SR, SRA, RL32, RR32, RL64, RR64];
@@ -190,14 +163,6 @@ mod tests {
         assert!(!is_bits_call("bits.unknown"));
         assert!(!is_bits_call("strings.trim"));
         assert!(!is_bits_call(""));
-    }
-
-    #[test]
-    fn call_return_type_name_is_integer_or_none() {
-        for name in all() {
-            assert_eq!(call_return_type_name(name), Some("Integer"), "{name}");
-        }
-        assert_eq!(call_return_type_name("bits.nope"), None);
     }
 
     #[test]
@@ -228,17 +193,6 @@ mod tests {
     }
 
     #[test]
-    fn arity_unary_and_binary() {
-        for name in UNARY {
-            assert_eq!(arity(name), Some((1, 1)), "{name}");
-        }
-        for name in BINARY {
-            assert_eq!(arity(name), Some((2, 2)), "{name}");
-        }
-        assert_eq!(arity("bits.nope"), None);
-    }
-
-    #[test]
     fn expected_arguments_by_group() {
         assert_eq!(expected_arguments(BNOT), Some("Integer"));
         for name in [CLZ, CTZ, POP_COUNT, BSWAP16, BSWAP32, BSWAP64] {
@@ -253,77 +207,4 @@ mod tests {
         assert_eq!(expected_arguments("bits.nope"), None);
     }
 
-    #[test]
-    fn resolve_unary_ops() {
-        for name in UNARY {
-            assert_eq!(
-                ret(name, &["Integer"]),
-                Some("Integer".to_string()),
-                "{name}"
-            );
-            // wrong arity
-            assert_eq!(ret(name, &[]), None, "{name} zero");
-            assert_eq!(ret(name, &["Integer", "Integer"]), None, "{name} two");
-            // wrong type
-            assert_eq!(ret(name, &["String"]), None, "{name} string");
-        }
-    }
-
-    #[test]
-    fn resolve_binary_ops() {
-        for name in BINARY {
-            assert_eq!(
-                ret(name, &["Integer", "Integer"]),
-                Some("Integer".to_string()),
-                "{name}"
-            );
-            // wrong arity
-            assert_eq!(ret(name, &["Integer"]), None, "{name} one");
-            assert_eq!(
-                ret(name, &["Integer", "Integer", "Integer"]),
-                None,
-                "{name} three"
-            );
-            // wrong type in second position
-            assert_eq!(ret(name, &["Integer", "String"]), None, "{name} type");
-        }
-    }
-
-    #[test]
-    fn resolve_rejects_unknown_name() {
-        assert_eq!(ret("bits.nope", &["Integer"]), None);
-    }
-
-    // plan-72-D migration gate: prove `BITS` reproduces every legacy helper
-    // answer for every `bits.*` name (and an unknown name), and pins the two
-    // static wrappers (`call_param_names`, `expected_arguments`) equal to the
-    // descriptor-derived forms. Keep until plan-72-BB deletes the legacy helpers.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::parity;
-
-        let calls: Vec<&str> = BITS_FUNCTIONS.iter().map(|f| f.name).collect();
-        let legacy = parity::LegacySet {
-            is_call: &is_bits_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            return_type_name: &call_return_type_name,
-            expected_arguments: Some(&|name| expected_arguments(name).map(str::to_string)),
-            param_name_overloads: None,
-            argument_types: None,
-            implementation_name: None,
-            default_padding: None,
-            builtin_type_fields: None,
-        };
-        let mut probe = calls.clone();
-        probe.push("bits.nope");
-        parity::assert_parity(&BITS, &probe, &legacy, &[]);
-
-        // resolve_call parity across accepted and rejected shapes.
-        assert_eq!(resolve_call(BAND, &types(&["Integer", "Integer"])).unwrap().return_type, "Integer");
-        assert!(resolve_call(BAND, &types(&["Integer", "String"])).is_none());
-        assert!(resolve_call(BNOT, &types(&["Integer", "Integer"])).is_none());
-    }
 }

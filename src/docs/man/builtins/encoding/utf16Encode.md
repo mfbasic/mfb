@@ -53,7 +53,7 @@ surrogates and out-of-range units. [[src/builtins/encoding.rs:UTF16_ENCODE]]
 
 | Type | Description |
 | --- | --- |
-| `List OF Integer` | The UTF-16 code units of `value`, each in `0..65535`; empty for the empty string. Astral scalars contribute two elements (a surrogate pair). [[src/builtins/encoding.rs:call_return_type_name]] |
+| `List OF Integer` | The UTF-16 code units of `value`, each in `0..65535`; empty for the empty string. Astral scalars contribute two elements (a surrogate pair). [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

@@ -87,7 +87,7 @@ The argument may also be passed by the name `text`.
 
 | Type | Description |
 | --- | --- |
-| `Json` | The parsed document as a `Json` union value — one of `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, or `JsonObj`. [[src/builtins/json.rs:call_return_type_name]] |
+| `Json` | The parsed document as a `Json` union value — one of `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, or `JsonObj`. [[src/builtins/json.rs:JSON]] |
 
 ## Errors
 

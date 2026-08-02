@@ -93,7 +93,7 @@ from zero. The result is one of `0`, `1`, `2`, `3`.
 
 | Type | Description |
 | --- | --- |
-| the element type of `a` (`Float`, `Fixed`, or `Integer`) | The unsigned angle in radians, in `0` through `pi`. `0` for parallel inputs, `pi` for antiparallel inputs, `pi / 2` for orthogonal inputs. The `Integer` overloads return the rounded radian value, so only `0`, `1`, `2`, `3` occur. [[src/builtins/vector.rs:resolve_call]] |
+| the element type of `a` (`Float`, `Fixed`, or `Integer`) | The unsigned angle in radians, in `0` through `pi`. `0` for parallel inputs, `pi` for antiparallel inputs, `pi / 2` for orthogonal inputs. The `Integer` overloads return the rounded radian value, so only `0`, `1`, `2`, `3` occur. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -109,7 +109,7 @@ from zero. The result is one of `0`, `1`, `2`, `3`.
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and no implicit conversion is applied to a vector
 argument. The return type is the element type of that vector type, not the vector
-type itself. [[src/builtins/vector.rs:resolve_call]] [[src/builtins/vector.rs:same_vector]]
+type itself. [[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:same_vector]]
 
 ## Examples
 

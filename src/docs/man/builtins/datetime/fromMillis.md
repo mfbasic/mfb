@@ -64,7 +64,7 @@ its microsecond and nanosecond digits; for full nanosecond precision use
 
 | Type | Description |
 | --- | --- |
-| `Instant` | The `Instant` `millis` milliseconds from the Unix epoch. Its `seconds` field holds the floor of `millis / 1000` (negative for instants before the epoch) and its `nanos` field holds the millisecond remainder scaled to nanoseconds, always in `0..999000000`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Instant` | The `Instant` `millis` milliseconds from the Unix epoch. Its `seconds` field holds the floor of `millis / 1000` (negative for instants before the epoch) and its `nanos` field holds the millisecond remainder scaled to nanoseconds, always in `0..999000000`. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

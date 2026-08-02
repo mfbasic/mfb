@@ -59,7 +59,7 @@ This function takes no parameters. [[src/builtins/fs.rs:call_param_names]]
 
 | Type | Description |
 | --- | --- |
-| `String` | The path of the host temporary directory, decoded as a UTF-8 `String` with no terminating NUL and no added trailing separator. On macOS this is the Darwin per-process user temporary directory; on Linux it is `TMPDIR` when set and usable, otherwise `/tmp`. [[src/builtins/fs.rs:call_return_type_name]] |
+| `String` | The path of the host temporary directory, decoded as a UTF-8 `String` with no terminating NUL and no added trailing separator. On macOS this is the Darwin per-process user temporary directory; on Linux it is `TMPDIR` when set and usable, otherwise `/tmp`. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

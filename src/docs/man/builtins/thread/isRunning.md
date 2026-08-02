@@ -46,7 +46,7 @@ compile time; worker code observes its own status through `thread::isCancelled`
 instead. Note that `isRunning` reports execution, not cancellation: a worker for
 which `thread::cancel` has been requested keeps reporting `TRUE` until it actually
 finishes, because cancellation is cooperative and sets a separate flag.
-[[src/builtins/thread.rs:resolve_call]] [[src/target/shared/code/runtime_helpers_thread.rs:simple_thread_handle_helper]]
+[[src/builtins/thread.rs:THREAD]] [[src/target/shared/code/runtime_helpers_thread.rs:simple_thread_handle_helper]]
 
 ## Parameters
 
@@ -58,7 +58,7 @@ finishes, because cancellation is cooperative and sets a separate flag.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` while the worker entry function is still running; `FALSE` once the worker has completed or failed and its outcome is stored but not yet retrieved. [[src/builtins/thread.rs:resolve_call]] |
+| `Boolean` | `TRUE` while the worker entry function is still running; `FALSE` once the worker has completed or failed and its outcome is stored but not yet retrieved. [[src/builtins/thread.rs:THREAD]] |
 
 ## Errors
 

@@ -25,7 +25,7 @@ IMPORT fs
 
 `fs::createDirectories` creates the directory named by `path` along with any
 missing parent directories, like `mkdir -p`, and returns `Nothing` on success.
-[[src/builtins/fs.rs:call_return_type_name]]
+[[src/builtins/fs.rs:FS]]
 
 `path` is scanned left to right and each `/`-separated prefix is created in turn
 before the final component is created. A leading `/` is skipped so the filesystem
@@ -71,7 +71,7 @@ the same symbolic error is produced on each platform.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Nothing is returned on success, after the directory named by `path` and all of its previously missing parent directories have been created. A `path` that already exists as a directory also succeeds and returns `Nothing`. [[src/builtins/fs.rs:call_return_type_name]] |
+| `Nothing` | Nothing is returned on success, after the directory named by `path` and all of its previously missing parent directories have been created. A `path` that already exists as a directory also succeeds and returns `Nothing`. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

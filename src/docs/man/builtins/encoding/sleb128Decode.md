@@ -57,7 +57,7 @@ a sequence encoding more than 64 significant bits overflows.
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The decoded signed value, sign-extended from the terminating group. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `Integer` | The decoded signed value, sign-extended from the terminating group. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

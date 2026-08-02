@@ -25,7 +25,7 @@ IMPORT io
 
 `io::isOutputTerminal` returns `TRUE` when standard output is connected to a
 terminal and `FALSE` when it is redirected to a file, a pipe, or any other
-non-terminal destination. It takes no arguments. [[src/builtins/io.rs:arity]]
+non-terminal destination. It takes no arguments. [[src/builtins/io.rs:IO]]
 
 The answer comes from an `isatty` probe of file descriptor 1: a result greater
 than zero yields `TRUE`, anything else — including an error return — yields
@@ -53,7 +53,7 @@ interactive console — so this call returns `TRUE` without probing a descriptor
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when standard output is an interactive terminal; `FALSE` when it is a file, a pipe, or any other non-terminal destination. Always `TRUE` in app mode. [[src/builtins/io.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when standard output is an interactive terminal; `FALSE` when it is a file, a pipe, or any other non-terminal destination. Always `TRUE` in app mode. [[src/builtins/io.rs:IO]] |
 
 ## Errors
 

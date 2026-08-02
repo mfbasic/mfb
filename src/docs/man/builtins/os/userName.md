@@ -36,13 +36,13 @@ effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `os::userName` takes no arguments. [[src/builtins/os.rs:arity]] |
+| — | — | `os::userName` takes no arguments. [[src/builtins/os.rs:OS]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The effective user's login name. [[src/builtins/os.rs:call_return_type_name]] |
+| `String` | The effective user's login name. [[src/builtins/os.rs:OS]] |
 
 ## Errors
 

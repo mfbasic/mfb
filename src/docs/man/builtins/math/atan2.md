@@ -102,7 +102,7 @@ does not depend on which element triggered it.
 
 | Type | Description |
 | --- | --- |
-| Same as the arguments | The angle in radians of the vector `(x, y)`, in `(-pi, pi]`. `atan2(0, 0)` is zero. The array form returns a new `List OF Float` of the same length. [[src/builtins/math.rs:resolve_call]] |
+| Same as the arguments | The angle in radians of the vector `(x, y)`, in `(-pi, pi]`. `atan2(0, 0)` is zero. The array form returns a new `List OF Float` of the same length. [[src/builtins/math.rs:MATH]] |
 
 ## Errors
 
@@ -113,12 +113,12 @@ does not depend on which element triggered it.
 
 ## Type checking
 
-`math::atan2` takes exactly two arguments. [[src/builtins/math.rs:arity]] They
+`math::atan2` takes exactly two arguments. [[src/builtins/math.rs:MATH]] They
 must share one type: two `Float`s, two `Fixed`s, or two `List OF Float`. Mixing
 `Float` with `Fixed`, passing an `Integer`, a `Money`, a `List OF Fixed`, or any
 non-numeric value such as a `String`, `Boolean`, `Byte`, `Scalar`, record,
 union, resource, thread, or function value is a compile-time type error.
-[[src/builtins/math.rs:expected_arguments]]
+[[src/builtins/math.rs:MATH]]
 
 ## Examples
 

@@ -55,7 +55,7 @@ live so the caller can still join the worker and read its outcome. Note that
 worker actually finishes — cancellation and execution are separate pieces of
 state. The only way `cancel` itself fails is when the handle is already closed.
 A `ThreadWorker` handle is rejected at compile time.
-[[src/builtins/thread.rs:resolve_call]]
+[[src/builtins/thread.rs:THREAD]]
 
 ## Parameters
 
@@ -67,7 +67,7 @@ A `ThreadWorker` handle is rejected at compile time.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | No value. On success the worker's cancelled flag is set and all four of its queues are closed and broadcast. [[src/builtins/thread.rs:resolve_call]] |
+| `Nothing` | No value. On success the worker's cancelled flag is set and all four of its queues are closed and broadcast. [[src/builtins/thread.rs:THREAD]] |
 
 ## Errors
 

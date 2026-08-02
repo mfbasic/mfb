@@ -27,7 +27,7 @@ IMPORT collections
 except the one at `index`, with the elements above `index` shifted down by one to
 close the gap and all other relative order preserved. The result is always
 exactly one element shorter than `value`. It takes exactly two arguments; neither
-is optional and neither is variadic. [[src/builtins/collections.rs:arity]]
+is optional and neither is variadic. [[src/builtins/collections.rs:COLLECTIONS]]
 
 `index` is zero-based and is validated as `0 <= index < len(value)`. The upper
 bound is **exclusive**: unlike `collections::insert`, `index` equal to the length

@@ -55,7 +55,7 @@ pair it with `datetime::time` and `datetime::civil` to build a zoned `DateTime`.
 
 | Type | Description |
 | --- | --- |
-| `Date` | A `Date` holding the validated `year`, `month`, and `day`. Returned only when all three components form a real calendar date. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Date` | A `Date` holding the validated `year`, `month`, and `day`. Returned only when all three components form a real calendar date. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

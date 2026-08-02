@@ -28,7 +28,7 @@ dependency. [[src/builtins/audio.rs:package_source_glue]]
 `audio::openInput` opens a PCM capture stream and returns an `AudioInput`. The
 three-argument form opens the system default input device; the four-argument
 form opens the specific device named by an `AudioDevice` obtained from
-`audio::devices()`. [[src/builtins/audio.rs:resolve_call]]
+`audio::devices()`. [[src/builtins/audio.rs:AUDIO]]
 
 The stream delivers raw interleaved signed 16-bit little-endian (`s16le`) PCM:
 one frame is `channels * 2` bytes. `sampleRate` is the capture rate in Hz and
@@ -84,7 +84,7 @@ using the same `sampleRate`/`channels`/`bufferFrames`.
 
 | Type | Description |
 | --- | --- |
-| `AudioInput` | An open, move-only capture stream delivering interleaved `s16le` PCM at the requested rate and channel count. [[src/builtins/audio.rs:call_return_type_name]] |
+| `AudioInput` | An open, move-only capture stream delivering interleaved `s16le` PCM at the requested rate and channel count. [[src/builtins/audio.rs:AUDIO]] |
 
 ## Errors
 

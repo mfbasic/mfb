@@ -57,7 +57,7 @@ and `defaultValue` under the names `default` or `fallback`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Json` | The value to read from. Accepts the `Json` union or any of `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, `JsonObj`; traversal only succeeds through `JsonObj` members. [[src/builtins/json.rs:call_param_names]] [[src/builtins/json.rs:resolve_call]] |
+| `value` | `Json` | The value to read from. Accepts the `Json` union or any of `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, `JsonObj`; traversal only succeeds through `JsonObj` members. [[src/builtins/json.rs:call_param_names]] [[src/builtins/json.rs:JSON]] |
 | `path` | `List OF String` | The object keys to follow, from the root inward. Each element selects a member by exact `String` key. An empty list selects `value` itself. Also accepted under the name `key`. [[src/builtins/json.rs:call_param_names]] |
 | `defaultValue` | `Json` | Returned when traversal cannot continue. Accepts the `Json` union or any member type. Also accepted under the names `default` and `fallback`. [[src/builtins/json.rs:call_param_names]] |
 
@@ -65,7 +65,7 @@ and `defaultValue` under the names `default` or `fallback`.
 
 | Type | Description |
 | --- | --- |
-| `Json` | The value reached by following every key in `path`; `value` unchanged when `path` is empty; `defaultValue` when a key is missing or a non-object is reached with keys remaining. [[src/builtins/json.rs:call_return_type_name]] |
+| `Json` | The value reached by following every key in `path`; `value` unchanged when `path` is empty; `defaultValue` when a key is missing or a non-object is reached with keys remaining. [[src/builtins/json.rs:JSON]] |
 
 ## Errors
 

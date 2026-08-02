@@ -27,7 +27,7 @@ IMPORT term
 through the `term::` surface will be written in. The three channels — red, green,
 blue — are each a `Byte` from 0 to 255, so (0, 0, 0) is black, (255, 255, 255) is
 white, and (255, 0, 0) is pure red. Exactly three arguments are required.
-[[src/builtins/term.rs:arity]] [[src/builtins/term.rs:param_types]]
+[[src/builtins/term.rs:TERM]] [[src/builtins/term.rs:param_types]]
 
 The colour is packed into the module's current-attribute state and **no escape
 sequence is emitted**. Like every other drawing operation on this retained
@@ -60,7 +60,7 @@ The call is gated: while TUI mode is off it does nothing and reports no error.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of setting the current foreground colour. [[src/builtins/term.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of setting the current foreground colour. [[src/builtins/term.rs:TERM]] |
 
 ## Errors
 

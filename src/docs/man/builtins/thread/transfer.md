@@ -64,7 +64,7 @@ a bare resource on a stateful plane, and two disagreeing states, all with
 the resource, so — unlike a `RES` parameter, which is an opaque non-escaping alias
 — "bare" does not accept any state here. The `STATE` payload travels with the
 resource and is deep-copied into the receiving thread's arena, so the accepted
-handle owns an independent copy. [[src/ir/verify/calls.rs:check_thread_transfer_state]] [[src/builtins/thread.rs:resolve_call]]
+handle owns an independent copy. [[src/ir/verify/calls.rs:check_thread_transfer_state]] [[src/builtins/thread.rs:THREAD]]
 
 `timeoutMs` bounds the wait for space on a full destination resource queue,
 following the language timeout convention (see
@@ -92,7 +92,7 @@ completed or cancelled worker.
 
 Worker-side transfer onto the parent-visible outbound resource queue. Fails with
 `ErrInterrupted` when this worker is cancelled or the queue is closed.
-[[src/builtins/thread.rs:resolve_call]] [[src/builtins/thread.rs:arity]]
+[[src/builtins/thread.rs:THREAD]] [[src/builtins/thread.rs:THREAD]]
 
 ## Parameters
 
@@ -106,7 +106,7 @@ Worker-side transfer onto the parent-visible outbound resource queue. Fails with
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | No value. Returns once the resource has been enqueued on the resource plane and the queue's *not-empty* condition signalled. [[src/builtins/thread.rs:resolve_call]] |
+| `Nothing` | No value. Returns once the resource has been enqueued on the resource plane and the queue's *not-empty* condition signalled. [[src/builtins/thread.rs:THREAD]] |
 
 ## Errors
 

@@ -106,11 +106,6 @@ pub(crate) static REGEX: BuiltinModule = BuiltinModule {
     resolver: None,
 };
 
-#[derive(Clone)]
-pub(crate) struct ResolvedCall<'a> {
-    pub(crate) return_type: Cow<'a, str>,
-}
-
 pub(crate) fn is_regex_call(name: &str) -> bool {
     DefaultResolver::contains(&REGEX, name)
 }
@@ -128,16 +123,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     }
 }
 
-pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    DefaultResolver::return_type_name(&REGEX, name)
-}
-
-pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
-    DefaultResolver::resolve_call(&REGEX, name, arg_types).map(|return_type| ResolvedCall {
-        return_type: Cow::Borrowed(return_type),
-    })
-}
-
 // Bespoke `[, Integer]` bracket phrasing for the optional `start` — the
 // descriptor's per-position type list renders `String, String, Integer`, so this
 // stays hand-authored (the `collections` precedent) and is NOT asserted against
@@ -149,10 +134,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         REPLACE => Some("String, String, String"),
         _ => None,
     }
-}
-
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    DefaultResolver::arity(&REGEX, name)
 }
 
 pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
@@ -219,10 +200,6 @@ pub(crate) fn augmented_project(
 mod tests {
     use super::*;
 
-    fn strings(items: &[&str]) -> Vec<String> {
-        items.iter().map(|s| s.to_string()).collect()
-    }
-
     fn project(src: &str) -> crate::ast::AstProject {
         let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)
             .expect("parse source");
@@ -230,10 +207,6 @@ mod tests {
             name: "test".to_string(),
             files: vec![file],
         }
-    }
-
-    fn rt(name: &str, args: &[&str]) -> Option<String> {
-        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
     }
 
     #[test]
@@ -264,49 +237,6 @@ mod tests {
     }
 
     #[test]
-    fn return_type_name_branches() {
-        assert_eq!(call_return_type_name(MATCH), Some("Boolean"));
-        assert_eq!(call_return_type_name(FIND), Some("Integer"));
-        assert_eq!(call_return_type_name(FIND_ALL), Some("List OF Integer"));
-        assert_eq!(call_return_type_name(REPLACE), Some("String"));
-        assert!(call_return_type_name("regex.nope").is_none());
-    }
-
-    #[test]
-    fn resolve_branches() {
-        assert_eq!(
-            rt(MATCH, &["String", "String"]),
-            Some("Boolean".to_string())
-        );
-        assert_eq!(rt(FIND, &["String", "String"]), Some("Integer".to_string()));
-        assert_eq!(
-            rt(FIND, &["String", "String", "Integer"]),
-            Some("Integer".to_string())
-        );
-        assert_eq!(
-            rt(FIND_ALL, &["String", "String"]),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rt(FIND_ALL, &["String", "String", "Integer"]),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rt(REPLACE, &["String", "String", "String"]),
-            Some("String".to_string())
-        );
-    }
-
-    #[test]
-    fn resolve_wrong_arity_or_type_none() {
-        assert_eq!(rt(MATCH, &["String"]), None);
-        assert_eq!(rt(MATCH, &["String", "Integer"]), None);
-        assert_eq!(rt(FIND, &["String"]), None);
-        assert_eq!(rt(REPLACE, &["String", "String"]), None);
-        assert_eq!(rt("regex.nope", &["String", "String"]), None);
-    }
-
-    #[test]
     fn expected_arguments_branches() {
         assert_eq!(expected_arguments(MATCH), Some("String, String"));
         assert_eq!(expected_arguments(FIND), Some("String, String[, Integer]"));
@@ -316,15 +246,6 @@ mod tests {
         );
         assert_eq!(expected_arguments(REPLACE), Some("String, String, String"));
         assert!(expected_arguments("regex.nope").is_none());
-    }
-
-    #[test]
-    fn arity_branches() {
-        assert_eq!(arity(MATCH), Some((2, 2)));
-        assert_eq!(arity(FIND), Some((2, 3)));
-        assert_eq!(arity(FIND_ALL), Some((2, 3)));
-        assert_eq!(arity(REPLACE), Some((3, 3)));
-        assert!(arity("regex.nope").is_none());
     }
 
     #[test]
@@ -369,49 +290,4 @@ mod tests {
         );
     }
 
-    // plan-72-T migration gate: prove `REGEX` reproduces every legacy answer
-    // (membership, arity, param names, return type, implementation-name rewrite,
-    // and default padding over every provided count) for all four members + a
-    // non-member. `expected_arguments` is bespoke (`[, Integer]`) and is NOT
-    // asserted against the descriptor. Kept until plan-72-BB.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::{parity, DefaultResolver, REGISTRY};
-
-        let legacy = parity::LegacySet {
-            is_call: &is_regex_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            return_type_name: &call_return_type_name,
-            // Bespoke bracket phrasing — not descriptor-derivable.
-            expected_arguments: None,
-            param_name_overloads: None,
-            argument_types: None,
-            implementation_name: Some(&implementation_name),
-            default_padding: Some(&|name, provided| default_argument_padding(name, provided).to_vec()),
-            builtin_type_fields: None,
-        };
-        parity::assert_parity(&REGEX, &[MATCH, FIND, FIND_ALL, REPLACE, "regex.nope"], &legacy, &[]);
-
-        // resolve_call exact-argument-match parity, incl. the optional trailing
-        // `start` (2 or 3 args) and rejection of a wrong 3rd-arg type.
-        assert_eq!(rt(FIND, &["String", "String"]), Some("Integer".to_string()));
-        assert_eq!(rt(FIND, &["String", "String", "Integer"]), Some("Integer".to_string()));
-        assert_eq!(rt(FIND, &["String", "String", "String"]), None);
-        assert_eq!(rt(REPLACE, &["String", "String", "String"]), Some("String".to_string()));
-
-        // Source companion: `WhenImported`, loader parses.
-        let source = REGEX.source.expect("regex has a source companion");
-        assert_eq!(source.rule, crate::builtins::descriptor::InjectionRule::WhenImported);
-        assert!((source.loader)().is_ok());
-
-        // Registered and well-formed alongside every other package.
-        assert!(REGISTRY.module("regex").is_some());
-        assert!(REGISTRY.function(MATCH).is_some());
-        assert!(DefaultResolver::contains(&REGEX, REPLACE));
-        assert_eq!(REGISTRY.duplicate_module_name(), None);
-        assert_eq!(REGISTRY.duplicate_function_name(), None);
-    }
 }

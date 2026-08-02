@@ -28,7 +28,7 @@ dependency. [[src/builtins/audio.rs:package_source_glue]]
 reports, each as an `AudioDevice` record. Each record carries an opaque `id`, a
 human-readable `name`, the `canInput`/`canOutput` capability flags, and the
 `isDefaultInput`/`isDefaultOutput` flags marking the system defaults.
-[[src/builtins/audio.rs:builtin_type_fields]]
+[[src/builtins/audio.rs:AUDIO]]
 
 The `id` is a Core Audio device UID on macOS and an ALSA PCM hint `NAME` on
 Linux. It is opaque: pass it to `audio::openInput` or `audio::openOutput` to open
@@ -55,13 +55,13 @@ when ALSA reports no PCM hints; it does not raise. [[src/target/shared/code/audi
 
 ## Parameters
 
-(none) [[src/builtins/audio.rs:arity]]
+(none) [[src/builtins/audio.rs:AUDIO]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF AudioDevice` | Every audio device the host reports, in the order the operating system returns them. On macOS the list is always nonempty on success — an empty enumeration raises `ErrAudioUnavailable` instead; on Linux the list may be empty when ALSA reports no PCM hints. [[src/builtins/audio.rs:call_return_type_name]][[src/target/shared/code/audio/alsa.rs:lower_devices]] |
+| `List OF AudioDevice` | Every audio device the host reports, in the order the operating system returns them. On macOS the list is always nonempty on success — an empty enumeration raises `ErrAudioUnavailable` instead; on Linux the list may be empty when ALSA reports no PCM hints. [[src/builtins/audio.rs:AUDIO]][[src/target/shared/code/audio/alsa.rs:lower_devices]] |
 
 ## Errors
 

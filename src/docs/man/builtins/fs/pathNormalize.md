@@ -56,7 +56,7 @@ effects other than allocating the returned `String`.
 
 | Type | Description |
 | --- | --- |
-| `String` | The lexically normalized path: redundant separators collapsed, `.` removed, and `..` applied against preceding normal components. A leading `/` is retained for absolute paths, unresolvable leading `..` components in relative paths are kept, and `"."` is returned whenever normalization leaves the path empty. [[src/builtins/fs.rs:call_return_type_name]] |
+| `String` | The lexically normalized path: redundant separators collapsed, `.` removed, and `..` applied against preceding normal components. A leading `/` is retained for absolute paths, unresolvable leading `..` components in relative paths are kept, and `"."` is returned whenever normalization leaves the path empty. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

@@ -61,7 +61,7 @@ effects other than allocating the returned `String`.
 
 | Type | Description |
 | --- | --- |
-| `String` | The extension of `path`'s final component, including the leading `.`. Returns the whole component when it is a dotfile name (its first byte is the only `.`), and an empty `String` when the final component has no `.`, when `path` is empty, or when `path` consists only of `/` separators. [[src/builtins/fs.rs:call_return_type_name]] |
+| `String` | The extension of `path`'s final component, including the leading `.`. Returns the whole component when it is a dotfile name (its first byte is the only `.`), and an empty `String` when the final component has no `.`, when `path` is empty, or when `path` consists only of `/` separators. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

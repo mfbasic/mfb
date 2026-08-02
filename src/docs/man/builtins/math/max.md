@@ -36,7 +36,7 @@ Both arguments must already be the same numeric type, and the return type is
 that type: two `Integer`s yield an `Integer`, two `Float`s a `Float`, two
 `Fixed`s a `Fixed`, and two `Money` amounts a `Money`. There is no mixed-type or
 promoting overload — `math::max(1, 1.0)` does not compile.
-[[src/builtins/math.rs:resolve_call]]
+[[src/builtins/math.rs:MATH]]
 
 `Money` stays in its dimension: the larger of two amounts is itself an amount.
 `max` is one of the four `math::` functions (`abs`, `min`, `max`, `clamp`) that
@@ -86,7 +86,7 @@ exactly. Lists of differing length fail with `ErrInvalidArgument`.
 
 | Type | Description |
 | --- | --- |
-| Same as the arguments | The larger of `a` and `b`. When they are equal, that value. For the array forms, a new list of the same element type and length holding the element-wise maximum. [[src/builtins/math.rs:resolve_call]] |
+| Same as the arguments | The larger of `a` and `b`. When they are equal, that value. For the array forms, a new list of the same element type and length holding the element-wise maximum. [[src/builtins/math.rs:MATH]] |
 
 ## Errors
 
@@ -96,12 +96,12 @@ exactly. Lists of differing length fail with `ErrInvalidArgument`.
 
 ## Type checking
 
-`math::max` takes exactly two arguments. [[src/builtins/math.rs:arity]] They must
+`math::max` takes exactly two arguments. [[src/builtins/math.rs:MATH]] They must
 share one numeric type: two `Integer`s, two `Float`s, two `Fixed`s, two `Money`
 amounts, or two lists of the same numeric element type. Mixing numeric types,
 mixing a scalar with a list, or passing a non-numeric value such as a `String`,
 `Boolean`, `Byte`, `Scalar`, record, union, resource, thread, or function value
-is a compile-time type error. [[src/builtins/math.rs:expected_arguments]]
+is a compile-time type error. [[src/builtins/math.rs:MATH]]
 
 ## Examples
 

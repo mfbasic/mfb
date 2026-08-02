@@ -24,7 +24,7 @@ can call without qualification: length queries, numeric and text conversions,
 static type inspection, value predicates, and `Error` construction. They operate
 on the primitive types (`Integer`, `Float`, `Fixed`, `Byte`, `Boolean`,
 `String`) and on the generic `List OF T` and `Map OF K TO V` containers.
-[[src/builtins/general.rs:resolve_call]]
+[[src/builtins/general.rs:GENERAL]]
 
 Most `general` functions are overloaded on the static type of their argument, and
 the overload is resolved at compile time; an argument whose type a function does
@@ -32,7 +32,7 @@ not accept is rejected during type checking rather than at run time. `len`
 reports a size as an `Integer`: the Unicode scalar count of a `String`, the
 element count of a `List OF T`, or the entry count of a `Map OF K TO V`.
 `typeName` returns a display name for a value's static type and never reads the
-value itself. [[src/builtins/general.rs:expected_arguments]]
+value itself. [[src/builtins/general.rs:GENERAL]]
 
 The conversion family moves between the numeric and text types. `toInt`,
 `toFloat`, `toFixed`, `toByte`, `toMoney`, and `toScalar` produce the named

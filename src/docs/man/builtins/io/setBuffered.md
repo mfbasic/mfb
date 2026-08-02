@@ -67,7 +67,7 @@ buffering off when partial-output-on-crash visibility matters.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of changing the buffering flag (and, when disabling, draining pending output). [[src/builtins/io.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of changing the buffering flag (and, when disabling, draining pending output). [[src/builtins/io.rs:IO]] |
 
 ## Errors
 

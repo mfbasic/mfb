@@ -44,7 +44,7 @@ so the receiver binds `RES f AS File STATE Cursor` by agreement and a different
 the resource, deep-copied into the receiving thread's arena, so the accepted
 handle owns an independent copy with no cross-thread lifetime coupling. Calling
 `accept` on a data-only thread type — one with no `RES` clause — fails to resolve.
-[[src/builtins/thread.rs:thread_resource]] [[src/builtins/thread.rs:resolve_call]]
+[[src/builtins/thread.rs:thread_resource]] [[src/builtins/thread.rs:THREAD]]
 
 Dequeuing moves the resource out of the queue, frees a slot, and signals the
 queue's *not-full* condition, so a sender blocked on a full resource queue can
@@ -87,7 +87,7 @@ closes, or cancellation is observed.
 Bounded accept on either handle kind: `timeoutMs` must be `>= 0`; `0` is one
 immediate attempt that fails with `ErrTimeout` when the (still-open) queue is
 empty, a positive value waits that long and then fails with `ErrTimeout`.
-[[src/builtins/thread.rs:resolve_call]] [[src/builtins/thread.rs:arity]]
+[[src/builtins/thread.rs:THREAD]] [[src/builtins/thread.rs:THREAD]]
 
 ## Parameters
 

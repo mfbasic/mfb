@@ -98,14 +98,14 @@ if the attempt exceeds `timeoutMs`. Here `timeoutMs` is parameter 1, not 2.
 | --- | --- | --- |
 | `host` | `String` | The peer's host name or textual IP address. Passed to the host resolver; a name with no address record raises an error. [[src/builtins/net.rs:call_param_name_overloads]] |
 | `port` | `Integer` | The TCP port to connect to on the peer. Written directly into the resolved address. [[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]] |
-| `address` | `Address` | A destination record supplying both the peer host and the peer port, typically from `net::lookup`. Replaces the separate `host` and `port` arguments. [[src/builtins/net.rs:builtin_type_fields]] |
+| `address` | `Address` | A destination record supplying both the peer host and the peer port, typically from `net::lookup`. Replaces the separate `host` and `port` arguments. [[src/builtins/net.rs:NET]] |
 | `timeoutMs` | `Integer` | Optional. The maximum time the connection attempt may take, in milliseconds. Omit to block until the connection resolves; `0` is one immediate attempt (`ErrTimeout` unless it completes at once); a positive value bounds the attempt and raises `ErrTimeout` when it elapses (clamped to `2147483647`); a negative value raises `ErrInvalidArgument`. [[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Socket` | A connected socket ready for reading and writing. Closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/builtins/net.rs:call_return_type_name]] |
+| `Socket` | A connected socket ready for reading and writing. Closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

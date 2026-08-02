@@ -54,7 +54,7 @@ Because the pattern is fixed and always valid, `toIso` emits a result for every
 
 | Type | Description |
 | --- | --- |
-| `String` | A freshly built RFC 3339 / ISO 8601 timestamp of the form `yyyy-MM-ddTHH:mm:ss.fffZ` with millisecond precision and an explicit offset (`Z` for a zero offset, otherwise `+/-HH:MM`). [[src/builtins/datetime.rs:call_return_type_name]] |
+| `String` | A freshly built RFC 3339 / ISO 8601 timestamp of the form `yyyy-MM-ddTHH:mm:ss.fffZ` with millisecond precision and an explicit offset (`Z` for a zero offset, otherwise `+/-HH:MM`). [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

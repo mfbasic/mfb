@@ -55,7 +55,7 @@ cluster.
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` holding exactly the one extended grapheme cluster at `index`, which may span several scalars and several bytes. [[src/builtins/strings.rs:call_return_type_name]] |
+| `String` | A new `String` holding exactly the one extended grapheme cluster at `index`, which may span several scalars and several bytes. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

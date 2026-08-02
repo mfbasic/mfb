@@ -61,7 +61,7 @@ always yield the same `Duration`, and it has no side effects.
 
 | Type | Description |
 | --- | --- |
-| `Duration` | The `Duration` `a - b`, normalized so its `seconds` field holds the whole-second count (which may be negative) and its `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Duration` | The `Duration` `a - b`, normalized so its `seconds` field holds the whole-second count (which may be negative) and its `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

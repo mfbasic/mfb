@@ -66,7 +66,7 @@ Binds `host`/`port` with the host default backlog and loads the identity.
 **`tls::listen(host AS String, port AS Integer, certPath AS String, keyPath AS String, backlog AS Integer) AS TlsListener`**
 
 As above, with an explicit pending-connection `backlog` hint (`0` uses the host
-default). [[src/builtins/tls.rs:resolve_call]]
+default). [[src/builtins/tls.rs:TLS]]
 
 ## Parameters
 
@@ -82,7 +82,7 @@ default). [[src/builtins/tls.rs:resolve_call]]
 
 | Type | Description |
 | --- | --- |
-| `TlsListener` | A bound, listening `TlsListener` resource that owns the loaded server TLS context, ready for `tls::accept`. The listener is closed by lexical drop at scope exit unless closed earlier with `tls::close`. [[src/builtins/tls.rs:call_return_type_name]] |
+| `TlsListener` | A bound, listening `TlsListener` resource that owns the loaded server TLS context, ready for `tls::accept`. The listener is closed by lexical drop at scope exit unless closed earlier with `tls::close`. [[src/builtins/tls.rs:TLS]] |
 
 ## Errors
 

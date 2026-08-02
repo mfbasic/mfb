@@ -37,7 +37,7 @@ field (`Integer`), returned by `net::lookup` and the address queries and accepte
 as a destination by `net::connectTcp` and the UDP send functions. `Datagram`
 (fields `from AS Address` and `bytes AS List OF Byte`) and `DatagramText` (fields
 `from AS Address` and `value AS String`) are the records `net::receiveFrom` and
-`net::receiveTextFrom` return, pairing each payload with its sender. [[src/builtins/net.rs:builtin_type_fields]]
+`net::receiveTextFrom` return, pairing each payload with its sender. [[src/builtins/net.rs:NET]]
 
 `net::toUrl` parses an absolute `http`/`https` href into a `Url`, an ordinary
 copyable value record with fields `scheme`, `username`, `password`, `host`,

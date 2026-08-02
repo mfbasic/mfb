@@ -117,13 +117,13 @@ using `snd_pcm_drain` on Linux.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `stream` | `AudioInput` or `AudioOutput` | An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Consumed by the call — the handle is moved and unusable afterward. A closed handle is a no-op. [[src/builtins/audio.rs:resolve_call]][[src/builtins/audio.rs:consumes_argument]] |
+| `stream` | `AudioInput` or `AudioOutput` | An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Consumed by the call — the handle is moved and unusable afterward. A closed handle is a no-op. [[src/builtins/audio.rs:AUDIO]][[src/builtins/audio.rs:consumes_argument]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns once the stream has been closed — for an `AudioOutput`, not before the queued playback has finished sounding; immediately for an already-closed handle. [[src/builtins/audio.rs:call_return_type_name]][[src/target/shared/code/audio/macos.rs:lower_close_output]] |
+| `Nothing` | Returns once the stream has been closed — for an `AudioOutput`, not before the queued playback has finished sounding; immediately for an already-closed handle. [[src/builtins/audio.rs:AUDIO]][[src/target/shared/code/audio/macos.rs:lower_close_output]] |
 
 ## Errors
 

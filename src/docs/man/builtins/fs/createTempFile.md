@@ -83,7 +83,7 @@ directory.
 
 | Type | Description |
 | --- | --- |
-| `File` | An open, empty `File` resource for a newly created file opened read/write with `0600` permissions and positioned at the start of the file. The resource must eventually be closed, by scope drop or by `fs::close`. [[src/builtins/fs.rs:call_return_type_name]] |
+| `File` | An open, empty `File` resource for a newly created file opened read/write with `0600` permissions and positioned at the start of the file. The resource must eventually be closed, by scope drop or by `fs::close`. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

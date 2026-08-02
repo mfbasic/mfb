@@ -55,21 +55,21 @@ all-or-nothing, so a send that already completed is never retried.
 To reply to a sender, pass the `from` field of the `DatagramText` returned by
 `net::receiveTextFrom` (or of the `Datagram` from `net::receiveFrom`; both carry
 the same `Address`). The text payload of a `DatagramText` is its `value` field.
-[[src/builtins/net.rs:builtin_type_fields]]
+[[src/builtins/net.rs:NET]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `sock` | `UdpSocket` | A bound UDP socket to send from, as returned by `net::bindUdp`. It must still be open; the handle is borrowed, not consumed. [[src/builtins/net.rs:call_param_names]] |
-| `address` | `Address` | The destination. Its `host` field is resolved on each call and may be a numeric IP literal or a name; its `port` field selects the destination port. Obtain one from `net::lookup`, or from the `from` field of a received `Datagram` or `DatagramText`. [[src/builtins/net.rs:builtin_type_fields]] |
+| `address` | `Address` | The destination. Its `host` field is resolved on each call and may be a numeric IP literal or a name; its `port` field selects the destination port. Obtain one from `net::lookup`, or from the `from` field of a received `Datagram` or `DatagramText`. [[src/builtins/net.rs:NET]] |
 | `value` | `String` | The text to send, transmitted as its UTF-8 bytes in order as one datagram. An empty string sends a valid zero-length datagram. [[src/builtins/net.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `sendTextTo` returns no value. A successful call has handed the datagram to the host for best-effort delivery; it does not guarantee receipt. [[src/builtins/net.rs:call_return_type_name]] |
+| `Nothing` | `sendTextTo` returns no value. A successful call has handed the datagram to the host for best-effort delivery; it does not guarantee receipt. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

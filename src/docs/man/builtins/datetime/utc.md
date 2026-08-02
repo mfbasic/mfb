@@ -43,19 +43,19 @@ of a `DateTime` in this zone match the seconds-since-epoch of the originating
 It is pure: every call yields an identical UTC zone, it reads no host state, and
 it has no side effects. Unlike `datetime::local`, whose offset depends on the
 host's configured time zone, `datetime::utc` is wholly independent of the
-environment. [[src/builtins/datetime.rs:arity]]
+environment. [[src/builtins/datetime.rs:DATETIME]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `datetime::utc` takes no arguments. [[src/builtins/datetime.rs:arity]] |
+| — | — | `datetime::utc` takes no arguments. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Zone` | The UTC zone: a `Zone` with a constant offset of zero seconds, a zone kind of `ZoneKind::Utc` (tag `0`), and the label `"UTC"`. The same value is returned on every call. [[src/builtins/datetime.rs:call_return_type_name]] [[src/builtins/datetime_package.mfb:__datetime_utc]] |
+| `Zone` | The UTC zone: a `Zone` with a constant offset of zero seconds, a zone kind of `ZoneKind::Utc` (tag `0`), and the label `"UTC"`. The same value is returned on every call. [[src/builtins/datetime.rs:DATETIME]] [[src/builtins/datetime_package.mfb:__datetime_utc]] |
 
 ## Errors
 

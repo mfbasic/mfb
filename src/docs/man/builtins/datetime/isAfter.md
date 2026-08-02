@@ -58,7 +58,7 @@ instants rather than just their order, use `datetime::between`.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `a` is strictly after `b`, and `FALSE` when `a` is equal to or before `b`. The `seconds` fields are compared first and the `nanos` fields break ties, so a `FALSE` result includes the case where `a` and `b` name the same instant. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when `a` is strictly after `b`, and `FALSE` when `a` is equal to or before `b`. The `seconds` fields are compared first and the `nanos` fields break ties, so a `FALSE` result includes the case where `a` and `b` name the same instant. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

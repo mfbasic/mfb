@@ -58,7 +58,7 @@ than UTF-8 text from a `String`.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `writeText` returns no value. On a successful return every byte of `value` has been handed to the socket's send buffer. [[src/builtins/net.rs:call_return_type_name]] |
+| `Nothing` | `writeText` returns no value. On a successful return every byte of `value` has been handed to the socket's send buffer. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

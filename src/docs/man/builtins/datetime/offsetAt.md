@@ -61,7 +61,7 @@ pure); for a local zone it reads the host's time-zone configuration through the
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The signed offset from UTC in seconds in force for `zone` at instant `at`: always `0` for a UTC zone, the stored constant for a fixed zone, and the DST-correct host offset for a local zone. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Integer` | The signed offset from UTC in seconds in force for `zone` at instant `at`: always `0` for a UTC zone, the stored constant for a fixed zone, and the DST-correct host offset for a local zone. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

@@ -327,10 +327,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     }
 }
 
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    DefaultResolver::arity(&THREAD, name)
-}
-
 fn matches_start(arg_types: &[String]) -> bool {
     if !(2..=4).contains(&arg_types.len()) {
         return false;
@@ -691,21 +687,6 @@ mod tests {
     }
 
     #[test]
-    fn arity_all_arms() {
-        assert_eq!(arity(START), Some((2, 4)));
-        assert_eq!(arity(IS_RUNNING), Some((1, 1)));
-        assert_eq!(arity(WAIT_FOR), Some((1, 1)));
-        assert_eq!(arity(CANCEL), Some((1, 1)));
-        assert_eq!(arity(IS_CANCELLED), Some((1, 1)));
-        assert_eq!(arity(SEND), Some((2, 3)));
-        assert_eq!(arity(POLL), Some((2, 2)));
-        assert_eq!(arity(RECEIVE), Some((1, 2)));
-        assert_eq!(arity(TRANSFER), Some((2, 3)));
-        assert_eq!(arity(ACCEPT), Some((1, 2)));
-        assert!(arity("thread.nope").is_none());
-    }
-
-    #[test]
     fn thread_parts_full_shapes() {
         assert_eq!(
             thread_parts_full("Thread OF Integer TO String"),
@@ -942,67 +923,6 @@ mod tests {
             thread_parts_full("Thread OF (Integer) TO String"),
             Some((THREAD_TYPE, "Integer", None, "String"))
         );
-    }
-
-    // plan-72-Y migration gate: prove `THREAD` reproduces every legacy helper
-    // answer for every user-facing `thread.*` name (and an unknown name) —
-    // membership, arity, and per-position parameter names — pinning the borrowed
-    // `call_param_names` static equal to `THREAD`. Returns are argument-dependent
-    // (`ReturnType::Custom`), so `resolve_call` stays hand-authored and is checked
-    // by the `resolve_*` tests above; `expected_arguments` is `"or"`-phrased and
-    // checked by `expected_arguments_all_arms`. Keep until plan-72-BB.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::parity;
-
-        let calls: Vec<&str> = THREAD_FUNCTIONS.iter().map(|f| f.name).collect();
-        let legacy = parity::LegacySet {
-            is_call: &is_thread_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            // Resolver-backed: the harness skips return-type parity (every return
-            // is argument-dependent and is checked through the resolver samples).
-            return_type_name: &|_| None,
-            // `ISOLATED FUNC`-shaped and `"or"`-phrased; kept hand-authored.
-            expected_arguments: None,
-            param_name_overloads: None,
-            argument_types: None,
-            implementation_name: None,
-            default_padding: None,
-            builtin_type_fields: None,
-        };
-
-        // Argument-dependent returns through the resolver: computed `start` handle
-        // type, parent-only ops, message/output/resource extraction.
-        let ret = |call, args: &'static [&'static str], r: &'static str| parity::ResolverSample {
-            call,
-            arg_types: args,
-            expected_return: Some(r),
-            expected_impl: None,
-            expected_padding: None,
-            expected_type: None,
-            expected_overload_target: None,
-        };
-        const START_FN: &str = "ISOLATED FUNC(ThreadWorker OF Integer TO String, Integer) AS String";
-        let samples = [
-            ret(START, &[START_FN, "Integer"], "Thread OF Integer TO String"),
-            ret(IS_RUNNING, &["Thread OF Integer TO String"], "Boolean"),
-            ret(WAIT_FOR, &["Thread OF Integer TO String"], "String"),
-            ret(RECEIVE, &["Thread OF Integer TO String"], "Integer"),
-            ret(ACCEPT, &["Thread OF Integer RES File TO String"], "File"),
-            ret(IS_CANCELLED, &["ThreadWorker OF Integer TO String"], "Boolean"),
-        ];
-
-        let mut probe = calls.clone();
-        probe.push("thread.nope");
-        parity::assert_parity(&THREAD, &probe, &legacy, &samples);
-
-        // The two opaque handle types are the descriptor's builtin-type authority
-        // (the parametric `Thread OF ...` forms stay in `is_builtin_type`).
-        assert!(is_builtin_type(THREAD_TYPE));
-        assert!(is_builtin_type(THREAD_WORKER_TYPE));
     }
 
     #[test]

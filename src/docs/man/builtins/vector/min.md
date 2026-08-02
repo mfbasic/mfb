@@ -79,7 +79,7 @@ Per-component minimum of 64-bit signed components by compare and select.
 
 | Type | Description |
 | --- | --- |
-| the same type as `a` | A new vector of the same type and dimension whose `i`-th component is the smaller of `a`'s and `b`'s `i`-th components. Equal to an operand only when that operand is dominated by the other in every component. [[src/builtins/vector.rs:resolve_call]] |
+| the same type as `a` | A new vector of the same type and dimension whose `i`-th component is the smaller of `a`'s and `b`'s `i`-th components. Equal to an operand only when that operand is dominated by the other in every component. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -91,7 +91,7 @@ No errors.
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and no implicit conversion is applied to a vector
 argument. The return type is always the first argument's own type.
-[[src/builtins/vector.rs:resolve_call]] [[src/builtins/vector.rs:same_vector]]
+[[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:same_vector]]
 
 ## Examples
 

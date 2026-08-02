@@ -15,7 +15,7 @@ csv::stringify(value)
 The `csv` package converts between CSV text and a grid of rows of String cells.
 `csv::parse` turns a UTF-8 `String` holding CSV text into a
 `List OF List OF String`, and `csv::stringify` renders such a grid back into CSV
-text. `csv` is a built-in package: `IMPORT csv` needs no manifest dependency. [[src/builtins/csv.rs:call_return_type_name]]
+text. `csv` is a built-in package: `IMPORT csv` needs no manifest dependency. [[src/builtins/csv.rs:CSV]]
 
 The package defines no new types. A CSV document is exactly a
 `List OF List OF String`: an ordered list of rows, each an ordered list of String

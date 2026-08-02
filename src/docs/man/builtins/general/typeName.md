@@ -34,7 +34,7 @@ The compiler must be able to determine the static type of `value`; a value whose
 type cannot be resolved is a compile-time error, not a run-time one. [[src/target/shared/code/builder_value_semantics.rs:static_type_name]]
 
 `typeName` takes exactly one argument of any type. Any other arity is a compile-time
-error. [[src/builtins/general.rs:resolve_call]]
+error. [[src/builtins/general.rs:GENERAL]]
 
 `typeName` is not a serialization or schema API and does not expose runtime values.
 The exact spelling of a name may change between implementations, so programs must
@@ -63,7 +63,7 @@ No errors.
 
 `typeName` is generic over its single argument and accepts a `value` of any type
 `T`; the type parameter `T` is unconstrained. It takes exactly one argument; any
-other arity is rejected at compile time. [[src/builtins/general.rs:resolve_call]]
+other arity is rejected at compile time. [[src/builtins/general.rs:GENERAL]]
 
 ## Examples
 

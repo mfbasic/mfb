@@ -31,7 +31,7 @@ LF appended. [[src/target/shared/code/io_stdout.rs:lower_io_write_helper]]
 
 Only `String` is accepted, and exactly one argument; there is no implicit
 conversion, so convert other values first — for example with `toString`.
-[[src/builtins/io.rs:arity]] [[src/builtins/io.rs:resolve_call]]
+[[src/builtins/io.rs:IO]] [[src/builtins/io.rs:IO]]
 
 The underlying write loops until every byte has been transferred: a short write
 advances the cursor and re-issues, and an `EINTR` interruption retries with the
@@ -66,7 +66,7 @@ console program, and the application transcript window in app mode
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of writing to standard output. [[src/builtins/io.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of writing to standard output. [[src/builtins/io.rs:IO]] |
 
 ## Errors
 

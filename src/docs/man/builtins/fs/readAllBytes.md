@@ -62,7 +62,7 @@ blocking descriptor should check `thread::isCancelled` between operations.
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The remaining contents of `file`, from the current position to end of input, in file order, as a `List OF Byte`. When `file` is already at end of input, an empty `List OF Byte` is returned. [[src/builtins/fs.rs:call_return_type_name]] |
+| `List OF Byte` | The remaining contents of `file`, from the current position to end of input, in file order, as a `List OF Byte`. When `file` is already at end of input, an empty `List OF Byte` is returned. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

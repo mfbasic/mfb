@@ -54,7 +54,7 @@ lowercasing both operands. `value` is not mutated; the result is a new owned
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` holding the uppercase mapping of `value`. The empty string yields `""`; a string with no cased scalars yields an equal string. May be longer than `value`. [[src/builtins/strings.rs:call_return_type_name]] |
+| `String` | A new `String` holding the uppercase mapping of `value`. The empty string yields `""`; a string with no cased scalars yields an equal string. May be longer than `value`. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

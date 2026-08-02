@@ -114,7 +114,7 @@ and handlers are interchangeable between the two.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `handleRequest` is a `SUB` and yields no value; its effect is the served connection. [[src/builtins/http.rs:call_return_type_name]] |
+| `Nothing` | `handleRequest` is a `SUB` and yields no value; its effect is the served connection. [[src/builtins/http.rs:HTTP]] |
 
 ## Errors
 

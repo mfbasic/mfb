@@ -49,7 +49,7 @@ and the call is total — it never fails.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when some entry of `suffixes` is a suffix of `value`, `FALSE` otherwise. An empty list yields `FALSE`; a list containing `""` always yields `TRUE`. [[src/builtins/strings.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when some entry of `suffixes` is a suffix of `value`, `FALSE` otherwise. An empty list yields `FALSE`; a list containing `""` always yields `TRUE`. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

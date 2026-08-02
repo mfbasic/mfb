@@ -51,12 +51,12 @@ Neither argument is mutated.
 **`strings::padLeft(value AS String, width AS Integer) AS String`**
 
 Pads with a single space (`" "`), materialized internally so the two forms share
-one code path. [[src/builtins/strings.rs:resolve_call]]
+one code path. [[src/builtins/strings.rs:STRINGS]]
 
 **`strings::padLeft(value AS String, width AS Integer, padChar AS String) AS String`**
 
 Pads with the supplied `padChar`, which must be exactly one Unicode scalar value.
-[[src/builtins/strings.rs:arity]]
+[[src/builtins/strings.rs:STRINGS]]
 
 ## Parameters
 
@@ -70,7 +70,7 @@ Pads with the supplied `padChar`, which must be exactly one Unicode scalar value
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` equal to `value` prefixed with enough copies of `padChar` to span `width` scalars, or equal to `value` when it is already that long. [[src/builtins/strings.rs:call_return_type_name]] |
+| `String` | A new `String` equal to `value` prefixed with enough copies of `padChar` to span `width` scalars, or equal to `value` when it is already that long. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

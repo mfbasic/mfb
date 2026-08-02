@@ -29,7 +29,7 @@ an absolute point on the UTC timeline. Everything civil — `Date`, `Time`, and
 `DateTime` — is a projection of an instant through a `Zone`, and a `Duration` is a
 signed span between instants. All of these types are flat, copyable value records:
 they hold no resources and no hidden state, and they are referenced bare
-(`Instant`, `Date`, …), not package-qualified. [[src/builtins/datetime.rs:is_builtin_type]]
+(`Instant`, `Date`, …), not package-qualified. [[src/builtins/datetime.rs:DATETIME]]
 
 `Instant` and `Duration` both split time into whole `seconds` plus a `nanos`
 field normalized into the range `0 .. 999_999_999`, so that identical wall spans

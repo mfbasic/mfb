@@ -34,7 +34,7 @@ original value is left unchanged. The scalar seam bridges `String` and the
 `Scalar` primitive: `toScalars` walks a string one Unicode scalar at a time and
 `fromScalars` rebuilds one, an exact round trip; the five `isX(Scalar)`
 predicates classify a single scalar by its Unicode general category.
-[[src/builtins/strings.rs:call_return_type_name]]
+[[src/builtins/strings.rs:STRINGS]]
 
 Index- and count-based functions (`find`, `mid`, `left`, `right`) measure
 positions in zero-based Unicode scalar values, not bytes or graphemes. The

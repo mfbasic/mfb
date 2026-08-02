@@ -57,7 +57,7 @@ fresh owned value.
 
 | Type | Description |
 | --- | --- |
-| `List OF Scalar` | The Unicode scalar values of `value`, in order, one per element. The empty string yields the empty list. [[src/builtins/strings.rs:call_return_type_name]] |
+| `List OF Scalar` | The Unicode scalar values of `value`, in order, one per element. The empty string yields the empty list. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

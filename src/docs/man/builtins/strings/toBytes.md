@@ -55,7 +55,7 @@ mutating it does not affect the string it came from.
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The UTF-8 octets of `value` in order, one per element; the empty list for the empty string. The element count equals `strings::byteLen(value)`. [[src/builtins/strings.rs:call_return_type_name]] |
+| `List OF Byte` | The UTF-8 octets of `value` in order, one per element; the empty list for the empty string. The element count equals `strings::byteLen(value)`. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

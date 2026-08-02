@@ -60,7 +60,7 @@ its own enabled flag.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of draining the handle's output buffer. [[src/builtins/fs.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of draining the handle's output buffer. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

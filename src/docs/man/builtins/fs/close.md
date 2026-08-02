@@ -63,7 +63,7 @@ distinctly. [[src/target/shared/code/error_constants.rs:RESOURCE_MOVED_BIT]]
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing on success. After a successful return the descriptor is released and `file` is marked closed and must not be used again. [[src/builtins/fs.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing on success. After a successful return the descriptor is released and `file` is marked closed and must not be used again. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

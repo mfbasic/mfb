@@ -31,7 +31,7 @@ newline-free counterpart of `io::printError`.
 
 Only `String` is accepted, and exactly one argument; there is no implicit
 conversion, so convert other values first — for example with `toString`.
-[[src/builtins/io.rs:arity]] [[src/builtins/io.rs:resolve_call]]
+[[src/builtins/io.rs:IO]] [[src/builtins/io.rs:IO]]
 
 Standard error is **never buffered**. `io::setBuffered` controls standard output
 only, so this call always issues its bytes immediately and there is no flush for
@@ -57,7 +57,7 @@ console program, and the application transcript in app mode (`mfb build --app`).
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of writing to standard error. [[src/builtins/io.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of writing to standard error. [[src/builtins/io.rs:IO]] |
 
 ## Errors
 

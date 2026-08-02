@@ -52,13 +52,13 @@ has no side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `datetime::monotonic` takes no arguments. [[src/builtins/datetime.rs:arity]] |
+| — | — | `datetime::monotonic` takes no arguments. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Duration` | The elapsed span from the OS-chosen monotonic origin to the moment of the call. The `seconds` field holds whole elapsed seconds and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. Only differences between two readings are meaningful; a single reading has no fixed reference point. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Duration` | The elapsed span from the OS-chosen monotonic origin to the moment of the call. The `seconds` field holds whole elapsed seconds and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. Only differences between two readings are meaningful; a single reading has no fixed reference point. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

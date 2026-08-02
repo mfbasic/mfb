@@ -45,7 +45,7 @@ respectively without any addition being performed.
 
 `value` is neither modified nor consumed. `sum` takes no callback and has no
 optional argument; it is a single-argument member.
-[[src/builtins/collections.rs:arity]]
+[[src/builtins/collections.rs:COLLECTIONS]]
 
 For the `Integer` and `Fixed` overloads each step is a **checked** 64-bit
 addition: if the running total leaves the destination range, the addition fails

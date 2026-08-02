@@ -50,7 +50,7 @@ native and Binary Representation execution paths. [[src/target/shared/code/build
 
 | Type | Description |
 | --- | --- |
-| `Integer` | `value` shifted left by `count` bits, with vacated low bits zero and bits above bit 63 discarded. Equal to `value` when `count` is `0`. [[src/builtins/bits.rs:call_return_type_name]] |
+| `Integer` | `value` shifted left by `count` bits, with vacated low bits zero and bits above bit 63 discarded. Equal to `value` when `count` is `0`. [[src/builtins/bits.rs:BITS]] |
 
 ## Errors
 

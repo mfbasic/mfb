@@ -25,7 +25,7 @@ IMPORT term
 
 `term::getUnderline` returns `TRUE` when subsequently drawn text will be
 underlined and `FALSE` when it will not. It takes no arguments.
-[[src/builtins/term.rs:arity]]
+[[src/builtins/term.rs:TERM]]
 
 The value is the module's current underline attribute read directly. Immediately
 after `term::on` — which resets underline to off — it is `FALSE`; afterwards it is
@@ -53,7 +53,7 @@ nothing, and cannot fail.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when the underline attribute is set for subsequently drawn text, `FALSE` otherwise — including whenever TUI mode is off. [[src/builtins/term.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when the underline attribute is set for subsequently drawn text, `FALSE` otherwise — including whenever TUI mode is off. [[src/builtins/term.rs:TERM]] |
 
 ## Errors
 

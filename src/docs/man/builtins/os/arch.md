@@ -32,13 +32,13 @@ call. [[src/target/shared/code/os/introspect.rs:lower_const_string]]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `os::arch` takes no arguments. [[src/builtins/os.rs:arity]] |
+| — | — | `os::arch` takes no arguments. [[src/builtins/os.rs:OS]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The CPU architecture: `"aarch64"`, `"x86_64"`, or `"riscv64"`. [[src/builtins/os.rs:call_return_type_name]] |
+| `String` | The CPU architecture: `"aarch64"`, `"x86_64"`, or `"riscv64"`. [[src/builtins/os.rs:OS]] |
 
 ## Errors
 

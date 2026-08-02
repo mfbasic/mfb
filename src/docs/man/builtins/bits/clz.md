@@ -31,7 +31,7 @@ count as leading zeros and the result is `64`. When bit 63 is set the result is
 `0`. The operation is total — it is defined for every `Integer` and never raises
 — has no side effects, and lowers to a single native AArch64 count-leading-zeros
 instruction rather than calling a runtime helper, producing identical results on
-the native and Binary Representation execution paths. [[src/builtins/bits.rs:call_return_type_name]] [[src/target/shared/code/builder_bits.rs:lower_bits_count_zeros]]
+the native and Binary Representation execution paths. [[src/builtins/bits.rs:BITS]] [[src/target/shared/code/builder_bits.rs:lower_bits_count_zeros]]
 
 ## Parameters
 
@@ -43,7 +43,7 @@ the native and Binary Representation execution paths. [[src/builtins/bits.rs:cal
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The leading-zero count, in the range `0`..`64`. `0` when bit 63 is set; `64` when `value` is `0`. [[src/builtins/bits.rs:call_return_type_name]] |
+| `Integer` | The leading-zero count, in the range `0`..`64`. `0` when bit 63 is set; `64` when `value` is `0`. [[src/builtins/bits.rs:BITS]] |
 
 ## Errors
 

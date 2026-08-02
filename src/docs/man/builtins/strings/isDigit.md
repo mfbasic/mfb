@@ -55,7 +55,7 @@ parser — use `toInt` or `toFloat` to convert text to a number.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `scalar` has general category `Nd`; `FALSE` otherwise. [[src/builtins/strings.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when `scalar` has general category `Nd`; `FALSE` otherwise. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

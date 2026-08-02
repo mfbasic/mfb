@@ -62,7 +62,7 @@ its bytes with `encoding::hexEncode` (lowercase hex) or `encoding::base64Encode`
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The ASN.1 DER (X9.62) `Ecdsa-Sig-Value` ECDSA signature. Variable length (roughly 70–72 bytes) depending on the encoding of the `r` and `s` integers. [[src/builtins/crypto.rs:call_return_type_name]] |
+| `List OF Byte` | The ASN.1 DER (X9.62) `Ecdsa-Sig-Value` ECDSA signature. Variable length (roughly 70–72 bytes) depending on the encoding of the `r` and `s` integers. [[src/builtins/crypto.rs:CRYPTO]] |
 
 ## Errors
 

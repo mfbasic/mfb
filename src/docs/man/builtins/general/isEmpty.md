@@ -40,7 +40,7 @@ checking rather than at run time. `isEmpty` is lowered inline at a direct call
 site, and out of line where it is named as a function value, so it may be passed
 as a predicate anywhere an ordinary `FUNC` may be. The value form resolves
 against the type expected at that position (bug-368). The same predicate is also exposed through
-the `filters` package. [[src/builtins/general.rs:resolve_call]]
+the `filters` package. [[src/builtins/general.rs:GENERAL]]
 
 ## Overloads
 
@@ -81,7 +81,7 @@ No errors.
 or an argument of any other type is rejected at compile time. The element type
 `T` and the map key and value types `K` and `V` are unconstrained. Like other
 `general` predicates it may be overridden by a user- or package-defined `FUNC` of
-the same name for its own value types. [[src/builtins/general.rs:resolve_call]]
+the same name for its own value types. [[src/builtins/general.rs:GENERAL]]
 
 ## Examples
 

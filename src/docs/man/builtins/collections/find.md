@@ -47,7 +47,7 @@ time. [[src/builtins/collections.rs:resolve_find_list]]
 
 `start` is optional. When it is omitted the search begins at index 0; the
 lowering supplies that default itself, so an omitted `start` and an explicit `0`
-behave identically. [[src/builtins/collections.rs:arity]]
+behave identically. [[src/builtins/collections.rs:COLLECTIONS]]
 [[src/target/shared/code/builder_search.rs:lower_find]]
 
 `start` is validated before anything is compared. A negative `start`, or a
@@ -101,7 +101,7 @@ to and including the length of `value`.
 | --- | --- | --- |
 | `value` | `List OF T` | The list to search. Must be a `List`; a `String` first argument selects `strings::find` instead. Also accepted under the name `list`. [[src/builtins/collections.rs:resolve_find_list]] [[src/builtins/collections.rs:call_param_names]] |
 | `item` | `T` or `List OF T` | What to look for: an element of type `T` for an element search, or a list of the same type as `value` for a contiguous sublist search. Also accepted under the name `needle`. [[src/builtins/collections.rs:resolve_find_list]] [[src/builtins/collections.rs:call_param_names]] |
-| `start` | `Integer` | Optional zero-based index at which the scan begins; defaults to `0` when omitted. Must be in the range `0` through the length of `value` inclusive. There is no alternate name for this parameter. [[src/builtins/collections.rs:arity]] [[src/target/shared/code/builder_search.rs:lower_find]] |
+| `start` | `Integer` | Optional zero-based index at which the scan begins; defaults to `0` when omitted. Must be in the range `0` through the length of `value` inclusive. There is no alternate name for this parameter. [[src/builtins/collections.rs:COLLECTIONS]] [[src/target/shared/code/builder_search.rs:lower_find]] |
 
 ## Return value
 
@@ -123,7 +123,7 @@ must be either exactly `T` or exactly the type of `value`; nothing else
 resolves, and the `T` case wins when both would match. A supplied `start` must
 be exactly `Integer` — no other numeric type is accepted, and the whole call
 takes two or three arguments.
-[[src/builtins/collections.rs:resolve_find_list]] [[src/builtins/collections.rs:arity]]
+[[src/builtins/collections.rs:resolve_find_list]] [[src/builtins/collections.rs:COLLECTIONS]]
 
 ## Examples
 

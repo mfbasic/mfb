@@ -51,7 +51,7 @@ A second overload takes two `Money` bounds and returns a `Money`, drawn the same
 way over the inclusive span of the underlying scaled amounts: a uniform amount
 between two amounts is itself an amount. Both arguments must be the same type;
 there is no mixed `Integer`/`Money` form, and there is no `Float` or `Fixed`
-form. [[src/builtins/math.rs:resolve_call]]
+form. [[src/builtins/math.rs:MATH]]
 
 Either argument may be given by name as well as positionally: the first accepts
 `min` or `minimum`, the second `max` or `maximum`.
@@ -84,7 +84,7 @@ same sampling. The result stays in the `Money` dimension.
 
 | Type | Description |
 | --- | --- |
-| `Integer` or `Money` | A pseudo-random value `x` with `min <= x <= max`, drawn uniformly, in the same type as the bounds. When `min` equals `max`, that single value. [[src/builtins/math.rs:resolve_call]] |
+| `Integer` or `Money` | A pseudo-random value `x` with `min <= x <= max`, drawn uniformly, in the same type as the bounds. When `min` equals `max`, that single value. [[src/builtins/math.rs:MATH]] |
 
 ## Errors
 
@@ -94,11 +94,11 @@ same sampling. The result stays in the `Money` dimension.
 
 ## Type checking
 
-`math::rand` takes exactly two arguments. [[src/builtins/math.rs:arity]] They must
+`math::rand` takes exactly two arguments. [[src/builtins/math.rs:MATH]] They must
 be two `Integer`s or two `Money` amounts. A `Float`, `Fixed`, or `Scalar`
 argument, a mixed `Integer`/`Money` pair, a list, or any non-numeric value such
 as a `String`, `Boolean`, `Byte`, record, union, resource, thread, or function
-value is a compile-time type error. [[src/builtins/math.rs:expected_arguments]]
+value is a compile-time type error. [[src/builtins/math.rs:MATH]]
 
 ## Examples
 

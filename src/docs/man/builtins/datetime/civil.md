@@ -69,7 +69,7 @@ resolves it reads no host state and has no side effects.
 
 | Type | Description |
 | --- | --- |
-| `DateTime` | The canonical `DateTime` naming the same moment as `date` and `time` in `zone`, carrying the resolved UTC offset. Round-trips through `datetime::resolve` and `datetime::inZone`. For a spring-forward gap the fields reflect the forward-shifted instant; for a fall-back overlap they reflect the earlier of the two candidate offsets. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `DateTime` | The canonical `DateTime` naming the same moment as `date` and `time` in `zone`, carrying the resolved UTC offset. Round-trips through `datetime::resolve` and `datetime::inZone`. For a spring-forward gap the fields reflect the forward-shifted instant; for a fall-back overlap they reflect the earlier of the two candidate offsets. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

@@ -53,7 +53,7 @@ has no side effects.
 
 | Type | Description |
 | --- | --- |
-| `Duration` | The span of equal magnitude pointing the opposite way. The `seconds` field holds the negated, re-normalized whole-second count and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. The zero span returns unchanged. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Duration` | The span of equal magnitude pointing the opposite way. The `seconds` field holds the negated, re-normalized whole-second count and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. The zero span returns unchanged. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

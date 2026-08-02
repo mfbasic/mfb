@@ -25,7 +25,7 @@ logical keywords and cannot be package member identifiers. [[src/builtins/bits.r
 Every operand and result is a raw two's-complement 64-bit `Integer` bit pattern.
 The functions do not interpret sign except where a signature says so — `sra`, the
 arithmetic right shift. Every function takes and returns `Integer`, never Float,
-String, or a collection. [[src/builtins/bits.rs:call_return_type_name]]
+String, or a collection. [[src/builtins/bits.rs:BITS]]
 
 Each function lowers to one (or a few) native instructions inline, like
 `math::abs`, rather than calling a runtime helper, and produces identical results

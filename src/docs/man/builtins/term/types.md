@@ -34,7 +34,7 @@ are flat, copyable value records of scalar fields: they hold no resource and no
 hidden state, so they copy freely, drop with no heap frees, and are
 thread-sendable. Neither is constructed by the program — each is produced by the
 `term::` query that returns it and then read with ordinary field
-access. [[src/builtins/term.rs:builtin_type_fields]]
+access. [[src/builtins/term.rs:TERM]]
 
 `TermColor` is a 24-bit RGB color, three `Byte` channels of 0 to 255. It is
 returned by `term::getForeground` and `term::getBackground`, which read back the

@@ -84,7 +84,7 @@ connection is already pending); a negative value raises `ErrInvalidArgument`.
 
 | Type | Description |
 | --- | --- |
-| `Socket` | A connected socket for communicating with the accepted client. It is independent of the listener and is closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/builtins/net.rs:call_return_type_name]] |
+| `Socket` | A connected socket for communicating with the accepted client. It is independent of the listener and is closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

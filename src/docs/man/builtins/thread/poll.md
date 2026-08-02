@@ -52,7 +52,7 @@ answering `TRUE`/`FALSE` from the queue contents rather than failing.
 `poll` accepts only a parent `Thread` handle; a `ThreadWorker` is rejected at
 compile time, and there is no worker-side poll of the inbound queue — worker code
 uses `thread::receive(t, 0)` for a non-blocking read instead. The thread's `Msg`
-and `Out` types do not affect the result. [[src/builtins/thread.rs:resolve_call]]
+and `Out` types do not affect the result. [[src/builtins/thread.rs:THREAD]]
 
 ## Parameters
 
@@ -65,7 +65,7 @@ and `Out` types do not affect the result. [[src/builtins/thread.rs:resolve_call]
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when a message is queued on the outbound queue, so a following `thread::receive(t)` returns without waiting; `FALSE` when none arrived before the deadline, including when the worker has completed with an empty queue. [[src/builtins/thread.rs:resolve_call]] |
+| `Boolean` | `TRUE` when a message is queued on the outbound queue, so a following `thread::receive(t)` returns without waiting; `FALSE` when none arrived before the deadline, including when the worker has completed with an empty queue. [[src/builtins/thread.rs:THREAD]] |
 
 ## Errors
 
@@ -79,7 +79,7 @@ and `Out` types do not affect the result. [[src/builtins/thread.rs:resolve_call]
 Generic over `Msg` and `Out`. Exactly two arguments: a parent
 `Thread OF Msg TO Out` and an `Integer`. A `ThreadWorker` handle, a missing `ms`,
 or a non-`Integer` `ms` fails to resolve. The result is always `Boolean`.
-[[src/builtins/thread.rs:arity]]
+[[src/builtins/thread.rs:THREAD]]
 
 ## Examples
 

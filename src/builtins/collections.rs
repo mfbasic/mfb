@@ -728,10 +728,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     }
 }
 
-pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    super::general::call_return_type_name(native_member_bare(name)?)
-}
-
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match native_member_bare(name)? {
         "get" => Some("List OF T, Integer or Map OF K TO V, K"),
@@ -762,10 +758,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         "toList" => Some("Set OF T"),
         _ => None,
     }
-}
-
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    DefaultResolver::arity(&COLLECTIONS, name)
 }
 
 /// Whether any file in `ast` imports the `collections` package.
@@ -1015,38 +1007,12 @@ mod tests {
     }
 
     #[test]
-    fn call_return_type_name_delegates() {
-        // Delegates to general::call_return_type_name(bare), which returns Some only
-        // for the conversion builtins (toInt/...) — none of which are native members,
-        // so every collections member resolves to None here.
-        assert_eq!(call_return_type_name("collections.find"), None);
-        assert_eq!(call_return_type_name("collections.get"), None);
-        assert_eq!(call_return_type_name("collections.sort"), None);
-        assert_eq!(call_return_type_name("nope"), None);
-    }
-
-    #[test]
     fn expected_arguments_all_members() {
         for member in NATIVE_MEMBERS {
             let name = format!("collections.{member}");
             assert!(expected_arguments(&name).is_some(), "{member}");
         }
         assert!(expected_arguments("collections.sort").is_none());
-    }
-
-    #[test]
-    fn arity_all_members() {
-        assert_eq!(arity("collections.get"), Some((2, 2)));
-        assert_eq!(arity("collections.getOr"), Some((3, 3)));
-        assert_eq!(arity("collections.keys"), Some((1, 1)));
-        assert_eq!(arity("collections.find"), Some((2, 3)));
-        assert_eq!(arity("collections.set"), Some((3, 3)));
-        assert_eq!(arity("collections.forEach"), Some((2, 2)));
-        for member in NATIVE_MEMBERS {
-            let name = format!("collections.{member}");
-            assert!(arity(&name).is_some(), "{member}");
-        }
-        assert!(arity("collections.sort").is_none());
     }
 
     #[test]
@@ -1562,157 +1528,4 @@ mod tests {
         assert!(resolve_transform(&mismatched).is_none());
     }
 
-    // plan-72-E migration gate: prove `COLLECTIONS` reproduces the legacy answers
-    // for every native member — membership, arity, and parameter names/aliases —
-    // and that its `BuiltinResolver` resolves List/Map/Set/generic return types
-    // identically to the legacy dispatch. `expected_arguments` and
-    // `call_return_type_name` are not descriptor-derivable (custom phrasing /
-    // general delegation) and are excluded. Keep until plan-72-BB.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::parity;
-
-        let calls: Vec<&str> = COLLECTIONS_FUNCTIONS.iter().map(|f| f.name).collect();
-        let legacy = parity::LegacySet {
-            is_call: &is_native_member_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            // Resolver-backed: the harness skips return-type parity when the
-            // module has a resolver, so this value is unused.
-            return_type_name: &|_| None,
-            // Not descriptor-derivable (custom "or"-phrased strings).
-            expected_arguments: None,
-            param_name_overloads: None,
-            argument_types: None,
-            implementation_name: None,
-            default_padding: None,
-            builtin_type_fields: None,
-        };
-        // `collections.sort` is a source generic (not a native member) and
-        // `collections.nope` is unknown; both must be non-members.
-        let mut probe = calls.clone();
-        probe.push("collections.sort");
-        probe.push("collections.nope");
-
-        // Resolver samples covering List/Map/Set and generic resolution.
-        let samples = [
-            parity::ResolverSample {
-                call: "collections.get",
-                arg_types: &["List OF Integer", "Integer"],
-                expected_return: Some("Integer"),
-                expected_impl: None,
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: "collections.get",
-                arg_types: &["Map OF String TO Integer", "String"],
-                expected_return: Some("Integer"),
-                expected_impl: None,
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: "collections.keys",
-                arg_types: &["Map OF String TO Integer"],
-                expected_return: Some("List OF String"),
-                expected_impl: None,
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: "collections.values",
-                arg_types: &["Map OF String TO Integer"],
-                expected_return: Some("List OF Integer"),
-                expected_impl: None,
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: "collections.append",
-                arg_types: &["List OF Integer", "Integer"],
-                expected_return: Some("List OF Integer"),
-                expected_impl: None,
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: "collections.contains",
-                arg_types: &["List OF Integer", "Integer"],
-                expected_return: Some("Boolean"),
-                expected_impl: None,
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: "collections.contains",
-                arg_types: &["Set OF Integer", "Integer"],
-                expected_return: Some("Boolean"),
-                expected_impl: None,
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: "collections.add",
-                arg_types: &["Set OF Integer", "Integer"],
-                expected_return: Some("Set OF Integer"),
-                expected_impl: None,
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: "collections.toList",
-                arg_types: &["Set OF Integer"],
-                expected_return: Some("List OF Integer"),
-                expected_impl: None,
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: "collections.sum",
-                arg_types: &["List OF Integer"],
-                expected_return: Some("Integer"),
-                expected_impl: None,
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: "collections.find",
-                arg_types: &["List OF Integer", "Integer"],
-                expected_return: Some("Integer"),
-                expected_impl: None,
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: "collections.mid",
-                arg_types: &["List OF Integer", "Integer", "Integer"],
-                expected_return: Some("List OF Integer"),
-                expected_impl: None,
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-        ];
-        parity::assert_parity(&COLLECTIONS, &probe, &legacy, &samples);
-
-        // The source companion injects on import (WhenImported).
-        assert_eq!(
-            COLLECTIONS.source.expect("collections has a source").rule,
-            crate::builtins::descriptor::InjectionRule::WhenImported
-        );
-    }
 }

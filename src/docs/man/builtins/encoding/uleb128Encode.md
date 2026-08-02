@@ -51,7 +51,7 @@ an `Integer`. [[src/builtins/encoding_package.mfb:__encoding_uleb128Decode]]
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The unsigned LEB128 bytes, least-significant group first, with the continuation bit set on all but the final byte. Always contains at least one byte. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `List OF Byte` | The unsigned LEB128 bytes, least-significant group first, with the continuation bit set on all but the final byte. Always contains at least one byte. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

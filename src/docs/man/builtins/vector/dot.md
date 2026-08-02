@@ -89,7 +89,7 @@ any kind.
 
 | Type | Description |
 | --- | --- |
-| the element type of `a` (`Float`, `Fixed`, or `Integer`) | The dot product. Positive when the vectors point broadly the same way, zero when they are orthogonal or either is the zero vector, negative when they point broadly opposite ways. [[src/builtins/vector.rs:resolve_call]] |
+| the element type of `a` (`Float`, `Fixed`, or `Integer`) | The dot product. Positive when the vectors point broadly the same way, zero when they are orthogonal or either is the zero vector, negative when they point broadly opposite ways. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -104,7 +104,7 @@ any kind.
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and no implicit conversion is applied to a vector
 argument. The return type is the element type of that vector type, not the vector
-type itself. [[src/builtins/vector.rs:resolve_call]] [[src/builtins/vector.rs:same_vector]]
+type itself. [[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:same_vector]]
 
 ## Examples
 

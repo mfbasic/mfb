@@ -54,13 +54,13 @@ clock state only, and has no side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `datetime::nowNanos` takes no arguments. [[src/builtins/datetime.rs:arity]] |
+| — | — | `datetime::nowNanos` takes no arguments. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | Nanoseconds elapsed since `1970-01-01T00:00:00Z` on the UTC timeline. Two calls may return different values depending on the host clock. The value is non-negative on a correctly configured host and overflows the `Integer` range in the year 2262. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Integer` | Nanoseconds elapsed since `1970-01-01T00:00:00Z` on the UTC timeline. Two calls may return different values depending on the host clock. The value is non-negative on a correctly configured host and overflows the `Integer` range in the year 2262. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

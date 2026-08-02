@@ -50,19 +50,19 @@ time zones project the same `Instant` to different `DateTime` fields.
 always returns the same placeholder `Zone`, reads no host state, and has no side
 effects. The dependence on the host's configured zone enters only later, when
 the zone is resolved against an instant during projection.
-[[src/builtins/datetime.rs:arity]]
+[[src/builtins/datetime.rs:DATETIME]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `datetime::local` takes no arguments. [[src/builtins/datetime.rs:arity]] |
+| — | — | `datetime::local` takes no arguments. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Zone` | The host's local zone: a `Zone` with a zone kind of `ZoneKind::Local` (tag `2`), a placeholder offset of zero seconds, and the label `"Local"`. The same value is returned on every call; its effective offset is determined only when the zone is projected against a specific `Instant`. [[src/builtins/datetime.rs:call_return_type_name]] [[src/builtins/datetime_package.mfb:__datetime_local]] |
+| `Zone` | The host's local zone: a `Zone` with a zone kind of `ZoneKind::Local` (tag `2`), a placeholder offset of zero seconds, and the label `"Local"`. The same value is returned on every call; its effective offset is determined only when the zone is projected against a specific `Instant`. [[src/builtins/datetime.rs:DATETIME]] [[src/builtins/datetime_package.mfb:__datetime_local]] |
 
 ## Errors
 

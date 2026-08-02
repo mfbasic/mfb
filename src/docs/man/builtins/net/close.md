@@ -29,7 +29,7 @@ IMPORT net
 marks the handle closed, so any later `net::` call that takes the same value
 raises an error rather than touching a stale descriptor. It spans all three
 `net` handle types: a connected TCP `Socket`, a TCP `Listener`, and a bound UDP
-`UdpSocket`. [[src/builtins/net.rs:resolve_call]]
+`UdpSocket`. [[src/builtins/net.rs:NET]]
 
 `net::close` is the only `net` call that **consumes** its handle. Every other
 function borrows the resource and leaves it open; `close` moves the value into
@@ -86,7 +86,7 @@ Closes a bound UDP socket, releasing its binding.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `close` returns no value. After a successful return the OS handle has been released and the resource is marked closed; the value has been consumed and must not be used again. [[src/builtins/net.rs:call_return_type_name]] |
+| `Nothing` | `close` returns no value. After a successful return the OS handle has been released and the resource is marked closed; the value has been consumed and must not be used again. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

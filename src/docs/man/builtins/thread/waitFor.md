@@ -28,7 +28,7 @@ IMPORT thread
 closes the handle, detaches the OS thread, and yields the worker's `Out` value.
 The returned type is the handle's output type, read structurally from
 `Thread OF Msg TO Out`. Only a parent `Thread` is accepted; a `ThreadWorker` is
-rejected at compile time. [[src/builtins/thread.rs:parent_thread_output]] [[src/builtins/thread.rs:resolve_call]]
+rejected at compile time. [[src/builtins/thread.rs:parent_thread_output]] [[src/builtins/thread.rs:THREAD]]
 
 The wait is unbounded — there is no timeout parameter. Under the outbound queue
 mutex the call re-reads the worker's state in a loop: if the worker has already
@@ -70,7 +70,7 @@ There is no `t.result` member: worker outcomes are retrieved only through
 
 | Type | Description |
 | --- | --- |
-| `Out` | The worker's successful result value, of the thread's output type. If the worker terminated with an error, that error propagates instead of a value being returned. [[src/builtins/thread.rs:resolve_call]] |
+| `Out` | The worker's successful result value, of the thread's output type. If the worker terminated with an error, that error propagates instead of a value being returned. [[src/builtins/thread.rs:THREAD]] |
 
 ## Errors
 

@@ -80,7 +80,7 @@ No errors.
 ## Type checking
 
 `collections::removeKey` takes exactly two arguments.
-[[src/builtins/collections.rs:arity]]
+[[src/builtins/collections.rs:COLLECTIONS]]
 
 The first must be a `Map OF K TO V`; a `List` or any non-map value is a
 compile-time type error, and there is no list counterpart here — use

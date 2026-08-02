@@ -48,7 +48,7 @@ each child's stream reproducible.
 
 The call replaces the generator state and returns `Nothing` — it produces no draw
 of its own, and it is a statement rather than an expression you bind.
-[[src/builtins/math.rs:call_return_type_name]]
+[[src/builtins/math.rs:MATH]]
 
 The argument may be given by name as well as positionally, under either the name
 `value` or the name `seed`. [[src/builtins/math.rs:call_param_names]]
@@ -63,7 +63,7 @@ The argument may be given by name as well as positionally, under either the name
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | No value is returned. The effect is the reseeding of the calling thread's generator. [[src/builtins/math.rs:call_return_type_name]] |
+| `Nothing` | No value is returned. The effect is the reseeding of the calling thread's generator. [[src/builtins/math.rs:MATH]] |
 
 ## Errors
 

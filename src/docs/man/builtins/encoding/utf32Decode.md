@@ -52,7 +52,7 @@ round-trips losslessly through the two functions.
 
 | Type | Description |
 | --- | --- |
-| `String` | The decoded text; the empty string for an empty input list. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `String` | The decoded text; the empty string for an empty input list. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

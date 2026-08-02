@@ -58,7 +58,7 @@ mutated; the result is a new owned `String`.
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` holding the NFC form of `value`. The empty string yields `""`; a string already in NFC yields an equal string. [[src/builtins/strings.rs:call_return_type_name]] |
+| `String` | A new `String` holding the NFC form of `value`. The empty string yields `""`; a string already in NFC yields an equal string. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

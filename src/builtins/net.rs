@@ -276,19 +276,6 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
     NET.types.iter().any(|ty| ty.name == name)
 }
 
-// `builtin_type_fields` returns a `&'static` borrowed shape and reports an
-// opaque/record's fields; it stays a static literal PINNED equal to `NET`'s type
-// records by `parity_matches_descriptor` (`Url` is a record whose fields live in
-// the source companion, so like the legacy helper it reports `None` here).
-pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
-    match name {
-        ADDRESS_TYPE => Some(ADDRESS_FIELDS),
-        DATAGRAM_TYPE => Some(DATAGRAM_FIELDS),
-        DATAGRAM_TEXT_TYPE => Some(DATAGRAM_TEXT_FIELDS),
-        _ => None,
-    }
-}
-
 pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
     match type_name {
         SOCKET_TYPE | LISTENER_TYPE | UDP_SOCKET_TYPE => Some(CLOSE),
@@ -341,10 +328,6 @@ pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static
         ]),
         _ => None,
     }
-}
-
-pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    DefaultResolver::return_type_name(&NET, name)
 }
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
@@ -486,10 +469,6 @@ pub(crate) fn consumes_argument(name: &str, index: usize) -> bool {
     matches!((name, index), (CLOSE, 0))
 }
 
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    DefaultResolver::arity(&NET, name)
-}
-
 /// The internal source-companion target for a source-backed `net` call
 /// (`net_package.mfb`). Native calls (sockets/DNS/UDP) return `None` and stay
 /// `net.*` runtime-helper calls. Derived from the descriptor's per-name
@@ -559,37 +538,6 @@ mod tests {
     }
 
     #[test]
-    fn builtin_types_and_fields() {
-        for t in [
-            SOCKET_TYPE,
-            LISTENER_TYPE,
-            ADDRESS_TYPE,
-            UDP_SOCKET_TYPE,
-            DATAGRAM_TYPE,
-            DATAGRAM_TEXT_TYPE,
-            URL_TYPE,
-        ] {
-            assert!(is_builtin_type(t), "{t}");
-        }
-        assert!(!is_builtin_type("Socketx"));
-
-        assert_eq!(
-            builtin_type_fields(ADDRESS_TYPE),
-            Some(&[("host", "String"), ("port", "Integer")][..])
-        );
-        assert_eq!(
-            builtin_type_fields(DATAGRAM_TYPE),
-            Some(&[("from", "Address"), ("bytes", "List OF Byte")][..])
-        );
-        assert_eq!(
-            builtin_type_fields(DATAGRAM_TEXT_TYPE),
-            Some(&[("from", "Address"), ("value", "String")][..])
-        );
-        assert_eq!(builtin_type_fields(SOCKET_TYPE), None);
-        assert_eq!(builtin_type_fields(URL_TYPE), None);
-    }
-
-    #[test]
     fn resource_close_functions() {
         assert_eq!(resource_close_function(SOCKET_TYPE), Some(CLOSE));
         assert_eq!(resource_close_function(LISTENER_TYPE), Some(CLOSE));
@@ -621,29 +569,6 @@ mod tests {
         assert!(call_param_names(SEND_TEXT_TO).is_some());
         assert!(call_param_names(TO_URL).is_some());
         assert_eq!(call_param_names("net.bogus"), None);
-    }
-
-    #[test]
-    fn call_return_type_names() {
-        assert_eq!(call_return_type_name(LOOKUP), Some("List OF Address"));
-        assert_eq!(call_return_type_name(CONNECT_TCP), Some(SOCKET_TYPE));
-        assert_eq!(call_return_type_name(ACCEPT), Some(SOCKET_TYPE));
-        assert_eq!(call_return_type_name(LISTEN_TCP), Some(LISTENER_TYPE));
-        assert_eq!(call_return_type_name(POLL), Some("Boolean"));
-        assert_eq!(call_return_type_name(READ), Some("List OF Byte"));
-        assert_eq!(call_return_type_name(READ_TEXT), Some("String"));
-        assert_eq!(call_return_type_name(WRITE), Some("Nothing"));
-        assert_eq!(call_return_type_name(SEND_TO), Some("Nothing"));
-        assert_eq!(call_return_type_name(LOCAL_ADDRESS), Some(ADDRESS_TYPE));
-        assert_eq!(call_return_type_name(REMOTE_ADDRESS), Some(ADDRESS_TYPE));
-        assert_eq!(call_return_type_name(BIND_UDP), Some(UDP_SOCKET_TYPE));
-        assert_eq!(call_return_type_name(RECEIVE_FROM), Some(DATAGRAM_TYPE));
-        assert_eq!(
-            call_return_type_name(RECEIVE_TEXT_FROM),
-            Some(DATAGRAM_TEXT_TYPE)
-        );
-        assert_eq!(call_return_type_name(TO_URL), Some(URL_TYPE));
-        assert_eq!(call_return_type_name("net.bogus"), None);
     }
 
     #[test]
@@ -838,20 +763,6 @@ mod tests {
     }
 
     #[test]
-    fn arity_spans() {
-        assert_eq!(arity(LOOKUP), Some((1, 2)));
-        assert_eq!(arity(CONNECT_TCP), Some((1, 3)));
-        assert_eq!(arity(LISTEN_TCP), Some((2, 3)));
-        assert_eq!(arity(ACCEPT), Some((1, 2)));
-        assert_eq!(arity(POLL), Some((1, 2)));
-        assert_eq!(arity(READ), Some((2, 2)));
-        assert_eq!(arity(SEND_TO), Some((3, 3)));
-        assert_eq!(arity(CLOSE), Some((1, 1)));
-        assert_eq!(arity(TO_URL), Some((1, 1)));
-        assert_eq!(arity("net.bogus"), None);
-    }
-
-    #[test]
     fn implementation_name_to_url_only() {
         assert_eq!(implementation_name(TO_URL), Some(INTERNAL_TO_URL));
         assert_eq!(implementation_name(PERCENT_DECODE), Some(INTERNAL_PERCENT_DECODE));
@@ -893,63 +804,4 @@ mod tests {
         );
     }
 
-    // plan-72-R migration gate: prove `NET` reproduces every legacy helper answer
-    // for every `net.*` name (and an unknown name) — membership, arity, param
-    // names, per-overload param names (connectTcp's four overloads), nominal
-    // return type, per-name implementation rewrite, and builtin-type record
-    // fields — pinning the borrowed statics equal to `NET`. `resolve_call` (type-set
-    // argument acceptance), `expected_arguments` (`"or"`-phrased), and
-    // `argument_types` (joined strings) are not descriptor-derivable and are
-    // checked by the dedicated tests above. Keep until plan-72-BB.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::parity;
-
-        let calls: Vec<&str> = NET_FUNCTIONS.iter().map(|f| f.name).collect();
-        let legacy = parity::LegacySet {
-            is_call: &is_net_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            // Resolver-backed (plan-72-BB): the harness skips return-type and
-            // implementation-name parity — the return is checked through the
-            // resolver samples below, the per-name rewrite by
-            // `implementation_name_to_url_only`.
-            return_type_name: &call_return_type_name,
-            // `"or"`-phrased and joined-string shapes; kept hand-authored and
-            // checked separately.
-            expected_arguments: None,
-            param_name_overloads: Some(&|name| {
-                call_param_name_overloads(name)
-                    .map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            }),
-            argument_types: None,
-            implementation_name: None,
-            default_padding: None,
-            builtin_type_fields: Some(&builtin_type_fields),
-        };
-
-        // Return type through the resolver, including `close`'s three-way argument
-        // union and `connectTcp`'s `String,Integer` / `Address` overloads.
-        let ret = |call, args: &'static [&'static str], r: &'static str| parity::ResolverSample {
-            call,
-            arg_types: args,
-            expected_return: Some(r),
-            expected_impl: None,
-            expected_padding: None,
-            expected_type: None,
-            expected_overload_target: None,
-        };
-        let samples = [
-            ret(CONNECT_TCP, &["String", "Integer"], SOCKET_TYPE),
-            ret(CONNECT_TCP, &[ADDRESS_TYPE], SOCKET_TYPE),
-            ret(CLOSE, &[SOCKET_TYPE], "Nothing"),
-            ret(CLOSE, &[LISTENER_TYPE], "Nothing"),
-            ret(CLOSE, &[UDP_SOCKET_TYPE], "Nothing"),
-        ];
-        let mut probe = calls.clone();
-        probe.push("net.bogus");
-        parity::assert_parity(&NET, &probe, &legacy, &samples);
-    }
 }

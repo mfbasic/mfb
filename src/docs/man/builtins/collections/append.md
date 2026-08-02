@@ -26,7 +26,7 @@ IMPORT collections
 
 `collections::append` returns a new list whose contents are those of `value`
 followed by the appended content. It takes exactly two arguments; neither is
-optional and neither is variadic. [[src/builtins/collections.rs:arity]]
+optional and neither is variadic. [[src/builtins/collections.rs:COLLECTIONS]]
 
 The second argument may be either a single element of the list's element type
 `T`, or another `List OF T`. The compiler picks the overload from the static type

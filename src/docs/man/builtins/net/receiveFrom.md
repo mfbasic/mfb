@@ -28,7 +28,7 @@ returns it as a `Datagram` record with two fields: `from`, the sender's
 `Address`, and `bytes`, the payload as a `List OF Byte`. Because UDP is
 connectionless, one bound socket can receive from many peers, and each call
 reports who sent the datagram it returned.
-[[src/builtins/net.rs:builtin_type_fields]]
+[[src/builtins/net.rs:NET]]
 
 A datagram is delivered whole or not at all. `maxBytes` bounds the payload the
 call will accept and must be positive. The receive buffer is deliberately
@@ -65,7 +65,7 @@ convenient than raw bytes, and `net::sendTo` to reply to `from`.
 
 | Type | Description |
 | --- | --- |
-| `Datagram` | A record whose `from` field is the sender's `Address` and whose `bytes` field is the whole payload as a `List OF Byte`, of length between `0` and `maxBytes` inclusive. [[src/builtins/net.rs:builtin_type_fields]] |
+| `Datagram` | A record whose `from` field is the sender's `Address` and whose `bytes` field is the whole payload as a `List OF Byte`, of length between `0` and `maxBytes` inclusive. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

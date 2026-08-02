@@ -47,7 +47,7 @@ from its value.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `os::setEnv` is a SUB and produces no value. [[src/builtins/os.rs:call_return_type_name]] |
+| `Nothing` | `os::setEnv` is a SUB and produces no value. [[src/builtins/os.rs:OS]] |
 
 ## Errors
 

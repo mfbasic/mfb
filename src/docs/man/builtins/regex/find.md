@@ -89,7 +89,7 @@ Searches from the explicit scalar position `start`.
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The zero-based Unicode scalar index where the first match at or after `start` begins, or `-1` when there is no match. A zero-length match reports its own start position. [[src/builtins/regex.rs:call_return_type_name]] |
+| `Integer` | The zero-based Unicode scalar index where the first match at or after `start` begins, or `-1` when there is no match. A zero-length match reports its own start position. [[src/builtins/regex.rs:REGEX]] |
 
 ## Errors
 

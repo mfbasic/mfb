@@ -65,7 +65,7 @@ receiving and does not close the socket.
 
 | Type | Description |
 | --- | --- |
-| `String` | The bytes received in this read, decoded as UTF-8, in arrival order — built from between `1` and `maxBytes` bytes inclusive. End of stream is reported as `ErrConnectionClosed`, never as an empty string. [[src/builtins/net.rs:call_return_type_name]] |
+| `String` | The bytes received in this read, decoded as UTF-8, in arrival order — built from between `1` and `maxBytes` bytes inclusive. End of stream is reported as `ErrConnectionClosed`, never as an empty string. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

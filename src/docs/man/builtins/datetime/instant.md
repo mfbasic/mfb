@@ -34,7 +34,7 @@ remainder in its `nanos` field, normalized into the range `0 .. 999_999_999`.
 
 `instant` is overloaded by argument count, with five disjoint forms selected by
 the number of `Integer` arguments (one through five).
-[[src/builtins/datetime.rs:resolve_call]] The one- and two-argument forms take
+[[src/builtins/datetime.rs:DATETIME]] The one- and two-argument forms take
 whole seconds and, optionally, a nanosecond adjustment. The three-, four-, and
 five-argument forms are component builders that fold larger units down into a
 single second count: the three-argument form computes `mins*60 + seconds`, the
@@ -100,7 +100,7 @@ The `Instant` at `days*86400 + hours*3600 + mins*60 + seconds` whole seconds, pl
 
 | Type | Description |
 | --- | --- |
-| `Instant` | The `Instant` at the requested offset from the Unix epoch. The `seconds` field holds the normalized whole-second count (which may be negative for instants before the epoch) and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Instant` | The `Instant` at the requested offset from the Unix epoch. The `seconds` field holds the normalized whole-second count (which may be negative for instants before the epoch) and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

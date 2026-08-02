@@ -65,7 +65,7 @@ offset. [[src/builtins/datetime_package.mfb:__datetime_toUtc]]
 
 | Type | Description |
 | --- | --- |
-| `DateTime` | A `DateTime` holding the civil date and wall-clock time observed in `zone` at the instant `at`, together with `zone` and the resolved UTC offset in seconds. The `nanos` of the time equal the `nanos` of `at`, and the result resolves back to `at` via `datetime::resolve`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `DateTime` | A `DateTime` holding the civil date and wall-clock time observed in `zone` at the instant `at`, together with `zone` and the resolved UTC offset in seconds. The `nanos` of the time equal the `nanos` of `at`, and the result resolves back to `at` via `datetime::resolve`. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

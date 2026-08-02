@@ -54,7 +54,7 @@ mutates nothing; the same input always produces the same output.
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The UTF-8 bytes of `text`, one element per byte. An empty `String` yields an empty list. [[src/builtins/http.rs:call_return_type_name]] |
+| `List OF Byte` | The UTF-8 bytes of `text`, one element per byte. An empty `String` yields an empty list. [[src/builtins/http.rs:HTTP]] |
 
 ## Errors
 

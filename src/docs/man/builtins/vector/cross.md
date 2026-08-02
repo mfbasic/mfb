@@ -36,7 +36,7 @@ IMPORT vector
 operands, so the arity of this call is fixed by the dimension of the vector type:
 one operand in 2D, two in 3D, three in 4D. Passing the wrong number of operands
 for the dimension — a single `Float3`, or two `Float4` values — is a compile-time
-error, not a runtime one. [[src/builtins/vector.rs:resolve_call]]
+error, not a runtime one. [[src/builtins/vector.rs:VECTOR]]
 
 In 2D the unary form returns the *left perpendicular* `(-v.y, v.x)`, which is `v`
 rotated a quarter turn counterclockwise. In 3D it is the familiar binary product
@@ -96,7 +96,7 @@ dependent.
 
 | Type | Description |
 | --- | --- |
-| the same type as `a` | A vector of the same type and dimension, orthogonal to every operand. The zero vector when the operands are linearly dependent (in 3D, when `a` and `b` are parallel). [[src/builtins/vector.rs:resolve_call]] |
+| the same type as `a` | A vector of the same type and dimension, orthogonal to every operand. The zero vector when the operands are linearly dependent (in 3D, when `a` and `b` are parallel). [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -113,7 +113,7 @@ for a 3D type, `3` for a 4D type. The declared arity span is therefore `1` throu
 `3`, with the exact requirement enforced against the first argument's dimension
 during overload resolution. Every operand must be the *same* one of the nine
 types; there is no mixed-element-type and no cross-dimension overload.
-[[src/builtins/vector.rs:arity]] [[src/builtins/vector.rs:resolve_call]]
+[[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:VECTOR]]
 
 ## Examples
 

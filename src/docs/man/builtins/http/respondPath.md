@@ -95,7 +95,7 @@ file occupies the single-threaded server for the duration of the read.
 
 | Type | Description |
 | --- | --- |
-| `Response` | A `200` response carrying the file's bytes and an inferred `content-type` on success; a `404` plain-text response when no regular file exists at the resolved path; a `403` plain-text response when the resolved path is not contained in `root`. [[src/builtins/http.rs:call_return_type_name]] [[src/builtins/http_package.mfb:__http_respondPath]] |
+| `Response` | A `200` response carrying the file's bytes and an inferred `content-type` on success; a `404` plain-text response when no regular file exists at the resolved path; a `403` plain-text response when the resolved path is not contained in `root`. [[src/builtins/http.rs:HTTP]] [[src/builtins/http_package.mfb:__http_respondPath]] |
 
 ## Errors
 

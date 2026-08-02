@@ -36,7 +36,7 @@ returned negated.
 The function is selected by the exact type of its argument, and the return type
 is always that same type: an `Integer` yields an `Integer`, a `Float` a `Float`,
 a `Fixed` a `Fixed`, and a `Money` a `Money`. There is no mixed-type or
-promoting overload. [[src/builtins/math.rs:resolve_call]]
+promoting overload. [[src/builtins/math.rs:MATH]]
 
 `Money` stays in its dimension here: the magnitude of an amount is still an
 amount, so `math::abs` is one of the four `math::` functions (`abs`, `min`,
@@ -99,7 +99,7 @@ element triggered it; no list is returned in that case.
 
 | Type | Description |
 | --- | --- |
-| Same as the argument | The non-negative magnitude of `value`, in the argument's own type. Zero (including `-0.0` for `Float`) returns zero. The array forms return a new list of the same element type and length. [[src/builtins/math.rs:resolve_call]] |
+| Same as the argument | The non-negative magnitude of `value`, in the argument's own type. Zero (including `-0.0` for `Float`) returns zero. The array forms return a new list of the same element type and length. [[src/builtins/math.rs:MATH]] |
 
 ## Errors
 
@@ -109,12 +109,12 @@ element triggered it; no list is returned in that case.
 
 ## Type checking
 
-`math::abs` takes exactly one argument. [[src/builtins/math.rs:arity]] It must be
+`math::abs` takes exactly one argument. [[src/builtins/math.rs:MATH]] It must be
 a single `Integer`, `Float`, `Fixed`, or `Money`, or a `List OF Integer`,
 `List OF Float`, or `List OF Fixed`. Any other type — a `String`, `Boolean`,
 `Byte`, `Scalar`, record, union, resource, thread, or function value, or a
 `List OF Money` — is a compile-time type error.
-[[src/builtins/math.rs:expected_arguments]]
+[[src/builtins/math.rs:MATH]]
 
 ## Examples
 

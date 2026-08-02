@@ -23,7 +23,7 @@ None. `general` functions are always available without an `IMPORT` statement. [[
 
 `toFloat` converts a supported value to a 64-bit IEEE 754 binary64 `Float`. Its
 behavior and whether it can fail depend on the argument type, which selects the
-overload. [[src/builtins/general.rs:resolve_call]]
+overload. [[src/builtins/general.rs:GENERAL]]
 
 The `String` overload parses decimal `Float` text. An optional single leading sign —
 `-` or `+` — is accepted, followed by decimal digits, an optional `.` fractional
@@ -95,7 +95,7 @@ The `Integer`, `Fixed`, and `Money` overloads raise no errors. [[src/target/shar
 
 `toFloat` accepts exactly one argument that is a `String`, `Integer`, `Fixed`, or
 `Money` value; any other argument type or arity is a compile-time error. Convert
-unsupported values to one of these types explicitly first. [[src/builtins/general.rs:resolve_call]] [[src/builtins/general.rs:arity]]
+unsupported values to one of these types explicitly first. [[src/builtins/general.rs:GENERAL]] [[src/builtins/general.rs:GENERAL]]
 
 ## Examples
 

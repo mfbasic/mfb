@@ -84,7 +84,7 @@ omitting the argument and yields `application/octet-stream`.
 
 | Type | Description |
 | --- | --- |
-| `Response` | A response with `status` `200`, `reason` `"OK"`, `httpVersion` `"1.1"`, `headers` containing only `content-type`, `body` set to the bytes read from `file`, and `ok` `TRUE`. An empty file yields a valid `200` with a zero-length body. [[src/builtins/http.rs:call_return_type_name]] [[src/builtins/http_package.mfb:__http_respondFile]] |
+| `Response` | A response with `status` `200`, `reason` `"OK"`, `httpVersion` `"1.1"`, `headers` containing only `content-type`, `body` set to the bytes read from `file`, and `ok` `TRUE`. An empty file yields a valid `200` with a zero-length body. [[src/builtins/http.rs:HTTP]] [[src/builtins/http_package.mfb:__http_respondFile]] |
 
 ## Errors
 

@@ -30,7 +30,7 @@ dependency. [[src/builtins/audio.rs:package_source_glue]]
 one frame is `channels * 2` bytes, so a successful blocking read yields exactly
 `frames * channels * 2` bytes. `read` is defined only over `AudioInput`; passing
 an `AudioOutput` is a compile-time overload-resolution error, never a runtime
-check. [[src/builtins/audio.rs:resolve_call]] The stream is borrowed, not
+check. [[src/builtins/audio.rs:AUDIO]] The stream is borrowed, not
 consumed — the handle stays open and must still be closed with `audio::close`
 or by lexical drop. [[src/builtins/audio.rs:consumes_argument]]
 
@@ -88,7 +88,7 @@ immediately with whatever whole frames are already buffered, without blocking.
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | Interleaved `s16le` PCM. The blocking form returns exactly `frames * channels * 2` bytes; the timed form returns a whole-frame-aligned list of at most that size, possibly empty. [[src/builtins/audio.rs:call_return_type_name]] |
+| `List OF Byte` | Interleaved `s16le` PCM. The blocking form returns exactly `frames * channels * 2` bytes; the timed form returns a whole-frame-aligned list of at most that size, possibly empty. [[src/builtins/audio.rs:AUDIO]] |
 
 ## Errors
 

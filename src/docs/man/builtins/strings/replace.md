@@ -63,7 +63,7 @@ aliased, so the caller owns the returned value unconditionally.
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` with every non-overlapping occurrence of `old` replaced by `new`. Equal to `value` when there are no matches. [[src/builtins/strings.rs:call_return_type_name]] |
+| `String` | A new `String` with every non-overlapping occurrence of `old` replaced by `new`. Equal to `value` when there are no matches. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

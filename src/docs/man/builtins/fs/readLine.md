@@ -74,7 +74,7 @@ cancellation-point operations.
 
 | Type | Description |
 | --- | --- |
-| `String` | The next line of text, in file order, with the trailing LF or CRLF removed. An empty line returns an empty `String`; a final line with no terminator returns the remaining bytes of the file. [[src/builtins/fs.rs:call_return_type_name]] |
+| `String` | The next line of text, in file order, with the trailing LF or CRLF removed. An empty line returns an empty `String`; a final line with no terminator returns the remaining bytes of the file. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

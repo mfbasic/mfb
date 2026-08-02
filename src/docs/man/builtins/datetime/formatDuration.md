@@ -59,7 +59,7 @@ that multiplying by 1000 (or negating the reduced total) leaves the signed
 
 | Type | Description |
 | --- | --- |
-| `String` | The span formatted as `[-][Nd ]HH:MM:SS.mmm`. The day component and its trailing space are present only when the span is at least one whole day; the hour, minute, second, and millisecond fields are always present and zero-padded to two, two, two, and three digits respectively. A zero span returns `00:00:00.000`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `String` | The span formatted as `[-][Nd ]HH:MM:SS.mmm`. The day component and its trailing space are present only when the span is at least one whole day; the hour, minute, second, and millisecond fields are always present and zero-padded to two, two, two, and three digits respectively. A zero span returns `00:00:00.000`. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

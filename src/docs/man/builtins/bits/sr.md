@@ -52,7 +52,7 @@ Representation execution paths. [[src/target/shared/code/builder_bits.rs:lower_b
 
 | Type | Description |
 | --- | --- |
-| `Integer` | `value` shifted right by `count` bits, with vacated high bits zero and bits below bit 0 discarded. Equal to `value` when `count` is `0`. [[src/builtins/bits.rs:call_return_type_name]] |
+| `Integer` | `value` shifted right by `count` bits, with vacated high bits zero and bits below bit 0 discarded. Equal to `value` when `count` is `0`. [[src/builtins/bits.rs:BITS]] |
 
 ## Errors
 

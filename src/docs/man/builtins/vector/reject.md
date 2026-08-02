@@ -89,7 +89,7 @@ from zero — then subtracts in exact checked integer arithmetic.
 
 | Type | Description |
 | --- | --- |
-| the same type as `a` | The part of `a` perpendicular to `b`. Equal to `a` when `a` is already orthogonal to `b`, and the zero vector when `a` is parallel to `b`. Always exactly `a` minus `vector::project(a, b)`. [[src/builtins/vector.rs:resolve_call]] |
+| the same type as `a` | The part of `a` perpendicular to `b`. Equal to `a` when `a` is already orthogonal to `b`, and the zero vector when `a` is parallel to `b`. Always exactly `a` minus `vector::project(a, b)`. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -105,7 +105,7 @@ from zero — then subtracts in exact checked integer arithmetic.
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and no implicit conversion is applied to a vector
 argument. The return type is always the first argument's own type.
-[[src/builtins/vector.rs:resolve_call]] [[src/builtins/vector.rs:same_vector]]
+[[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:same_vector]]
 
 ## Examples
 

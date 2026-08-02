@@ -62,7 +62,7 @@ inverse of `encoding::htmlEscape`.
 
 | Type | Description |
 | --- | --- |
-| `String` | A copy of `text` with each named and numeric character reference replaced by its character. The empty string for empty input. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `String` | A copy of `text` with each named and numeric character reference replaced by its character. The empty string for empty input. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

@@ -63,11 +63,6 @@ pub(crate) static CSV: BuiltinModule = BuiltinModule {
     resolver: None,
 };
 
-#[derive(Clone)]
-pub(crate) struct ResolvedCall<'a> {
-    pub(crate) return_type: Cow<'a, str>,
-}
-
 pub(crate) fn is_csv_call(name: &str) -> bool {
     DefaultResolver::contains(&CSV, name)
 }
@@ -83,26 +78,12 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     }
 }
 
-pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    DefaultResolver::return_type_name(&CSV, name)
-}
-
-pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
-    DefaultResolver::resolve_call(&CSV, name, arg_types).map(|return_type| ResolvedCall {
-        return_type: Cow::Borrowed(return_type),
-    })
-}
-
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         PARSE => Some("String"),
         STRINGIFY => Some(GRID_TYPE),
         _ => None,
     }
-}
-
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    DefaultResolver::arity(&CSV, name)
 }
 
 pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
@@ -119,10 +100,6 @@ super::package_source_glue!(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn strings(items: &[&str]) -> Vec<String> {
-        items.iter().map(|s| s.to_string()).collect()
-    }
 
     fn project(src: &str) -> crate::ast::AstProject {
         let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)
@@ -145,31 +122,6 @@ mod tests {
         assert_eq!(call_param_names(PARSE), Some(&[&["value", "text"][..]][..]));
         assert_eq!(call_param_names(STRINGIFY), Some(&[&["value"][..]][..]));
         assert_eq!(call_param_names("csv.other"), None);
-    }
-
-    #[test]
-    fn return_types_and_arity() {
-        assert_eq!(call_return_type_name(PARSE), Some(GRID_TYPE));
-        assert_eq!(call_return_type_name(STRINGIFY), Some("String"));
-        assert_eq!(call_return_type_name("csv.other"), None);
-        assert_eq!(arity(PARSE), Some((1, 1)));
-        assert_eq!(arity(STRINGIFY), Some((1, 1)));
-        assert_eq!(arity("csv.other"), None);
-    }
-
-    #[test]
-    fn resolve_call_branches() {
-        assert_eq!(
-            resolve_call(PARSE, &strings(&["String"])).map(|r| r.return_type.into_owned()),
-            Some(GRID_TYPE.to_string())
-        );
-        assert_eq!(
-            resolve_call(STRINGIFY, &strings(&[GRID_TYPE])).map(|r| r.return_type.into_owned()),
-            Some("String".to_string())
-        );
-        assert!(resolve_call(PARSE, &strings(&["Integer"])).is_none());
-        assert!(resolve_call(STRINGIFY, &strings(&["String"])).is_none());
-        assert!(resolve_call("csv.other", &strings(&["String"])).is_none());
     }
 
     #[test]
@@ -203,35 +155,4 @@ mod tests {
         assert_eq!(augmented.files.len(), ast.files.len());
     }
 
-    // plan-72-G migration gate: prove `CSV` reproduces every legacy answer
-    // (membership, arity, param names, return type, expected arguments,
-    // implementation name) for both members + an unknown name. Keep until BB.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::parity;
-
-        let legacy = parity::LegacySet {
-            is_call: &is_csv_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            return_type_name: &call_return_type_name,
-            expected_arguments: Some(&|name| expected_arguments(name).map(str::to_string)),
-            param_name_overloads: None,
-            argument_types: None,
-            implementation_name: Some(&implementation_name),
-            default_padding: None,
-            builtin_type_fields: None,
-        };
-        parity::assert_parity(&CSV, &[PARSE, STRINGIFY, "csv.other"], &legacy, &[]);
-
-        // resolve_call and implementation rewrite parity.
-        assert_eq!(
-            resolve_call(PARSE, &strings(&["String"])).unwrap().return_type,
-            GRID_TYPE
-        );
-        assert!(resolve_call(STRINGIFY, &strings(&["String"])).is_none());
-        assert_eq!(implementation_name(PARSE), Some(INTERNAL_PARSE));
-    }
 }

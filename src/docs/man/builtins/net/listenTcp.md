@@ -78,7 +78,7 @@ Binds `host` on `port` and listens with the given backlog hint.
 
 | Type | Description |
 | --- | --- |
-| `Listener` | A socket in the listening state, ready for `net::accept`. Closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/builtins/net.rs:call_return_type_name]] |
+| `Listener` | A socket in the listening state, ready for `net::accept`. Closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

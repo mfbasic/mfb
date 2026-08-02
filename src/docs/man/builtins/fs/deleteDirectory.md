@@ -25,7 +25,7 @@ IMPORT fs
 
 `fs::deleteDirectory` removes the empty directory named by `path` with a single
 host `rmdir` operation. On success the directory is gone and the function returns
-`Nothing`. [[src/target/shared/code/types.rs:FsPathOperation]][[src/builtins/fs.rs:call_return_type_name]]
+`Nothing`. [[src/target/shared/code/types.rs:FsPathOperation]][[src/builtins/fs.rs:FS]]
 
 The final component of `path` must name an actual directory, and that directory
 must be empty. `fs::deleteDirectory` does not recurse and never removes a file or
@@ -56,7 +56,7 @@ same symbolic error is produced on each platform.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Nothing is returned on success, after the empty directory named by `path` has been removed. [[src/builtins/fs.rs:call_return_type_name]] |
+| `Nothing` | Nothing is returned on success, after the empty directory named by `path` has been removed. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

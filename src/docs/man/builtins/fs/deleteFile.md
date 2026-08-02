@@ -25,7 +25,7 @@ IMPORT fs
 
 `fs::deleteFile` removes the filesystem entry named by `path` with a single host
 `unlink` operation. On success the entry is gone and the function returns
-`Nothing`. [[src/target/linux_common/code.rs:emit_fs_path_operation]][[src/builtins/fs.rs:call_return_type_name]]
+`Nothing`. [[src/target/linux_common/code.rs:emit_fs_path_operation]][[src/builtins/fs.rs:FS]]
 
 When the final component of `path` is a symbolic link, the link itself is removed
 rather than the file it points to, because `unlink` does not follow a trailing
@@ -57,7 +57,7 @@ each platform. [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mappi
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Nothing is returned on success, after the entry named by `path` has been removed. [[src/builtins/fs.rs:call_return_type_name]] |
+| `Nothing` | Nothing is returned on success, after the entry named by `path` has been removed. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

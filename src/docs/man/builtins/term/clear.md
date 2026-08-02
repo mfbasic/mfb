@@ -59,7 +59,7 @@ frames — which is exactly what the canonical render loop does.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of blanking the back buffer and homing the cursor. [[src/builtins/term.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of blanking the back buffer and homing the cursor. [[src/builtins/term.rs:TERM]] |
 
 ## Errors
 

@@ -91,7 +91,7 @@ back to `Integer` half away from zero.
 
 | Type | Description |
 | --- | --- |
-| the same type as `a` | A vector on the infinite line through `a` and `b`, at parameter `t`. On the segment for `t` in `0` through `1`, beyond `b` for `t` above `1`, and before `a` for `t` below `0`. [[src/builtins/vector.rs:resolve_call]] |
+| the same type as `a` | A vector on the infinite line through `a` and `b`, at parameter `t`. On the segment for `t` in `0` through `1`, beyond `b` for `t` above `1`, and before `a` for `t` below `0`. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -106,7 +106,7 @@ back to `Integer` half away from zero.
 The first two arguments must be the *same* one of the nine types, and the third
 must be a `Float` for every overload — an `Integer` `t` is a compile-time error
 with no implicit numeric promotion. The return type is always the first argument's
-own type. [[src/builtins/vector.rs:resolve_call]] [[src/builtins/vector.rs:expected_arguments]]
+own type. [[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:VECTOR]]
 
 ## Examples
 

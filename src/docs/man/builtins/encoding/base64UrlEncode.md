@@ -54,7 +54,7 @@ back into a `List OF Byte`. [[src/builtins/encoding_package.mfb:__encoding_base6
 
 | Type | Description |
 | --- | --- |
-| `String` | The URL-safe Base64 encoding of `data` with `-`/`_` symbols and no `=` padding; the empty string for an empty list. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `String` | The URL-safe Base64 encoding of `data` with `-`/`_` symbols and no `=` padding; the empty string for an empty list. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

@@ -34,7 +34,7 @@ the matching value is never materialized — only the key is compared.
 
 This is a map-only member. There is no list or `String` form: to test list
 membership use `collections::contains`, and to test for a substring use the
-`strings::` package. [[src/builtins/collections.rs:expected_arguments]]
+`strings::` package. [[src/builtins/collections.rs:COLLECTIONS]]
 
 Key comparison is a comparison of the stored key payload. Fixed-width keys
 compare their raw stored bits (one byte for `Boolean` and `Byte`, four for
@@ -78,7 +78,7 @@ No errors.
 ## Type checking
 
 `collections::hasKey` takes exactly two arguments.
-[[src/builtins/collections.rs:arity]]
+[[src/builtins/collections.rs:COLLECTIONS]]
 
 The first must be a `Map OF K TO V`; a `List` or any non-map value is a
 compile-time type error. The second must be exactly the map key type `K` — there

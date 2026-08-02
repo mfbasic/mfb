@@ -54,7 +54,7 @@ past the buffer. [[src/target/shared/code/builder_error_emission.rs:emit_checked
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` holding `times` consecutive copies of `value`. `""` when `times` is `0` or when `value` is empty. [[src/builtins/strings.rs:call_return_type_name]] |
+| `String` | A new `String` holding `times` consecutive copies of `value`. `""` when `times` is `0` or when `value` is empty. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

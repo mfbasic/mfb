@@ -197,10 +197,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     }
 }
 
-pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    DefaultResolver::return_type_name(&JSON, name)
-}
-
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let return_type = match name {
         PARSE if exact(arg_types, &["String"]) => Cow::Borrowed("Json"),
@@ -237,10 +233,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         GET_OR => Some("Json, List OF String, Json"),
         _ => None,
     }
-}
-
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    DefaultResolver::arity(&JSON, name)
 }
 
 pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
@@ -320,20 +312,6 @@ mod tests {
     }
 
     #[test]
-    fn return_types_and_arity() {
-        assert_eq!(call_return_type_name(PARSE), Some("Json"));
-        assert_eq!(call_return_type_name(GET), Some("Json"));
-        assert_eq!(call_return_type_name(GET_OR), Some("Json"));
-        assert_eq!(call_return_type_name(STRINGIFY), Some("String"));
-        assert_eq!(call_return_type_name("json.other"), None);
-        assert_eq!(arity(PARSE), Some((1, 1)));
-        assert_eq!(arity(STRINGIFY), Some((1, 1)));
-        assert_eq!(arity(GET), Some((2, 2)));
-        assert_eq!(arity(GET_OR), Some((3, 3)));
-        assert_eq!(arity("json.other"), None);
-    }
-
-    #[test]
     fn resolve_call_accepts_valid_signatures() {
         assert_eq!(returns(PARSE, &["String"]), Some("Json".to_string()));
         assert_eq!(returns(STRINGIFY, &["Json"]), Some("String".to_string()));
@@ -397,42 +375,4 @@ mod tests {
         assert_eq!(augmented.files.len(), ast.files.len());
     }
 
-    // plan-72-O migration gate: prove `JSON` reproduces every legacy helper answer
-    // for every `json.*` name (and an unknown name) — membership, arity, param
-    // names, return type, expected arguments, and per-name implementation rewrite —
-    // and pins the borrowed `call_param_names`/`expected_arguments` statics equal to
-    // `JSON`. `resolve_call` (json value-type-set acceptance) is not a harness facet
-    // and is checked directly above. Keep until plan-72-BB deletes the legacy
-    // helpers.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::parity;
-
-        let calls: Vec<&str> = JSON_FUNCTIONS.iter().map(|f| f.name).collect();
-        let legacy = parity::LegacySet {
-            is_call: &is_json_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            return_type_name: &call_return_type_name,
-            expected_arguments: Some(&|name| expected_arguments(name).map(str::to_string)),
-            param_name_overloads: None,
-            argument_types: None,
-            implementation_name: Some(&implementation_name),
-            default_padding: None,
-            builtin_type_fields: None,
-        };
-        let mut probe = calls.clone();
-        probe.push("json.other");
-        parity::assert_parity(&JSON, &probe, &legacy, &[]);
-
-        // json value types are opaque; membership is the descriptor's authority.
-        for name in [
-            "Json", "JsonNull", "JsonBool", "JsonNum", "JsonStr", "JsonArr", "JsonObj",
-        ] {
-            assert!(is_builtin_type(name), "{name}");
-        }
-        assert!(!is_builtin_type("String"));
-    }
 }

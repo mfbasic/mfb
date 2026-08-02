@@ -35,13 +35,13 @@ state only and has no side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `os::pid` takes no arguments. [[src/builtins/os.rs:arity]] |
+| — | — | `os::pid` takes no arguments. [[src/builtins/os.rs:OS]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The current process id (a positive value). [[src/builtins/os.rs:call_return_type_name]] |
+| `Integer` | The current process id (a positive value). [[src/builtins/os.rs:OS]] |
 
 ## Errors
 

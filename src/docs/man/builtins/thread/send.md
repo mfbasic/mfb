@@ -40,7 +40,7 @@ type that is a resource is rejected at compile time with a pointer to
 must equal the thread's message type `Msg` (a handle whose message type is
 `Unknown` accepts any value) and must be thread-sendable — every field, payload,
 element, key, and value type must itself be sendable.
-[[src/syntaxcheck/resources.rs:is_thread_sendable_type]] [[src/builtins/thread.rs:resolve_call]]
+[[src/syntaxcheck/resources.rs:is_thread_sendable_type]] [[src/builtins/thread.rs:THREAD]]
 
 `data` is **moved** into the call rather than borrowed, and materialized in
 storage the receiving thread owns, so no sender and receiver ever observe the same
@@ -83,7 +83,7 @@ or cancellation was requested.
 
 Worker-side send onto the parent-visible outbound queue. Fails with
 `ErrInterrupted` when this worker is cancelled or the queue is closed.
-[[src/builtins/thread.rs:resolve_call]] [[src/builtins/thread.rs:arity]]
+[[src/builtins/thread.rs:THREAD]] [[src/builtins/thread.rs:THREAD]]
 
 ## Parameters
 
@@ -97,7 +97,7 @@ Worker-side send onto the parent-visible outbound queue. Fails with
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | No value. Returns once the message has been enqueued and the queue's *not-empty* condition signalled. [[src/builtins/thread.rs:resolve_call]] |
+| `Nothing` | No value. Returns once the message has been enqueued and the queue's *not-empty* condition signalled. [[src/builtins/thread.rs:THREAD]] |
 
 ## Errors
 

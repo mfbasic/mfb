@@ -59,7 +59,7 @@ convenient than building a `List OF Byte`.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `write` returns no value. On a successful return every byte of `bytes` has been handed to the socket's send buffer. [[src/builtins/net.rs:call_return_type_name]] |
+| `Nothing` | `write` returns no value. On a successful return every byte of `bytes` has been handed to the socket's send buffer. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

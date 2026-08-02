@@ -57,7 +57,7 @@ Punycode hostname back to its Unicode form. [[src/builtins/encoding_package.mfb:
 
 | Type | Description |
 | --- | --- |
-| `String` | The ASCII Punycode hostname: all-ASCII labels are copied verbatim, and labels with non-ASCII code points become `xn--`-prefixed Punycode. The empty string maps to the empty string. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `String` | The ASCII Punycode hostname: all-ASCII labels are copied verbatim, and labels with non-ASCII code points become `xn--`-prefixed Punycode. The empty string maps to the empty string. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

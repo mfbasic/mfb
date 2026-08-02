@@ -80,7 +80,7 @@ the surface size can change between calls (for example when the terminal window 
 resized), so a program that depends on it should query it again rather than caching
 the result. `LineStyle` selects the box-drawing weight for `term::drawHLine`,
 `term::drawVLine`, and `term::drawBox`; `FillStyle` selects the block or shade
-glyph for `term::fillRect`. [[src/builtins/term.rs:builtin_type_fields]]
+glyph for `term::fillRect`. [[src/builtins/term.rs:TERM]]
 
 ## Errors
 

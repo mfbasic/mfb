@@ -312,17 +312,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     }
 }
 
-pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    DefaultResolver::return_type_name(&HTTP, name)
-}
-
-pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
-    let return_type = HTTP.resolver?.resolve_return_type(&HTTP, name, arg_types)?;
-    Some(ResolvedCall {
-        return_type: Cow::Owned(return_type),
-    })
-}
-
 /// The argument-validating return-type resolution, invoked through the descriptor
 /// resolver by `resolve_call`. `handleRequest` accepts either listener type; the
 /// server/client overloads validate their per-position argument types.
@@ -407,10 +396,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     }
 }
 
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    DefaultResolver::arity(&HTTP, name)
-}
-
 /// Default trailing arguments injected during IR lowering: the empty `headers`
 /// map then the method literal. The `Map OF String TO String` entry is lowered
 /// to an empty map literal (not a scalar const) by the IR padding loop.
@@ -484,10 +469,6 @@ mod tests {
         }
     }
 
-    fn rt(name: &str, args: &[&str]) -> Option<String> {
-        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
-    }
-
     #[test]
     fn builtin_type_and_is_call() {
         assert!(is_builtin_type(RESPONSE_TYPE));
@@ -508,114 +489,6 @@ mod tests {
             Some(&[&["url"][..], &["body"], &["headers"], &["method"]][..])
         );
         assert!(call_param_names("http.nope").is_none());
-    }
-
-    #[test]
-    fn return_type_name_branches() {
-        assert_eq!(call_return_type_name(READ), Some(RESPONSE_TYPE));
-        assert_eq!(call_return_type_name(WRITE), Some(RESPONSE_TYPE));
-        assert!(call_return_type_name("http.nope").is_none());
-    }
-
-    #[test]
-    fn resolve_read_overloads() {
-        assert_eq!(rt(READ, &[URL_TYPE]), Some(RESPONSE_TYPE.to_string()));
-        assert_eq!(
-            rt(READ, &[URL_TYPE, HEADER_MAP]),
-            Some(RESPONSE_TYPE.to_string())
-        );
-        assert_eq!(
-            rt(READ, &[URL_TYPE, HEADER_MAP, "String"]),
-            Some(RESPONSE_TYPE.to_string())
-        );
-        assert_eq!(rt(READ, &["String"]), None);
-        assert_eq!(rt(READ, &[URL_TYPE, "String"]), None);
-        assert_eq!(rt(READ, &[]), None);
-    }
-
-    #[test]
-    fn resolve_write_overloads() {
-        assert_eq!(
-            rt(WRITE, &[URL_TYPE, "String"]),
-            Some(RESPONSE_TYPE.to_string())
-        );
-        assert_eq!(
-            rt(WRITE, &[URL_TYPE, "String", HEADER_MAP]),
-            Some(RESPONSE_TYPE.to_string())
-        );
-        assert_eq!(
-            rt(WRITE, &[URL_TYPE, "String", HEADER_MAP, "String"]),
-            Some(RESPONSE_TYPE.to_string())
-        );
-        assert_eq!(rt(WRITE, &[URL_TYPE]), None);
-        assert_eq!(rt(WRITE, &["String", "String"]), None);
-        assert_eq!(rt("http.nope", &[URL_TYPE]), None);
-    }
-
-    #[test]
-    fn resolve_server_surface() {
-        // server(port, [host], [backlog]) -> net::Listener
-        assert_eq!(rt(SERVER, &["Integer"]), Some(LISTENER_TYPE.to_string()));
-        assert_eq!(
-            rt(SERVER, &["Integer", "String", "Integer"]),
-            Some(LISTENER_TYPE.to_string())
-        );
-        assert_eq!(rt(SERVER, &["String"]), None);
-        // serverSSL(port, certPath, keyPath, [host], [backlog]) -> tls::TlsListener
-        assert_eq!(
-            rt(SERVER_SSL, &["Integer", "String", "String"]),
-            Some(TLS_LISTENER_TYPE.to_string())
-        );
-        assert_eq!(
-            rt(
-                SERVER_SSL,
-                &["Integer", "String", "String", "String", "Integer"]
-            ),
-            Some(TLS_LISTENER_TYPE.to_string())
-        );
-        assert_eq!(rt(SERVER_SSL, &["Integer", "String"]), None);
-        // handleRequest overloaded by listener type -> Nothing
-        assert_eq!(
-            rt(HANDLE_REQUEST, &[LISTENER_TYPE, ROUTE_LIST]),
-            Some("Nothing".to_string())
-        );
-        assert_eq!(
-            rt(HANDLE_REQUEST, &[TLS_LISTENER_TYPE, ROUTE_LIST]),
-            Some("Nothing".to_string())
-        );
-        assert_eq!(rt(HANDLE_REQUEST, &[LISTENER_TYPE]), None);
-        // route(pattern, handler: FUNC(Request) AS Response) -> Route
-        assert_eq!(
-            rt(ROUTE, &["String", HANDLER_TYPE]),
-            Some(ROUTE_TYPE.to_string())
-        );
-        assert_eq!(rt(ROUTE, &["String", "FUNC(Integer) AS Integer"]), None);
-        // constructors and static helpers
-        assert_eq!(rt(RESPONSE_DEFAULT, &[]), Some(RESPONSE_TYPE.to_string()));
-        assert_eq!(rt(OK, &["String"]), Some(RESPONSE_TYPE.to_string()));
-        assert_eq!(rt(JSON, &["String"]), Some(RESPONSE_TYPE.to_string()));
-        assert_eq!(
-            rt(STATUS, &["Integer", "String"]),
-            Some(RESPONSE_TYPE.to_string())
-        );
-        assert_eq!(
-            rt(WITH_HEADER, &[RESPONSE_TYPE, "String", "String"]),
-            Some(RESPONSE_TYPE.to_string())
-        );
-        assert_eq!(rt(BYTES, &["String"]), Some(BYTE_LIST.to_string()));
-        assert_eq!(
-            rt(RESPOND_FILE, &[FILE_TYPE]),
-            Some(RESPONSE_TYPE.to_string())
-        );
-        assert_eq!(
-            rt(RESPOND_FILE, &[FILE_TYPE, "String"]),
-            Some(RESPONSE_TYPE.to_string())
-        );
-        assert_eq!(
-            rt(RESPOND_PATH, &[REQUEST_TYPE, "String"]),
-            Some(RESPONSE_TYPE.to_string())
-        );
-        assert_eq!(rt(RESPOND_PATH, &["String", "String"]), None);
     }
 
     #[test]
@@ -648,13 +521,6 @@ mod tests {
             Some("Url, String, Map OF String TO String, String")
         );
         assert!(expected_arguments("http.nope").is_none());
-    }
-
-    #[test]
-    fn arity_branches() {
-        assert_eq!(arity(READ), Some((1, 3)));
-        assert_eq!(arity(WRITE), Some((2, 4)));
-        assert!(arity("http.nope").is_none());
     }
 
     #[test]
@@ -737,108 +603,4 @@ mod tests {
         );
     }
 
-    // plan-72-M migration gate: prove `HTTP` + `HttpResolver` reproduce the legacy
-    // answers — membership/arity/param-names via the descriptor, the fixed
-    // returns via `call_return_type_name`, argument-dependent return + typed
-    // `handleRequest` implementation via resolver samples, default padding derived
-    // from the `Fill` parameters (data, not resolver-owned), and the four record
-    // builtin types + `WhenImported` source. Keep until plan-72-BB.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::{parity, DefaultResolver};
-
-        let calls: Vec<&str> = HTTP_FUNCTIONS.iter().map(|f| f.name).collect();
-        let legacy = parity::LegacySet {
-            is_call: &is_http_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            // Return/impl are resolver- or descriptor-owned and checked below;
-            // the harness skips them for a resolver-backed module.
-            return_type_name: &|_| None,
-            expected_arguments: None, // bespoke bracketed / "no arguments" phrasing
-            param_name_overloads: None,
-            argument_types: None,
-            implementation_name: None,
-            default_padding: None,
-            // The four record types carry no descriptor fields (source-defined) and
-            // http has no builtin_type_fields helper; membership asserted below.
-            builtin_type_fields: None,
-        };
-        let mut probe = calls.clone();
-        probe.push("http.nope");
-
-        for ty in [RESPONSE_TYPE, REQUEST_TYPE, REQUEST_PART_TYPE, ROUTE_TYPE] {
-            assert!(is_builtin_type(ty), "{ty}");
-        }
-        assert!(!is_builtin_type("Url"));
-
-        let samples = [
-            parity::ResolverSample {
-                call: HANDLE_REQUEST,
-                arg_types: &[LISTENER_TYPE, ROUTE_LIST],
-                expected_return: Some("Nothing"),
-                expected_impl: Some(INTERNAL_HANDLE_REQUEST),
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: HANDLE_REQUEST,
-                arg_types: &[TLS_LISTENER_TYPE, ROUTE_LIST],
-                expected_return: Some("Nothing"),
-                expected_impl: Some(INTERNAL_HANDLE_REQUEST_SSL),
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: READ,
-                arg_types: &[URL_TYPE, HEADER_MAP, "String"],
-                expected_return: Some(RESPONSE_TYPE),
-                expected_impl: None,
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: SERVER_SSL,
-                arg_types: &["Integer", "String", "String"],
-                expected_return: Some(TLS_LISTENER_TYPE),
-                expected_impl: None,
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-        ];
-        parity::assert_parity(&HTTP, &probe, &legacy, &samples);
-
-        // call_return_type_name (descriptor-derived Fixed) matches the legacy
-        // values, and default padding derives from the optional `Fill` parameters
-        // exactly as the legacy `default_argument_padding` static.
-        assert_eq!(call_return_type_name(READ), Some(RESPONSE_TYPE));
-        assert_eq!(call_return_type_name(SERVER), Some(LISTENER_TYPE));
-        assert_eq!(call_return_type_name(SERVER_SSL), Some(TLS_LISTENER_TYPE));
-        assert_eq!(call_return_type_name(HANDLE_REQUEST), Some("Nothing"));
-        assert_eq!(call_return_type_name(BYTES), Some(BYTE_LIST));
-        for name in [READ, WRITE, SERVER, SERVER_SSL, RESPOND_FILE] {
-            let (_, max) = arity(name).unwrap();
-            for provided in 0..=max {
-                assert_eq!(
-                    DefaultResolver::default_padding(&HTTP, name, provided),
-                    default_argument_padding(name, provided).to_vec(),
-                    "padding parity {name} @ {provided}"
-                );
-            }
-        }
-
-        // The fixed 1:1 implementation rewrites and the source rule.
-        assert_eq!(implementation_name(READ, &[]), Some(INTERNAL_READ));
-        assert_eq!(implementation_name(RESPOND_PATH, &[]), Some(INTERNAL_RESPOND_PATH));
-        assert_eq!(
-            HTTP.source.expect("http has a source").rule,
-            InjectionRule::WhenImported
-        );
-    }
 }

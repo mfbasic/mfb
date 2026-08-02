@@ -53,7 +53,7 @@ This function takes no parameters. [[src/builtins/fs.rs:call_param_names]]
 
 | Type | Description |
 | --- | --- |
-| `String` | The absolute path of the process's current working directory, decoded as a UTF-8 `String` in the host's native spelling, with the terminating NUL stripped. [[src/builtins/fs.rs:call_return_type_name]] |
+| `String` | The absolute path of the process's current working directory, decoded as a UTF-8 `String` in the host's native spelling, with the terminating NUL stripped. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

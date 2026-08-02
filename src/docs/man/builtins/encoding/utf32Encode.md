@@ -52,7 +52,7 @@ or surrogate code points. [[src/builtins/encoding_package.mfb:__encoding_utf32De
 
 | Type | Description |
 | --- | --- |
-| `List OF Integer` | The Unicode scalar values of `value`, each in `0..1114111` and never a surrogate; empty for the empty string. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `List OF Integer` | The Unicode scalar values of `value`, each in `0..1114111` and never a surrogate; empty for the empty string. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

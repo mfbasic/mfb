@@ -72,7 +72,7 @@ is still closed in that case. [[src/target/shared/code/tls/mod.rs:lower_tls_clos
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `close` returns no value. After a successful return the TLS session (or listener) has been shut down, the OS handle released, and the handle marked closed; it must not be used again. [[src/builtins/tls.rs:call_return_type_name]] |
+| `Nothing` | `close` returns no value. After a successful return the TLS session (or listener) has been shut down, the OS handle released, and the handle marked closed; it must not be used again. [[src/builtins/tls.rs:TLS]] |
 
 ## Errors
 

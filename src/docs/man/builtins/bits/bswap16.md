@@ -43,7 +43,7 @@ byte-reversal instructions inline rather than calling a runtime helper. [[src/bu
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The byte-reversed low 16 bits of `value`, with bits `16`..`63` cleared to zero. Always in the range `0`..`65535`. [[src/builtins/bits.rs:call_return_type_name]] |
+| `Integer` | The byte-reversed low 16 bits of `value`, with bits `16`..`63` cleared to zero. Always in the range `0`..`65535`. [[src/builtins/bits.rs:BITS]] |
 
 ## Errors
 

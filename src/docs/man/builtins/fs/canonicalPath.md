@@ -59,7 +59,7 @@ any file and has no other side effects.
 
 | Type | Description |
 | --- | --- |
-| `String` | The absolute, canonical path with all `.` and `..` components removed and all symbolic links resolved, in the host's native spelling. [[src/builtins/fs.rs:call_return_type_name]] |
+| `String` | The absolute, canonical path with all `.` and `..` components removed and all symbolic links resolved, in the host's native spelling. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

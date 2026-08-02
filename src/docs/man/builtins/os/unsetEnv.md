@@ -42,7 +42,7 @@ concurrent read in another `thread::` worker.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `os::unsetEnv` is a SUB and produces no value. [[src/builtins/os.rs:call_return_type_name]] |
+| `Nothing` | `os::unsetEnv` is a SUB and produces no value. [[src/builtins/os.rs:OS]] |
 
 ## Errors
 

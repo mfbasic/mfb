@@ -66,7 +66,7 @@ blocking descriptor should check `thread::isCancelled` between operations.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing on success, after every byte of `value` has been written to `file`. [[src/builtins/fs.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing on success, after every byte of `value` has been written to `file`. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

@@ -29,7 +29,7 @@ host's configured local time zone applies at the absolute instant named by
 (the Unix epoch, without leap seconds). A positive result places local civil
 time ahead of UTC (east of the prime meridian); a negative result places it
 behind UTC (west); zero means local time coincides with UTC at that instant.
-[[src/builtins/datetime.rs:call_return_type_name]]
+[[src/builtins/datetime.rs:DATETIME]]
 
 This is the OS seam through which the rest of the package learns the host's
 wall-clock rules. The call lowers to a libc runtime helper that hands
@@ -61,7 +61,7 @@ state.
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The signed offset from UTC, in seconds, that the host's local time zone applies at `epochSeconds`. Positive east of UTC, negative west, zero when the local zone coincides with UTC at that instant. The value is the same adjustment that converts an `Instant`'s seconds-since-epoch into local civil fields. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Integer` | The signed offset from UTC, in seconds, that the host's local time zone applies at `epochSeconds`. Positive east of UTC, negative west, zero when the local zone coincides with UTC at that instant. The value is the same adjustment that converts an `Instant`'s seconds-since-epoch into local civil fields. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

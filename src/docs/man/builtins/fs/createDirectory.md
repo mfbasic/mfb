@@ -25,7 +25,7 @@ IMPORT fs
 
 `fs::createDirectory` creates the single directory named by `path` with one host
 `mkdir` operation. On success the directory exists and the function returns
-`Nothing`. [[src/target/macos_aarch64/code.rs:emit_fs_path_operation]][[src/builtins/fs.rs:call_return_type_name]]
+`Nothing`. [[src/target/macos_aarch64/code.rs:emit_fs_path_operation]][[src/builtins/fs.rs:FS]]
 
 Only the final component is created; every parent component must already exist.
 `fs::createDirectory` does not create intermediate directories, so a `path` whose
@@ -61,7 +61,7 @@ produced on each platform. [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Nothing is returned on success, after the directory named by `path` has been created. [[src/builtins/fs.rs:call_return_type_name]] |
+| `Nothing` | Nothing is returned on success, after the directory named by `path` has been created. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

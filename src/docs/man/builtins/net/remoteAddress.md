@@ -28,7 +28,7 @@ IMPORT net
 counterpart of `net::localAddress`, and unlike that function it accepts only a
 `Socket`: a `Listener` and a `UdpSocket` have no single peer, so passing either
 is a compile-time type error rather than a runtime one.
-[[src/builtins/net.rs:resolve_call]] [[src/builtins/net.rs:expected_arguments]]
+[[src/builtins/net.rs:NET]] [[src/builtins/net.rs:NET]]
 
 The call reads the endpoint with `getpeername` into a `sockaddr_storage` and
 converts it into a freshly allocated `Address` whose `host` field is the textual
@@ -52,7 +52,7 @@ identifies the client that connected.
 
 | Type | Description |
 | --- | --- |
-| `Address` | A record whose `host` field (`String`) holds the textual peer address the host resolved and whose `port` field (`Integer`) holds the peer port. [[src/builtins/net.rs:builtin_type_fields]] |
+| `Address` | A record whose `host` field (`String`) holds the textual peer address the host resolved and whose `port` field (`Integer`) holds the peer port. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

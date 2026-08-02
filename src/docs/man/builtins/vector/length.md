@@ -44,7 +44,7 @@ The return type is the vector type's **element** type, not the vector type: a
 `Integer`. The zero vector is an entirely ordinary argument here — `length` has no
 degenerate input to reject and never raises `ErrInvalidArgument`, in contrast to
 `vector::normalize`, which needs a direction and refuses the zero vector.
-[[src/builtins/vector.rs:resolve_call]]
+[[src/builtins/vector.rs:VECTOR]]
 
 The `Float` overloads sum in IEEE doubles and take the root with `math::sqrt`.
 The `Fixed` overloads work entirely in deterministic Q32.32 arithmetic. The
@@ -92,7 +92,7 @@ integer square root, halves away from zero.
 
 | Type | Description |
 | --- | --- |
-| the element type of `v` (`Float`, `Fixed`, or `Integer`) | The non-negative Euclidean magnitude of `v`, zero exactly when every component is zero. The `Integer` overloads return the magnitude rounded to the nearest integer, halves away from zero. [[src/builtins/vector.rs:resolve_call]] |
+| the element type of `v` (`Float`, `Fixed`, or `Integer`) | The non-negative Euclidean magnitude of `v`, zero exactly when every component is zero. The `Integer` overloads return the magnitude rounded to the nearest integer, halves away from zero. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -108,7 +108,7 @@ overload is selected at compile time from the exact record type of the single
 argument; no implicit conversion or numeric promotion is applied to a vector
 argument, and a non-vector argument or any arity other than one is rejected by the
 syntax check. The return type is the element type of that vector type, not the
-vector type itself. [[src/builtins/vector.rs:resolve_call]] [[src/builtins/vector.rs:arity]]
+vector type itself. [[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:VECTOR]]
 
 ## Examples
 

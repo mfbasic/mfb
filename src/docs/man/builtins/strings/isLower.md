@@ -54,7 +54,7 @@ rather than test it, use `strings::lower`; for caseless comparison, use
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `scalar` has general category `Ll`; `FALSE` otherwise, including for uncased letters such as `中`. [[src/builtins/strings.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when `scalar` has general category `Ll`; `FALSE` otherwise, including for uncased letters such as `中`. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

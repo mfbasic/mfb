@@ -88,7 +88,7 @@ argument's type. [[src/builtins/audio.rs:source_implementation_name]][[src/built
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `output` | `AudioOutput` | An open playback stream opened at 48 kHz mono (`audio::openOutput(48000, 1, ...)`). Borrowed — `play` writes to it and leaves it open. [[src/builtins/audio.rs:resolve_call]] |
+| `output` | `AudioOutput` | An open playback stream opened at 48 kHz mono (`audio::openOutput(48000, 1, ...)`). Borrowed — `play` writes to it and leaves it open. [[src/builtins/audio.rs:AUDIO]] |
 | `mml` | `String` | A single MML track (single-track overload). [[src/builtins/audio_mml.mfb:__audio_play]] |
 | `tracks` | `List OF String` | Several MML tracks played together (multi-track overload). [[src/builtins/audio_mml.mfb:__audio_playTracks]] |
 
@@ -96,7 +96,7 @@ argument's type. [[src/builtins/audio.rs:source_implementation_name]][[src/built
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `play` writes audio for its side effect and returns no value. [[src/builtins/audio.rs:resolve_call]] |
+| `Nothing` | `play` writes audio for its side effect and returns no value. [[src/builtins/audio.rs:AUDIO]] |
 
 ## Errors
 

@@ -90,7 +90,7 @@ each result back to `Integer` half away from zero.
 
 | Type | Description |
 | --- | --- |
-| the same type as `a` | A vector on the segment from `a` to `b`, at the clamped fraction `t` of the way from `a` to `b`. Exactly `a` for any `t` at or below `0` and exactly `b` for any `t` at or above `1`, up to the rounding of the element type. [[src/builtins/vector.rs:resolve_call]] |
+| the same type as `a` | A vector on the segment from `a` to `b`, at the clamped fraction `t` of the way from `a` to `b`. Exactly `a` for any `t` at or below `0` and exactly `b` for any `t` at or above `1`, up to the rounding of the element type. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -105,7 +105,7 @@ each result back to `Integer` half away from zero.
 two arguments must be the *same* one of the nine types, and the third must be a
 `Float` for every overload — an `Integer` `t` is a compile-time error with no
 implicit numeric promotion. The return type is always the first argument's own
-type. [[src/builtins/vector.rs:resolve_call]] [[src/builtins/vector.rs:expected_arguments]]
+type. [[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:VECTOR]]
 
 ## Examples
 

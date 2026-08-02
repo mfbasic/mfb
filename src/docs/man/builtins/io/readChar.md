@@ -70,7 +70,7 @@ must subscribe with `thread::openStdIn` before reading, or the call raises
 
 | Type | Description |
 | --- | --- |
-| `String` | A one-scalar `String` holding the character read — one to four UTF-8 bytes. [[src/builtins/io.rs:call_return_type_name]] |
+| `String` | A one-scalar `String` holding the character read — one to four UTF-8 bytes. [[src/builtins/io.rs:IO]] |
 
 ## Errors
 

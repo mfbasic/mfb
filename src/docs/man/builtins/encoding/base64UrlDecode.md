@@ -56,7 +56,7 @@ The empty string decodes to the empty list. For the standard variant that uses
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The decoded bytes; the empty list for the empty string. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `List OF Byte` | The decoded bytes; the empty list for the empty string. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

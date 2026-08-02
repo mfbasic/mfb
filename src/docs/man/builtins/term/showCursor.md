@@ -24,7 +24,7 @@ IMPORT term
 ## Description
 
 `term::showCursor` marks the cursor as visible. It takes no arguments.
-[[src/builtins/term.rs:arity]]
+[[src/builtins/term.rs:TERM]]
 
 Like everything else on this retained surface, the call **emits no escape
 sequence**. It sets a single visibility flag in the module's state; the terminal
@@ -52,7 +52,7 @@ and reports no error. [[src/target/shared/code/term.rs:emit_gate_inactive]]
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of marking the cursor visible. [[src/builtins/term.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of marking the cursor visible. [[src/builtins/term.rs:TERM]] |
 
 ## Errors
 

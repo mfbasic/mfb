@@ -43,7 +43,7 @@ what lets a document nest to arbitrary depth.
 All seven names are builtin types, referenced bare rather than package-qualified:
 write `JsonStr["x"]`, not `json::JsonStr["x"]`. The union type itself is written
 `json::Json` in a declaration such as `LET doc AS json::Json`.
-[[src/builtins/json.rs:is_builtin_type]]
+[[src/builtins/json.rs:JSON]]
 
 Anywhere a `Json` is accepted, a member type is accepted directly as well —
 `json::stringify`, `json::get`, and the `value`/`defaultValue` arguments of

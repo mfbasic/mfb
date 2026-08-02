@@ -58,7 +58,7 @@ from the result. For full nanosecond precision use `datetime::toNanos`.
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The number of whole milliseconds from the Unix epoch to `at`: negative before the epoch, `0` at the epoch, positive after. Any sub-millisecond fraction of `at` is discarded. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Integer` | The number of whole milliseconds from the Unix epoch to `at`: negative before the epoch, `0` at the epoch, positive after. Any sub-millisecond fraction of `at` is discarded. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

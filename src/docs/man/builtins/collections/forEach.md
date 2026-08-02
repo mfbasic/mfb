@@ -92,7 +92,7 @@ whose success type is exactly `Nothing`. Passing a non-list first argument, an
 `action` of the wrong arity, an `action` whose parameter type differs from `T`,
 or an `action` that returns a value is a compile-time type error — no overload
 resolves. [[src/builtins/collections.rs:resolve_for_each]]
-[[src/builtins/collections.rs:expected_arguments]]
+[[src/builtins/collections.rs:COLLECTIONS]]
 
 ## Examples
 

@@ -57,7 +57,7 @@ than just whether they coincide, use `datetime::between`.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `a` and `b` name the same instant, and `FALSE` otherwise. The `seconds` fields are compared first and the `nanos` fields break ties, so a `TRUE` result requires both fields to match exactly. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when `a` and `b` name the same instant, and `FALSE` otherwise. The `seconds` fields are compared first and the `nanos` fields break ties, so a `TRUE` result requires both fields to match exactly. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

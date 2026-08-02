@@ -71,7 +71,7 @@ streams without end. [[src/builtins/http_package.mfb:__HTTP_CONNECT_TIMEOUT_MS]]
 
 **`http::read(url AS net::Url) AS Response`**
 
-Sends a `GET` with no caller headers. [[src/builtins/http.rs:resolve_call]]
+Sends a `GET` with no caller headers. [[src/builtins/http.rs:HTTP]]
 
 **`http::read(url AS net::Url, headers AS Map OF String TO String) AS Response`**
 
@@ -81,7 +81,7 @@ Sends a `GET` with the supplied headers.
 
 Sends `method` (uppercased) with the supplied headers. This is the full form; the
 shorter overloads default `headers` to an empty map and `method` to `GET`.
-[[src/builtins/http.rs:arity]]
+[[src/builtins/http.rs:HTTP]]
 
 ## Parameters
 

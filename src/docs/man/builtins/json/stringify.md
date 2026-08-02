@@ -76,13 +76,13 @@ The output is always re-readable by `json::parse`, which makes
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Json` | The value to serialize. Accepts the `Json` union or any of `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, `JsonObj`. [[src/builtins/json.rs:call_param_names]] [[src/builtins/json.rs:resolve_call]] |
+| `value` | `Json` | The value to serialize. Accepts the `Json` union or any of `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, `JsonObj`. [[src/builtins/json.rs:call_param_names]] [[src/builtins/json.rs:JSON]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The compact JSON text for `value`, containing no insignificant whitespace and readable back with `json::parse`. [[src/builtins/json.rs:call_return_type_name]] |
+| `String` | The compact JSON text for `value`, containing no insignificant whitespace and readable back with `json::parse`. [[src/builtins/json.rs:JSON]] |
 
 ## Errors
 

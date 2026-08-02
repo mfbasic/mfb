@@ -18,7 +18,7 @@ csv
 IMPORT csv
 ```
 
-`csv` is a built-in package, so `IMPORT csv` needs no manifest dependency. [[src/builtins/csv.rs:call_return_type_name]]
+`csv` is a built-in package, so `IMPORT csv` needs no manifest dependency. [[src/builtins/csv.rs:CSV]]
 
 ## Description
 
@@ -59,7 +59,7 @@ side effects. [[src/builtins/csv.rs:call_param_names]]
 
 | Type | Description |
 | --- | --- |
-| `String` | The CSV text for `value`, with rows separated by LF and no trailing newline. An empty outer list yields the empty String. The result can be read back with `csv::parse`. [[src/builtins/csv.rs:call_return_type_name]] |
+| `String` | The CSV text for `value`, with rows separated by LF and no trailing newline. An empty outer list yields the empty String. The result can be read back with `csv::parse`. [[src/builtins/csv.rs:CSV]] |
 
 ## Errors
 

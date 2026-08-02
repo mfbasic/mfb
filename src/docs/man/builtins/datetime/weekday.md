@@ -25,7 +25,7 @@ IMPORT datetime
 
 `datetime::weekday` returns the day of the week on which `dt`'s civil date falls,
 as a value of the `Weekday` enum (`Monday`, `Tuesday`, `Wednesday`, `Thursday`,
-`Friday`, `Saturday`, `Sunday`). [[src/builtins/datetime.rs:call_return_type_name]]
+`Friday`, `Saturday`, `Sunday`). [[src/builtins/datetime.rs:DATETIME]]
 
 The result is derived solely from the calendar date fields carried by `dt` — its
 year, month, and day as stored in `dt`'s own zone. The day count for that civil
@@ -55,7 +55,7 @@ starting on Monday, matching the ordering of the `Weekday` enum, so
 
 | Type | Description |
 | --- | --- |
-| `Weekday` | The `Weekday` enum member naming the day of the week of `dt`'s civil date, one of `Weekday.Monday` through `Weekday.Sunday`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Weekday` | The `Weekday` enum member naming the day of the week of `dt`'s civil date, one of `Weekday.Monday` through `Weekday.Sunday`. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

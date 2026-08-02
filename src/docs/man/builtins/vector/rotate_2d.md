@@ -37,7 +37,7 @@ equivalent angle. [[src/builtins/vector_package.mfb:__vector_rotate_2d_float2]]
 This function is **2D only**. There are just three overloads, one per element
 type, and there is no 3D or 4D form: rotation in higher dimensions needs an axis
 or a plane, which a single scalar angle cannot specify. Passing a 3D or 4D vector
-is a compile-time error. [[src/builtins/vector.rs:resolve_call]]
+is a compile-time error. [[src/builtins/vector.rs:VECTOR]]
 
 `angle` is a `Float` for **every** overload, including the `Fixed2` and `Integer2`
 ones — it is not the vector's element type, in contrast to
@@ -90,7 +90,7 @@ Q32.32, then rounds each component back to `Integer` half away from zero.
 
 | Type | Description |
 | --- | --- |
-| the same type as `v` | The vector `v` rotated counterclockwise by `angle` radians about the origin, with the same magnitude up to the rounding of the element type. The zero vector maps to the zero vector. [[src/builtins/vector.rs:resolve_call]] |
+| the same type as `v` | The vector `v` rotated counterclockwise by `angle` radians about the origin, with the same magnitude up to the rounding of the element type. The zero vector maps to the zero vector. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -107,7 +107,7 @@ three, with no implicit numeric promotion from `Integer`. A 3D or 4D first
 argument, a non-`Float` second argument, or any arity other than two is rejected
 by the syntax check with the message that a 2D vector and a `Float` angle were
 expected. The return type is always the first argument's own type.
-[[src/builtins/vector.rs:expected_arguments]] [[src/builtins/vector.rs:resolve_call]]
+[[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:VECTOR]]
 
 ## Examples
 

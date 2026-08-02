@@ -29,7 +29,7 @@ for playback on an open `AudioOutput` and blocks until every byte has been hande
 to the operating system for playback. It returns `Nothing`. `write` is defined
 only over `AudioOutput`; passing an `AudioInput` is a compile-time
 overload-resolution error, never a runtime check.
-[[src/builtins/audio.rs:resolve_call]] The stream is borrowed, not consumed — the
+[[src/builtins/audio.rs:AUDIO]] The stream is borrowed, not consumed — the
 handle stays open and must still be closed with `audio::close` or by lexical
 drop. [[src/builtins/audio.rs:consumes_argument]]
 
@@ -76,7 +76,7 @@ library or a required symbol cannot be resolved.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns once every byte has been queued for playback. [[src/builtins/audio.rs:call_return_type_name]] |
+| `Nothing` | Returns once every byte has been queued for playback. [[src/builtins/audio.rs:AUDIO]] |
 
 ## Errors
 

@@ -291,18 +291,6 @@ fn is_vector_function(name: &str) -> bool {
     DefaultResolver::contains(&VECTOR, name)
 }
 
-/// `(min, max)` argument count for a function member. `cross` spans 1..3 (its
-/// arity is dimension-specific, validated precisely in `resolve_call`).
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    if is_vector_constant(name) {
-        return Some((0, 0));
-    }
-    // `cross` spans 1..3 (its arity is dimension-specific, validated precisely in
-    // `resolve_call`); the descriptor models that as one overload with two
-    // trailing `Optional` operands.
-    DefaultResolver::arity(&VECTOR, name)
-}
-
 /// Whether `a` and `b` are the same vector type.
 fn same_vector(a: &str, b: &str) -> bool {
     vector_shape(a).is_some() && a == b
@@ -627,21 +615,6 @@ mod tests {
     }
 
     #[test]
-    fn arity_spans() {
-        assert_eq!(arity(LENGTH), Some((1, 1)));
-        assert_eq!(arity(NORMALIZE), Some((1, 1)));
-        assert_eq!(arity(ABS), Some((1, 1)));
-        assert_eq!(arity(PERPENDICULAR), Some((1, 1)));
-        assert_eq!(arity(DISTANCE), Some((2, 2)));
-        assert_eq!(arity(ROTATE_2D), Some((2, 2)));
-        assert_eq!(arity(CROSS), Some((1, 3)));
-        assert_eq!(arity(LERP), Some((3, 3)));
-        assert_eq!(arity(SLERP), Some((3, 3)));
-        assert_eq!(arity("vector.zeroFloat3"), Some((0, 0)));
-        assert_eq!(arity("vector.bogus"), None);
-    }
-
-    #[test]
     fn same_vector_helper() {
         assert!(same_vector("Float3", "Float3"));
         assert!(!same_vector("Float3", "Float2"));
@@ -932,104 +905,4 @@ mod tests {
         );
     }
 
-    // plan-72-AA migration gate: prove `VECTOR` reproduces every legacy helper
-    // answer for every function member (and an unknown name) — membership, arity
-    // (incl. `cross`'s 1..3 span), and per-position parameter names — pinning the
-    // borrowed `call_param_names` static equal to `VECTOR`. The argument-dependent
-    // return type and typed `implementation_name` (every element type × dimension,
-    // scalar vs vector returns, and a package constant) are checked through the
-    // resolver samples. `expected_arguments` is prose and checked by
-    // `expected_arguments_text`; the 42 constants stay hand-authored. Keep until
-    // plan-72-BB.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::parity;
-
-        let calls: Vec<&str> = VECTOR_FUNCTIONS.iter().map(|f| f.name).collect();
-        let legacy = parity::LegacySet {
-            is_call: &is_vector_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            // Resolver-backed: the harness skips return-type parity, so this is unused.
-            return_type_name: &|_| None,
-            // Prose ("two vectors of the same type"); kept hand-authored.
-            expected_arguments: None,
-            param_name_overloads: None,
-            argument_types: None,
-            // Argument-dependent; checked through the resolver samples below.
-            implementation_name: None,
-            default_padding: None,
-            builtin_type_fields: None,
-        };
-
-        // Return type + typed implementation across every element type, dimension,
-        // scalar/vector return, `cross`-by-dimension, and a package constant.
-        let sample = |call, args: &'static [&'static str], ret, imp: &'static str| {
-            parity::ResolverSample {
-                call,
-                arg_types: args,
-                expected_return: Some(ret),
-                expected_impl: Some(imp),
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            }
-        };
-        let samples = [
-            sample(LENGTH, &["Float3"], "Float", "__vector_length_float3"),
-            sample(NORMALIZE, &["Float3"], "Float3", "__vector_normalize_float3"),
-            sample(DISTANCE, &["Float3", "Float3"], "Float", "__vector_distance_float3"),
-            sample(DOT, &["Fixed4", "Fixed4"], "Fixed", "__vector_dot_fixed4"),
-            sample(CROSS, &["Float2"], "Float2", "__vector_cross_float2"),
-            sample(CROSS, &["Float3", "Float3"], "Float3", "__vector_cross_float3"),
-            sample(
-                CROSS,
-                &["Float4", "Float4", "Float4"],
-                "Float4",
-                "__vector_cross_float4",
-            ),
-            sample(
-                LERP,
-                &["Float3", "Float3", "Float"],
-                "Float3",
-                "__vector_lerp_float3",
-            ),
-            sample(
-                CLAMP_LENGTH,
-                &["Float3", "Float"],
-                "Float3",
-                "__vector_clamp_length_float3",
-            ),
-            sample(
-                ROTATE_2D,
-                &["Float2", "Float"],
-                "Float2",
-                "__vector_rotate_2d_float2",
-            ),
-            sample(ABS, &["Integer4"], "Integer4", "__vector_abs_integer4"),
-            // A package constant resolves through the resolver too (zero-arg).
-            sample("vector.zeroInteger2", &[], "Integer2", "__vector_zeroInteger2"),
-        ];
-
-        let mut probe = calls.clone();
-        probe.push("vector.bogus");
-        parity::assert_parity(&VECTOR, &probe, &legacy, &samples);
-
-        // The nine value records are the descriptor's builtin-type authority.
-        for ty in VECTOR_TYPES {
-            assert!(is_builtin_type(ty.name), "{}", ty.name);
-        }
-        assert!(!is_builtin_type("Float5"));
-        // Constants are members via the hand-authored surface, not the descriptor.
-        assert!(is_vector_call("vector.zeroFloat3"));
-        assert!(!is_vector_function("vector.zeroFloat3"));
-
-        // The source companion injects on import (WhenImported).
-        assert_eq!(
-            VECTOR.source.expect("vector has a source").rule,
-            crate::builtins::descriptor::InjectionRule::WhenImported
-        );
-    }
 }

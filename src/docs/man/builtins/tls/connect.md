@@ -79,7 +79,7 @@ As above, bounded by a timeout in milliseconds (see Description).
 **`tls::connect(host AS String, port AS Integer, timeoutMs AS Integer, serverName AS String) AS TlsSocket`**
 
 As above, but validates the certificate against `serverName` and sends it as the
-SNI host name when `serverName` is non-empty. [[src/builtins/tls.rs:resolve_call]]
+SNI host name when `serverName` is non-empty. [[src/builtins/tls.rs:TLS]]
 
 ## Parameters
 
@@ -94,7 +94,7 @@ SNI host name when `serverName` is non-empty. [[src/builtins/tls.rs:resolve_call
 
 | Type | Description |
 | --- | --- |
-| `TlsSocket` | A connected `TlsSocket` resource whose certificate has been verified, ready for reading and writing. The `TlsSocket` is closed by lexical drop at scope exit unless closed earlier with `tls::close`. [[src/builtins/tls.rs:call_return_type_name]] |
+| `TlsSocket` | A connected `TlsSocket` resource whose certificate has been verified, ready for reading and writing. The `TlsSocket` is closed by lexical drop at scope exit unless closed earlier with `tls::close`. [[src/builtins/tls.rs:TLS]] |
 
 ## Errors
 

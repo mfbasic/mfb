@@ -76,7 +76,7 @@ the line is read from the window input pipe.
 
 Reads a line with no prompt. Equivalent to `io::input("")`, and identical to
 `io::readLine()` except that `io::readLine` suppresses terminal echo while
-`io::input` does not. [[src/builtins/io.rs:arity]]
+`io::input` does not. [[src/builtins/io.rs:IO]]
 
 **`io::input(prompt AS String) AS String`**
 
@@ -93,7 +93,7 @@ writing the prompt is reported before any input is consumed.
 
 | Type | Description |
 | --- | --- |
-| `String` | The line read, with its trailing LF and a preceding CR if present removed. An empty line returns an empty `String`; a final unterminated line returns the remaining bytes. [[src/builtins/io.rs:call_return_type_name]] |
+| `String` | The line read, with its trailing LF and a preceding CR if present removed. An empty line returns an empty `String`; a final unterminated line returns the remaining bytes. [[src/builtins/io.rs:IO]] |
 
 ## Errors
 

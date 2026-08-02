@@ -32,13 +32,13 @@ IMPORT math
 The result is **always** an `Integer`, whatever the argument type — this
 function converts out of the fractional type rather than rounding within it. A
 value that is already a whole number is returned unchanged.
-[[src/builtins/math.rs:call_return_type_name]]
+[[src/builtins/math.rs:MATH]]
 
 `math::ceil(3.25)` is `4` and `math::ceil(-2.25)` is `-2`.
 
 `math::ceil` accepts `Float`, `Fixed`, and `Money` — but **not** `Integer`,
 which is already whole; `math::ceil(3)` is a compile-time error.
-[[src/builtins/math.rs:expected_arguments]]
+[[src/builtins/math.rs:MATH]]
 
 Applying `math::ceil` to a `Money` yields the smallest whole-unit count at or above the amount: an `Integer`, not a
 `Money`. This is a deliberate exit from the `Money` dimension — the amount-ness
@@ -101,8 +101,8 @@ element triggered it; no list is returned in that case.
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The smallest integer that is greater than or equal to `value`. Whole-number inputs return their exact integer value. For a `Money` argument, the dimensionless count of whole currency units. [[src/builtins/math.rs:resolve_call]] |
-| `List OF Integer` | For the array forms: a new list of the same length, each element the scalar result for the corresponding input. [[src/builtins/math.rs:resolve_call]] |
+| `Integer` | The smallest integer that is greater than or equal to `value`. Whole-number inputs return their exact integer value. For a `Money` argument, the dimensionless count of whole currency units. [[src/builtins/math.rs:MATH]] |
+| `List OF Integer` | For the array forms: a new list of the same length, each element the scalar result for the corresponding input. [[src/builtins/math.rs:MATH]] |
 
 ## Errors
 
@@ -112,12 +112,12 @@ element triggered it; no list is returned in that case.
 
 ## Type checking
 
-`math::ceil` takes exactly one argument. [[src/builtins/math.rs:arity]] It must
+`math::ceil` takes exactly one argument. [[src/builtins/math.rs:MATH]] It must
 be a single `Float`, `Fixed`, or `Money`, or a `List OF Float` or
 `List OF Fixed`. An `Integer` argument, a `Money` list, or any non-numeric value
 such as a `String`, `Boolean`, `Byte`, `Scalar`, record, union, resource,
 thread, or function value is a compile-time type error.
-[[src/builtins/math.rs:expected_arguments]]
+[[src/builtins/math.rs:MATH]]
 
 ## Examples
 

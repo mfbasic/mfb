@@ -51,7 +51,7 @@ for signed values. [[src/builtins/encoding_package.mfb:__encoding_uleb128Decode]
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The decoded non-negative value. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `Integer` | The decoded non-negative value. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

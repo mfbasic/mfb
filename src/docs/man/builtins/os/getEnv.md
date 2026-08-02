@@ -46,7 +46,7 @@ state. It reads process state only and has no side effects.
 
 | Type | Description |
 | --- | --- |
-| `String` | The variable's current value. May be the empty string if the variable is set to an empty value. [[src/builtins/os.rs:call_return_type_name]] |
+| `String` | The variable's current value. May be the empty string if the variable is set to an empty value. [[src/builtins/os.rs:OS]] |
 
 ## Errors
 

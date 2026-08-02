@@ -60,7 +60,7 @@ vector. [[src/builtins/vector_package.mfb:__vector_clamp_length_fixed2]]
 overloads: a `Fixed3` is capped by a `Fixed`, and an `Integer4` by an `Integer`.
 This differs from `vector::lerp` and `vector::rotate_2d`, whose scalar parameter
 is a `Float` for every element type. The compile-time check requires `max` to
-match the element type exactly. [[src/builtins/vector.rs:resolve_call]]
+match the element type exactly. [[src/builtins/vector.rs:VECTOR]]
 
 The `Integer` overloads compute the length with the package's rounding integer
 square root, then form the ratio and rescale each component in `Float` before
@@ -97,7 +97,7 @@ component rounded back to `Integer` half away from zero.
 
 | Type | Description |
 | --- | --- |
-| the same type as `v` | `v` itself when `vector::length(v)` is at most `max` or when `v` is the zero vector; otherwise a vector in the same direction as `v` with magnitude approximately `max`. [[src/builtins/vector.rs:resolve_call]] |
+| the same type as `v` | `v` itself when `vector::length(v)` is at most `max` or when `v` is the zero vector; otherwise a vector in the same direction as `v` with magnitude approximately `max`. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -114,7 +114,7 @@ first argument selects the overload by its exact record type, and the second mus
 be a scalar of exactly that vector type's element type — an `Integer` `max` for a
 `Float3` is a compile-time error, with no implicit numeric promotion. The return
 type is always the first argument's own type.
-[[src/builtins/vector.rs:resolve_call]] [[src/builtins/vector.rs:expected_arguments]]
+[[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:VECTOR]]
 
 ## Examples
 

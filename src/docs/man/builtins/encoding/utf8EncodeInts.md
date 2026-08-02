@@ -53,7 +53,7 @@ The inverse operation is `encoding::utf8DecodeInts`, which accepts a
 
 | Type | Description |
 | --- | --- |
-| `List OF Integer` | The UTF-8 bytes of `value` as `Integer` elements, one per byte (`0..255`); empty for the empty string. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `List OF Integer` | The UTF-8 bytes of `value` as `Integer` elements, one per byte (`0..255`); empty for the empty string. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

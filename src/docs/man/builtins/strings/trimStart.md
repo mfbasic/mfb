@@ -50,7 +50,7 @@ newly allocated `String`, even when nothing was trimmed.
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` equal to `value` with leading Unicode whitespace removed. The empty string, and any all-whitespace string, yield `""`. [[src/builtins/strings.rs:call_return_type_name]] |
+| `String` | A new `String` equal to `value` with leading Unicode whitespace removed. The empty string, and any all-whitespace string, yield `""`. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

@@ -51,7 +51,7 @@ is `encoding::base32Decode`, which parses a Base32 string back into a
 
 | Type | Description |
 | --- | --- |
-| `String` | The uppercase Base32 encoding of `data` with `=` padding to a multiple of eight characters; the empty string for an empty list. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `String` | The uppercase Base32 encoding of `data` with `=` padding to a multiple of eight characters; the empty string for an empty list. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

@@ -26,7 +26,7 @@ IMPORT term
 `term::getBackground` returns the colour drawn behind subsequently written text,
 as a freshly allocated `TermColor` record with three `Byte` fields `r`, `g`, and
 `b` holding the red, green, and blue channels. It takes no arguments.
-[[src/builtins/term.rs:builtin_type_fields]]
+[[src/builtins/term.rs:TERM]]
 
 The value is the module's current background attribute, unpacked from the 24-bit
 value that `term::setBackground` stored. Immediately after `term::on` — which
@@ -58,7 +58,7 @@ allocated.
 
 | Type | Description |
 | --- | --- |
-| `TermColor` | A record whose `r`, `g`, and `b` `Byte` fields are the channels of the current background colour, each 0 to 255. Black (0, 0, 0) immediately after `term::on`, and black while TUI mode is off. [[src/builtins/term.rs:call_return_type_name]] |
+| `TermColor` | A record whose `r`, `g`, and `b` `Byte` fields are the channels of the current background colour, each 0 to 255. Black (0, 0, 0) immediately after `term::on`, and black while TUI mode is off. [[src/builtins/term.rs:TERM]] |
 
 ## Errors
 

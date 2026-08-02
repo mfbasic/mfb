@@ -59,7 +59,7 @@ than producing a partial result. [[src/builtins/encoding_package.mfb:__encoding_
 
 | Type | Description |
 | --- | --- |
-| `String` | The decoded Unicode hostname. All-ASCII (non-`xn--`) labels are copied verbatim, and `xn--`-prefixed labels are expanded to their Unicode form. The empty string maps to the empty string. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `String` | The decoded Unicode hostname. All-ASCII (non-`xn--`) labels are copied verbatim, and `xn--`-prefixed labels are expanded to their Unicode form. The empty string maps to the empty string. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

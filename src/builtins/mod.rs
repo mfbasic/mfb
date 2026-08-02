@@ -1289,35 +1289,6 @@ mod tests {
         Implementation, Lowering, Parameter, ReturnType,
     };
 
-    // A minimal descriptor module standing in for a migrated `bits`: one
-    // function `bits.band(a, b) -> Integer`, matching the legacy helper so the
-    // descriptor branch is provably equivalent to the fallback.
-    const BAND: BuiltinFunction = BuiltinFunction {
-        name: "bits.band",
-        doc_slug: "band",
-        overloads: &[BuiltinOverload {
-            params: &[
-                Parameter::required("a", "Integer"),
-                Parameter::required("b", "Integer"),
-            ],
-            return_type: ReturnType::Fixed("Integer"),
-        }],
-        implementation: Implementation::Same,
-        lowering: Lowering::Inline,
-        flags: BuiltinFlags {
-            internal_only: false,
-            return_type_overloaded: false,
-        },
-    };
-    const MIGRATED_BITS: BuiltinModule = BuiltinModule {
-        name: "bits",
-        functions: &[BAND],
-        types: &[],
-        source: None,
-        resolver: None,
-    };
-    static MIGRATED_REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[&MIGRATED_BITS]);
-
     #[test]
     fn adapters_fall_back_on_registry_miss() {
         // Every real builtin package is now migrated (plan-72-A..AA), so the
@@ -1351,48 +1322,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn adapters_use_descriptor_for_migrated_bits() {
-        // `bits` IS migrated (plan-72-D), so against the production registry the
-        // adapter takes the descriptor branch; its answer still equals the legacy
-        // helper. The `|_| unreachable`-style legacy closures here would only be
-        // consulted on a registry miss, which does not happen for bits.band.
-        assert!(registry_is_call(&descriptor::REGISTRY, "bits.band", |_| false));
-        assert_eq!(
-            registry_arity(&descriptor::REGISTRY, "bits.band", |_| None),
-            bits::arity("bits.band")
-        );
-        assert_eq!(
-            registry_return_type_name(&descriptor::REGISTRY, "bits.band", |_| None),
-            bits::call_return_type_name("bits.band")
-        );
-    }
-
-    #[test]
-    fn adapters_use_descriptor_when_registry_has_the_package() {
-        // With a populated registry the adapter takes the descriptor branch, and
-        // its answer matches the legacy helper — the migration is behavior-preserving.
-        assert!(registry_is_call(
-            &MIGRATED_REGISTRY,
-            "bits.band",
-            |_| false
-        ));
-        assert_eq!(
-            registry_arity(&MIGRATED_REGISTRY, "bits.band", |_| None),
-            bits::arity("bits.band")
-        );
-        assert_eq!(
-            registry_return_type_name(&MIGRATED_REGISTRY, "bits.band", |_| None),
-            bits::call_return_type_name("bits.band")
-        );
-        assert_eq!(
-            registry_expected_arguments(&MIGRATED_REGISTRY, "bits.band", |_| None).as_deref(),
-            bits::expected_arguments("bits.band")
-        );
-        // A call the descriptor module does not own still falls back to legacy.
-        assert_eq!(
-            registry_arity(&MIGRATED_REGISTRY, "math.abs", math::arity),
-            math::arity("math.abs")
-        );
-    }
 }

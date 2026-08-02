@@ -56,7 +56,7 @@ returned `String`.
 
 | Type | Description |
 | --- | --- |
-| `String` | The joined path, with components separated by single `/` characters and empty components omitted. When a component is absolute, the result begins at that component. An empty list, or a list containing only empty components, yields the empty `String`. [[src/builtins/fs.rs:call_return_type_name]] |
+| `String` | The joined path, with components separated by single `/` characters and empty components omitted. When a component is absolute, the result begins at that component. An empty list, or a list containing only empty components, yields the empty `String`. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

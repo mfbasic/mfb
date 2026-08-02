@@ -70,7 +70,7 @@ poll should see individual keypresses.
 
 Blocks until standard input becomes ready, then returns `TRUE` (omitted
 `timeoutMs` = unbounded wait). For the old immediate check, pass `0`.
-[[src/builtins/io.rs:arity]]
+[[src/builtins/io.rs:IO]]
 
 **`io::pollInput(timeoutMs AS Integer) AS Boolean`**
 
@@ -87,7 +87,7 @@ that many milliseconds; a negative value is rejected with `ErrInvalidArgument`.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when standard input is ready to read — including when it has reached end of input — before the timeout elapses; `FALSE` when the wait elapses with nothing available. [[src/builtins/io.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when standard input is ready to read — including when it has reached end of input — before the timeout elapses; `FALSE` when the wait elapses with nothing available. [[src/builtins/io.rs:IO]] |
 
 ## Errors
 

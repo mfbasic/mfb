@@ -25,7 +25,7 @@ IMPORT money
 
 `money::getRounding` returns the `Money` arithmetic rounding mode currently in
 effect, as a `Rounding` value. It takes no arguments and always succeeds.
-[[src/builtins/money.rs:call_return_type_name]]
+[[src/builtins/money.rs:MONEY]]
 
 The mode is not a call into a runtime helper — it is lowered inline to a single
 load of the per-execution-context rounding-mode field held in the arena state
@@ -53,17 +53,17 @@ a way to predict formatted output.
 
 The `Rounding` enum is referenced bare, like every other builtin type: write
 `Rounding.Banker`, not `money::Rounding.Banker`.
-[[src/builtins/money.rs:is_builtin_type]]
+[[src/builtins/money.rs:MONEY]]
 
 ## Parameters
 
-`money::getRounding` takes no parameters. [[src/builtins/money.rs:arity]]
+`money::getRounding` takes no parameters. [[src/builtins/money.rs:MONEY]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Rounding` | The mode in effect on the calling thread: `Rounding.Commercial` (round half away from zero, the default) or `Rounding.Banker` (round half to even). [[src/builtins/money.rs:call_return_type_name]] |
+| `Rounding` | The mode in effect on the calling thread: `Rounding.Commercial` (round half away from zero, the default) or `Rounding.Banker` (round half to even). [[src/builtins/money.rs:MONEY]] |
 
 ## Errors
 

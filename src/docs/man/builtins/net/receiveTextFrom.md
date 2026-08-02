@@ -29,7 +29,7 @@ returns it as a `DatagramText` record with two fields: `from`, the sender's
 name — the text payload is `value`, not `text`, and its byte-oriented counterpart
 in `Datagram` is `bytes`. Because UDP is connectionless, one bound socket can
 receive from many peers, and each call reports who sent the datagram it returned.
-[[src/builtins/net.rs:builtin_type_fields]]
+[[src/builtins/net.rs:NET]]
 
 A datagram is delivered whole or not at all. `maxBytes` bounds the payload the
 call will accept and must be positive. The receive buffer is deliberately
@@ -65,7 +65,7 @@ to `from` with `net::sendTextTo`.
 
 | Type | Description |
 | --- | --- |
-| `DatagramText` | A record whose `from` field is the sender's `Address` and whose `value` field is the whole payload decoded as a UTF-8 `String`, built from between `0` and `maxBytes` bytes inclusive. [[src/builtins/net.rs:builtin_type_fields]] |
+| `DatagramText` | A record whose `from` field is the sender's `Address` and whose `value` field is the whole payload decoded as a UTF-8 `String`, built from between `0` and `maxBytes` bytes inclusive. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

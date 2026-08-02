@@ -56,7 +56,7 @@ the result is a new owned `String`.
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` holding the case-folded form of `value`. The empty string yields `""`; a string with no cased scalars yields an equal string. May be longer than `value`. [[src/builtins/strings.rs:call_return_type_name]] |
+| `String` | A new `String` holding the case-folded form of `value`. The empty string yields `""`; a string with no cased scalars yields an equal string. May be longer than `value`. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

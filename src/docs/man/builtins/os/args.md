@@ -38,13 +38,13 @@ entry.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `os::args` takes no arguments. [[src/builtins/os.rs:arity]] |
+| — | — | `os::args` takes no arguments. [[src/builtins/os.rs:OS]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF String` | The command-line arguments after the program name, in order; empty when none were given. [[src/builtins/os.rs:call_return_type_name]] |
+| `List OF String` | The command-line arguments after the program name, in order; empty when none were given. [[src/builtins/os.rs:OS]] |
 
 ## Errors
 

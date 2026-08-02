@@ -57,7 +57,7 @@ To test for the suffix without removing it, use `strings::endsWith`. To remove a
 
 | Type | Description |
 | --- | --- |
-| `String` | `value` with one trailing copy of `suffix` removed when it ends with `suffix`; otherwise a string equal to `value`. [[src/builtins/strings.rs:call_return_type_name]] |
+| `String` | `value` with one trailing copy of `suffix` removed when it ends with `suffix`; otherwise a string equal to `value`. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

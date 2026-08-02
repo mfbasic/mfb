@@ -42,7 +42,7 @@ probe for a probe-eligible element type and a linear scan otherwise. It does not
 accept a `Map`, and it is not the substring test: the `String` form of
 `contains` lives in the `strings::` package, not here.
 [[src/builtins/collections.rs:resolve_contains]]
-[[src/builtins/collections.rs:expected_arguments]]
+[[src/builtins/collections.rs:COLLECTIONS]]
 
 Equality is payload comparison, resolved by the element type:
 
@@ -107,7 +107,7 @@ No errors.
 ## Type checking
 
 `collections::contains` takes exactly two arguments.
-[[src/builtins/collections.rs:arity]]
+[[src/builtins/collections.rs:COLLECTIONS]]
 
 The first must be a `List OF T` or a `Set OF T`; a `Map`, a `String`, or any
 other value is a compile-time type error. The second must be exactly the element

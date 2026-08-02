@@ -47,7 +47,7 @@ native and Binary Representation execution paths. [[src/builtins/bits.rs:is_bits
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The byte-reversed low 32 bits of `value`, with bits `32`..`63` cleared to zero. Always in the range `0`..`4294967295`. [[src/builtins/bits.rs:call_return_type_name]] |
+| `Integer` | The byte-reversed low 32 bits of `value`, with bits `32`..`63` cleared to zero. Always in the range `0`..`4294967295`. [[src/builtins/bits.rs:BITS]] |
 
 ## Errors
 

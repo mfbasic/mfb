@@ -29,7 +29,7 @@ IMPORT net
 bound UDP `UdpSocket` and takes effect on every subsequent receive: `net::read`
 and `net::readText` for a `Socket`, and `net::receiveFrom` and
 `net::receiveTextFrom` for a `UdpSocket`. The socket is borrowed and stays open.
-[[src/builtins/net.rs:resolve_call]]
+[[src/builtins/net.rs:NET]]
 
 The millisecond value is converted into a whole-seconds and microseconds pair and
 installed as the socket's receive-timeout option. Because the conversion is exact
@@ -77,7 +77,7 @@ Bounds `net::receiveFrom` and `net::receiveTextFrom` on a bound UDP socket.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `setReadTimeout` returns no value. On a successful return the timeout has been installed on `sock` and applies to every subsequent receive. [[src/builtins/net.rs:call_return_type_name]] |
+| `Nothing` | `setReadTimeout` returns no value. On a successful return the timeout has been installed on `sock` and applies to every subsequent receive. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

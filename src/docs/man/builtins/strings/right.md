@@ -55,7 +55,7 @@ This clamping is the difference from `strings::mid`, which raises
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` holding the last `count` scalars of `value`, in original order. `""` when `count` is `0`; the whole of `value` when `count` is at least its scalar length. [[src/builtins/strings.rs:call_return_type_name]] |
+| `String` | A new `String` holding the last `count` scalars of `value`, in original order. `""` when `count` is `0`; the whole of `value` when `count` is at least its scalar length. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

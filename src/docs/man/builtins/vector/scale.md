@@ -43,7 +43,7 @@ of the same type. To multiply a whole vector by one number, build a vector whose
 components are all that number and pass it as `b` — for a uniform factor of `3`,
 `vector::scale(v, vector::Float3[3.0, 3.0, 3.0])`. The usual application of the
 general form is non-uniform axis scaling, where each axis is stretched by its own
-factor. [[src/builtins/vector.rs:resolve_call]]
+factor. [[src/builtins/vector.rs:VECTOR]]
 
 It is also not the dot product: `vector::scale` returns a *vector* of the pairwise
 products, whereas `vector::dot` sums those same products into a *scalar*. The two
@@ -87,7 +87,7 @@ rounding of any kind.
 
 | Type | Description |
 | --- | --- |
-| the same type as `a` | A new vector of the same type and dimension whose `i`-th component is the product of `a`'s and `b`'s `i`-th components. The zero vector when either argument is the zero vector. [[src/builtins/vector.rs:resolve_call]] |
+| the same type as `a` | A new vector of the same type and dimension whose `i`-th component is the product of `a`'s and `b`'s `i`-th components. The zero vector when either argument is the zero vector. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -102,7 +102,7 @@ rounding of any kind.
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and — importantly — no overload takes a bare
 scalar as its second argument. The return type is always the first argument's own
-type. [[src/builtins/vector.rs:resolve_call]] [[src/builtins/vector.rs:same_vector]]
+type. [[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:same_vector]]
 
 ## Examples
 

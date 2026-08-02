@@ -29,7 +29,7 @@ IMPORT net
 resource and returns it as an `Address` record. It spans all three `net` handle
 types: a connected TCP `Socket`, a TCP `Listener`, and a bound UDP `UdpSocket`.
 The handle is borrowed, not consumed, and stays open.
-[[src/builtins/net.rs:resolve_call]] [[src/builtins/net.rs:consumes_argument]]
+[[src/builtins/net.rs:NET]] [[src/builtins/net.rs:consumes_argument]]
 
 The call reads the endpoint with `getsockname` into a `sockaddr_storage`, then
 converts it into an `Address` whose `host` field is the textual form of the
@@ -73,7 +73,7 @@ Reports the endpoint a UDP socket is bound to.
 
 | Type | Description |
 | --- | --- |
-| `Address` | A record whose `host` field (`String`) holds the textual local address and whose `port` field (`Integer`) holds the local port. After binding or listening on port `0`, `port` is the concrete port the host chose. [[src/builtins/net.rs:builtin_type_fields]] |
+| `Address` | A record whose `host` field (`String`) holds the textual local address and whose `port` field (`Integer`) holds the local port. After binding or listening on port `0`, `port` is the concrete port the host chose. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

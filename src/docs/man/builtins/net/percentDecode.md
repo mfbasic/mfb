@@ -60,7 +60,7 @@ This is the decoder the built-in `http` server applies to a request path.
 
 | Type | Description |
 | --- | --- |
-| `String` | The decoded component: every `%XX` replaced by the byte it names, every other grapheme carried through unchanged, and the whole validated as UTF-8. An empty input yields an empty string. [[src/builtins/net.rs:call_return_type_name]] |
+| `String` | The decoded component: every `%XX` replaced by the byte it names, every other grapheme carried through unchanged, and the whole validated as UTF-8. An empty input yields an empty string. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

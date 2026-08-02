@@ -71,7 +71,7 @@ replacement, use `fs::writeBytesAtomic`.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing on success, after every byte has been written, flushed, and the file has been closed. [[src/builtins/fs.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing on success, after every byte has been written, flushed, and the file has been closed. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

@@ -190,20 +190,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     }
 }
 
-// The nominal return type: `Integer` for floor/ceil/round, `Nothing` for seed,
-// and `None` for every argument-type-dependent call (abs/min/max/sqrt/…/rand,
-// whose precise return `resolve_call` computes). This is exactly what the
-// descriptor's `Fixed`/`Custom` split encodes, so it delegates to
-// `DefaultResolver::return_type_name`.
-//
-// bug-300 E6: `rand` is argument-type dependent -- `resolve_call` gives
-// `rand(Money, Money) AS Money` -- so a fixed answer here would be a second,
-// disagreeing return-type table. It is `ReturnType::Custom` in the descriptor
-// (→ `None`), like the other arg-typed builtins, deferring to the resolver.
-pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    DefaultResolver::return_type_name(&MATH, name)
-}
-
 pub(crate) fn is_math_constant(name: &str) -> bool {
     matches!(
         name,
@@ -313,10 +299,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         SEED => Some("Integer"),
         _ => None,
     }
-}
-
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    DefaultResolver::arity(&MATH, name)
 }
 
 fn all_same_numeric(arg_types: &[String], min: usize, max: usize) -> bool {
@@ -497,32 +479,6 @@ mod tests {
     }
 
     #[test]
-    fn call_return_type_names() {
-        assert_eq!(call_return_type_name(FLOOR), Some("Integer"));
-        assert_eq!(call_return_type_name(CEIL), Some("Integer"));
-        assert_eq!(call_return_type_name(ROUND), Some("Integer"));
-        assert_eq!(call_return_type_name(SEED), Some("Nothing"));
-        // bug-300 E6: `rand` is argument-type DEPENDENT -- `resolve_call` gives
-        // `rand(Money, Money) AS Money` -- so an unconditional `Some("Integer")`
-        // here was a second return-type table disagreeing with the resolver, the
-        // one place the two could contradict each other. It now returns `None`
-        // like the other arg-typed builtins below, deferring to the resolver.
-        //
-        // This assertion previously read `Some("Integer")`. It was changed only
-        // after confirming the entry was genuinely shadowed: `ir::lower` returns
-        // early through `math::resolve_call` for every math call, so the fallback
-        // is unreachable there, and both overloads were built and run --
-        // `rand(1, 10)` and `rand(1.00m, 10.00m)` each produce a correctly-typed,
-        // in-range value with the entry removed.
-        assert_eq!(call_return_type_name(RAND), None);
-        // scalar-carrying transcendentals depend on arg type -> None nominal
-        assert_eq!(call_return_type_name(SQRT), None);
-        assert_eq!(call_return_type_name(POW), None);
-        assert_eq!(call_return_type_name(ABS), None);
-        assert_eq!(call_return_type_name("math.bogus"), None);
-    }
-
-    #[test]
     fn resolve_abs_min_max_scalar() {
         assert_eq!(ret(ABS, &["Integer"]), Some("Integer".to_string()));
         assert_eq!(ret(ABS, &["Float"]), Some("Float".to_string()));
@@ -689,17 +645,6 @@ mod tests {
     }
 
     #[test]
-    fn arity_spans() {
-        assert_eq!(arity(ABS), Some((1, 1)));
-        assert_eq!(arity(SEED), Some((1, 1)));
-        assert_eq!(arity(MIN), Some((2, 2)));
-        assert_eq!(arity(POW), Some((2, 2)));
-        assert_eq!(arity(RAND), Some((2, 2)));
-        assert_eq!(arity(CLAMP), Some((3, 3)));
-        assert_eq!(arity("math.bogus"), None);
-    }
-
-    #[test]
     fn numeric_helpers() {
         assert!(is_numeric("Integer"));
         assert!(is_numeric("Float"));
@@ -717,42 +662,4 @@ mod tests {
         assert!(!one_numeric_list(&strings(&["List OF Float"]), "Fixed"));
     }
 
-    // plan-72-P migration gate: prove `MATH` reproduces every legacy helper answer
-    // for every math callable (and an unknown name) — membership, arity, param
-    // names (canonical + aliases), and nominal return type — pinning the borrowed
-    // `call_param_names` static equal to `MATH`. `expected_arguments` (bespoke
-    // `"|"`-phrased type sets) and `resolve_call` (SIMD/type-preserving
-    // resolution) are not descriptor-derivable and are checked by the dedicated
-    // tests above. Keep until plan-72-BB deletes the legacy helpers.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::parity;
-
-        let calls: Vec<&str> = MATH_FUNCTIONS.iter().map(|f| f.name).collect();
-        let legacy = parity::LegacySet {
-            is_call: &is_math_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            return_type_name: &call_return_type_name,
-            // Bespoke `"|"`-phrased type-set strings the descriptor's per-position
-            // types cannot render; kept hand-authored and checked separately.
-            expected_arguments: None,
-            param_name_overloads: None,
-            argument_types: None,
-            implementation_name: None,
-            default_padding: None,
-            builtin_type_fields: None,
-        };
-        let mut probe = calls.clone();
-        probe.push("math.bogus");
-        // A constant name is not a callable — the descriptor must reject it.
-        probe.push(PI);
-        parity::assert_parity(&MATH, &probe, &legacy, &[]);
-
-        // math contributes no builtin types and no source companion.
-        assert!(MATH.types.is_empty());
-        assert!(MATH.source.is_none());
-    }
 }

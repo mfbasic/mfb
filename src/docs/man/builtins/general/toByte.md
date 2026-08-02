@@ -22,7 +22,7 @@ None. `general` functions are always available without an `IMPORT` statement. [[
 
 `toByte` narrows a supported value to an unsigned 8-bit `Byte`. A `Byte` holds a
 whole number in the range `0` through `255` inclusive. Which overload is selected,
-and how the argument is interpreted, depends on the argument type. [[src/builtins/general.rs:resolve_call]]
+and how the argument is interpreted, depends on the argument type. [[src/builtins/general.rs:GENERAL]]
 
 Every overload range-checks the value against `0` through `255` before producing
 the `Byte`. A value that lands within range is moved into a `Byte` holding the same
@@ -82,7 +82,7 @@ the code point exceeds `255`. The inverse of `toScalar(Byte)`.
 
 `toByte` accepts only `Integer`, `Money`, and `Scalar` values, each in the
 one-argument form; any other argument type or arity is a compile-time error.
-Convert unsupported values to one of these types explicitly first. [[src/builtins/general.rs:resolve_call]] [[src/builtins/general.rs:arity]]
+Convert unsupported values to one of these types explicitly first. [[src/builtins/general.rs:GENERAL]] [[src/builtins/general.rs:GENERAL]]
 
 ## Examples
 

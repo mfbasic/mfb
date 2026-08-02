@@ -56,7 +56,7 @@ call reads filesystem state only and has no side effects.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when any entry exists at `path`; `FALSE` otherwise (missing path, or a symlink whose target is missing). [[src/builtins/fs.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when any entry exists at `path`; `FALSE` otherwise (missing path, or a symlink whose target is missing). [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

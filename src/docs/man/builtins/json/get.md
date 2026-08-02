@@ -56,14 +56,14 @@ argument may also be passed by the name `key`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Json` | The value to read from. Accepts the `Json` union or any of `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, `JsonObj`; traversal only succeeds through `JsonObj` members. [[src/builtins/json.rs:call_param_names]] [[src/builtins/json.rs:resolve_call]] |
+| `value` | `Json` | The value to read from. Accepts the `Json` union or any of `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, `JsonObj`; traversal only succeeds through `JsonObj` members. [[src/builtins/json.rs:call_param_names]] [[src/builtins/json.rs:JSON]] |
 | `path` | `List OF String` | The object keys to follow, from the root inward. Each element selects a member by exact `String` key — no wildcards, globbing, or array indices. An empty list selects `value` itself. Also accepted under the name `key`. [[src/builtins/json.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Json` | The value reached by following every key in `path`. With an empty `path`, `value` unchanged. [[src/builtins/json.rs:call_return_type_name]] |
+| `Json` | The value reached by following every key in `path`. With an empty `path`, `value` unchanged. [[src/builtins/json.rs:JSON]] |
 
 ## Errors
 

@@ -60,7 +60,7 @@ push the combined second count past the `Integer` range overflows and traps.
 
 | Type | Description |
 | --- | --- |
-| `Instant` | The `Instant` at `at + by`, normalized so its `seconds` field holds the whole-second count (which may be negative) and its `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Instant` | The `Instant` at `at + by`, normalized so its `seconds` field holds the whole-second count (which may be negative) and its `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

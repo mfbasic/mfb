@@ -83,7 +83,7 @@ type selects the `_text` implementation body.
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | Exactly `length` bytes of derived key material. [[src/builtins/crypto.rs:call_return_type_name]] |
+| `List OF Byte` | Exactly `length` bytes of derived key material. [[src/builtins/crypto.rs:CRYPTO]] |
 
 ## Errors
 
@@ -97,7 +97,7 @@ The first argument (`password`) must be either a `List OF Byte` or a `String`;
 no other type resolves. `salt` must be a `List OF Byte`, and both `iterations`
 and `length` must be `Integer`. Exactly four arguments are required. The return
 type is always `List OF Byte`.
-[[src/builtins/crypto.rs:resolve_call]] [[src/builtins/crypto.rs:arity]]
+[[src/builtins/crypto.rs:CRYPTO]] [[src/builtins/crypto.rs:CRYPTO]]
 
 ## Examples
 

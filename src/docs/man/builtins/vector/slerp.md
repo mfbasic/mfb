@@ -105,7 +105,7 @@ Angle and weights in `Fixed` through a dedicated helper, components widened to
 
 | Type | Description |
 | --- | --- |
-| the same type as `a` | A vector at the fraction `t` of the angular sweep from `a` to `b`. Magnitude is preserved only when `a` and `b` have equal lengths. When the inputs are nearly parallel or antiparallel, the linear `vector::lerp_unclamped` result is returned instead. [[src/builtins/vector.rs:resolve_call]] |
+| the same type as `a` | A vector at the fraction `t` of the angular sweep from `a` to `b`. Magnitude is preserved only when `a` and `b` have equal lengths. When the inputs are nearly parallel or antiparallel, the linear `vector::lerp_unclamped` result is returned instead. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -121,7 +121,7 @@ Angle and weights in `Fixed` through a dedicated helper, components widened to
 two arguments must be the *same* one of the nine types, and the third must be a
 `Float` for every overload — an `Integer` `t` is a compile-time error with no
 implicit numeric promotion. The return type is always the first argument's own
-type. [[src/builtins/vector.rs:resolve_call]] [[src/builtins/vector.rs:expected_arguments]]
+type. [[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:VECTOR]]
 
 ## Examples
 

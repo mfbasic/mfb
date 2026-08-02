@@ -58,7 +58,7 @@ precision of `at`; use it when nanosecond fidelity matters.
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The number of whole nanoseconds from the Unix epoch to `at`: negative before the epoch, `0` at the epoch, positive after. The value is exact, capturing the complete sub-second precision of `at`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Integer` | The number of whole nanoseconds from the Unix epoch to `at`: negative before the epoch, `0` at the epoch, positive after. The value is exact, capturing the complete sub-second precision of `at`. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

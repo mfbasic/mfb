@@ -52,7 +52,7 @@ The inverse operation is `encoding::utf8DecodeBytes`, which accepts a
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The UTF-8 bytes of `value`, one element per byte (`0..255`); empty for the empty string. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `List OF Byte` | The UTF-8 bytes of `value`, one element per byte (`0..255`); empty for the empty string. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

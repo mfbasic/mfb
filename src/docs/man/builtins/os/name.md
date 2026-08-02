@@ -35,13 +35,13 @@ fixed per build, it is stable across runs of the same binary.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `os::name` takes no arguments. [[src/builtins/os.rs:arity]] |
+| — | — | `os::name` takes no arguments. [[src/builtins/os.rs:OS]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The OS family: `"macos"` or `"linux"`. [[src/builtins/os.rs:call_return_type_name]] |
+| `String` | The OS family: `"macos"` or `"linux"`. [[src/builtins/os.rs:OS]] |
 
 ## Errors
 

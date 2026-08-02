@@ -53,7 +53,7 @@ headers map here means no other header is emitted.
 
 ## Parameters
 
-`responseDefault` takes no parameters. [[src/builtins/http.rs:arity]]
+`responseDefault` takes no parameters. [[src/builtins/http.rs:HTTP]]
 
 ## Return value
 

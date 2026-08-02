@@ -54,7 +54,7 @@ rather than test it, use `strings::upper`; for caseless comparison, use
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `scalar` has general category `Lu`; `FALSE` otherwise, including for titlecase and uncased scalars. [[src/builtins/strings.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when `scalar` has general category `Lu`; `FALSE` otherwise, including for titlecase and uncased scalars. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

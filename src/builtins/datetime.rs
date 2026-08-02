@@ -328,19 +328,6 @@ pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static
     }
 }
 
-pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    DefaultResolver::return_type_name(&DATETIME, name)
-}
-
-pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
-    let return_type = DATETIME
-        .resolver?
-        .resolve_return_type(&DATETIME, name, arg_types)?;
-    Some(ResolvedCall {
-        return_type: Cow::Owned(return_type),
-    })
-}
-
 /// The argument-validating return-type resolution, invoked through the descriptor
 /// resolver by `resolve_call`. The component builders accept 1..=5 (or 1..=2)
 /// `Integer` args; the others require exact typed signatures.
@@ -396,36 +383,6 @@ fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedC
     })
 }
 
-pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
-    let text = match name {
-        NOW | MONOTONIC | UTC | LOCAL | NOW_NANOS | MONOTONIC_NANOS => "()",
-        INSTANT | DURATION => "1 to 5 Integer",
-        DATE => "Integer, Integer, Integer",
-        TIME => "Integer, Integer[, Integer[, Integer]]",
-        FIXED_OFFSET => "Integer[, Integer]",
-        OFFSET_AT => "Zone, Instant",
-        IN_ZONE => "Instant, Zone",
-        TO_UTC | TO_LOCAL => "Instant",
-        RESOLVE | WEEKDAY | DAY_OF_YEAR | START_OF_DAY | TO_ISO => "DateTime",
-        CIVIL => "Date, Time, Zone",
-        WITH_ZONE => "DateTime, Zone",
-        ADD | SUBTRACT => "Instant, Duration",
-        BETWEEN | COMPARE | IS_BEFORE | IS_AFTER | EQUALS => "Instant, Instant",
-        ADD_DAYS | ADD_MONTHS => "DateTime, Integer",
-        NEGATE => "Duration",
-        PLUS | MINUS => "Duration, Duration",
-        IS_LEAP_YEAR | FROM_MILLIS | LOCAL_OFFSET => "Integer",
-        DAYS_IN_MONTH => "Integer, Integer",
-        TO_MILLIS | TO_NANOS => "Instant",
-        FORMAT => "DateTime, String",
-        PARSE => "String, String[, Zone]",
-        PARSE_ISO => "String",
-        FORMAT_DURATION => "Duration",
-        _ => return None,
-    };
-    Some(text)
-}
-
 /// The machine-readable positional argument-type signature (bug-340 A1): the
 /// concrete per-parameter types IR lowering hands to `call_argument_expected_type`,
 /// read directly instead of parsing the `expected_arguments` diagnostic string.
@@ -456,10 +413,6 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static [&'static str]> {
         _ => return None,
     };
     Some(types)
-}
-
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    DefaultResolver::arity(&DATETIME, name)
 }
 
 /// The internal `__datetime_*` implementation for a public call, given the
@@ -518,10 +471,6 @@ use super::exact;
 mod tests {
     use super::*;
 
-    fn strings(items: &[&str]) -> Vec<String> {
-        items.iter().map(|s| s.to_string()).collect()
-    }
-
     fn project(src: &str) -> crate::ast::AstProject {
         let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)
             .expect("parse source");
@@ -529,10 +478,6 @@ mod tests {
             name: "test".to_string(),
             files: vec![file],
         }
-    }
-
-    fn rt(name: &str, args: &[&str]) -> Option<String> {
-        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
     }
 
     #[test]
@@ -636,222 +581,6 @@ mod tests {
     }
 
     #[test]
-    fn return_type_name_table() {
-        assert_eq!(call_return_type_name(NOW), Some("Instant"));
-        assert_eq!(call_return_type_name(MONOTONIC), Some("Duration"));
-        assert_eq!(call_return_type_name(DATE), Some("Date"));
-        assert_eq!(call_return_type_name(TIME), Some("Time"));
-        assert_eq!(call_return_type_name(UTC), Some("Zone"));
-        assert_eq!(call_return_type_name(IN_ZONE), Some("DateTime"));
-        assert_eq!(call_return_type_name(ADD), Some("Instant"));
-        assert_eq!(call_return_type_name(OFFSET_AT), Some("Integer"));
-        assert_eq!(call_return_type_name(IS_BEFORE), Some("Boolean"));
-        assert_eq!(call_return_type_name(WEEKDAY), Some("Weekday"));
-        assert_eq!(call_return_type_name(FORMAT), Some("String"));
-        assert_eq!(call_return_type_name(PARSE), Some("DateTime"));
-        assert_eq!(call_return_type_name(NOW_NANOS), Some("Integer"));
-        assert!(call_return_type_name("datetime.nope").is_none());
-    }
-
-    #[test]
-    fn resolve_zero_arg_forms() {
-        assert_eq!(rt(NOW, &[]), Some("Instant".to_string()));
-        assert_eq!(rt(MONOTONIC, &[]), Some("Duration".to_string()));
-        assert_eq!(rt(UTC, &[]), Some("Zone".to_string()));
-        assert_eq!(rt(LOCAL, &[]), Some("Zone".to_string()));
-        assert_eq!(rt(NOW_NANOS, &[]), Some("Integer".to_string()));
-        assert_eq!(rt(MONOTONIC_NANOS, &[]), Some("Integer".to_string()));
-        // wrong arity
-        assert_eq!(rt(NOW, &["Integer"]), None);
-    }
-
-    #[test]
-    fn resolve_component_builders() {
-        assert_eq!(rt(INSTANT, &["Integer"]), Some("Instant".to_string()));
-        assert_eq!(
-            rt(
-                INSTANT,
-                &["Integer", "Integer", "Integer", "Integer", "Integer"]
-            ),
-            Some("Instant".to_string())
-        );
-        assert_eq!(rt(INSTANT, &[]), None); // below min
-        assert_eq!(
-            rt(
-                INSTANT,
-                &["Integer", "Integer", "Integer", "Integer", "Integer", "Integer"]
-            ),
-            None
-        ); // above max
-        assert_eq!(rt(INSTANT, &["String"]), None); // wrong type
-        assert_eq!(
-            rt(DURATION, &["Integer", "Integer"]),
-            Some("Duration".to_string())
-        );
-        assert_eq!(rt(FIXED_OFFSET, &["Integer"]), Some("Zone".to_string()));
-        assert_eq!(
-            rt(FIXED_OFFSET, &["Integer", "Integer"]),
-            Some("Zone".to_string())
-        );
-        assert_eq!(rt(FIXED_OFFSET, &["Integer", "Integer", "Integer"]), None);
-        assert_eq!(
-            rt(DATE, &["Integer", "Integer", "Integer"]),
-            Some("Date".to_string())
-        );
-        assert_eq!(rt(DATE, &["Integer", "Integer"]), None);
-        assert_eq!(rt(TIME, &["Integer", "Integer"]), Some("Time".to_string()));
-        assert_eq!(
-            rt(TIME, &["Integer", "Integer", "Integer", "Integer"]),
-            Some("Time".to_string())
-        );
-        assert_eq!(rt(TIME, &["Integer"]), None);
-    }
-
-    #[test]
-    fn resolve_typed_forms() {
-        assert_eq!(
-            rt(OFFSET_AT, &["Zone", "Instant"]),
-            Some("Integer".to_string())
-        );
-        assert_eq!(
-            rt(IN_ZONE, &["Instant", "Zone"]),
-            Some("DateTime".to_string())
-        );
-        assert_eq!(rt(TO_UTC, &["Instant"]), Some("DateTime".to_string()));
-        assert_eq!(rt(TO_LOCAL, &["Instant"]), Some("DateTime".to_string()));
-        assert_eq!(rt(RESOLVE, &["DateTime"]), Some("Instant".to_string()));
-        assert_eq!(
-            rt(CIVIL, &["Date", "Time", "Zone"]),
-            Some("DateTime".to_string())
-        );
-        assert_eq!(
-            rt(WITH_ZONE, &["DateTime", "Zone"]),
-            Some("DateTime".to_string())
-        );
-        assert_eq!(
-            rt(ADD, &["Instant", "Duration"]),
-            Some("Instant".to_string())
-        );
-        assert_eq!(
-            rt(SUBTRACT, &["Instant", "Duration"]),
-            Some("Instant".to_string())
-        );
-        assert_eq!(
-            rt(BETWEEN, &["Instant", "Instant"]),
-            Some("Duration".to_string())
-        );
-        assert_eq!(
-            rt(ADD_DAYS, &["DateTime", "Integer"]),
-            Some("DateTime".to_string())
-        );
-        assert_eq!(
-            rt(ADD_MONTHS, &["DateTime", "Integer"]),
-            Some("DateTime".to_string())
-        );
-        assert_eq!(
-            rt(COMPARE, &["Instant", "Instant"]),
-            Some("Integer".to_string())
-        );
-        assert_eq!(
-            rt(IS_BEFORE, &["Instant", "Instant"]),
-            Some("Boolean".to_string())
-        );
-        assert_eq!(
-            rt(IS_AFTER, &["Instant", "Instant"]),
-            Some("Boolean".to_string())
-        );
-        assert_eq!(
-            rt(EQUALS, &["Instant", "Instant"]),
-            Some("Boolean".to_string())
-        );
-        assert_eq!(rt(NEGATE, &["Duration"]), Some("Duration".to_string()));
-        assert_eq!(
-            rt(PLUS, &["Duration", "Duration"]),
-            Some("Duration".to_string())
-        );
-        assert_eq!(
-            rt(MINUS, &["Duration", "Duration"]),
-            Some("Duration".to_string())
-        );
-        assert_eq!(rt(WEEKDAY, &["DateTime"]), Some("Weekday".to_string()));
-        assert_eq!(rt(DAY_OF_YEAR, &["DateTime"]), Some("Integer".to_string()));
-        assert_eq!(rt(IS_LEAP_YEAR, &["Integer"]), Some("Boolean".to_string()));
-        assert_eq!(
-            rt(DAYS_IN_MONTH, &["Integer", "Integer"]),
-            Some("Integer".to_string())
-        );
-        assert_eq!(
-            rt(START_OF_DAY, &["DateTime"]),
-            Some("DateTime".to_string())
-        );
-        assert_eq!(rt(TO_MILLIS, &["Instant"]), Some("Integer".to_string()));
-        assert_eq!(rt(TO_NANOS, &["Instant"]), Some("Integer".to_string()));
-        assert_eq!(rt(FROM_MILLIS, &["Integer"]), Some("Instant".to_string()));
-        assert_eq!(
-            rt(FORMAT, &["DateTime", "String"]),
-            Some("String".to_string())
-        );
-        assert_eq!(
-            rt(PARSE, &["String", "String"]),
-            Some("DateTime".to_string())
-        );
-        assert_eq!(
-            rt(PARSE, &["String", "String", "Zone"]),
-            Some("DateTime".to_string())
-        );
-        assert_eq!(rt(TO_ISO, &["DateTime"]), Some("String".to_string()));
-        assert_eq!(rt(PARSE_ISO, &["String"]), Some("DateTime".to_string()));
-        assert_eq!(
-            rt(FORMAT_DURATION, &["Duration"]),
-            Some("String".to_string())
-        );
-        assert_eq!(rt(LOCAL_OFFSET, &["Integer"]), Some("Integer".to_string()));
-    }
-
-    #[test]
-    fn resolve_rejects_wrong_types_and_unknown() {
-        assert_eq!(rt(OFFSET_AT, &["Instant", "Zone"]), None);
-        assert_eq!(rt(ADD, &["Instant", "Instant"]), None);
-        assert_eq!(rt(PARSE, &["String"]), None);
-        assert_eq!(rt(FROM_MILLIS, &["String"]), None);
-        assert_eq!(rt("datetime.nope", &[]), None);
-    }
-
-    #[test]
-    fn expected_arguments_table() {
-        assert_eq!(expected_arguments(NOW), Some("()"));
-        assert_eq!(expected_arguments(INSTANT), Some("1 to 5 Integer"));
-        assert_eq!(expected_arguments(DATE), Some("Integer, Integer, Integer"));
-        assert_eq!(
-            expected_arguments(TIME),
-            Some("Integer, Integer[, Integer[, Integer]]")
-        );
-        assert_eq!(expected_arguments(FIXED_OFFSET), Some("Integer[, Integer]"));
-        assert_eq!(expected_arguments(OFFSET_AT), Some("Zone, Instant"));
-        assert_eq!(expected_arguments(IN_ZONE), Some("Instant, Zone"));
-        assert_eq!(expected_arguments(TO_UTC), Some("Instant"));
-        assert_eq!(expected_arguments(RESOLVE), Some("DateTime"));
-        assert_eq!(expected_arguments(CIVIL), Some("Date, Time, Zone"));
-        assert_eq!(expected_arguments(WITH_ZONE), Some("DateTime, Zone"));
-        assert_eq!(expected_arguments(ADD), Some("Instant, Duration"));
-        assert_eq!(expected_arguments(BETWEEN), Some("Instant, Instant"));
-        assert_eq!(expected_arguments(ADD_DAYS), Some("DateTime, Integer"));
-        assert_eq!(expected_arguments(NEGATE), Some("Duration"));
-        assert_eq!(expected_arguments(PLUS), Some("Duration, Duration"));
-        assert_eq!(expected_arguments(IS_LEAP_YEAR), Some("Integer"));
-        assert_eq!(expected_arguments(DAYS_IN_MONTH), Some("Integer, Integer"));
-        assert_eq!(expected_arguments(TO_MILLIS), Some("Instant"));
-        assert_eq!(expected_arguments(FORMAT), Some("DateTime, String"));
-        assert_eq!(expected_arguments(PARSE), Some("String, String[, Zone]"));
-        assert_eq!(expected_arguments(PARSE_ISO), Some("String"));
-        assert_eq!(expected_arguments(FORMAT_DURATION), Some("Duration"));
-        // NOW_NANOS/MONOTONIC_NANOS map to "()"; LOCAL_OFFSET to "Integer".
-        assert_eq!(expected_arguments(NOW_NANOS), Some("()"));
-        assert_eq!(expected_arguments(LOCAL_OFFSET), Some("Integer"));
-        assert!(expected_arguments("datetime.nope").is_none());
-    }
-
-    #[test]
     fn argument_types_machine_table() {
         // bug-340 A1: the concrete positional signatures IR lowering reads. The
         // no-argument clocks, the variadic constructors (`instant`/`duration`),
@@ -871,24 +600,6 @@ mod tests {
         assert_eq!(argument_types(TIME), None); // optional tail
         assert_eq!(argument_types(PARSE), None); // optional Zone
         assert_eq!(argument_types("datetime.nope"), None);
-    }
-
-    #[test]
-    fn arity_table() {
-        assert_eq!(arity(NOW), Some((0, 0)));
-        assert_eq!(arity(INSTANT), Some((1, 5)));
-        assert_eq!(arity(FIXED_OFFSET), Some((1, 2)));
-        assert_eq!(arity(TIME), Some((2, 4)));
-        assert_eq!(arity(PARSE), Some((2, 3)));
-        assert_eq!(arity(DATE), Some((3, 3)));
-        assert_eq!(arity(CIVIL), Some((3, 3)));
-        assert_eq!(arity(DAYS_IN_MONTH), Some((2, 2)));
-        assert_eq!(arity(FORMAT), Some((2, 2)));
-        assert_eq!(arity(TO_UTC), Some((1, 1)));
-        assert_eq!(arity(NEGATE), Some((1, 1)));
-        assert_eq!(arity(NOW_NANOS), Some((0, 0)));
-        assert_eq!(arity(LOCAL_OFFSET), Some((1, 1)));
-        assert!(arity("datetime.nope").is_none());
     }
 
     #[test]
@@ -1039,89 +750,4 @@ mod tests {
         );
     }
 
-    // plan-72-H migration gate: prove `DATETIME` + `DatetimeResolver` reproduce
-    // the legacy answers — membership/arity/param-names, the bug-349 per-overload
-    // tables for instant/duration/fixedOffset, the 9 builtin types — via the
-    // descriptor, and resolve_call + arity-keyed implementation_name via resolver
-    // samples, plus `time`'s default padding derived from optional parameters.
-    // Keep until BB.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::{parity, DefaultResolver};
-
-        let calls: Vec<&str> = DATETIME_FUNCTIONS.iter().map(|f| f.name).collect();
-        let legacy = parity::LegacySet {
-            is_call: &is_datetime_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            return_type_name: &|_| None, // resolver-backed: skipped; verified below
-            expected_arguments: None,    // custom phrasing
-            param_name_overloads: Some(&|name| {
-                call_param_name_overloads(name)
-                    .map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            }),
-            argument_types: None,
-            implementation_name: None,
-            default_padding: None,
-            builtin_type_fields: None, // enums/records, no descriptor fields
-        };
-        let mut probe = calls.clone();
-        probe.push("datetime.nope");
-
-        // resolve_call + arity-keyed implementation_name across representative
-        // shapes: the 5-arity constructor overloads, fixedOffset's two forms,
-        // parse's optional zone, and typed members.
-        let sample = |call, arg_types, ret: &'static str, imp: Option<&'static str>| {
-            parity::ResolverSample {
-                call,
-                arg_types,
-                expected_return: Some(ret),
-                expected_impl: imp,
-                expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            }
-        };
-        let samples = [
-            sample(NOW, &[], "Instant", Some("__datetime_now")),
-            sample(INSTANT, &["Integer"], "Instant", Some("__datetime_instant1")),
-            sample(INSTANT, &["Integer", "Integer", "Integer"], "Instant", Some("__datetime_instant3")),
-            sample(DURATION, &["Integer", "Integer", "Integer", "Integer", "Integer"], "Duration", Some("__datetime_duration5")),
-            sample(FIXED_OFFSET, &["Integer"], "Zone", Some("__datetime_fixedOffset1")),
-            sample(FIXED_OFFSET, &["Integer", "Integer"], "Zone", Some("__datetime_fixedOffset2")),
-            sample(TIME, &["Integer", "Integer"], "Time", Some("__datetime_time")),
-            sample(DATE, &["Integer", "Integer", "Integer"], "Date", Some("__datetime_date")),
-            sample(PARSE, &["String", "String"], "DateTime", Some("__datetime_parse2")),
-            sample(PARSE, &["String", "String", "Zone"], "DateTime", Some("__datetime_parse3")),
-            sample(CIVIL, &["Date", "Time", "Zone"], "DateTime", Some("__datetime_civil")),
-            sample(ADD, &["Instant", "Duration"], "Instant", Some("__datetime_add")),
-            sample(FORMAT, &["DateTime", "String"], "String", Some("__datetime_format")),
-        ];
-        parity::assert_parity(&DATETIME, &probe, &legacy, &samples);
-
-        // OS-seam intrinsics keep their surface name (no source implementation).
-        assert_eq!(implementation_name("datetime.nowNanos", 0), None);
-
-        // call_return_type_name (descriptor-derived) matches legacy, and `time`
-        // default padding derives from its optional parameters.
-        assert_eq!(call_return_type_name(NOW), Some("Instant"));
-        assert_eq!(call_return_type_name(WEEKDAY), Some("Weekday"));
-        for provided in 2..=4 {
-            assert_eq!(
-                DefaultResolver::default_padding(&DATETIME, TIME, provided),
-                default_argument_padding(TIME, provided).to_vec(),
-                "time padding @ {provided}"
-            );
-        }
-        // parse's optional zone widens arity but is NOT padded.
-        assert!(DefaultResolver::default_padding(&DATETIME, PARSE, 2).is_empty());
-        assert_eq!(default_argument_padding(PARSE, 2), &[]);
-        // The 9 builtin types are members.
-        for t in ["Instant", "Duration", "Date", "Time", "Zone", "DateTime", "ZoneKind", "Weekday", "Month"] {
-            assert!(is_builtin_type(t), "{t}");
-        }
-        assert!(!is_builtin_type("Nope"));
-    }
 }

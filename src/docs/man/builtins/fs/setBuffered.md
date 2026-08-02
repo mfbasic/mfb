@@ -68,7 +68,7 @@ thread, which resets it to unbuffered.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of changing the handle's buffering flag (and, when disabling, draining any pending output). [[src/builtins/fs.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of changing the handle's buffering flag (and, when disabling, draining any pending output). [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

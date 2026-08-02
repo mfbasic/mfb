@@ -53,7 +53,7 @@ which parses a Base64 string back into a `List OF Byte`. [[src/builtins/encoding
 
 | Type | Description |
 | --- | --- |
-| `String` | The standard Base64 encoding of `data` with `+`/`/` symbols and `=` padding to a multiple of four characters; the empty string for an empty list. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `String` | The standard Base64 encoding of `data` with `+`/`/` symbols and `=` padding to a multiple of four characters; the empty string for an empty list. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

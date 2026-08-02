@@ -42,7 +42,7 @@ range fails with `ErrInvalidArgument` rather than returning a value.
 All three arguments must already be the same numeric type, and the return type
 is that type: three `Integer`s yield an `Integer`, three `Float`s a `Float`,
 three `Fixed`s a `Fixed`, and three `Money` amounts a `Money`. There is no
-mixed-type or promoting overload. [[src/builtins/math.rs:resolve_call]]
+mixed-type or promoting overload. [[src/builtins/math.rs:MATH]]
 
 `Money` stays in its dimension: a clamped amount is still an amount. `clamp` is
 one of the four `math::` functions (`abs`, `min`, `max`, `clamp`) that accept and
@@ -96,7 +96,7 @@ element equals the corresponding scalar result exactly.
 
 | Type | Description |
 | --- | --- |
-| Same as `value` | `low` when `value < low`, `high` when `value > high`, and `value` unchanged otherwise. A value equal to either bound is returned unchanged. The array forms return a new list of the same element type and length. [[src/builtins/math.rs:resolve_call]] |
+| Same as `value` | `low` when `value < low`, `high` when `value > high`, and `value` unchanged otherwise. A value equal to either bound is returned unchanged. The array forms return a new list of the same element type and length. [[src/builtins/math.rs:MATH]] |
 
 ## Errors
 
@@ -106,13 +106,13 @@ element equals the corresponding scalar result exactly.
 
 ## Type checking
 
-`math::clamp` takes exactly three arguments. [[src/builtins/math.rs:arity]] Either
+`math::clamp` takes exactly three arguments. [[src/builtins/math.rs:MATH]] Either
 all three share one numeric type (`Integer`, `Float`, `Fixed`, or `Money`), or
 the first is a `List OF T` for a numeric `T` and the other two are scalars of
 that same `T`. Mixing numeric types, passing list bounds, or passing a
 non-numeric value such as a `String`, `Boolean`, `Byte`, `Scalar`, record,
 union, resource, thread, or function value is a compile-time type error.
-[[src/builtins/math.rs:expected_arguments]]
+[[src/builtins/math.rs:MATH]]
 
 ## Examples
 

@@ -67,7 +67,7 @@ for a local zone it reads the host's time-zone configuration through the
 
 | Type | Description |
 | --- | --- |
-| `DateTime` | A `DateTime` holding the civil date and wall-clock time observed in `zone` at the same instant `dt` names, together with `zone` and the offset resolved for it. Its `nanos` equal `dt.time.nanos`, and it resolves back to the same `Instant` as `dt` via `datetime::resolve`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `DateTime` | A `DateTime` holding the civil date and wall-clock time observed in `zone` at the same instant `dt` names, together with `zone` and the offset resolved for it. Its `nanos` equal `dt.time.nanos`, and it resolves back to the same `Instant` as `dt` via `datetime::resolve`. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

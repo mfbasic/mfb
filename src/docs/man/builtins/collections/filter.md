@@ -48,7 +48,7 @@ lowering. [[src/builtins/collections.rs:resolve_filter]]
 The single-argument `general` predicates — `isEven`, `isOdd`, `isPositive`,
 `isNegative`, `isZero`, `isEmpty`, and `isNotEmpty` — are ordinary
 `FUNC(T) AS Boolean` callables and can be passed directly whenever their
-argument type matches the element type. [[src/builtins/general.rs:arity]]
+argument type matches the element type. [[src/builtins/general.rs:GENERAL]]
 
 An empty `value` calls `predicate` zero times and yields an empty list.
 
@@ -92,7 +92,7 @@ whose success type is exactly `Boolean`. The result type is the same
 arity, a `predicate` whose parameter type differs from `T`, or a `predicate`
 that returns anything other than `Boolean` is a compile-time type error — no
 overload resolves. [[src/builtins/collections.rs:resolve_filter]]
-[[src/builtins/collections.rs:expected_arguments]]
+[[src/builtins/collections.rs:COLLECTIONS]]
 
 ## Examples
 

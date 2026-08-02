@@ -61,7 +61,7 @@ is also defined for lists; see `mfb man collections mid`.
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` holding `count` scalars of `value` starting at `start`. `""` when `count` is `0`. [[src/builtins/strings.rs:call_return_type_name]] |
+| `String` | A new `String` holding `count` scalars of `value` starting at `start`. `""` when `count` is `0`. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

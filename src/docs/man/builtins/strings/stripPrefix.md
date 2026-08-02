@@ -57,7 +57,7 @@ a *set* of leading scalars rather than a fixed substring, use
 
 | Type | Description |
 | --- | --- |
-| `String` | `value` with one leading copy of `prefix` removed when it begins with `prefix`; otherwise a string equal to `value`. [[src/builtins/strings.rs:call_return_type_name]] |
+| `String` | `value` with one leading copy of `prefix` removed when it begins with `prefix`; otherwise a string equal to `value`. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

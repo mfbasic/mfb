@@ -55,7 +55,7 @@ non-negative and the sign byte is unwanted. The inverse operation is
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The signed LEB128 bytes, least-significant group first, with the continuation bit set on all but the final byte. Always contains at least one byte. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `List OF Byte` | The signed LEB128 bytes, least-significant group first, with the continuation bit set on all but the final byte. Always contains at least one byte. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

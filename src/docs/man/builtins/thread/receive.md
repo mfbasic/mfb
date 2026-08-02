@@ -84,7 +84,7 @@ closes, or cancellation is observed.
 Bounded read on either handle kind: `timeoutMs` must be `>= 0`; `0` is one
 immediate attempt that fails with `ErrTimeout` when the (still-open) queue is
 empty, a positive value waits that long and then fails with `ErrTimeout`.
-[[src/builtins/thread.rs:resolve_call]] [[src/builtins/thread.rs:arity]]
+[[src/builtins/thread.rs:THREAD]] [[src/builtins/thread.rs:THREAD]]
 
 ## Parameters
 
@@ -114,7 +114,7 @@ empty, a positive value waits that long and then fails with `ErrTimeout`.
 Generic over `Msg` and `Out`. `t` must be a `Thread` or `ThreadWorker` handle; the
 queue read is selected by which of the two it is, and the result type is the
 handle's `Msg` (`Unknown` for a handle typed `Unknown`). `timeoutMs`, when
-supplied, must be `Integer`. [[src/builtins/thread.rs:resolve_call]]
+supplied, must be `Integer`. [[src/builtins/thread.rs:THREAD]]
 
 ## Examples
 

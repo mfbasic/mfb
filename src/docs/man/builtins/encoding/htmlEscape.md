@@ -59,7 +59,7 @@ numeric character references back into text.
 
 | Type | Description |
 | --- | --- |
-| `String` | A copy of `text` with `&`, `<`, `>`, `"`, and `'` replaced by `&amp;`, `&lt;`, `&gt;`, `&quot;`, and `&apos;` respectively; all other characters unchanged. The empty string for empty input. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `String` | A copy of `text` with `&`, `<`, `>`, `"`, and `'` replaced by `&amp;`, `&lt;`, `&gt;`, `&quot;`, and `&apos;` respectively; all other characters unchanged. The empty string for empty input. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

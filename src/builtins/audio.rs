@@ -257,18 +257,6 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
     AUDIO.types.iter().any(|ty| ty.name == name)
 }
 
-pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
-    // Record types return their fields; opaque handles (empty field slice) return
-    // None, matching the legacy map. Field lists must match the `EXPORT TYPE`
-    // records in audio_render.mfb.
-    AUDIO
-        .types
-        .iter()
-        .find(|ty| ty.name == name)
-        .filter(|ty| !ty.fields.is_empty())
-        .map(|ty| ty.fields)
-}
-
 pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
     match type_name {
         AUDIO_INPUT_TYPE => Some(CLOSE_INPUT),
@@ -377,15 +365,6 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     })
 }
 
-pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
-    let return_type = AUDIO
-        .resolver?
-        .resolve_return_type(&AUDIO, name, arg_types)?;
-    Some(ResolvedCall {
-        return_type: Cow::Owned(return_type),
-    })
-}
-
 /// The argument-validating return-type resolution, invoked through the descriptor
 /// resolver by `resolve_call`. `read` is input-only, `write` output-only;
 /// `poll`/`available`/`xruns`/`close` accept either handle; `open*` accept an
@@ -480,15 +459,6 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static str> {
     }
 }
 
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    // User-facing calls derive from the descriptor; the per-direction internal
-    // close bodies keep their `(1, 1)` (scope-drop lowering may query them).
-    DefaultResolver::arity(&AUDIO, name).or_else(|| match name {
-        CLOSE_INPUT | CLOSE_OUTPUT => Some((1, 1)),
-        _ => None,
-    })
-}
-
 /// The internal runtime-helper call name a surface call rewrites to during IR
 /// lowering, when the overload needs its own body. Returns `None` for the calls
 /// that keep their surface name (`devices`, three-arg `open*`, two-arg `read`,
@@ -532,10 +502,6 @@ mod tests {
 
     fn strings(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
-    }
-
-    fn rt(name: &str, args: &[&str]) -> Option<String> {
-        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
     }
 
     fn impl_name(name: &str, args: &[&str]) -> Option<&'static str> {
@@ -607,81 +573,6 @@ mod tests {
     }
 
     #[test]
-    fn device_record_fields() {
-        let fields = builtin_type_fields(AUDIO_DEVICE_TYPE).expect("device fields");
-        assert_eq!(fields.len(), 6);
-        assert_eq!(fields[0], ("id", "String"));
-        assert_eq!(fields[1], ("name", "String"));
-        assert_eq!(fields[2], ("canInput", "Boolean"));
-        assert_eq!(fields[5], ("isDefaultOutput", "Boolean"));
-        assert_eq!(builtin_type_fields(AUDIO_INPUT_TYPE), None);
-    }
-
-    #[test]
-    fn resolve_devices_and_open() {
-        assert_eq!(rt(DEVICES, &[]), Some("List OF AudioDevice".to_string()));
-        assert_eq!(rt(DEVICES, &["Integer"]), None);
-        assert_eq!(
-            rt(OPEN_INPUT, &["Integer", "Integer", "Integer"]),
-            Some(AUDIO_INPUT_TYPE.to_string())
-        );
-        assert_eq!(
-            rt(
-                OPEN_INPUT,
-                &[AUDIO_DEVICE_TYPE, "Integer", "Integer", "Integer"]
-            ),
-            Some(AUDIO_INPUT_TYPE.to_string())
-        );
-        assert_eq!(
-            rt(OPEN_OUTPUT, &["Integer", "Integer", "Integer"]),
-            Some(AUDIO_OUTPUT_TYPE.to_string())
-        );
-        assert_eq!(
-            rt(
-                OPEN_OUTPUT,
-                &[AUDIO_DEVICE_TYPE, "Integer", "Integer", "Integer"]
-            ),
-            Some(AUDIO_OUTPUT_TYPE.to_string())
-        );
-        assert_eq!(rt(OPEN_INPUT, &["Integer", "Integer"]), None);
-    }
-
-    #[test]
-    fn read_only_over_input_and_write_only_over_output() {
-        // read resolves over AudioInput, both arities.
-        assert_eq!(
-            rt(READ, &[AUDIO_INPUT_TYPE, "Integer"]),
-            Some("List OF Byte".to_string())
-        );
-        assert_eq!(
-            rt(READ, &[AUDIO_INPUT_TYPE, "Integer", "Integer"]),
-            Some("List OF Byte".to_string())
-        );
-        // read over AudioOutput does NOT resolve — the §3.1 compile error.
-        assert_eq!(rt(READ, &[AUDIO_OUTPUT_TYPE, "Integer"]), None);
-        // write resolves over AudioOutput.
-        assert_eq!(
-            rt(WRITE, &[AUDIO_OUTPUT_TYPE, "List OF Byte"]),
-            Some("Nothing".to_string())
-        );
-        // write over AudioInput does NOT resolve.
-        assert_eq!(rt(WRITE, &[AUDIO_INPUT_TYPE, "List OF Byte"]), None);
-    }
-
-    #[test]
-    fn resolve_poll_available_xruns_close_both_directions() {
-        for t in [AUDIO_INPUT_TYPE, AUDIO_OUTPUT_TYPE] {
-            assert_eq!(rt(POLL, &[t]), Some("Boolean".to_string()));
-            assert_eq!(rt(POLL, &[t, "Integer"]), Some("Boolean".to_string()));
-            assert_eq!(rt(AVAILABLE, &[t]), Some("Integer".to_string()));
-            assert_eq!(rt(XRUNS, &[t]), Some("Integer".to_string()));
-            assert_eq!(rt(CLOSE, &[t]), Some("Nothing".to_string()));
-        }
-        assert_eq!(rt(POLL, &["Integer"]), None);
-        assert_eq!(rt(CLOSE, &["String"]), None);
-    }
-
-    #[test]
     fn implementation_name_rewrites() {
         // Default-device opens keep their surface name.
         assert_eq!(
@@ -725,20 +616,6 @@ mod tests {
         assert_eq!(impl_name(WRITE, &[AUDIO_OUTPUT_TYPE, "List OF Byte"]), None);
         assert_eq!(impl_name(AVAILABLE, &[AUDIO_INPUT_TYPE]), None);
         assert_eq!(impl_name(DEVICES, &[]), None);
-    }
-
-    #[test]
-    fn arity_spans() {
-        assert_eq!(arity(DEVICES), Some((0, 0)));
-        assert_eq!(arity(OPEN_INPUT), Some((3, 4)));
-        assert_eq!(arity(OPEN_OUTPUT), Some((3, 4)));
-        assert_eq!(arity(READ), Some((2, 3)));
-        assert_eq!(arity(WRITE), Some((2, 2)));
-        assert_eq!(arity(POLL), Some((1, 2)));
-        assert_eq!(arity(AVAILABLE), Some((1, 1)));
-        assert_eq!(arity(XRUNS), Some((1, 1)));
-        assert_eq!(arity(CLOSE), Some((1, 1)));
-        assert!(arity("audio.nope").is_none());
     }
 
     #[test]
@@ -795,156 +672,4 @@ mod tests {
         assert!(call_return_type_name("audio.nope").is_none());
     }
 
-    fn source_name(name: &str, args: &[&str]) -> Option<&'static str> {
-        source_implementation_name(name, &strings(args))
-    }
-
-    #[test]
-    fn source_companion_render_and_play() {
-        // render/play are source-companion calls, accepted by is_audio_call.
-        assert!(is_audio_call(RENDER));
-        assert!(is_audio_call(PLAY));
-
-        // render(AudioNote) -> List OF Byte; play(device, String|List OF String)
-        // -> Nothing; wrong operand types do not resolve.
-        assert_eq!(
-            rt(RENDER, &[AUDIO_NOTE_TYPE]),
-            Some("List OF Byte".to_string())
-        );
-        assert_eq!(rt(RENDER, &["List OF Byte"]), None);
-        assert_eq!(
-            rt(PLAY, &[AUDIO_OUTPUT_TYPE, "String"]),
-            Some("Nothing".to_string())
-        );
-        assert_eq!(
-            rt(PLAY, &[AUDIO_OUTPUT_TYPE, "List OF String"]),
-            Some("Nothing".to_string())
-        );
-        assert_eq!(rt(PLAY, &[AUDIO_OUTPUT_TYPE, "Integer"]), None);
-        // play is over AudioOutput, not the read-only device record.
-        assert_eq!(rt(PLAY, &[AUDIO_DEVICE_TYPE, "String"]), None);
-        assert_eq!(rt(PLAY, &["String", "String"]), None);
-
-        // Source dispatch selects the matching companion body by argument type.
-        assert_eq!(
-            source_name(RENDER, &[AUDIO_NOTE_TYPE]),
-            Some(INTERNAL_RENDER)
-        );
-        assert_eq!(
-            source_name(PLAY, &[AUDIO_OUTPUT_TYPE, "String"]),
-            Some(INTERNAL_PLAY)
-        );
-        assert_eq!(
-            source_name(PLAY, &[AUDIO_OUTPUT_TYPE, "List OF String"]),
-            Some(INTERNAL_PLAY_TRACKS)
-        );
-        assert_eq!(source_name(DEVICES, &[]), None);
-
-        // The native rewrite table never claims the source calls.
-        assert_eq!(impl_name(PLAY, &[AUDIO_OUTPUT_TYPE, "String"]), None);
-        assert_eq!(impl_name(RENDER, &[AUDIO_NOTE_TYPE]), None);
-
-        assert_eq!(arity(RENDER), Some((1, 1)));
-        assert_eq!(arity(PLAY), Some((2, 2)));
-        assert!(expected_arguments(PLAY).unwrap().contains("AudioOutput"));
-    }
-
-    #[test]
-    fn value_records_are_constructible_builtins() {
-        // AudioEnvelope/AudioNote are constructible value records (unlike the
-        // read-only device record and the opaque handles).
-        assert!(is_builtin_type(AUDIO_ENVELOPE_TYPE));
-        assert!(is_builtin_type(AUDIO_NOTE_TYPE));
-        let env = builtin_type_fields(AUDIO_ENVELOPE_TYPE).expect("envelope fields");
-        assert_eq!(env.len(), 5);
-        assert_eq!(env[0], ("attackFrames", "Integer"));
-        assert_eq!(env[4], ("sustainLevel", "Integer"));
-        let note = builtin_type_fields(AUDIO_NOTE_TYPE).expect("note fields");
-        assert_eq!(note.len(), 4);
-        assert_eq!(note[0], ("frequencyHz", "Float"));
-        assert_eq!(note[2], ("envelope", AUDIO_ENVELOPE_TYPE));
-        // A device is read-only, so it is NOT a constructor target here.
-        assert_eq!(resource_close_function(AUDIO_NOTE_TYPE), None);
-    }
-
-    // plan-72-C migration gate: prove `AUDIO` + `AudioResolver` reproduce the
-    // legacy answers — membership/arity/param-names (merged) + per-overload
-    // param-name tables for the device opens + the 5 builtin types via the
-    // descriptor, and resolve_call validation via resolver samples. Keep until BB.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::parity;
-
-        let calls: Vec<&str> = AUDIO_FUNCTIONS.iter().map(|f| f.name).collect();
-        let legacy = parity::LegacySet {
-            is_call: &is_audio_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            return_type_name: &|_| None, // resolver-backed: skipped; verified by return_type_names
-            expected_arguments: None,    // custom "or"-phrased strings
-            param_name_overloads: Some(&|name| {
-                call_param_name_overloads(name)
-                    .map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            }),
-            argument_types: None,
-            implementation_name: None,
-            default_padding: None,
-            builtin_type_fields: Some(&builtin_type_fields),
-        };
-        let mut probe = calls.clone();
-        probe.push("audio.nope");
-
-        let samples = [
-            sample(DEVICES, &[], "List OF AudioDevice"),
-            sample(OPEN_INPUT, &["Integer", "Integer", "Integer"], AUDIO_INPUT_TYPE),
-            sample(OPEN_INPUT, &[AUDIO_DEVICE_TYPE, "Integer", "Integer", "Integer"], AUDIO_INPUT_TYPE),
-            sample(OPEN_OUTPUT, &["Integer", "Integer", "Integer"], AUDIO_OUTPUT_TYPE),
-            sample(READ, &[AUDIO_INPUT_TYPE, "Integer"], "List OF Byte"),
-            sample(READ, &[AUDIO_INPUT_TYPE, "Integer", "Integer"], "List OF Byte"),
-            sample(WRITE, &[AUDIO_OUTPUT_TYPE, "List OF Byte"], "Nothing"),
-            sample(POLL, &[AUDIO_INPUT_TYPE], "Boolean"),
-            sample(POLL, &[AUDIO_OUTPUT_TYPE, "Integer"], "Boolean"),
-            sample(AVAILABLE, &[AUDIO_INPUT_TYPE], "Integer"),
-            sample(XRUNS, &[AUDIO_OUTPUT_TYPE], "Integer"),
-            sample(CLOSE, &[AUDIO_OUTPUT_TYPE], "Nothing"),
-            sample(RENDER, &[AUDIO_NOTE_TYPE], "List OF Byte"),
-            sample(PLAY, &[AUDIO_OUTPUT_TYPE, "String"], "Nothing"),
-            sample(PLAY, &[AUDIO_OUTPUT_TYPE, "List OF String"], "Nothing"),
-        ];
-        parity::assert_parity(&AUDIO, &probe, &legacy, &samples);
-
-        // All 5 builtin types are members; the internal-name return-type fallback
-        // still answers for the lowered-only names.
-        for t in [
-            AUDIO_INPUT_TYPE,
-            AUDIO_OUTPUT_TYPE,
-            AUDIO_DEVICE_TYPE,
-            AUDIO_ENVELOPE_TYPE,
-            AUDIO_NOTE_TYPE,
-        ] {
-            assert!(is_builtin_type(t), "{t}");
-        }
-        assert!(!is_builtin_type("Nope"));
-        assert_eq!(call_return_type_name(CLOSE_INPUT), Some("Nothing"));
-        assert_eq!(call_return_type_name(READ_TIMEOUT), Some("List OF Byte"));
-        assert_eq!(arity(CLOSE_INPUT), Some((1, 1)));
-    }
-
-    fn sample<'a>(
-        call: &'a str,
-        arg_types: &'a [&'a str],
-        ret: &'a str,
-    ) -> crate::builtins::descriptor::parity::ResolverSample<'a> {
-        crate::builtins::descriptor::parity::ResolverSample {
-            call,
-            arg_types,
-            expected_return: Some(ret),
-            expected_impl: None,
-            expected_padding: None,
-            expected_type: None,
-            expected_overload_target: None,
-        }
-    }
 }

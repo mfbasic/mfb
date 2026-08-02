@@ -25,7 +25,7 @@ IMPORT term
 
 `term::getBold` returns `TRUE` when subsequently drawn text will be bold and
 `FALSE` when it will not. It takes no arguments.
-[[src/builtins/term.rs:arity]]
+[[src/builtins/term.rs:TERM]]
 
 The value is the module's current bold attribute read directly. Immediately after
 `term::on` — which resets bold to off — it is `FALSE`; afterwards it is whatever
@@ -52,7 +52,7 @@ nothing, and cannot fail.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when the bold attribute is set for subsequently drawn text, `FALSE` otherwise — including whenever TUI mode is off. [[src/builtins/term.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when the bold attribute is set for subsequently drawn text, `FALSE` otherwise — including whenever TUI mode is off. [[src/builtins/term.rs:TERM]] |
 
 ## Errors
 

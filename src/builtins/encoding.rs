@@ -203,16 +203,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     }
 }
 
-pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    // utf8Encode reports its default (List OF Byte) form; the precise type is
-    // resolved with the contextual expected type in the checker/monomorphizer.
-    DefaultResolver::return_type_name(&ENCODING, name)
-}
-
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    DefaultResolver::arity(&ENCODING, name)
-}
-
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         UTF8_ENCODE | UTF8_ENCODE_BYTES | UTF8_ENCODE_INTS | UTF16_ENCODE | UTF32_ENCODE
@@ -248,15 +238,6 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static [&'static str]> {
         ULEB128_ENCODE | SLEB128_ENCODE | VARINT_ENCODE => Some(&["Integer"]),
         _ => None,
     }
-}
-
-pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
-    let return_type = ENCODING
-        .resolver?
-        .resolve_return_type(&ENCODING, name, arg_types)?;
-    Some(ResolvedCall {
-        return_type: Cow::Owned(return_type),
-    })
 }
 
 /// The argument-validating return-type resolution, invoked through the descriptor
@@ -365,10 +346,6 @@ mod tests {
         }
     }
 
-    fn rt(name: &str, args: &[&str]) -> Option<String> {
-        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
-    }
-
     const ALL_PUBLIC: &[&str] = &[
         UTF8_ENCODE,
         UTF8_DECODE,
@@ -443,31 +420,6 @@ mod tests {
     }
 
     #[test]
-    fn return_type_name_branches() {
-        assert_eq!(call_return_type_name(UTF8_ENCODE), Some(BYTES));
-        assert_eq!(call_return_type_name(UTF8_ENCODE_BYTES), Some(BYTES));
-        assert_eq!(call_return_type_name(HEX_DECODE), Some(BYTES));
-        assert_eq!(call_return_type_name(ULEB128_ENCODE), Some(BYTES));
-        assert_eq!(call_return_type_name(UTF16_ENCODE), Some(INTS));
-        assert_eq!(call_return_type_name(UTF8_ENCODE_INTS), Some(INTS));
-        assert_eq!(call_return_type_name(UTF8_DECODE), Some("String"));
-        assert_eq!(call_return_type_name(HEX_ENCODE), Some("String"));
-        assert_eq!(call_return_type_name(PERCENT_ENCODE), Some("String"));
-        assert_eq!(call_return_type_name(PUNYCODE_DECODE), Some("String"));
-        assert_eq!(call_return_type_name(ULEB128_DECODE), Some("Integer"));
-        assert_eq!(call_return_type_name(VARINT_DECODE), Some("Integer"));
-        assert!(call_return_type_name("encoding.nope").is_none());
-    }
-
-    #[test]
-    fn arity_is_unary_for_all() {
-        for n in ALL_PUBLIC {
-            assert_eq!(arity(n), Some((1, 1)), "{n}");
-        }
-        assert!(arity("encoding.nope").is_none());
-    }
-
-    #[test]
     fn expected_arguments_branches() {
         assert_eq!(expected_arguments(UTF8_ENCODE), Some("String"));
         assert_eq!(expected_arguments(HEX_DECODE), Some("String"));
@@ -496,59 +448,6 @@ mod tests {
         assert_eq!(argument_types(HEX_ENCODE), Some(&[BYTES][..]));
         assert_eq!(argument_types(ULEB128_ENCODE), Some(&["Integer"][..]));
         assert!(argument_types("encoding.nope").is_none());
-    }
-
-    #[test]
-    fn resolve_wrong_arity_none() {
-        assert_eq!(rt(HEX_ENCODE, &[]), None);
-        assert_eq!(rt(HEX_ENCODE, &[BYTES, BYTES]), None);
-    }
-
-    #[test]
-    fn resolve_each_branch() {
-        assert_eq!(rt(UTF8_ENCODE, &["String"]), Some(BYTES.to_string()));
-        assert_eq!(rt(UTF8_ENCODE_BYTES, &["String"]), Some(BYTES.to_string()));
-        assert_eq!(rt(UTF8_ENCODE_INTS, &["String"]), Some(INTS.to_string()));
-        assert_eq!(rt(UTF8_DECODE, &[BYTES]), Some("String".to_string()));
-        assert_eq!(rt(UTF8_DECODE, &[INTS]), Some("String".to_string()));
-        assert_eq!(rt(UTF8_DECODE_BYTES, &[BYTES]), Some("String".to_string()));
-        assert_eq!(rt(UTF8_DECODE_INTS, &[INTS]), Some("String".to_string()));
-        assert_eq!(rt(UTF16_ENCODE, &["String"]), Some(INTS.to_string()));
-        assert_eq!(rt(UTF32_ENCODE, &["String"]), Some(INTS.to_string()));
-        assert_eq!(rt(UTF16_DECODE, &[INTS]), Some("String".to_string()));
-        assert_eq!(rt(UTF32_DECODE, &[INTS]), Some("String".to_string()));
-        assert_eq!(rt(HEX_ENCODE, &[BYTES]), Some("String".to_string()));
-        assert_eq!(rt(BASE32_ENCODE, &[BYTES]), Some("String".to_string()));
-        assert_eq!(rt(BASE64_ENCODE, &[BYTES]), Some("String".to_string()));
-        assert_eq!(rt(BASE64URL_ENCODE, &[BYTES]), Some("String".to_string()));
-        assert_eq!(rt(HEX_DECODE, &["String"]), Some(BYTES.to_string()));
-        assert_eq!(rt(BASE32_DECODE, &["String"]), Some(BYTES.to_string()));
-        assert_eq!(rt(BASE64_DECODE, &["String"]), Some(BYTES.to_string()));
-        assert_eq!(rt(BASE64URL_DECODE, &["String"]), Some(BYTES.to_string()));
-        assert_eq!(rt(PERCENT_ENCODE, &["String"]), Some("String".to_string()));
-        assert_eq!(rt(PERCENT_DECODE, &["String"]), Some("String".to_string()));
-        assert_eq!(rt(HTML_ESCAPE, &["String"]), Some("String".to_string()));
-        assert_eq!(rt(HTML_UNESCAPE, &["String"]), Some("String".to_string()));
-        assert_eq!(rt(FORM_URL_ENCODE, &["String"]), Some("String".to_string()));
-        assert_eq!(rt(FORM_URL_DECODE, &["String"]), Some("String".to_string()));
-        assert_eq!(rt(PUNYCODE_ENCODE, &["String"]), Some("String".to_string()));
-        assert_eq!(rt(PUNYCODE_DECODE, &["String"]), Some("String".to_string()));
-        assert_eq!(rt(ULEB128_ENCODE, &["Integer"]), Some(BYTES.to_string()));
-        assert_eq!(rt(SLEB128_ENCODE, &["Integer"]), Some(BYTES.to_string()));
-        assert_eq!(rt(VARINT_ENCODE, &["Integer"]), Some(BYTES.to_string()));
-        assert_eq!(rt(ULEB128_DECODE, &[BYTES]), Some("Integer".to_string()));
-        assert_eq!(rt(SLEB128_DECODE, &[BYTES]), Some("Integer".to_string()));
-        assert_eq!(rt(VARINT_DECODE, &[BYTES]), Some("Integer".to_string()));
-    }
-
-    #[test]
-    fn resolve_wrong_types_none() {
-        assert_eq!(rt(UTF8_ENCODE, &["Integer"]), None);
-        assert_eq!(rt(UTF8_DECODE, &["String"]), None);
-        assert_eq!(rt(HEX_ENCODE, &["String"]), None);
-        assert_eq!(rt(HEX_DECODE, &[BYTES]), None);
-        assert_eq!(rt(ULEB128_ENCODE, &[BYTES]), None);
-        assert_eq!(rt("encoding.nope", &["String"]), None);
     }
 
     #[test]
@@ -645,84 +544,4 @@ mod tests {
         );
     }
 
-    // plan-72-I migration gate: prove `ENCODING` + `EncodingResolver` reproduce
-    // the legacy answers — membership/arity/param-names + the flat implementation
-    // rewrite map via the descriptor, and resolve_call validation + the
-    // `utf8Encode`/`utf8Decode` overload targets via resolver samples. Keep until BB.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::parity;
-
-        let legacy = parity::LegacySet {
-            is_call: &is_encoding_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            return_type_name: &|_| None, // resolver-backed: skipped; verified by existing tests
-            expected_arguments: None,    // custom "or"-phrased strings
-            param_name_overloads: None,  // encoding has no per-overload name tables
-            argument_types: None,
-            implementation_name: None,   // descriptor-derived; verified by implementation_name_flat_map
-            default_padding: None,
-            builtin_type_fields: None,
-        };
-        // The 4 monomorph targets are members with arity (1,1) but no
-        // `call_param_names` entry (they are never named-arg-bound), so they are
-        // verified explicitly below rather than through the param-name harness.
-        let mut probe: Vec<&str> = ALL_PUBLIC.to_vec();
-        probe.push("encoding.nope");
-
-        let ret = |call, args, r: &'static str| parity::ResolverSample {
-            call, arg_types: args, expected_return: Some(r), expected_impl: None,
-            expected_padding: None, expected_type: None, expected_overload_target: None,
-        };
-        let target = |call, args, expected: Option<&'static str>, t: &'static str| parity::ResolverSample {
-            call, arg_types: args, expected_return: None, expected_impl: None,
-            expected_padding: None, expected_type: expected, expected_overload_target: Some(t),
-        };
-        let samples = [
-            ret(UTF8_ENCODE, &["String"], BYTES),
-            ret(UTF8_ENCODE_INTS, &["String"], INTS),
-            ret(UTF8_DECODE, &[BYTES], "String"),
-            ret(UTF8_DECODE, &[INTS], "String"),
-            ret(UTF16_ENCODE, &["String"], INTS),
-            ret(HEX_ENCODE, &[BYTES], "String"),
-            ret(HEX_DECODE, &["String"], BYTES),
-            ret(PERCENT_ENCODE, &["String"], "String"),
-            ret(ULEB128_ENCODE, &["Integer"], BYTES),
-            ret(VARINT_DECODE, &[BYTES], "Integer"),
-            // Overloaded utf8Encode/utf8Decode monomorph target selection.
-            target(UTF8_ENCODE, &["String"], Some(BYTES), UTF8_ENCODE_BYTES),
-            target(UTF8_ENCODE, &["String"], Some(INTS), UTF8_ENCODE_INTS),
-            target(UTF8_DECODE, &[BYTES], None, UTF8_DECODE_BYTES),
-            target(UTF8_DECODE, &[INTS], None, UTF8_DECODE_INTS),
-        ];
-        parity::assert_parity(&ENCODING, &probe, &legacy, &samples);
-
-        // is_overloaded derives from the descriptor (Custom implementation).
-        assert!(is_overloaded(UTF8_ENCODE));
-        assert!(is_overloaded(UTF8_DECODE));
-        assert!(!is_overloaded(HEX_ENCODE));
-        assert!(!is_overloaded(UTF8_ENCODE_BYTES));
-        // implementation_name (descriptor-derived) — overloaded names have none.
-        assert_eq!(implementation_name(HEX_ENCODE), Some("__encoding_hexEncode"));
-        assert_eq!(implementation_name(UTF8_ENCODE), None);
-        assert_eq!(implementation_name(UTF8_ENCODE_BYTES), Some("__encoding_utf8EncodeBytes"));
-
-        // The 4 monomorph targets: members with arity (1,1), the right return
-        // type and implementation, and no call_param_names entry.
-        for (target, ret, imp) in [
-            (UTF8_ENCODE_BYTES, BYTES, "__encoding_utf8EncodeBytes"),
-            (UTF8_ENCODE_INTS, INTS, "__encoding_utf8EncodeInts"),
-            (UTF8_DECODE_BYTES, "String", "__encoding_utf8DecodeBytes"),
-            (UTF8_DECODE_INTS, "String", "__encoding_utf8DecodeInts"),
-        ] {
-            assert!(is_encoding_call(target), "{target}");
-            assert_eq!(arity(target), Some((1, 1)), "{target}");
-            assert_eq!(call_return_type_name(target), Some(ret), "{target}");
-            assert_eq!(implementation_name(target), Some(imp), "{target}");
-            assert_eq!(call_param_names(target), None, "{target}");
-        }
-    }
 }

@@ -58,7 +58,7 @@ library can be loaded, or a required symbol is missing — `writeText` raises
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `writeText` returns no value. A successful return means every byte of `value` was accepted by the TLS layer. [[src/builtins/tls.rs:call_return_type_name]] |
+| `Nothing` | `writeText` returns no value. A successful return means every byte of `value` was accepted by the TLS layer. [[src/builtins/tls.rs:TLS]] |
 
 ## Errors
 

@@ -63,7 +63,7 @@ Internally the fill runs in chunks of at most 256 bytes (the per-call
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | Exactly `count` cryptographically secure random bytes. An empty list when `count` is `0`. [[src/builtins/crypto.rs:call_return_type_name]] |
+| `List OF Byte` | Exactly `count` cryptographically secure random bytes. An empty list when `count` is `0`. [[src/builtins/crypto.rs:CRYPTO]] |
 
 ## Errors
 
@@ -77,7 +77,7 @@ Internally the fill runs in chunks of at most 256 bytes (the per-call
 
 `randomBytes` takes exactly one `Integer` argument and returns `List OF Byte`; no
 other arity or argument type resolves.
-[[src/builtins/crypto.rs:resolve_call]] [[src/builtins/crypto.rs:arity]]
+[[src/builtins/crypto.rs:CRYPTO]] [[src/builtins/crypto.rs:CRYPTO]]
 
 ## Examples
 

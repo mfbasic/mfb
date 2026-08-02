@@ -80,7 +80,7 @@ has no side effects. [[src/builtins/datetime_package.mfb:__datetime_format]]
 
 | Type | Description |
 | --- | --- |
-| `String` | The rendered text, with each token replaced by the corresponding field of `dt` and every non-letter character copied through unchanged. The empty pattern returns the empty string. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `String` | The rendered text, with each token replaced by the corresponding field of `dt` and every non-letter character copied through unchanged. The empty pattern returns the empty string. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

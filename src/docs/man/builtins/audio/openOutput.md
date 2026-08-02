@@ -28,7 +28,7 @@ dependency. [[src/builtins/audio.rs:package_source_glue]]
 `audio::openOutput` opens a PCM playback stream and returns an `AudioOutput`. The
 three-argument form opens the system default output device; the four-argument
 form opens the specific device named by an `AudioDevice` obtained from
-`audio::devices()`. [[src/builtins/audio.rs:resolve_call]]
+`audio::devices()`. [[src/builtins/audio.rs:AUDIO]]
 
 The stream carries raw interleaved signed 16-bit little-endian (`s16le`) PCM: one
 frame is `channels * 2` bytes. `sampleRate` is the playback rate in Hz and must be
@@ -86,7 +86,7 @@ using the same `sampleRate`/`channels`/`bufferFrames`.
 
 | Type | Description |
 | --- | --- |
-| `AudioOutput` | An open, move-only playback stream accepting interleaved `s16le` PCM at the requested rate and channel count. [[src/builtins/audio.rs:call_return_type_name]] |
+| `AudioOutput` | An open, move-only playback stream accepting interleaved `s16le` PCM at the requested rate and channel count. [[src/builtins/audio.rs:AUDIO]] |
 
 ## Errors
 

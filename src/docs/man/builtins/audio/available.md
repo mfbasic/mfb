@@ -57,25 +57,25 @@ a host without alsa-lib, but a call to `available` there raises
 
 **`audio::available(stream AS AudioInput)`**
 
-Frames currently readable from the capture stream without blocking. [[src/builtins/audio.rs:resolve_call]]
+Frames currently readable from the capture stream without blocking. [[src/builtins/audio.rs:AUDIO]]
 
 **`audio::available(stream AS AudioOutput)`**
 
 Frames writable to the playback stream before `audio::write` would block. Both
 overloads share one internal body; the direction is read from the handle at
-runtime. [[src/builtins/audio.rs:resolve_call]][[src/target/shared/code/audio/macos.rs:lower_query]]
+runtime. [[src/builtins/audio.rs:AUDIO]][[src/target/shared/code/audio/macos.rs:lower_query]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `stream` | `AudioInput` or `AudioOutput` | An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Borrowed, not consumed. A closed handle reports `0`. [[src/builtins/audio.rs:resolve_call]][[src/builtins/audio.rs:consumes_argument]] |
+| `stream` | `AudioInput` or `AudioOutput` | An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Borrowed, not consumed. A closed handle reports `0`. [[src/builtins/audio.rs:AUDIO]][[src/builtins/audio.rs:consumes_argument]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | Frames readable (input) or writable (output) without blocking; never negative — a negative device count is clamped to `0`, as is a closed or defaulted handle. [[src/builtins/audio.rs:call_return_type_name]][[src/target/shared/code/audio/alsa.rs:lower_query]] |
+| `Integer` | Frames readable (input) or writable (output) without blocking; never negative — a negative device count is clamped to `0`, as is a closed or defaulted handle. [[src/builtins/audio.rs:AUDIO]][[src/target/shared/code/audio/alsa.rs:lower_query]] |
 
 ## Errors
 

@@ -57,7 +57,7 @@ between two instants rather than just their order, use `datetime::between`.
 
 | Type | Description |
 | --- | --- |
-| `Integer` | `-1` when `a` is before `b`, `1` when `a` is after `b`, and `0` when `a` and `b` name the same instant. The `seconds` fields are compared first and the `nanos` fields break ties, so only fully equal instants return `0`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Integer` | `-1` when `a` is before `b`, `1` when `a` is after `b`, and `0` when `a` and `b` name the same instant. The `seconds` fields are compared first and the `nanos` fields break ties, so only fully equal instants return `0`. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

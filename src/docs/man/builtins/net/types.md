@@ -34,19 +34,19 @@ returned from a function, and sent across threads. All four are recognized once
 (`LET a AS Address = …`) or package-qualified (`LET a AS net::Address = …`). The
 conventional spelling is bare for `Address`, `Datagram`, and `DatagramText`, and
 qualified for `Url` (`LET u AS net::Url = net::toUrl(href)`), which is the form
-used throughout this manual. [[src/builtins/net.rs:is_builtin_type]]
+used throughout this manual. [[src/builtins/net.rs:NET]]
 
 `Address` is the package's endpoint value: a host plus a port. It is produced by
 `net::lookup` (as a `List OF Address`), `net::localAddress`, and
 `net::remoteAddress`, and it is accepted as a destination by `net::connectTcp`,
-`net::sendTo`, and `net::sendTextTo`. [[src/builtins/net.rs:builtin_type_fields]]
+`net::sendTo`, and `net::sendTextTo`. [[src/builtins/net.rs:NET]]
 
 `Datagram` and `DatagramText` are the UDP receive results. They pair one received
 payload with the `Address` it came from, which is what makes a connectionless
 socket usable: `net::receiveFrom` returns the byte form and
 `net::receiveTextFrom` returns the text form, whose `value` has already been
 validated as UTF-8. UDP preserves message boundaries, so each record carries
-exactly one whole datagram. [[src/builtins/net.rs:call_return_type_name]]
+exactly one whole datagram. [[src/builtins/net.rs:NET]]
 
 `Url` is the parsed form of an absolute `http`/`https` href, produced by
 `net::toUrl`. Every field is normalized on parse: the scheme is lowercased, `port`

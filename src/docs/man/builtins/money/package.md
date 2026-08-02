@@ -19,7 +19,7 @@ provides an explicit settling function. `Money` itself is a built-in scalar type
 decimal places. Its arithmetic (`M / k`, `M * Float`, `M * Fixed`, and the
 `toMoney`/`toFixed` conversions) rounds under a per-execution-context mode that
 this package reads and writes. `money` is a built-in package: `IMPORT money` needs
-no manifest dependency. [[src/builtins/money.rs:is_money_call]]
+no manifest dependency. [[src/builtins/money.rs:MONEY]]
 
 The mode is one of the `Rounding` enum members:
 

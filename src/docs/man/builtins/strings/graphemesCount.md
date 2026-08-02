@@ -55,7 +55,7 @@ the clusters and their count.
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The number of extended grapheme clusters in `value`, a non-negative `Integer`. `0` for the empty string. [[src/builtins/strings.rs:call_return_type_name]] |
+| `Integer` | The number of extended grapheme clusters in `value`, a non-negative `Integer`. `0` for the empty string. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

@@ -19,7 +19,7 @@ regular-expression dialect that is MFBASIC's own. Its syntax and semantics are
 defined entirely by `mfb spec stdlib regex` and produce byte-for-byte identical
 results on every target, never deferring to a host libc, locale, or OS regex
 library. `regex` is a built-in package: `IMPORT regex` needs no manifest
-dependency. For the full pattern language, run `mfb man regex language`. [[src/builtins/regex.rs:call_return_type_name]]
+dependency. For the full pattern language, run `mfb man regex language`. [[src/builtins/regex.rs:REGEX]]
 
 The package defines no new types. `pattern` and `replacement` are ordinary
 runtime `String` values, so they may be literals, built at run time, or read from

@@ -53,7 +53,7 @@ test for it use `strings::stripPrefix`.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when the bytes of `prefix` match the leading bytes of `value`, `FALSE` otherwise. An empty `prefix` always yields `TRUE`; a `prefix` longer than `value` always yields `FALSE`. [[src/builtins/strings.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when the bytes of `prefix` match the leading bytes of `value`, `FALSE` otherwise. An empty `prefix` always yields `TRUE`; a `prefix` longer than `value` always yields `FALSE`. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

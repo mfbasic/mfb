@@ -55,7 +55,7 @@ occurrences.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `needle` occurs contiguously within `value`, `FALSE` otherwise. An empty `needle` always yields `TRUE`; a `needle` longer than `value` always yields `FALSE`. [[src/builtins/strings.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when `needle` occurs contiguously within `value`, `FALSE` otherwise. An empty `needle` always yields `TRUE`; a `needle` longer than `value` always yields `FALSE`. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

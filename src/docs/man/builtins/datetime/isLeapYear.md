@@ -47,7 +47,7 @@ state and has no side effects. [[src/builtins/datetime_package.mfb:__datetime_is
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `True` when `year` is a leap year (366 days, with a 29-day February) under the proleptic-Gregorian rule, and `False` otherwise. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Boolean` | `True` when `year` is a leap year (366 days, with a 29-day February) under the proleptic-Gregorian rule, and `False` otherwise. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

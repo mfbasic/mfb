@@ -52,7 +52,7 @@ bytes use `strings::toBytes`.
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The number of bytes in the UTF-8 encoding of `value`; `0` for the empty string. Always greater than or equal to `len(value)`, and equal to it exactly when `value` is pure ASCII. [[src/builtins/strings.rs:call_return_type_name]] |
+| `Integer` | The number of bytes in the UTF-8 encoding of `value`; `0` for the empty string. Always greater than or equal to `len(value)`, and equal to it exactly when `value` is pure ASCII. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

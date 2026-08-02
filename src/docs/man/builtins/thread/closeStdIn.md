@@ -61,7 +61,7 @@ Unsubscribes the calling thread.
 **`thread::closeStdIn(t AS Thread OF Msg TO Out) AS Nothing`**
 
 Unsubscribes the worker behind a parent `Thread` handle. A `ThreadWorker` handle is
-not accepted. [[src/builtins/thread.rs:resolve_call]] [[src/builtins/thread.rs:arity]]
+not accepted. [[src/builtins/thread.rs:THREAD]] [[src/builtins/thread.rs:THREAD]]
 
 ## Parameters
 
@@ -73,7 +73,7 @@ not accepted. [[src/builtins/thread.rs:resolve_call]] [[src/builtins/thread.rs:a
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | No value. On return the target thread is not subscribed. [[src/builtins/thread.rs:resolve_call]] |
+| `Nothing` | No value. On return the target thread is not subscribed. [[src/builtins/thread.rs:THREAD]] |
 
 ## Errors
 

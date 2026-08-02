@@ -58,7 +58,7 @@ accepted under the name `values`, and `delimiter` under the name `separator`.
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` holding the elements of `parts` in order, separated by `delimiter`. The empty list yields `""`; a single-element list yields that element unchanged. [[src/builtins/strings.rs:call_return_type_name]] |
+| `String` | A new `String` holding the elements of `parts` in order, separated by `delimiter`. The empty list yields `""`; a single-element list yields that element unchanged. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

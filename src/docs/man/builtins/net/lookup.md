@@ -43,7 +43,7 @@ resolution: it is not passed to the resolver as a service name but written
 directly into each result's port field, so that the `Address` can be handed
 straight to `net::connectTcp` or a UDP send. When `port` is omitted the compiler
 supplies `0`, and every returned `Address` carries port `0`.
-[[src/builtins/net.rs:arity]]
+[[src/builtins/net.rs:NET]]
 
 `net::lookup` exposes no resolver metadata — no record types, TTLs, or canonical
 names — and adds no caching of its own beyond whatever the host resolver
@@ -71,7 +71,7 @@ Resolves `host` and stamps every returned `Address` with the given port.
 
 | Type | Description |
 | --- | --- |
-| `List OF Address` | One `Address` per IPv4 result, each carrying the textual host and the requested port, in the resolver's order. Empty when the host resolves but has no IPv4 address. [[src/builtins/net.rs:call_return_type_name]] |
+| `List OF Address` | One `Address` per IPv4 result, each carrying the textual host and the requested port, in the resolver's order. Empty when the host resolves but has no IPv4 address. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

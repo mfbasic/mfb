@@ -95,7 +95,7 @@ constraints are checked together, so an `initial` whose type does not match both
 `f`'s first parameter and `f`'s return type is a compile-time type error, as is
 a reducer with the two parameters in the opposite order. No overload resolves in
 those cases. [[src/builtins/collections.rs:resolve_reduce]]
-[[src/builtins/collections.rs:expected_arguments]]
+[[src/builtins/collections.rs:COLLECTIONS]]
 
 ## Examples
 

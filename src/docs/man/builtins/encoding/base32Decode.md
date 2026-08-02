@@ -52,7 +52,7 @@ empty string decodes to the empty list. [[src/builtins/encoding_package.mfb:__en
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The decoded bytes; the empty list for the empty string. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `List OF Byte` | The decoded bytes; the empty list for the empty string. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

@@ -67,7 +67,7 @@ parameter is a `ThreadWorker` and whose declared output equals that worker's
 output type. Current-package functions, `SUB`s, lambdas, closures, non-isolated
 functions, and entry points without the leading `ThreadWorker` parameter are
 rejected at compile time and never reach this call.
-[[src/builtins/thread.rs:matches_start]] [[src/builtins/thread.rs:expected_arguments]]
+[[src/builtins/thread.rs:matches_start]] [[src/builtins/thread.rs:THREAD]]
 
 The returned `Thread` is a non-copyable owned handle closed by lexical drop.
 Dropping a still-running handle requests cancellation, closes and broadcasts all
@@ -86,7 +86,7 @@ Sets the parent-to-worker limit; `outboundLimit` still defaults to `64`.
 
 **`thread::start(f, data, inboundLimit, outboundLimit) AS Thread OF Msg TO Out`**
 
-Sets both limits explicitly. [[src/builtins/thread.rs:resolve_call]] [[src/builtins/thread.rs:arity]]
+Sets both limits explicitly. [[src/builtins/thread.rs:THREAD]] [[src/builtins/thread.rs:THREAD]]
 
 ## Parameters
 
@@ -101,7 +101,7 @@ Sets both limits explicitly. [[src/builtins/thread.rs:resolve_call]] [[src/built
 
 | Type | Description |
 | --- | --- |
-| `Thread OF Msg TO Out` | A live parent-side handle for the newly started worker, carrying the worker's `Msg`, optional `RES Res` plane, and `Out` types. Usable with `thread::send`, `thread::receive`, `thread::poll`, `thread::isRunning`, `thread::cancel`, `thread::transfer`, `thread::accept`, and `thread::waitFor`. [[src/builtins/thread.rs:resolve_call]] |
+| `Thread OF Msg TO Out` | A live parent-side handle for the newly started worker, carrying the worker's `Msg`, optional `RES Res` plane, and `Out` types. Usable with `thread::send`, `thread::receive`, `thread::poll`, `thread::isRunning`, `thread::cancel`, `thread::transfer`, `thread::accept`, and `thread::waitFor`. [[src/builtins/thread.rs:THREAD]] |
 
 ## Errors
 

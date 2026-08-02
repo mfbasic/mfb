@@ -56,7 +56,7 @@ copied through verbatim. `resolve` is pure and reads no host state.
 
 | Type | Description |
 | --- | --- |
-| `Instant` | The absolute point on the UTC timeline named by `dt`. Its `seconds` field equals the local second count of `dt`'s wall-clock fields minus `dt.offset`; its `nanos` field equals `dt.time.nanos`. May name an instant before the Unix epoch (negative `seconds`). [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Instant` | The absolute point on the UTC timeline named by `dt`. Its `seconds` field equals the local second count of `dt`'s wall-clock fields minus `dt.offset`; its `nanos` field equals `dt.time.nanos`. May name an instant before the Unix epoch (negative `seconds`). [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

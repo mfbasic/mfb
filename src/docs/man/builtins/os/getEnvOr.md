@@ -48,7 +48,7 @@ state. It reads process state only and has no side effects.
 
 | Type | Description |
 | --- | --- |
-| `String` | The variable's value when set, otherwise `fallback`. [[src/builtins/os.rs:call_return_type_name]] |
+| `String` | The variable's value when set, otherwise `fallback`. [[src/builtins/os.rs:OS]] |
 
 ## Errors
 

@@ -63,7 +63,7 @@ crypto library. [[src/builtins/crypto.rs:implementation_name]]
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` if `a` and `b` have the same length and every byte is equal; otherwise `FALSE`. Two empty lists return `TRUE`. [[src/builtins/crypto.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` if `a` and `b` have the same length and every byte is equal; otherwise `FALSE`. Two empty lists return `TRUE`. [[src/builtins/crypto.rs:CRYPTO]] |
 
 ## Errors
 
@@ -73,7 +73,7 @@ No errors.
 
 Both arguments must be `List OF Byte`; no other type resolves. Exactly two
 arguments are required. The return type is always `Boolean`.
-[[src/builtins/crypto.rs:resolve_call]] [[src/builtins/crypto.rs:arity]]
+[[src/builtins/crypto.rs:CRYPTO]] [[src/builtins/crypto.rs:CRYPTO]]
 
 ## Examples
 

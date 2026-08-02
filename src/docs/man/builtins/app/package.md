@@ -47,7 +47,7 @@ up deliberately, while a program that never touches the mode keeps today's
 terminal-in-a-window behavior unchanged.
 
 The `Mode` enum is referenced bare, like every other builtin type: write
-`Mode.None`, not `app::Mode.None`. [[src/builtins/app.rs:is_builtin_type]]
+`Mode.None`, not `app::Mode.None`. [[src/builtins/app.rs:APP]]
 
 The mode model is designed to grow: a future graphical mode is a new `Mode`
 variant entered through `app::setMode`, with no change to this surface.
@@ -56,4 +56,4 @@ variant entered through `app::setMode`, with no change to this surface.
 
 `app::getMode` and `app::setMode` raise no errors from the mode machinery itself:
 the argument to `setMode` is a `Mode` the type checker has already constrained, and
-reading the current mode cannot fail. [[src/builtins/app.rs:resolve_call]]
+reading the current mode cannot fail. [[src/builtins/app.rs:APP]]

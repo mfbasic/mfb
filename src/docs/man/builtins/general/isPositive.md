@@ -79,7 +79,7 @@ No errors.
 returns `Boolean`. Calling it with any other type, or with a different number of
 arguments, is a compile-time error. Like other `general` predicates it may be
 overridden by a user- or package-defined `FUNC` of the same name for its own
-value types. [[src/builtins/general.rs:resolve_call]]
+value types. [[src/builtins/general.rs:GENERAL]]
 
 ## Examples
 

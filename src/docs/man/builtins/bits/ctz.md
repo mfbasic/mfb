@@ -36,7 +36,7 @@ the result is `0`. When `value` is `0` there is no set bit at all, so all 64 bit
 count as trailing zeros and the result is `64`; this zero case is the boundary
 that most bit-scan primitives leave architecturally undefined, and `mfb` defines
 it on every target. The operation is total: it is defined for every `Integer`,
-never raises, and has no side effects. [[src/builtins/bits.rs:call_return_type_name]]
+never raises, and has no side effects. [[src/builtins/bits.rs:BITS]]
 [[src/target/shared/code/builder_bits.rs:lower_bits_count_zeros]]
 
 Because the result is the index of the lowest set bit, `ctz` is the primitive
@@ -100,7 +100,7 @@ plus a comparison over `ctz` when a boolean alignment test is all you need.
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The trailing-zero count — the index of the lowest set bit — in the range `0` to `64` inclusive. `0` when bit 0 is set (the value is odd, which includes `-1`); `64` when `value` is `0`. [[src/builtins/bits.rs:call_return_type_name]] |
+| `Integer` | The trailing-zero count — the index of the lowest set bit — in the range `0` to `64` inclusive. `0` when bit 0 is set (the value is odd, which includes `-1`); `64` when `value` is `0`. [[src/builtins/bits.rs:BITS]] |
 
 ## Errors
 

@@ -309,15 +309,6 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static str> {
     }
 }
 
-/// Arity of a `tls::` call. Keeps the lowered-only `CLOSE_LISTENER` (arity 1)
-/// for the same reason as [`call_return_type_name`].
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    DefaultResolver::arity(&TLS, name).or_else(|| match name {
-        CLOSE_LISTENER => Some((1, 1)),
-        _ => None,
-    })
-}
-
 /// Default trailing arguments to inject during IR lowering so the fixed-ABI
 /// runtime helper always receives every parameter (plan-03-net.md §4). Returns
 /// `(type, value)` constants to append after the `provided` real arguments.
@@ -542,18 +533,6 @@ mod tests {
     }
 
     #[test]
-    fn arity_branches() {
-        assert_eq!(arity(CONNECT), Some((2, 4)));
-        assert_eq!(arity(LISTEN), Some((4, 5)));
-        assert_eq!(arity(ACCEPT), Some((1, 2)));
-        assert_eq!(arity(READ), Some((2, 2)));
-        assert_eq!(arity(WRITE_TEXT), Some((2, 2)));
-        assert_eq!(arity(CLOSE), Some((1, 1)));
-        assert_eq!(arity(CLOSE_LISTENER), Some((1, 1)));
-        assert!(arity("tls.nope").is_none());
-    }
-
-    #[test]
     fn default_padding_branches() {
         // connect(host, port, [timeoutMs=0], [serverName=""])
         assert_eq!(default_argument_padding(CONNECT, 2).len(), 2);
@@ -575,71 +554,4 @@ mod tests {
         assert!(!consumes_argument(WRITE, 0));
     }
 
-    // plan-72-Z migration gate: prove `TLS` reproduces every legacy helper answer
-    // for every user-facing `tls.*` name (and an unknown name) — membership,
-    // arity, per-position parameter names, nominal return type, and the default
-    // padding for every arity slot (derived from `DefaultValue::Fill`) — pinning
-    // the borrowed `call_param_names` static equal to `TLS`. `resolve_call`
-    // (`close` type-set acceptance), `expected_arguments` (`"or"`-phrased), and
-    // `argument_types` (joined strings) are not descriptor-derivable and are
-    // checked by the dedicated tests above. Keep until plan-72-BB.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::parity;
-
-        let calls: Vec<&str> = TLS_FUNCTIONS.iter().map(|f| f.name).collect();
-        let legacy = parity::LegacySet {
-            is_call: &is_tls_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            // Resolver-backed: the harness skips return-type and default-padding
-            // parity (checked through the resolver samples and the dedicated
-            // `default_padding_branches` test respectively).
-            return_type_name: &call_return_type_name,
-            // `"or"`-phrased `close`; kept hand-authored and checked separately.
-            expected_arguments: None,
-            param_name_overloads: None,
-            // joined-string shape; kept hand-authored and checked separately.
-            argument_types: None,
-            implementation_name: None,
-            default_padding: None,
-            builtin_type_fields: None,
-        };
-
-        // Return type through the resolver, including `close`'s TlsSocket/TlsListener
-        // argument union that the descriptor's per-position match cannot express.
-        let ret = |call, args: &'static [&'static str], r: &'static str| parity::ResolverSample {
-            call,
-            arg_types: args,
-            expected_return: Some(r),
-            expected_impl: None,
-            expected_padding: None,
-            expected_type: None,
-            expected_overload_target: None,
-        };
-        let samples = [
-            ret(CONNECT, &["String", "Integer"], TLS_SOCKET_TYPE),
-            ret(
-                LISTEN,
-                &["String", "Integer", "String", "String"],
-                TLS_LISTENER_TYPE,
-            ),
-            ret(ACCEPT, &[TLS_LISTENER_TYPE], TLS_SOCKET_TYPE),
-            ret(READ, &[TLS_SOCKET_TYPE, "Integer"], "List OF Byte"),
-            ret(READ_TEXT, &[TLS_SOCKET_TYPE, "Integer"], "String"),
-            ret(CLOSE, &[TLS_SOCKET_TYPE], "Nothing"),
-            ret(CLOSE, &[TLS_LISTENER_TYPE], "Nothing"),
-        ];
-
-        let mut probe = calls.clone();
-        probe.push("tls.nope");
-        parity::assert_parity(&TLS, &probe, &legacy, &samples);
-
-        // The two opaque handle types are the descriptor's builtin-type authority.
-        assert!(is_builtin_type(TLS_SOCKET_TYPE));
-        assert!(is_builtin_type(TLS_LISTENER_TYPE));
-        assert!(!is_builtin_type("String"));
-    }
 }

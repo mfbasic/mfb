@@ -319,14 +319,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     Some(params)
 }
 
-pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    DefaultResolver::return_type_name(&CRYPTO, name)
-}
-
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    DefaultResolver::arity(&CRYPTO, name)
-}
-
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     let text = match name {
         SHA256 | SHA224 | SHA512 | SHA384 => "List OF Byte or String",
@@ -351,15 +343,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         _ => return None,
     };
     Some(text)
-}
-
-pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
-    let return_type = CRYPTO
-        .resolver?
-        .resolve_return_type(&CRYPTO, name, arg_types)?;
-    Some(ResolvedCall {
-        return_type: Cow::Owned(return_type),
-    })
 }
 
 /// The argument-validating return-type resolution, invoked through the descriptor
@@ -526,10 +509,6 @@ mod tests {
         items.iter().map(|s| s.to_string()).collect()
     }
 
-    fn ret(name: &str, args: &[&str]) -> Option<String> {
-        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
-    }
-
     fn project(src: &str) -> crate::ast::AstProject {
         let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)
             .expect("parse source");
@@ -628,49 +607,6 @@ mod tests {
     }
 
     #[test]
-    fn call_return_type_names() {
-        assert_eq!(call_return_type_name(SHA256), Some(BYTES));
-        assert_eq!(call_return_type_name(HMAC_SHA512), Some(BYTES));
-        assert_eq!(call_return_type_name(HKDF_SHA256), Some(BYTES));
-        assert_eq!(call_return_type_name(PBKDF2_SHA256), Some(BYTES));
-        assert_eq!(call_return_type_name(AES256_GCM_OPEN), Some(BYTES));
-        assert_eq!(call_return_type_name(RANDOM_BYTES), Some(BYTES));
-        assert_eq!(call_return_type_name(ED25519_SIGN), Some(BYTES));
-        assert_eq!(call_return_type_name(GENERATE_P256_RAW), Some(BYTES));
-        assert_eq!(call_return_type_name(AES256_GCM_SEAL), Some(SEALED_TYPE));
-        assert_eq!(
-            call_return_type_name(CHACHA20_POLY1305_SEAL),
-            Some(SEALED_TYPE)
-        );
-        assert_eq!(call_return_type_name(GENERATE_ED25519), Some(KEYPAIR_TYPE));
-        assert_eq!(call_return_type_name(GENERATE_P521), Some(KEYPAIR_TYPE));
-        assert_eq!(call_return_type_name(RANDOM_INT), Some("Integer"));
-        assert_eq!(call_return_type_name(UUID4), Some("String"));
-        assert_eq!(call_return_type_name(ED25519_VERIFY), Some("Boolean"));
-        assert_eq!(call_return_type_name(CONSTANT_TIME_EQUAL), Some("Boolean"));
-        assert_eq!(call_return_type_name("crypto.bogus"), None);
-    }
-
-    #[test]
-    fn arity_spans() {
-        assert_eq!(arity(UUID4), Some((0, 0)));
-        assert_eq!(arity(GENERATE_ED25519), Some((0, 0)));
-        assert_eq!(arity(GENERATE_P256_RAW), Some((0, 0)));
-        assert_eq!(arity(RANDOM_BYTES), Some((1, 1)));
-        assert_eq!(arity(SHA256), Some((1, 1)));
-        assert_eq!(arity(RANDOM_INT), Some((2, 2)));
-        assert_eq!(arity(HMAC_SHA256), Some((2, 2)));
-        assert_eq!(arity(ED25519_SIGN), Some((2, 2)));
-        assert_eq!(arity(CONSTANT_TIME_EQUAL), Some((2, 2)));
-        assert_eq!(arity(ED25519_VERIFY), Some((3, 3)));
-        assert_eq!(arity(AES256_GCM_SEAL), Some((3, 4)));
-        assert_eq!(arity(HKDF_SHA256), Some((4, 4)));
-        assert_eq!(arity(PBKDF2_SHA256), Some((4, 4)));
-        assert_eq!(arity(AES256_GCM_OPEN), Some((4, 5)));
-        assert_eq!(arity("crypto.bogus"), None);
-    }
-
-    #[test]
     fn expected_arguments_present() {
         assert!(expected_arguments(SHA256).unwrap().contains("String"));
         assert!(expected_arguments(HMAC_SHA256).is_some());
@@ -685,128 +621,6 @@ mod tests {
         assert!(expected_arguments(ED25519_VERIFY).is_some());
         assert!(expected_arguments(CONSTANT_TIME_EQUAL).is_some());
         assert_eq!(expected_arguments("crypto.bogus"), None);
-    }
-
-    #[test]
-    fn resolve_hashes_overloaded() {
-        assert_eq!(ret(SHA256, &[BYTES]), Some(BYTES.to_string()));
-        assert_eq!(ret(SHA256, &["String"]), Some(BYTES.to_string()));
-        assert_eq!(ret(SHA224, &[BYTES]), Some(BYTES.to_string()));
-        assert_eq!(ret(SHA512, &["String"]), Some(BYTES.to_string()));
-        assert_eq!(ret(SHA384, &[BYTES]), Some(BYTES.to_string()));
-        assert_eq!(ret(SHA256, &["Integer"]), None);
-        assert_eq!(ret(SHA256, &[]), None);
-        assert_eq!(ret(SHA256, &[BYTES, BYTES]), None);
-    }
-
-    #[test]
-    fn resolve_hmac() {
-        assert_eq!(ret(HMAC_SHA256, &[BYTES, BYTES]), Some(BYTES.to_string()));
-        assert_eq!(
-            ret(HMAC_SHA512, &[BYTES, "String"]),
-            Some(BYTES.to_string())
-        );
-        // key must be bytes
-        assert_eq!(ret(HMAC_SHA256, &["String", BYTES]), None);
-    }
-
-    #[test]
-    fn resolve_hkdf_and_pbkdf2() {
-        assert_eq!(
-            ret(HKDF_SHA256, &[BYTES, BYTES, BYTES, "Integer"]),
-            Some(BYTES.to_string())
-        );
-        assert_eq!(ret(HKDF_SHA512, &[BYTES, BYTES, BYTES]), None);
-        assert_eq!(
-            ret(PBKDF2_SHA256, &[BYTES, BYTES, "Integer", "Integer"]),
-            Some(BYTES.to_string())
-        );
-        assert_eq!(
-            ret(PBKDF2_SHA512, &["String", BYTES, "Integer", "Integer"]),
-            Some(BYTES.to_string())
-        );
-        // salt must be bytes
-        assert_eq!(
-            ret(PBKDF2_SHA256, &[BYTES, "String", "Integer", "Integer"]),
-            None
-        );
-    }
-
-    #[test]
-    fn resolve_aead() {
-        assert_eq!(
-            ret(AES256_GCM_SEAL, &[BYTES, BYTES, BYTES]),
-            Some(SEALED_TYPE.to_string())
-        );
-        assert_eq!(
-            ret(AES256_GCM_SEAL, &[BYTES, BYTES, BYTES, BYTES]),
-            Some(SEALED_TYPE.to_string())
-        );
-        assert_eq!(
-            ret(CHACHA20_POLY1305_SEAL, &[BYTES, BYTES, BYTES]),
-            Some(SEALED_TYPE.to_string())
-        );
-        assert_eq!(
-            ret(AES256_GCM_OPEN, &[BYTES, BYTES, BYTES, BYTES]),
-            Some(BYTES.to_string())
-        );
-        assert_eq!(
-            ret(AES256_GCM_OPEN, &[BYTES, BYTES, BYTES, BYTES, BYTES]),
-            Some(BYTES.to_string())
-        );
-        assert_eq!(
-            ret(CHACHA20_POLY1305_OPEN, &[BYTES, BYTES, BYTES, BYTES]),
-            Some(BYTES.to_string())
-        );
-        assert_eq!(ret(AES256_GCM_SEAL, &[BYTES, BYTES]), None);
-        assert_eq!(ret(AES256_GCM_OPEN, &[BYTES, BYTES, BYTES]), None);
-    }
-
-    #[test]
-    fn resolve_random_and_uuid() {
-        assert_eq!(ret(RANDOM_BYTES, &["Integer"]), Some(BYTES.to_string()));
-        assert_eq!(ret(RANDOM_BYTES, &[BYTES]), None);
-        assert_eq!(
-            ret(RANDOM_INT, &["Integer", "Integer"]),
-            Some("Integer".to_string())
-        );
-        assert_eq!(ret(UUID4, &[]), Some("String".to_string()));
-        assert_eq!(ret(UUID4, &["Integer"]), None);
-    }
-
-    #[test]
-    fn resolve_keygen() {
-        assert_eq!(ret(GENERATE_ED25519, &[]), Some(KEYPAIR_TYPE.to_string()));
-        assert_eq!(ret(GENERATE_P256, &[]), Some(KEYPAIR_TYPE.to_string()));
-        assert_eq!(ret(GENERATE_P384, &[]), Some(KEYPAIR_TYPE.to_string()));
-        assert_eq!(ret(GENERATE_P521, &[]), Some(KEYPAIR_TYPE.to_string()));
-        assert_eq!(ret(GENERATE_P256_RAW, &[]), Some(BYTES.to_string()));
-        assert_eq!(ret(GENERATE_P384_RAW, &[]), Some(BYTES.to_string()));
-        assert_eq!(ret(GENERATE_P521_RAW, &[]), Some(BYTES.to_string()));
-        assert_eq!(ret(GENERATE_ED25519, &["Integer"]), None);
-        assert_eq!(ret(GENERATE_P256_RAW, &["Integer"]), None);
-    }
-
-    #[test]
-    fn resolve_sign_verify_and_ct_equal() {
-        assert_eq!(ret(ED25519_SIGN, &[BYTES, BYTES]), Some(BYTES.to_string()));
-        assert_eq!(ret(P256_SIGN, &[BYTES, BYTES]), Some(BYTES.to_string()));
-        assert_eq!(ret(P521_SIGN, &[BYTES, BYTES]), Some(BYTES.to_string()));
-        assert_eq!(
-            ret(ED25519_VERIFY, &[BYTES, BYTES, BYTES]),
-            Some("Boolean".to_string())
-        );
-        assert_eq!(
-            ret(P384_VERIFY, &[BYTES, BYTES, BYTES]),
-            Some("Boolean".to_string())
-        );
-        assert_eq!(
-            ret(CONSTANT_TIME_EQUAL, &[BYTES, BYTES]),
-            Some("Boolean".to_string())
-        );
-        assert_eq!(ret(ED25519_SIGN, &[BYTES]), None);
-        assert_eq!(ret(CONSTANT_TIME_EQUAL, &[BYTES, "String"]), None);
-        assert_eq!(ret("crypto.bogus", &[BYTES]), None);
     }
 
     #[test]
@@ -936,105 +750,4 @@ mod tests {
         );
     }
 
-    // plan-72-F migration gate: prove `CRYPTO` + `CryptoResolver` reproduce the
-    // legacy answers — membership/arity/param-names via the descriptor, typed
-    // return + implementation via resolver samples, AEAD default padding derived
-    // from the optional `aad` parameter, and the two opaque builtin types. Keep
-    // until plan-72-BB.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::{parity, DefaultResolver};
-
-        let calls: Vec<&str> = CRYPTO_FUNCTIONS.iter().map(|f| f.name).collect();
-        let legacy = parity::LegacySet {
-            is_call: &is_crypto_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            // Return/impl/padding are resolver- or descriptor-owned and checked
-            // below; the harness skips them for a resolver-backed module.
-            return_type_name: &|_| None,
-            expected_arguments: None, // custom "or"-phrased strings
-            param_name_overloads: None,
-            argument_types: None, // custom joined strings
-            implementation_name: None,
-            default_padding: None,
-            // Sealed/KeyPair are opaque (no record fields) and crypto has no
-            // builtin_type_fields helper; membership is asserted below.
-            builtin_type_fields: None,
-        };
-        let mut probe = calls.clone();
-        probe.push("crypto.bogus");
-        assert!(is_builtin_type(SEALED_TYPE));
-        assert!(is_builtin_type(KEYPAIR_TYPE));
-        assert!(!is_builtin_type("Nope"));
-
-        let samples = [
-            // hash: bytes vs text implementation selection.
-            parity::ResolverSample {
-                call: SHA256, arg_types: &[BYTES], expected_return: Some(BYTES),
-                expected_impl: Some("__crypto_sha256_bytes"), expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: SHA256, arg_types: &["String"], expected_return: Some(BYTES),
-                expected_impl: Some("__crypto_sha256_text"), expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: HMAC_SHA256, arg_types: &[BYTES, "String"], expected_return: Some(BYTES),
-                expected_impl: Some("__crypto_hmacSha256_text"), expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: AES256_GCM_SEAL, arg_types: &[BYTES, BYTES, BYTES], expected_return: Some(SEALED_TYPE),
-                expected_impl: Some("__crypto_aes256GcmSeal"), expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: GENERATE_P256, arg_types: &[], expected_return: Some(KEYPAIR_TYPE),
-                expected_impl: Some("__crypto_generateP256"), expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: UUID4, arg_types: &[], expected_return: Some("String"),
-                expected_impl: Some("__crypto_uuid4"), expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-            parity::ResolverSample {
-                call: CONSTANT_TIME_EQUAL, arg_types: &[BYTES, BYTES], expected_return: Some("Boolean"),
-                expected_impl: Some("__crypto_constantTimeEqual"), expected_padding: None,
-                expected_type: None,
-                expected_overload_target: None,
-            },
-        ];
-        parity::assert_parity(&CRYPTO, &probe, &legacy, &samples);
-
-        // call_return_type_name (descriptor-derived Fixed) matches legacy values,
-        // and AEAD default padding derives from the optional `aad` parameter.
-        assert_eq!(call_return_type_name(SHA256), Some(BYTES));
-        assert_eq!(call_return_type_name(AES256_GCM_SEAL), Some(SEALED_TYPE));
-        assert_eq!(call_return_type_name(GENERATE_ED25519), Some(KEYPAIR_TYPE));
-        for name in [AES256_GCM_SEAL, CHACHA20_POLY1305_SEAL, AES256_GCM_OPEN, CHACHA20_POLY1305_OPEN] {
-            let (_, max) = arity(name).unwrap();
-            for provided in 0..=max {
-                assert_eq!(
-                    DefaultResolver::default_padding(&CRYPTO, name, provided),
-                    default_argument_padding(name, provided).to_vec(),
-                    "padding parity {name} @ {provided}"
-                );
-            }
-        }
-
-        // native entry points resolve to no source implementation.
-        assert_eq!(implementation_name(RANDOM_BYTES, &strings(&["Integer"])), None);
-        assert_eq!(implementation_name(P256_SIGN, &strings(&[BYTES, BYTES])), None);
-    }
 }

@@ -36,13 +36,13 @@ host that hot-plugs CPUs.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `os::cpuCount` takes no arguments. [[src/builtins/os.rs:arity]] |
+| — | — | `os::cpuCount` takes no arguments. [[src/builtins/os.rs:OS]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The number of online logical CPUs, at least 1. [[src/builtins/os.rs:call_return_type_name]] |
+| `Integer` | The number of online logical CPUs, at least 1. [[src/builtins/os.rs:OS]] |
 
 ## Errors
 

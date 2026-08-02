@@ -90,7 +90,7 @@ rounding integer square root, halves away from zero.
 
 | Type | Description |
 | --- | --- |
-| the element type of `a` (`Float`, `Fixed`, or `Integer`) | The non-negative Euclidean distance between the two points. Zero when the points coincide. The `Integer` overloads return the distance rounded to the nearest integer, halves away from zero. [[src/builtins/vector.rs:resolve_call]] |
+| the element type of `a` (`Float`, `Fixed`, or `Integer`) | The non-negative Euclidean distance between the two points. Zero when the points coincide. The `Integer` overloads return the distance rounded to the nearest integer, halves away from zero. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -105,7 +105,7 @@ rounding integer square root, halves away from zero.
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and no implicit conversion is applied to a vector
 argument. The return type is the element type of that vector type, not the vector
-type itself. [[src/builtins/vector.rs:resolve_call]] [[src/builtins/vector.rs:same_vector]]
+type itself. [[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:same_vector]]
 
 ## Examples
 

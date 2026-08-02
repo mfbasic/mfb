@@ -35,7 +35,7 @@ time; to name a point on the UTC timeline use `datetime::instant` instead.
 
 `duration` is overloaded by argument count, with five disjoint forms selected by
 the number of `Integer` arguments (one through five).
-[[src/builtins/datetime.rs:resolve_call]] The one- and two-argument forms take
+[[src/builtins/datetime.rs:DATETIME]] The one- and two-argument forms take
 whole seconds and, optionally, a nanosecond adjustment. The three-, four-, and
 five-argument forms are component builders that fold larger units down into a
 single second count: the three-argument form computes `mins*60 + seconds`, the
@@ -101,7 +101,7 @@ A span of `days*86400 + hours*3600 + mins*60 + seconds` whole seconds, plus
 
 | Type | Description |
 | --- | --- |
-| `Duration` | The signed span of the requested length. The `seconds` field holds the normalized whole-second count (which may be negative for a backward span) and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Duration` | The signed span of the requested length. The `seconds` field holds the normalized whole-second count (which may be negative for a backward span) and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

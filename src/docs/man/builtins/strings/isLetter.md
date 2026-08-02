@@ -53,7 +53,7 @@ reasonable definitions.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `scalar` has general category `Lu`, `Ll`, `Lt`, `Lm`, or `Lo`; `FALSE` otherwise. [[src/builtins/strings.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when `scalar` has general category `Lu`, `Ll`, `Lt`, `Lm`, or `Lo`; `FALSE` otherwise. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

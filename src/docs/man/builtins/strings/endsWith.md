@@ -53,7 +53,7 @@ rather than test for it use `strings::stripSuffix`.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when the bytes of `suffix` match the trailing bytes of `value`, `FALSE` otherwise. An empty `suffix` always yields `TRUE`; a `suffix` longer than `value` always yields `FALSE`. [[src/builtins/strings.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when the bytes of `suffix` match the trailing bytes of `value`, `FALSE` otherwise. An empty `suffix` always yields `TRUE`; a `suffix` longer than `value` always yields `FALSE`. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

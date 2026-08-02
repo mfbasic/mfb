@@ -349,10 +349,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     }
 }
 
-pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    DefaultResolver::return_type_name(&STRINGS, name)
-}
-
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     DefaultResolver::resolve_call(&STRINGS, name, arg_types).map(|return_type| ResolvedCall {
         return_type: Cow::Borrowed(return_type),
@@ -382,10 +378,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         IS_LETTER | IS_DIGIT | IS_WHITESPACE | IS_UPPER | IS_LOWER => Some("Scalar"),
         _ => None,
     }
-}
-
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    DefaultResolver::arity(&STRINGS, name)
 }
 
 /// The source-companion implementation name (`__strings_*`) for the Scalar seam
@@ -661,32 +653,6 @@ mod tests {
     }
 
     #[test]
-    fn every_name_has_consistent_metadata() {
-        for name in ALL {
-            assert!(call_param_names(name).is_some(), "param_names {name}");
-            assert!(call_return_type_name(name).is_some(), "return_type {name}");
-            assert!(expected_arguments(name).is_some(), "expected_args {name}");
-            assert!(arity(name).is_some(), "arity {name}");
-            // Param-name group count must match the max arity.
-            let (_, max) = arity(name).unwrap();
-            assert_eq!(
-                call_param_names(name).unwrap().len(),
-                max,
-                "param-name group count vs arity for {name}"
-            );
-        }
-    }
-
-    #[test]
-    fn metadata_returns_none_for_unknown() {
-        assert_eq!(call_param_names("nope"), None);
-        assert_eq!(call_return_type_name("nope"), None);
-        assert_eq!(expected_arguments("nope"), None);
-        assert_eq!(arity("nope"), None);
-        assert!(resolve_call("nope", &types(&["String"])).is_none());
-    }
-
-    #[test]
     fn param_names_specific() {
         assert_eq!(call_param_names(TRIM), Some(&[&["value"][..]][..]));
         assert_eq!(
@@ -714,24 +680,6 @@ mod tests {
     }
 
     #[test]
-    fn return_type_names_cover_all_categories() {
-        assert_eq!(call_return_type_name(TRIM), Some("String"));
-        assert_eq!(call_return_type_name(JOIN), Some("String"));
-        assert_eq!(call_return_type_name(GRAPHEMES), Some("List OF String"));
-        assert_eq!(call_return_type_name(SPLIT), Some("List OF String"));
-        assert_eq!(call_return_type_name(TO_BYTES), Some("List OF Byte"));
-        assert_eq!(call_return_type_name(STARTS_WITH), Some("Boolean"));
-        assert_eq!(call_return_type_name(STARTS_WITH_ANY), Some("Boolean"));
-        assert_eq!(call_return_type_name(BYTE_LEN), Some("Integer"));
-        assert_eq!(call_return_type_name(COUNT), Some("Integer"));
-        assert_eq!(call_return_type_name(GRAPHEMES_COUNT), Some("Integer"));
-        assert_eq!(call_return_type_name(STRIP_PREFIX), Some("String"));
-        assert_eq!(call_return_type_name(MID), Some("String"));
-        assert_eq!(call_return_type_name(REPLACE), Some("String"));
-        assert_eq!(call_return_type_name(FIND), Some("Integer"));
-    }
-
-    #[test]
     fn expected_arguments_specific() {
         assert_eq!(expected_arguments(TRIM), Some("String"));
         assert_eq!(expected_arguments(STARTS_WITH), Some("String, String"));
@@ -750,18 +698,6 @@ mod tests {
         assert_eq!(expected_arguments(FIND), Some("String, String[, Integer]"));
         assert_eq!(expected_arguments(MID), Some("String, Integer, Integer"));
         assert_eq!(expected_arguments(REPLACE), Some("String, String, String"));
-    }
-
-    #[test]
-    fn arity_specific() {
-        assert_eq!(arity(TRIM), Some((1, 1)));
-        assert_eq!(arity(GRAPHEMES_COUNT), Some((1, 1)));
-        assert_eq!(arity(STARTS_WITH), Some((2, 2)));
-        assert_eq!(arity(TRIM_CHARS), Some((2, 2)));
-        assert_eq!(arity(PAD_LEFT), Some((2, 3)));
-        assert_eq!(arity(FIND), Some((2, 3)));
-        assert_eq!(arity(MID), Some((3, 3)));
-        assert_eq!(arity(REPLACE), Some((3, 3)));
     }
 
     #[test]
@@ -910,37 +846,6 @@ mod tests {
         assert!(exact(&types(&[]), &[]));
     }
 
-    #[test]
-    fn resolve_scalar_seam_family() {
-        // Scalar predicates + Scalar<->String conversions.
-        for name in [IS_LETTER, IS_DIGIT, IS_WHITESPACE, IS_UPPER, IS_LOWER] {
-            assert_eq!(ret(name, &["Scalar"]), Some("Boolean".to_string()));
-            assert_eq!(ret(name, &["String"]), None);
-        }
-        assert_eq!(
-            ret(TO_SCALARS, &["String"]),
-            Some("List OF Scalar".to_string())
-        );
-        assert_eq!(
-            ret(FROM_SCALARS, &["List OF Scalar"]),
-            Some("String".to_string())
-        );
-        // arity + metadata for the seam members (the `Some((1,1))` scalar arm).
-        for name in [
-            TO_SCALARS,
-            FROM_SCALARS,
-            IS_LETTER,
-            IS_DIGIT,
-            IS_WHITESPACE,
-            IS_UPPER,
-            IS_LOWER,
-        ] {
-            assert_eq!(arity(name), Some((1, 1)), "arity {name}");
-            assert!(implementation_name(name).is_some(), "impl {name}");
-        }
-        assert_eq!(implementation_name("strings.trim"), None);
-    }
-
     fn parse_file(src: &str) -> crate::ast::AstFile {
         crate::ast::parse_source(std::path::Path::new("t.mfb"), "t.mfb", src).unwrap()
     }
@@ -1018,125 +923,4 @@ END TESTING
         assert_eq!(augmented_project(&plain).unwrap().files.len(), 1);
     }
 
-    // The full set of strings names including the scalar-seam members (ALL above
-    // stops at REPLACE), for exhaustive parity iteration.
-    const ALL_INCL_SEAM: &[&str] = &[
-        TRIM,
-        TRIM_START,
-        TRIM_END,
-        UPPER,
-        LOWER,
-        CASE_FOLD,
-        NORMALIZE_NFC,
-        GRAPHEMES,
-        STARTS_WITH,
-        ENDS_WITH,
-        CONTAINS,
-        SPLIT,
-        JOIN,
-        BYTE_LEN,
-        STARTS_WITH_ANY,
-        ENDS_WITH_ANY,
-        STRIP_PREFIX,
-        STRIP_SUFFIX,
-        COUNT,
-        LEFT,
-        RIGHT,
-        REPEAT,
-        PAD_LEFT,
-        PAD_RIGHT,
-        GRAPHEME_AT,
-        GRAPHEMES_COUNT,
-        TRIM_CHARS,
-        TO_BYTES,
-        FIND,
-        MID,
-        REPLACE,
-        TO_SCALARS,
-        FROM_SCALARS,
-        IS_LETTER,
-        IS_DIGIT,
-        IS_WHITESPACE,
-        IS_UPPER,
-        IS_LOWER,
-    ];
-
-    // plan-72-V migration gate: prove `STRINGS` reproduces every legacy answer.
-    // `strings` carries a resolver (for the scalar-seam source predicate only), so
-    // `assert_parity` skips the data-only return/impl/padding rows — assert those
-    // explicitly here. `expected_arguments` is bespoke (`[, T]`) and not asserted.
-    // Kept until plan-72-BB.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::{parity, DefaultResolver, InjectionRule, REGISTRY};
-
-        assert_eq!(STRINGS.functions.len(), ALL_INCL_SEAM.len());
-
-        let legacy = parity::LegacySet {
-            is_call: &is_strings_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            return_type_name: &call_return_type_name,
-            // Bespoke bracket phrasing — not descriptor-derivable.
-            expected_arguments: None,
-            param_name_overloads: None,
-            argument_types: None,
-            implementation_name: None,
-            default_padding: None,
-            builtin_type_fields: None,
-        };
-        let mut probe = ALL_INCL_SEAM.to_vec();
-        probe.push("strings.nope");
-        parity::assert_parity(&STRINGS, &probe, &legacy, &[]);
-
-        // The resolver skips these in assert_parity; assert them directly so the
-        // wrappers stay pinned to the descriptor.
-        for &name in ALL_INCL_SEAM {
-            assert_eq!(
-                DefaultResolver::return_type_name(&STRINGS, name),
-                call_return_type_name(name),
-                "return-type for {name}"
-            );
-            assert_eq!(
-                DefaultResolver::implementation_name(&STRINGS, name),
-                implementation_name(name),
-                "implementation-name for {name}"
-            );
-            // Every optional arg is `Optional`, never `Fill`, so no call ever pads.
-            let (_, max) = arity(name).unwrap();
-            for provided in 0..=max {
-                assert!(
-                    DefaultResolver::default_padding(&STRINGS, name, provided).is_empty(),
-                    "no default padding for {name} at {provided} args"
-                );
-            }
-        }
-        // The seven scalar-seam members rewrite to `__strings_*`; everyone else is
-        // native (no rewrite).
-        assert_eq!(implementation_name(TO_SCALARS), Some("__strings_toScalars"));
-        assert_eq!(implementation_name(IS_LOWER), Some("__strings_isLower"));
-        assert_eq!(implementation_name(TRIM), None);
-
-        // Source companion: `WhenUsed`, and the resolver's `uses_source` predicate
-        // is the load-bearing `uses_package` scalar-seam walk.
-        let source = STRINGS.source.expect("strings has a source companion");
-        assert_eq!(source.rule, InjectionRule::WhenUsed);
-        assert!((source.loader)().is_ok());
-        let seam = project(vec![parse_file(SEAM_SOURCE)]);
-        let plain = project(vec![parse_file(
-            "IMPORT strings\n\nFUNC f() AS Nothing\n  LET x AS Integer = 1\nEND FUNC\n",
-        )]);
-        let resolver = STRINGS.resolver.expect("strings has a resolver");
-        assert_eq!(resolver.uses_source(&STRINGS, &seam), Some(true));
-        assert_eq!(resolver.uses_source(&STRINGS, &seam), Some(uses_package(&seam)));
-        assert_eq!(resolver.uses_source(&STRINGS, &plain), Some(uses_package(&plain)));
-
-        // Registered and well-formed alongside every other package.
-        assert!(REGISTRY.module("strings").is_some());
-        assert!(REGISTRY.function(SPLIT).is_some());
-        assert_eq!(REGISTRY.duplicate_module_name(), None);
-        assert_eq!(REGISTRY.duplicate_function_name(), None);
-    }
 }

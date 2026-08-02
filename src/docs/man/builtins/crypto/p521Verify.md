@@ -66,7 +66,7 @@ per call), but a signature and its verdict do not depend on that nonce.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` if `signature` is a valid P-521/SHA-512 signature of `message` under `publicKey`; `FALSE` if it is not (including an unparsable signature). A `FALSE` result is a normal outcome, not an error. [[src/builtins/crypto.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` if `signature` is a valid P-521/SHA-512 signature of `message` under `publicKey`; `FALSE` if it is not (including an unparsable signature). A `FALSE` result is a normal outcome, not an error. [[src/builtins/crypto.rs:CRYPTO]] |
 
 ## Errors
 

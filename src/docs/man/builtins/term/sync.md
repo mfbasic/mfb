@@ -77,7 +77,7 @@ coalesced redraw of the terminal view.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of presenting the frame. [[src/builtins/term.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of presenting the frame. [[src/builtins/term.rs:TERM]] |
 
 ## Errors
 

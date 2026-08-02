@@ -77,7 +77,7 @@ streams without end. [[src/builtins/http_package.mfb:__HTTP_MAX_RESPONSE]]
 **`http::write(url AS net::Url, body AS String) AS Response`**
 
 Sends `body` with the default `POST` method and no caller headers.
-[[src/builtins/http.rs:resolve_call]]
+[[src/builtins/http.rs:HTTP]]
 
 **`http::write(url AS net::Url, body AS String, headers AS Map OF String TO String) AS Response`**
 
@@ -87,7 +87,7 @@ Sends `body` with the supplied headers, still using the default `POST` method.
 
 Sends `body` with the supplied headers using an explicit body-carrying method
 (uppercased). This is the full form; the shorter overloads default `headers` to
-an empty map and `method` to `POST`. [[src/builtins/http.rs:arity]]
+an empty map and `method` to `POST`. [[src/builtins/http.rs:HTTP]]
 
 ## Parameters
 

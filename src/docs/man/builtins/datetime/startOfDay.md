@@ -60,7 +60,7 @@ different zone or DST rule.
 
 | Type | Description |
 | --- | --- |
-| `DateTime` | A `DateTime` on the same calendar date and in the same zone as `dt`, with the wall-clock time set to `00:00:00` and zero nanoseconds, carrying the UTC offset re-resolved for local midnight on that date. The value round-trips through `datetime::resolve` and `datetime::inZone`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `DateTime` | A `DateTime` on the same calendar date and in the same zone as `dt`, with the wall-clock time set to `00:00:00` and zero nanoseconds, carrying the UTC offset re-resolved for local midnight on that date. The value round-trips through `datetime::resolve` and `datetime::inZone`. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

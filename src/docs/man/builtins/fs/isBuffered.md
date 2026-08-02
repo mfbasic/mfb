@@ -52,7 +52,7 @@ observes `FALSE`.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when output buffering is enabled for this handle; `FALSE` otherwise (including on a freshly opened handle that has never enabled it). [[src/builtins/fs.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when output buffering is enabled for this handle; `FALSE` otherwise (including on a freshly opened handle that has never enabled it). [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

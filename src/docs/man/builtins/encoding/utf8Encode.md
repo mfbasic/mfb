@@ -65,8 +65,8 @@ when the call is used where a `List OF Integer` is expected. [[src/builtins/enco
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The UTF-8 bytes of `value`, one element per byte (`0..255`); empty for the empty string. [[src/builtins/encoding.rs:call_return_type_name]] |
-| `List OF Integer` | The same UTF-8 byte values as `Integer` elements (`0..255`). [[src/builtins/encoding.rs:call_return_type_name]] |
+| `List OF Byte` | The UTF-8 bytes of `value`, one element per byte (`0..255`); empty for the empty string. [[src/builtins/encoding.rs:ENCODING]] |
+| `List OF Integer` | The same UTF-8 byte values as `Integer` elements (`0..255`). [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 
@@ -77,7 +77,7 @@ No errors.
 `utf8Encode` takes exactly one `String` argument. The return type is a return-type
 overload resolved to `List OF Byte` or `List OF Integer` from the expected type;
 with no expected type to disambiguate, the call is a compile-time
-`TYPE_OVERLOAD_AMBIGUOUS` error. [[src/builtins/encoding.rs:resolve_overload_target]] [[src/builtins/encoding.rs:arity]]
+`TYPE_OVERLOAD_AMBIGUOUS` error. [[src/builtins/encoding.rs:resolve_overload_target]] [[src/builtins/encoding.rs:ENCODING]]
 
 ## Examples
 

@@ -99,7 +99,7 @@ No errors.
 ## Type checking
 
 `collections::getOr` takes exactly three arguments.
-[[src/builtins/collections.rs:arity]]
+[[src/builtins/collections.rs:COLLECTIONS]]
 
 If the first argument is a `List OF T`, the second must be exactly `Integer`,
 the third must be exactly `T`, and the call has type `T`. Otherwise the first

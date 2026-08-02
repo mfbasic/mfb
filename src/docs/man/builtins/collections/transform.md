@@ -40,7 +40,7 @@ The element type of the result is `f`'s success type `U`, so mapping a
 cannot be passed here; wrap it in a one-line `FUNC` of your own instead. The
 single-argument `general` predicates (`isEven`, `isOdd`, and friends) *are*
 ordinary callables and can be passed directly where their type fits.
-[[src/builtins/general.rs:arity]]
+[[src/builtins/general.rs:GENERAL]]
 
 `f` must produce a value: a callback whose success type is `Nothing` — such as a
 `SUB` — does not resolve, because there would be nothing to collect. Use
@@ -95,7 +95,7 @@ as `List OF U`. Passing a non-list first argument, an `f` of the wrong arity, an
 `f` whose parameter type differs from `T`, or an `f` that returns `Nothing` is a
 compile-time type error — no overload resolves.
 [[src/builtins/collections.rs:resolve_transform]]
-[[src/builtins/collections.rs:expected_arguments]]
+[[src/builtins/collections.rs:COLLECTIONS]]
 
 ## Examples
 

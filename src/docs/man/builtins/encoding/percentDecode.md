@@ -51,7 +51,7 @@ being passed through or replaced. [[src/builtins/encoding_package.mfb:__encoding
 
 | Type | Description |
 | --- | --- |
-| `String` | The decoded text: each `%XX` escape replaced by its byte, all other bytes verbatim, and the whole interpreted as UTF-8. The empty string for empty input. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `String` | The decoded text: each `%XX` escape replaced by its byte, all other bytes verbatim, and the whole interpreted as UTF-8. The empty string for empty input. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

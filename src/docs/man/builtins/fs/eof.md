@@ -61,7 +61,7 @@ file.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `file`'s read position is at or beyond the end of its contents, `FALSE` when one or more bytes remain to be read. An empty file reports `TRUE`. The read position is unchanged either way. [[src/builtins/fs.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when `file`'s read position is at or beyond the end of its contents, `FALSE` when one or more bytes remain to be read. An empty file reports `TRUE`. The read position is unchanged either way. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

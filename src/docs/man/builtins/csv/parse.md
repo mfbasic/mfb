@@ -18,7 +18,7 @@ csv
 IMPORT csv
 ```
 
-`csv` is a built-in package, so `IMPORT csv` needs no manifest dependency. [[src/builtins/csv.rs:call_return_type_name]]
+`csv` is a built-in package, so `IMPORT csv` needs no manifest dependency. [[src/builtins/csv.rs:CSV]]
 
 ## Description
 

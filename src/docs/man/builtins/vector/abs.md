@@ -83,7 +83,7 @@ Fails with `ErrOverflow` if any component is the minimum representable
 
 | Type | Description |
 | --- | --- |
-| the same type as `v` | A new vector of the same type and dimension whose components are the absolute values of `v`'s components, in the same order. A vector that is already all non-negative is returned with identical components. [[src/builtins/vector.rs:resolve_call]] |
+| the same type as `v` | A new vector of the same type and dimension whose components are the absolute values of `v`'s components, in the same order. A vector that is already all non-negative is returned with identical components. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -98,7 +98,7 @@ is selected at compile time from the exact record type of the single argument;
 no implicit conversion or numeric promotion is applied to a vector argument, and
 a non-vector argument or any arity other than one is rejected by the syntax
 check. The return type is always the argument's own type.
-[[src/builtins/vector.rs:resolve_call]] [[src/builtins/vector.rs:arity]]
+[[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:VECTOR]]
 
 ## Examples
 

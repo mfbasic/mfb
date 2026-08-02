@@ -74,7 +74,7 @@ terminal, defaults restored, and the previously drawn frame discarded. Guard wit
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of entering TUI mode. [[src/builtins/term.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of entering TUI mode. [[src/builtins/term.rs:TERM]] |
 
 ## Errors
 

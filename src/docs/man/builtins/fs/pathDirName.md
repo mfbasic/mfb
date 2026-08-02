@@ -59,7 +59,7 @@ external state and has no side effects other than allocating the returned
 
 | Type | Description |
 | --- | --- |
-| `String` | The directory portion of `path`, with no trailing separator unless it is the root `/`. Returns `"."` when `path` has no separator or is empty, and `"/"` when the only separator is a leading one or `path` is `"/"` itself. [[src/builtins/fs.rs:call_return_type_name]] |
+| `String` | The directory portion of `path`, with no trailing separator unless it is the root `/`. Returns `"."` when `path` has no separator or is empty, and `"/"` when the only separator is a leading one or `path` is `"/"` itself. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

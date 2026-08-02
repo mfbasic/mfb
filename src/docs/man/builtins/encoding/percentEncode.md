@@ -55,7 +55,7 @@ encoded as `+`, use `encoding::formUrlEncode` instead. [[src/builtins/encoding_p
 
 | Type | Description |
 | --- | --- |
-| `String` | The percent-encoded form of `text`: unreserved bytes verbatim, all others as `%XX` with uppercase hex. The empty string for empty input. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `String` | The percent-encoded form of `text`: unreserved bytes verbatim, all others as `%XX` with uppercase hex. The empty string for empty input. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

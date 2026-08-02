@@ -58,7 +58,7 @@ side effects.
 
 | Type | Description |
 | --- | --- |
-| `Time` | A `Time` holding the validated `hour`, `minute`, `second`, and `nanos`. Returned only when all four components fall within their civil ranges. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Time` | A `Time` holding the validated `hour`, `minute`, `second`, and `nanos`. Returned only when all four components fall within their civil ranges. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

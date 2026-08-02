@@ -48,7 +48,7 @@ compile time, and the parent observes a worker's liveness with
 of the worker, so `isCancelled` never reverts from `TRUE` to `FALSE`. Dropping a
 still-running parent `Thread` handle also sets the flag, so a worker whose parent
 handle went out of scope sees cancellation just as it would after an explicit
-`thread::cancel`. [[src/builtins/thread.rs:resolve_call]] [[src/target/shared/code/runtime_helpers_thread.rs:simple_thread_handle_helper]]
+`thread::cancel`. [[src/builtins/thread.rs:THREAD]] [[src/target/shared/code/runtime_helpers_thread.rs:simple_thread_handle_helper]]
 
 ## Parameters
 
@@ -60,7 +60,7 @@ handle went out of scope sees cancellation just as it would after an explicit
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` if cancellation has been requested for this worker (by `thread::cancel` or by the parent handle being dropped while the worker still runs); `FALSE` otherwise. [[src/builtins/thread.rs:resolve_call]] |
+| `Boolean` | `TRUE` if cancellation has been requested for this worker (by `thread::cancel` or by the parent handle being dropped while the worker still runs); `FALSE` otherwise. [[src/builtins/thread.rs:THREAD]] |
 
 ## Errors
 

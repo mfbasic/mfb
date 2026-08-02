@@ -56,7 +56,7 @@ opening and closing the file descriptor, the call has no side effects.
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The complete contents of the file as a `List OF Byte`, in file order. An empty file returns an empty list. [[src/builtins/fs.rs:call_return_type_name]] |
+| `List OF Byte` | The complete contents of the file as a `List OF Byte`, in file order. An empty file returns an empty list. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

@@ -20,7 +20,7 @@ None. `general` functions are always available without an `IMPORT` statement. [[
 
 `isEven` returns `TRUE` when `value` is even and `FALSE` when it is odd. An
 integer is even when it is evenly divisible by two, that is when `value MOD 2`
-is `0`. [[src/builtins/general.rs:resolve_call]]
+is `0`. [[src/builtins/general.rs:GENERAL]]
 
 The test inspects only the low bit of `value`'s two's-complement representation
 (`value AND 1`), so it is exact for the whole `Integer` range with no division.
@@ -56,7 +56,7 @@ No errors.
 `isEven` accepts only an `Integer` argument and returns `Boolean`. Calling it
 with any other type is a compile-time error. Like other `general` predicates it
 may be overridden by a user- or package-defined `FUNC` of the same name for its
-own value types. [[src/builtins/general.rs:resolve_call]]
+own value types. [[src/builtins/general.rs:GENERAL]]
 
 ## Examples
 

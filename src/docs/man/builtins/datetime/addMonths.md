@@ -63,7 +63,7 @@ effects. [[src/builtins/datetime_package.mfb:__datetime_civil]]
 
 | Type | Description |
 | --- | --- |
-| `DateTime` | The `DateTime` `dt` shifted by `months` calendar months, holding the new year and month, the original day-of-month clamped down to the target month's length when necessary, `dt`'s original time of day (re-resolved against `dt`'s zone for the new offset), and `dt`'s original zone. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `DateTime` | The `DateTime` `dt` shifted by `months` calendar months, holding the new year and month, the original day-of-month clamped down to the target month's length when necessary, `dt`'s original time of day (re-resolved against `dt`'s zone for the new offset), and `dt`'s original zone. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

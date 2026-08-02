@@ -62,7 +62,7 @@ the host cannot determine the executable path, `os::resourcePath` raises
 
 | Type | Description |
 | --- | --- |
-| `String` | The absolute on-disk path of the resource. [[src/builtins/os.rs:call_return_type_name]] |
+| `String` | The absolute on-disk path of the resource. [[src/builtins/os.rs:OS]] |
 
 ## Errors
 

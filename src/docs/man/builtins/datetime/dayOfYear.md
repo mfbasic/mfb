@@ -26,7 +26,7 @@ IMPORT datetime
 `datetime::dayOfYear` returns the ordinal position of `dt`'s civil date within
 its calendar year: `1` for January 1, `2` for January 2, and so on through `365`
 in a common year or `366` in a leap year (the value reached on December 31).
-[[src/builtins/datetime.rs:call_return_type_name]]
+[[src/builtins/datetime.rs:DATETIME]]
 
 The result is derived solely from the calendar date fields carried by `dt` — its
 year, month, and day as stored in `dt`'s own zone. The day-of-year is computed on
@@ -55,7 +55,7 @@ years. [[src/builtins/datetime_package.mfb:__datetime_dayOfYear]]
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The 1-based ordinal day of `dt`'s civil date within its year, from `1` for January 1 through `365` (common year) or `366` (leap year) for December 31. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Integer` | The 1-based ordinal day of `dt`'s civil date within its year, from `1` for January 1 through `365` (common year) or `366` (leap year) for December 31. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

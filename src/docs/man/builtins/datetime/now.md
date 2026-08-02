@@ -51,13 +51,13 @@ reproducible logic, capture a single instant and derive everything else from it.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `datetime::now` takes no arguments. [[src/builtins/datetime.rs:arity]] |
+| — | — | `datetime::now` takes no arguments. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Instant` | The current instant on the UTC timeline. The `seconds` field holds whole seconds since `1970-01-01T00:00:00Z` and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. Two calls may return different instants depending on the host clock. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Instant` | The current instant on the UTC timeline. The `seconds` field holds whole seconds since `1970-01-01T00:00:00Z` and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. Two calls may return different instants depending on the host clock. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

@@ -57,7 +57,7 @@ returned `String`. [[src/target/shared/code/builder_fs_paths.rs:lower_fs_path_ba
 
 | Type | Description |
 | --- | --- |
-| `String` | The final component of `path`, with no leading separator. Returns `path` unchanged when it has no separator, `"/"` when `path` is `"/"` or consists only of separators, and an empty `String` when `path` is empty. [[src/builtins/fs.rs:call_return_type_name]] |
+| `String` | The final component of `path`, with no leading separator. Returns `path` unchanged when it has no separator, `"/"` when `path` is `"/"` or consists only of separators, and an empty `String` when `path` is empty. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

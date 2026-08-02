@@ -67,7 +67,7 @@ paths. [[src/target/shared/abi.rs:arithmetic_shift_right_variable]] [[src/arch/a
 
 | Type | Description |
 | --- | --- |
-| `Integer` | `value` shifted right by `count` bits, with vacated high bits set to the original sign bit and bits below bit 0 discarded. Equal to `value` when `count` is `0`. [[src/builtins/bits.rs:call_return_type_name]] |
+| `Integer` | `value` shifted right by `count` bits, with vacated high bits set to the original sign bit and bits below bit 0 discarded. Equal to `value` when `count` is `0`. [[src/builtins/bits.rs:BITS]] |
 
 ## Errors
 

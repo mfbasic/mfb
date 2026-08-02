@@ -64,7 +64,7 @@ the same non-empty delimiter reproduces `value` exactly — `split` and
 
 | Type | Description |
 | --- | --- |
-| `List OF String` | The substrings lying between successive matches, in left-to-right order. Length is always the match count plus one, so the list is never empty; with no match it holds `value` as its single element. [[src/builtins/strings.rs:call_return_type_name]] |
+| `List OF String` | The substrings lying between successive matches, in left-to-right order. Length is always the match count plus one, so the list is never empty; with no match it holds `value` as its single element. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

@@ -36,13 +36,13 @@ path. If the host cannot determine the path, `os::executablePath` raises
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `os::executablePath` takes no arguments. [[src/builtins/os.rs:arity]] |
+| — | — | `os::executablePath` takes no arguments. [[src/builtins/os.rs:OS]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The path to the running executable. [[src/builtins/os.rs:call_return_type_name]] |
+| `String` | The path to the running executable. [[src/builtins/os.rs:OS]] |
 
 ## Errors
 

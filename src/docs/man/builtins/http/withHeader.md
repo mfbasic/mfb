@@ -71,7 +71,7 @@ The first parameter is also accepted under the name `response`.
 
 | Type | Description |
 | --- | --- |
-| `Response` | A copy of `resp` whose `headers` map additionally maps `name` to `value`; all other fields are unchanged. [[src/builtins/http.rs:call_return_type_name]] |
+| `Response` | A copy of `resp` whose `headers` map additionally maps `name` to `value`; all other fields are unchanged. [[src/builtins/http.rs:HTTP]] |
 
 ## Errors
 

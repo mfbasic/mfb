@@ -83,7 +83,7 @@ raw-bytes equivalent of this function, use `fs::writeBytesAtomic`.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing on success, after every byte has been written, flushed, the temporary file has been closed, and the rename over `path` has completed. [[src/builtins/fs.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing on success, after every byte has been written, flushed, the temporary file has been closed, and the rename over `path` has completed. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

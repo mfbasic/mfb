@@ -41,7 +41,7 @@ to it; and the `fs::writeTextAtomic` and `fs::writeBytesAtomic` variants stage
 the new contents in a temporary file and swap it in with an OS rename so readers
 never observe a partial write. Text functions require and produce well-formed
 UTF-8; byte functions transfer a `List OF Byte` verbatim, with no encoding or
-newline translation, and so suit binary data. [[src/builtins/fs.rs:call_return_type_name]]
+newline translation, and so suit binary data. [[src/builtins/fs.rs:FS]]
 
 Handle functions work through the opaque `File` resource type. `fs::open`,
 `fs::openFile`, `fs::openFileNoFollow`, and `fs::createTempFile` return a `File`;

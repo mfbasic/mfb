@@ -77,7 +77,7 @@ duration of the line read and single-key raw mode is re-applied afterwards, so a
 
 | Type | Description |
 | --- | --- |
-| `String` | The next line of input with its trailing LF, and a preceding CR if present, removed. An empty line returns an empty `String`; a final unterminated line returns the remaining bytes. [[src/builtins/io.rs:call_return_type_name]] |
+| `String` | The next line of input with its trailing LF, and a preceding CR if present, removed. An empty line returns an empty `String`; a final unterminated line returns the remaining bytes. [[src/builtins/io.rs:IO]] |
 
 ## Errors
 

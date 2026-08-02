@@ -25,7 +25,7 @@ returns it decoded as a UTF-8 `String`. A single call performs one underlying TL
 read: it returns as soon as any plaintext is available rather than waiting to
 fill the requested size, so the returned `String` is frequently built from fewer
 than `maxBytes` bytes. The socket must still be open.
-[[src/builtins/tls.rs:call_return_type_name]]
+[[src/builtins/tls.rs:TLS]]
 
 The call blocks until at least one byte of application data has been decrypted,
 the peer closes its side of the TLS session, or the underlying read fails.
@@ -64,7 +64,7 @@ missing — `readText` raises `ErrTlsFailed`. [[src/builtins/tls.rs:TLS_SOCKET_T
 
 | Type | Description |
 | --- | --- |
-| `String` | The decrypted bytes received in this read, decoded as UTF-8, in the order they arrived. The `String` is built from between `1` and `maxBytes` bytes inclusive. End of stream is not reported as an empty `String`; it is reported as an `ErrConnectionClosed` error. [[src/builtins/tls.rs:call_return_type_name]] |
+| `String` | The decrypted bytes received in this read, decoded as UTF-8, in the order they arrived. The `String` is built from between `1` and `maxBytes` bytes inclusive. End of stream is not reported as an empty `String`; it is reported as an `ErrConnectionClosed` error. [[src/builtins/tls.rs:TLS]] |
 
 ## Errors
 

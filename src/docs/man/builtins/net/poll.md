@@ -48,7 +48,7 @@ described in the language specification is deliberately **not** implemented: the
 ownership model forbids resource handles as collection elements, so a
 `List OF Socket` value cannot be constructed and the overload would be
 unreachable. Poll each socket individually.
-[[src/builtins/net.rs:resolve_call]]
+[[src/builtins/net.rs:NET]]
 
 A signal that interrupts the underlying wait re-issues it rather than surfacing a
 failure. `net::poll` complements `net::setReadTimeout`: `poll` asks whether a read
@@ -78,7 +78,7 @@ a non-blocking check.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when the socket is readable — a following `net::read` or `net::readText` will not block, including when that read would report end of stream. `FALSE` when nothing became readable before the deadline. [[src/builtins/net.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when the socket is readable — a following `net::read` or `net::readText` will not block, including when that read would report end of stream. `FALSE` when nothing became readable before the deadline. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

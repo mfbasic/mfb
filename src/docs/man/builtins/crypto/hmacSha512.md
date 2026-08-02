@@ -27,7 +27,7 @@ IMPORT crypto
 `crypto::hmacSha512` computes the keyed-hash message authentication code of
 `data` under `key`, using SHA-512 as the underlying hash, as specified by
 RFC 2104. It returns a fixed 64-byte (512-bit) MAC as a `List OF Byte`.
-[[src/builtins/crypto.rs:call_return_type_name]]
+[[src/builtins/crypto.rs:CRYPTO]]
 
 Keys of any length are accepted. Per RFC 2104, a key longer than the 128-byte
 SHA-512 block size is first hashed down to 64 bytes, and any key shorter than
@@ -74,7 +74,7 @@ selects the `_text` implementation body.
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The 64-byte HMAC-SHA-512 code of `data` under `key`. Always exactly 64 bytes regardless of input length. [[src/builtins/crypto.rs:call_return_type_name]] |
+| `List OF Byte` | The 64-byte HMAC-SHA-512 code of `data` under `key`. Always exactly 64 bytes regardless of input length. [[src/builtins/crypto.rs:CRYPTO]] |
 
 ## Errors
 
@@ -85,7 +85,7 @@ No errors.
 The first argument (`key`) must be a `List OF Byte`. The second argument (`data`)
 must be either a `List OF Byte` or a `String`; no other type resolves. Exactly
 two arguments are required. The return type is always `List OF Byte`.
-[[src/builtins/crypto.rs:resolve_call]] [[src/builtins/crypto.rs:arity]]
+[[src/builtins/crypto.rs:CRYPTO]] [[src/builtins/crypto.rs:CRYPTO]]
 
 ## Examples
 

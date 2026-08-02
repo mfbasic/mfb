@@ -53,7 +53,7 @@ nor the shadow grid, and it cannot fail.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when TUI mode is on, `FALSE` otherwise. [[src/builtins/term.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when TUI mode is on, `FALSE` otherwise. [[src/builtins/term.rs:TERM]] |
 
 ## Errors
 

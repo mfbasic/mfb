@@ -28,7 +28,7 @@ elapsed time, in whole nanoseconds, from an arbitrary fixed origin chosen by the
 operating system. It is the low-level OS-seam intrinsic that backs
 `datetime::monotonic`: where `monotonic` packages the reading into a `Duration`,
 `monotonicNanos` returns the same value as a single raw `Integer` count of
-nanoseconds. [[src/builtins/datetime.rs:call_return_type_name]]
+nanoseconds. [[src/builtins/datetime.rs:DATETIME]]
 
 The clock never moves backward: a later call always returns a value that is
 greater than or equal to an earlier one. The reading is unrelated to wall-clock
@@ -59,13 +59,13 @@ and has no side effects. The reading always succeeds — the intrinsic returns a
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `datetime::monotonicNanos` takes no arguments. [[src/builtins/datetime.rs:arity]] |
+| — | — | `datetime::monotonicNanos` takes no arguments. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | Whole nanoseconds elapsed from the OS-chosen monotonic origin to the moment of the call. The value is non-decreasing across calls within a single process run. Only differences between two readings are meaningful; a single reading has no fixed reference point. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Integer` | Whole nanoseconds elapsed from the OS-chosen monotonic origin to the moment of the call. The value is non-decreasing across calls within a single process run. Only differences between two readings are meaningful; a single reading has no fixed reference point. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

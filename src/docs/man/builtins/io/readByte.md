@@ -62,7 +62,7 @@ must subscribe with `thread::openStdIn` before reading, or the call raises
 
 | Type | Description |
 | --- | --- |
-| `Byte` | The next byte of standard input, 0 through 255, uninterpreted. [[src/builtins/io.rs:call_return_type_name]] |
+| `Byte` | The next byte of standard input, 0 through 255, uninterpreted. [[src/builtins/io.rs:IO]] |
 
 ## Errors
 

@@ -68,7 +68,7 @@ host state and has no side effects. [[src/builtins/datetime_package.mfb:__dateti
 
 | Type | Description |
 | --- | --- |
-| `DateTime` | A fixed-offset `DateTime` built from the decoded year, month, day, hour, minute, second, and fractional nanoseconds, carrying the offset named by `value`'s `Z` / `+HH:MM` field. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `DateTime` | A fixed-offset `DateTime` built from the decoded year, month, day, hour, minute, second, and fractional nanoseconds, carrying the offset named by `value`'s `Z` / `+HH:MM` field. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

@@ -37,7 +37,7 @@ every `Integer` and never raises; only the variable-shift ops (`sl`/`sr`/`sra`)
 can raise a `bits::` error — has no side effects, and lowers to a native
 doubleword byte-reversal instruction (`rev Xd, Xn`) inline rather than calling a
 runtime helper, producing identical results on the native and Binary
-Representation execution paths. [[src/builtins/bits.rs:call_return_type_name]] [[src/builtins/bits.rs:is_bits_shift]] [[src/target/shared/abi.rs:reverse_bytes]] [[src/target/shared/code/builder_bits.rs:lower_bits_bswap]]
+Representation execution paths. [[src/builtins/bits.rs:BITS]] [[src/builtins/bits.rs:is_bits_shift]] [[src/target/shared/abi.rs:reverse_bytes]] [[src/target/shared/code/builder_bits.rs:lower_bits_bswap]]
 
 ## Parameters
 
@@ -49,7 +49,7 @@ Representation execution paths. [[src/builtins/bits.rs:call_return_type_name]] [
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The fully byte-reversed value, with byte `0` and byte `7` exchanged, byte `1` and byte `6` exchanged, byte `2` and byte `5` exchanged, and byte `3` and byte `4` exchanged. No bits are cleared. [[src/builtins/bits.rs:call_return_type_name]] |
+| `Integer` | The fully byte-reversed value, with byte `0` and byte `7` exchanged, byte `1` and byte `6` exchanged, byte `2` and byte `5` exchanged, and byte `3` and byte `4` exchanged. No bits are cleared. [[src/builtins/bits.rs:BITS]] |
 
 ## Errors
 

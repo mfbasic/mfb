@@ -60,7 +60,7 @@ Blocks until a connection is ready and the handshake completes.
 **`tls::accept(listener AS TlsListener, timeoutMs AS Integer) AS TlsSocket`**
 
 As above, but fails with `ErrTimeout` if a connection and handshake do not
-complete within `timeoutMs` milliseconds. [[src/builtins/tls.rs:resolve_call]]
+complete within `timeoutMs` milliseconds. [[src/builtins/tls.rs:TLS]]
 
 ## Parameters
 
@@ -73,7 +73,7 @@ complete within `timeoutMs` milliseconds. [[src/builtins/tls.rs:resolve_call]]
 
 | Type | Description |
 | --- | --- |
-| `TlsSocket` | A connected `TlsSocket` for the accepted client, with the server handshake complete, ready for reading and writing. Byte-for-byte interchangeable with a client `TlsSocket`. Closed by lexical drop at scope exit unless closed earlier with `tls::close`. [[src/builtins/tls.rs:call_return_type_name]] |
+| `TlsSocket` | A connected `TlsSocket` for the accepted client, with the server handshake complete, ready for reading and writing. Byte-for-byte interchangeable with a client `TlsSocket`. Closed by lexical drop at scope exit unless closed earlier with `tls::close`. [[src/builtins/tls.rs:TLS]] |
 
 ## Errors
 

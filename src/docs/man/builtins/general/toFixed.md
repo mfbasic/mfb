@@ -26,7 +26,7 @@ fixed-point type. A `Fixed` value is stored as a signed 64-bit Q32.32 number: a
 signed 32-bit integer part in the high half and a 32-bit fractional part in the low
 half, so its representable values run from `-2147483648.0` up to just below
 `2147483648.0` with a fractional resolution of `1/2^32`. Its behavior and whether it
-can fail depend on the argument type, which selects the overload. [[src/target/shared/code/builder_conversions.rs:lower_to_fixed]] [[src/builtins/general.rs:resolve_call]]
+can fail depend on the argument type, which selects the overload. [[src/target/shared/code/builder_conversions.rs:lower_to_fixed]] [[src/builtins/general.rs:GENERAL]]
 
 The `String` overload parses decimal fixed-point text. An optional single leading
 sign — `-` or `+` — is accepted, followed by one or more decimal digits and an
@@ -103,7 +103,7 @@ Rescales a `Money` value into `Fixed`, exactly when it fits the `Fixed` range.
 
 `toFixed` accepts only `String`, `Integer`, `Float`, and `Money` values; any other
 argument type or arity is a compile-time error. Convert unsupported values to one of
-these types explicitly first. [[src/builtins/general.rs:resolve_call]] [[src/builtins/general.rs:arity]]
+these types explicitly first. [[src/builtins/general.rs:GENERAL]] [[src/builtins/general.rs:GENERAL]]
 
 ## Examples
 

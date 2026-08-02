@@ -60,7 +60,7 @@ apply spans with `datetime::plus`, `datetime::minus`, `datetime::negate`,
 
 | Type | Description |
 | --- | --- |
-| `Duration` | The signed span `finish - start`. Its `seconds` field holds the normalized whole-second component (negative when `finish` precedes `start`) and its `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. Equal instants yield a zero `Duration`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Duration` | The signed span `finish - start`. Its `seconds` field holds the normalized whole-second component (negative when `finish` precedes `start`) and its `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. Equal instants yield a zero `Duration`. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

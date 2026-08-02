@@ -69,19 +69,19 @@ underrun per idle buffer. Both overloads return an `Integer` and share one
 internal body and one runtime symbol (`_mfb_rt_audio_audio_xruns`); the direction
 is read from the handle at runtime. Each stream still has its own counter, in its
 own state block.
-[[src/builtins/audio.rs:resolve_call]][[src/target/shared/runtime/audio_specs.rs:AUDIO_XRUNS_SPEC]][[src/target/shared/code/audio/macos.rs:lower_audio_output_callback]]
+[[src/builtins/audio.rs:AUDIO]][[src/target/shared/runtime/audio_specs.rs:AUDIO_XRUNS_SPEC]][[src/target/shared/code/audio/macos.rs:lower_audio_output_callback]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `stream` | `AudioInput` or `AudioOutput` | An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Borrowed, not consumed. A closed handle reports `0`. [[src/builtins/audio.rs:resolve_call]][[src/builtins/audio.rs:consumes_argument]] |
+| `stream` | `AudioInput` or `AudioOutput` | An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Borrowed, not consumed. A closed handle reports `0`. [[src/builtins/audio.rs:AUDIO]][[src/builtins/audio.rs:consumes_argument]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The cumulative xrun event count since the stream was opened; `0` when no audio has been lost, and `0` for a closed or defaulted handle. [[src/builtins/audio.rs:call_return_type_name]] |
+| `Integer` | The cumulative xrun event count since the stream was opened; `0` when no audio has been lost, and `0` for a closed or defaulted handle. [[src/builtins/audio.rs:AUDIO]] |
 
 ## Errors
 

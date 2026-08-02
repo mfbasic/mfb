@@ -66,7 +66,7 @@ more convenient than raw bytes.
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The bytes received in this read, in arrival order, with length between `1` and `maxBytes` inclusive. End of stream is reported as `ErrConnectionClosed`, never as an empty list. [[src/builtins/net.rs:call_return_type_name]] |
+| `List OF Byte` | The bytes received in this read, in arrival order, with length between `1` and `maxBytes` inclusive. End of stream is reported as `ErrConnectionClosed`, never as an empty list. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

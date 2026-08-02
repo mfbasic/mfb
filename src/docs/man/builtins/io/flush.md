@@ -25,7 +25,7 @@ IMPORT io
 
 `io::flush` writes out any bytes currently held in this thread's MFBASIC
 standard-output buffer and returns nothing. It takes no arguments.
-[[src/builtins/io.rs:arity]]
+[[src/builtins/io.rs:IO]]
 
 The call is **drain-only**. It issues the pending bytes with a `write` loop and
 reports whether that write succeeded; it deliberately does *not* `fsync` or
@@ -68,7 +68,7 @@ succeeds immediately. [[src/target/shared/code/mod.rs:lower_runtime_helper]]
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of draining the standard-output buffer. [[src/builtins/io.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of draining the standard-output buffer. [[src/builtins/io.rs:IO]] |
 
 ## Errors
 

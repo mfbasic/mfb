@@ -22,7 +22,7 @@ None. `general` functions are always available without an `IMPORT` statement. [[
 
 `len` returns the size of `value` as an `Integer`. The meaning of "size" depends
 on the kind of value supplied, and the argument must be a `String`, a `List OF T`,
-or a `Map OF K TO V`; any other argument type is a compile-time error. [[src/builtins/general.rs:resolve_call]]
+or a `Map OF K TO V`; any other argument type is a compile-time error. [[src/builtins/general.rs:GENERAL]]
 
 For a `String`, `len` returns the number of Unicode scalar values it contains,
 counted by scanning the UTF-8 bytes and counting every leading (non-continuation)
@@ -79,7 +79,7 @@ No errors.
 `len` is generic over its single argument and accepts a `String`, a `List OF T`,
 or a `Map OF K TO V`. It takes exactly one argument; any other arity or an
 argument of any other type is rejected at compile time. The element type `T` and
-the map key and value types `K` and `V` are unconstrained. [[src/builtins/general.rs:resolve_call]]
+the map key and value types `K` and `V` are unconstrained. [[src/builtins/general.rs:GENERAL]]
 
 ## Examples
 

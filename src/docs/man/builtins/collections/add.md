@@ -29,7 +29,7 @@ IMPORT collections
 
 `collections::add` returns a new `Set OF T` containing every element of `value`
 plus `item`. It takes exactly two arguments; neither is optional and neither is
-variadic. [[src/builtins/collections.rs:arity]]
+variadic. [[src/builtins/collections.rs:COLLECTIONS]]
 
 Insertion is **idempotent**: if an equal element is already in `value`, the
 result is a set with the same elements — no duplicate is created and the length
@@ -74,7 +74,7 @@ non-set first argument, or with an element type that does not match, resolves to
 no overload and is rejected at compile time. Because a set requires a comparable
 element type, `T` must be comparable.
 [[src/builtins/collections.rs:resolve_set_add]]
-[[src/builtins/collections.rs:expected_arguments]]
+[[src/builtins/collections.rs:COLLECTIONS]]
 
 ## Examples
 

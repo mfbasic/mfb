@@ -28,7 +28,7 @@ allocated `TermSize` record with two `Integer` fields: `columns`, the width in
 character cells, and `rows`, the height. Both are counts of whole cells, never
 pixels. Valid cursor positions are rows `0` through `rows-1` and columns `0`
 through `columns-1`. It takes no arguments.
-[[src/builtins/term.rs:builtin_type_fields]]
+[[src/builtins/term.rs:TERM]]
 
 **This is the one `term::` read that is not silently inert while TUI mode is
 off.** There is no meaningful default size to report, so calling it before
@@ -67,7 +67,7 @@ is off or no view is attached.
 
 | Type | Description |
 | --- | --- |
-| `TermSize` | A record whose `columns` field is the surface width in cells and whose `rows` field is its height. Both are positive. [[src/builtins/term.rs:call_return_type_name]] |
+| `TermSize` | A record whose `columns` field is the surface width in cells and whose `rows` field is its height. Both are positive. [[src/builtins/term.rs:TERM]] |
 
 ## Errors
 

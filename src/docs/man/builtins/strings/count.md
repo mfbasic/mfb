@@ -55,7 +55,7 @@ A `needle` longer than `value` yields `0`, as does an empty `value`. The empty
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The number of non-overlapping occurrences of `needle` in `value`, counted left to right. `0` when `needle` does not occur, when it is longer than `value`, or when `value` is empty. [[src/builtins/strings.rs:call_return_type_name]] |
+| `Integer` | The number of non-overlapping occurrences of `needle` in `value`, counted left to right. `0` when `needle` does not occur, when it is longer than `value`, or when `value` is empty. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

@@ -53,7 +53,7 @@ uses `-` and `_`, use `encoding::base64UrlDecode`. [[src/builtins/encoding_packa
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The decoded bytes; the empty list for the empty string. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `List OF Byte` | The decoded bytes; the empty list for the empty string. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

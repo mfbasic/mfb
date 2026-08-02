@@ -64,7 +64,7 @@ before the error is raised, so a failed `bindUdp` leaks neither.
 
 | Type | Description |
 | --- | --- |
-| `UdpSocket` | A bound datagram socket, ready for `net::sendTo`, `net::sendTextTo`, `net::receiveFrom`, and `net::receiveTextFrom`. Closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/builtins/net.rs:call_return_type_name]] |
+| `UdpSocket` | A bound datagram socket, ready for `net::sendTo`, `net::sendTextTo`, `net::receiveFrom`, and `net::receiveTextFrom`. Closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

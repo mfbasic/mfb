@@ -96,7 +96,7 @@ or `1`.
 
 | Type | Description |
 | --- | --- |
-| the same type as `v` | A new vector of the same type and dimension pointing in the same direction as `v`. Magnitude `1` on the `Float` and `Fixed` overloads; on the `Integer` overloads a lattice-rounded approximation whose components are each `-1`, `0`, or `1`. [[src/builtins/vector.rs:resolve_call]] |
+| the same type as `v` | A new vector of the same type and dimension pointing in the same direction as `v`. Magnitude `1` on the `Float` and `Fixed` overloads; on the `Integer` overloads a lattice-rounded approximation whose components are each `-1`, `0`, or `1`. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -113,7 +113,7 @@ overload is selected at compile time from the exact record type of the single
 argument; no implicit conversion or numeric promotion is applied to a vector
 argument, and a non-vector argument or any arity other than one is rejected by the
 syntax check. The return type is always the argument's own type.
-[[src/builtins/vector.rs:resolve_call]] [[src/builtins/vector.rs:arity]]
+[[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:VECTOR]]
 
 ## Examples
 

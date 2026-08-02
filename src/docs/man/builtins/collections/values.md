@@ -76,7 +76,7 @@ No errors.
 ## Type checking
 
 `collections::values` takes exactly one argument.
-[[src/builtins/collections.rs:arity]]
+[[src/builtins/collections.rs:COLLECTIONS]]
 
 It must be a `Map OF K TO V`; a `List` or any non-map value is a compile-time
 type error. The result type is derived from the map's value type as

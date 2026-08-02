@@ -28,7 +28,7 @@ IMPORT money
 half **away from zero**, the default) or `Rounding.Banker` (round half to
 **even**, which removes the small upward bias of always rounding ties away).
 The call returns nothing. [[src/builtins/money_package.mfb:Rounding]]
-[[src/builtins/money.rs:call_return_type_name]]
+[[src/builtins/money.rs:MONEY]]
 
 The call is lowered inline to a mask and a single store into the
 per-execution-context rounding-mode field in the arena state region. The stored
@@ -59,19 +59,19 @@ amount is a pure function of the value.
 
 The `Rounding` enum is referenced bare, like every other builtin type: write
 `Rounding.Banker`, not `money::Rounding.Banker`.
-[[src/builtins/money.rs:is_builtin_type]]
+[[src/builtins/money.rs:MONEY]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `mode` | `Rounding` | The mode to install for `Money` arithmetic on the calling thread: `Rounding.Commercial` or `Rounding.Banker`. Any other type is rejected at compile time. [[src/builtins/money.rs:call_param_names]] [[src/builtins/money.rs:resolve_call]] |
+| `mode` | `Rounding` | The mode to install for `Money` arithmetic on the calling thread: `Rounding.Commercial` or `Rounding.Banker`. Any other type is rejected at compile time. [[src/builtins/money.rs:call_param_names]] [[src/builtins/money.rs:MONEY]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `money::setRounding` produces no value; call it as a statement. [[src/builtins/money.rs:call_return_type_name]] |
+| `Nothing` | `money::setRounding` produces no value; call it as a statement. [[src/builtins/money.rs:MONEY]] |
 
 ## Errors
 

@@ -54,7 +54,7 @@ returned list and its elements are fresh owned values.
 
 | Type | Description |
 | --- | --- |
-| `List OF String` | The extended grapheme clusters of `value`, in order, one per element. The empty string yields the empty list. [[src/builtins/strings.rs:call_return_type_name]] |
+| `List OF String` | The extended grapheme clusters of `value`, in order, one per element. The empty string yields the empty list. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

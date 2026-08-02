@@ -53,7 +53,7 @@ are ignored. [[src/builtins/encoding_package.mfb:__encoding_uleb128Decode]]
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The decoded signed value, negative or non-negative, reproduced from the ZigZag mapping. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `Integer` | The decoded signed value, negative or non-negative, reproduced from the ZigZag mapping. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

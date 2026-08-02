@@ -68,7 +68,7 @@ guarantee. [[src/docs/spec/architecture/18_math-kernels.md]]
 
 The array overloads map `math::log10` over a list and return a new list of the same
 element type and length; the input list is not mutated. Both a `List OF Float` and a `List OF Fixed` array overload exist.
-[[src/builtins/math.rs:resolve_call]]
+[[src/builtins/math.rs:MATH]]
 
 ## Overloads
 
@@ -95,13 +95,13 @@ which element triggered it; no list is returned in that case.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `value` | `Float` or `Fixed` | The number whose base-10 logarithm is taken. Must be strictly positive. This parameter has no alternate name. [[src/builtins/math.rs:call_param_names]] |
-| `values` | `List OF Float` or `List OF Fixed` | The array form: a homogeneous list, mapped element-wise. The empty list yields an empty list. [[src/builtins/math.rs:resolve_call]] |
+| `values` | `List OF Float` or `List OF Fixed` | The array form: a homogeneous list, mapped element-wise. The empty list yields an empty list. [[src/builtins/math.rs:MATH]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| Same as the argument | The base-10 logarithm of `value`, in the argument's own type. `1` returns zero. The array forms return a new list of the same element type and length. [[src/builtins/math.rs:resolve_call]] |
+| Same as the argument | The base-10 logarithm of `value`, in the argument's own type. `1` returns zero. The array forms return a new list of the same element type and length. [[src/builtins/math.rs:MATH]] |
 
 ## Errors
 
@@ -112,11 +112,11 @@ which element triggered it; no list is returned in that case.
 
 ## Type checking
 
-`math::log10` takes exactly one argument. [[src/builtins/math.rs:arity]] It must be
+`math::log10` takes exactly one argument. [[src/builtins/math.rs:MATH]] It must be
 a single `Float` or `Fixed`, or `List OF Float` or `List OF Fixed`. An `Integer`, a `Money`, or any
 non-numeric value such as a `String`, `Boolean`, `Byte`, `Scalar`, record,
 union, resource, thread, or function value is a compile-time type error.
-[[src/builtins/math.rs:expected_arguments]]
+[[src/builtins/math.rs:MATH]]
 
 ## Examples
 

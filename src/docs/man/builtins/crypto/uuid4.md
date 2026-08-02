@@ -50,13 +50,13 @@ allocation failure, always succeeds.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `uuid4` takes no parameters. [[src/builtins/crypto.rs:arity]] |
+| — | — | `uuid4` takes no parameters. [[src/builtins/crypto.rs:CRYPTO]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | A canonical lowercase 8-4-4-4-12 version-4 UUID, 36 characters including the four hyphens. [[src/builtins/crypto.rs:call_return_type_name]] |
+| `String` | A canonical lowercase 8-4-4-4-12 version-4 UUID, 36 characters including the four hyphens. [[src/builtins/crypto.rs:CRYPTO]] |
 
 ## Errors
 

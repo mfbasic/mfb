@@ -67,7 +67,7 @@ matching error below and the working directory is left unchanged.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing on success, after the process's working directory has been changed to the directory named by `path`. [[src/builtins/fs.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing on success, after the process's working directory has been changed to the directory named by `path`. [[src/builtins/fs.rs:FS]] |
 
 ## Errors
 

@@ -48,7 +48,7 @@ lowercase digits) back into a `List OF Byte`. [[src/builtins/encoding_package.mf
 
 | Type | Description |
 | --- | --- |
-| `String` | The lowercase hex encoding of `data`, two characters per byte with no separators; the empty string for an empty list. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `String` | The lowercase hex encoding of `data`, two characters per byte with no separators; the empty string for an empty list. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

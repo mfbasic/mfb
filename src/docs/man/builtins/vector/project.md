@@ -93,7 +93,7 @@ rounded back to `Integer` half away from zero.
 
 | Type | Description |
 | --- | --- |
-| the same type as `a` | The part of `a` parallel to `b`: a scalar multiple of `b`, pointing the same way as `b` when `dot(a, b)` is positive and the opposite way when it is negative. The zero vector when `a` is orthogonal to `b`. [[src/builtins/vector.rs:resolve_call]] |
+| the same type as `a` | The part of `a` parallel to `b`: a scalar multiple of `b`, pointing the same way as `b` when `dot(a, b)` is positive and the opposite way when it is negative. The zero vector when `a` is orthogonal to `b`. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -109,7 +109,7 @@ rounded back to `Integer` half away from zero.
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and no implicit conversion is applied to a vector
 argument. The return type is always the first argument's own type.
-[[src/builtins/vector.rs:resolve_call]] [[src/builtins/vector.rs:same_vector]]
+[[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:same_vector]]
 
 ## Examples
 

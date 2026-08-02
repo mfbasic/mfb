@@ -54,7 +54,7 @@ empty string. Hexadecimal digits in escapes may be upper- or lowercase.
 
 | Type | Description |
 | --- | --- |
-| `String` | The decoded text: `%XX` escapes turned into their bytes, `+` turned into space, all other bytes verbatim, with the whole result validated as UTF-8. The empty string for empty input. [[src/builtins/encoding.rs:call_return_type_name]] |
+| `String` | The decoded text: `%XX` escapes turned into their bytes, `+` turned into space, all other bytes verbatim, with the whole result validated as UTF-8. The empty string for empty input. [[src/builtins/encoding.rs:ENCODING]] |
 
 ## Errors
 

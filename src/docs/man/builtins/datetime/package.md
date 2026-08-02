@@ -31,7 +31,7 @@ types are referenced bare (`Instant`, `Date`, …), not package-qualified. Calen
 arithmetic is pure integer math (Howard Hinnant's civil ↔ epoch-day conversions)
 and produces identical results on every target. Only three operations touch the
 host: the wall clock (`now`), a monotonic counter (`monotonic`), and the local
-zone's DST-correct offset (`local`). [[src/builtins/datetime.rs:is_builtin_type]]
+zone's DST-correct offset (`local`). [[src/builtins/datetime.rs:DATETIME]]
 
 Zones come in three kinds. `datetime::utc()` is fixed at offset 0;
 `datetime::fixedOffset(...)` builds a constant offset rendered as `+HH:MM`; and

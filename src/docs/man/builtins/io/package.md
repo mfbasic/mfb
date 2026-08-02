@@ -34,7 +34,7 @@ buffer (drained on `io::flush`, before any read, when full, and at exit) and
 current mode. With buffering on, written text is not guaranteed visible to an
 external reader until flushed; flush before blocking on a read when a prompt must
 appear first. Standard error is never buffered — it is written immediately, so it
-has no flush. [[src/builtins/io.rs:expected_arguments]]
+has no flush. [[src/builtins/io.rs:IO]]
 
 Input functions read from standard input. `io::input` reads a whole line with
 normal terminal echo and an optional prompt; `io::readLine` reads a line the same
@@ -47,7 +47,7 @@ sequences rather than substituting replacement characters; `io::readByte`
 transfers bytes verbatim with no decoding. End of input is reported as an error,
 not as an empty or sentinel result. `io::pollInput` tests whether input is ready
 to read, optionally waiting up to a timeout in milliseconds, without consuming
-any input. [[src/builtins/io.rs:call_return_type_name]]
+any input. [[src/builtins/io.rs:IO]]
 
 The terminal predicates `io::isInputTerminal`, `io::isOutputTerminal`, and
 `io::isErrorTerminal` return a `Boolean` reporting whether the corresponding

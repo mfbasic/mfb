@@ -25,7 +25,7 @@ IMPORT io
 
 `io::isBuffered` returns `TRUE` when opt-in standard-output buffering is on for
 the calling thread and `FALSE` otherwise. It takes no arguments.
-[[src/builtins/io.rs:arity]]
+[[src/builtins/io.rs:IO]]
 
 The result is the thread's buffering flag read directly: `TRUE` after
 `io::setBuffered(TRUE)`, `FALSE` after `io::setBuffered(FALSE)`. Buffering is off
@@ -50,7 +50,7 @@ reports `FALSE` there regardless of any `io::setBuffered` call.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when standard-output buffering is enabled for this thread, `FALSE` otherwise — including before it has ever been enabled, and always in app mode. [[src/builtins/io.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when standard-output buffering is enabled for this thread, `FALSE` otherwise — including before it has ever been enabled, and always in app mode. [[src/builtins/io.rs:IO]] |
 
 ## Errors
 

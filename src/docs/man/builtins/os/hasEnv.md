@@ -42,7 +42,7 @@ state. It reads process state only and has no side effects, and never raises.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` if `name` is set (even to an empty value), else `FALSE`. [[src/builtins/os.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` if `name` is set (even to an empty value), else `FALSE`. [[src/builtins/os.rs:OS]] |
 
 ## Errors
 

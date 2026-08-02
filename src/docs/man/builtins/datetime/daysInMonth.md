@@ -56,7 +56,7 @@ side effects.
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The number of days in `month` of `year`: `31`, `30`, or (for February) `29` in a leap year and `28` otherwise. Any `month` value outside `1 .. 12` returns `31`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `Integer` | The number of days in `month` of `year`: `31`, `30`, or (for February) `29` in a leap year and `28` otherwise. Any `month` value outside `1 .. 12` returns `31`. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

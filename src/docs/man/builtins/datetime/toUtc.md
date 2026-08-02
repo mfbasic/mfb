@@ -57,7 +57,7 @@ overflow the `Integer` range, so this call raises no error of its own.
 
 | Type | Description |
 | --- | --- |
-| `DateTime` | A `DateTime` holding the civil date and wall-clock time observed in UTC at the instant `at`, together with the UTC zone and a resolved offset of zero seconds. The `nanos` of the time equal the `nanos` of `at`, and the result resolves back to `at` via `datetime::resolve`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `DateTime` | A `DateTime` holding the civil date and wall-clock time observed in UTC at the instant `at`, together with the UTC zone and a resolved offset of zero seconds. The `nanos` of the time equal the `nanos` of `at`, and the result resolves back to `at` via `datetime::resolve`. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

@@ -22,7 +22,7 @@ None. `general` functions are always available without an `IMPORT` statement.
 result is a read-only built-in record carrying the supplied `code` and `message`
 together with a compiler-generated source location captured at the call site. It
 takes exactly one `Integer` followed by one `String`; any other argument list is a
-compile-time type error. [[src/builtins/general.rs:resolve_call]]
+compile-time type error. [[src/builtins/general.rs:GENERAL]]
 
 Neither argument is interpreted, validated, or constrained. Any `Integer` code and
 any `String` message — including a zero code or an empty message — produce a valid
@@ -70,7 +70,7 @@ No errors.
 `error` is defined only for the single overload `error(code AS Integer, message AS
 String) AS Error`. The first argument must be an `Integer` and the second a
 `String`; any other argument count or type — including `(String, Integer)` — is a
-compile-time type error, and no implicit conversion is performed. [[src/builtins/general.rs:resolve_call]]
+compile-time type error, and no implicit conversion is performed. [[src/builtins/general.rs:GENERAL]]
 
 ## Examples
 

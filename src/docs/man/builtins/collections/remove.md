@@ -29,7 +29,7 @@ IMPORT collections
 
 `collections::remove` returns a new `Set OF T` containing every element of
 `value` except `item`. It takes exactly two arguments; neither is optional and
-neither is variadic. [[src/builtins/collections.rs:arity]]
+neither is variadic. [[src/builtins/collections.rs:COLLECTIONS]]
 
 Removal is a **no-op when the element is absent**: if no element equal to `item`
 is in `value`, the result is a set with the same elements and the same length.
@@ -74,7 +74,7 @@ non-set first argument, or with an element type that does not match, resolves to
 no overload and is rejected at compile time. Because a set requires a comparable
 element type, `T` must be comparable.
 [[src/builtins/collections.rs:resolve_set_remove]]
-[[src/builtins/collections.rs:expected_arguments]]
+[[src/builtins/collections.rs:COLLECTIONS]]
 
 ## Examples
 

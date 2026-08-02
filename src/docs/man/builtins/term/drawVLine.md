@@ -69,7 +69,7 @@ The call is gated: while TUI mode is off it does nothing and reports no error.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of stamping the run into the back buffer. [[src/builtins/term.rs:call_return_type_name]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of stamping the run into the back buffer. [[src/builtins/term.rs:TERM]] |
 
 ## Errors
 

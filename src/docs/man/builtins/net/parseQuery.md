@@ -64,7 +64,7 @@ soft query-decode failures do the same.
 
 | Type | Description |
 | --- | --- |
-| `Map OF String TO String` | One entry per non-empty pair, with keys and values query-decoded and repeated keys resolved last-wins. A bare key maps to the empty string. An empty input yields an empty map. [[src/builtins/net.rs:call_return_type_name]] |
+| `Map OF String TO String` | One entry per non-empty pair, with keys and values query-decoded and repeated keys resolved last-wins. A bare key maps to the empty string. An empty input yields an empty map. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

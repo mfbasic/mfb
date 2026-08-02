@@ -102,7 +102,7 @@ any element is computed. [[src/target/shared/code/builder_pow.rs:lower_pow_array
 
 | Type | Description |
 | --- | --- |
-| Same as the arguments | `base` raised to `exponent`. A zero exponent returns one. The `Fixed` overload rounds to the nearest representable `Fixed`; the array form returns a new `List OF Float` of the same length. [[src/builtins/math.rs:resolve_call]] |
+| Same as the arguments | `base` raised to `exponent`. A zero exponent returns one. The `Fixed` overload rounds to the nearest representable `Fixed`; the array form returns a new `List OF Float` of the same length. [[src/builtins/math.rs:MATH]] |
 
 ## Errors
 
@@ -115,12 +115,12 @@ any element is computed. [[src/target/shared/code/builder_pow.rs:lower_pow_array
 
 ## Type checking
 
-`math::pow` takes exactly two arguments. [[src/builtins/math.rs:arity]] They must
+`math::pow` takes exactly two arguments. [[src/builtins/math.rs:MATH]] They must
 share one type: two `Float`s, two `Fixed`s, or two `List OF Float`. Mixing
 `Float` with `Fixed`, passing an `Integer`, a `Money`, a `List OF Fixed`, or any
 non-numeric value such as a `String`, `Boolean`, `Byte`, `Scalar`, record,
 union, resource, thread, or function value is a compile-time type error.
-[[src/builtins/math.rs:expected_arguments]]
+[[src/builtins/math.rs:MATH]]
 
 ## Examples
 

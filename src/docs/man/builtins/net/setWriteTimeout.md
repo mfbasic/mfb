@@ -29,7 +29,7 @@ IMPORT net
 a connected TCP `Socket` or a bound UDP `UdpSocket` and takes effect on every
 subsequent send: `net::write` and `net::writeText` for a `Socket`, and
 `net::sendTo` and `net::sendTextTo` for a `UdpSocket`. The socket is borrowed and
-stays open. [[src/builtins/net.rs:resolve_call]]
+stays open. [[src/builtins/net.rs:NET]]
 
 The millisecond value is converted into a whole-seconds and microseconds pair and
 installed as the socket's send-timeout option; the conversion is exact integer
@@ -75,7 +75,7 @@ Bounds `net::sendTo` and `net::sendTextTo` on a bound UDP socket.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `setWriteTimeout` returns no value. On a successful return the timeout has been installed on `sock` and applies to every subsequent send. [[src/builtins/net.rs:call_return_type_name]] |
+| `Nothing` | `setWriteTimeout` returns no value. On a successful return the timeout has been installed on `sock` and applies to every subsequent send. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

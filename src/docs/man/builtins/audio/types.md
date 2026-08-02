@@ -60,7 +60,7 @@ non-sendable; closed by `audio::close`.
 
 ### AudioDevice
 
-A description of one audio device, obtained only from `audio::devices()`. [[src/builtins/audio.rs:builtin_type_fields]]
+A description of one audio device, obtained only from `audio::devices()`. [[src/builtins/audio.rs:AUDIO]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -75,7 +75,7 @@ A description of one audio device, obtained only from `audio::devices()`. [[src/
 
 A linear ADSR amplitude envelope in raw s16 sample units (`0..32767`), passed to
 `audio::render` through an `AudioNote`. Unlike `AudioDevice`, it is an ordinary
-value record: construct it with `AudioEnvelope[...]`. [[src/builtins/audio_render.mfb:AudioEnvelope]] [[src/builtins/audio.rs:builtin_type_fields]]
+value record: construct it with `AudioEnvelope[...]`. [[src/builtins/audio_render.mfb:AudioEnvelope]] [[src/builtins/audio.rs:AUDIO]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -89,7 +89,7 @@ value record: construct it with `AudioEnvelope[...]`. [[src/builtins/audio_rende
 
 A single note for `audio::render` to synthesize: a sine at `frequencyHz` for
 `noteFrames` frames, shaped by `envelope` and scaled by `gainOverall`. A value
-record; construct it with `AudioNote[...]`. [[src/builtins/audio_render.mfb:AudioNote]] [[src/builtins/audio.rs:builtin_type_fields]]
+record; construct it with `AudioNote[...]`. [[src/builtins/audio_render.mfb:AudioNote]] [[src/builtins/audio.rs:AUDIO]]
 
 | Field | Type | Description |
 | --- | --- | --- |

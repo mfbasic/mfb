@@ -99,7 +99,7 @@ Returns the value stored under `key`. A key that is not present raises
 ## Type checking
 
 `collections::get` takes exactly two arguments.
-[[src/builtins/collections.rs:arity]]
+[[src/builtins/collections.rs:COLLECTIONS]]
 
 If the first argument is a `List OF T`, the second must be exactly `Integer` and
 the call has type `T`. Otherwise the first argument must be a `Map OF K TO V`,

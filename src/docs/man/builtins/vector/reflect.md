@@ -90,7 +90,7 @@ of any kind.
 
 | Type | Description |
 | --- | --- |
-| the same type as `v` | The reflection of `v` about the hyperplane with normal `n`. Equal in magnitude to `v` when `n` is a unit vector; `v` itself when `n` is the zero vector or when `v` lies entirely in the plane. [[src/builtins/vector.rs:resolve_call]] |
+| the same type as `v` | The reflection of `v` about the hyperplane with normal `n`. Equal in magnitude to `v` when `n` is a unit vector; `v` itself when `n` is the zero vector or when `v` lies entirely in the plane. [[src/builtins/vector.rs:VECTOR]] |
 
 ## Errors
 
@@ -105,7 +105,7 @@ of any kind.
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and no implicit conversion is applied to a vector
 argument. The return type is always the first argument's own type.
-[[src/builtins/vector.rs:resolve_call]] [[src/builtins/vector.rs:same_vector]]
+[[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:same_vector]]
 
 ## Examples
 

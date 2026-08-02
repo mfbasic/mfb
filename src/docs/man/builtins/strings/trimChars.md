@@ -59,7 +59,7 @@ than a set of scalars, use `strings::stripPrefix` or `strings::stripSuffix`.
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` equal to `value` with all leading and trailing members of `chars` removed. Returns `""` when `value` is empty or consists entirely of set members. [[src/builtins/strings.rs:call_return_type_name]] |
+| `String` | A new `String` equal to `value` with all leading and trailing members of `chars` removed. Returns `""` when `value` is empty or consists entirely of set members. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

@@ -58,7 +58,7 @@ are fast and seedable but **not** cryptographically secure. Use
 
 | Type | Description |
 | --- | --- |
-| `Integer` | A uniformly distributed value `x` with `min <= x <= max`. Returns `min` when `min` equals `max`. [[src/builtins/crypto.rs:call_return_type_name]] |
+| `Integer` | A uniformly distributed value `x` with `min <= x <= max`. Returns `min` when `min` equals `max`. [[src/builtins/crypto.rs:CRYPTO]] |
 
 ## Errors
 
@@ -70,7 +70,7 @@ are fast and seedable but **not** cryptographically secure. Use
 
 `randomInt` takes exactly two `Integer` arguments and returns `Integer`; no other
 arity or argument type resolves.
-[[src/builtins/crypto.rs:resolve_call]] [[src/builtins/crypto.rs:arity]]
+[[src/builtins/crypto.rs:CRYPTO]] [[src/builtins/crypto.rs:CRYPTO]]
 
 ## Examples
 

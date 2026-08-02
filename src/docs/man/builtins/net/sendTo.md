@@ -61,14 +61,14 @@ convenient than building a `List OF Byte`.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `sock` | `UdpSocket` | A bound UDP socket to send from, as returned by `net::bindUdp`. It must still be open; the handle is borrowed, not consumed. [[src/builtins/net.rs:call_param_names]] |
-| `address` | `Address` | The destination. Its `host` field is resolved on each call and may be a numeric IP literal or a name; its `port` field selects the destination port. Obtain one from `net::lookup`, or use the `from` field of the `Datagram` returned by `net::receiveFrom` to reply to a sender. [[src/builtins/net.rs:builtin_type_fields]] |
+| `address` | `Address` | The destination. Its `host` field is resolved on each call and may be a numeric IP literal or a name; its `port` field selects the destination port. Obtain one from `net::lookup`, or use the `from` field of the `Datagram` returned by `net::receiveFrom` to reply to a sender. [[src/builtins/net.rs:NET]] |
 | `bytes` | `List OF Byte` | The payload, sent in list order as one datagram. An empty list sends a valid zero-length datagram. [[src/builtins/net.rs:argument_types]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `sendTo` returns no value. A successful call has handed the datagram to the host for best-effort delivery; it does not guarantee receipt. [[src/builtins/net.rs:call_return_type_name]] |
+| `Nothing` | `sendTo` returns no value. A successful call has handed the datagram to the host for best-effort delivery; it does not guarantee receipt. [[src/builtins/net.rs:NET]] |
 
 ## Errors
 

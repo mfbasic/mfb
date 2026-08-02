@@ -30,7 +30,7 @@ IMPORT collections
 `collections::toList` returns a new `List OF T` holding every element of the set
 `value` exactly once, in the set's stable insertion order. It takes exactly one
 argument, which is neither optional nor variadic.
-[[src/builtins/collections.rs:arity]]
+[[src/builtins/collections.rs:COLLECTIONS]]
 
 The set is neither copied for the caller nor mutated: the result is a freshly
 built list. Because a set already holds each element at most once, the resulting
@@ -63,7 +63,7 @@ The single argument must be a `Set OF T`; a `List`, a `Map`, or any other value
 resolves no overload and is rejected at compile time. The result type is
 `List OF T` for the set's element type `T`.
 [[src/builtins/collections.rs:resolve_set_to_list]]
-[[src/builtins/collections.rs:expected_arguments]]
+[[src/builtins/collections.rs:COLLECTIONS]]
 
 ## Examples
 

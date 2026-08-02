@@ -73,7 +73,7 @@ guarantee. [[src/docs/spec/architecture/18_math-kernels.md]]
 The array overload takes a `List OF Float` and returns a new `List OF Float` of
 the same length; the input list is not mutated. There is **no** `List OF Fixed`
 array overload for `math::tan` — a `Fixed` list is a compile-time error.
-[[src/builtins/math.rs:resolve_call]]
+[[src/builtins/math.rs:MATH]]
 
 ## Overloads
 
@@ -99,13 +99,13 @@ which element triggered it; no list is returned in that case.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `value` | `Float` or `Fixed` | The angle whose tangent is taken, in radians. Every value is accepted, but see the notes on undefined points and large magnitudes. This parameter has no alternate name. [[src/builtins/math.rs:call_param_names]] |
-| `values` | `List OF Float` | The array form: mapped element-wise. The empty list yields an empty list. [[src/builtins/math.rs:resolve_call]] |
+| `values` | `List OF Float` | The array form: mapped element-wise. The empty list yields an empty list. [[src/builtins/math.rs:MATH]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| Same as the argument | The tangent of `value`, in the argument's own type. The result is unbounded and may have either sign. `tan(0)` is zero. The array form returns a new `List OF Float` of the same length. [[src/builtins/math.rs:resolve_call]] |
+| Same as the argument | The tangent of `value`, in the argument's own type. The result is unbounded and may have either sign. `tan(0)` is zero. The array form returns a new `List OF Float` of the same length. [[src/builtins/math.rs:MATH]] |
 
 ## Errors
 
@@ -116,11 +116,11 @@ which element triggered it; no list is returned in that case.
 
 ## Type checking
 
-`math::tan` takes exactly one argument. [[src/builtins/math.rs:arity]] It must be
+`math::tan` takes exactly one argument. [[src/builtins/math.rs:MATH]] It must be
 a single `Float` or `Fixed`, or a `List OF Float`. An `Integer`, a `Money`, a
 `List OF Fixed`, or any non-numeric value such as a `String`, `Boolean`, `Byte`,
 `Scalar`, record, union, resource, thread, or function value is a compile-time
-type error. [[src/builtins/math.rs:expected_arguments]]
+type error. [[src/builtins/math.rs:MATH]]
 
 ## Examples
 

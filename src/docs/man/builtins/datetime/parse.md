@@ -97,7 +97,7 @@ overrides `zone`. [[src/builtins/datetime_package.mfb:__datetime_parse3]]
 
 | Type | Description |
 | --- | --- |
-| `DateTime` | A `DateTime` built from the fields decoded from `value`, with unmatched fields left at their defaults. The offset comes from the `pattern`'s offset token when present, otherwise from `zone`. [[src/builtins/datetime.rs:call_return_type_name]] |
+| `DateTime` | A `DateTime` built from the fields decoded from `value`, with unmatched fields left at their defaults. The offset comes from the `pattern`'s offset token when present, otherwise from `zone`. [[src/builtins/datetime.rs:DATETIME]] |
 
 ## Errors
 

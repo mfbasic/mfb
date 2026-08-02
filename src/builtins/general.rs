@@ -242,10 +242,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     }
 }
 
-pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    DefaultResolver::return_type_name(&GENERAL, name)
-}
-
 pub(crate) fn builtin_function_id(name: &str) -> Option<u32> {
     match name {
         IS_EVEN => Some(BUILTIN_FUNCTION_IS_EVEN),
@@ -479,10 +475,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     }
 }
 
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    DefaultResolver::arity(&GENERAL, name)
-}
-
 use super::exact;
 
 fn exact_one_of(arg_types: &[String], expected: &[&str]) -> bool {
@@ -605,16 +597,6 @@ mod tests {
         assert_eq!(call_param_names(IS_EMPTY).unwrap().len(), 1);
         assert_eq!(call_param_names(IS_NOT_EMPTY).unwrap().len(), 1);
         assert!(call_param_names("nope").is_none());
-    }
-
-    #[test]
-    fn call_return_type_name_arms() {
-        assert_eq!(call_return_type_name(TO_INT), Some("Integer"));
-        assert_eq!(call_return_type_name(TO_FLOAT), Some("Float"));
-        assert_eq!(call_return_type_name(TO_FIXED), Some("Fixed"));
-        assert_eq!(call_return_type_name(TO_BYTE), Some("Byte"));
-        assert_eq!(call_return_type_name(LEN), None);
-        assert_eq!(call_return_type_name("nope"), None);
     }
 
     #[test]
@@ -832,22 +814,6 @@ mod tests {
     }
 
     #[test]
-    fn arity_all_arms() {
-        assert_eq!(arity(LEN), Some((1, 1)));
-        assert_eq!(arity(TYPE_NAME), Some((1, 1)));
-        assert_eq!(arity(TO_FLOAT), Some((1, 1)));
-        assert_eq!(arity(TO_FIXED), Some((1, 1)));
-        assert_eq!(arity(TO_BYTE), Some((1, 1)));
-        assert_eq!(arity(IS_NUMERIC), Some((1, 1)));
-        assert_eq!(arity(IS_EMPTY), Some((1, 1)));
-        assert_eq!(arity(IS_NOT_EMPTY), Some((1, 1)));
-        assert_eq!(arity(TO_STRING), Some((1, 2)));
-        assert_eq!(arity(TO_INT), Some((1, 2)));
-        assert_eq!(arity(ERROR), None);
-        assert_eq!(arity("nope"), None);
-    }
-
-    #[test]
     fn helpers_exact_and_one_of() {
         assert!(exact(
             &strings(&["Integer", "String"]),
@@ -914,71 +880,4 @@ mod tests {
         assert_eq!(function_parts("FUNC(FUNC(Integer) AS Integer"), None);
     }
 
-    // plan-72-L migration gate: prove `GENERAL` reproduces the legacy helper
-    // answers via `DefaultResolver` for the 17 regular functions — membership,
-    // arity, param names, and the `call_return_type_name` fast-path oracle (Fixed
-    // for the 6 numeric conversions, None for the rest). `error` is checked
-    // separately because its irregular "member with param-names but None arity"
-    // shape (empty overloads) makes `DefaultResolver::param_names` return None
-    // while the static `call_param_names` still carries `code`/`message`. Keep
-    // until plan-72-BB deletes the legacy helpers.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::{parity, DefaultResolver, REGISTRY};
-
-        // The 17 regular functions (every general call except `error`).
-        let regular: Vec<&str> = ALL_GENERAL.iter().copied().filter(|n| *n != ERROR).collect();
-        let legacy = parity::LegacySet {
-            is_call: &is_general_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            return_type_name: &call_return_type_name,
-            // general's expected arguments use bespoke "… or …" phrasing the
-            // descriptor's per-position rendering cannot reproduce.
-            expected_arguments: None,
-            param_name_overloads: None,
-            argument_types: None,
-            implementation_name: None,
-            default_padding: None,
-            builtin_type_fields: None,
-        };
-        let mut probe = regular.clone();
-        probe.push("nope");
-        parity::assert_parity(&GENERAL, &probe, &legacy, &[]);
-
-        // The `call_return_type_name` oracle: Fixed only for the six numeric
-        // narrowing conversions, None (Custom) for every other function.
-        for (name, ret) in [
-            (TO_INT, "Integer"),
-            (TO_FLOAT, "Float"),
-            (TO_FIXED, "Fixed"),
-            (TO_BYTE, "Byte"),
-            (TO_MONEY, "Money"),
-            (TO_SCALAR, "Scalar"),
-        ] {
-            assert_eq!(call_return_type_name(name), Some(ret), "{name}");
-        }
-        for name in [LEN, TYPE_NAME, TO_STRING, IS_NUMERIC, IS_EVEN, IS_EMPTY] {
-            assert_eq!(call_return_type_name(name), None, "{name}");
-        }
-
-        // `error`: a member with param-names but no arity. Membership and the
-        // return-type oracle derive from the descriptor (empty overloads → None
-        // arity, None return); the param names stay in the static helper.
-        assert!(is_general_call(ERROR));
-        assert!(DefaultResolver::contains(&GENERAL, ERROR));
-        assert_eq!(arity(ERROR), None);
-        assert_eq!(call_return_type_name(ERROR), None);
-        assert_eq!(
-            call_param_names(ERROR),
-            Some(&[&["code"][..], &["message"][..]][..])
-        );
-        assert_eq!(rt(ERROR, &["Integer", "String"]), Some("Error".to_string()));
-
-        // The registry stays well-formed with `general`'s unqualified names.
-        assert_eq!(REGISTRY.duplicate_module_name(), None);
-        assert_eq!(REGISTRY.duplicate_function_name(), None);
-    }
 }

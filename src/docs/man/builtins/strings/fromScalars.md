@@ -51,7 +51,7 @@ The input list is not modified; the returned `String` is a fresh owned value.
 
 | Type | Description |
 | --- | --- |
-| `String` | The UTF-8 string formed by concatenating each scalar's encoding. The empty list yields `""`. [[src/builtins/strings.rs:call_return_type_name]] |
+| `String` | The UTF-8 string formed by concatenating each scalar's encoding. The empty list yields `""`. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

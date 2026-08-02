@@ -40,7 +40,7 @@ through the scalar length of `value` *inclusive*; the upper bound equals the
 length so a search may begin at the very end of the string, where only an empty
 needle can match. A negative `start`, or one past the scalar length, raises
 `ErrIndexOutOfRange`. An empty `needle` matches immediately and returns `start`.
-[[src/builtins/strings.rs:arity]]
+[[src/builtins/strings.rs:STRINGS]]
 
 `find` always returns a valid index on success and never reports absence with a
 sentinel such as `-1`. When `needle` does not occur at or after `start` it raises
@@ -55,12 +55,12 @@ lists; see `mfb man collections find` for the `List` form.
 **`strings::find(value AS String, needle AS String) AS Integer`**
 
 Searches the whole of `value` from the beginning; equivalent to passing a `start`
-of `0`. [[src/builtins/strings.rs:resolve_call]]
+of `0`. [[src/builtins/strings.rs:STRINGS]]
 
 **`strings::find(value AS String, needle AS String, start AS Integer) AS Integer`**
 
 Begins the search at scalar index `start`, ignoring any earlier occurrence. Used
-to walk successive matches. [[src/builtins/strings.rs:resolve_call]]
+to walk successive matches. [[src/builtins/strings.rs:STRINGS]]
 
 ## Parameters
 
@@ -74,7 +74,7 @@ to walk successive matches. [[src/builtins/strings.rs:resolve_call]]
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The zero-based Unicode scalar index at which the first occurrence of `needle` at or after `start` begins. Returns `start` when `needle` is empty. [[src/builtins/strings.rs:call_return_type_name]] |
+| `Integer` | The zero-based Unicode scalar index at which the first occurrence of `needle` at or after `start` begins. Returns `start` when `needle` is empty. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

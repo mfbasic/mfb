@@ -35,12 +35,12 @@ deliberate exit from the dimension, the count of whole units; the transcendental
 functions accept `Float` or `Fixed` only; `seed` works on `Integer`, and `rand`
 takes either two `Integer` bounds (returning `Integer`) or two `Money` bounds
 (returning `Money`).
-[[src/builtins/math.rs:expected_arguments]] There is no mixed-type or
+[[src/builtins/math.rs:MATH]] There is no mixed-type or
 automatic-promotion overload, so the arguments to a call must already share one
 numeric type; convert explicitly before calling when they differ. Each scalar
 function also has an array (SIMD) overload that maps element-wise over a
 homogeneous `List OF` numeric list and returns a list of the matching type.
-[[src/builtins/math.rs:resolve_call]]
+[[src/builtins/math.rs:MATH]]
 
 Integer and Fixed computation is deterministic and identical across targets: the
 Fixed transcendental and root functions use raw Q32.32 fixed-point arithmetic

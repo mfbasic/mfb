@@ -59,7 +59,7 @@ string, walk it with `strings::toScalars` and fold the results yourself.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `scalar` is a separator (`Zs`, `Zl`, `Zp`), is in `U+0009`–`U+000D`, or is `U+0085`; `FALSE` otherwise. [[src/builtins/strings.rs:call_return_type_name]] |
+| `Boolean` | `TRUE` when `scalar` is a separator (`Zs`, `Zl`, `Zp`), is in `U+0009`–`U+000D`, or is `U+0085`; `FALSE` otherwise. [[src/builtins/strings.rs:STRINGS]] |
 
 ## Errors
 

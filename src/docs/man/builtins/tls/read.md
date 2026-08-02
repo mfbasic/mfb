@@ -24,7 +24,7 @@ IMPORT tls
 returns it as a `List OF Byte`. A single call performs one underlying TLS read:
 it returns as soon as any plaintext is available rather than waiting to fill the
 requested size, so the returned list is frequently shorter than `maxBytes`. The
-socket must still be open. [[src/builtins/tls.rs:call_return_type_name]]
+socket must still be open. [[src/builtins/tls.rs:TLS]]
 
 The call blocks until at least one byte of application data has been decrypted,
 the peer closes its side of the TLS session, or the underlying read fails.
@@ -58,7 +58,7 @@ missing — `read` raises `ErrTlsFailed`. [[src/builtins/tls.rs:TLS_SOCKET_TYPE]
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The decrypted bytes received in this read, in the order they arrived, with length between `1` and `maxBytes` inclusive. End of stream is not reported as an empty list; it is reported as an `ErrConnectionClosed` error. [[src/builtins/tls.rs:call_return_type_name]] |
+| `List OF Byte` | The decrypted bytes received in this read, in the order they arrived, with length between `1` and `maxBytes` inclusive. End of stream is not reported as an empty list; it is reported as an `ErrConnectionClosed` error. [[src/builtins/tls.rs:TLS]] |
 
 ## Errors
 

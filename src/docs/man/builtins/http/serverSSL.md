@@ -87,7 +87,7 @@ handshake, parses the request, matches its path against an ordered
 `List OF http::Route`, invokes the matched handler, writes the response, and
 closes the connection. The server is single-threaded and blocking: one request is
 served at a time, in the caller's loop.
-[[src/builtins/http_package.mfb:__http_handleRequestSSL]] [[src/builtins/http.rs:resolve_call]]
+[[src/builtins/http_package.mfb:__http_handleRequestSSL]] [[src/builtins/http.rs:HTTP]]
 
 ## Overloads
 
@@ -102,7 +102,7 @@ Binds `port` on the given interface with a backlog of `128`.
 **`http::serverSSL(port AS Integer, certPath AS String, keyPath AS String, host AS String, backlog AS Integer) AS tls::TlsListener`**
 
 The full form: binds `port` on `host` with the given backlog hint.
-[[src/builtins/http.rs:resolve_call]]
+[[src/builtins/http.rs:HTTP]]
 
 ## Parameters
 
@@ -118,7 +118,7 @@ The full form: binds `port` on `host` with the given backlog hint.
 
 | Type | Description |
 | --- | --- |
-| `tls::TlsListener` | A bound, listening TLS resource owning the loaded server TLS context, ready for `http::handleRequest` (or `tls::accept`). It must be bound with `RES` and is closed by lexical drop at scope exit unless closed earlier with `tls::close`. [[src/builtins/http.rs:call_return_type_name]] |
+| `tls::TlsListener` | A bound, listening TLS resource owning the loaded server TLS context, ready for `http::handleRequest` (or `tls::accept`). It must be bound with `RES` and is closed by lexical drop at scope exit unless closed earlier with `tls::close`. [[src/builtins/http.rs:HTTP]] |
 
 ## Errors
 

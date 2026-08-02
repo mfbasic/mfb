@@ -35,7 +35,7 @@ a `List` as its first argument; the `String` slice of the same name lives in
 
 All three arguments are required — there is no two-argument "to the end" form —
 and `start` and `count` must both be exactly `Integer`.
-[[src/builtins/collections.rs:arity]] [[src/builtins/collections.rs:resolve_mid_list]]
+[[src/builtins/collections.rs:COLLECTIONS]] [[src/builtins/collections.rs:resolve_mid_list]]
 
 The range is **validated, not clamped**. Before any element is copied the
 lowering checks, in order, that `start` is not negative, that `count` is not
@@ -90,7 +90,7 @@ the same. [[src/target/shared/code/builder_search.rs:lower_list_mid]]
 must both be exactly `Integer`; no other numeric type is accepted and no
 conversion is applied. The call takes exactly three arguments, and the result
 type is the same `List OF T` as the input.
-[[src/builtins/collections.rs:resolve_mid_list]] [[src/builtins/collections.rs:arity]]
+[[src/builtins/collections.rs:resolve_mid_list]] [[src/builtins/collections.rs:COLLECTIONS]]
 
 ## Examples
 

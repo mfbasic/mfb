@@ -31,7 +31,7 @@ The package defines the `Json` union and its six member types. `Json` is a
 `json::stringify` accepts either the `Json` union or any one of its member types
 directly. Because numbers are carried as `Float`, very large or very precise
 values may lose precision in a parse/stringify round trip, and a `JsonNum`
-holding a non-finite `Float` (NaN or infinity) has no JSON form. [[src/builtins/json.rs:is_builtin_type]]
+holding a non-finite `Float` (NaN or infinity) has no JSON form. [[src/builtins/json.rs:JSON]]
 
 Serialization is compact: `json::stringify` emits no insignificant whitespace,
 preserves array item order, emits object pairs in the map's iteration order, and

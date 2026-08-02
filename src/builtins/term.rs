@@ -243,16 +243,6 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
     TERM.types.iter().any(|ty| ty.name == name)
 }
 
-pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
-    // A record contributes its `(field, type)` layout; the enums carry no native
-    // fields (empty slice → `None`), matching the legacy table.
-    TERM.types
-        .iter()
-        .find(|ty| ty.name == name)
-        .filter(|ty| !ty.fields.is_empty())
-        .map(|ty| ty.fields)
-}
-
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         ON | OFF | IS_ON | SHOW_CURSOR | HIDE_CURSOR | CLEAR | SYNC | GET_FOREGROUND
@@ -311,12 +301,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
     } else {
         types.join(", ")
     })
-}
-
-pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    // Every `term::` parameter is required, so the descriptor's (min, max) is
-    // (count, count) — identical to `param_types(name).len()`.
-    DefaultResolver::arity(&TERM, name)
 }
 
 // The `term::` package source declares the `LineStyle` enum (the drawHLine /
@@ -384,57 +368,6 @@ mod tests {
         assert!(!is_term_call("term.unknown"));
         assert!(!is_term_call("strings.trim"));
         assert!(!is_term_call(""));
-    }
-
-    #[test]
-    fn builtin_types() {
-        assert!(is_builtin_type(TERM_COLOR_TYPE));
-        assert!(is_builtin_type(TERM_SIZE_TYPE));
-        assert!(is_builtin_type(LINE_STYLE_TYPE));
-        assert!(is_builtin_type(FILL_STYLE_TYPE));
-        assert!(!is_builtin_type("String"));
-        assert!(!is_builtin_type("File"));
-        // The enums are not records, so they have no native field layout.
-        assert_eq!(builtin_type_fields(LINE_STYLE_TYPE), None);
-        assert_eq!(builtin_type_fields(FILL_STYLE_TYPE), None);
-        assert_eq!(
-            builtin_type_fields(TERM_COLOR_TYPE),
-            Some(&[("r", "Byte"), ("g", "Byte"), ("b", "Byte")][..])
-        );
-        assert_eq!(
-            builtin_type_fields(TERM_SIZE_TYPE),
-            Some(&[("columns", "Integer"), ("rows", "Integer")][..])
-        );
-        assert_eq!(builtin_type_fields("String"), None);
-    }
-
-    #[test]
-    fn every_name_has_consistent_metadata() {
-        for name in ALL {
-            assert!(call_param_names(name).is_some(), "param_names {name}");
-            assert!(param_types(name).is_some(), "param_types {name}");
-            assert!(call_return_type_name(name).is_some(), "return_type {name}");
-            assert!(resolve_call(name, &[]).is_some(), "resolve {name}");
-            assert!(expected_arguments(name).is_some(), "expected {name}");
-            assert!(arity(name).is_some(), "arity {name}");
-            let (min, max) = arity(name).unwrap();
-            assert_eq!(min, max, "term arities are fixed for {name}");
-            assert_eq!(
-                param_types(name).unwrap().len(),
-                min,
-                "arity vs types {name}"
-            );
-        }
-    }
-
-    #[test]
-    fn metadata_returns_none_for_unknown() {
-        assert_eq!(call_param_names("term.nope"), None);
-        assert_eq!(param_types("term.nope"), None);
-        assert_eq!(call_return_type_name("term.nope"), None);
-        assert!(resolve_call("term.nope", &[]).is_none());
-        assert_eq!(expected_arguments("term.nope"), None);
-        assert_eq!(arity("term.nope"), None);
     }
 
     #[test]
@@ -605,97 +538,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn arity_by_group() {
-        for name in NO_ARG {
-            assert_eq!(arity(name), Some((0, 0)), "{name}");
-        }
-        for name in [SET_FOREGROUND, SET_BACKGROUND] {
-            assert_eq!(arity(name), Some((3, 3)), "{name}");
-        }
-        for name in [SET_BOLD, SET_UNDERLINE] {
-            assert_eq!(arity(name), Some((1, 1)), "{name}");
-        }
-        assert_eq!(arity(MOVE_TO), Some((2, 2)));
-        assert_eq!(arity(DRAW_HLINE), Some((4, 4)));
-        assert_eq!(arity(DRAW_VLINE), Some((4, 4)));
-        assert_eq!(arity(DRAW_BOX), Some((5, 5)));
-        assert_eq!(arity(FILL_RECT), Some((5, 5)));
-        assert_eq!(arity(DRAW_TEXT), Some((3, 3)));
-        assert_eq!(arity(DRAW_GLYPH), Some((3, 3)));
-    }
-
-    // plan-72-W migration gate: prove `TERM` reproduces every legacy answer
-    // (membership, arity, param names, return type, and all four builtin types +
-    // record fields) for every `term.*` name + a non-member, and that the
-    // descriptor's per-position types equal `param_types` (the descriptor's
-    // zero-arg `argument_types` is `None`, but `term::param_types` uses `Some(&[])`
-    // — the one convention divergence, asserted explicitly). `expected_arguments`
-    // is bespoke (`"no arguments"`) and is NOT asserted against the descriptor.
-    // Kept until plan-72-BB.
-    #[test]
-    fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::{parity, DefaultResolver, InjectionRule, REGISTRY};
-
-        assert_eq!(TERM.functions.len(), ALL.len());
-
-        let legacy = parity::LegacySet {
-            is_call: &is_term_call,
-            arity: &arity,
-            param_names: &|name| {
-                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
-            },
-            return_type_name: &call_return_type_name,
-            // Bespoke "no arguments" phrasing — not descriptor-derivable.
-            expected_arguments: None,
-            param_name_overloads: None,
-            // `param_types` diverges from `argument_types` only on the zero-arg
-            // convention; asserted separately below.
-            argument_types: None,
-            implementation_name: None,
-            default_padding: None,
-            builtin_type_fields: Some(&builtin_type_fields),
-        };
-        let mut probe = ALL.to_vec();
-        probe.push("term.nope");
-        parity::assert_parity(&TERM, &probe, &legacy, &[]);
-
-        // Per-position argument types match `param_types` for every call; the only
-        // divergence is the zero-arg convention (descriptor `None` vs `Some(&[])`).
-        for &name in ALL {
-            let types = param_types(name).expect("term param_types");
-            let descriptor = DefaultResolver::argument_types(&TERM, name);
-            if types.is_empty() {
-                assert_eq!(descriptor, None, "zero-arg argument_types for {name}");
-            } else {
-                assert_eq!(
-                    descriptor.as_deref(),
-                    Some(types),
-                    "argument_types == param_types for {name}"
-                );
-            }
-        }
-
-        // All four builtin types are present with the right kind; records keep
-        // their fields, enums carry none.
-        assert!(is_builtin_type(TERM_COLOR_TYPE));
-        assert!(is_builtin_type(LINE_STYLE_TYPE));
-        assert!(!is_builtin_type("String"));
-        assert_eq!(builtin_type_fields(LINE_STYLE_TYPE), None);
-        assert_eq!(
-            builtin_type_fields(TERM_COLOR_TYPE),
-            Some(&[("r", "Byte"), ("g", "Byte"), ("b", "Byte")][..])
-        );
-
-        // Source companion: `WhenImported`, loader parses.
-        let source = TERM.source.expect("term has a source companion");
-        assert_eq!(source.rule, InjectionRule::WhenImported);
-        assert!((source.loader)().is_ok());
-
-        // Registered and well-formed alongside every other package.
-        assert!(REGISTRY.module("term").is_some());
-        assert!(REGISTRY.function(TERMINAL_SIZE).is_some());
-        assert_eq!(REGISTRY.duplicate_module_name(), None);
-        assert_eq!(REGISTRY.duplicate_function_name(), None);
-    }
 }
