@@ -455,6 +455,41 @@ Commit: —
   source-injected (`augmented_project`, `mod.rs:67`), not `.mfp`-decoded. So the imported-variant
   close-op wiring resolves through the same registry the plan-74 fixtures already exercise — no
   `native_resources` involvement. The real (and only) hazard is D1's qualified-name spelling.
+- **D3 (Phase 2, §4.2): a trap-bound producer INSIDE a `MATCH CASE` body lowers its temp as
+  `Unknown` — a pre-existing MATCH×TRAP codegen bug.** The plan's `pump` (§4.2) puts
+  `MUT chunk = net::read(p, 65536) TRAP(e) … END TRAP` directly inside `CASE Socket(p)`. That fails
+  native codegen with `native plan has no storage class for type 'Unknown'` (the TRAP desugars to a
+  temp local whose type isn't registered in the MATCH-CASE scope). The SAME `net::read … TRAP …
+  RECOVER []` works fine at a function's top level (e.g. the pre-existing `__http_exchangeTcp`).
+  **Workaround (shipped):** factor each transport's read+TRAP into a top-level helper
+  (`__http_readNet`/`__http_readTls` returning a `__http_PumpRead` record), and have `pump`'s MATCH
+  CASE only CALL the helper — no TRAP in the CASE. This is cleaner anyway. The underlying compiler bug
+  (TRAP inside MATCH CASE) is tangential to plan-76 and is left as a documented follow-up (repro:
+  a `MATCH` CASE containing `MUT x AS T = <call> TRAP(e) … END TRAP`). Measured by bisecting the
+  Phase-2 `__http_pump` body.
+- **D4 (§1, §3, Phase 1 — CORE-PREMISE DEFECT): plan-74 union STATE is layout-incompatible with a
+  `TlsSocket` variant, so `Stream STATE PendingState` over `{Socket, TlsSocket}` SIGSEGVs on the
+  https path.** plan-74 stores the STATE-block pointer in the ACTIVE variant's record at
+  `FILE_OFFSET_STATE = 16`, and its 80-byte File-layout record (used by `File`/`Socket`) has a free
+  slot there. But the `TlsSocket` record is only 32 bytes with `TLS_OFFSET_SSL = 16` (`SSL*`) — so
+  binding the union to a TlsSocket and writing STATE clobbers `SSL*`; the next `tls::*` dereferences
+  garbage → SIGSEGV (exit 139). **Proven:** `http::read("http://…")` (Socket variant) returns 200;
+  `http::read("https://…")` SIGSEGVs; and a STATELESS `UNION Strm { Socket TlsSocket }` bound to a
+  `tls::connect` MATCHes + writes + drops cleanly (exit 0) — isolating the fault to the STATE
+  mechanism, not the union itself. (macOS `REC_QUEUE`@16 and schannel's STATE-ptr@16 collide the same
+  way.) plan-74's fixtures only ever exercised File-layout variants (`File`/`Socket`), so this was
+  never caught. The design in §1/§3 (STATE carried ON the union) rests on this false premise.
+  **Resolution is an architectural fork — surfaced to the user** (see the plan-76 status): (A) make
+  all three TLS record layouts STATE-compatible (grow to the 80-byte File layout, STATE@16, relocate
+  SSL/CTX/queue) — a large cross-backend change touching every tls record access + all tls goldens;
+  (B) redesign plan-74 union STATE to live outside the variant record; or (C) redesign D to a
+  STATELESS `Stream` union with `PendingState` threaded as an explicit `MUT` param through
+  ready/pump/done/finish (works with existing machinery today; keeps URL-transparency; changes the
+  public signatures from `RES … STATE PendingState` to `RES Stream` + `MUT PendingState`, overriding
+  the plan §3 rejection of "state outside the resource", which was made on the now-false assumption
+  that STATE-on-union works for a TlsSocket). Measured via the http:// vs https runtime split + the
+  stateless-union probe; layout via `FILE_OFFSET_STATE=16` vs `TLS_OFFSET_SSL=16`,
+  `RESOURCE_RECORD_SIZE=80` vs `TLS_RECORD_SIZE=32`.
 
 ## Summary
 
