@@ -5,9 +5,39 @@ Effort: small (<1h)
 Severity: HIGH
 Class: Security / Robustness (DoS — uncatchable SIGSEGV on untrusted pattern)
 
-Status: Open
-Regression Test: tests/rt-behavior/regex — `regex::match(text, "(" × 2000)` (and
-nested alternation) returns a clean error, never a SIGSEGV.
+Status: FIXED (6ab9dd8e7)
+Regression Test: tests/rt_native_regex_parser_depth.rs — a 2000-deep nested-group
+pattern (unbalanced AND balanced) compiled from untrusted runtime data yields a
+clean `ErrInvalidFormat` (77050003) instead of a SIGSEGV, and a modest 40-deep
+pattern still compiles and matches.
+
+## STATUS: FIXED
+
+Commits (branch `worktree-B-423`, merged to main):
+- `6ab9dd8e7` — cap regex parser nesting depth (fix + RED→GREEN regression test)
+- `43bce5a57` — regenerate regex codegen goldens (byte-identity `.ir` + 5 target
+  `.ncodesum`; rt-behavior/regex `.ir`)
+
+What was done: threaded a `depth` counter through the parser recursion cycle
+(`__regex_parseAlt` → `parseConcat` → `parseParen` → `parseAlt`, plus
+`parseNamedGroup`); `parseParen`/`parseNamedGroup` increment it once per group
+descent, and `parseAlt` rejects `depth > __REGEX_PARSE_DEPTH_LIMIT` with the
+ordinary `ErrInvalidFormat` (a catchable failure).
+
+Deviation from the doc's plan — the doc said to *reuse* the matcher's
+`__REGEX_DEPTH_LIMIT` (600). Measured and rejected: the produced executable's
+native stack is exhausted around 350 nested `(` (N≤300 fails cleanly, N≥400
+SIGSEGVs), *below* 600 — a depth-600 check would never fire before the crash. The
+parser cycle costs three native frames per nesting level, so the same ~600-frame
+budget the matcher proved safe corresponds to ~200 levels here. Added a
+parser-specific `__REGEX_PARSE_DEPTH_LIMIT = 200` (verified at the boundary:
+N=200 balanced compiles, N=201 fails cleanly, N=800/2000 fail cleanly — no crash
+at any depth).
+
+Verification: full `cargo test` (main merged into the worktree) — 40 binaries,
+4119 passed, 0 failed; artifact-gate on byte-identity/regex PASSED (7 goldens);
+original reproduction (N=800) now exits 255 with `7-705-0003 regex: pattern
+nested too deeply`, previously exit 139 (SIGSEGV), on macOS-aarch64.
 
 The regex **parser** is unbounded recursive descent on nested groups:
 `__regex_compile (:1748) → __regex_parseAlt (:1724) → __regex_parseConcat (:1667) →
