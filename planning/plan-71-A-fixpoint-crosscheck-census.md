@@ -48,8 +48,8 @@ Stated once here in sub-plan A; every later letter points back to this table.
 |---|---|---|
 | windows-x86_64 byte-identity goldens exist (the fixpoint deletion rewrites the Win64 arm) | `find tests/byte-identity -name '*windows-x86_64*' \| wc -l → 20` | MET (main `eea9aadf9`) |
 | artifact-gate green (incl. windows) | `scripts/artifact-gate.sh target/release/mfb → "… 0 diff(s)"` | MET (1499 goldens, 0 diffs) |
-| the byte-identity gate script exists | `ls scripts/bug387-gate.sh` | MET (main `9acd0ecc3`) |
-| pre-fix exe-oracle baselines recorded (5 targets) | `ls /tmp/bug387/oracle-linux-x86_64.txt /tmp/bug387/oracle-windows-x86_64.txt /tmp/bug387/oracle-linux-riscv64.txt /tmp/bug387/oracle-linux-aarch64.txt` | MET this session — **EPHEMERAL /tmp**; A's first task re-records them (see below) so the plan does not depend on tmp survival |
+| the byte-identity gate script exists | `ls scripts/bug387-gate.sh` | MET (`ls` → `scripts/bug387-gate.sh`) |
+| pre-fix exe-oracle baselines recorded (5 targets) | `ls /tmp/bug387/oracle-linux-x86_64.txt /tmp/bug387/oracle-windows-x86_64.txt /tmp/bug387/oracle-linux-riscv64.txt /tmp/bug387/oracle-linux-aarch64.txt` | MET — **re-recorded this session** by Phase 1 from a clean `main` build (binary mtime 06:35 predates the select.rs edit at 06:40): linux-x86_64=1282, windows-x86_64=611, linux-riscv64=1280, linux-aarch64=1282, macos-aarch64=640 executables. Still **EPHEMERAL /tmp** (Open Decision 1 deferred). |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** The
 > `/tmp/bug387/*` baselines are ephemeral. Do not trust the MET above — re-record the
@@ -231,17 +231,27 @@ observable contract changes and (audit off) no emitted byte changes.
 
 Defends every later byte-identity check against the ephemeral `/tmp` baselines.
 
-- [ ] Build a clean `main` release (`cargo build --release --bin mfb`).
-- [ ] `scripts/exe-oracle.sh target/release/mfb <t> record /tmp/bug387/oracle-<t>.txt`
-      for `t ∈ {linux-x86_64, windows-x86_64, linux-riscv64, linux-aarch64}`; record the
-      macos-aarch64 host set too; and the app-ncode baseline (`scripts/bug387-gate.sh`
-      writes `app-ncode-base.txt`). Consider committing the manifests under
-      `tests/` or a plan-owned dir so they are not tmp-only (Open Decision 1).
-- [ ] Confirm a no-op re-run is 0-diff (`scripts/bug387-gate.sh target/release/mfb full`
-      → PASS) — proves the gate is sound before it guards anything.
+- [x] Build a clean `main` release (`cargo build --release --bin mfb` → `Finished release
+      profile … in 1m 55s`; binary mtime 06:35:30 predates the Phase-2 select.rs edit at
+      06:40:21, so it is the unmodified-`main` binary).
+- [x] `scripts/exe-oracle.sh target/release/mfb <t> record /tmp/bug387/oracle-<t>.txt`
+      for `t ∈ {linux-x86_64, windows-x86_64, linux-riscv64, linux-aarch64}` **and**
+      the macos-aarch64 host set; and the app-ncode baseline (seeded `app-ncode-base.txt`
+      from `scripts/bug387-gate.sh … app` on the clean binary). Recorded executable
+      counts: linux-x86_64=1282, windows-x86_64=611, linux-riscv64=1280,
+      linux-aarch64=1282, macos-aarch64=640 (each over 1139 `project.json` fixtures).
+      Open Decision 1: **deferred** — see Open Decisions / Corrections (the sha256s are
+      build-specific and would false-fail on any later codegen change, so they are not
+      committed as a golden).
+- [x] Confirm a no-op re-run is 0-diff (`scripts/bug387-gate.sh target/release/mfb full`
+      → `BUG387-GATE: PASS (byte-identical)`; app-ncode byte-identical + all four
+      exe-oracle targets `OK … byte-identical`) — proves the gate is sound before it
+      guards anything.
 
-Acceptance: `bug387-gate.sh … full` reports PASS on clean `main`; baseline manifests
-for all five targets exist outside `/tmp` (or Open Decision 1 is explicitly deferred).
+Acceptance: `bug387-gate.sh … full` reports PASS on clean `main` (**met** — PASS,
+byte-identical on app-ncode ×4 targets and exe-oracle ×4 targets); baseline manifests
+for all five targets exist in `/tmp/bug387` with Open Decision 1 (commit them) explicitly
+deferred (**met**).
 Commit: —
 
 ### Phase 2 — cross-check gate (env-gated, byte-identical)
@@ -301,6 +311,13 @@ Commit: —
 - **Baseline persistence** — commit the exe-oracle manifests to the repo (a plan-owned
   dir) vs keep them in `/tmp` and re-record per session. Recommend: commit them, so
   the gate is reproducible across sessions and machines. (§Phase 1)
+  **RESOLVED — deferred (do NOT commit).** The manifest is a list of sha256 hashes of
+  *produced executables*, valid only against the exact `mfb` build that recorded it.
+  Any later `main` commit that moves a single byte on any target (a routine occurrence)
+  invalidates the whole manifest, turning a committed golden into a false-failure
+  generator that every unrelated codegen change would have to re-baseline. The baseline
+  is a per-session artifact, not a durable golden; re-recording it from clean `main` is
+  Phase 1's first task by design. Kept in `/tmp/bug387` for this session.
 - **assert vs audit in production** — keep the cross-check audit-only until the final
   letter, then flip to a live `assert_eq!` as the deletion's safety net, vs delete the
   cross-check at the end. Recommend: flip to `assert_eq!` in the final letter and keep
