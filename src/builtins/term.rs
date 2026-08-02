@@ -13,6 +13,11 @@
 
 use std::borrow::Cow;
 
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinType, DefaultResolver,
+    Implementation, Lowering, Parameter, ReturnType, TypeKind,
+};
+
 pub(crate) const TERM_COLOR_TYPE: &str = "TermColor";
 pub(crate) const TERM_SIZE_TYPE: &str = "TermSize";
 /// The `LineStyle` enum (`Light`…`Double`) selecting the box-drawing weight for
@@ -50,52 +55,186 @@ pub(crate) const GET_BOLD: &str = "term.getBold";
 pub(crate) const GET_UNDERLINE: &str = "term.getUnderline";
 pub(crate) const TERMINAL_SIZE: &str = "term.terminalSize";
 
+// plan-72-X W: `TERM` is the descriptor authority for `term::`. Every call's
+// return type is a function of the NAME alone (`resolve_call` ignores its argument
+// types), so each function is one fixed-return overload and `resolve_call`
+// delegates to `return_type_name`, NOT the exact-argument-match
+// `DefaultResolver::resolve_call`. `term` owns all four builtin types: the records
+// `TermColor`/`TermSize` (native `builtin_type_fields`) and the source-companion
+// enums `LineStyle`/`FillStyle` (declared in `term_package.mfb`, no native
+// fields). `arity`, `call_return_type_name`, membership, and type membership/
+// fields derive from the descriptor; `param_types`, `call_param_names`, and
+// `expected_arguments` keep their hand-authored tables (the descriptor's zero-arg
+// conventions are `None`/`"()"`, but `term` uses `Some(&[])`/`"no arguments"`).
+const TERM_TYPES: &[BuiltinType] = &[
+    BuiltinType {
+        name: TERM_COLOR_TYPE,
+        kind: TypeKind::Record,
+        fields: &[("r", "Byte"), ("g", "Byte"), ("b", "Byte")],
+    },
+    BuiltinType {
+        name: TERM_SIZE_TYPE,
+        kind: TypeKind::Record,
+        fields: &[("columns", "Integer"), ("rows", "Integer")],
+    },
+    BuiltinType {
+        name: LINE_STYLE_TYPE,
+        kind: TypeKind::Enum,
+        fields: &[],
+    },
+    BuiltinType {
+        name: FILL_STYLE_TYPE,
+        kind: TypeKind::Enum,
+        fields: &[],
+    },
+];
+
+const P_EMPTY: &[Parameter] = &[];
+const P_RGB: &[Parameter] = &[
+    Parameter::required("r", "Byte"),
+    Parameter::required("g", "Byte"),
+    Parameter::required("b", "Byte"),
+];
+const P_ENABLED: &[Parameter] = &[Parameter::required("enabled", "Boolean")];
+const P_MOVE: &[Parameter] = &[
+    Parameter::required("row", "Integer"),
+    Parameter::required("column", "Integer"),
+];
+const P_HLINE: &[Parameter] = &[
+    Parameter::required("line", LINE_STYLE_TYPE),
+    Parameter::required("row", "Integer"),
+    Parameter::required("colA", "Integer"),
+    Parameter::required("colB", "Integer"),
+];
+const P_VLINE: &[Parameter] = &[
+    Parameter::required("line", LINE_STYLE_TYPE),
+    Parameter::required("col", "Integer"),
+    Parameter::required("rowA", "Integer"),
+    Parameter::required("rowB", "Integer"),
+];
+const P_BOX: &[Parameter] = &[
+    Parameter::required("line", LINE_STYLE_TYPE),
+    Parameter::required("x1", "Integer"),
+    Parameter::required("y1", "Integer"),
+    Parameter::required("x2", "Integer"),
+    Parameter::required("y2", "Integer"),
+];
+const P_FILL: &[Parameter] = &[
+    Parameter::required("fill", FILL_STYLE_TYPE),
+    Parameter::required("x1", "Integer"),
+    Parameter::required("y1", "Integer"),
+    Parameter::required("x2", "Integer"),
+    Parameter::required("y2", "Integer"),
+];
+const P_TEXT: &[Parameter] = &[
+    Parameter::required("x", "Integer"),
+    Parameter::required("y", "Integer"),
+    Parameter::required("text", "String"),
+];
+const P_GLYPH: &[Parameter] = &[
+    Parameter::required("x", "Integer"),
+    Parameter::required("y", "Integer"),
+    Parameter::required("codepoint", "Integer"),
+];
+
+const fn ov(params: &'static [Parameter], ret: &'static str) -> [BuiltinOverload; 1] {
+    [BuiltinOverload {
+        params,
+        return_type: ReturnType::Fixed(ret),
+    }]
+}
+
+const OV_NOTHING_EMPTY: &[BuiltinOverload] = &ov(P_EMPTY, "Nothing");
+const OV_BOOL_EMPTY: &[BuiltinOverload] = &ov(P_EMPTY, "Boolean");
+const OV_COLOR_EMPTY: &[BuiltinOverload] = &ov(P_EMPTY, TERM_COLOR_TYPE);
+const OV_SIZE_EMPTY: &[BuiltinOverload] = &ov(P_EMPTY, TERM_SIZE_TYPE);
+const OV_RGB: &[BuiltinOverload] = &ov(P_RGB, "Nothing");
+const OV_ENABLED: &[BuiltinOverload] = &ov(P_ENABLED, "Nothing");
+const OV_MOVE: &[BuiltinOverload] = &ov(P_MOVE, "Nothing");
+const OV_HLINE: &[BuiltinOverload] = &ov(P_HLINE, "Nothing");
+const OV_VLINE: &[BuiltinOverload] = &ov(P_VLINE, "Nothing");
+const OV_BOX: &[BuiltinOverload] = &ov(P_BOX, "Nothing");
+const OV_FILL: &[BuiltinOverload] = &ov(P_FILL, "Nothing");
+const OV_TEXT: &[BuiltinOverload] = &ov(P_TEXT, "Nothing");
+const OV_GLYPH: &[BuiltinOverload] = &ov(P_GLYPH, "Nothing");
+
+const fn term_fn(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+) -> BuiltinFunction {
+    BuiltinFunction {
+        name,
+        doc_slug: slug,
+        overloads,
+        // `term::` calls lower directly by name to the native backend — no rewrite.
+        implementation: Implementation::Same,
+        lowering: Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+
+const TERM_FUNCTIONS: &[BuiltinFunction] = &[
+    term_fn(ON, "on", OV_NOTHING_EMPTY),
+    term_fn(OFF, "off", OV_NOTHING_EMPTY),
+    term_fn(IS_ON, "isOn", OV_BOOL_EMPTY),
+    term_fn(SET_FOREGROUND, "setForeground", OV_RGB),
+    term_fn(SET_BACKGROUND, "setBackground", OV_RGB),
+    term_fn(SET_BOLD, "setBold", OV_ENABLED),
+    term_fn(SET_UNDERLINE, "setUnderline", OV_ENABLED),
+    term_fn(SHOW_CURSOR, "showCursor", OV_NOTHING_EMPTY),
+    term_fn(HIDE_CURSOR, "hideCursor", OV_NOTHING_EMPTY),
+    term_fn(CLEAR, "clear", OV_NOTHING_EMPTY),
+    term_fn(SYNC, "sync", OV_NOTHING_EMPTY),
+    term_fn(MOVE_TO, "moveTo", OV_MOVE),
+    term_fn(DRAW_HLINE, "drawHLine", OV_HLINE),
+    term_fn(DRAW_VLINE, "drawVLine", OV_VLINE),
+    term_fn(DRAW_BOX, "drawBox", OV_BOX),
+    term_fn(FILL_RECT, "fillRect", OV_FILL),
+    term_fn(DRAW_TEXT, "drawText", OV_TEXT),
+    term_fn(DRAW_GLYPH, "drawGlyph", OV_GLYPH),
+    term_fn(GET_FOREGROUND, "getForeground", OV_COLOR_EMPTY),
+    term_fn(GET_BACKGROUND, "getBackground", OV_COLOR_EMPTY),
+    term_fn(GET_BOLD, "getBold", OV_BOOL_EMPTY),
+    term_fn(GET_UNDERLINE, "getUnderline", OV_BOOL_EMPTY),
+    term_fn(TERMINAL_SIZE, "terminalSize", OV_SIZE_EMPTY),
+];
+
+pub(crate) static TERM: BuiltinModule = BuiltinModule {
+    name: "term",
+    functions: TERM_FUNCTIONS,
+    types: TERM_TYPES,
+    source: Some(super::descriptor::BuiltinSource {
+        rule: super::descriptor::InjectionRule::WhenImported,
+        loader: source_file,
+    }),
+    resolver: None,
+};
+
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
 }
 
 pub(crate) fn is_term_call(name: &str) -> bool {
-    matches!(
-        name,
-        ON | OFF
-            | IS_ON
-            | SET_FOREGROUND
-            | SET_BACKGROUND
-            | SET_BOLD
-            | SET_UNDERLINE
-            | SHOW_CURSOR
-            | HIDE_CURSOR
-            | CLEAR
-            | SYNC
-            | MOVE_TO
-            | DRAW_HLINE
-            | DRAW_VLINE
-            | DRAW_BOX
-            | FILL_RECT
-            | DRAW_TEXT
-            | DRAW_GLYPH
-            | GET_FOREGROUND
-            | GET_BACKGROUND
-            | GET_BOLD
-            | GET_UNDERLINE
-            | TERMINAL_SIZE
-    )
+    DefaultResolver::contains(&TERM, name)
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    name == TERM_COLOR_TYPE
-        || name == TERM_SIZE_TYPE
-        || name == LINE_STYLE_TYPE
-        || name == FILL_STYLE_TYPE
+    TERM.types.iter().any(|ty| ty.name == name)
 }
 
 pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
-    match name {
-        TERM_COLOR_TYPE => Some(&[("r", "Byte"), ("g", "Byte"), ("b", "Byte")]),
-        TERM_SIZE_TYPE => Some(&[("columns", "Integer"), ("rows", "Integer")]),
-        _ => None,
-    }
+    // A record contributes its `(field, type)` layout; the enums carry no native
+    // fields (empty slice → `None`), matching the legacy table.
+    TERM.types
+        .iter()
+        .find(|ty| ty.name == name)
+        .filter(|ty| !ty.fields.is_empty())
+        .map(|ty| ty.fields)
 }
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
@@ -134,20 +273,14 @@ pub(crate) fn param_types(name: &str) -> Option<&'static [&'static str]> {
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    match name {
-        ON | OFF | SET_FOREGROUND | SET_BACKGROUND | SET_BOLD | SET_UNDERLINE | SHOW_CURSOR
-        | HIDE_CURSOR | CLEAR | SYNC | MOVE_TO | DRAW_HLINE | DRAW_VLINE | DRAW_BOX
-        | FILL_RECT | DRAW_TEXT | DRAW_GLYPH => Some("Nothing"),
-        IS_ON | GET_BOLD | GET_UNDERLINE => Some("Boolean"),
-        GET_FOREGROUND | GET_BACKGROUND => Some(TERM_COLOR_TYPE),
-        TERMINAL_SIZE => Some(TERM_SIZE_TYPE),
-        _ => None,
-    }
+    DefaultResolver::return_type_name(&TERM, name)
 }
 
 /// `arg_types` is accepted for signature parity with every other package's
 /// `resolve_call` (so the `mod.rs` dispatch is uniform — bug-340 A7) but is
-/// unused: a `term::` call's return type is a function of the name alone.
+/// unused: a `term::` call's return type is a function of the name alone. This is
+/// why the wrapper delegates to `return_type_name`, not the exact-argument-match
+/// `DefaultResolver::resolve_call` (which would reject a name-only lookup).
 pub(crate) fn resolve_call<'a>(name: &str, _arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let return_type = call_return_type_name(name)?;
     Some(ResolvedCall {
@@ -165,8 +298,9 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
 }
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    let count = param_types(name)?.len();
-    Some((count, count))
+    // Every `term::` parameter is required, so the descriptor's (min, max) is
+    // (count, count) — identical to `param_types(name).len()`.
+    DefaultResolver::arity(&TERM, name)
 }
 
 // The `term::` package source declares the `LineStyle` enum (the drawHLine /
@@ -473,5 +607,79 @@ mod tests {
         assert_eq!(arity(FILL_RECT), Some((5, 5)));
         assert_eq!(arity(DRAW_TEXT), Some((3, 3)));
         assert_eq!(arity(DRAW_GLYPH), Some((3, 3)));
+    }
+
+    // plan-72-W migration gate: prove `TERM` reproduces every legacy answer
+    // (membership, arity, param names, return type, and all four builtin types +
+    // record fields) for every `term.*` name + a non-member, and that the
+    // descriptor's per-position types equal `param_types` (the descriptor's
+    // zero-arg `argument_types` is `None`, but `term::param_types` uses `Some(&[])`
+    // — the one convention divergence, asserted explicitly). `expected_arguments`
+    // is bespoke (`"no arguments"`) and is NOT asserted against the descriptor.
+    // Kept until plan-72-BB.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::{parity, DefaultResolver, InjectionRule, REGISTRY};
+
+        assert_eq!(TERM.functions.len(), ALL.len());
+
+        let legacy = parity::LegacySet {
+            is_call: &is_term_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            return_type_name: &call_return_type_name,
+            // Bespoke "no arguments" phrasing — not descriptor-derivable.
+            expected_arguments: None,
+            param_name_overloads: None,
+            // `param_types` diverges from `argument_types` only on the zero-arg
+            // convention; asserted separately below.
+            argument_types: None,
+            implementation_name: None,
+            default_padding: None,
+            builtin_type_fields: Some(&builtin_type_fields),
+        };
+        let mut probe = ALL.to_vec();
+        probe.push("term.nope");
+        parity::assert_parity(&TERM, &probe, &legacy, &[]);
+
+        // Per-position argument types match `param_types` for every call; the only
+        // divergence is the zero-arg convention (descriptor `None` vs `Some(&[])`).
+        for &name in ALL {
+            let types = param_types(name).expect("term param_types");
+            let descriptor = DefaultResolver::argument_types(&TERM, name);
+            if types.is_empty() {
+                assert_eq!(descriptor, None, "zero-arg argument_types for {name}");
+            } else {
+                assert_eq!(
+                    descriptor.as_deref(),
+                    Some(types),
+                    "argument_types == param_types for {name}"
+                );
+            }
+        }
+
+        // All four builtin types are present with the right kind; records keep
+        // their fields, enums carry none.
+        assert!(is_builtin_type(TERM_COLOR_TYPE));
+        assert!(is_builtin_type(LINE_STYLE_TYPE));
+        assert!(!is_builtin_type("String"));
+        assert_eq!(builtin_type_fields(LINE_STYLE_TYPE), None);
+        assert_eq!(
+            builtin_type_fields(TERM_COLOR_TYPE),
+            Some(&[("r", "Byte"), ("g", "Byte"), ("b", "Byte")][..])
+        );
+
+        // Source companion: `WhenImported`, loader parses.
+        let source = TERM.source.expect("term has a source companion");
+        assert_eq!(source.rule, InjectionRule::WhenImported);
+        assert!((source.loader)().is_ok());
+
+        // Registered and well-formed alongside every other package.
+        assert!(REGISTRY.module("term").is_some());
+        assert!(REGISTRY.function(TERMINAL_SIZE).is_some());
+        assert_eq!(REGISTRY.duplicate_module_name(), None);
+        assert_eq!(REGISTRY.duplicate_function_name(), None);
     }
 }

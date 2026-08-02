@@ -76,7 +76,7 @@ Acceptance: `cargo test` passes (`cargo test --bin mfb builtins::regex → 13
 passed`); `regex.*` fixtures verified byte-identical in the consolidated T–X
 acceptance at finalization (metadata-only wrappers proven equal by parity; the
 descriptor `REGISTRY` is never read in production dispatch).
-Commit: —
+Commit: 8e3f1e727
 
 ## Validation
 
