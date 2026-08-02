@@ -1,12 +1,39 @@
 # bug-420: registry LOW-severity security findings (goal-07 batch) — org admin privilege escalation, client redirect SSRF, anonymous fuzzy-search DoS
 
-Last updated: 2026-07-28
+Last updated: 2026-08-02
 Effort: small (<1h) each
 Severity: LOW
 Class: Security (authorization / SSRF / algorithmic-DoS)
 
-Status: Open
+Status: FIXED (all three items)
 Regression Test: per item (see each).
+
+STATUS: FIXED
+- (1) org admin → owner self-promotion — `repository/src/server.rs` `org_members`
+  handler now gates any create/remove of the `owner` role behind an owner (or the
+  org itself); admins keep authority over admin/publisher. Commit: 1edcc1c24.
+  Test: `server::tests::admin_cannot_grant_or_remove_the_owner_role` (RED→GREEN).
+- (2) unrestricted redirect following (SSRF / downgrade) — `repository/src/client.rs`
+  shared client now installs a custom redirect policy vetting every hop: https
+  only, and never a private/loopback/link-local/CGNAT/unspecified IP literal
+  (incl. IPv4-mapped IPv6), with a hop cap. Commit: 481a51377.
+  Tests: `a_registry_redirect_to_an_internal_plaintext_host_is_refused` (RED→GREEN
+  integration) + `redirect_targets_block_internal_and_downgrade_but_allow_public_https`.
+- (3) anonymous fuzzy-search full-table scan (DoS) — `repository/src/store.rs`
+  fuzzy tail pushes the edit-distance-1 length bound into SQL
+  (`WHERE length(p.ident) BETWEEN ?-1 AND ?+1`) via `fuzzy_search_candidates`, so
+  only length-compatible candidates reach Rust. Result-preserving (exact distance
+  check still runs; the existing fuzzy-fallback behavior test stays green).
+  Commit: 848257543. Test:
+  `store::tests::fuzzy_search_only_scans_length_compatible_candidates` (RED→GREEN).
+
+Deviation from the doc's Failing Reproduction: no live registry/network harness
+was stood up. Each mechanism was reproduced instead by a failing (RED) unit/
+integration test hitting the exact cited code path, then driven GREEN by the fix —
+a stronger, repeatable guard than a one-off network repro. Item (3) is a
+performance/DoS hardening with no output change, so its RED was demonstrated
+against an unbounded-scan baseline of the extracted helper (returns every package)
+before the SQL length bound was added. Full `repository` suite: 318 + 21 green.
 
 Three LOW-severity `mfb-repo` security findings from the goal-07 review, batched
 (all registry-security, LOW). Each has a distinct fix; kept together for triage.
