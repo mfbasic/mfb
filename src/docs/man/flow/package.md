@@ -36,6 +36,7 @@ jumps.
 - `while` — pre-test loops with `WHILE` and `END WHILE`.
 - `do` — pre-test and post-test `DO` loop forms.
 - `match` — value-based branching over unions, enums, and literals.
+- `pipeline` — thread a value through a chain of calls with `|>` and `_`.
 
 ## Errors
 

@@ -5,6 +5,7 @@ pub(crate) mod collections;
 pub(crate) mod crypto;
 pub(crate) mod csv;
 pub(crate) mod datetime;
+pub(crate) mod descriptor;
 pub(crate) mod encoding;
 pub(crate) mod errorcode;
 pub(crate) mod fs;
@@ -627,6 +628,60 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| vector::call_param_names(name))
 }
 
+// plan-72 registry adapters. Each queries a descriptor `registry` for a call's
+// metadata and falls back to the legacy per-package helper when the call's
+// package has not migrated yet. In letter A the production
+// `descriptor::REGISTRY` is empty, so these always take the fallback path and
+// production behavior is byte-identical to calling the legacy helper directly;
+// letters B..AA populate the registry (moving each package onto the descriptor
+// branch) and BB removes the `legacy` fallbacks once every package has migrated.
+// They are unused in production until the first package migrates, hence the
+// `not(test)` dead-code allow; the tests below exercise both branches.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn registry_is_call(
+    registry: &descriptor::BuiltinRegistry,
+    callee: &str,
+    legacy: impl Fn(&str) -> bool,
+) -> bool {
+    registry.function(callee).is_some() || legacy(callee)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn registry_arity(
+    registry: &descriptor::BuiltinRegistry,
+    callee: &str,
+    legacy: impl Fn(&str) -> Option<(usize, usize)>,
+) -> Option<(usize, usize)> {
+    if let Some((module, function)) = registry.function(callee) {
+        return descriptor::DefaultResolver::arity(module, function.name);
+    }
+    legacy(callee)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn registry_return_type_name(
+    registry: &descriptor::BuiltinRegistry,
+    callee: &str,
+    legacy: impl Fn(&str) -> Option<&'static str>,
+) -> Option<&'static str> {
+    if let Some((module, function)) = registry.function(callee) {
+        return descriptor::DefaultResolver::return_type_name(module, function.name);
+    }
+    legacy(callee)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn registry_expected_arguments(
+    registry: &descriptor::BuiltinRegistry,
+    callee: &str,
+    legacy: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
+    if let Some((module, function)) = registry.function(callee) {
+        return descriptor::DefaultResolver::expected_arguments(module, function.name);
+    }
+    legacy(callee)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1109,5 +1164,101 @@ mod tests {
         // thread
         assert!(call_param_names("thread.start").is_some());
         assert!(call_param_names("nope").is_none());
+    }
+
+    // ---- plan-72-A2: registry adapters -------------------------------------
+
+    use descriptor::{
+        BuiltinFunction, BuiltinFlags, BuiltinModule, BuiltinOverload, BuiltinRegistry,
+        Implementation, Lowering, Parameter, ReturnType,
+    };
+
+    // A minimal descriptor module standing in for a migrated `bits`: one
+    // function `bits.band(a, b) -> Integer`, matching the legacy helper so the
+    // descriptor branch is provably equivalent to the fallback.
+    const BAND: BuiltinFunction = BuiltinFunction {
+        name: "bits.band",
+        doc_slug: "band",
+        overloads: &[BuiltinOverload {
+            params: &[
+                Parameter::required("a", "Integer"),
+                Parameter::required("b", "Integer"),
+            ],
+            return_type: ReturnType::Fixed("Integer"),
+        }],
+        implementation: Implementation::Same,
+        lowering: Lowering::Inline,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    };
+    const MIGRATED_BITS: BuiltinModule = BuiltinModule {
+        name: "bits",
+        functions: &[BAND],
+        types: &[],
+        source: None,
+        resolver: None,
+    };
+    static MIGRATED_REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[&MIGRATED_BITS]);
+
+    #[test]
+    fn adapters_fall_back_when_registry_is_empty() {
+        // Against the empty production registry, every adapter returns exactly
+        // what the legacy helper returns — production dispatch is unchanged in A.
+        assert!(registry_is_call(
+            &descriptor::REGISTRY,
+            "bits.band",
+            bits::is_bits_call
+        ));
+        assert!(!registry_is_call(
+            &descriptor::REGISTRY,
+            "bits.nope",
+            bits::is_bits_call
+        ));
+        assert_eq!(
+            registry_arity(&descriptor::REGISTRY, "bits.band", bits::arity),
+            bits::arity("bits.band")
+        );
+        assert_eq!(
+            registry_return_type_name(
+                &descriptor::REGISTRY,
+                "bits.band",
+                bits::call_return_type_name
+            ),
+            bits::call_return_type_name("bits.band")
+        );
+        assert_eq!(
+            registry_expected_arguments(&descriptor::REGISTRY, "bits.band", |name| bits::expected_arguments(name).map(str::to_string)),
+            bits::expected_arguments("bits.band").map(str::to_string)
+        );
+    }
+
+    #[test]
+    fn adapters_use_descriptor_when_registry_has_the_package() {
+        // With a populated registry the adapter takes the descriptor branch, and
+        // its answer matches the legacy helper — the migration is behavior-preserving.
+        assert!(registry_is_call(
+            &MIGRATED_REGISTRY,
+            "bits.band",
+            |_| false
+        ));
+        assert_eq!(
+            registry_arity(&MIGRATED_REGISTRY, "bits.band", |_| None),
+            bits::arity("bits.band")
+        );
+        assert_eq!(
+            registry_return_type_name(&MIGRATED_REGISTRY, "bits.band", |_| None),
+            bits::call_return_type_name("bits.band")
+        );
+        assert_eq!(
+            registry_expected_arguments(&MIGRATED_REGISTRY, "bits.band", |_| None).as_deref(),
+            bits::expected_arguments("bits.band")
+        );
+        // A call the descriptor module does not own still falls back to legacy.
+        assert_eq!(
+            registry_arity(&MIGRATED_REGISTRY, "math.abs", math::arity),
+            math::arity("math.abs")
+        );
     }
 }

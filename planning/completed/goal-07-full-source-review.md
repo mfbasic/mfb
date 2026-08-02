@@ -1,7 +1,7 @@
 # goal-07: Full platform source review (fresh pass) — file-by-file bug hunt
 
 Last updated: 2026-07-28
-Status: IN PROGRESS (356 / 402 files reviewed)
+Status: COMPLETE (402 / 402 files reviewed)
 
 A fresh, independent pass over the entire shipped platform: the compiler
 (`src/**` Rust), the MFBASIC-source standard library (`src/builtins/*.mfb`),
@@ -216,6 +216,42 @@ call.)
 | bug-416 | audio/windows_io.rs:706,557,382, windows.rs:23 | Correctness/mem — WASAPI `available` bytes-not-frames + capture data loss + mix OOB + doc (4-item) | MED | Open |
 | bug-417 | win_x86_64/code.rs:38 | Correctness — `FIONBIO` constant corrupted (0x8004547E vs 0x8004667E); sockets never non-blocking; **verified** | MED | Open |
 | bug-418 | win_x86_64/app/mod.rs:798 | Memory-safety — transcript NUL store past 64 KiB wbuf on ≥32 KiB print (arena OOB) | MED | Open |
+| bug-419 | repository/src/server.rs:953,2534 | Security — challenge/signing rate-limit keyed on unauth `owner` → targeted account lockout | MED | Open |
+| bug-420 | repository/src/server.rs:1697, client.rs:65, store.rs:1592 | Security — org admin→owner escalation + client redirect SSRF + fuzzy-search DoS (3-item) | LOW | Open |
+| bug-421 | linux_gtk/bootstrap.rs:599 | Correctness — GTK LINE Backspace deletes one byte not code point (invalid UTF-8) | LOW | Open |
+| bug-422 | builtins/json_package.mfb:331 | **Security — `json::parse` no structural depth cap → deep-nested JSON SIGSEGV (uncatchable); reproduced** | HIGH | Open |
+| bug-423 | builtins/regex_package.mfb:1485 | **Security — `regex::compile` no depth cap → deep-nested pattern SIGSEGV (uncatchable); reproduced** | HIGH | Open |
+
+## Corrections
+
+Deviations from the plan/workflow, recorded per the follow-plan discipline:
+
+- **Worked on `main` directly, not a `worktree-P-07`.** The plan file was
+  *untracked* on `main`, so a worktree forked from `main`'s tip would not have
+  contained it; and this goal is purely additive (new `bugs/bug-NN-*.md` + checkbox
+  ticks), which does not conflict with source. Consistent with the project's git
+  discipline (`AGENTS.md` / `no-git-branches`: commit on the current branch, stage
+  explicit paths). Other agents committed concurrently to `main` during the run
+  (`examples/snake`, `plan-73`, `bug-387`); none touched the paths this goal did.
+- **No acceptance/CI run.** This review modified **zero source lines** (only
+  `bugs/` docs and this checklist), so the compiler/test state is identical to
+  `main`. The acceptance criterion for a review goal is census completeness
+  (402/402) + one bug document per finding — both met — not a code test pass.
+- **Census launch initially missed 5 files.** The directory-group fan-out overlooked
+  `src/target/linux_gtk/**` (4 files) and `src/target/shared/code/error_constants.rs`;
+  caught by re-grepping unchecked boxes before declaring COMPLETE (`grep '^- \[ \]'`),
+  then reviewed (findings: bug-421, bug-394 item 18; error_constants clean).
+- **Numbers 394–423 allocated** (doc's "next free" was 394). 30 bug documents filed.
+- **Prior-fix scope clarifications** (genuinely new, not re-files): bug-398 (Rust
+  `tinyjson` decode) is distinct from bug-302 (the MFBASIC `json::parse` runtime);
+  bug-422/bug-423 are the *structural/compile* depth caps that bug-302 (scalar
+  scanners only) and bug-315 (matcher only) required-but-never-landed — reproduced.
+  bug-408 double-realign vs bug-385's box-proven fix, and bug-404/bug-412 completing
+  the explicitly-deferred audits of bug-162 and bug-380, are each documented in the
+  bug with the reconciling evidence.
+- **Same-class batching** (per "batch trivial same-class findings"): bug-394
+  (18 doc/diagnostic text items), bug-402 (8 dead-code items), bug-415/bug-416
+  (per-module Windows-backend defects), bug-420 (3 registry LOW-security items).
 
 ## File census & progress
 
@@ -515,10 +551,10 @@ call.)
 
 **`src/target/linux_gtk/`**
 
-- [ ] `src/target/linux_gtk/app_io.rs` (623 loc)
-- [ ] `src/target/linux_gtk/bootstrap.rs` (1001 loc)
-- [ ] `src/target/linux_gtk/mod.rs` (1162 loc)
-- [ ] `src/target/linux_gtk/term_draw.rs` (817 loc)
+- [x] `src/target/linux_gtk/app_io.rs` (623 loc) — clean
+- [x] `src/target/linux_gtk/bootstrap.rs` (1001 loc) — bug-421
+- [x] `src/target/linux_gtk/mod.rs` (1162 loc) — clean
+- [x] `src/target/linux_gtk/term_draw.rs` (817 loc) — bug-394 (item 18)
 
 **`src/target/linux_riscv64/`**
 
@@ -605,7 +641,7 @@ call.)
 - [x] `src/target/shared/code/data_objects.rs` (1328 loc) — clean
 - [x] `src/target/shared/code/datetime.rs` (357 loc) — bug-411
 - [x] `src/target/shared/code/entry.rs` (1247 loc) — clean
-- [ ] `src/target/shared/code/error_constants.rs` (1005 loc)
+- [x] `src/target/shared/code/error_constants.rs` (1005 loc) — clean
 - [x] `src/target/shared/code/error_result.rs` (129 loc) — clean
 - [x] `src/target/shared/code/float_format.rs` (596 loc) — clean
 - [x] `src/target/shared/code/fma_fusion.rs` (308 loc) — clean
@@ -754,15 +790,15 @@ call.)
 
 **`src/testing/`**
 
-- [ ] `src/testing/coverage.rs` (420 loc)
+- [x] `src/testing/coverage.rs` (420 loc) — clean
 
 **`src/testing/desugar/`**
 
-- [ ] `src/testing/desugar/coverage.rs` (462 loc)
-- [ ] `src/testing/desugar/driver.rs` (182 loc)
-- [ ] `src/testing/desugar/expect.rs` (186 loc)
-- [ ] `src/testing/desugar/mod.rs` (246 loc)
-- [ ] `src/testing/desugar/placement.rs` (209 loc)
+- [x] `src/testing/desugar/coverage.rs` (462 loc) — clean
+- [x] `src/testing/desugar/driver.rs` (182 loc) — clean
+- [x] `src/testing/desugar/expect.rs` (186 loc) — clean
+- [x] `src/testing/desugar/mod.rs` (246 loc) — clean
+- [x] `src/testing/desugar/placement.rs` (209 loc) — clean
 
 **`src/unicode/`**
 
@@ -774,51 +810,51 @@ call.)
 
 **`src/builtins/`**
 
-- [ ] `src/builtins/app_package.mfb` (27 loc)
-- [ ] `src/builtins/audio_mml.mfb` (496 loc)
-- [ ] `src/builtins/audio_render.mfb` (112 loc)
-- [ ] `src/builtins/collections_package.mfb` (448 loc)
-- [ ] `src/builtins/crypto_aead.mfb` (697 loc)
-- [ ] `src/builtins/crypto_ecdsa.mfb` (120 loc)
-- [ ] `src/builtins/crypto_ed25519.mfb` (567 loc)
-- [ ] `src/builtins/crypto_hash.mfb` (765 loc)
-- [ ] `src/builtins/crypto_util.mfb` (114 loc)
-- [ ] `src/builtins/csv_package.mfb` (235 loc)
-- [ ] `src/builtins/datetime_package.mfb` (1116 loc)
-- [ ] `src/builtins/encoding_package.mfb` (1273 loc)
-- [ ] `src/builtins/http_package.mfb` (1215 loc)
-- [ ] `src/builtins/json_package.mfb` (820 loc)
-- [ ] `src/builtins/money_package.mfb` (26 loc)
-- [ ] `src/builtins/net_package.mfb` (338 loc)
-- [ ] `src/builtins/regex_package.mfb` (1957 loc)
-- [ ] `src/builtins/strings_package.mfb` (101 loc)
-- [ ] `src/builtins/term_package.mfb` (60 loc)
+- [x] `src/builtins/app_package.mfb` (27 loc) — clean
+- [x] `src/builtins/audio_mml.mfb` (496 loc) — bug-394 (item 17)
+- [x] `src/builtins/audio_render.mfb` (112 loc) — clean
+- [x] `src/builtins/collections_package.mfb` (448 loc) — clean
+- [x] `src/builtins/crypto_aead.mfb` (697 loc) — clean
+- [x] `src/builtins/crypto_ecdsa.mfb` (120 loc) — clean
+- [x] `src/builtins/crypto_ed25519.mfb` (567 loc) — clean
+- [x] `src/builtins/crypto_hash.mfb` (765 loc) — clean
+- [x] `src/builtins/crypto_util.mfb` (114 loc) — clean
+- [x] `src/builtins/csv_package.mfb` (235 loc) — clean
+- [x] `src/builtins/datetime_package.mfb` (1116 loc) — clean
+- [x] `src/builtins/encoding_package.mfb` (1273 loc) — clean
+- [x] `src/builtins/http_package.mfb` (1215 loc) — clean
+- [x] `src/builtins/json_package.mfb` (820 loc) — bug-422
+- [x] `src/builtins/money_package.mfb` (26 loc) — clean
+- [x] `src/builtins/net_package.mfb` (338 loc) — clean
+- [x] `src/builtins/regex_package.mfb` (1957 loc) — bug-423
+- [x] `src/builtins/strings_package.mfb` (101 loc) — clean
+- [x] `src/builtins/term_package.mfb` (60 loc) — clean
 
 ### `repository/src/**` — mfb-repo registry server + client (15 files)
 
 **`repository/src/`**
 
-- [ ] `repository/src/abi.rs` (1063 loc)
-- [ ] `repository/src/backfill.rs` (656 loc)
-- [ ] `repository/src/blobstore.rs` (936 loc)
-- [ ] `repository/src/client.rs` (4074 loc)
-- [ ] `repository/src/crypto.rs` (398 loc)
-- [ ] `repository/src/gc.rs` (1166 loc)
-- [ ] `repository/src/lib.rs` (19 loc)
-- [ ] `repository/src/local.rs` (926 loc)
-- [ ] `repository/src/log.rs` (368 loc)
-- [ ] `repository/src/main.rs` (1188 loc)
-- [ ] `repository/src/package.rs` (840 loc)
-- [ ] `repository/src/server.rs` (8831 loc)
-- [ ] `repository/src/store.rs` (5621 loc)
-- [ ] `repository/src/validation.rs` (172 loc)
+- [x] `repository/src/abi.rs` (1063 loc) — clean
+- [x] `repository/src/backfill.rs` (656 loc) — clean
+- [x] `repository/src/blobstore.rs` (936 loc) — clean
+- [x] `repository/src/client.rs` (4074 loc) — bug-420 (item 2)
+- [x] `repository/src/crypto.rs` (398 loc) — clean
+- [x] `repository/src/gc.rs` (1166 loc) — clean
+- [x] `repository/src/lib.rs` (19 loc) — clean
+- [x] `repository/src/local.rs` (926 loc) — clean
+- [x] `repository/src/log.rs` (368 loc) — clean
+- [x] `repository/src/main.rs` (1188 loc) — clean
+- [x] `repository/src/package.rs` (840 loc) — clean
+- [x] `repository/src/server.rs` (8831 loc) — bug-419, bug-420 (item 1)
+- [x] `repository/src/store.rs` (5621 loc) — bug-420 (items 1, 3)
+- [x] `repository/src/validation.rs` (172 loc) — clean
 
 **`repository/src/web/`**
 
-- [ ] `repository/src/web/mod.rs` (1082 loc)
+- [x] `repository/src/web/mod.rs` (1082 loc) — clean
 
 ### root build script (1 file)
 
 **`.` (repo root)**
 
-- [ ] `build.rs` (365 loc)
+- [x] `build.rs` (365 loc) — clean

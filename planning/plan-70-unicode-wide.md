@@ -313,19 +313,23 @@ independently-landable phases, ordered uncertainty-first / blast-radius-last. Se
 - **East-Asian Ambiguous width = 1 or 2?** Recommend **1** (narrow) — the modern
   terminal default; carry the `ambiguous_width` bit (A) so a policy flip is a
   one-line codegen change, not a table rebuild. (§Non-goals)
+  Decision: Recommend **1** (narrow), carry the `ambiguous_width` bit
 - **EGC pool now, or inline-cap-only first?** Recommend the **EGC pool** (B) for
   notcurses parity, with plan-70-B Phase 1 shipping single-scalar-wide-only as
   the de-risking spike. Alternative: cap clusters at the inline u32 and drop the
   tail of longer clusters — simpler, but leaves combining/ZWJ broken, which is
   the whole point. (§3)
+  Decision: EGC pool
 - **Windows app: extend the shared neutral grid, or a Windows-local grid?**
   Recommend a **Windows-local cell grid** in `mod.rs` mirroring the macOS/Linux
   app shape (the neutral `term_grid.rs` is console-only, coupled to VT escape
   output, which the GDI blit path does not use). (plan-70-F)
+  Decision: Windows-local cell grid
 - **A width-aware `padRight`/`left` variant, or only `strings::displayWidth`?**
   Recommend shipping **only `displayWidth`** in A (additive, minimal surface) and
   leaving column-aware padding to a follow-up once `displayWidth` exists; folding
   a width mode into `padRight` changes an existing builtin's contract. (§Non-goals)
+  Decision: displayWidth
 
 ## Corrections
 
