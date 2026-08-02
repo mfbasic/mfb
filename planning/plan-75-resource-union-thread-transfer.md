@@ -170,6 +170,17 @@ Commit: a6566a290
 thread run. Because `result_payload_is_block` and the transfer copy are hot paths, run the full
 acceptance suite — a resource-union classification change can ripple to `Result` handling.
 
+**Results:**
+- `cargo test --bin mfb`: 3750 passed, 0 failed (before and after both main merges).
+- Full `scripts/test-accept.sh` (1146 tests): 4 mismatches, **all 4 proven pre-existing** —
+  `libsnd-load-sound-rt`, `libsnd-playback-rt` (SoundFile STATE-verify), `native-link-inline-trap-rt`
+  (Db STATE-verify), `tls-connect-google-rt` (network deadline). Proof: a `git worktree add
+  --detach 2bb720acb` oracle binary (main tip, **without** plan-75) fails these exact 4 identically
+  (`acceptance tests failed: 4 mismatch(es) (4 test(s) ran)`), and my diff (`git diff 2bb720acb..HEAD`)
+  touches only 4 source files — none in `binary_repr/` (the STATE-verify error source) or net/tls.
+- On-device: the stateful transfer prints `99`, the stateless prints `1`; 20×/20× repeat runs clean.
+- `scripts/artifact-gate.sh all`: run at finalization on the merged binary (see final commit).
+
 ## Corrections
 
 - **Gap 3 needed one more base-strip than the plan listed: `record_field_is_pointer`.**
@@ -203,3 +214,13 @@ acceptance suite — a resource-union classification change can ripple to `Resul
   HEAD copy, and my binary reproduces the main binary's bytes exactly (`cmp` SAME). It is
   orthogonal to plan-75 staleness, so restored to HEAD (`git checkout --`) rather than
   smuggled into this plan's commit.
+- **Main advanced twice during execution; the second advance flipped the canonical rustfmt.**
+  Base was `5adf1bb5a`; mid-plan main reached `2bb720acb` (plan-76 net/tls/http — merged, clean,
+  no source conflict), then `dc9d10351` (`style: reformat with rustfmt 1.9.0-stable (cargo fmt
+  --all)`). The second merge landed the tree-wide rustfmt-1.9.0 reformatting my memory had
+  flagged as version-churn to avoid — but since main *committed* it, rustfmt 1.9.0 is now the
+  canonical format, so I did NOT hand-revert it; my 4 files pass `rustfmt --check` under 1.9.0
+  post-merge (my added lines already matched the wrapped style). Both merges were conflict-free;
+  `cargo test --bin mfb` stayed at 3750/0 across both.
+- **The 4 acceptance mismatches are pre-existing, not regressions.** Measured with a detached
+  main-tip oracle (see Validation). None lies in a code path this plan touches.
