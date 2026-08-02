@@ -49,18 +49,33 @@ fn der_encode_int(src: &str, dst: &str, field: usize, tag: &str, ins: &mut Vec<C
 
 /// Decode one ASN.1 INTEGER at `[body]` into the big-endian `field`-wide slot at
 /// `[dst]` (left-padded with zeros). Advances `body` past the INTEGER. Branches to
-/// `fail` on a malformed tag / oversized value. Scratch: `%v8`..`%v14`.
+/// `fail` on a malformed tag / oversized value, and to `bounds_fail` on any length
+/// that would read past the untrusted signature buffer (`[sigbuf_off]`..+
+/// `[siglen_off]`), so a crafted short signature cannot walk off the arena buffer
+/// (bug-415 #2). Scratch: `%v8`..`%v14`.
+#[allow(clippy::too_many_arguments)]
 fn der_decode_int(
     body: &str,
     dst: &str,
     field: usize,
     tag: &str,
     fail: &str,
+    sigbuf_off: usize,
+    siglen_off: usize,
+    bounds_fail: &str,
     ins: &mut Vec<CodeInstruction>,
 ) {
     let no_pad = format!("{tag}_dnp");
     let ok = format!("{tag}_dok");
     ins.extend([
+        // Bound the 2-byte tag+length header against the signature buffer end
+        // (end = SIGBUF + SIGLEN) before reading it.
+        abi::load_u64("%v8", abi::stack_pointer(), sigbuf_off),
+        abi::load_u64("%v9", abi::stack_pointer(), siglen_off),
+        abi::add_registers("%v8", "%v8", "%v9"), // %v8 = buffer end
+        abi::add_immediate("%v9", body, 2),
+        abi::compare_registers("%v9", "%v8"),
+        abi::branch_hi(bounds_fail),
         // tag byte must be 0x02
         abi::load_u8("%v9", body, 0),
         abi::compare_immediate("%v9", "2"),
@@ -70,6 +85,16 @@ fn der_decode_int(
         // advance `body` past this INTEGER now (2 + declared_len), before trimming.
         abi::add_immediate(body, body, 2),
         abi::add_registers(body, body, "%v10"),
+        // Reject an empty INTEGER and bound the declared content: after the advance
+        // `body` == start + 2 + declared_len, so a non-zero length with `body <=
+        // end` keeps the content bytes (and the int_body[0] read below) in bounds.
+        abi::compare_immediate("%v10", "0"),
+        abi::branch_eq(bounds_fail),
+        abi::load_u64("%v8", abi::stack_pointer(), sigbuf_off),
+        abi::load_u64("%v9", abi::stack_pointer(), siglen_off),
+        abi::add_registers("%v8", "%v8", "%v9"), // %v8 = buffer end
+        abi::compare_registers(body, "%v8"),
+        abi::branch_hi(bounds_fail),
         // if int_body[0]==0 and len>1: skip the pad byte
         abi::load_u8("%v9", "%v11", 0),
         abi::compare_immediate("%v9", "0"),
@@ -108,7 +133,10 @@ fn der_decode_int(
 
 /// Open the ECDSA algorithm provider at `halg_off` and import the SEC1 key at
 /// `[key_ptr_off]` (public or private) into `hkey_off`. `is_private` selects the
-/// blob type/magic and copies the scalar. Branches to `fail` on any NTSTATUS < 0.
+/// blob type/magic and copies the scalar. Branches to `fail` if the provider
+/// cannot be opened (a system error), and to `import_fail` if the key blob fails
+/// to import — an off-curve / otherwise-invalid key, which verify reports as
+/// `ErrInvalidArgument` (bug-415 #1).
 #[allow(clippy::too_many_arguments)]
 fn import_key(
     curve: Curve,
@@ -119,6 +147,7 @@ fn import_key(
     halg_off: usize,
     hkey_off: usize,
     fail: &str,
+    import_fail: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     ins: &mut Vec<CodeInstruction>,
@@ -165,7 +194,7 @@ fn import_key(
         abi::move_immediate(abi::ARG[6], "Integer", "0"),
     ]);
     bcrypt_call(symbol, "BCryptImportKeyPair", 7, imports, platform, ins, rel)?;
-    ins.push(abi::branch_lt(fail));
+    ins.push(abi::branch_lt(import_fail));
     Ok(())
 }
 
@@ -203,14 +232,28 @@ fn hash_message(
         abi::add_immediate(abi::ARG[5], abi::stack_pointer(), hashbuf_off),
         abi::move_immediate(abi::ARG[6], "Integer", &curve.hash_len().to_string()),
     ]);
+    let hash_fail = format!("{symbol}_hashfail");
+    let hash_ok = format!("{symbol}_hashok");
     bcrypt_call(symbol, "BCryptHash", 7, imports, platform, ins, rel)?;
-    ins.push(abi::branch_lt(fail));
-    // Close the hash provider.
+    ins.push(abi::branch_lt(&hash_fail));
+    // Close the hash provider (success path).
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), hashalg_off),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
     bcrypt_call(symbol, "BCryptCloseAlgorithmProvider", 2, imports, platform, ins, rel)?;
+    ins.push(abi::branch(&hash_ok));
+    // Failure path: close the hash provider before routing to the caller's fail
+    // exit — a BCryptHash error must not leak the provider handle (bug-415 #3),
+    // and the shared emit_cleanup does not know about HASHALG.
+    ins.push(abi::label(&hash_fail));
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), hashalg_off),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+    ]);
+    bcrypt_call(symbol, "BCryptCloseAlgorithmProvider", 2, imports, platform, ins, rel)?;
+    ins.push(abi::branch(fail));
+    ins.push(abi::label(&hash_ok));
     Ok(())
 }
 
@@ -276,7 +319,7 @@ fn sign(
         ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), slot));
     }
 
-    import_key(curve, true, symbol, PRIVBUF, BLOB, HALG, HKEY, &fail, imports, platform, &mut ins, &mut rel)?;
+    import_key(curve, true, symbol, PRIVBUF, BLOB, HALG, HKEY, &fail, &fail, imports, platform, &mut ins, &mut rel)?;
     hash_message(curve, symbol, MSGBUF, MSGLEN, HASHINLINE, HASHALG, &fail, imports, platform, &mut ins, &mut rel)?;
 
     // BCryptSignHash(hKey, NULL, hash, hashLen, rs, 2*field, &cbResult, 0)
@@ -402,6 +445,8 @@ fn verify(
 
     let fail = format!("{symbol}_fail");
     let bad_sig = format!("{symbol}_badsig");
+    let invalid = format!("{symbol}_invalid");
+    let oob = format!("{symbol}_oob");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
     let cleanup = format!("{symbol}_cleanup");
@@ -418,10 +463,13 @@ fn verify(
     emit_read_byte_list(symbol, "pub", PUBCOLL, PUBBUF, PUBLEN, &alloc_fail, &mut ins, &mut rel);
     emit_read_byte_list(symbol, "msg", MSGCOLL, MSGBUF, MSGLEN, &alloc_fail, &mut ins, &mut rel);
     emit_read_byte_list(symbol, "sig", SIGCOLL, SIGBUF, SIGLEN, &alloc_fail, &mut ins, &mut rel);
+    // A public key that is not exactly one uncompressed SEC1 point is a malformed
+    // argument, not a false verdict — raise ErrInvalidArgument to match the
+    // macOS/OpenSSL backends (bug-415 #1).
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), PUBLEN),
         abi::compare_immediate("%v9", &pub_raw.to_string()),
-        abi::branch_ne(&bad_sig),
+        abi::branch_ne(&invalid),
     ]);
     for (cap, slot) in [(BLOBCAP, BLOB), (2 * 66, RS)] {
         ins.extend([
@@ -432,13 +480,19 @@ fn verify(
         ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), slot));
     }
 
-    import_key(curve, false, symbol, PUBBUF, BLOB, HALG, HKEY, &fail, imports, platform, &mut ins, &mut rel)?;
+    import_key(curve, false, symbol, PUBBUF, BLOB, HALG, HKEY, &fail, &invalid, imports, platform, &mut ins, &mut rel)?;
     hash_message(curve, symbol, MSGBUF, MSGLEN, HASHINLINE, HASHALG, &fail, imports, platform, &mut ins, &mut rel)?;
 
-    // DER-decode the signature into rs (r at +0, s at +field), zero-padded.
+    // DER-decode the signature into rs (r at +0, s at +field), zero-padded. The
+    // signature is untrusted: bound every read against SIGLEN so a short/malformed
+    // encoding cannot read past the arena buffer (bug-415 #2). Reading the 1- or
+    // 2-byte SEQUENCE header needs at least 2 bytes.
     let seq_short = format!("{symbol}_seqshort");
     let seq_body = format!("{symbol}_seqbody");
     ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), SIGLEN),
+        abi::compare_immediate("%v9", "2"),
+        abi::branch_lt(&oob),
         abi::load_u64("%v15", abi::stack_pointer(), SIGBUF),
         abi::load_u8("%v9", "%v15", 0),
         abi::compare_immediate("%v9", "48"), // SEQUENCE
@@ -456,12 +510,12 @@ fn verify(
         abi::label(&seq_body),
         abi::load_u64("%v6", abi::stack_pointer(), RS), // dst for r
     ]);
-    der_decode_int("%v15", "%v6", field, &format!("{symbol}_dr"), &bad_sig, &mut ins);
+    der_decode_int("%v15", "%v6", field, &format!("{symbol}_dr"), &bad_sig, SIGBUF, SIGLEN, &oob, &mut ins);
     ins.extend([
         abi::load_u64("%v6", abi::stack_pointer(), RS),
         abi::add_immediate("%v6", "%v6", field), // dst for s
     ]);
-    der_decode_int("%v15", "%v6", field, &format!("{symbol}_ds"), &bad_sig, &mut ins);
+    der_decode_int("%v15", "%v6", field, &format!("{symbol}_ds"), &bad_sig, SIGBUF, SIGLEN, &oob, &mut ins);
 
     // BCryptVerifySignature(hKey, NULL, hash, hashLen, rs, 2*field, 0)
     ins.extend([
@@ -487,6 +541,9 @@ fn verify(
         abi::branch(&done),
     ]);
 
+    // An out-of-bounds / short DER encoding is just an invalid signature (FALSE),
+    // detected before any OOB read; fall through into bad_sig's cleanup+verdict.
+    ins.push(abi::label(&oob));
     // bad_sig is reached both after the (already-cleaned-up) verify and from the
     // earlier len/DER-decode guards where the handles may still be open — the
     // idempotent cleanup covers both.
@@ -500,6 +557,11 @@ fn verify(
     ins.push(abi::label(&fail));
     emit_cleanup(symbol, "cf", HKEY, HALG, imports, platform, &mut ins, &mut rel)?;
     emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &mut ins, &mut rel, &done);
+    // A malformed public key (wrong length, or a right-length off-curve key that
+    // BCryptImportKeyPair rejects) is an argument error, matching macOS/OpenSSL.
+    ins.push(abi::label(&invalid));
+    emit_cleanup(symbol, "cinv", HKEY, HALG, imports, platform, &mut ins, &mut rel)?;
+    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_cleanup(symbol, "ca", HKEY, HALG, imports, platform, &mut ins, &mut rel)?;
     emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
