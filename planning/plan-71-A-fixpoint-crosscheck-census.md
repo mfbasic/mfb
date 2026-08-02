@@ -280,20 +280,28 @@ Commit: —
 
 ### Phase 3 — corpus census
 
-- [ ] Audit-sweep the full exe-oracle fixture set for `linux-x86_64` and
-      `windows-x86_64` (`MFB_BUG387_AUDIT=1`), collecting all `BUG387-MISMATCH` lines.
-- [ ] Bucket by `op`/`fields` shape into Category 1 / Category 2 / residue; record
-      exact counts, per-file distribution, and 3–5 representative sites per bucket in
-      a new `planning/plan-71-census.md`.
-- [ ] From the census, write the **B-onward split**: name each later sub-plan
-      (`plan-71-B` = elision pass; `plan-71-C…` = re-tokenization by category/volume;
-      final = fixpoint deletion), each sized medium/large, letter order = implementation
-      order, each depending only on its predecessor. Record any residue category as an
-      Open Decision (new token vs new mechanism).
+- [x] Audit-sweep the full exe-oracle fixture set for `linux-x86_64` and
+      `windows-x86_64` (`MFB_BUG387_AUDIT=1`), collecting all `BUG387-MISMATCH` lines
+      (`/tmp/bug387/census-sweep.sh` over 1139 fixtures each; raw operands: linux
+      1,034,322, windows 484,408).
+- [x] Bucket by `op`/`fields` shape into Category 1 / Category 2 / residue; record
+      exact counts, per-file distribution, and representative sites per bucket in
+      `planning/plan-71-census.md`. Result: **143 distinct linux / 106 windows** divergent
+      shapes, **100% Category 1** (re-tokenize the producer; no move) in two sub-families
+      (1a result-named→arg = the ~99.7% bulk; 1b arg-named→result + windows `%sysarg`);
+      **Category 2 = 0 in the audit** (invisible by construction — staging moves agree),
+      **residue = 0** (no boundary op diverges; every inferred register has a role-token
+      preimage).
+- [x] From the census, write the **B-onward split**: `plan-71-B` = Category-2 census +
+      AArch64/RISC-V same-register move-elision (uncertainty-first); `plan-71-C` =
+      re-tokenize Family 1a (bulk); `plan-71-D` = re-tokenize Family 1b + windows
+      `%sysarg`; `plan-71-E` = delete the fixpoint + flip the cross-check live. Letter
+      order = implementation order; each depends only on its predecessor. The residue/
+      Category-2 uncertainty is recorded as an Open Decision (measured separately in B).
 
 Acceptance: `planning/plan-71-census.md` exists with a measured, bucketed divergence
-inventory and a concrete B-onward sub-plan split whose sizes are derived from the
-census counts (no `~`, every count carries its command).
+inventory and a concrete B-onward split whose sizes derive from the census counts
+(every count carries its command, no `~`) — **met**.
 Commit: —
 
 ## Validation Plan
@@ -332,6 +340,16 @@ Commit: —
   fixpoint is gone if it proves hot. (§4)
 - **Residue category** — if the census finds sites that are neither Category 1 nor 2,
   decide new-token vs new-mechanism there, in the census, before scoping C onward.
+  **RESOLVED — no residue.** The census (`planning/plan-71-census.md`) found every
+  divergent operand is Category 1 (re-tokenizable; no boundary op diverges, every
+  inferred register has a role-token preimage). No new token or mechanism is needed.
+- **Category 2 is not measurable by the divergence audit (surfaced by the census).**
+  A genuine same-register result→arg reuse emits no `BUG387-MISMATCH` (its staging move's
+  operands agree), so the audit reports 0 Category-2 sites by construction — this is NOT
+  evidence Category 2 is empty. Measuring it (and building the AArch64/RISC-V mov-elision
+  pass if needed) is plan-71-B's first task, exactly as §2 anticipated. The
+  Category-1/Category-2 partition is safe only once B proves at the value level that no
+  single value needs two conflicting tokens.
 
 ## Corrections
 
