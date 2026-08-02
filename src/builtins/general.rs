@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
 use super::descriptor::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, DefaultResolver, DefaultValue,
-    Implementation, Lowering, Parameter, ParameterType, ReturnType,
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, DefaultResolver,
+    DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType,
 };
 
 const ERROR: &str = "error";
@@ -153,12 +153,29 @@ const GENERAL_FUNCTIONS: &[BuiltinFunction] = &[
     gfn(IS_NOT_EMPTY, "isNotEmpty", &[ovc(P_V_STR)]),
 ];
 
+/// Return-type resolution for the general calls, delegating to the hand-authored
+/// `resolve_call` (the returns are argument-dependent — `len`, `error`, and the
+/// generic overloads compute from operand types). Exposed through the descriptor
+/// so plan-72-BB can drive `general::` return types from the registry.
+struct GeneralResolver;
+impl BuiltinResolver for GeneralResolver {
+    fn resolve_return_type(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        resolve_call(name, arg_types).map(|resolved| resolved.return_type.into_owned())
+    }
+}
+static GENERAL_RESOLVER: GeneralResolver = GeneralResolver;
+
 pub(crate) static GENERAL: BuiltinModule = BuiltinModule {
     name: "general",
     functions: GENERAL_FUNCTIONS,
     types: &[],
     source: None,
-    resolver: None,
+    resolver: Some(&GENERAL_RESOLVER),
 };
 
 #[derive(Clone)]

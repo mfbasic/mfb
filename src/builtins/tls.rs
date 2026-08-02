@@ -154,12 +154,31 @@ const TLS_TYPES: &[BuiltinType] = &[
     },
 ];
 
+/// Return-type resolution for the tls calls, delegating to the hand-authored
+/// `resolve_call` (which validates `close`'s `TlsSocket`/`TlsListener` argument
+/// union that the descriptor's per-position match cannot). Exposed through the
+/// descriptor so plan-72-BB can drive `tls::` return types from the registry.
+/// Default padding is left to `DefaultResolver::default_padding` (the `Fill`
+/// params reproduce it), so this resolver does not override it.
+struct TlsResolver;
+impl super::descriptor::BuiltinResolver for TlsResolver {
+    fn resolve_return_type(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        resolve_call(name, arg_types).map(|resolved| resolved.return_type.into_owned())
+    }
+}
+static TLS_RESOLVER: TlsResolver = TlsResolver;
+
 pub(crate) static TLS: BuiltinModule = BuiltinModule {
     name: "tls",
     functions: TLS_FUNCTIONS,
     types: TLS_TYPES,
     source: None,
-    resolver: None,
+    resolver: Some(&TLS_RESOLVER),
 };
 
 /// User-facing tls calls. Recognized by `is_builtin_call`, so it must NOT
@@ -575,6 +594,9 @@ mod tests {
             param_names: &|name| {
                 call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
             },
+            // Resolver-backed: the harness skips return-type and default-padding
+            // parity (checked through the resolver samples and the dedicated
+            // `default_padding_branches` test respectively).
             return_type_name: &call_return_type_name,
             // `"or"`-phrased `close`; kept hand-authored and checked separately.
             expected_arguments: None,
@@ -582,14 +604,38 @@ mod tests {
             // joined-string shape; kept hand-authored and checked separately.
             argument_types: None,
             implementation_name: None,
-            default_padding: Some(&|name, provided| {
-                default_argument_padding(name, provided).to_vec()
-            }),
+            default_padding: None,
             builtin_type_fields: None,
         };
+
+        // Return type through the resolver, including `close`'s TlsSocket/TlsListener
+        // argument union that the descriptor's per-position match cannot express.
+        let ret = |call, args: &'static [&'static str], r: &'static str| parity::ResolverSample {
+            call,
+            arg_types: args,
+            expected_return: Some(r),
+            expected_impl: None,
+            expected_padding: None,
+            expected_type: None,
+            expected_overload_target: None,
+        };
+        let samples = [
+            ret(CONNECT, &["String", "Integer"], TLS_SOCKET_TYPE),
+            ret(
+                LISTEN,
+                &["String", "Integer", "String", "String"],
+                TLS_LISTENER_TYPE,
+            ),
+            ret(ACCEPT, &[TLS_LISTENER_TYPE], TLS_SOCKET_TYPE),
+            ret(READ, &[TLS_SOCKET_TYPE, "Integer"], "List OF Byte"),
+            ret(READ_TEXT, &[TLS_SOCKET_TYPE, "Integer"], "String"),
+            ret(CLOSE, &[TLS_SOCKET_TYPE], "Nothing"),
+            ret(CLOSE, &[TLS_LISTENER_TYPE], "Nothing"),
+        ];
+
         let mut probe = calls.clone();
         probe.push("tls.nope");
-        parity::assert_parity(&TLS, &probe, &legacy, &[]);
+        parity::assert_parity(&TLS, &probe, &legacy, &samples);
 
         // The two opaque handle types are the descriptor's builtin-type authority.
         assert!(is_builtin_type(TLS_SOCKET_TYPE));

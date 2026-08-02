@@ -14,8 +14,8 @@
 use std::borrow::Cow;
 
 use super::descriptor::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinType, DefaultResolver,
-    Implementation, Lowering, Parameter, ReturnType, TypeKind,
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinType,
+    DefaultResolver, Implementation, Lowering, Parameter, ReturnType, TypeKind,
 };
 
 pub(crate) const TERM_COLOR_TYPE: &str = "TermColor";
@@ -203,6 +203,22 @@ const TERM_FUNCTIONS: &[BuiltinFunction] = &[
     term_fn(TERMINAL_SIZE, "terminalSize", OV_SIZE_EMPTY),
 ];
 
+/// Return-type resolution for the term calls, delegating to the hand-authored
+/// `resolve_call`. Exposed through the descriptor so plan-72-BB can drive `term::`
+/// return types from the registry.
+struct TermResolver;
+impl BuiltinResolver for TermResolver {
+    fn resolve_return_type(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        resolve_call(name, arg_types).map(|resolved| resolved.return_type.into_owned())
+    }
+}
+static TERM_RESOLVER: TermResolver = TermResolver;
+
 pub(crate) static TERM: BuiltinModule = BuiltinModule {
     name: "term",
     functions: TERM_FUNCTIONS,
@@ -211,7 +227,7 @@ pub(crate) static TERM: BuiltinModule = BuiltinModule {
         rule: super::descriptor::InjectionRule::WhenImported,
         loader: source_file,
     }),
-    resolver: None,
+    resolver: Some(&TERM_RESOLVER),
 };
 
 #[derive(Clone)]

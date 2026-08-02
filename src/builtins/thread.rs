@@ -161,12 +161,29 @@ const THREAD_TYPES: &[BuiltinType] = &[
     },
 ];
 
+/// Argument-dependent return-type resolution for the thread calls, delegating to
+/// the hand-authored `resolve_call` (the return type is parsed structurally from
+/// the operand's thread-type string). Exposed through the descriptor so plan-72-BB
+/// can drive `thread::` return types from the registry.
+struct ThreadResolver;
+impl super::descriptor::BuiltinResolver for ThreadResolver {
+    fn resolve_return_type(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        resolve_call(name, arg_types).map(|resolved| resolved.return_type.into_owned())
+    }
+}
+static THREAD_RESOLVER: ThreadResolver = ThreadResolver;
+
 pub(crate) static THREAD: BuiltinModule = BuiltinModule {
     name: "thread",
     functions: THREAD_FUNCTIONS,
     types: THREAD_TYPES,
     source: None,
-    resolver: None,
+    resolver: Some(&THREAD_RESOLVER),
 };
 
 /// User-facing thread calls. Recognized by `is_builtin_call`, so it must NOT
@@ -945,9 +962,8 @@ mod tests {
             param_names: &|name| {
                 call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
             },
-            // thread has no fixed return-type helper: every return is
-            // argument-dependent, so the descriptor reports `None` and the legacy
-            // side is `None` too.
+            // Resolver-backed: the harness skips return-type parity (every return
+            // is argument-dependent and is checked through the resolver samples).
             return_type_name: &|_| None,
             // `ISOLATED FUNC`-shaped and `"or"`-phrased; kept hand-authored.
             expected_arguments: None,
@@ -957,9 +973,31 @@ mod tests {
             default_padding: None,
             builtin_type_fields: None,
         };
+
+        // Argument-dependent returns through the resolver: computed `start` handle
+        // type, parent-only ops, message/output/resource extraction.
+        let ret = |call, args: &'static [&'static str], r: &'static str| parity::ResolverSample {
+            call,
+            arg_types: args,
+            expected_return: Some(r),
+            expected_impl: None,
+            expected_padding: None,
+            expected_type: None,
+            expected_overload_target: None,
+        };
+        const START_FN: &str = "ISOLATED FUNC(ThreadWorker OF Integer TO String, Integer) AS String";
+        let samples = [
+            ret(START, &[START_FN, "Integer"], "Thread OF Integer TO String"),
+            ret(IS_RUNNING, &["Thread OF Integer TO String"], "Boolean"),
+            ret(WAIT_FOR, &["Thread OF Integer TO String"], "String"),
+            ret(RECEIVE, &["Thread OF Integer TO String"], "Integer"),
+            ret(ACCEPT, &["Thread OF Integer RES File TO String"], "File"),
+            ret(IS_CANCELLED, &["ThreadWorker OF Integer TO String"], "Boolean"),
+        ];
+
         let mut probe = calls.clone();
         probe.push("thread.nope");
-        parity::assert_parity(&THREAD, &probe, &legacy, &[]);
+        parity::assert_parity(&THREAD, &probe, &legacy, &samples);
 
         // The two opaque handle types are the descriptor's builtin-type authority
         // (the parametric `Thread OF ...` forms stay in `is_builtin_type`).

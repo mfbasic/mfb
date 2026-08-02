@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
 use super::descriptor::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, BuiltinType,
-    DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
+    BuiltinType, DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
     ParameterType, ReturnType, TypeKind,
 };
 
@@ -232,6 +232,26 @@ const NET_TYPES: &[BuiltinType] = &[
     },
 ];
 
+/// Return-type resolution for the net calls, delegating to the hand-authored
+/// `resolve_call` (which validates `close`'s `Socket`/`Listener`/`UdpSocket`
+/// argument union and `connectTcp`'s `String,Integer`/`Address` overloads that the
+/// descriptor's per-position match cannot). Exposed through the descriptor so
+/// plan-72-BB can drive `net::` return types from the registry. Per-name
+/// implementation rewrites stay data-derivable (`DefaultResolver::implementation_name`),
+/// so this resolver does not override `implementation_name`.
+struct NetResolver;
+impl BuiltinResolver for NetResolver {
+    fn resolve_return_type(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        resolve_call(name, arg_types).map(|resolved| resolved.return_type.into_owned())
+    }
+}
+static NET_RESOLVER: NetResolver = NetResolver;
+
 pub(crate) static NET: BuiltinModule = BuiltinModule {
     name: "net",
     functions: NET_FUNCTIONS,
@@ -240,7 +260,7 @@ pub(crate) static NET: BuiltinModule = BuiltinModule {
         rule: InjectionRule::WhenImported,
         loader: source_file,
     }),
-    resolver: None,
+    resolver: Some(&NET_RESOLVER),
 };
 
 #[derive(Clone)]
@@ -892,6 +912,10 @@ mod tests {
             param_names: &|name| {
                 call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
             },
+            // Resolver-backed (plan-72-BB): the harness skips return-type and
+            // implementation-name parity — the return is checked through the
+            // resolver samples below, the per-name rewrite by
+            // `implementation_name_to_url_only`.
             return_type_name: &call_return_type_name,
             // `"or"`-phrased and joined-string shapes; kept hand-authored and
             // checked separately.
@@ -901,12 +925,31 @@ mod tests {
                     .map(|rows| rows.iter().map(|row| row.to_vec()).collect())
             }),
             argument_types: None,
-            implementation_name: Some(&implementation_name),
+            implementation_name: None,
             default_padding: None,
             builtin_type_fields: Some(&builtin_type_fields),
         };
+
+        // Return type through the resolver, including `close`'s three-way argument
+        // union and `connectTcp`'s `String,Integer` / `Address` overloads.
+        let ret = |call, args: &'static [&'static str], r: &'static str| parity::ResolverSample {
+            call,
+            arg_types: args,
+            expected_return: Some(r),
+            expected_impl: None,
+            expected_padding: None,
+            expected_type: None,
+            expected_overload_target: None,
+        };
+        let samples = [
+            ret(CONNECT_TCP, &["String", "Integer"], SOCKET_TYPE),
+            ret(CONNECT_TCP, &[ADDRESS_TYPE], SOCKET_TYPE),
+            ret(CLOSE, &[SOCKET_TYPE], "Nothing"),
+            ret(CLOSE, &[LISTENER_TYPE], "Nothing"),
+            ret(CLOSE, &[UDP_SOCKET_TYPE], "Nothing"),
+        ];
         let mut probe = calls.clone();
         probe.push("net.bogus");
-        parity::assert_parity(&NET, &probe, &legacy, &[]);
+        parity::assert_parity(&NET, &probe, &legacy, &samples);
     }
 }

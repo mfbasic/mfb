@@ -278,6 +278,19 @@ impl BuiltinResolver for StringsResolver {
     fn uses_source(&self, _module: &BuiltinModule, project: &crate::ast::AstProject) -> Option<bool> {
         Some(uses_package(project))
     }
+
+    /// Return type, delegating to `resolve_call` (which is the exact-match
+    /// `DefaultResolver` resolution). Exposed so plan-72-BB can drive `strings::`
+    /// return types uniformly through the registry resolver for every
+    /// resolver-backed package.
+    fn resolve_return_type(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        resolve_call(name, arg_types).map(|resolved| resolved.return_type.into_owned())
+    }
 }
 static STRINGS_RESOLVER: StringsResolver = StringsResolver;
 

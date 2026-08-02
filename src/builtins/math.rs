@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
 use super::descriptor::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, DefaultResolver, DefaultValue,
-    Implementation, Lowering, Parameter, ParameterType, ReturnType,
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, DefaultResolver,
+    DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType,
 };
 
 const PI: &str = "math.pi";
@@ -147,12 +147,29 @@ const MATH_FUNCTIONS: &[BuiltinFunction] = &[
     mf(SEED, "seed", OV_SEED),
 ];
 
+/// Return-type resolution for the math calls, delegating to the hand-authored
+/// `resolve_call` (the returns are argument-dependent — `abs`/`min`/`max` and the
+/// SIMD list overloads return the operand's numeric/list type). Exposed through
+/// the descriptor so plan-72-BB can drive `math::` return types from the registry.
+struct MathResolver;
+impl BuiltinResolver for MathResolver {
+    fn resolve_return_type(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        resolve_call(name, arg_types).map(|resolved| resolved.return_type.into_owned())
+    }
+}
+static MATH_RESOLVER: MathResolver = MathResolver;
+
 pub(crate) static MATH: BuiltinModule = BuiltinModule {
     name: "math",
     functions: MATH_FUNCTIONS,
     types: &[],
     source: None,
-    resolver: None,
+    resolver: Some(&MATH_RESOLVER),
 };
 
 pub(crate) fn is_math_call(name: &str) -> bool {

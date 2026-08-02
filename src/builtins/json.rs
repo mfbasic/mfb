@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
 use super::descriptor::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, BuiltinType,
-    DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
+    BuiltinType, DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
     ParameterType, ReturnType, TypeKind,
 };
 
@@ -138,6 +138,23 @@ const JSON_TYPES: &[BuiltinType] = &[
     },
 ];
 
+/// Return-type resolution for the json calls, delegating to the hand-authored
+/// `resolve_call` (which validates the `is_json_value_type` argument unions that
+/// the descriptor's per-position match cannot). Exposed through the descriptor so
+/// plan-72-BB can drive `json::` return types from the registry.
+struct JsonResolver;
+impl BuiltinResolver for JsonResolver {
+    fn resolve_return_type(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        resolve_call(name, arg_types).map(|resolved| resolved.return_type.into_owned())
+    }
+}
+static JSON_RESOLVER: JsonResolver = JsonResolver;
+
 pub(crate) static JSON: BuiltinModule = BuiltinModule {
     name: "json",
     functions: JSON_FUNCTIONS,
@@ -146,7 +163,7 @@ pub(crate) static JSON: BuiltinModule = BuiltinModule {
         rule: InjectionRule::WhenImported,
         loader: source_file,
     }),
-    resolver: None,
+    resolver: Some(&JSON_RESOLVER),
 };
 
 #[derive(Clone)]
