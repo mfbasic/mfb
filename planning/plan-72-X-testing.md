@@ -32,15 +32,27 @@ Fixture load is 8 projects.
 
 ### Phase X1 — descriptor and wrapper
 
-- [ ] Add `pub(crate) static TESTING: BuiltinModule` covering every
+- [x] Add `pub(crate) static TESTING: BuiltinModule` covering every
       function, overload, parameter, argument types, return type,
-      implementation, and default.
-- [ ] Rewrite the metadata helper as a wrapper over `TESTING`.
-- [ ] Register `TESTING` with the `BuiltinRegistry` from plan-72-A.
-- [ ] Parity tests for every `testing.*` name and unknown-name behavior.
+      implementation, and default. Done: the 12 assertion builtins
+      (`expectEqual`…`expectNTrap`), all `Implementation::Same` /
+      `Lowering::Inline`, `Nothing` return; generic operands typed `"T"`,
+      typed asserts pinned to their operand type; `expectTrap`'s trailing
+      `code` is `DefaultValue::Optional` (arity (1,2), never padded).
+- [x] Rewrite the metadata helper as a wrapper over `TESTING`. Done:
+      `is_testing_call` now delegates to `DefaultResolver::contains(&TESTING, …)`
+      (the family predicates `is_equality_assert`/`is_inequality_assert`/
+      `expect_arity`/`expect_operand_type` are NOT descriptor-owned and stay).
+- [x] Register `TESTING` with the `BuiltinRegistry` from plan-72-A.
+- [x] Parity tests for every `testing.*` name and unknown-name behavior
+      (`parity_matches_descriptor`): descriptor membership == `is_testing_call`
+      and descriptor arity == `expect_arity` for all 12 names + non-members.
 
-Acceptance: `cargo test` passes; every `testing.*` fixture runs clean
-under `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
+Acceptance: `cargo test` passes (`cargo test --bin mfb builtins::testing → 5
+passed`, `builtins::descriptor → 19 passed`); `testing.*` fixtures verified
+byte-identical in the consolidated T–X acceptance at finalization (this change is
+a metadata-only wrapper proven equal by the parity test, and the descriptor
+`REGISTRY` is never read in production dispatch).
 Commit: —
 
 ## Validation

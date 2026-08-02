@@ -53,7 +53,7 @@ Its 364 LOC hold lifecycle glue used elsewhere.
 
 Acceptance: `cargo test` passes (`cargo test --bin mfb builtins::resource → 6
 passed`).
-Commit: —
+Commit: 89f34e816
 
 ## Validation
 
