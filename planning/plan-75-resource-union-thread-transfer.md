@@ -162,7 +162,9 @@ Commit: a6566a290
 - [x] Add a **stateless** resource-union transfer fixture
   `tests/rt-behavior/threads/thread-transfer-union-stateless-rt/` (asserts `1` = File).
 - [x] `scripts/test-accept.sh …thread-transfer-union-*` → "acceptance tests passed (2 tests)".
-  Full `test-accept.sh` + `artifact-gate.sh` run at finalization (below).
+  Full `test-accept.sh` (1146 tests, only 4 pre-existing reds — proven via oracle) +
+  `artifact-gate.sh all` (0 diffs, exit 0) both GREEN at finalization on the merged binary
+  (see Validation).
 
 ## Validation
 
@@ -179,7 +181,9 @@ acceptance suite — a resource-union classification change can ripple to `Resul
   (`acceptance tests failed: 4 mismatch(es) (4 test(s) ran)`), and my diff (`git diff 2bb720acb..HEAD`)
   touches only 4 source files — none in `binary_repr/` (the STATE-verify error source) or net/tls.
 - On-device: the stateful transfer prints `99`, the stateless prints `1`; 20×/20× repeat runs clean.
-- `scripts/artifact-gate.sh all`: run at finalization on the merged binary (see final commit).
+- `scripts/artifact-gate.sh all` on the merged binary: **GREEN** — `1130 tests, 1272 build(s),
+  1529 golden(s) checked, 0 diff(s)`, exit 0 (669 PASSED, 0 FAILED). No codegen-golden drift
+  from the classification changes.
 
 ## Corrections
 
