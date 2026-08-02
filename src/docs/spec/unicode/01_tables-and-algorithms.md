@@ -137,18 +137,6 @@ width; `strings::displayWidth` and the `term::` backends treat ambiguous as widt
 `indic_conjunct_break` are the only fields actually consumed at runtime, by NFC
 canonical ordering / composition and by grapheme segmentation.
 
-## The utf8proc sequences table
-
-`sequences` is a `Vec<u16>` of UTF-16-style packed decomposition/composition
-data, addressed via a `seqindex` from a property record. The table's bytes are
-embedded in every executable, but **no codegen path decodes it**: case mapping
-and NFD use the flattened u32 mapping tables (below), and NFC recomposition
-uses the `combinations_*` tables. The raw `seqindex` encoding (low 14 bits =
-u16 offset; top 2 bits = length, `>= 3` meaning the real length is the in-band
-first u16; UTF-16 surrogate pairs recombine into a scalar `>= 0x10000`) is
-documented here for reference only.
-[[src/target/shared/code/error_constants.rs:UNICODE_SEQUENCES_SYMBOL]] [[src/target/shared/code/data_objects.rs:unicode_runtime_data_objects]]
-
 ## Composition (combinations) tables
 
 NFC recomposition uses two parallel `Vec<u32>` tables of equal length

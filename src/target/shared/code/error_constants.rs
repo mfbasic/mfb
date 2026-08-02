@@ -1001,7 +1001,6 @@ pub(crate) const COLLECTION_TYPE_OBJECT: usize = 22;
 pub(crate) const UNICODE_STAGE1_SYMBOL: &str = "_mfb_unicode_stage1";
 pub(crate) const UNICODE_STAGE2_SYMBOL: &str = "_mfb_unicode_stage2";
 pub(crate) const UNICODE_PROPERTIES_SYMBOL: &str = "_mfb_unicode_properties";
-pub(crate) const UNICODE_SEQUENCES_SYMBOL: &str = "_mfb_unicode_sequences";
 pub(crate) const UNICODE_COMBINATIONS_SECOND_SYMBOL: &str = "_mfb_unicode_combinations_second";
 pub(crate) const UNICODE_COMBINATIONS_COMBINED_SYMBOL: &str = "_mfb_unicode_combinations_combined";
 pub(crate) const UNICODE_NFD_ENTRIES_SYMBOL: &str = "_mfb_unicode_nfd_entries";

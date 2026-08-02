@@ -550,13 +550,6 @@ pub(super) fn unicode_runtime_data_objects() -> Vec<CodeDataObject> {
             2,
         ),
         raw_data_object(
-            UNICODE_SEQUENCES_SYMBOL,
-            "u16 utf8proc sequence table",
-            tables.sequences.len() * 2,
-            crate::unicode::runtime_tables::sequences_hex(),
-            2,
-        ),
-        raw_data_object(
             UNICODE_COMBINATIONS_SECOND_SYMBOL,
             "u32 utf8proc composition second codepoint table",
             tables.combinations_second.len() * 4,

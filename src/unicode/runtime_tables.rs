@@ -6,7 +6,6 @@ const UTF8PROC_DATA: &str = include_str!("../../third_party/utf8proc/utf8proc_da
 const U16_MAX: u16 = u16::MAX;
 
 pub(crate) struct UnicodeRuntimeTables {
-    pub(crate) sequences: Vec<u16>,
     pub(crate) stage1: Vec<u16>,
     pub(crate) stage2: Vec<u16>,
     pub(crate) properties: Vec<PackedProperty>,
@@ -98,10 +97,6 @@ pub(crate) fn stage2_hex() -> String {
     u16_hex(&tables().stage2)
 }
 
-pub(crate) fn sequences_hex() -> String {
-    u16_hex(&tables().sequences)
-}
-
 pub(crate) fn properties_hex() -> String {
     let mut bytes = Vec::new();
     for property in &tables().properties {
@@ -190,10 +185,6 @@ fn parse_tables() -> UnicodeRuntimeTables {
     let (casefold_entries, casefold_sequences) =
         build_mapping_tables(|value| value.to_string().case_fold().map(|ch| ch as u32).collect());
     UnicodeRuntimeTables {
-        sequences: parse_numeric_array("utf8proc_sequences")
-            .into_iter()
-            .map(to_u16)
-            .collect(),
         stage1: parse_numeric_array("utf8proc_stage1table")
             .into_iter()
             .map(to_u16)
@@ -483,7 +474,6 @@ mod tests {
         assert_eq!(tables.stage1.len(), 4352);
         assert_eq!(tables.stage2.len(), 46336);
         assert_eq!(tables.properties.len(), 8385);
-        assert_eq!(tables.sequences.len(), 12961);
         assert_eq!(
             tables.combinations_second.len(),
             tables.combinations_combined.len()
@@ -560,7 +550,6 @@ mod tests {
         for (label, hex) in [
             ("stage1", stage1_hex()),
             ("stage2", stage2_hex()),
-            ("sequences", sequences_hex()),
             ("properties", properties_hex()),
             ("combinations_second", combinations_second_hex()),
             ("combinations_combined", combinations_combined_hex()),

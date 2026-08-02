@@ -103,8 +103,8 @@ the worktree, so every phase's acceptance can be attributed to that phase.
 
 | # | Check | Command | Status |
 | --- | --- | --- | --- |
-| P1 | Release binary builds | `cargo build --release --bin mfb` → exit 0 | UNMEASURED (build running) |
-| P2 | Compiler unit tests green | `cargo test --bin mfb` → `test result: ok` | UNMEASURED |
+| P1 | Release binary builds | `cargo build --release --bin mfb` → exit 0 | ✅ MET (2026-08-02, exit 0) |
+| P2 | Compiler unit tests green | `cargo test --bin mfb` → `test result: ok` | ✅ MET (2026-08-02: 3757 passed; 0 failed) |
 
 Both MET → phases run to completion. Either NOT MET → stop and report both rows.
 
@@ -139,13 +139,13 @@ emission `data_objects.rs:552-558` (symbol line 553); **zero read sites**
 `tables.sequences` len 12961 × u16 ≈ 25 KB (`runtime_tables.rs:486`). Distinct from
 the live `nfd_/uppercase_/lowercase_/casefold_sequences`.
 
-- [ ] Remove the 7th data object (`UNICODE_SEQUENCES_SYMBOL`) from the vec in `data_objects.rs:552-558` and renumber the surrounding emission.
-- [ ] Delete the now-unused const at `error_constants.rs:1004`; `grep -rn UNICODE_SEQUENCES_SYMBOL src/` returns 0.
-- [ ] Drop the `.sequences` field build if it is now dead (`runtime_tables.rs` — confirm no other consumer with `grep -rn '\.sequences\b' src/`; the NFD/case sequences are separate fields).
-- [ ] Update the spec reference at `src/docs/spec/unicode/01_tables-and-algorithms.md:150`.
-- [ ] Regenerate every affected `.ncodesum` / byte-identity golden (wide blast — every string-using fixture; use `-ncode` + `shasum` per target).
-- **Acceptance:** `nm`/symbol scan of a generated binary shows `_mfb_unicode_sequences` absent; `cargo test --bin mfb` green; unicode/strings byte-identity + rt-behavior suites green with only the intended golden delta; measured binary-size drop reported.
-- **Commit:** _(fill on land)_
+- [x] Remove the 7th data object (`UNICODE_SEQUENCES_SYMBOL`) from the vec in `data_objects.rs:552-558` and renumber the surrounding emission.
+- [x] Delete the now-unused const at `error_constants.rs:1004`; `grep -rn UNICODE_SEQUENCES_SYMBOL src/` returns 0 (only the doc ref remained, now removed).
+- [x] Drop the `.sequences` field build (`runtime_tables.rs`): struct field, `sequences_hex()`, the `parse_numeric_array("utf8proc_sequences")` construction, the `len()==12961` assert, and the `every_hex_serializer` test entry. `grep '\.sequences\b'` → 0 (NFD/case sequences are separate live fields, untouched). Verified the 5 usages don't derive any live table.
+- [x] Update the spec: removed the obsolete "utf8proc sequences table" section (`01_tables-and-algorithms.md`), clearing the two now-dangling `[[…UNICODE_SEQUENCES_SYMBOL]]` citations.
+- [x] Regenerated the affected `.ncodesum` goldens via `-ncode` + `shasum` per target. Blast measured empirically (host-detection sweep): exactly **11 unicode-table-emitting fixtures** changed (crypto, csv, datetime, encoding, http, json, net, regex, strings, term + crypto-ec-valid + macos-app-mode-term), 55 golden files across 5 targets. `.ir`/`.ast` byte-identical → runtime behavior unchanged. 13 non-unicode fixtures unaffected.
+- **Acceptance:** ✅ `_mfb_unicode_sequences` absent from a fixture's emitted `-nobj`; byte-identity strings macos-aarch64 MATCHES regenerated golden; `.ir`/`.ast` unchanged; `cargo test --bin mfb unicode::runtime_tables` 14/14 green. **Size drop: 25,922 B/binary** (12961 u16 records, the asserted table dimension) off every unicode-emitting executable.
+- **Commit:** _(next commit)_
 
 ## Phase 2 — Size/U1: repack `PackedProperty`, strip 5 unread fields (~82 KB)
 
