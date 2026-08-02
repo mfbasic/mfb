@@ -1307,11 +1307,6 @@ mod tests {
 
     // ---- plan-72-A2: registry adapters -------------------------------------
 
-    use descriptor::{
-        BuiltinFunction, BuiltinFlags, BuiltinModule, BuiltinOverload, BuiltinRegistry,
-        Implementation, Lowering, Parameter, ReturnType,
-    };
-
     #[test]
     fn adapters_fall_back_on_registry_miss() {
         // Every real builtin package is now migrated (plan-72-A..AA), so the

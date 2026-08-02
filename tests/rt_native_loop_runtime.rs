@@ -7,7 +7,6 @@
 
 mod common;
 use common::temp_project;
-use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

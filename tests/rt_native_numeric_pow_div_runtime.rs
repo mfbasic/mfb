@@ -18,7 +18,6 @@
 mod common;
 use common::run_bounded;
 use common::temp_project;
-use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::time::Duration;

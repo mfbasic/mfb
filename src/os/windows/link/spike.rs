@@ -154,7 +154,7 @@ fn spike_image() -> EncodedImage {
     }
     let mut data = Vec::new();
     let mut data_syms: Vec<EncodedSymbol> = Vec::new();
-    let mut push_data = |data: &mut Vec<u8>, syms: &mut Vec<EncodedSymbol>, name: &str, bytes: &[u8]| {
+    let push_data = |data: &mut Vec<u8>, syms: &mut Vec<EncodedSymbol>, name: &str, bytes: &[u8]| {
         syms.push(EncodedSymbol {
             name: name.to_string(),
             section: EncodedSection::Data,

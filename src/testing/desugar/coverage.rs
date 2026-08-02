@@ -294,7 +294,6 @@ fn dump_list_to_file(list: &str, numeric: bool, path: &Path) -> Vec<Statement> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::build::*;
     use crate::ast::{AstFile, ExitTarget, LoopKind, MatchCase, MatchPattern, Trap};
 
     fn expr_stmt(line: usize) -> Statement {

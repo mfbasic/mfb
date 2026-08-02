@@ -12,7 +12,7 @@ use common::temp_project;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
-use std::{env, fs};
+use std::fs;
 
 fn build_project(project: &Path) -> PathBuf {
     let output = Command::new(common::mfb_exe())

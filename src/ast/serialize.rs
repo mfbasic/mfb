@@ -1648,7 +1648,6 @@ fn template_params_json(params: &[String], indent: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::json::ToJson;
 
     fn project_json(src: &str) -> String {
