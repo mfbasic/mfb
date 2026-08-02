@@ -1247,6 +1247,11 @@ fn lower_read(
     let ok_frames = format!("{symbol}_ok");
     let recover = format!("{symbol}_recover");
     let done = format!("{symbol}_done");
+    // Single-pass drain of frames already in the capture ring at the deadline
+    // (timed read only; emitted near loop_done). Referenced from both `if timeout`
+    // blocks, so declared at function scope.
+    let expired_drain = format!("{symbol}_expired_drain");
+    let drain_cap = format!("{symbol}_drain_cap");
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
@@ -1435,13 +1440,13 @@ fn lower_read(
             abi::add_registers("%v9", "%v9", "%v11"), // now
             abi::load_u64("%v12", abi::stack_pointer(), DEADLINE_OFF),
             abi::compare_registers("%v9", "%v12"),
-            abi::branch_ge(&loop_done), // expired -> partial
-            // remaining_ms = (deadline - now) / 1e6; sub-ms remaining -> partial.
+            abi::branch_ge(&expired_drain), // expired -> drain buffered, then partial
+            // remaining_ms = (deadline - now) / 1e6; sub-ms remaining -> drain.
             abi::subtract_registers("%v12", "%v12", "%v9"),
             abi::move_immediate("%v13", "Integer", "1000000"),
             abi::unsigned_divide_registers("%v13", "%v12", "%v13"),
             abi::compare_immediate("%v13", "0"),
-            abi::branch_eq(&loop_done),
+            abi::branch_eq(&expired_drain),
             // snd_pcm_wait(pcm, remaining_ms): 1 ready, 0 timeout, <0 error.
             abi::load_u64("%v11", abi::stack_pointer(), STATE_OFF),
             abi::load_u64(abi::return_register(), "%v11", S_OSOBJECT),
@@ -1523,8 +1528,59 @@ fn lower_read(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&dev_fail),
         abi::branch(&loop_top),
-        abi::label(&loop_done),
     ]);
+    if timeout {
+        // Deadline reached (including `timeoutMs == 0`): drain whole frames already
+        // sitting in the capture ring in ONE non-blocking pass, then return partial.
+        // Fixes `audio::read(input, frames, 0)` returning 0 frames when the kernel
+        // buffer holds data — matching macOS/Windows, which drain their userspace
+        // ring at the deadline. Single pass (-> loop_done, never loop_top) so it can
+        // neither re-wait nor loop. Reached only via an unconditional branch above,
+        // so it is never fallen into.
+        instructions.extend([
+            abi::label(&expired_drain),
+            // avail = snd_pcm_avail_update(pcm); <= 0 (nothing ready / error) -> partial.
+            abi::load_u64("%v11", abi::stack_pointer(), STATE_OFF),
+            abi::load_u64(abi::return_register(), "%v11", S_OSOBJECT),
+            abi::load_u64("%v8", abi::stack_pointer(), AVAIL_FN_OFF),
+            abi::branch_link_register("%v8"),
+            abi::sign_extend_word(abi::return_register(), abi::return_register()),
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_le(&loop_done),
+            // want = min(avail, frames - got); a zero want -> partial.
+            abi::move_register("%v14", abi::return_register()),
+            abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
+            abi::load_u64("%v10", abi::stack_pointer(), FRAMES_OFF),
+            abi::subtract_registers("%v10", "%v10", "%v9"),
+            abi::compare_registers("%v14", "%v10"),
+            abi::branch_ge(&drain_cap),
+            abi::move_register("%v10", "%v14"),
+            abi::label(&drain_cap),
+            abi::compare_immediate("%v10", "0"),
+            abi::branch_eq(&loop_done),
+            abi::store_u64("%v10", abi::stack_pointer(), WANT_OFF),
+            // snd_pcm_readi(pcm, payload + got*bpf, want) — one shot.
+            abi::load_u64("%v11", abi::stack_pointer(), STATE_OFF),
+            abi::load_u64(abi::return_register(), "%v11", S_OSOBJECT),
+            abi::load_u64("%v12", abi::stack_pointer(), SRC_OFF),
+            abi::load_u64("%v13", abi::stack_pointer(), BPF_OFF),
+            abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
+            abi::multiply_registers("%v14", "%v9", "%v13"),
+            abi::add_registers(abi::ARG[1], "%v12", "%v14"),
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), WANT_OFF),
+            abi::load_u64("%v8", abi::stack_pointer(), FN2_OFF),
+            abi::branch_link_register("%v8"),
+            abi::sign_extend_word(abi::return_register(), abi::return_register()),
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_lt(&loop_done), // readi error at expiry -> return partial
+            // got += n
+            abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
+            abi::add_registers("%v9", "%v9", abi::return_register()),
+            abi::store_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
+            abi::branch(&loop_done),
+        ]);
+    }
+    instructions.push(abi::label(&loop_done));
     if timeout {
         // Partial timed read: if fewer than `frames` gathered, return a
         // right-sized list of `got` frames and free the oversized pre-alloc.
