@@ -244,16 +244,25 @@ Commit: (recorded next commit)
 
 ### Phase 2 — resolver + descriptor surface
 
-- [ ] Add the list overload to `net.rs` (descriptor `OV`/`P_POLL_LIST`, `resolve_call` arms,
-      `call_param_names`, `expected_arguments`, `argument_types`); delete the stale comment.
-- [ ] Tests: a `tests/syntax/net` accept fixture binding `RES s AS Socket = net::poll(socks)` and
-      `net::poll(socks, 100)`; a reject fixture for a bare `List OF Socket` (no `RES`) and for a
-      non-list/non-socket arg. Confirm the scalar overload still resolves (`net::poll(sock)` →
-      `Boolean`) — no overload ambiguity.
+- [x] Added the list overload to `net.rs`: `P_POLL_LIST` (`socks AS List OF RES Socket`,
+      `opt timeoutMs`); a second `ov(P_POLL_LIST, SOCKET_TYPE)` on the `POLL` descriptor;
+      `resolve_call` arm `exact(["List OF RES Socket"]) || exact(["List OF RES Socket","Integer"])
+      => SOCKET_TYPE`; moved `POLL` from `call_param_names` to `call_param_name_overloads`
+      (two overloads → `param_names` yields `None`, per the descriptor rule); widened
+      `expected_arguments(POLL)`; deleted the stale "overload is unreachable" comment. **Return type
+      is `Socket` (bare), not `RES Socket`** — matching `collections::get`, whose resolver strips the
+      `RES` axis (`general::list_element` → `"Socket"`); the borrow is a lowering-site property, not a
+      return-type spelling (Corrections C2). Updated the two net.rs unit tests
+      (`call_param_names_present_and_absent`, `expected_arguments_remaining_arms`).
+- [x] Tests: `tests/syntax/net/func_net_poll_list_valid` (accept — both overloads: scalar
+      `net::poll(conn)`/`net::poll(conn,100)` → `Boolean`, list `net::poll(socks)`/`net::poll(socks,100)`
+      → `Socket`) and `tests/syntax/net/func_net_poll_list_invalid` (reject — bare `List OF Socket`
+      → `TYPE_RESOURCE_REQUIRES_RES`; a `String` arg → `TYPE_CALL_ARGUMENT_MISMATCH`; a `String`
+      timeout → `TYPE_CALL_ARGUMENT_MISMATCH`). Scalar overload still resolves to `Boolean`.
 
-Acceptance: at `-ast -ir`, the list overload resolves to `RES Socket`, the scalar to `Boolean`,
-bad forms rejected; `cargo test --bin mfb` green (no runtime yet).
-Commit: —
+Acceptance: at `-ast -ir`, the list overload resolves to `Socket`, the scalar to `Boolean`, bad
+forms rejected; `cargo test --bin mfb` green (3750 passed, 0 failed). ✅
+Commit: (recorded next commit)
 
 ### Phase 3 — native multi-fd lowering (largest blast radius)
 
