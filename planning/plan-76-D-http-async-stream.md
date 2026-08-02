@@ -326,22 +326,35 @@ async public API keeps its cooperative semantics.
 
 > Tick `- [x]` in the same commit as the work. An unticked box means NOT DONE.
 
+> **DEFERRED (user decision).** Phase 1 (the go/no-go) uncovered a core-premise defect: plan-74
+> union STATE is layout-incompatible with a `TlsSocket` variant (Corrections **D4** — `Stream STATE
+> PendingState` over `{Socket, TlsSocket}` SIGSEGVs on https because the STATE ptr at record+16
+> collides with `SSL*`). The three viable fixes (grow all TLS records to the 80-byte STATE layout;
+> redesign plan-74 union STATE; or redesign D to a stateless union + threaded `PendingState`) are each
+> a substantial architecture decision. Surfaced to the user, who chose to **land A+B+C and defer D**.
+> Phases 2–5 are NOT attempted. The full engineering work below is fully specified for a future
+> effort; the WIP that proved the defect (declarations + the five functions) is reverted from the tree
+> and preserved only in this document + the conversation record.
+
 ### Phase 1 — falsify the resource-union-over-imported-variants (design uncertainty first)
 
-- [ ] Declare `UNION Stream { net::Socket net::TlsSocket }` and `TYPE PendingState { sentAll, closed,
-      raw, err }` in `http_package.mfb`; register `Stream`/`PendingState` in `HTTP_TYPES` (`http.rs`).
-- [ ] Add a throwaway internal `__http_streamProbe(host, port)` that binds `RES s AS http::Stream
-      STATE PendingState = net::connectTcp(host, port)`, sets `s.state.sentAll`, appends a byte to
-      `s.state.raw`, MATCHes `s` reading the concrete variant, and returns — proving bind + `.state`
-      (incl. a `List OF Byte` STATE field) + MATCH + drop all work for a union over imported
-      variants. Drive it from a temporary rt fixture in a ≥500× connect/drop loop (no fd leak).
-- [ ] If it fails to compile or leaks/double-frees, STOP: fix the imported-variant close-op wiring
-      (per [[imported-package-resource-two-spellings]] and plan-74's 3-site close-symbol wiring)
-      before writing the five functions. Remove `__http_streamProbe` once Phase 2 lands.
+- [x] Declared `UNION Stream { Socket TlsSocket }` (BARE ids — Correction D1) + `TYPE PendingState
+      { sentAll, closed, raw, err }`; registered in `HTTP_TYPES`. **Compiles/resolves/checks** (the
+      union over imported variants is valid). (Reverted after the go/no-go — D is deferred.)
+- [x] ~~throwaway `__http_streamProbe`~~ — moot: proved the union directly. **Bind + MATCH + drop of
+      the union work for BOTH variants** (a stateless `UNION { Socket TlsSocket }` bound to
+      `tls::connect` MATCHes/writes/drops cleanly, exit 0). **But `.state` on the union — the whole
+      point — FAILS for the TlsSocket variant**: `Stream STATE PendingState` over a TlsSocket writes
+      the STATE ptr at record+16 (= `SSL*` in the 32-byte TLS record) → SIGSEGV on https. Proven:
+      `http::read("http://…")`=200, `http::read("https://…")`=SIGSEGV. (Also found D3: a `TRAP` inside
+      a `MATCH CASE` mis-types its temp as `Unknown`.)
+- [x] **STOP per the go/no-go** — the `.state`-on-union path is NOT expressible for a TlsSocket
+      variant with the existing machinery. Recorded as core-premise defect **D4**; the fix is
+      unscoped architecture work. Surfaced → user chose to **defer D**.
 
-Acceptance: the probe fixture compiles, runs clean, and survives ≥500× with no fd leak / double-free.
-This is the go/no-go for the whole sub-plan.
-Commit: —
+Acceptance: the go/no-go ran and returned **NO-GO** for the plan's STATE-on-union design (D4);
+deferred by user decision. ✅ (go/no-go executed; result recorded)
+Commit: 100f4ea00 (findings)
 
 ### Phase 2 — the five BASIC functions + waitReadable
 
