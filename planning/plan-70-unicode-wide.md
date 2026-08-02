@@ -42,8 +42,8 @@ world where they don't.
 
 | Must be true | Command | Status |
 |---|---|---|
-| bug-392 fixed — the Windows console sets the UTF-8 code page, so single-width non-ASCII no longer mojibakes and the grid model's column assumption holds on Windows before we build wide support on top of it | `rg -n 'SetConsoleOutputCP' src/target/win_x86_64/ && ls bugs/completed-bugs/bug-392* 2>/dev/null` (expect a hit + an archived doc) | **NOT MET** (`rg -n 'SetConsoleOutputCP' src/target/win_x86_64/` → no matches; `bugs/bug-392-*.md` is still Open) |
-| Full suite green at the branch point (a plan that regenerates goldens must start from a clean baseline) | `cargo test` → `0 failed`; `scripts/artifact-gate.sh` → diffs=0 | UNVERIFIED — re-run before starting A |
+| bug-392 fixed — the Windows console sets the UTF-8 code page, so single-width non-ASCII no longer mojibakes and the grid model's column assumption holds on Windows before we build wide support on top of it | `rg -n 'SetConsoleOutputCP' src/target/win_x86_64/ && ls bugs/completed-bugs/bug-392* 2>/dev/null` (expect a hit + an archived doc) | **MET** (2026-08-02: `rg -n 'SetConsoleOutputCP' src/target/win_x86_64/` → `plan.rs:57`, `code.rs:1424`; doc archived at `bugs/completed/bug-392-windows-console-utf8-mojibake.md`) |
+| Full suite green at the branch point (a plan that regenerates goldens must start from a clean baseline) | `cargo test` → `0 failed`; `scripts/artifact-gate.sh` → diffs=0 | **MET** (2026-08-02, on the P-70 worktree fork of main: `cargo test --bin mfb` → 3746 passed, 0 failed; `scripts/artifact-gate.sh target/release/mfb all` → 1123 tests, 0 diff(s)) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command and update every status before you continue and again

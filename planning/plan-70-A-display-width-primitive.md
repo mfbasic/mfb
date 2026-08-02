@@ -116,14 +116,21 @@ A's own tests are host-side value checks.
 
 ### Phase 1 — falsify the field index + width value (spike)
 
-- [ ] Read enough `utf8proc_properties[]` rows in
+- [x] Read enough `utf8proc_properties[]` rows in
       `third_party/utf8proc/utf8proc_data.c` to fix the positional index of
       `charwidth`/`ambiguous_width`; add a **Rust unit test** in
       `runtime_tables.rs` asserting `property_for_codepoint('日').charwidth == 2`,
       `('A') == 1`, `('\u{0301}') == 0`, `('👍') == 2`, before touching codegen.
+      Confirmed index 16 = charwidth, 17 = ambiguous_width (struct order in
+      `utf8proc.h:237-318`, matching the existing positional parser). Tests
+      `charwidth_field_is_parsed_from_the_utf8proc_table` +
+      `ambiguous_width_bit_is_parsed_and_carried` pass. **Gotcha found (see
+      Corrections):** field 17 is emitted as `0` in row 0 but `false` elsewhere,
+      so it needs `parse_value`, not `parse_bool`.
 
 Acceptance: the unit test passes against the parsed table — the field index and
-width semantics are proven. Commit: —
+width semantics are proven. Commit: — (see Phase 2 commit; parser plumbing folded
+in because the falsification test cannot read `charwidth()` without it)
 
 ### Phase 2 — plumb width into the property record
 
@@ -168,4 +175,15 @@ See umbrella (Ambiguous = 1; `displayWidth`-only, no `padRight` mode).
 
 ## Corrections
 
-<Filled in during execution.>
+- **2026-08-02 — Phase 1 and Phase 2's parser step merged.** The Phase 1
+  falsification test asserts `property_for_codepoint(cp).charwidth()`, which
+  cannot compile until the parser actually plumbs charwidth into `flags` and the
+  accessor exists. So the parser change (Phase 2 bullet 1) landed with the Phase 1
+  test in one commit. The Phase 2 boxes are re-marked accordingly. Evidence:
+  `cargo test --bin mfb runtime_tables::tests::` → 14 passed.
+- **2026-08-02 — `ambiguous_width` (field 17) needs `parse_value`, not
+  `parse_bool`.** utf8proc_data.c emits this field inconsistently: the index-0
+  record (`utf8proc_data.c:7967`) uses the integer `0`; every other row uses
+  `false`/`true`. `parse_bool` panics on `0`, so the field must go through
+  `parse_value` (maps `0`/`false`→0, `1`/`true`→1). `charwidth` (field 16) is
+  always an integer 0/1/2. Verified by reading rows 0–3 of the table.

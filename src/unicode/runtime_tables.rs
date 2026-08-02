@@ -49,6 +49,21 @@ impl PackedProperty {
     const COMP_EXCLUSION: u16 = 1 << 1;
     const IGNORABLE: u16 = 1 << 2;
     const CONTROL_BOUNDARY: u16 = 1 << 3;
+    // plan-70-A: the vendored `charwidth:2` (0/1/2 terminal columns) and
+    // `ambiguous_width:1` (East Asian Ambiguous) fields pack into the previously
+    // unused `flags` bits 4–6, so the 24-byte record and every asserted table
+    // size are unchanged — only the `flags` byte values move.
+    const CHARWIDTH_SHIFT: u16 = 4;
+    const CHARWIDTH_MASK: u16 = 0b11 << 4;
+    const AMBIGUOUS: u16 = 1 << 6;
+
+    /// The terminal display width (0/1/2 columns) of this codepoint, from the
+    /// utf8proc `charwidth` field packed into `flags` bits 4–5. Used by the
+    /// compile-time folding of `strings::displayWidth`; the runtime reads the
+    /// same bits directly out of the embedded table.
+    pub(crate) fn charwidth(&self) -> u16 {
+        (self.flags & Self::CHARWIDTH_MASK) >> Self::CHARWIDTH_SHIFT
+    }
 
     fn encode_le(&self, output: &mut Vec<u8>) {
         for value in [
@@ -283,6 +298,16 @@ fn parse_properties() -> Vec<PackedProperty> {
             if parse_bool(fields[15]) {
                 flags |= PackedProperty::CONTROL_BOUNDARY;
             }
+            // charwidth (field 16) is an integer 0/1/2; ambiguous_width (field 17)
+            // is emitted inconsistently in utf8proc_data.c — the index-0 record
+            // uses the integer `0`, every other row uses `false`/`true` — so it
+            // must go through `parse_value` (which maps both), NOT `parse_bool`
+            // (which panics on `0`). Verified by reading rows 0/1 of the table.
+            let charwidth = to_u16(parse_value(fields[16]));
+            flags |= (charwidth << PackedProperty::CHARWIDTH_SHIFT) & PackedProperty::CHARWIDTH_MASK;
+            if parse_value(fields[17]) != 0 {
+                flags |= PackedProperty::AMBIGUOUS;
+            }
 
             Some(PackedProperty {
                 combining_class: to_u16(parse_value(fields[1])),
@@ -480,6 +505,39 @@ mod tests {
         assert_eq!(property_for_codepoint(0x200d).boundclass, 14);
         assert_eq!(property_for_codepoint(0x1f1fa).boundclass, 11);
         assert_eq!(property_for_codepoint(0x1f468).boundclass, 19);
+    }
+
+    #[test]
+    fn charwidth_field_is_parsed_from_the_utf8proc_table() {
+        // plan-70-A Phase 1 falsification: the `charwidth`/`ambiguous_width`
+        // fields are addressed positionally (16/17) in the C initializer, so the
+        // index must be proven against real codepoints before any codegen depends
+        // on it. Wide CJK/emoji = 2, ASCII/Latin = 1, a combining mark = 0.
+        assert_eq!(property_for_codepoint('日' as u32).charwidth(), 2);
+        assert_eq!(property_for_codepoint('本' as u32).charwidth(), 2);
+        assert_eq!(property_for_codepoint('A' as u32).charwidth(), 1);
+        assert_eq!(property_for_codepoint('e' as u32).charwidth(), 1);
+        assert_eq!(property_for_codepoint(0x0301).charwidth(), 0); // COMBINING ACUTE
+        assert_eq!(property_for_codepoint(0x1f44d).charwidth(), 2); // 👍
+        assert_eq!(property_for_codepoint(0x200b).charwidth(), 0); // ZERO WIDTH SPACE
+        assert_eq!(property_for_codepoint(0x200d).charwidth(), 0); // ZWJ
+    }
+
+    #[test]
+    fn ambiguous_width_bit_is_parsed_and_carried() {
+        // Field 17 (ambiguous_width) plumbs into flags bit 6. It is dormant
+        // (policy: East-Asian Ambiguous = narrow), but must be stored so a future
+        // policy flip is a one-line codegen change. Prove the bit is set for a
+        // known East-Asian Ambiguous codepoint (U+00A7 SECTION SIGN) and clear for
+        // a plain ASCII letter.
+        assert_ne!(
+            property_for_codepoint(0x00a7).flags & PackedProperty::AMBIGUOUS,
+            0
+        );
+        assert_eq!(
+            property_for_codepoint('A' as u32).flags & PackedProperty::AMBIGUOUS,
+            0
+        );
     }
 
     #[test]
