@@ -1225,11 +1225,13 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
     let load_fail = format!("{symbol}_load_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let wait_forever = format!("{symbol}_wait_forever");
+    let wait_now = format!("{symbol}_wait_now");
     let deadline_ready = format!("{symbol}_deadline_ready");
     let wait_loop = format!("{symbol}_wait");
     let pop = format!("{symbol}_pop");
     let listener_dead = format!("{symbol}_listener_dead");
     let accept_timeout = format!("{symbol}_accept_timeout");
+    let accept_invalid = format!("{symbol}_accept_invalid");
     let hs_loop = format!("{symbol}_hs_wait");
     let hs_timeout = format!("{symbol}_hs_timeout");
     let conn_fail = format!("{symbol}_conn_fail");
@@ -1245,6 +1247,25 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
         abi::load_u64("%v9", abi::return_register(), REC_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
+    ]);
+    {
+        // plan-73-D: reject a negative (non-sentinel) `timeoutMs` up front (nothing
+        // allocated yet). The omitted overload pads the unbounded sentinel (→ FOREVER
+        // at the deadline block); `0`/`> 0` pass through. `x0` still holds the record
+        // here, so preserve it — use a scratch that the following block reloads.
+        let ts_ok = format!("{symbol}_ts_ok");
+        ins.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT),
+            abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+            abi::compare_registers("%v9", "%v10"),
+            abi::branch_eq(&ts_ok),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_lt(&accept_invalid),
+            abi::label(&ts_ok),
+        ]);
+    }
+    ins.extend([
+        // x0 still holds the listener record (the reject block above used only v9/v10).
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
         abi::load_u64("%v9", abi::return_register(), REC_CTX),
         abi::store_u64("%v9", abi::stack_pointer(), LCTX),
@@ -1262,13 +1283,17 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
         NWH,
         &load_fail,
     )?;
-    // Deadline: timeoutMs > 0 => dispatch_time(NOW, ms*1e6); else FOREVER.
-    // The one absolute deadline bounds both the wait for a connection and the
-    // server handshake.
+    // plan-73-D. Deadline: the unbounded sentinel => DISPATCH_TIME_FOREVER (omit =
+    // block); `0` => DISPATCH_TIME_NOW (one immediate attempt → `ErrTimeout`); `> 0`
+    // => dispatch_time(NOW, ms*1e6). Negatives were rejected up front. The one
+    // absolute deadline bounds both the wait for a connection and the handshake.
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT),
+        abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers("%v9", "%v10"),
+        abi::branch_eq(&wait_forever),
         abi::compare_immediate("%v9", "0"),
-        abi::branch_le(&wait_forever),
+        abi::branch_eq(&wait_now),
     ]);
     dlsym(
         &mut EmitCtx {
@@ -1291,6 +1316,10 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
         abi::branch_link_register("%v9"),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), DEADLINE),
+        abi::branch(&deadline_ready),
+        // 0 => DISPATCH_TIME_NOW (0): both the accept and handshake waits return at once.
+        abi::label(&wait_now),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), DEADLINE),
         abi::branch(&deadline_ready),
         abi::label(&wait_forever),
         abi::move_immediate("%v9", "Integer", "0"),
@@ -1582,6 +1611,17 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
         symbol,
         ERR_RESOURCE_CLOSED_CODE,
         ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    // plan-73-D: a negative (non-sentinel) `timeoutMs` → ErrInvalidArgument (rejected
+    // up front, nothing allocated).
+    ins.push(abi::label(&accept_invalid));
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
         &mut ins,
         &mut rel,
         &done,

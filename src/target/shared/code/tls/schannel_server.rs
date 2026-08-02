@@ -608,10 +608,13 @@ pub(super) fn lower_tls_accept(
     const STATE: usize = 40; // per-connection STATE ptr (st::*)
     const FIRSTF: usize = 48; // 0 until the first ASC has created the context
     const POLLFD: usize = 56; // WSAPOLLFD { SOCKET fd; SHORT events; SHORT revents }
+    const HSTV: usize = 64; // plan-73-D: handshake SO_*TIMEO DWORD-ms scratch
+    const HSTOF: usize = 72; // plan-73-D: 1 if the handshake recv timed out (WSAETIMEDOUT)
     const FRAME_SIZE: usize = 0x100;
 
     let closed = format!("{symbol}_closed");
     let no_timeout = format!("{symbol}_no_timeout");
+    let accept_invalid = format!("{symbol}_accept_invalid");
     let accept_fail = format!("{symbol}_accept_fail");
     let accept_timeout = format!("{symbol}_accept_timeout");
     let tls_fail = format!("{symbol}_tls_fail");
@@ -631,6 +634,7 @@ pub(super) fn lower_tls_accept(
     // return_register = listener record { fd@0, closed@8, WORK@16 }; ARG[1] = timeoutMs.
     ins.extend([
         abi::store_u64(abi::ARG[1], abi::stack_pointer(), TIMEOUT),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTOF),
         abi::load_u64("%v9", abi::return_register(), TLS_LISTENER_OFFSET_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
@@ -639,10 +643,15 @@ pub(super) fn lower_tls_accept(
         abi::load_u64("%v9", abi::return_register(), 16), // WORK ptr
         abi::add_immediate("%v9", "%v9", stl::CRED),
         abi::store_u64("%v9", abi::stack_pointer(), LCRED),
-        // timeoutMs > 0 bounds the wait for an inbound connection (WSAPoll).
+        // plan-73-D: the unbounded sentinel => a blocking accept (omit = block); `0`
+        // => WSAPoll(0), one immediate attempt (`ErrTimeout` if none pending); `> 0`
+        // => WSAPoll(timeoutMs); a negative (non-sentinel) => ErrInvalidArgument.
         abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT),
+        abi::move_immediate("%v10", "Integer", super::super::TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers("%v9", "%v10"),
+        abi::branch_eq(&no_timeout),
         abi::compare_immediate("%v9", "0"),
-        abi::branch_le(&no_timeout),
+        abi::branch_lt(&accept_invalid),
         abi::load_u64("%v9", abi::stack_pointer(), LISTENFD),
         abi::store_u64("%v9", abi::stack_pointer(), POLLFD),
         abi::move_immediate("%v10", "Integer", POLLRDNORM),
@@ -671,6 +680,38 @@ pub(super) fn lower_tls_accept(
         abi::branch_lt(&accept_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), CONNFD),
     ]);
+    // plan-73-D: bound the handshake recv by SO_RCVTIMEO/SO_SNDTIMEO — sentinel =>
+    // unbounded (omit); `0` => 1µs (near-immediate); `> 0` => the timeval. Cleared
+    // after the handshake (hs_done) so the returned socket's read/write are unbounded.
+    {
+        let hs_ts_ok = format!("{symbol}_hs_ts_ok");
+        let hs_ts_skip = format!("{symbol}_hs_ts_skip");
+        ins.extend([
+            abi::load_u64("%v14", abi::stack_pointer(), TIMEOUT),
+            abi::move_immediate("%v15", "Integer", super::super::TIMEOUT_UNBOUNDED_SENTINEL),
+            abi::compare_registers("%v14", "%v15"),
+            abi::branch_eq(&hs_ts_skip),
+            // Winsock SO_*TIMEO is a DWORD of milliseconds; 0 means infinite, so the
+            // convention's `0` (non-blocking) uses 1 ms.
+            abi::compare_immediate("%v14", "0"),
+            abi::branch_ne(&hs_ts_ok),
+            abi::move_immediate("%v14", "Integer", "1"),
+            abi::label(&hs_ts_ok),
+            abi::store_u64("%v14", abi::stack_pointer(), HSTV),
+        ]);
+        super::emit_set_sock_timeouts(
+            &mut EmitCtx {
+                symbol,
+                platform_imports: imports,
+                platform,
+                instructions: &mut ins,
+                relocations: &mut rel,
+            },
+            CONNFD,
+            HSTV,
+        )?;
+        ins.push(abi::label(&hs_ts_skip));
+    }
 
     // Allocate the per-connection STATE block (zeroed header) + mark it server-side.
     ins.extend([
@@ -704,10 +745,23 @@ pub(super) fn lower_tls_accept(
         abi::move_immediate(abi::ARG[3], "Integer", "0"),
     ]);
     platform.emit_libc_call("recv", symbol, imports, &mut ins, &mut rel)?;
+    let hs_got = format!("{symbol}_hs_got");
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(&tls_fail), // peer closed or error mid-handshake
+        abi::branch_gt(&hs_got), // got handshake bytes
+    ]);
+    // plan-73-D: recv <= 0 — an SO_RCVTIMEO expiry is WSAETIMEDOUT (10060), a
+    // handshake TIMEOUT → ErrTimeout (via the flag); a peer close or other error
+    // stays ErrTlsFailed.
+    platform.emit_errno(symbol, "%v9", imports, &mut ins, &mut rel)?;
+    ins.extend([
+        abi::compare_immediate("%v9", "10060"), // WSAETIMEDOUT
+        abi::branch_ne(&tls_fail),
+        abi::move_immediate("%v9", "Integer", "1"),
+        abi::store_u64("%v9", abi::stack_pointer(), HSTOF),
+        abi::branch(&tls_fail),
+        abi::label(&hs_got),
         abi::load_u64("%v10", abi::stack_pointer(), STATE),
         abi::load_u64("%v11", "%v10", st::RECV_LEN),
         abi::add_registers("%v11", "%v11", abi::return_register()),
@@ -820,6 +874,32 @@ pub(super) fn lower_tls_accept(
         abi::label(&hs_done),
     ]);
 
+    // plan-73-D: handshake done — clear SO_*TIMEO so the returned socket's read/write
+    // stay unbounded. Only `0`/`> 0` installed a timeout; the sentinel left it unset.
+    {
+        let hs_clr_skip = format!("{symbol}_hs_clr_skip");
+        ins.extend([
+            abi::load_u64("%v14", abi::stack_pointer(), TIMEOUT),
+            abi::move_immediate("%v15", "Integer", super::super::TIMEOUT_UNBOUNDED_SENTINEL),
+            abi::compare_registers("%v14", "%v15"),
+            abi::branch_eq(&hs_clr_skip),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTV),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTV + 8),
+        ]);
+        super::emit_set_sock_timeouts(
+            &mut EmitCtx {
+                symbol,
+                platform_imports: imports,
+                platform,
+                instructions: &mut ins,
+                relocations: &mut rel,
+            },
+            CONNFD,
+            HSTV,
+        )?;
+        ins.push(abi::label(&hs_clr_skip));
+    }
+
     // QueryContextAttributes(&ctxt, STREAM_SIZES, &sizes) → header/trailer/max.
     // &sizes reuses the per-connection SC_CRED scratch (unused server-side).
     ins.extend([
@@ -862,11 +942,25 @@ pub(super) fn lower_tls_accept(
     ins.push(abi::label(&tls_fail));
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), CONNFD));
     platform.emit_libc_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
+    // plan-73-D: a handshake recv that hit the SO_RCVTIMEO (WSAETIMEDOUT) is a
+    // timeout → ErrTimeout; every other tls_fail is a TLS failure.
+    let tls_fail_timeout = format!("{symbol}_tls_fail_timeout");
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), HSTOF),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&tls_fail_timeout),
+    ]);
     emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+    ins.push(abi::label(&tls_fail_timeout));
+    emit_fail(symbol, ERR_TIMEOUT_CODE, ERR_TIMEOUT_SYMBOL, &mut ins, &mut rel, &done);
     ins.push(abi::label(&accept_fail));
     emit_fail(symbol, ERR_NETWORK_FAILED_CODE, ERR_NETWORK_FAILED_SYMBOL, &mut ins, &mut rel, &done);
     ins.push(abi::label(&accept_timeout));
     emit_fail(symbol, ERR_TIMEOUT_CODE, ERR_TIMEOUT_SYMBOL, &mut ins, &mut rel, &done);
+    // plan-73-D: a negative (non-sentinel) `timeoutMs` → ErrInvalidArgument (rejected
+    // up front, before any accept/alloc).
+    ins.push(abi::label(&accept_invalid));
+    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
     emit_fail(symbol, ERR_RESOURCE_CLOSED_CODE, ERR_RESOURCE_CLOSED_SYMBOL, &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));

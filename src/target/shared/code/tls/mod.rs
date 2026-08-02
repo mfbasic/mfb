@@ -284,17 +284,34 @@ pub(super) fn emit_set_sock_timeouts(
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
 
+    // plan-73-D: Winsock `SO_RCVTIMEO`/`SO_SNDTIMEO` optval is a DWORD of
+    // milliseconds (4 bytes), NOT a POSIX `struct timeval` (16 bytes). Callers store
+    // the matching shape at `tv_off` per platform; pass the right optlen here (a
+    // 16-byte optval to Winsock silently fails to install the timeout, so the socket
+    // op then blocks forever).
+    let optlen = if platform.family() == PlatformFamily::Windows {
+        "4"
+    } else {
+        "16"
+    };
     for opt in [platform.so_rcvtimeo(), platform.so_sndtimeo()] {
         ctx.instructions.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_off),
             abi::move_immediate(abi::ARG[1], "Integer", platform.sol_socket()),
             abi::move_immediate(abi::ARG[2], "Integer", opt),
             abi::add_immediate(abi::ARG[3], abi::stack_pointer(), tv_off),
-            abi::move_immediate(abi::ARG[4], "Integer", "16"),
+            abi::move_immediate(abi::ARG[4], "Integer", optlen),
         ]);
-        platform.emit_libc_call(
+        // plan-73-D: setsockopt has 5 int args; on Win64 the 5th (optlen) is a stack
+        // argument above the shadow, not a register (bug-384) — a garbage optlen makes
+        // SO_*TIMEO silently fail to install and the later recv blocks forever. Route
+        // through emit_external_int_call, which spills the overflow arg on Win64 and
+        // is byte-identical on POSIX (all 5 fit in registers → plain emit_libc_call).
+        super::native_helpers::emit_external_int_call(
+            platform,
             "setsockopt",
             symbol,
+            5,
             platform_imports,
             ctx.instructions,
             ctx.relocations,

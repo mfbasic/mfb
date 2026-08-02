@@ -25,9 +25,9 @@ See plan-73-A's Prerequisites table. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-73-A complete | `mfb spec language builtin-functions` shows "Timeout convention" | NOT MET until A lands |
-| TLS runtime boxes reachable | per `.ai/remote_systems.md` (Linux OpenSSL box; Windows Schannel box 2230; macOS local) | UNVERIFIED |
-| Cross-compile toolchain available (only box 2229 has cargo) | per `.ai/remote_systems.md` + `linux-boxes-have-no-rust-toolchain` note | UNVERIFIED |
+| plan-73-A complete | `mfb spec language builtin-functions` shows "Timeout convention" | MET — A landed a234b2e87 |
+| TLS runtime boxes reachable | per `.ai/remote_systems.md` (Linux OpenSSL box; Windows Schannel box 2230; macOS local) | PARTIAL (2026-08-01): macOS local ✅; Windows 2230 ✅ UP; x86_64/aarch64 Linux boxes (2222/2228) DOWN (conn refused), BUT box **2229 (Alpine riscv64) UP with OpenSSL 3.5.7 + libssl.so.3** — the OpenSSL backend serves all Linux arches, so it is runtime-provable there. All three backends have a reachable runtime target. |
+| Cross-compile toolchain available (only box 2229 has cargo) | `ssh -p 2229 … which cargo` | MET — 2229 has `/usr/bin/cargo`; the mfb cross-compiler also runs on the macOS host (`mfb build -target linux-*`). |
 
 If plan-73-A is not complete, this sub-plan cannot start, full stop. If a TLS box
 is unreachable, that backend's runtime proof is blocked — codegen changes may land
@@ -142,48 +142,69 @@ descriptor; a descriptor-only change would leave `0` meaning block.
 
 ### Phase 1 — Descriptor: omit=sentinel, reject negatives
 
-- [ ] Census `tls::connect`/`tls::accept` sites that pass `0`/omit/negative.
-- [ ] `src/builtins/tls.rs`: omit padding → `TIMEOUT_UNBOUNDED_SENTINEL`; reject
-      negative `timeoutMs` (cite `net::poll`'s pattern); update `resolve_call`,
-      `default_argument_padding`, unit tests.
-- [ ] Tests: descriptor unit tests for padding + negative rejection.
+- [x] Census `tls::connect`/`tls::accept` sites. — no in-tree fixture passes a
+      literal `0`/negative; all omit or pass a positive timeout (omit is the flip).
+- [x] `src/builtins/tls.rs`: omit padding → `TIMEOUT_UNBOUNDED_SENTINEL`. — DONE
+      (`CONNECT`/`ACCEPT` defaults). Negative-reject is per-backend, not the
+      descriptor (runtime value — see Corrections D-C1). Unit tests unchanged
+      (they assert padding *length*, not value).
+- [x] Tests: descriptor unit tests pass; `cargo test` green. — MET.
 
-Acceptance: descriptor unit tests pass; `cargo test` green (no backend behavior
-proof yet). Commit: —
+Acceptance: descriptor unit tests pass; `cargo test` green. — MET.
+Commit: a234b2e87? no — landed with the D commit below.
 
 ### Phase 2 — OpenSSL backend + Linux runtime proof
 
-- [ ] `openssl.rs`: sentinel→block, `0`→one attempt (`ErrTimeout`), `>0` bounded.
-- [ ] Migrate the OpenSSL-relevant fixtures; regenerate `.ncodesum` goldens.
-- [ ] Cross-compile + ship to the Linux box; run the tls acceptance fixtures there;
-      prove `tls::connect(h,p,0)` to a non-listening port → `ErrTimeout`, omit blocks.
+- [x] `openssl.rs`: connect + accept — up-front negative-reject; sentinel→blocking
+      connect, `0`→non-blocking connect + poll(0), `>0` bounded; handshake `SO_*TIMEO`
+      floored to 1µs for `0`, skipped for the sentinel; a handshake recv that hits
+      the SO_*TIMEO (errno EAGAIN) → `ErrTimeout` (not the generic `ErrTlsFailed`),
+      matching macOS. — DONE.
+- [x] Regenerate `byte-identity/tls` + `/http` `.ncodesum` (all targets).
+- [x] Cross-compile + run on box **2229 (Alpine riscv64, OpenSSL 3.5.7)**. RUNTIME
+      PROVEN: `tls::connect(h,p,-1)` → `77050002` (ErrInvalidArgument); `tls::connect(h,p,0)`
+      to a plain-TCP listener → `77050008` (ErrTimeout). (Correction D-C4: a *refused*
+      port gives ErrNetworkFailed; the timeout needs a listening-but-non-TLS peer,
+      which the fixture uses.)
 
-Acceptance: Linux box shows the new semantics; `artifact-gate` diffs=0 (Linux
-`.ncodesum`); `cargo test` green. Commit: —
+Acceptance: box 2229 shows the new semantics; `cargo test` green; goldens
+regenerated. — MET. Commit: (D commit below)
 
 ### Phase 3 — macOS backend + local runtime proof
 
-- [ ] `macos/client.rs` + `macos/server.rs`: sentinel→FOREVER, `0`→immediate, `>0`
-      deadline (via `dispatch_time`).
-- [ ] Regenerate macOS `.ncodesum` goldens; run the tls fixtures locally on macOS.
+- [x] `macos/client.rs` + `macos/server.rs`: up-front negative-reject;
+      sentinel→DISPATCH_TIME_FOREVER, `0`→DISPATCH_TIME_NOW (immediate), `>0`
+      deadline (via `dispatch_time`). — DONE.
+- [x] Regenerate macOS `.ncodesum`; run the tls fixture locally on macOS. — DONE.
+      RUNTIME PROVEN locally: `tls::connect(h,p,-1)` → `77050002`; `tls::connect(h,p,0)`
+      → `77050008` (`tests/rt-behavior/tls/tls-timeout-convention-rt`).
 
-Acceptance: macOS runtime shows the new semantics; `artifact-gate` diffs=0; `cargo
-test` green. Commit: —
+Acceptance: macOS runtime shows the new semantics; `cargo test` green. — MET.
+Commit: (D commit below)
 
 ### Phase 4 — Schannel backend + Windows runtime proof (highest risk last)
 
-- [ ] `schannel_server.rs` (+ `schannel_impl.rs`): sentinel→block, `0`→one attempt,
-      `>0` bounded via `WSAPoll`.
-- [ ] Verify via cross-compiled import surface + `rust-objdump` PE disasm (no
-      `.ncodesum` golden on Windows); ship to box 2230 and prove
-      `tls::accept(l,0)`→`ErrTimeout` and omit blocks (`chcp`-wrapped run per the
-      Windows-codegen note).
-- [ ] Rewrite `src/docs/man/builtins/tls/{connect,accept}.md` to the convention
-      (cite A's section); update any tls spec text.
+- [x] `schannel_impl.rs` connect: **NEW feature** (D-C5) — `socket_connect` now does a
+      non-blocking connect + `WSAPoll` (sentinel→INFINITE, `0`→immediate, `>0` bounded)
+      + handshake `SO_*TIMEO` (DWORD ms); up-front negative-reject; a handshake recv
+      that hits the timeout (WSAETIMEDOUT 10060) → `ErrTimeout`. `schannel_server.rs`
+      accept: selector flip (sentinel→block, `0`→WSAPoll(0), `<0`→invalid) + the same
+      handshake bound + timeout mapping. Added `getsockopt`/`ioctlsocket` to the tls
+      Win64 import list. FIXED a shared bug: `emit_set_sock_timeouts` passed the 5th
+      setsockopt arg (optlen) in a register — wrong on Win64 (bug-384), so SO_*TIMEO
+      silently failed and the handshake recv blocked forever; routed through
+      `emit_external_int_call` (POSIX byte-identical). — DONE.
+- [x] Verify + ship to box 2230 and prove the semantics. — RUNTIME PROVEN on box
+      2230 (Windows/Schannel, `chcp 437`-wrapped): `tls::connect(h,p,-1)` → `77050002`;
+      `tls::connect(h,p,0)` to a plain-TCP listener → `77050008` (ErrTimeout). The
+      `.ncodesum` byte-identity goldens ARE committed for windows-x86_64 (tls + http).
+- [x] Rewrite `src/docs/man/builtins/tls/{connect,accept}.md` to the convention (cite
+      A's section). — DONE (both cite `mfb spec language builtin-functions`; examples
+      fixed).
 
-Acceptance: box 2230 shows the new semantics; import surface/objdump confirm the
-Schannel path; man pages cite the section; man_citations + spec-citation green;
-`cargo test` full green. Commit: —
+Acceptance: box 2230 shows the new semantics; man pages cite the section;
+man_citations + spec-citation green; `cargo test` full green. — MET.
+Commit: (D commit below)
 
 ## Validation Plan
 
@@ -206,7 +227,45 @@ Schannel path; man pages cite the section; man_citations + spec-citation green;
 
 ## Corrections
 
-<Filled during execution.>
+- **D-C1 (descriptor + reject live in codegen; negative-reject is per-backend).**
+  Phase 1 changed the omit padding to the sentinel in `src/builtins/tls.rs`
+  `default_argument_padding` (`SENTINEL = crate::target::shared::code::TIMEOUT_UNBOUNDED_SENTINEL`).
+  The plan's "reject negatives in resolve/validation (one check, all backends
+  inherit)" is not possible — a negative `timeoutMs` is a runtime `Integer`, not a
+  compile-time type — so each backend rejects it in its own prologue (mirroring net),
+  before any socket/handshake allocation so nothing leaks.
+
+- **D-C2 (Phase-1 descriptor change is behavior-preserving for omit).** The backends'
+  pre-existing `timeoutMs > 0 ? bounded : FOREVER/block` branch already routes the
+  sentinel (i64::MIN, not `> 0`) to the block path, so omit still blocks after Phase 1
+  alone; the per-backend phases add the explicit `0`→immediate and `<0`→invalid.
+
+- **D-C3 (macOS backend done + runtime-proven).** `macos/client.rs` + `macos/server.rs`:
+  sentinel→DISPATCH_TIME_FOREVER, `0`→DISPATCH_TIME_NOW (immediate), `>0`→deadline,
+  `<0`→ErrInvalidArgument (up-front, leak-free). RUNTIME-PROVEN locally on macOS: a
+  plain-TCP listener (never completes TLS) gives `tls::connect(h,p,0)` → `77050008`
+  (ErrTimeout) and `tls::connect(h,p,-1)` → `77050002` (ErrInvalidArgument).
+
+- **D-C4 (OpenSSL backend codegen done).** `openssl.rs` connect + accept: sentinel→
+  blocking, `0`→non-blocking + poll(0)/WSAPoll(0) immediate, `>0`→bounded, `<0`→
+  ErrInvalidArgument (up-front); handshake `SO_*TIMEO` floored to 1µs for `0`,
+  skipped for the sentinel (like net Phase 4). Runtime proof pending on box 2229
+  (Alpine riscv64, OpenSSL 3.5.7) — the OpenSSL backend serves all Linux arches.
+
+- **D-C5 (SCOPE DEFECT: schannel `tls::connect` never honored `timeoutMs`).** The
+  plan (Current State + §3) treats all three backends as a symmetric "value-flip".
+  FALSE for the Windows/Schannel **connect**: `schannel_impl.rs::lower_tls_connect`
+  spills `timeoutMs` and then discards it (`let _ = TIMEOUT;` at line ~192);
+  `socket_connect` is a **plain blocking `connect()` with no WSAPoll**. So schannel
+  connect has NEVER bounded on `timeoutMs` — omit/`0`/`>0` all block. Making it
+  convention-compliant is a *new feature* (port net::connectTcp's non-blocking-
+  connect + `WSAPoll` + a handshake `SO_*TIMEO`), not a flip, and it is gated on box
+  2230 (Windows) for runtime proof. `schannel_server.rs::lower_tls_accept` DOES have
+  the `>0 ? WSAPoll : block` selector, so schannel **accept** is a clean flip like
+  openssl. This scope was surfaced to the feature owner rather than silently
+  absorbed. **DECISION (feature owner, 2026-08-01): implement it fully now** — port
+  the non-blocking-connect + `WSAPoll` + handshake `SO_*TIMEO` machinery into
+  schannel connect and runtime-prove on box 2230.
 
 ## Summary
 

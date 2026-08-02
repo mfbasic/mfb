@@ -32,7 +32,9 @@ pub(in crate::target::shared::code::tls) fn lower_tls_connect_macos(
     let ready = format!("{symbol}_ready");
     let conn_fail = format!("{symbol}_conn_fail");
     let conn_timeout = format!("{symbol}_conn_timeout");
+    let conn_invalid = format!("{symbol}_conn_invalid");
     let wait_forever = format!("{symbol}_wait_forever");
+    let wait_now = format!("{symbol}_wait_now");
     let deadline_ready = format!("{symbol}_deadline_ready");
     let net_fail = format!("{symbol}_net_fail");
     let load_fail = format!("{symbol}_load_fail");
@@ -48,6 +50,22 @@ pub(in crate::target::shared::code::tls) fn lower_tls_connect_macos(
         abi::store_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT),
         abi::store_u64(abi::ARG[3], abi::stack_pointer(), SNAME),
     ]);
+    {
+        // plan-73-D: reject a negative (non-sentinel) `timeoutMs` up front — before
+        // any dlopen/alloc/connection, so the reject leaks nothing. The omitted
+        // overload pads the unbounded sentinel (i64::MIN), which is allowed (→ FOREVER
+        // at the deadline block); `0`/`> 0` pass through.
+        let ts_ok = format!("{symbol}_ts_ok");
+        ins.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT),
+            abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+            abi::compare_registers("%v9", "%v10"),
+            abi::branch_eq(&ts_ok),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_lt(&conn_invalid),
+            abi::label(&ts_ok),
+        ]);
+    }
     // itoa(port) -> NUL-terminated decimal at PORTBUF, pointer in PORTCSTR.
     emit_port_itoa(symbol, PORT, PORTBUF, PORTCSTR, &mut ins);
     // dlopen Network.framework.
@@ -467,13 +485,18 @@ pub(in crate::target::shared::code::tls) fn lower_tls_connect_macos(
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
         abi::branch_link_register("%v9"),
     ]);
-    // Compute the wait deadline: timeoutMs > 0 => dispatch_time(NOW, ms*1e6);
-    // otherwise DISPATCH_TIME_FOREVER. It is absolute, so re-waits across the
-    // preparing loop all share the original deadline.
+    // plan-73-D. Compute the wait deadline: the unbounded sentinel =>
+    // DISPATCH_TIME_FOREVER (omit = block); `0` => DISPATCH_TIME_NOW (one immediate
+    // attempt → `ErrTimeout` if the handshake is not instantly complete); `> 0` =>
+    // dispatch_time(NOW, ms*1e6). Negatives were rejected up front. The deadline is
+    // absolute, so re-waits across the preparing loop all share it.
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT),
+        abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers("%v9", "%v10"),
+        abi::branch_eq(&wait_forever),
         abi::compare_immediate("%v9", "0"),
-        abi::branch_le(&wait_forever),
+        abi::branch_eq(&wait_now),
     ]);
     dlsym(
         &mut EmitCtx {
@@ -496,6 +519,10 @@ pub(in crate::target::shared::code::tls) fn lower_tls_connect_macos(
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
         abi::branch_link_register("%v9"),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), DEADLINE),
+        abi::branch(&deadline_ready),
+        // 0 => DISPATCH_TIME_NOW (0): the semaphore wait returns at once.
+        abi::label(&wait_now),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), DEADLINE),
         abi::branch(&deadline_ready),
         abi::label(&wait_forever),
         abi::move_immediate("%v9", "Integer", "0"),
@@ -667,6 +694,17 @@ pub(in crate::target::shared::code::tls) fn lower_tls_connect_macos(
         symbol,
         ERR_NETWORK_FAILED_CODE,
         ERR_NETWORK_FAILED_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    // plan-73-D: a negative (non-sentinel) `timeoutMs` → ErrInvalidArgument. Reached
+    // from the up-front check before any dlopen/alloc/connection, so no cleanup.
+    ins.push(abi::label(&conn_invalid));
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
         &mut ins,
         &mut rel,
         &done,

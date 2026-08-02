@@ -36,10 +36,14 @@ listener closes), so accepted sockets may be closed in any order while the
 listener and its siblings stay live.
 
 The optional `timeoutMs` bounds how long `accept` waits for both an inbound
-connection and the handshake to complete. A positive value fails with
-`ErrTimeout` if no connection arrives, or the handshake does not finish, within
-that many milliseconds. `0` (the default when omitted) blocks until a connection
-is ready. A handshake that fails — a client that is not speaking TLS, an
+connection and the handshake to complete, following the language timeout
+convention (see `mfb spec language builtin-functions` → "Timeout convention").
+When it is **omitted, `accept` blocks** until a connection is ready and
+handshaken. `0` is one immediate attempt: it returns a ready connection if one is
+already pending and handshakes at once, otherwise it raises `ErrTimeout` without
+waiting. A positive value fails with `ErrTimeout` if no connection arrives, or the
+handshake does not finish, within that many milliseconds. A negative `timeoutMs`
+raises `ErrInvalidArgument`. A handshake that fails — a client that is not speaking TLS, an
 incompatible protocol, or a connection reset mid-handshake — raises
 `ErrTlsFailed`, and the accepted connection is closed before the error is
 returned; the listener stays open, so the server can continue accepting.
@@ -63,7 +67,7 @@ complete within `timeoutMs` milliseconds. [[src/builtins/tls.rs:resolve_call]]
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `listener` | `TlsListener` | A listening `TlsListener` from `tls::listen`. Borrowed, not consumed: it remains open for further `accept` calls. |
-| `timeoutMs` | `Integer` | Optional. The maximum time to wait for a connection and its handshake, in milliseconds. Defaults to `0`, which blocks indefinitely. |
+| `timeoutMs` | `Integer` | Optional. The maximum time to wait for a connection and its handshake, in milliseconds. Omit to block until ready; `0` is one immediate attempt (`ErrTimeout` if none pending); a positive value bounds the wait (`ErrTimeout` on elapse); a negative value raises `ErrInvalidArgument`. |
 
 ## Return value
 
@@ -77,7 +81,8 @@ complete within `timeoutMs` milliseconds. [[src/builtins/tls.rs:resolve_call]]
 | --- | --- | --- |
 | `77010001` | `ErrOutOfMemory` | The `TlsSocket` handle for the accepted connection could not be allocated. |
 | `77030004` | `ErrResourceClosed` | The `listener` has already been closed. |
-| `77050008` | `ErrTimeout` | `timeoutMs` is positive and no connection arrived, or the handshake did not complete, before the deadline. |
+| `77050008` | `ErrTimeout` | No connection arrived (or the handshake did not complete) before the deadline: immediately when `timeoutMs` is `0`, or after a positive `timeoutMs` elapsed. The omitted (unbounded) form never raises this. |
+| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. |
 | `77070003` | `ErrNetworkFailed` | The underlying `accept` failed. |
 | `77070008` | `ErrTlsFailed` | The TLS layer could not be initialized, or the server-side handshake failed (the peer is not speaking TLS, protocol negotiation failed, or the connection reset during the handshake). |
 
@@ -114,3 +119,4 @@ END SUB
 - `mfb man tls writeText`
 - `mfb man tls close`
 - `mfb man net accept`
+- `mfb spec language builtin-functions` — the timeout convention

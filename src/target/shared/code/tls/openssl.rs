@@ -31,11 +31,13 @@ pub(super) fn lower_tls_connect_openssl(
     const SOERR_OFFSET: usize = 168; // getsockopt SO_ERROR output
     const SOLEN_OFFSET: usize = 176; // getsockopt option length
     const TIMEVAL_OFFSET: usize = 184; // 184..200: tv_sec (8) + tv_usec (8)
+    const HSTOFLAG: usize = 200; // plan-73-D: 1 if the handshake recv timed out (SO_*TIMEO)
 
     let resolve_fail = format!("{symbol}_resolve_fail");
     let net_fail = format!("{symbol}_net_fail");
     let net_fail_fd = format!("{symbol}_net_fail_fd");
     let connect_timeout = format!("{symbol}_connect_timeout");
+    let connect_invalid = format!("{symbol}_connect_invalid");
     let blocking_connect = format!("{symbol}_blocking_connect");
     let nb_connected = format!("{symbol}_nb_connected");
     let connected = format!("{symbol}_connected");
@@ -67,7 +69,24 @@ pub(super) fn lower_tls_connect_openssl(
         abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), SSL_OFFSET),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), CTX_OFFSET),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTOFLAG),
     ]);
+    {
+        // plan-73-D: reject a negative (non-sentinel) `timeoutMs` up front — before
+        // getaddrinfo/socket, so nothing leaks. The omitted overload pads the
+        // unbounded sentinel (i64::MIN, allowed → the blocking connect + blocking
+        // handshake below); `0`/`> 0` pass through.
+        let ts_ok = format!("{symbol}_ts_ok");
+        instructions.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFFSET),
+            abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+            abi::compare_registers("%v9", "%v10"),
+            abi::branch_eq(&ts_ok),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_lt(&connect_invalid),
+            abi::label(&ts_ok),
+        ]);
+    }
     // Resolve + connect a TCP socket. Zero a 48-byte hints block and set
     // ai_family = AF_INET, ai_socktype = SOCK_STREAM.
     for offset in (0..48).step_by(8) {
@@ -139,13 +158,16 @@ pub(super) fn lower_tls_connect_openssl(
         abi::store_u8("%v11", "%v9", 2),
         abi::store_u8("%v10", "%v9", 3),
     ]);
-    // Connect the socket, bounded by timeoutMs when > 0 (non-blocking connect +
-    // poll, then restore blocking mode), else a plain blocking connect. Mirrors
+    // plan-73-D. Connect the socket: the unbounded sentinel => a plain blocking
+    // connect (omit = block); `0` => a non-blocking connect + poll(0) (one immediate
+    // attempt → `ErrTimeout` unless it completes at once); `> 0` => non-blocking
+    // connect + poll(timeoutMs). Negatives were rejected up front. Mirrors
     // net::connectTcp. DNS (getaddrinfo above) is not bounded by timeoutMs.
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::compare_immediate("%v9", "0"),
-        abi::branch_le(&blocking_connect),
+        abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers("%v9", "%v10"),
+        abi::branch_eq(&blocking_connect),
         // flags = fcntl(fd, F_GETFL, 0)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::move_immediate(abi::ARG[1], "Integer", "3"),
@@ -296,18 +318,28 @@ pub(super) fn lower_tls_connect_openssl(
         &mut instructions,
         &mut relocations,
     )?;
-    // Bound the blocking TLS handshake by timeoutMs (SO_RCVTIMEO/SO_SNDTIMEO),
-    // cleared again after the handshake so read/write stay unbounded.
+    // plan-73-D. Bound the blocking TLS handshake by timeoutMs (SO_RCVTIMEO/
+    // SO_SNDTIMEO), cleared again after the handshake so read/write stay unbounded.
+    // The unbounded sentinel => leave the handshake unbounded (omit = block); `0` =>
+    // the smallest nonzero wait (tv_usec = 1µs, near-immediate `ErrTimeout` — a
+    // SO_*TIMEO of {0,0} is *infinite*, so 0 cannot be literal); `> 0` => the timeval.
+    let hs_ts_ok = format!("{symbol}_hs_ts_ok");
     instructions.extend([
         abi::load_u64("%v14", abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::compare_immediate("%v14", "0"),
-        abi::branch_le(&hs_timeout_set),
+        abi::move_immediate("%v15", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers("%v14", "%v15"),
+        abi::branch_eq(&hs_timeout_set),
         // tv_sec = ms / 1000, tv_usec = (ms % 1000) * 1000
         abi::move_immediate("%v10", "Integer", "1000"),
         abi::unsigned_divide_registers("%v11", "%v14", "%v10"),
         abi::multiply_subtract_registers("%v12", "%v11", "%v10", "%v14"),
         abi::move_immediate("%v13", "Integer", "1000"),
         abi::multiply_registers("%v12", "%v12", "%v13"),
+        // 0 => bump tv_usec to 1µs so the handshake is non-blocking, not infinite.
+        abi::compare_immediate("%v14", "0"),
+        abi::branch_ne(&hs_ts_ok),
+        abi::move_immediate("%v12", "Integer", "1"),
+        abi::label(&hs_ts_ok),
         abi::store_u64("%v11", abi::stack_pointer(), TIMEVAL_OFFSET),
         abi::store_u64("%v12", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
     ]);
@@ -564,12 +596,26 @@ pub(super) fn lower_tls_connect_openssl(
         FNPTR_OFFSET,
         &load_fail,
     )?;
+    let hs_connected = format!("{symbol}_hs_connected");
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
         abi::compare_immediate(abi::return_register(), "1"),
+        abi::branch_eq(&hs_connected),
+    ]);
+    // plan-73-D: SSL_connect failed. If the handshake recv hit the SO_RCVTIMEO we
+    // installed (errno == EWOULDBLOCK/EAGAIN), classify it as a TIMEOUT (ErrTimeout),
+    // matching the macOS backend and the connect-poll timeout, rather than the
+    // generic ErrTlsFailed. Any other failure stays ErrTlsFailed.
+    platform.emit_errno(symbol, "%v9", platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::compare_immediate("%v9", platform.socket_would_block_code()),
         abi::branch_ne(&tls_fail),
+        abi::move_immediate("%v9", "Integer", "1"),
+        abi::store_u64("%v9", abi::stack_pointer(), HSTOFLAG),
+        abi::branch(&tls_fail),
+        abi::label(&hs_connected),
     ]);
     // v = SSL_get_verify_result(ssl); require X509_V_OK (0).
     emit_dlsym(
@@ -593,10 +639,13 @@ pub(super) fn lower_tls_connect_openssl(
         abi::branch_ne(&tls_fail),
     ]);
     // Handshake done: clear SO_*TIMEO (zero timeval) so read/write are unbounded.
+    // plan-73-D: only the sentinel (omit) left the handshake unbounded; `0`/`> 0`
+    // installed a SO_*TIMEO that must be cleared here.
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::compare_immediate("%v9", "0"),
-        abi::branch_le(&hs_timeout_clear),
+        abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers("%v9", "%v10"),
+        abi::branch_eq(&hs_timeout_clear),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), TIMEVAL_OFFSET),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), TIMEVAL_OFFSET + 8),
     ]);
@@ -705,10 +754,27 @@ pub(super) fn lower_tls_connect_openssl(
         &mut instructions,
         &mut relocations,
     )?;
+    // plan-73-D: a handshake recv that hit the installed SO_*TIMEO is a timeout
+    // (ErrTimeout), everything else on this path is a TLS failure (ErrTlsFailed).
+    let tls_fail_timeout = format!("{symbol}_tls_fail_timeout");
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), HSTOFLAG),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&tls_fail_timeout),
+    ]);
     emit_fail(
         symbol,
         ERR_TLS_FAILED_CODE,
         ERR_TLS_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&tls_fail_timeout));
+    emit_fail(
+        symbol,
+        ERR_TIMEOUT_CODE,
+        ERR_TIMEOUT_SYMBOL,
         &mut instructions,
         &mut relocations,
         &done,
@@ -808,6 +874,17 @@ pub(super) fn lower_tls_connect_openssl(
         symbol,
         ERR_TIMEOUT_CODE,
         ERR_TIMEOUT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    // plan-73-D: a negative (non-sentinel) `timeoutMs` → ErrInvalidArgument. Reached
+    // from the up-front check before getaddrinfo/socket, so nothing to clean up.
+    instructions.push(abi::label(&connect_invalid));
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
         &mut instructions,
         &mut relocations,
         &done,
@@ -1452,6 +1529,7 @@ pub(super) fn lower_tls_accept_openssl(
     const SSL_OFFSET: usize = 56;
     const POLLFD_OFFSET: usize = 64; // pollfd { fd; events; revents }
     const TIMEVAL_OFFSET: usize = 72; // timeval { tv_sec; tv_usec } (bug-202)
+    const HSTOFLAG: usize = 88; // plan-73-D: 1 if the handshake recv timed out
 
     let closed = format!("{symbol}_closed");
     let no_timeout = format!("{symbol}_no_timeout");
@@ -1459,6 +1537,7 @@ pub(super) fn lower_tls_accept_openssl(
     let hs_timeout_cleared = format!("{symbol}_hs_timeout_cleared");
     let accept_fail = format!("{symbol}_accept_fail");
     let accept_timeout = format!("{symbol}_accept_timeout");
+    let accept_invalid = format!("{symbol}_accept_invalid");
     let ssl_fail = format!("{symbol}_ssl_fail");
     let tls_fail_conn = format!("{symbol}_tls_fail_conn");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -1469,6 +1548,7 @@ pub(super) fn lower_tls_accept_openssl(
     // x0 = listener record { fd@0, closed@8, ctx@16 }; x1 = timeoutMs.
     instructions.extend([
         abi::store_u64(abi::ARG[1], abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTOFLAG),
         abi::load_u64("%v9", abi::return_register(), TLS_LISTENER_OFFSET_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
@@ -1476,11 +1556,15 @@ pub(super) fn lower_tls_accept_openssl(
         abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
         abi::load_u64("%v9", abi::return_register(), TLS_LISTENER_OFFSET_CTX),
         abi::store_u64("%v9", abi::stack_pointer(), CTX_OFFSET),
-        // timeoutMs > 0 bounds the wait for an inbound connection with
-        // poll(POLLIN); <= 0 blocks in accept.
+        // plan-73-D: the unbounded sentinel => a blocking accept (omit = block); `0`
+        // => poll(POLLIN, 0), one immediate attempt (`ErrTimeout` if none pending);
+        // `> 0` => poll(POLLIN, timeoutMs); a negative (non-sentinel) => invalid.
         abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers("%v9", "%v10"),
+        abi::branch_eq(&no_timeout),
         abi::compare_immediate("%v9", "0"),
-        abi::branch_le(&no_timeout),
+        abi::branch_lt(&accept_invalid),
         abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
         abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
         abi::move_immediate("%v10", "Integer", "1"), // POLLIN
@@ -1587,16 +1671,25 @@ pub(super) fn lower_tls_accept_openssl(
     // completed the TCP handshake then stalled mid-TLS wedged SSL_accept — and the
     // single-threaded accept loop with it — forever (bug-202). Cleared after the
     // handshake so the socket's reads/writes stay unbounded.
+    // plan-73-D: sentinel => leave the handshake unbounded (omit = block); `0` =>
+    // the smallest nonzero wait (tv_usec 1µs); `> 0` => the timeval.
+    let hs_ts_ok = format!("{symbol}_hs_ts_ok");
     instructions.extend([
         abi::load_u64("%v14", abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::compare_immediate("%v14", "0"),
-        abi::branch_le(&hs_timeout_set),
+        abi::move_immediate("%v15", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers("%v14", "%v15"),
+        abi::branch_eq(&hs_timeout_set),
         // tv_sec = ms / 1000, tv_usec = (ms % 1000) * 1000
         abi::move_immediate("%v10", "Integer", "1000"),
         abi::unsigned_divide_registers("%v11", "%v14", "%v10"),
         abi::multiply_subtract_registers("%v12", "%v11", "%v10", "%v14"),
         abi::move_immediate("%v13", "Integer", "1000"),
         abi::multiply_registers("%v12", "%v12", "%v13"),
+        // 0 => tv_usec = 1µs (non-blocking, not infinite).
+        abi::compare_immediate("%v14", "0"),
+        abi::branch_ne(&hs_ts_ok),
+        abi::move_immediate("%v12", "Integer", "1"),
+        abi::label(&hs_ts_ok),
         abi::store_u64("%v11", abi::stack_pointer(), TIMEVAL_OFFSET),
         abi::store_u64("%v12", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
     ]);
@@ -1626,18 +1719,34 @@ pub(super) fn lower_tls_accept_openssl(
         FNPTR_OFFSET,
         &ssl_fail,
     )?;
+    let asc_ok = format!("{symbol}_asc_ok");
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
         abi::compare_immediate(abi::return_register(), "1"),
+        abi::branch_eq(&asc_ok),
+    ]);
+    // plan-73-D: SSL_accept failed — an SO_RCVTIMEO expiry (errno EWOULDBLOCK/EAGAIN)
+    // is a handshake TIMEOUT (ErrTimeout), matching the accept-poll timeout and the
+    // other backends; anything else is a TLS failure.
+    platform.emit_errno(symbol, "%v9", platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::compare_immediate("%v9", platform.socket_would_block_code()),
         abi::branch_ne(&ssl_fail),
+        abi::move_immediate("%v9", "Integer", "1"),
+        abi::store_u64("%v9", abi::stack_pointer(), HSTOFLAG),
+        abi::branch(&ssl_fail),
+        abi::label(&asc_ok),
     ]);
     // Handshake done: clear the timeouts so the returned socket blocks normally.
+    // plan-73-D: only the sentinel (omit) left the handshake unbounded, so only it
+    // skips the clear; `0`/`> 0` installed a SO_*TIMEO that must be cleared.
     instructions.extend([
         abi::load_u64("%v14", abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::compare_immediate("%v14", "0"),
-        abi::branch_le(&hs_timeout_cleared),
+        abi::move_immediate("%v15", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers("%v14", "%v15"),
+        abi::branch_eq(&hs_timeout_cleared),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), TIMEVAL_OFFSET),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), TIMEVAL_OFFSET + 8),
     ]);
@@ -1707,10 +1816,26 @@ pub(super) fn lower_tls_accept_openssl(
         &mut instructions,
         &mut relocations,
     )?;
+    // plan-73-D: a handshake recv that hit the SO_*TIMEO is a timeout; else TLS fail.
+    let accept_hs_timeout = format!("{symbol}_accept_hs_timeout");
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), HSTOFLAG),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&accept_hs_timeout),
+    ]);
     emit_fail(
         symbol,
         ERR_TLS_FAILED_CODE,
         ERR_TLS_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&accept_hs_timeout));
+    emit_fail(
+        symbol,
+        ERR_TIMEOUT_CODE,
+        ERR_TIMEOUT_SYMBOL,
         &mut instructions,
         &mut relocations,
         &done,
@@ -1729,6 +1854,17 @@ pub(super) fn lower_tls_accept_openssl(
         symbol,
         ERR_TIMEOUT_CODE,
         ERR_TIMEOUT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    // plan-73-D: a negative (non-sentinel) `timeoutMs` → ErrInvalidArgument. Reached
+    // from the up-front selector before any accept/alloc, so nothing to clean up.
+    instructions.push(abi::label(&accept_invalid));
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
         &mut instructions,
         &mut relocations,
         &done,

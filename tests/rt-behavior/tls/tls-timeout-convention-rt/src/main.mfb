@@ -1,0 +1,44 @@
+' plan-73-D: tls::connect timeout convention, proven against a plain-TCP listener
+' that accepts the connection but never speaks TLS. The TCP connect completes
+' (localhost), so the outcome is decided by the handshake bound:
+'   - connect(h, p, -1)  -> ErrInvalidArgument (77050002), rejected up front.
+'   - connect(h, p, 0)   -> one immediate attempt; the handshake cannot complete
+'     now, so ErrTimeout (77050008) (was block-forever before plan-73).
+' Runs on any backend whose host executes it (macOS locally; OpenSSL on Linux).
+IMPORT net
+IMPORT tls
+IMPORT io
+
+FUNC connectNeg(port AS Integer) AS Integer
+  RES c = tls::connect("127.0.0.1", port, -1)
+  tls::close(c)
+  RETURN 1
+  TRAP(e)
+    RETURN e.code
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  RES server = net::listenTcp("127.0.0.1", 0)
+  LET bound = net::localAddress(server)
+
+  LET nc = connectNeg(bound.port)
+  IF nc <> 77050002 THEN
+    io::print("neg wrong " & toString(nc))
+    RETURN 1
+  END IF
+  io::print("neg invalid")
+
+  RES c = tls::connect("127.0.0.1", bound.port, 0)
+  tls::close(c)
+  io::print("connect0 unexpected")
+  RETURN 1
+  TRAP(e)
+    IF e.code = 77050008 THEN
+      io::print("connect0 timeout")
+      RETURN 0
+    END IF
+    io::print("connect0 wrong " & toString(e.code))
+    RETURN 1
+  END TRAP
+END FUNC

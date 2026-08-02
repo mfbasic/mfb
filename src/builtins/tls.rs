@@ -180,9 +180,14 @@ pub(crate) fn default_argument_padding(
     name: &str,
     provided: usize,
 ) -> &'static [(&'static str, &'static str)] {
-    const CONNECT_DEFAULTS: &[(&str, &str)] = &[("Integer", "0"), ("String", "")];
+    // plan-73-D: an OMITTED `timeoutMs` pads the unbounded sentinel (i64::MIN) so
+    // `tls::connect`/`tls::accept` block until the handshake completes (the timeout
+    // convention's omit=unbounded rule); each backend routes the sentinel to its
+    // block path, treats `0` as one immediate attempt, and rejects other negatives.
+    const SENTINEL: &str = crate::target::shared::code::TIMEOUT_UNBOUNDED_SENTINEL;
+    const CONNECT_DEFAULTS: &[(&str, &str)] = &[("Integer", SENTINEL), ("String", "")];
     const LISTEN_DEFAULTS: &[(&str, &str)] = &[("Integer", "0")];
-    const ACCEPT_DEFAULTS: &[(&str, &str)] = &[("Integer", "0")];
+    const ACCEPT_DEFAULTS: &[(&str, &str)] = &[("Integer", SENTINEL)];
     match name {
         // connect(host, port, [timeoutMs=0], [serverName=""])
         CONNECT => &CONNECT_DEFAULTS[provided.saturating_sub(2).min(CONNECT_DEFAULTS.len())..],

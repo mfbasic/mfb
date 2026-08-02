@@ -40,14 +40,20 @@ mismatch, protocol negotiation, or a refused or reset connection during the
 handshake — raises `ErrTlsFailed`, and the underlying socket is closed before
 the error is returned.
 
-A positive `timeoutMs` bounds the attempt and raises `ErrTimeout` when it
-elapses. Both backends implement it: the OpenSSL path makes the socket
-non-blocking and polls the connect to the deadline, then bounds the handshake
-with `SO_RCVTIMEO`/`SO_SNDTIMEO`; the macOS path computes a `dispatch_time`
-deadline for the connection and bounds the handshake the same way. **Host
+`timeoutMs` follows the language timeout convention (see
+`mfb spec language builtin-functions` → "Timeout convention"). When it is
+**omitted the connect blocks** until it completes or the OS/TLS layer fails. `0`
+is one immediate attempt: it succeeds if the connection and handshake complete at
+once, otherwise it raises `ErrTimeout` without waiting. A positive value bounds
+the attempt and raises `ErrTimeout` when it elapses. A negative `timeoutMs` raises
+`ErrInvalidArgument`. All three backends implement it: the OpenSSL and Schannel
+paths make the socket non-blocking and poll the connect to the deadline
+(`poll`/`WSAPoll`), then bound the handshake with `SO_RCVTIMEO`/`SO_SNDTIMEO`; the
+macOS path computes a `dispatch_time` deadline (`DISPATCH_TIME_NOW` for `0`,
+`FOREVER` for the omitted form) and bounds the handshake the same way. **Host
 resolution is not bounded** — the resolver call happens before the deadline
-starts, so a slow DNS lookup can exceed `timeoutMs`. `0` (the default when
-omitted) means no bound. [[src/target/shared/code/tls/openssl.rs:connect_timeout]]
+starts, so a slow DNS lookup can exceed `timeoutMs`.
+[[src/target/shared/code/tls/openssl.rs:connect_timeout]]
 
 TLS is implemented on Linux by driving the system OpenSSL library (`libssl.so.3`,
 falling back to `libssl.so.1.1`) so a single binary spans OpenSSL 1.1.1 and 3.x;
@@ -63,7 +69,8 @@ required symbol is missing — `connect` raises `ErrTlsFailed`.
 
 **`tls::connect(host AS String, port AS Integer) AS TlsSocket`**
 
-Connects to `host` on `port` and validates the certificate against `host`.
+Blocks until connected + handshaken (omitted `timeoutMs` = unbounded), validating
+the certificate against `host`.
 
 **`tls::connect(host AS String, port AS Integer, timeoutMs AS Integer) AS TlsSocket`**
 
@@ -80,7 +87,7 @@ SNI host name when `serverName` is non-empty. [[src/builtins/tls.rs:resolve_call
 | --- | --- | --- |
 | `host` | `String` | The host name or textual IP address of the peer. Resolved with the host resolver; a name that cannot be resolved raises an error (see Errors). Also used as the certificate validation and SNI name when `serverName` is omitted or empty. |
 | `port` | `Integer` | The TCP port to connect to on the peer. |
-| `timeoutMs` | `Integer` | Optional. The maximum time the connection and handshake may take, in milliseconds; `ErrTimeout` when it elapses. Host resolution happens first and is not counted against it. `0` (the default when omitted) means no bound. |
+| `timeoutMs` | `Integer` | Optional. The maximum time the connection and handshake may take, in milliseconds. Omit to block until it completes; `0` is one immediate attempt (`ErrTimeout` unless it completes at once); a positive value bounds it (`ErrTimeout` on elapse); a negative value raises `ErrInvalidArgument`. Host resolution happens first and is not counted against it. |
 | `serverName` | `String` | Optional. When non-empty, the name the peer certificate must match and the host name sent in the TLS SNI extension, replacing `host` for validation. Defaults to the empty string, in which case `host` is used. |
 
 ## Return value
@@ -94,7 +101,8 @@ SNI host name when `serverName` is non-empty. [[src/builtins/tls.rs:resolve_call
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77010001` | `ErrOutOfMemory` | Memory for a host C string, the read/handshake buffers, or the `TlsSocket` handle could not be allocated. |
-| `77050008` | `ErrTimeout` | `timeoutMs` is positive and the connection or handshake did not complete before the deadline elapsed. Host resolution is not counted against the deadline. |
+| `77050008` | `ErrTimeout` | The connection or handshake did not complete before the deadline: immediately when `timeoutMs` is `0`, or after a positive `timeoutMs` elapsed. The omitted (unbounded) form never raises this. Host resolution is not counted against the deadline. |
+| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. |
 | `77070002` | `ErrAddressNotFound` | `host` could not be resolved, including when it is malformed or has no address record. **Linux only:** the macOS backend reports every connection-establishment failure, an unresolvable host included, as `ErrTlsFailed`. |
 | `77070003` | `ErrNetworkFailed` | The socket could not be created or the TCP connection could not be established before the TLS handshake begins (for example the peer refused the connection or is unreachable). |
 | `77070008` | `ErrTlsFailed` | The TLS layer could not be initialized (the system OpenSSL library or a required symbol could not be loaded), or the handshake failed — certificate chain validation failure, server name mismatch, protocol negotiation failure, or a connection reset during the handshake. |
@@ -120,7 +128,7 @@ Connect to a literal IP but validate against a named certificate via SNI:
 IMPORT tls
 
 SUB main()
-  RES conn = tls::connect("93.184.216.34", 443, timeoutMs := 0, serverName := "example.com")
+  RES conn = tls::connect("93.184.216.34", 443, timeoutMs := 5000, serverName := "example.com")
   ' conn is closed by lexical drop when this scope ends
 END SUB
 ```
@@ -133,3 +141,4 @@ END SUB
 - `mfb man tls writeText`
 - `mfb man tls close`
 - `mfb man net connectTcp`
+- `mfb spec language builtin-functions` — the timeout convention

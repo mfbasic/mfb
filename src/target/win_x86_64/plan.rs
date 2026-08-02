@@ -539,6 +539,10 @@ impl NativePlanPlatform for Platform {
                 import("listen", WS2_32, required_by),
                 import("accept", WS2_32, required_by),
                 import("setsockopt", WS2_32, required_by),
+                // plan-73-D: the client's non-blocking connect + WSAPoll timeout path
+                // needs ioctlsocket(FIONBIO) and getsockopt(SO_ERROR).
+                import("getsockopt", WS2_32, required_by),
+                import("ioctlsocket", WS2_32, required_by),
                 import("WSAPoll", WS2_32, required_by),
                 import("send", WS2_32, required_by),
                 import("recv", WS2_32, required_by),
