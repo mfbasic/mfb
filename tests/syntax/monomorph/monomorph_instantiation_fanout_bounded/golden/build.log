@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/monomorph/monomorph_instantiation_fanout_bounded
+   2 |   LET a AS List OF T = [x]
+   3 |   LET b AS Set OF T = Set OF T { x }
+   4 |   RETURN recurse(a) + recurse(b)
+     | ^
+tests/syntax/monomorph/monomorph_instantiation_fanout_bounded/src/main.mfb:4 error[2-203-0102 TYPE_INSTANTIATION_TOO_DEEP]: template instantiation is too deep
+               Template instantiation of `recurse` exceeds the 256 level limit.
+[exit 1]
