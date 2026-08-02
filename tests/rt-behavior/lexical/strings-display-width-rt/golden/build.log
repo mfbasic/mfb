@@ -1,0 +1,24 @@
+$ mfb build -ast -ir tests/rt-behavior/lexical/strings-display-width-rt
+Wrote AST to tests/rt-behavior/lexical/strings-display-width-rt/strings_display_width_rt.ast
+Wrote IR to tests/rt-behavior/lexical/strings-display-width-rt/strings_display_width_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/lexical/strings-display-width-rt
+Wrote executable to tests/rt-behavior/lexical/strings-display-width-rt/build/strings_display_width_rt.out
+[exit 0]
+$ tests/rt-behavior/lexical/strings-display-width-rt/build/strings_display_width_rt.out
+fold empty : 0
+fold ascii : 3
+fold cjk   : 6
+fold nfc   : 4
+fold nfd   : 4
+fold emoji : 2
+fold comb  : 0
+dyn empty  : 0
+dyn ascii  : 3
+dyn cjk    : 6
+dyn nfc    : 4
+dyn nfd    : 4
+dyn emoji  : 2
+dyn comb   : 0
+ok
+[exit 0]

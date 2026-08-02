@@ -1,0 +1,36 @@
+' plan-70-A: `strings::displayWidth` returns the terminal column width of a
+' string (the sum of its grapheme clusters' display widths). This fixture asserts
+' the goal values from plan-70-A over BOTH paths: a string-literal argument, which
+' the compiler folds at build time, and a FUNC-parameter argument, which never
+' folds and so exercises the runtime walk over the embedded utf8proc table. The
+' two paths must agree — a divergence is a real bug.
+IMPORT io
+IMPORT strings
+
+' The argument is a parameter, never a compile-time constant, so displayWidth
+' cannot fold it and must walk the property table at runtime.
+FUNC widthOf(value AS String) AS Integer
+  RETURN strings::displayWidth(value)
+END FUNC
+
+FUNC main() AS Integer
+  ' Folded path (string-literal argument).
+  io::print("fold empty : " & toString(strings::displayWidth("")))
+  io::print("fold ascii : " & toString(strings::displayWidth("abc")))
+  io::print("fold cjk   : " & toString(strings::displayWidth("日本語")))
+  io::print("fold nfc   : " & toString(strings::displayWidth("café")))
+  io::print("fold nfd   : " & toString(strings::displayWidth("cafe" & "́")))
+  io::print("fold emoji : " & toString(strings::displayWidth("👨‍👩‍👧‍👦")))
+  io::print("fold comb  : " & toString(strings::displayWidth("́")))
+
+  ' Dynamic path (same inputs through a parameter).
+  io::print("dyn empty  : " & toString(widthOf("")))
+  io::print("dyn ascii  : " & toString(widthOf("abc")))
+  io::print("dyn cjk    : " & toString(widthOf("日本語")))
+  io::print("dyn nfc    : " & toString(widthOf("café")))
+  io::print("dyn nfd    : " & toString(widthOf("cafe" & "́")))
+  io::print("dyn emoji  : " & toString(widthOf("👨‍👩‍👧‍👦")))
+  io::print("dyn comb   : " & toString(widthOf("́")))
+  io::print("ok")
+  RETURN 0
+END FUNC

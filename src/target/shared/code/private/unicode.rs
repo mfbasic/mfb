@@ -389,6 +389,25 @@ impl CodeBuilder<'_> {
         ));
     }
 
+    /// The terminal display width (0/1/2 columns) of a codepoint, read from the
+    /// `charwidth` field packed into `flags` bits 4–5 (plan-70-A). The runtime
+    /// computes `(flags >> 4) & 0b11`; `ambiguous_width` (bit 6) is carried in the
+    /// table but not read here (policy: East-Asian Ambiguous = narrow). This is
+    /// the per-scalar width primitive `strings::displayWidth` and every renderer
+    /// (plan-70-B..F) consume.
+    pub(in crate::target::shared::code) fn emit_unicode_property_charwidth(
+        &mut self,
+        property: &str,
+        output: &str,
+    ) {
+        let mask = self.temporary_vreg();
+        let mask = mask.as_str();
+        self.emit(abi::load_u16(output, property, UNICODE_PROPERTY_OFFSET_FLAGS));
+        self.emit(abi::shift_right_immediate(output, output, 4));
+        self.emit(abi::move_immediate(mask, "Integer", "3"));
+        self.emit(abi::and_registers(output, output, mask));
+    }
+
     pub(in crate::target::shared::code) fn emit_utf8_encoded_width(
         &mut self,
         codepoint: &str,

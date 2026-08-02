@@ -54,7 +54,7 @@ the Depends-on edge. All three hardware targets must be reachable (`.ai/remote_s
 |---|---|---|
 | Spec files to update | 3 | `01_tables-and-algorithms.md`, `02_strings-model.md`, `04_term-backend.md` |
 | Man pages to add/update | ≥3 | `strings/displayWidth.md` (new), `term/drawText.md`, `term/drawGlyph.md` |
-| Golden families that shift | UNMEASURED — measure at G-start | `scripts/artifact-gate.sh` diff after A–F; count the `.ncodesum` families that move |
+| Golden families that shift | **A already regenerated EVERY table-embedding byte-identity fixture** (the `flags` change ships in the unicode table embedded in essentially every binary — far wider than the plan's "width-using fixtures" estimate; see plan-70-A Corrections), so the gate stayed green through B–F; G re-measures only for *additional* shift from B–F's own codegen + the new acceptance TUI goldens | `scripts/artifact-gate.sh target/release/mfb all` diff after A–F; count families that move beyond A's regen |
 
 ## 3. Design
 

@@ -112,14 +112,14 @@ pub(crate) fn properties_hex() -> String {
 
 /// The two-stage trie lookup, in Rust.
 ///
-/// Not called by the compiler — the emitted runtime performs this lookup itself,
-/// against the same tables, in generated code. It exists as the executable
-/// statement of the algorithm: the specification cites it by name
-/// (`unicode/01_tables-and-algorithms.md:57`,
-/// `[[src/unicode/runtime_tables.rs:property_for_codepoint]]`), and its own tests
-/// are what check the shipped tables actually decode. Deleting it would leave
-/// the spec citing nothing and the tables checked only indirectly (bug-326-D4).
-#[allow(dead_code)]
+/// The emitted runtime performs this same lookup itself, against the same tables,
+/// in generated code. This Rust copy is the executable statement of the algorithm:
+/// the specification cites it by name (`unicode/01_tables-and-algorithms.md:57`,
+/// `[[src/unicode/runtime_tables.rs:property_for_codepoint]]`), its own tests check
+/// the shipped tables actually decode, and the compile-time folding of
+/// `strings::displayWidth` (plan-70-A) reads `charwidth()` through it so the folded
+/// and runtime paths share one table. Deleting it would leave the spec citing
+/// nothing and the tables checked only indirectly (bug-326-D4).
 pub(crate) fn property_for_codepoint(codepoint: u32) -> PackedProperty {
     let tables = tables();
     // The two-stage trie only covers U+0000..=U+10FFFF; anything above has no

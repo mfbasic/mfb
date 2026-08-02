@@ -102,6 +102,7 @@ pub(crate) fn is_native_direct_call(name: &str) -> bool {
             | "strings.padRight"
             | "strings.graphemeAt"
             | "strings.graphemesCount"
+            | "strings.displayWidth"
             | "strings.trimChars"
     )
 }

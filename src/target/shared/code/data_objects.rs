@@ -522,6 +522,7 @@ pub(super) fn unicode_string_call_is_static(
             | "strings.caseFold"
             | "strings.normalizeNfc"
             | "strings.graphemes"
+            | "strings.displayWidth"
     ) && args.len() == 1
         && static_string_value_with_constants(&args[0], constants, types, fields).is_some()
 }

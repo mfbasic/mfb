@@ -39,6 +39,31 @@ impl CodeBuilder<'_> {
                 return Ok(Some(self.lower_list_literal("List OF Byte", &values)?));
             }
         }
+        if target == "strings.displayWidth" && args.len() == 1 {
+            if let Some(value) = self.static_string_value(&args[0]) {
+                // Fold via the same grapheme segmentation and the same utf8proc
+                // property table the runtime walk uses, so the folded and dynamic
+                // paths agree (plan-70-A): a cluster's width is its first
+                // non-zero-width scalar's width, all-zero-width → 0.
+                let width: i64 = crate::unicode::backend::graphemes(&value)
+                    .iter()
+                    .map(|cluster| {
+                        cluster
+                            .chars()
+                            .map(|c| {
+                                crate::unicode::runtime_tables::property_for_codepoint(c as u32)
+                                    .charwidth() as i64
+                            })
+                            .find(|w| *w != 0)
+                            .unwrap_or(0)
+                    })
+                    .sum();
+                return Ok(Some(self.lower_value(&NirValue::Const {
+                    type_: "Integer".to_string(),
+                    value: width.to_string(),
+                })?));
+            }
+        }
         let result = match target {
             "strings.trim" if args.len() == 1 => self.lower_strings_trim(&args[0], true, true)?,
             "strings.trimStart" if args.len() == 1 => {
@@ -104,6 +129,9 @@ impl CodeBuilder<'_> {
             }
             "strings.graphemesCount" if args.len() == 1 => {
                 self.lower_strings_graphemes_count(&args[0])?
+            }
+            "strings.displayWidth" if args.len() == 1 => {
+                self.lower_strings_display_width(&args[0])?
             }
             "strings.trimChars" if args.len() == 2 => {
                 self.lower_strings_trim_chars(&args[0], &args[1])?

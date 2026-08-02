@@ -129,34 +129,49 @@ A's own tests are host-side value checks.
       so it needs `parse_value`, not `parse_bool`.
 
 Acceptance: the unit test passes against the parsed table — the field index and
-width semantics are proven. Commit: — (see Phase 2 commit; parser plumbing folded
-in because the falsification test cannot read `charwidth()` without it)
+width semantics are proven. Commit: 112361323 (parser plumbing folded in because
+the falsification test cannot read `charwidth()` without it)
 
 ### Phase 2 — plumb width into the property record
 
-- [ ] Extend `parse_properties` to OR charwidth/ambiguous into `flags`; add the
-      shift/mask consts.
-- [ ] Confirm every asserted table size in
+- [x] Extend `parse_properties` to OR charwidth/ambiguous into `flags`; add the
+      shift/mask consts. Landed in the Phase 1 commit (`CHARWIDTH_SHIFT`,
+      `CHARWIDTH_MASK`, `AMBIGUOUS`), because the falsification test reads them.
+- [x] Confirm every asserted table size in
       `parses_utf8proc_runtime_tables` is **unchanged** (only `flags` bytes move).
-- [ ] Add `emit_unicode_property_charwidth` in `private/unicode.rs`.
+      `parses_utf8proc_runtime_tables` (8385 properties, all sizes) and
+      `packs_properties_as_fixed_size_records` (24-byte record) both still pass.
+- [x] Add `emit_unicode_property_charwidth` in `private/unicode.rs`
+      (`(flags >> 4) & 0b11`).
 
-Acceptance: `cargo test` green; a codegen unit/function test (per `.ai/compiler.md`
-function-test conventions) that emits the helper and checks it returns 2 for `日`,
-1 for `A`, 0 for a combining mark. Commit: —
+Acceptance: `cargo test` green (3748 passed); the codegen helper's runtime proof
+is the Phase 3 dual-path fixture, which drives `charwidth==2` (日), `1` (A/e), and
+`0` (combining/ZWJ) through `emit_unicode_property_charwidth` on the dynamic path.
+Commit: — (see Phase 3 commit)
 
 ### Phase 3 — `strings::displayWidth` builtin
 
-- [ ] Add `emit_grapheme_display_width` and dispatch; register `strings.displayWidth`
-      in `strings.rs`; add compile-time folding.
-- [ ] Add the man page stub (`src/docs/man/builtins/strings/displayWidth.md`)
-      following `.ai/man_template.md`.
-- [ ] Tests: an MFB fixture asserting the goal values (§1) — both a static-folded
-      call and a dynamic (runtime-table) call, since they take different paths.
+- [x] Add the width-sum walker + dispatch; register `strings.displayWidth` in
+      `strings.rs`; add compile-time folding. Named `lower_strings_display_width`
+      (the reusable per-scalar primitive is `emit_unicode_property_charwidth`);
+      dispatched in `builder_strings_package.rs`; folded via
+      `crate::unicode::backend::graphemes` + `property_for_codepoint().charwidth()`
+      (same table as the runtime). Wired into `is_native_direct_call`,
+      `value_uses_unicode_runtime_tables`, and `unicode_string_call_is_static`.
+- [x] Add the man page (`src/docs/man/builtins/strings/displayWidth.md`) — a full
+      page following the `strings` template, not a stub.
+- [x] Tests: `tests/rt-behavior/lexical/strings-display-width-rt` asserts the §1
+      values over BOTH the folded (string-literal) and dynamic (FUNC-parameter)
+      paths — they agree exactly; `tests/syntax/strings/displayWidth` proves
+      arity/type rejection.
 
-Acceptance: the fixture prints the expected widths for CJK/emoji/combining/ZWSP
-via **both** the folded and runtime paths; `cargo test` + `scripts/artifact-gate.sh`
-green (goldens for width-using fixtures regenerated here or deferred to G — note
-which). Commit: —
+Acceptance: the fixture prints the expected widths (`日本語`=6, `café` NFC/NFD=4,
+ZWJ family=2, lone combining=0, empty=0) via **both** paths; `cargo test` green;
+`scripts/artifact-gate.sh target/release/mfb all` = 0 diffs after regenerating
+**every** shifted native golden (all table-embedding byte-identity fixtures — the
+blast radius is far wider than the plan estimated; see Corrections) across all 5
+targets — regenerated **here in A**, not deferred to G, so B–F each start from a
+clean gate. Commit: —
 
 ## Validation Plan
 
@@ -187,3 +202,24 @@ See umbrella (Ambiguous = 1; `displayWidth`-only, no `padRight` mode).
   `false`/`true`. `parse_bool` panics on `0`, so the field must go through
   `parse_value` (maps `0`/`false`→0, `1`/`true`→1). `charwidth` (field 16) is
   always an integer 0/1/2. Verified by reading rows 0–3 of the table.
+- **2026-08-02 — the plan's golden blast-radius estimate was WRONG: the embedded
+  `_mfb_unicode_properties` table ships in essentially EVERY binary, so the
+  `flags` change shifts the `.ncode` of every table-embedding byte-identity
+  fixture, not just "width-using" ones.** Proven by reading a fixture that uses NO
+  unicode builtin: `target/release/mfb build -q -ncode tests/byte-identity/crypto`
+  then `grep -c _mfb_unicode_properties …` → 100 hits. The umbrella §2 claim
+  ("width-using fixtures' sums shift") and A §Design ("blast radius is the golden
+  shift on the flags column, which G owns; A's own tests are host-side value
+  checks") both under-counted. The table is pulled in far more broadly (any
+  `toString`/string path), so crypto/csv/datetime/encoding/http/json/net/… all
+  shift. Regenerated the full shifted set here in A (see the gate-driven regen)
+  so B–F each begin from a clean `artifact-gate all`.
+- **2026-08-02 — the golden gate must use the RELEASE binary, and only the native
+  object/code stages shift.** The committed `.ncode`/`.ncodesum` goldens are
+  release-generated (baseline `artifact-gate target/release/mfb all` = 0 diffs on
+  clean main). A DEBUG mfb and a RELEASE mfb built from the SAME source produce
+  the same `.ncode` (verified: both 4e77… for crypto with my changes), so the
+  gate binary choice is about matching how the goldens were made, not
+  debug-vs-release divergence. The front-end goldens (`.ast`/`.ir`) and the
+  pre-object native stages do NOT embed the table bytes, so they do not shift;
+  only `nobj`/`ncode` (and their `sum` variants) move.
