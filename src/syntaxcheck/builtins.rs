@@ -23,240 +23,63 @@ enum ArgMode {
     },
 }
 
-/// The uniform four-function API every `src/builtins/<pkg>.rs` exposes, as a
-/// value rather than a module path — which is what lets the common checker body
-/// be written once instead of twenty-two times.
-struct BuiltinPackage {
-    /// Diagnostics only ever name the callee, so this is for the table's own
-    /// mutual-exclusion test, not for message text.
-    #[cfg_attr(not(test), allow(dead_code))]
+/// Per-package argument-inference mode — the one axis the descriptor does not
+/// own (it decides whether each argument is read, used, or moved). Every other
+/// facet the shared checker needs (membership, arity, return type, expected
+/// arguments) is resolved through the `builtins` aggregates over the descriptor
+/// registry (plan-72-BB). `term`, `thread`, `general`, and `collections` keep
+/// their own bespoke checkers (the four arms in `check_builtin_call`) and are
+/// deliberately absent.
+struct BuiltinArgMode {
     name: &'static str,
-    is_call: fn(&str) -> bool,
-    arity: fn(&str) -> Option<(usize, usize)>,
-    /// Each package declares its own `ResolvedCall` struct — eighteen
-    /// byte-identical single-field wrappers around `Cow<'a, str>` — so they are
-    /// distinct types and no one fn pointer spans them. The shared body only
-    /// ever reads `return_type`, so each row adapts its package's `resolve_call`
-    /// down to that. (Unifying the eighteen structs is a separate cleanup.)
-    resolve_return_type: for<'a> fn(&str, &'a [String]) -> Option<std::borrow::Cow<'a, str>>,
-    expected_arguments: fn(&str) -> Option<&'static str>,
     args: ArgMode,
 }
 
-/// Every package whose call checker is the common shape.
-///
-/// Order is the order the dispatcher consults them, preserved verbatim from the
-/// hand-written arm chain it replaced. `term`, `thread`, `general`, and
-/// `collections` are deliberately absent: each carries package-specific typing
-/// logic and keeps its own checker (see the four bespoke arms in
-/// `check_builtin_call`).
-const BUILTIN_PACKAGES: &[BuiltinPackage] = &[
-    BuiltinPackage {
-        name: "encoding",
-        is_call: builtins::encoding::is_encoding_call,
-        arity: builtins::encoding::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::encoding::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::encoding::expected_arguments,
-        args: ArgMode::Read,
-    },
-    BuiltinPackage {
-        name: "crypto",
-        is_call: builtins::crypto::is_crypto_call,
-        arity: builtins::crypto::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::crypto::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::crypto::expected_arguments,
-        args: ArgMode::Read,
-    },
-    BuiltinPackage {
-        name: "strings",
-        is_call: builtins::strings::is_strings_call,
-        arity: builtins::strings::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::strings::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::strings::expected_arguments,
-        args: ArgMode::Read,
-    },
-    BuiltinPackage {
-        name: "math",
-        is_call: builtins::math::is_math_call,
-        arity: builtins::math::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::math::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::math::expected_arguments,
-        args: ArgMode::Read,
-    },
-    BuiltinPackage {
-        name: "bits",
-        is_call: builtins::bits::is_bits_call,
-        arity: builtins::bits::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::bits::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::bits::expected_arguments,
-        args: ArgMode::Read,
-    },
-    BuiltinPackage {
+const BUILTIN_ARG_MODES: &[BuiltinArgMode] = &[
+    BuiltinArgMode { name: "encoding", args: ArgMode::Read },
+    BuiltinArgMode { name: "crypto", args: ArgMode::Read },
+    BuiltinArgMode { name: "strings", args: ArgMode::Read },
+    BuiltinArgMode { name: "math", args: ArgMode::Read },
+    BuiltinArgMode { name: "bits", args: ArgMode::Read },
+    BuiltinArgMode {
         name: "fs",
-        is_call: builtins::fs::is_fs_call,
-        arity: builtins::fs::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::fs::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::fs::expected_arguments,
-        args: ArgMode::Consuming {
-            consumes: builtins::fs::consumes_argument,
-            default: ExprMode::Use,
-        },
+        args: ArgMode::Consuming { consumes: builtins::fs::consumes_argument, default: ExprMode::Use },
     },
-    BuiltinPackage {
-        name: "os",
-        is_call: builtins::os::is_os_call,
-        arity: builtins::os::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::os::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::os::expected_arguments,
-        args: ArgMode::Use,
-    },
-    BuiltinPackage {
+    BuiltinArgMode { name: "os", args: ArgMode::Use },
+    BuiltinArgMode {
         name: "net",
-        is_call: builtins::net::is_net_call,
-        arity: builtins::net::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::net::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::net::expected_arguments,
-        args: ArgMode::Consuming {
-            consumes: builtins::net::consumes_argument,
-            default: ExprMode::Use,
-        },
+        args: ArgMode::Consuming { consumes: builtins::net::consumes_argument, default: ExprMode::Use },
     },
-    BuiltinPackage {
+    BuiltinArgMode {
         name: "tls",
-        is_call: builtins::tls::is_tls_call,
-        arity: builtins::tls::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::tls::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::tls::expected_arguments,
-        args: ArgMode::Consuming {
-            consumes: builtins::tls::consumes_argument,
-            default: ExprMode::Use,
-        },
+        args: ArgMode::Consuming { consumes: builtins::tls::consumes_argument, default: ExprMode::Use },
     },
-    BuiltinPackage {
+    BuiltinArgMode {
         name: "audio",
-        is_call: builtins::audio::is_audio_call,
-        arity: builtins::audio::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::audio::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::audio::expected_arguments,
-        args: ArgMode::Consuming {
-            consumes: builtins::audio::consumes_argument,
-            default: ExprMode::Use,
-        },
+        args: ArgMode::Consuming { consumes: builtins::audio::consumes_argument, default: ExprMode::Use },
     },
-    BuiltinPackage {
-        name: "io",
-        is_call: builtins::io::is_io_call,
-        arity: builtins::io::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::io::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::io::expected_arguments,
-        args: ArgMode::Read,
-    },
-    BuiltinPackage {
-        name: "json",
-        is_call: builtins::json::is_json_call,
-        arity: builtins::json::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::json::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::json::expected_arguments,
-        args: ArgMode::Read,
-    },
-    BuiltinPackage {
-        name: "csv",
-        is_call: builtins::csv::is_csv_call,
-        arity: builtins::csv::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::csv::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::csv::expected_arguments,
-        args: ArgMode::Read,
-    },
-    BuiltinPackage {
-        name: "regex",
-        is_call: builtins::regex::is_regex_call,
-        arity: builtins::regex::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::regex::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::regex::expected_arguments,
-        args: ArgMode::Read,
-    },
-    BuiltinPackage {
-        name: "datetime",
-        is_call: builtins::datetime::is_datetime_call,
-        arity: builtins::datetime::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::datetime::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::datetime::expected_arguments,
-        args: ArgMode::Read,
-    },
-    BuiltinPackage {
-        name: "money",
-        is_call: builtins::money::is_money_call,
-        arity: builtins::money::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::money::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::money::expected_arguments,
-        args: ArgMode::Read,
-    },
-    BuiltinPackage {
-        name: "app",
-        is_call: builtins::app::is_app_call,
-        arity: builtins::app::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::app::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::app::expected_arguments,
-        args: ArgMode::Read,
-    },
-    BuiltinPackage {
+    BuiltinArgMode { name: "io", args: ArgMode::Read },
+    BuiltinArgMode { name: "json", args: ArgMode::Read },
+    BuiltinArgMode { name: "csv", args: ArgMode::Read },
+    BuiltinArgMode { name: "regex", args: ArgMode::Read },
+    BuiltinArgMode { name: "datetime", args: ArgMode::Read },
+    BuiltinArgMode { name: "money", args: ArgMode::Read },
+    BuiltinArgMode { name: "app", args: ArgMode::Read },
+    BuiltinArgMode {
         name: "http",
-        is_call: builtins::http::is_http_call,
-        arity: builtins::http::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::http::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::http::expected_arguments,
-        args: ArgMode::Consuming {
-            consumes: builtins::http::consumes_argument,
-            default: ExprMode::Read,
-        },
+        args: ArgMode::Consuming { consumes: builtins::http::consumes_argument, default: ExprMode::Read },
     },
-    BuiltinPackage {
-        name: "vector",
-        is_call: builtins::vector::is_vector_call,
-        arity: builtins::vector::arity,
-        resolve_return_type: |name, arg_types| {
-            builtins::vector::resolve_call(name, arg_types).map(|call| call.return_type)
-        },
-        expected_arguments: builtins::vector::expected_arguments,
-        args: ArgMode::Use,
-    },
+    BuiltinArgMode { name: "vector", args: ArgMode::Use },
 ];
+
+/// The argument-inference mode for a table-checked builtin package, or `None`
+/// for a package handled by a bespoke checker before the table.
+fn builtin_arg_mode(package: &str) -> Option<ArgMode> {
+    BUILTIN_ARG_MODES
+        .iter()
+        .find(|entry| entry.name == package)
+        .map(|entry| entry.args)
+}
 
 impl<'a> SyntaxChecker<'a> {
     #[allow(clippy::too_many_arguments)]
@@ -318,12 +141,9 @@ impl<'a> SyntaxChecker<'a> {
                 line,
             );
         }
-        for package in BUILTIN_PACKAGES {
-            if !(package.is_call)(callee) {
-                continue;
-            }
+        if let Some(args) = builtins::builtin_package_name(callee).and_then(builtin_arg_mode) {
             let resolved = self.check_table_builtin_call(
-                package,
+                args,
                 file,
                 display_callee,
                 callee,
@@ -366,7 +186,7 @@ impl<'a> SyntaxChecker<'a> {
     #[allow(clippy::too_many_arguments)]
     fn check_table_builtin_call(
         &mut self,
-        package: &BuiltinPackage,
+        args: ArgMode,
         file: &AstFile,
         display_callee: &str,
         callee: &str,
@@ -380,7 +200,7 @@ impl<'a> SyntaxChecker<'a> {
             .iter()
             .enumerate()
             .map(|(index, argument)| {
-                let mode = match package.args {
+                let mode = match args {
                     ArgMode::Read => ExprMode::Read,
                     ArgMode::Use => ExprMode::Use,
                     ArgMode::Consuming { consumes, default } => {
@@ -396,7 +216,7 @@ impl<'a> SyntaxChecker<'a> {
             })
             .collect::<Vec<_>>();
 
-        if let Some((min, max)) = (package.arity)(callee) {
+        if let Some((min, max)) = builtins::arity(callee) {
             if arguments.len() < min || arguments.len() > max {
                 let expected = if min == max {
                     min.to_string()
@@ -416,8 +236,9 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        let Some(return_type) = (package.resolve_return_type)(callee, &arg_types) else {
-            let expected = (package.expected_arguments)(callee).unwrap_or("supported overload");
+        let Some(return_type) = builtins::resolve_call_return_type(callee, &arg_types) else {
+            let expected = builtins::expected_arguments(callee)
+                .unwrap_or_else(|| "supported overload".to_string());
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
@@ -1216,16 +1037,16 @@ mod builtins_tests {
     use crate::syntaxcheck::testutil::*;
 
     // bug-324: `check_builtin_call` used to be twenty-two hand-ordered arms.
-    // Collapsing eighteen of them into a `BUILTIN_PACKAGES` walk is only
-    // output-neutral if no callee is claimed by two packages — otherwise the
-    // arm order was load-bearing and reordering silently changes which checker
-    // (and which diagnostic) a call gets. This asserts the packages partition
-    // the callee namespace, so the order is free.
+    // Dispatching the eighteen table packages by their single registry owner
+    // (plan-72-BB) is only output-neutral if no callee is claimed by two
+    // dispatch paths — the registry (`builtin_package_name` → a `BUILTIN_ARG_MODES`
+    // package) or one of the four bespoke pre-checks. This asserts the paths
+    // partition the callee namespace, so dispatch order is free.
     #[test]
     fn builtin_packages_claim_disjoint_callees() {
         use super::*;
 
-        // The four bespoke packages are consulted alongside the table, so they
+        // The four bespoke packages are consulted ahead of the table, so they
         // are part of the same namespace and belong in the check.
         type IsCall = (&'static str, fn(&str) -> bool);
         let bespoke: &[IsCall] = &[
@@ -1235,17 +1056,20 @@ mod builtins_tests {
             ("thread", builtins::thread::is_thread_call),
         ];
 
-        // Every callee any package claims, gathered from the names the packages
-        // themselves report arity for — `arity` is defined for exactly the
-        // callee set each package handles.
         let mut claimants: std::collections::BTreeMap<String, Vec<&str>> =
             std::collections::BTreeMap::new();
         let mut record = |callee: &str| {
-            let mut owners: Vec<&str> = BUILTIN_PACKAGES
-                .iter()
-                .filter(|package| (package.is_call)(callee))
-                .map(|package| package.name)
-                .collect();
+            let mut owners: Vec<&str> = Vec::new();
+            // Table dispatch: the registry owner, but only if it is a table
+            // package (the four bespoke packages own registry functions too but
+            // are handled before the table, so they are excluded here).
+            if let Some(package) = builtins::builtin_package_name(callee) {
+                if let Some(entry) =
+                    BUILTIN_ARG_MODES.iter().find(|entry| entry.name == package)
+                {
+                    owners.push(entry.name);
+                }
+            }
             owners.extend(
                 bespoke
                     .iter()
@@ -1261,9 +1085,9 @@ mod builtins_tests {
         // name crossed with every member name any package uses. That is far
         // wider than the real callee set, which is the point: a collision is
         // found even for a name only one package currently defines.
-        let packages: Vec<&str> = BUILTIN_PACKAGES
+        let packages: Vec<&str> = BUILTIN_ARG_MODES
             .iter()
-            .map(|package| package.name)
+            .map(|entry| entry.name)
             .chain(bespoke.iter().map(|(name, _)| *name))
             .collect();
         let members = [

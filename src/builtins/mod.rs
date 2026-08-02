@@ -401,6 +401,46 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     audio::call_return_type_name(name).or_else(|| tls::call_return_type_name(name))
 }
 
+/// The name of the builtin package that owns a fully qualified call, or `None`
+/// (plan-72-BB: the registry's single owner). Used by the syntaxcheck dispatcher
+/// to select a table package's argument-inference mode without a per-package
+/// `is_<pkg>_call` chain.
+pub(crate) fn builtin_package_name(callee: &str) -> Option<&'static str> {
+    descriptor::REGISTRY
+        .function(callee)
+        .map(|(module, _)| module.name)
+}
+
+/// The arity range `(min, max)` of a builtin call — plan-72-BB: the owning
+/// module's `DefaultResolver::arity`. `None` for a call no package owns.
+pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
+    let (module, function) = descriptor::REGISTRY.function(name)?;
+    descriptor::DefaultResolver::arity(module, function.name)
+}
+
+/// The human-readable expected-argument rendering for a builtin call's
+/// argument-mismatch diagnostic — plan-72-BB. Most packages render per-position
+/// from the descriptor (`DefaultResolver::expected_arguments`); the packages whose
+/// phrasing is an argument *union* (`"Socket or Listener or UdpSocket"`) or prose
+/// (`vector`'s `"two vectors of the same type"`) keep their hand-authored string,
+/// which the descriptor's per-position join cannot reproduce (a genuine
+/// non-descriptor behavior, per BB's non-goals).
+pub(crate) fn expected_arguments(name: &str) -> Option<String> {
+    if let Some(text) = encoding::expected_arguments(name)
+        .or_else(|| crypto::expected_arguments(name))
+        .or_else(|| math::expected_arguments(name))
+        .or_else(|| net::expected_arguments(name))
+        .or_else(|| tls::expected_arguments(name))
+        .or_else(|| audio::expected_arguments(name))
+        .or_else(|| http::expected_arguments(name))
+        .or_else(|| vector::expected_arguments(name))
+    {
+        return Some(text.to_string());
+    }
+    let (module, function) = descriptor::REGISTRY.function(name)?;
+    descriptor::DefaultResolver::expected_arguments(module, function.name)
+}
+
 /// Whether parameter `index` of the built-in `callee` is a compiler-known
 /// *non-escaping* callback position: the callee is
 /// guaranteed to invoke the callback only synchronously during the call, never
