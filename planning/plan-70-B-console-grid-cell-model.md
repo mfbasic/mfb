@@ -182,7 +182,7 @@ stays aligned; a **found-and-fixed bug**: an astral emoji (`😀`, a 4-byte inli
 scalar) SIGSEGV'd the presenter under the original bit-31 tag (it collided with a
 real inline glyph) — fixed by moving the tag to top-byte `0xC0`, caught by the
 `func_term_drawGlyph_valid` regression. `cargo test` 3748 passed (incl. the
-re-derived out-buffer test); all 34 term acceptance fixtures unchanged. Commit: —
+re-derived out-buffer test); all 34 term acceptance fixtures unchanged. Commit: fd630daaf
 
 ### Phase 3 — pool lifecycle hardening
 
@@ -209,7 +209,7 @@ no NUL/garbage emission. **Note (accepted tradeoff, not a bug):** a pooled cell 
 re-emitted on every present (its cluster bytes live outside the 16-byte XOR diff),
 so `term::off`'s final present idempotently re-draws pooled cells — correct, minor
 bandwidth only; a content-hash-in-glyph optimization is a possible future follow-up.
-Commit: —
+Commit: fd630daaf
 
 Acceptance: a fixture that redraws a pooled-cluster frame N times keeps pool usage
 bounded; `cargo test` + artifact-gate green (goldens deferred to G). Commit: —
