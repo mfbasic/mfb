@@ -728,6 +728,15 @@ const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 /// it is high enough never to trip on one abuser's traffic.
 const REGISTER_PER_IP_MAX: usize = 20;
 const LOGIN_PER_IP_MAX: usize = 30;
+/// Per-IP caps on `/auth/challenge` and `/signing` (bug-419). Both were
+/// previously keyed on the **unauthenticated** `request.owner`, so an anonymous
+/// attacker could exhaust a targeted victim's bucket — locking that account out
+/// of login (a challenge is the mandatory login prerequisite) or of publish
+/// attestations. Re-keyed to the peer IP, following `REGISTER_PER_IP_MAX` /
+/// `LOGIN_PER_IP_MAX`, with `AUTH_GLOBAL_CEILING` as the secondary backstop.
+/// Same numeric budgets the owner-keyed buckets used, now spent per client.
+const CHALLENGE_PER_IP_MAX: usize = 20;
+const SIGNING_PER_IP_MAX: usize = 60;
 const AUTH_GLOBAL_CEILING: usize = 2000;
 /// Per-IP sliding-window cap on `GET /search` (plan-61-B Phase 2).
 ///
@@ -948,11 +957,18 @@ async fn register(
 
 async fn challenge(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Json(request): Json<ChallengeRequest>,
 ) -> Result<Json<ChallengeResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Per-client bucket keyed by peer IP (bug-419): the key was the
+    // unauthenticated `request.owner`, letting an anonymous attacker spend a
+    // targeted victim's challenge budget and block the victim's own login,
+    // since a challenge is the mandatory prerequisite for `/auth/login`. The
+    // global ceiling is a secondary backstop, as on `/register` and `/login`.
     if !state
         .rate_limiter
-        .allow(&format!("challenge:{}", request.owner), 20, 60)
+        .allow(&format!("challenge:{}", peer.ip()), CHALLENGE_PER_IP_MAX, 60)
+        || !state.rate_limiter.allow("challenge", AUTH_GLOBAL_CEILING, 60)
     {
         return Err(too_many_requests());
     }
@@ -2528,11 +2544,18 @@ fn json_str(value: &str) -> String {
 
 async fn signing(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Json(request): Json<SigningRequest>,
 ) -> Result<Json<SigningResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Per-client bucket keyed by peer IP (bug-419): the key was the
+    // unauthenticated `request.owner` (checked before `verify_session_token`
+    // below), letting an anonymous attacker exhaust a targeted victim's signing
+    // budget and block that victim from obtaining publish attestations. The
+    // global ceiling is a secondary backstop, as on `/register` and `/login`.
     if !state
         .rate_limiter
-        .allow(&format!("signing:{}", request.owner), 60, 60)
+        .allow(&format!("signing:{}", peer.ip()), SIGNING_PER_IP_MAX, 60)
+        || !state.rate_limiter.allow("signing", AUTH_GLOBAL_CEILING, 60)
     {
         return Err(too_many_requests());
     }
@@ -3262,6 +3285,7 @@ mod tests {
         // No/garbage session is refused.
         let refused = signing(
             State(state.clone()),
+            peer("127.0.0.1"),
             Json(SigningRequest {
                 owner: "alice".to_string(),
                 ident: "alice#toolbox".to_string(),
@@ -3276,6 +3300,7 @@ mod tests {
         // A session for alice cannot request an attestation naming bob.
         let refused = signing(
             State(state.clone()),
+            peer("127.0.0.1"),
             Json(SigningRequest {
                 owner: "alice".to_string(),
                 ident: "bob#toolbox".to_string(),
@@ -3295,6 +3320,7 @@ mod tests {
         // A session for alice cannot pose as bob either.
         let refused = signing(
             State(state.clone()),
+            peer("127.0.0.1"),
             Json(SigningRequest {
                 owner: "bob".to_string(),
                 ident: "bob#toolbox".to_string(),
@@ -3315,6 +3341,7 @@ mod tests {
         // server key and pins the exact package, version, and keys.
         let response = signing(
             State(state),
+            peer("127.0.0.1"),
             Json(SigningRequest {
                 owner: "alice".to_string(),
                 ident: "alice#toolbox".to_string(),
@@ -3419,6 +3446,7 @@ mod tests {
     ) -> (String, Vec<u8>) {
         let response = signing(
             State(state.clone()),
+            peer("127.0.0.1"),
             Json(SigningRequest {
                 owner: "alice".to_string(),
                 ident: "alice#toolbox".to_string(),
@@ -3971,11 +3999,13 @@ mod tests {
             blob_store: BlobStore::local(opened.packages_dir.clone()),
             rate_limiter: RateLimiter::new(),
         };
-        // The challenge cap is 20 per window; the 21st is refused with 429.
+        // The per-IP challenge cap is `CHALLENGE_PER_IP_MAX` per window; the
+        // next request from the same client IP is refused with 429.
         let mut last = Ok(());
-        for _ in 0..21 {
+        for _ in 0..(CHALLENGE_PER_IP_MAX + 1) {
             last = challenge(
                 State(state.clone()),
+                peer("127.0.0.1"),
                 Json(ChallengeRequest {
                     owner: "alice".to_string(),
                     auth_fingerprint: crypto::fingerprint(&register_dummy()),
@@ -3986,6 +4016,59 @@ mod tests {
             .map_err(|(status, _)| status);
         }
         assert_eq!(last.unwrap_err(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn challenge_rate_limit_cannot_lock_out_a_victim_by_owner_name() {
+        // bug-419: the challenge bucket was keyed on the unauthenticated
+        // `request.owner`, so an anonymous attacker flooding challenges for a
+        // victim's name from one IP exhausted the *victim's* budget and blocked
+        // the victim's own login (a challenge is the login prerequisite).
+        // Re-keyed to the peer IP, the attacker only spends their own bucket.
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let store = opened.store;
+        let keys = register_owner_with_all_keys(&store, "victim");
+        let victim_fingerprint =
+            crypto::fingerprint(&crypto::public_from_private(&keys.auth_private).unwrap());
+        let state = AppState {
+            store: store.clone(),
+            blob_store: BlobStore::local(opened.packages_dir.clone()),
+            rate_limiter: RateLimiter::new(),
+        };
+        // Attacker floods challenges naming the victim, well past the cap, all
+        // from one IP. A blind attacker need not know the victim's key: the rate
+        // gate runs before the fingerprint check, so each attempt still counts.
+        for _ in 0..(CHALLENGE_PER_IP_MAX + 5) {
+            let _ = challenge(
+                State(state.clone()),
+                peer("10.9.9.9"),
+                Json(ChallengeRequest {
+                    owner: "victim".to_string(),
+                    auth_fingerprint: crypto::fingerprint(&register_dummy()),
+                }),
+            )
+            .await;
+        }
+        // The victim, from their own IP with their real auth fingerprint, must
+        // still obtain a challenge — the only thing that could turn this valid
+        // request into a 429 is the (owner-keyed) rate limiter this bug is about.
+        let victim = challenge(
+            State(state.clone()),
+            peer("10.1.1.1"),
+            Json(ChallengeRequest {
+                owner: "victim".to_string(),
+                auth_fingerprint: victim_fingerprint,
+            }),
+        )
+        .await;
+        assert!(
+            victim.is_ok(),
+            "victim locked out by an attacker's owner-named flood: {:?}",
+            victim.err().map(|(status, _)| status),
+        );
     }
 
     fn register_dummy() -> Vec<u8> {
@@ -4182,6 +4265,7 @@ mod tests {
         let (in_scope_public, _) = crypto::generate_keypair();
         let _ = signing(
             State(state.clone()),
+            peer("127.0.0.1"),
             Json(SigningRequest {
                 owner: "alice".to_string(),
                 ident: "alice#toolbox".to_string(),
@@ -4197,6 +4281,7 @@ mod tests {
         let (out_public, _) = crypto::generate_keypair();
         let refused = signing(
             State(state.clone()),
+            peer("127.0.0.1"),
             Json(SigningRequest {
                 owner: "alice".to_string(),
                 ident: "alice#other".to_string(),
@@ -4228,6 +4313,7 @@ mod tests {
         .expect("token revoked");
         let after = signing(
             State(state.clone()),
+            peer("127.0.0.1"),
             Json(SigningRequest {
                 owner: "alice".to_string(),
                 ident: "alice#toolbox".to_string(),
@@ -6131,6 +6217,7 @@ mod tests {
         let (status, message) = err_of(
             challenge(
                 State(h.state.clone()),
+                peer("127.0.0.1"),
                 Json(ChallengeRequest {
                     owner: "nobody".to_string(),
                     auth_fingerprint: String::new(),
@@ -6143,6 +6230,7 @@ mod tests {
 
         let issued = challenge(
             State(h.state.clone()),
+            peer("127.0.0.1"),
             Json(ChallengeRequest {
                 owner: "alice".to_string(),
                 auth_fingerprint: crypto::fingerprint(&auth_public),
@@ -6163,6 +6251,7 @@ mod tests {
         let (status, _) = err_of(
             challenge(
                 State(h.state),
+                peer("127.0.0.1"),
                 Json(ChallengeRequest {
                     owner: "alice".to_string(),
                     auth_fingerprint: crypto::fingerprint(&crypto::generate_keypair().0),
@@ -6182,6 +6271,7 @@ mod tests {
 
         let issued = challenge(
             State(h.state.clone()),
+            peer("127.0.0.1"),
             Json(ChallengeRequest {
                 owner: "alice".to_string(),
                 auth_fingerprint: fingerprint.clone(),
@@ -7072,6 +7162,7 @@ mod tests {
             let (signing_public, _private) = crypto::generate_keypair();
             let _ = signing(
                 State(h.state.clone()),
+                peer("127.0.0.1"),
                 Json(SigningRequest {
                     owner: "alice".to_string(),
                     ident: ident.to_string(),
@@ -7090,6 +7181,7 @@ mod tests {
             err_of(
                 signing(
                     State(h.state),
+                    peer("127.0.0.1"),
                     Json(SigningRequest {
                         owner: "alice".to_string(),
                         ident: "bob#toolbox".to_string(),
@@ -7148,6 +7240,7 @@ mod tests {
             err_of(
                 signing(
                     State(h.state),
+                    peer("127.0.0.1"),
                     Json(SigningRequest {
                         owner: "alice".to_string(),
                         ident: "alice#toolbox".to_string(),
@@ -8500,6 +8593,7 @@ mod tests {
             err_of(
                 signing(
                     State(h.state.clone()),
+                    peer("127.0.0.1"),
                     Json(request("noseparator", "1.0.0", &fingerprint)),
                 )
                 .await
@@ -8513,6 +8607,7 @@ mod tests {
                 err_of(
                     signing(
                         State(h.state.clone()),
+                        peer("127.0.0.1"),
                         Json(request(&ident, "1.0.0", &fingerprint)),
                     )
                     .await
@@ -8527,6 +8622,7 @@ mod tests {
                 err_of(
                     signing(
                         State(h.state.clone()),
+                        peer("127.0.0.1"),
                         Json(request("alice#toolbox", &version, &fingerprint)),
                     )
                     .await
@@ -8543,6 +8639,7 @@ mod tests {
                 err_of(
                     signing(
                         State(h.state.clone()),
+                        peer("127.0.0.1"),
                         Json(request("alice#toolbox", "1.0.0", &bad)),
                     )
                     .await
@@ -8558,14 +8655,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn signing_is_rate_limited_per_owner() {
+    async fn signing_is_rate_limited_per_client_ip() {
+        // bug-419: the signing bucket was keyed on the unauthenticated
+        // `request.owner` (checked before session verification), so an anonymous
+        // attacker naming a victim could exhaust that victim's signing budget
+        // and block the victim from obtaining publish attestations. Re-keyed to
+        // the peer IP, an attacker only spends their own bucket.
         let h = harness();
         register_owner_with_all_keys(&h.store, "alice");
         // The gate runs before session verification, so even rejected requests
-        // spend the owner's budget — the point of the cap is CPU, not success.
-        let attempt = || {
+        // spend the client's budget — the point of the cap is CPU, not success.
+        let attempt = |ip: &'static str| {
             signing(
                 State(h.state.clone()),
+                peer(ip),
                 Json(SigningRequest {
                     owner: "alice".to_string(),
                     ident: "alice#toolbox".to_string(),
@@ -8576,23 +8679,13 @@ mod tests {
             )
         };
         let mut last = StatusCode::OK;
-        for _ in 0..61 {
-            last = err_of(attempt().await).0;
+        for _ in 0..(SIGNING_PER_IP_MAX + 1) {
+            last = err_of(attempt("10.9.9.9").await).0;
         }
         assert_eq!(last, StatusCode::TOO_MANY_REQUESTS);
-        // A different owner has its own bucket.
-        let other = signing(
-            State(h.state),
-            Json(SigningRequest {
-                owner: "bob".to_string(),
-                ident: "bob#toolbox".to_string(),
-                version: "1.0.0".to_string(),
-                signing_fingerprint: "0".repeat(64),
-                session_token: "bad.token".to_string(),
-            }),
-        )
-        .await;
-        assert_eq!(err_of(other).0, StatusCode::BAD_REQUEST);
+        // A different client IP has its own bucket — the victim naming the same
+        // owner is not locked out, and fails only on its (bad) session token.
+        assert_eq!(err_of(attempt("10.1.1.1").await).0, StatusCode::BAD_REQUEST);
     }
 
     #[test]
