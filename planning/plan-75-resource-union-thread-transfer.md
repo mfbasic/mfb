@@ -146,7 +146,7 @@ Commit: af740239d
 
 ### Phase 3 — committed fixtures (acceptance: rt-behavior fixtures green in test-accept; artifact-gate green)
 
-Commit: (this phase's commit)
+Commit: a6566a290
 
 - [x] Add worker packages under `tools/thread-package-sources/`: `union_xfer_workers`
   (stateful, exports `takeUnionCursor`) and `union_xfer_stateless_workers` (stateless,
