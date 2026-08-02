@@ -225,3 +225,7 @@ fn sspi_call_ext(
 
 include!("schannel_impl.rs");
 include!("schannel_server.rs");
+
+#[cfg(test)]
+#[path = "schannel_tests.rs"]
+mod schannel_tests;

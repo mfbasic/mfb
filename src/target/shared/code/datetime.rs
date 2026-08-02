@@ -69,7 +69,7 @@ const NANOS_PER_SEC: &str = "1000000000";
 const WIN_UNIX_EPOCH_TO_1601_SEC: &str = "11644473600";
 // Largest Unix-epoch second whose FILETIME (`*1e7 + WIN_FILETIME_UNIX_EPOCH_100NS`)
 // still fits i64; a larger value would wrap. `(i64::MAX - epoch) / 1e7`.
-const WIN_FILETIME_MAX_UNIX_SEC: &str = "910692730085477";
+const WIN_FILETIME_MAX_UNIX_SEC: &str = "910692730085";
 
 pub(super) fn lower_datetime_helper(
     call: &str,
@@ -300,7 +300,7 @@ fn lower_datetime_windows(
             // still caught by the FileTimeToSystemTime NULL check downstream.
             instructions.extend([
                 abi::move_register("%v9", abi::ARG[0]), // epochSeconds
-                // HIGH: epochSeconds > 910692730085477 → epochSeconds*1e7+epoch > i64max.
+                // HIGH: epochSeconds > 910692730085 → epochSeconds*1e7+epoch > i64max.
                 abi::move_immediate("%v10", "Integer", WIN_FILETIME_MAX_UNIX_SEC),
                 abi::compare_registers("%v9", "%v10"),
                 abi::branch_gt(range_fail),
@@ -354,4 +354,46 @@ fn lower_datetime_windows(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // bug-411: `WIN_FILETIME_MAX_UNIX_SEC` is the HIGH bound the Windows
+    // `localOffset`/`offsetAt`/`toLocal` guard uses to reject an `epochSeconds`
+    // whose FILETIME (`epochSeconds*1e7 + epoch`) would exceed i64 and wrap. Its
+    // own doc-comment defines it as `(i64::MAX - epoch) / 1e7`; a constant even
+    // one larger admits a value whose FILETIME exceeds i64, re-opening the exact
+    // wrap the guard closes. Pin the constant to that formula so a stray digit
+    // (the original `...477` typo, ~1000× too large) can never return.
+    #[test]
+    fn win_filetime_max_unix_sec_matches_no_wrap_formula() {
+        let epoch: i64 = WIN_FILETIME_UNIX_EPOCH_100NS.parse().unwrap();
+        let hundred_ns_per_sec: i64 = WIN_HUNDRED_NS_PER_SEC.parse().unwrap();
+        let bound: i64 = WIN_FILETIME_MAX_UNIX_SEC.parse().unwrap();
+
+        // The documented formula: the largest Unix second whose FILETIME fits i64.
+        let expected = (i64::MAX - epoch) / hundred_ns_per_sec;
+        assert_eq!(
+            bound, expected,
+            "WIN_FILETIME_MAX_UNIX_SEC must equal (i64::MAX - epoch)/1e7"
+        );
+
+        // Boundary invariant: `bound` itself does not wrap, `bound + 1` does.
+        assert!(
+            bound
+                .checked_mul(hundred_ns_per_sec)
+                .and_then(|v| v.checked_add(epoch))
+                .is_some(),
+            "bound*1e7 + epoch must still fit i64"
+        );
+        assert!(
+            (bound + 1)
+                .checked_mul(hundred_ns_per_sec)
+                .and_then(|v| v.checked_add(epoch))
+                .is_none(),
+            "(bound+1)*1e7 + epoch must overflow i64 — bound is the exact max"
+        );
+    }
 }

@@ -737,6 +737,14 @@ fn decode_link_expr_body(r: &mut IrReader) -> Result<IrLinkExpr, String> {
         )),
         2 => {
             let op = r.string()?;
+            // An unknown comparison operator must be an error, never a silent
+            // default: at codegen `link_thunk` matches these six strings and a
+            // stray one would fall through and be treated as `=` (bug-403). This
+            // mirrors the sibling `AbiDirection` guard above — a decoded LINK-expr
+            // field with a closed value set is validated here, not trusted.
+            if !crate::ir::link_compare_op_valid(&op) {
+                return Err(format!("invalid LINK Compare operator {op:?}"));
+            }
             let lhs = Box::new(decode_link_expr(r)?);
             let rhs = Box::new(decode_link_expr(r)?);
             Ok(IrLinkExpr::Compare { op, lhs, rhs })
@@ -1698,4 +1706,55 @@ fn verify_ops(ops: &[IrOp], depth: usize) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod link_expr_op_tests {
+    use super::*;
+
+    fn roundtrip(expr: &IrLinkExpr) -> Result<IrLinkExpr, String> {
+        let mut bytes = Vec::new();
+        encode_link_expr(&mut bytes, expr);
+        decode_link_expr(&mut IrReader::new(&bytes))
+    }
+
+    // bug-403: a decoded `Compare` operator outside the six valid strings must be
+    // rejected at decode — exactly like an unknown `AbiDirection` — never accepted
+    // and silently treated as `=` at codegen.
+    #[test]
+    fn decode_rejects_garbage_compare_op() {
+        let garbage = IrLinkExpr::Compare {
+            op: "GARBAGE".to_string(),
+            lhs: Box::new(IrLinkExpr::Int(0)),
+            rhs: Box::new(IrLinkExpr::Int(0)),
+        };
+        let err = match roundtrip(&garbage) {
+            Ok(_) => panic!("garbage Compare op must be rejected at decode, but it was accepted"),
+            Err(err) => err,
+        };
+        assert!(
+            err.contains("GARBAGE") || err.to_lowercase().contains("operator"),
+            "unexpected error message: {err}"
+        );
+    }
+
+    // The six valid operators still round-trip unchanged.
+    #[test]
+    fn decode_accepts_valid_compare_ops() {
+        for op in ["=", "<>", "<", ">", "<=", ">="] {
+            let expr = IrLinkExpr::Compare {
+                op: op.to_string(),
+                lhs: Box::new(IrLinkExpr::Var("status".to_string())),
+                rhs: Box::new(IrLinkExpr::Int(0)),
+            };
+            let decoded = match roundtrip(&expr) {
+                Ok(decoded) => decoded,
+                Err(err) => panic!("valid Compare op `{op}` must decode, got error: {err}"),
+            };
+            match decoded {
+                IrLinkExpr::Compare { op: got, .. } => assert_eq!(got, op),
+                _ => panic!("expected Compare for op `{op}`"),
+            }
+        }
+    }
 }

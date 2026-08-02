@@ -514,7 +514,6 @@ impl CodeBuilder<'_> {
                 self.broadcast_f64(&k.v19, LN2_LO);
                 self.broadcast_i64(&k.v20, 1023);
                 self.emit(abi::vector_eor(&k.v21, &k.v21, &k.v21));
-                self.broadcast_i64(&k.v23, -1022);
                 self.emit(abi::vector_eor(&k.v24, &k.v24, &k.v24)); // overflow (inf) mask
                                                                     // bug-164 large-argument clamp: the Cody-Waite reduction and the
                                                                     // 2^n biased-exponent scaling both break down once |x| leaves the

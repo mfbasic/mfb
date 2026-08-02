@@ -5,10 +5,34 @@ Effort: small (<1h)
 Severity: LOW
 Class: Footgun / dead-code (hidden build-time behavior switch)
 
-Status: Open
-Regression Test: tests/ — a rt-behavior test that `fs.readText` on a file
-containing valid multi-byte UTF-8 (e.g. "é") succeeds — and, if the toggle is
-kept, a documented/covered test for the ASCII-only mode.
+Status: FIXED (4487fc8f9, landed on main 521d83240)
+Regression Test: `src/target/shared/code/codegen_utils.rs` unit test
+`validate_utf8_helper_is_env_independent_multibyte_validator` — asserts the
+emitted `_mfb_rt_validate_utf8` helper is always the real multi-byte validator
+(`_utf8_two`/`_utf8_three`/`_utf8_four` labels) regardless of the process
+environment. The valid-multi-byte-UTF-8 acceptance path is already covered by
+`tests/rt-behavior/fs/fs-text-utf8-rt` (`good.txt` = `c3 a9` "é" → `readText`
+succeeds). The toggle was removed, so no ASCII-only mode test is needed.
+
+STATUS: FIXED (4487fc8f9, landed on main 521d83240)
+
+Chose **remove** over **document**: `MFB_ASCII` was an undocumented, untested
+leftover experiment hook introduced alongside the validator itself (8192f95a4),
+the sole tree-wide site, with no flag/spec/diagnostic — a footgun that silently
+produced wrong binaries. Removed the `if std::env::var("MFB_ASCII")` branch,
+keeping only the real validator (the former `else` body).
+
+Verification:
+- Default codegen is **byte-identical**: the removed branch was env-conditional
+  and never reached in a normal build (var unset → `else`), so the preserved
+  `else` body with `vregs` still starting fresh at `%v0` emits identical bytes.
+  Measured: fs byte-identity `-ncode` dump sha256 matches the committed golden
+  (`fs_codegen_cover_rt.macos-aarch64.ncodesum` = `cfe00fa4…`).
+- Full compiler unit suite: 3735 passed, 0 failed (incl. the new regression).
+- End-to-end repro: with `MFB_ASCII=1` set, `mfb build` of `fs-text-utf8-rt`
+  now prints `good é text` (valid multi-byte read succeeds) and returns
+  ErrEncoding (`77020004`) only on genuinely-invalid `bad.txt` — matching the
+  golden. Before the fix, `MFB_ASCII=1` made the valid read wrongly trap.
 
 `lower_validate_utf8_helper` (`src/target/shared/code/codegen_utils.rs:176`)
 branches on `std::env::var("MFB_ASCII").is_ok()` at **compile time**:

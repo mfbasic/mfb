@@ -309,6 +309,16 @@ impl LinuxPlan<'_> {
                 let mut imports = Vec::new();
                 write_import(&mut imports);
                 imports.push(self.libc_import("ioctl", required_by));
+                // bug-410: the present-write loop retries EINTR (a signal mid-frame)
+                // by re-reading `errno` through the accessor — exactly as the read
+                // helpers do (bug-62). A libc `write` backend (aarch64/riscv64) needs
+                // the import to classify EINTR; x86-64's raw `svc` write returns
+                // `-errno` directly, so it needs no accessor (mirrors `write_import`).
+                // `symbols.rs` force-pulls this arm whenever any `term::` helper is
+                // used, so `term::off`/auto-restore's reuse of the present is covered.
+                if !self.abi.raw_write {
+                    imports.push(self.libc_import("__errno_location", required_by));
+                }
                 imports
             }
             "term.terminalSize" => vec![self.libc_import("ioctl", required_by)],

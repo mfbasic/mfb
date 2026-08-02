@@ -1,0 +1,111 @@
+{
+  "project": "inline_trap_fallthrough_recover_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "boom",
+      "line": 3,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 3 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "0" } },
+        "line": 4,
+        "then": [
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "400" }, { "kind": "string", "value": "neg" }] }, "line": 4 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "10" } }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "handled",
+      "line": 12,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 12 },
+      { "name": "flag", "type": "Integer", "default": null, "line": 12 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "trace", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "v", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 14,
+        "expression": { "kind": "call", "callee": "boom", "arguments": [{ "kind": "identifier", "value": "n" }] },
+        "handler": [
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "flag" }, "right": { "kind": "number", "value": "1" } },
+          "line": 15,
+          "then": [
+          { "kind": "recover", "value": { "kind": "number", "value": "111" }, "line": 16 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "trace", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "trace" }, "right": { "kind": "number", "value": "1" } }, "line": 18 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "flag" }, "right": { "kind": "number", "value": "2" } },
+          "line": 19,
+          "then": [
+          { "kind": "assignment", "name": "trace", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "trace" }, "right": { "kind": "number", "value": "20" } }, "line": 20 }
+          ],
+          "else": [
+          ]
+        },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "flag" }, "right": { "kind": "number", "value": "3" } },
+          "line": 22,
+          "then": [
+          { "kind": "assignment", "name": "trace", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "trace" }, "right": { "kind": "number", "value": "400" } }, "line": 23 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "trace", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "trace" }, "right": { "kind": "number", "value": "300" } }, "line": 25 },
+        { "kind": "recover", "value": { "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "999" }, "right": { "kind": "identifier", "value": "trace" } }, "line": 26 }
+        ]
+      }, "line": 14 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "v" }, "line": 28 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 31,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "handled", "arguments": [{ "kind": "number", "value": "5" }, { "kind": "number", "value": "0" }] }] }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "handled", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, { "kind": "number", "value": "1" }] }] }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "handled", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, { "kind": "number", "value": "0" }] }] }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "handled", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, { "kind": "number", "value": "2" }] }] }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "handled", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, { "kind": "number", "value": "3" }] }] }] }, "line": 41 }
+      ]
+    }
+    ]
+  }
+  ]
+}

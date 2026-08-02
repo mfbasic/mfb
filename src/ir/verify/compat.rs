@@ -613,8 +613,22 @@ impl TypeEnv {
     }
 
     /// Reject a `UnionWrap` whose `member_type` is not a variant of the named
-    /// union (a value smuggled under a tag the union does not define).
-    pub(super) fn check_union_wrap(&self, union_type: &str, member_type: &str) {
+    /// union (a value smuggled under a tag the union does not define), or whose
+    /// wrapped `value` does not have the `member_type` it is tagged with. The
+    /// tag check alone left the payload unreconciled: a crafted `.mfp` could wrap
+    /// an Integer under a record variant, and a later MATCH/`UnionExtract` would
+    /// read that variant's record layout off the Integer (bug-404 — the wrap-side
+    /// counterpart of `check_union_extract`, the read side bug-162 guarded). The
+    /// payload reconciliation is skipped when the value's type is unknown, so
+    /// legitimate IR — whose `member_type` is the wrapped value's own type
+    /// (`lower.rs:3312`) — never rejects.
+    pub(super) fn check_union_wrap(
+        &self,
+        union_type: &str,
+        member_type: &str,
+        value: &IrValue,
+        locals: &HashMap<String, String>,
+    ) {
         if member_type.is_empty() {
             return;
         }
@@ -623,6 +637,17 @@ impl TypeEnv {
                 self.emit(
                     VERIFY_TYPE,
                     format!("`{member_type}` is not a variant of union `{union_type}`"),
+                );
+                return;
+            }
+        }
+        if let Some(actual) = self.infer_type(value, locals) {
+            if !self.expression_compatible(member_type, &actual, value) {
+                self.emit(
+                    VERIFY_TYPE,
+                    format!(
+                        "UnionWrap payload has type {actual}, expected variant `{member_type}`"
+                    ),
                 );
             }
         }

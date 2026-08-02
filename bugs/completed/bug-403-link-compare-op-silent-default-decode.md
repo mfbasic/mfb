@@ -5,10 +5,30 @@ Effort: small (<1h)
 Severity: LOW
 Class: Footgun / decode-hardening gap (silent-default on untrusted IR)
 
-Status: Open
-Regression Test: tests/ — a binary_repr/verify unit test asserting a decoded
-`IrLinkExpr::Compare { op: "GARBAGE", .. }` is rejected (decode or verify Err),
-not accepted.
+Status: FIXED (commit 893737083)
+Regression Test: `src/ir/binary.rs` `link_expr_op_tests` — `decode_rejects_garbage_compare_op`
+asserts a decoded `IrLinkExpr::Compare { op: "GARBAGE", .. }` is rejected (decode
+Err); `decode_accepts_valid_compare_ops` asserts the six valid operators still
+round-trip.
+
+## STATUS: FIXED
+
+The `op` of a decoded `IrLinkExpr::Compare` is now validated at decode. A new
+single-source-of-truth predicate `ir::link_compare_op_valid` (`src/ir/link.rs`)
+holds the six operators (`= <> < > <= >=`); `decode_link_expr_body`
+(`src/ir/binary.rs`, tag 2) returns `Err("invalid LINK Compare operator …")` for
+anything else, mirroring the sibling `AbiDirection::from_code` guard. Codegen's
+`link_thunk` comparison `match` (`src/target/shared/code/link_thunk.rs`) no longer
+has a silent `_ => branch_eq` default: its fallthrough is now `unreachable!`, so a
+future decode gap fails loudly instead of miscompiling a garbage op as `=`.
+
+Codegen for the six valid operators is byte-identical (only the never-taken
+default arm changed), so no goldens shifted. Verified: `link_expr_op_tests` RED
+before the fix (garbage op accepted) → GREEN after; full `cargo test` green
+(3726 mfb-bin tests + workspace). Deviation from the doc's plan: the optional
+`verify/link.rs` defense-in-depth check was NOT added — decode is the
+authoritative gate and rejects before verify runs, so a redundant verify check
+could never fire.
 
 `decode_link_expr_body` (`src/ir/binary.rs:738`, tag 2) reads the
 `IrLinkExpr::Compare` `op` as an arbitrary `r.string()?` with **no validation**

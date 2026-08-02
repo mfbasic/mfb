@@ -5,10 +5,12 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness / compile-time resource exhaustion (code-size explosion)
 
-Status: Open
-Regression Test: tests/ — a compile fixture with an inline-`TRAP` handler of ~15
-sequential fall-through `IF` statements before `RECOVER` must compile in bounded
-time and size.
+Status: FIXED (60a012916)
+Regression Test: `src/ir/tests.rs::inline_trap_fallthrough_handler_lowers_linearly`
+(RED-verified: pre-fix the handler op count grew by 98208 for 10 extra
+fall-through `IF`s vs the ≤400 linear bound) plus the runtime fixture
+`tests/rt-behavior/trap/inline-trap-fallthrough-recover-rt` locking in the
+conditional-`RECOVER` + fall-through semantics.
 
 `distribute_continuation` (`src/ir/lower.rs:1312`), driven by `treeify_handler`
 (`:1239`), normalizes an inline-`TRAP` handler so a `RECOVER` falls through
@@ -85,3 +87,39 @@ a shared label the branches jump to) and no size budget.
   caller (`:1239`) — the duplication site.
 - Codegen branch-range check (`src/arch/aarch64/…`) surfaces the symptom but is
   not the bug; do not "fix" by widening branch range.
+
+## STATUS: FIXED (60a012916)
+
+Reproduced exactly as documented (debug `mfb build --ir`, macOS-aarch64): IR body
+grew 2858 → 22570 → 180266 lines for N = 8/11/14 (2^N), and N = 14 failed codegen
+with `AArch64 branch 'b.eq' displacement 1180216 to 'if_else_64' exceeds ±1 MiB`.
+
+Fix (`src/ir/lower.rs`): `treeify_handler` only distributes the handler
+continuation *into* an `IF`/`MATCH` branch when that branch **can reach a
+terminator** (`RECOVER`/`RETURN`/`FAIL`/`?`/loop `EXIT`/`CONTINUE`) — the case
+where a recovered path must not fall through into the shared continuation. When
+no branch can terminate, the branch always falls through, so the continuation is
+kept as a single shared **sibling** after the branch instead of being cloned into
+every arm. New `block_can_terminate`/`statement_can_terminate` predicates (a
+"some path" analysis, distinct from the existing all-paths `block_terminates`)
+drive the decision; being conservative only forces distribution, which is always
+semantically safe.
+
+Post-fix the same handler lowers **linearly** (≈10 IR lines per `IF`): N = 8/11/14/20/100
+→ 133/163/193/253/1053 lines, flat ≈0.01 s compile; N = 14 and N = 100 now build
+cleanly (0.07 s / 0.43 s).
+
+Verification:
+- Semantics preserved: a fired `RECOVER` still stops later sibling statements
+  from running (fixture prints 50/111/1300/1320/1700 — the `flag=1` case recovers
+  early and skips the fall-through additions).
+- No golden shift: all 17 existing inline-`TRAP`-with-branch fixtures produce
+  byte-identical `.ir` (their handler branches all terminate, so the new hoist
+  path is never taken for them).
+- Full suite green: `cargo test --release` 4198 passed / 0 failed across 39
+  binaries; the new acceptance fixture passes `test-accept.sh`.
+
+Deviation from the doc: the "Failing Reproduction" snippet is pseudocode
+(single-line `FUNC`/`IF … END IF` don't parse; `str()` is `toString`). The
+mechanism and the measured 2^N blow-up / ±1 MiB overflow reproduced exactly once
+transcribed to valid multi-line MFBASIC.

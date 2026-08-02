@@ -10,6 +10,14 @@
 # backend, and the Linux-only code paths — `audio/alsa`, `tls/openssl`, and every
 # `linux_*` target module — had no byte-identity coverage at all on the machine
 # where the work actually happens.
+# Refuse to run concurrently with another artifact-gate — they thrash disk/CPU
+# and can kill each other (0-byte artifacts / exit 144). `pgrep -f` matches this
+# script's own process too, so exclude our own PID ($$).
+other=$(pgrep -f 'artifact-gate\.sh' | grep -v "^$$\$" | head -1)
+if [ -n "$other" ]; then
+  echo "Another artifact-gate (pid $other) is running."
+  exit 1
+fi
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=artifact-kinds.sh

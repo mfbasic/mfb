@@ -1256,20 +1256,62 @@ fn treeify_handler(stmts: &[Statement]) -> Vec<Statement> {
             else_body,
             line,
         } => {
-            let then_body = distribute_continuation(then_body, tail);
-            let else_body = distribute_continuation(else_body, tail);
-            vec![Statement::If {
-                condition: condition.clone(),
-                then_body,
-                else_body,
-                line: *line,
-            }]
+            // The continuation only has to be pushed *inside* a branch when that
+            // branch can reach a terminator (`RECOVER`/`RETURN`/…), so a
+            // recovered path does not fall through into the shared continuation.
+            // When *neither* branch can terminate, the `IF` always falls through
+            // to the continuation regardless of which branch runs, so keep the
+            // continuation as a single shared sibling instead of cloning it into
+            // both branches. Cloning into both is what makes N sequential
+            // fall-through branches emit 2^N copies of the tail (bug-401).
+            if !block_can_terminate(then_body) && !block_can_terminate(else_body) {
+                let mut result = vec![Statement::If {
+                    condition: condition.clone(),
+                    then_body: treeify_handler(then_body),
+                    else_body: treeify_handler(else_body),
+                    line: *line,
+                }];
+                result.extend(treeify_handler(tail));
+                result
+            } else {
+                let then_body = distribute_continuation(then_body, tail);
+                let else_body = distribute_continuation(else_body, tail);
+                vec![Statement::If {
+                    condition: condition.clone(),
+                    then_body,
+                    else_body,
+                    line: *line,
+                }]
+            }
         }
         Statement::Match {
             expression,
             cases,
             line,
         } => {
+            // As with `IF` above: only distribute the continuation into the arms
+            // when some arm can terminate. Otherwise the match always falls
+            // through (a matched non-terminating arm or an unmatched scrutinee
+            // alike), so keep the continuation as a shared sibling — no per-arm
+            // clone and no synthesized `ELSE` (bug-401).
+            if !cases.iter().any(|case| block_can_terminate(&case.body)) {
+                let new_cases: Vec<MatchCase> = cases
+                    .iter()
+                    .map(|case| MatchCase {
+                        pattern: case.pattern.clone(),
+                        guard: case.guard.clone(),
+                        body: treeify_handler(&case.body),
+                        line: case.line,
+                    })
+                    .collect();
+                let mut result = vec![Statement::Match {
+                    expression: expression.clone(),
+                    cases: new_cases,
+                    line: *line,
+                }];
+                result.extend(treeify_handler(tail));
+                return result;
+            }
             let mut new_cases: Vec<MatchCase> = cases
                 .iter()
                 .map(|case| MatchCase {
@@ -1405,6 +1447,45 @@ fn treeify_statement(statement: &Statement) -> Statement {
 /// of the block).
 fn block_terminates(stmts: &[Statement]) -> bool {
     stmts.iter().any(statement_terminates)
+}
+
+/// Whether *some* path through the block can reach a terminator. Unlike
+/// [`block_terminates`] (which requires *every* path to terminate), this is true
+/// if a terminator is reachable on any path. `treeify_handler` uses it to decide
+/// whether an inline-`TRAP` handler continuation must be distributed into a
+/// branch (because a recovered path must not fall into it) or may be shared as a
+/// single sibling after the branch (bug-401).
+fn block_can_terminate(stmts: &[Statement]) -> bool {
+    stmts.iter().any(statement_can_terminate)
+}
+
+/// Whether a statement can reach a terminator on some path. See
+/// [`block_can_terminate`]. Being conservative (returning `true` when unsure)
+/// only forces distribution, which is always semantically safe; a spurious
+/// `false` would be a bug, so every terminator form and every nested block is
+/// covered.
+fn statement_can_terminate(statement: &Statement) -> bool {
+    match statement {
+        Statement::Return { .. }
+        | Statement::Exit { .. }
+        | Statement::Continue { .. }
+        | Statement::Fail { .. }
+        | Statement::Propagate { .. }
+        | Statement::Recover { .. } => true,
+        Statement::If {
+            then_body,
+            else_body,
+            ..
+        } => block_can_terminate(then_body) || block_can_terminate(else_body),
+        Statement::Match { cases, .. } => {
+            cases.iter().any(|case| block_can_terminate(&case.body))
+        }
+        Statement::For { body, .. }
+        | Statement::ForEach { body, .. }
+        | Statement::While { body, .. }
+        | Statement::DoUntil { body, .. } => block_can_terminate(body),
+        _ => false,
+    }
 }
 
 /// Whether a statement always diverges or recovers (ends its enclosing handler

@@ -383,7 +383,14 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: required_by.clone(),
                 })
                 .collect(),
-            "term.sync" => ["_write", "_ioctl"]
+            // bug-410: `_write` here is a libc call (only linux-x86_64 raw-syscalls
+            // write), so the present-write loop's EINTR retry must re-read `errno`
+            // through `___error` to classify a signal that interrupted the present
+            // mid-frame; without it the retry helper cannot tell EINTR from a real
+            // failure and gives up, corrupting the display. `symbols.rs` force-pulls
+            // this arm whenever any `term::` helper is used, covering `term::off`/
+            // auto-restore's reuse of the present helper.
+            "term.sync" => ["_write", "_ioctl", "___error"]
                 .iter()
                 .map(|symbol| PlatformImport {
                     library: "libSystem".to_string(),
@@ -871,5 +878,25 @@ mod tests {
         let spec =
             crate::target::shared::runtime::spec_for_call("io.flush").expect("io.flush spec");
         assert!(Platform.runtime_imports(spec).is_empty());
+    }
+
+    /// bug-410: `term::sync` presents the frame with a libc `_write` on macOS and
+    /// its present loop retries EINTR by re-reading `errno` through `___error`.
+    /// Without importing the accessor the retry helper cannot classify EINTR and
+    /// gives up mid-frame, corrupting the display permanently. `term::off` and the
+    /// auto-restore-on-exit reuse the same present helper, so the import must be
+    /// live for `term.sync` (which `symbols.rs` force-pulls whenever `term::` is used).
+    #[test]
+    fn term_sync_imports_errno_accessor_for_eintr_retry() {
+        let spec =
+            crate::target::shared::runtime::spec_for_call("term.sync").expect("term.sync spec");
+        assert!(
+            Platform
+                .runtime_imports(spec)
+                .iter()
+                .any(|imp| imp.symbol == "___error"),
+            "term.sync must import ___error so its present-write EINTR retry can \
+             classify errno on macOS"
+        );
     }
 }

@@ -5,10 +5,23 @@ Effort: small (<1h)
 Severity: LOW
 Class: Correctness (latent — cache/symbol-key collision → wrong monomorphized type)
 
-Status: Open
-Regression Test: tests/ — a compile fixture instantiating a generic TYPE at two
-distinct same-arity type-argument tuples that mangle-collide; both use-sites must
-keep their own concrete type.
+Status: Fixed (2026-08-01) — `instantiate_type` now claims `mangle_name(name, args)`
+against the unambiguous `name<args>` key via `unique_concrete_symbol`, exactly as
+`instantiate_function` has since bug-226. Byte-identical for every reachable
+single-instantiation case (`unique_concrete_symbol` returns the same symbol when no
+other key claims it): full artifact-gate = 1511 golden(s) checked, 0 diff(s) across
+all four targets.
+Regression Test: `src/monomorph/lower.rs` unit test
+`instantiate_type_disambiguates_mangle_colliding_arguments` — drives `instantiate_type`
+directly with two punctuation-only-different colliding arguments and asserts each keeps
+a distinct concrete symbol + concrete-type declaration. RED before the fix (both
+collapsed to `Box$FUNC$Integer$$AS$Nothing`), GREEN after. **Deviation from the
+originally-proposed source fixture:** no *valid* source spelling reaches the collision —
+the grammar fixes each punctuation slot relative to the alnum tokens and every mangled
+generic fragment carries a leading identifier, so the mangled symbol is the only lossy
+layer. This is precisely why bug-226/bug-400 are latent; the mechanism is therefore
+exercised at the `instantiate_type` boundary (the same rationale as
+`total_instantiation_budget_halts_wide_fanout`, which drives its counter directly).
 
 `instantiate_type` (`src/monomorph/lower.rs:765`) builds `concrete_name =
 mangle_name(name, args)` and inserts the lowered type directly into

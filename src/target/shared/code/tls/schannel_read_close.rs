@@ -19,6 +19,7 @@ pub(super) fn lower_tls_read(
     const FRAME_SIZE: usize = 0x100;
 
     let closed = format!("{symbol}_closed");
+    let invalid = format!("{symbol}_invalid");
     let peer_closed = format!("{symbol}_peer");
     let fail = format!("{symbol}_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -36,6 +37,14 @@ pub(super) fn lower_tls_read(
         abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
+        // bug-414: reject maxBytes <= 0 with ErrInvalidArgument, matching the
+        // OpenSSL backend (openssl.rs). A closed resource takes precedence
+        // (checked above), as it does on OpenSSL. Without this, maxBytes == 0 ran
+        // a full blocking recv+DecryptMessage then served 0 bytes as OK, and a
+        // negative maxBytes routed to alloc_fail/ErrOutOfMemory.
+        abi::load_u64("%v9", abi::stack_pointer(), MAX),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_le(&invalid),
         abi::load_u64("%v9", abi::return_register(), 16),
         abi::store_u64("%v9", abi::stack_pointer(), STATE),
         // If undelivered plaintext remains, serve it.
@@ -327,6 +336,8 @@ pub(super) fn lower_tls_read(
     emit_fail(symbol, ERR_CONNECTION_CLOSED_CODE, ERR_CONNECTION_CLOSED_SYMBOL, &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
     emit_fail(symbol, ERR_RESOURCE_CLOSED_CODE, ERR_RESOURCE_CLOSED_SYMBOL, &mut ins, &mut rel, &done);
+    ins.push(abi::label(&invalid));
+    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &done);
     ins.push(abi::label(&fail));
     emit_fail(symbol, ERR_NETWORK_FAILED_CODE, ERR_NETWORK_FAILED_SYMBOL, &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));

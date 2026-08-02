@@ -22,14 +22,16 @@ TYPE PendingState
   err      AS Integer
 END TYPE
 
-' RES handle so the socket drops lexically when the user drops it
-EXPORT RES TYPE PendingRequest ... 
+UNION Stream
+  net::Socket
+  net::TlsSocket
+END UNION
 
-FUNC http::startRead(url, headers, method) AS RES PendingRequest
-FUNC http::ready(RES req AS PendingRequest) AS Boolean   ' net::poll(sock, 0)
-SUB  http::pump(RES req AS PendingRequest)               ' read one chunk if ready
-FUNC http::done(RES req AS PendingRequest) AS Boolean
-FUNC http::finish(RES req AS PendingRequest) AS Response ' your existing parse
+FUNC http::startRead(url, headers, method) AS RES http::Stream STATE PendingState  ' variant from url.scheme
+FUNC http::ready(RES stream AS http::Stream STATE PendingState) AS Boolean
+SUB  http::pump(RES stream AS http::Stream STATE PendingState)   ' MATCHes internally; grows stream.state.raw
+FUNC http::done(RES stream AS http::Stream STATE PendingState) AS Boolean
+FUNC http::finish(RES stream AS http::Stream STATE PendingState) AS Response
 
 ' keep http::read/http::write blocking as-is (they become thin wrappers: startRead + pump-until-done + finish)
 
