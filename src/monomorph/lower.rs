@@ -129,6 +129,8 @@ impl<'a> Monomorphizer<'a> {
             function_files,
             current_file: None,
             template_instantiation_depth: 0,
+            total_instantiations: 0,
+            instantiation_limit_reached: false,
             had_error: false,
         }
     }
@@ -645,8 +647,15 @@ impl<'a> Monomorphizer<'a> {
         let key = format!("{name}<{}>", args.join(","));
         let concrete_name = self.unique_concrete_symbol(mangle_name(name, &args), &key);
         if self.emitted_function_keys.insert(key) {
+            if !self.charge_instantiation(&display, line) {
+                return None;
+            }
             if self.template_instantiation_depth >= MAX_TEMPLATE_INSTANTIATION_DEPTH {
                 self.report_instantiation_too_deep(&display, line);
+                // Halt the whole enumeration, not just this leaf: a wide fan-out
+                // would otherwise keep hitting the depth cap on every one of its
+                // (exponentially many) sibling paths (bug-399).
+                self.instantiation_limit_reached = true;
                 return None;
             }
             self.template_instantiation_depth += 1;
@@ -772,8 +781,13 @@ impl<'a> Monomorphizer<'a> {
         let Some(template) = self.type_templates.get(name).cloned() else {
             return concrete_name;
         };
+        if !self.charge_instantiation(name, 1) {
+            return concrete_name;
+        }
         if self.template_instantiation_depth >= MAX_TEMPLATE_INSTANTIATION_DEPTH {
             self.report_instantiation_too_deep(name, 1);
+            // Halt the whole enumeration — see the `instantiate_function` twin.
+            self.instantiation_limit_reached = true;
             return concrete_name;
         }
         self.template_instantiation_depth += 1;
@@ -1903,6 +1917,36 @@ impl<'a> Monomorphizer<'a> {
         rules::show_diagnostic(rule, detail, &path, line, 1, 1);
     }
 
+    /// Charge one new concrete instantiation (function or user type) against the
+    /// global total-instantiation budget, which bounds *wide* fan-out the per-path
+    /// depth cap cannot (bug-399). Returns `false` — halting the caller — once any
+    /// instantiation limit has stopped enumeration: either this budget (reporting a
+    /// single `TYPE_INSTANTIATION_BUDGET_EXCEEDED` the first time it is exhausted)
+    /// or the depth cap (which sets `instantiation_limit_reached` at its own site).
+    /// After the first stop it returns `false` with no further work or diagnostics,
+    /// so the remaining (exponential) tree is never explored.
+    fn charge_instantiation(&mut self, name: &str, line: usize) -> bool {
+        if self.instantiation_limit_reached {
+            return false;
+        }
+        if self.total_instantiations >= MAX_TOTAL_INSTANTIATIONS {
+            self.instantiation_limit_reached = true;
+            self.report(
+                "TYPE_INSTANTIATION_BUDGET_EXCEEDED",
+                &format!(
+                    "Monomorphization exceeded the {MAX_TOTAL_INSTANTIATIONS}-instantiation \
+                     budget at `{name}`: the program fans out into too many distinct generic \
+                     instantiations. This usually means a generic recurses through two or more \
+                     type-widening self-calls."
+                ),
+                line,
+            );
+            return false;
+        }
+        self.total_instantiations += 1;
+        true
+    }
+
     fn report_instantiation_too_deep(&mut self, name: &str, line: usize) {
         self.report(
             "TYPE_INSTANTIATION_TOO_DEEP",
@@ -2019,6 +2063,52 @@ END SUB
             .filter(|n| *n == "show$Integer")
             .count();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn total_instantiation_budget_halts_wide_fanout() {
+        // The per-path depth cap cannot bound a generic that fans out in *breadth*
+        // — ≥2 type-widening self-calls make an exponential tree of distinct
+        // `name<args>` keys the depth cap never collapses (bug-399). A global
+        // total-instantiation budget does. Drive the shared counter directly (an
+        // end-to-end fan-out that actually reaches the several-thousand budget is
+        // real but too slow for a unit test): it admits exactly
+        // `MAX_TOTAL_INSTANTIATIONS` charges, then refuses every further one and
+        // latches `instantiation_limit_reached` so enumeration stops after a single
+        // bounded diagnostic.
+        let ast = project(&[(
+            "src/main.mfb",
+            "FUNC main() AS Integer\n  RETURN 0\nEND FUNC\n",
+        )]);
+        let dir = std::env::temp_dir();
+        let mut mono = Monomorphizer::new(&dir, &ast);
+        for i in 0..super::super::MAX_TOTAL_INSTANTIATIONS {
+            assert!(
+                mono.charge_instantiation("f", 1),
+                "charge {i} within budget must succeed"
+            );
+            assert!(
+                !mono.instantiation_limit_reached,
+                "limit must not latch early"
+            );
+        }
+        // Budget exhausted: this charge reports the single diagnostic and refuses.
+        assert!(
+            !mono.charge_instantiation("f", 1),
+            "the charge at the budget must be refused"
+        );
+        assert!(mono.instantiation_limit_reached, "the limit must latch");
+        assert!(mono.had_error, "refusal reports a diagnostic");
+        // Once latched, every further charge short-circuits without incrementing.
+        assert!(
+            !mono.charge_instantiation("f", 1),
+            "charges past the limit stay refused"
+        );
+        assert_eq!(
+            mono.total_instantiations,
+            super::super::MAX_TOTAL_INSTANTIATIONS,
+            "no charge is admitted past the budget"
+        );
     }
 
     #[test]

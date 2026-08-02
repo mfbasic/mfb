@@ -70,10 +70,20 @@ distinct from the `$`-mangled emit symbol). The first use of a key triggers
 expansion; later uses reuse the already-emitted concrete declaration via
 `emitted_function_keys` / `emitted_type_keys`.
 
-Fresh template expansion is bounded to 256 active instantiation frames. A chain
-that recursively creates distinct concrete templates beyond that limit is
-rejected with `TYPE_INSTANTIATION_TOO_DEEP` instead of recursing until the host
-stack overflows.
+Fresh template expansion is bounded on two independent axes. **Depth:** at most
+256 active instantiation frames — a chain that recursively creates distinct
+concrete templates beyond that limit is rejected with
+`TYPE_INSTANTIATION_TOO_DEEP` instead of recursing until the host stack overflows.
+**Breadth:** at most `MAX_TOTAL_INSTANTIATIONS` (a few thousand) concrete
+declarations — functions plus user types — across the whole project, counted by
+the shared `total_instantiations` counter. The depth cap bounds a single
+recursion *path*; a generic that recurses through ≥2 type-widening self-calls
+(e.g. `recurse<T>` → `recurse<List OF T>` + `recurse<Set OF T>`) instead fans out
+into an exponential *tree* of distinct keys the depth cap never collapses, so the
+breadth budget rejects it with `TYPE_INSTANTIATION_BUDGET_EXCEEDED`. Either limit
+latches `instantiation_limit_reached`, which halts all further expansion after a
+single bounded diagnostic rather than re-reporting on every one of the
+(exponentially many) sibling leaves.
 
 ### Functions — `instantiate_function`
 
@@ -90,17 +100,18 @@ For a call to a template function: [[src/monomorph/lower.rs:instantiate_function
 4. Require every template parameter to be bound (the `collect::<Option<_>>` fails
    to `None` otherwise — a parameter not reachable from any argument cannot be
    inferred).
-5. Mangle the concrete name, reject expansion past the 256-frame instantiation
-   limit (`TYPE_INSTANTIATION_TOO_DEEP`), lower the body under the substitution,
-   cache it.
+5. Mangle the concrete name, charge one against the total-instantiation budget
+   (`TYPE_INSTANTIATION_BUDGET_EXCEEDED` once exhausted) and reject expansion past
+   the 256-frame depth limit (`TYPE_INSTANTIATION_TOO_DEEP`), then lower the body
+   under the substitution and cache it.
 
 ### Types — `instantiate_type`
 
 `instantiate_type(name, args)` mangles the concrete name, records the
 `concrete -> (base, args)` mapping in `type_instantiations` (used by
 `template_view_type` to invert mangling), and on first use lowers the template
-under the per-parameter substitution after the same 256-frame instantiation cap
-used for functions. [[src/monomorph/lower.rs:instantiate_type]] A constructor
+under the per-parameter substitution after the same total-instantiation budget
+and 256-frame depth cap used for functions. [[src/monomorph/lower.rs:instantiate_type]] A constructor
 instantiates its type either from the expected (contextual) type, or by unifying
 field types against the constructor argument types.
 

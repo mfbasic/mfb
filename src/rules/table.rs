@@ -1101,6 +1101,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "a RESOURCE declaration cannot reuse the name of a built-in resource type",
     },
     Rule {
+        code: "2-203-0135",
+        name: "TYPE_INSTANTIATION_BUDGET_EXCEEDED",
+        severity: Severity::Error,
+        message: "generic instantiation fans out past the total-instantiation budget",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,
