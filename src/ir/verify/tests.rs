@@ -3288,18 +3288,24 @@ fn accepts_collection_res_file() {
 }
 
 #[test]
-fn rejects_state_on_union() {
+fn accepts_state_on_union() {
+    // plan-74: a resource union may carry a uniform (defaultable) STATE at a
+    // binding — the former TYPE_UNION_STATE_FORBIDDEN ban is retired.
     let mut f = func_returns(
         "run",
         "Nothing",
         vec![],
         vec![bind("r", "Res STATE Integer", None, true, false)],
     );
-    // craft a resource union type "Res" with a File variant so is_resource true and unions contains it.
+    // a resource union type "Res" with a File variant so is_resource is true and unions contains it.
     f.resource_owners
         .insert("r".to_string(), crate::ir::resource_escape::ResOwner::Local);
     let u = union("Res", &["File"]);
-    expect_rule(&project(vec![f], vec![u]), "TYPE_UNION_STATE_FORBIDDEN");
+    let got = rules(&project(vec![f], vec![u]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_UNION_STATE_FORBIDDEN"),
+        "union STATE must be accepted (ban retired): {got:?}"
+    );
 }
 
 #[test]
@@ -3795,12 +3801,14 @@ fn thread_transfer_non_thread_handle_is_skipped() {
 }
 
 #[test]
-fn rejects_return_state_union() {
-    // FUNC returns a resource union with a STATE (calls.rs:286-293).
+fn accepts_return_state_union() {
+    // plan-74: a FUNC may return a resource union carrying a uniform (defaultable)
+    // STATE — the former TYPE_UNION_STATE_FORBIDDEN return ban is retired.
     let f = func_returns("run", "Res STATE Integer", vec![], vec![]);
-    expect_rule(
-        &project(vec![f], vec![union("Res", &["File"])]),
-        "TYPE_UNION_STATE_FORBIDDEN",
+    let got = rules(&project(vec![f], vec![union("Res", &["File"])]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_UNION_STATE_FORBIDDEN"),
+        "union STATE return must be accepted (ban retired): {got:?}"
     );
 }
 

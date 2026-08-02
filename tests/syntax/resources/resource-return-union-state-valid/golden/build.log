@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-return-union-state-valid
+Wrote AST to tests/syntax/resources/resource-return-union-state-valid/resource_return_union_state_valid.ast
+Wrote IR to tests/syntax/resources/resource-return-union-state-valid/resource_return_union_state_valid.ir
+[exit 0]

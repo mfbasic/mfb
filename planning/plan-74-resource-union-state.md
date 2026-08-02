@@ -261,17 +261,23 @@ Commit: —
 
 ### Phase 2 — verifier: lift the ban, confirm agreement
 
-- [ ] Remove the union rejections at `src/ir/verify/ops.rs:231-241` and
-      `src/ir/verify/calls.rs:281-294`.
-- [ ] Tests: convert `tests/syntax/resources/resource-union-state-invalid` and
-      `resource-return-union-state-invalid` to **valid** fixtures (the rule they guarded is
-      the one being changed by Phase 1 — cite the spec amendment in the fixture). Add
-      `tests/syntax/resources/resource-union-state-mismatch-invalid` proving a union param/
-      binding with a disagreeing STATE type is still rejected `TYPE_STATE_MISMATCH`, and a
-      union→union same-type param is accepted.
+- [x] Remove the union rejections at `src/ir/verify/ops.rs` (binding, was `:234-241`) and
+      `src/ir/verify/calls.rs` `check_return_state_declaration` (return, was `:286-294`).
+      Also removed the now-dead `TYPE_UNION_STATE_FORBIDDEN` entry from
+      `RELOCATED_TO_IR_VERIFY` (`src/ir/verify/mod.rs`) since ir::verify no longer emits it,
+      and converted the two ban unit tests (`rejects_state_on_union`→`accepts_state_on_union`,
+      `rejects_return_state_union`→`accepts_return_state_union`).
+- [x] Tests: converted `tests/syntax/resources/resource-union-state-invalid` →
+      `resource-union-state-valid` (binding + a union→union same-type `RES … STATE …`
+      param) and `resource-return-union-state-invalid` → `resource-return-union-state-valid`
+      (stateful union return adopted by a matching stateful binding). Added
+      `resource-union-state-mismatch-invalid` — a `RES p AS Stream STATE StateB` param handed
+      a `Stream STATE StateA` value, rejected `TYPE_STATE_MISMATCH`.
 
 Acceptance: the accept/reject matrix is correct at `-ast -ir` — union+STATE accepted at
-binding/return/param; disagreeing STATE still rejected. (Runtime lands in Phase 3.)
+binding/return/param (all exit 0); disagreeing STATE still rejected `TYPE_STATE_MISMATCH`.
+Verified: 46 `syntax/resources` acceptance tests pass; `cargo test --bin mfb` 3750 pass.
+(Runtime lands in Phase 3.)
 Commit: —
 
 ### Phase 3 — codegen: STATE access through a union
