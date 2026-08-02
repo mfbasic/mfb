@@ -12,8 +12,11 @@ pub(super) fn lower_io_poll_input_helper(
     const TIMEOUT_OFFSET: usize = 32;
 
     let poll_error = format!("{symbol}_poll_error");
+    let poll_invalid = format!("{symbol}_poll_invalid");
     let poll_eintr_check = format!("{symbol}_poll_eintr");
     let poll_ready = format!("{symbol}_poll_ready");
+    let poll_infinite = format!("{symbol}_poll_infinite");
+    let timeout_ok = format!("{symbol}_timeout_ok");
     let os_poll = format!("{symbol}_os_poll");
     let done = format!("{symbol}_done");
 
@@ -25,6 +28,32 @@ pub(super) fn lower_io_poll_input_helper(
         abi::stack_pointer(),
         TIMEOUT_OFFSET,
     ));
+    // plan-73-F: normalize `timeoutMs` to the plan-73 timeout convention BEFORE any
+    // work, then stash the OS-ready value back to TIMEOUT_OFFSET (os_poll reloads it
+    // on every EINTR retry). An OMITTED timeout is padded with the unbounded sentinel
+    // (i64::MIN) → poll(2) with a -1 (block-forever) timeout; `0` = one immediate
+    // readiness check; `> 0` = bounded, clamped to INT_MAX so a bit-31 value is not
+    // read by poll's C `int` as a negative/block timeout (bug-239 class); any other
+    // negative is `ErrInvalidArgument`. Before plan-73 the raw value went straight to
+    // poll(2) (negative = block, omit padded with 0 = non-blocking), the exact
+    // inversion this convention removes.
+    instructions.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::move_immediate("%v11", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers("%v10", "%v11"),
+        abi::branch_eq(&poll_infinite),
+        abi::compare_immediate("%v10", "0"),
+        abi::branch_lt(&poll_invalid),
+        abi::move_immediate("%v11", "Integer", "2147483647"),
+        abi::compare_registers("%v10", "%v11"),
+        abi::branch_le(&timeout_ok),
+        abi::move_register("%v10", "%v11"),
+        abi::branch(&timeout_ok),
+        abi::label(&poll_infinite),
+        abi::bitwise_not("%v10", abi::ZERO),
+        abi::label(&timeout_ok),
+        abi::store_u64("%v10", abi::stack_pointer(), TIMEOUT_OFFSET),
+    ]);
     // plan-15 §4.4: a byte already staged for this thread in the broadcast log is
     // invisible to `poll(fd 0)`, so check the log first (ready => report TRUE) and
     // only `poll(fd 0)` when the log has nothing for us. App mode reads the window
@@ -97,6 +126,43 @@ pub(super) fn lower_io_poll_input_helper(
         &os_poll,
         &poll_error,
     )?;
+    // plan-73-F: a negative timeout other than the unbounded sentinel is
+    // `ErrInvalidArgument`. Placed before `poll_error` and terminated with a branch to
+    // `done` so `poll_error` still falls through to `done` (byte-identical to before).
+    instructions.extend([
+        abi::label(&poll_invalid),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    let invalid_arg_symbol = ERR_INVALID_ARGUMENT_SYMBOL.to_string();
+    instructions.push(
+        CodeInstruction::new("adrp")
+            .field("dst", RESULT_ERROR_MESSAGE_REGISTER)
+            .field("symbol", &invalid_arg_symbol),
+    );
+    instructions.push(
+        CodeInstruction::new("add_pageoff")
+            .field("dst", RESULT_ERROR_MESSAGE_REGISTER)
+            .field("src", RESULT_ERROR_MESSAGE_REGISTER)
+            .field("symbol", &invalid_arg_symbol),
+    );
+    relocations.extend([
+        CodeRelocation {
+            from: symbol.to_string(),
+            to: invalid_arg_symbol.clone(),
+            kind: RelocIntent::DataAddrHi,
+            binding: "data".to_string(),
+            library: None,
+        },
+        CodeRelocation {
+            from: symbol.to_string(),
+            to: invalid_arg_symbol,
+            kind: RelocIntent::DataAddrLo,
+            binding: "data".to_string(),
+            library: None,
+        },
+    ]);
+    instructions.push(abi::branch(&done));
     instructions.extend([
         abi::label(&poll_error),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INPUT_CODE),

@@ -1,18 +1,30 @@
 IMPORT io
 
+' plan-73-F: io::pollInput obeys the plan-73 timeout convention (see
+' `mfb spec language builtin-functions` §18.4). Omitting the argument BLOCKS until
+' input is ready; `0` is one immediate readiness check; `> 0` bounds the wait; a
+' negative value is ErrInvalidArgument. Under the acceptance harness stdin is at
+' EOF, so poll reports ready immediately for every non-negative form (TRUE), and
+' the omit=block form returns at once rather than hanging.
+FUNC pollNeg AS Boolean
+  RETURN io::pollInput(-1)
+END FUNC
+
 FUNC main AS Integer
-  LET implicitDefault AS Boolean = io::pollInput()
+  LET implicitBlock AS Boolean = io::pollInput()
   LET explicitZero AS Boolean = io::pollInput(0)
   LET shortWait AS Boolean = io::pollInput(1)
 
-  io::print(toString(implicitDefault))
+  io::print(toString(implicitBlock))
   io::print(toString(explicitZero))
   io::print(toString(shortWait))
 
-  IF FALSE THEN
-    LET waitForever AS Boolean = io::pollInput(-1)
-    io::print(toString(waitForever))
-  END IF
-
+  ' A negative timeout (other than the omit sentinel) is rejected at runtime.
+  LET rejected AS Boolean = pollNeg() TRAP(e)
+    io::print(toString(e.code))
+    RETURN 0
+  END TRAP
+  io::print("negative-not-rejected")
+  io::print(toString(rejected))
   RETURN 0
 END FUNC

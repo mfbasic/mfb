@@ -30,15 +30,15 @@ elapses first, and it **consumes nothing** — the bytes are still there for
 `io::readLine`, `io::readChar`, `io::readByte`, or `io::input`.
 [[src/target/shared/code/io_stdin.rs:lower_io_poll_input_helper]]
 
-`timeoutMs` is in milliseconds and is passed straight through to the underlying
-`poll`, so it follows that call's convention:
-
-- **negative** — wait indefinitely until input is ready;
-- **zero** — check readiness and return immediately;
-- **positive** — wait up to that many milliseconds.
-
-When the argument is omitted the compiler supplies `0`, so `io::pollInput()` is a
-non-blocking check. [[src/target/shared/code/builder_values.rs:lower_runtime_helper_call]]
+`timeoutMs` bounds the wait, in milliseconds, following the language timeout
+convention (see `mfb spec language builtin-functions` → "Timeout convention").
+When it is **omitted, `pollInput` blocks** until standard input becomes ready and
+then returns `TRUE` (omit = unbounded). `0` is a non-blocking check that returns
+immediately with the current readiness (the old omitted behavior — pass `0` for
+it). A positive value waits up to that long. A negative `timeoutMs` is rejected
+with `ErrInvalidArgument`. Because the host `poll` takes a C `int`, a value above
+`2147483647` is clamped to that, which is roughly 24 days.
+[[src/target/shared/code/builder_values.rs:lower_runtime_helper_call]]
 
 Readiness is answered in two stages. Standard input is served from a per-thread
 broadcast log, and a byte already staged there for this thread is invisible to a
@@ -68,19 +68,20 @@ poll should see individual keypresses.
 
 **`io::pollInput() AS Boolean`**
 
-Non-blocking readiness check; equivalent to `io::pollInput(0)`.
+Blocks until standard input becomes ready, then returns `TRUE` (omitted
+`timeoutMs` = unbounded wait). For the old immediate check, pass `0`.
 [[src/builtins/io.rs:arity]]
 
 **`io::pollInput(timeoutMs AS Integer) AS Boolean`**
 
-Waits up to `timeoutMs` milliseconds, indefinitely when the value is negative and
-not at all when it is zero.
+`0` returns immediately with the current readiness; a positive value waits up to
+that many milliseconds; a negative value is rejected with `ErrInvalidArgument`.
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `timeoutMs` | `Integer` | Maximum wait in milliseconds: negative waits forever, `0` returns immediately, positive bounds the wait. Defaults to `0` when omitted. [[src/builtins/io.rs:call_param_names]] |
+| `timeoutMs` | `Integer` | Optional. Omit to block until standard input is ready; `0` is an immediate non-blocking check; a positive value waits up to that many milliseconds, clamped to `2147483647`. Must not be negative. [[src/builtins/io.rs:call_param_names]] |
 
 ## Return value
 
@@ -92,17 +93,19 @@ not at all when it is zero.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
+| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
 | `77020005` | `ErrInput` | The poll of standard input fails for a reason other than an interrupting signal, which is retried instead. [[src/target/shared/code/error_constants.rs:ERR_INPUT_CODE]] |
 
 ## Examples
 
-Read a line only when one is already pending:
+Read a line only when one is already pending (pass `0` for the immediate check —
+omitting the timeout would instead block until input is ready):
 
 ```
 IMPORT io
 
 SUB main()
-  IF io::pollInput() THEN
+  IF io::pollInput(0) THEN
     io::print(io::readLine())
   END IF
 END SUB
@@ -122,13 +125,14 @@ SUB main()
 END SUB
 ```
 
-Block until input arrives, then take one byte:
+Block until input arrives, then take one byte (omit the timeout for an unbounded
+wait):
 
 ```
 IMPORT io
 
 SUB main()
-  IF io::pollInput(-1) THEN
+  IF io::pollInput() THEN
     io::print(toString(io::readByte()))
   END IF
 END SUB
@@ -140,3 +144,4 @@ END SUB
 - `mfb man io readByte`
 - `mfb man io readLine`
 - `mfb man io input`
+- `mfb spec language builtin-functions` — the timeout convention

@@ -9,4 +9,5 @@ $ tests/rt-behavior/io/func_io_pollInput_valid/build/func_io_pollInput_valid.out
 TRUE
 TRUE
 TRUE
+77050002
 [exit 0]

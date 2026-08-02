@@ -127,7 +127,7 @@ freedom is whether a given function is a *readiness query* or a *producing call*
 | `< 0` | rejected | `ErrInvalidArgument` (77050002) | `ErrInvalidArgument` (77050002) |
 
 - A **readiness query** has a not-ready value to return (`FALSE` for a
-  `Boolean` poll, `-1`, etc.): `net::poll`, `audio::poll`.
+  `Boolean` poll, `-1`, etc.): `net::poll`, `audio::poll`, `io::pollInput`.
 - A **producing call** yields a resource, message, connection, or bytes and has
   no not-ready value, so an unmet deadline is an error: `net::accept`,
   `net::connectTcp`, `net::read`/`readText`/`write`/`writeText` (under a socket
@@ -152,8 +152,13 @@ value. [[src/target/shared/code/error_constants.rs:TIMEOUT_UNBOUNDED_SENTINEL]]
 `net::poll`, `net::accept`, `net::connectTcp`, `net::setReadTimeout`,
 `net::setWriteTimeout`, `net::read`, `net::readText`, `net::write`,
 `net::writeText`, `tls::connect`, `tls::accept`, `audio::poll`, `audio::read`,
-`thread::send`, `thread::receive`, `thread::transfer`, `thread::accept`.
-Conformance was completed across the codebase in one pass; `thread` was the pilot.
+`io::pollInput`, `thread::send`, `thread::receive`, `thread::transfer`,
+`thread::accept`. Conformance was completed across the codebase in one pass;
+`thread` was the pilot.
+
+(`thread::poll` requires its `ms` argument and has no omit form; it already
+rejects negatives and treats `0` as an immediate check, so its value meanings
+match the table — it simply does not offer the unbounded/omit spelling.)
 
 ## See Also
 
