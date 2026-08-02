@@ -27,9 +27,26 @@ fi
 
 # Refuse to run concurrently with another test-macapp — concurrent runs thrash
 # disk/CPU building the .app bundle and race for the window-server session two
-# headless NSApplication launches would contend over. `pgrep -f` matches this
-# script's own process too, so exclude our own PID ($$).
-other=$(pgrep -f 'test-macapp\.sh' | grep -v "^$$\$" | head -1)
+# headless NSApplication launches would contend over.
+#
+# `pgrep -f` matches our OWN transient children too: the subshells/pipeline
+# members bash fork()s for a `$(...)` still carry the parent
+# `bash scripts/test-macapp.sh …` command line before they exec(). Excluding
+# only `$$` (the main shell) missed those and reported a phantom "pid N" with no
+# real concurrent run. Instead skip every candidate sharing our process group —
+# our children inherit our PGID at fork() (excluded even mid-race), a separate
+# run is launched into its own session/group. An already-exited candidate (empty
+# PGID) is not a live run.
+mypgid=$(ps -o pgid= -p "$$" | tr -d ' ')
+other=""
+for pid in $(pgrep -f 'test-macapp\.sh'); do
+  [ "$pid" = "$$" ] && continue
+  cpgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+  [ -z "$cpgid" ] && continue
+  [ "$cpgid" = "$mypgid" ] && continue
+  other=$pid
+  break
+done
 if [ -n "$other" ]; then
   echo "Another test-macapp (pid $other) is running." >&2
   exit 1

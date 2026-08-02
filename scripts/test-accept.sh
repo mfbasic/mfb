@@ -17,10 +17,30 @@ TEST_ROOT="$ROOT/tests"
 
 # Refuse to run concurrently with another test-accept — concurrent runs thrash
 # disk/CPU and clobber each other's actual output, yielding phantom "missing
-# actual" failures on unrelated fixtures. `pgrep -f` matches this script's own
-# process too, so exclude our own PID ($$). The pattern anchors on `.sh` so it
-# does not also match test-accept-selftest.sh (a distinct, lightweight harness).
-other=$(pgrep -f 'test-accept\.sh' | grep -v "^$$\$" | head -1)
+# actual" failures on unrelated fixtures.
+#
+# `pgrep -f 'test-accept\.sh'` matches every process whose command line contains
+# this script's path, which includes our OWN transient children: bash keeps the
+# parent `bash scripts/test-accept.sh …` command line on the subshells and
+# pipeline members it fork()s to evaluate a `$(...)`, in the window before they
+# exec(). Excluding only `$$` (the main shell) missed those, so the guard would
+# report a phantom "pid N is running" with no real concurrent run — a false CI
+# abort (deterministic under bash 5.2). Instead, skip every candidate that shares
+# our process group: an invocation's children/subshells inherit its PGID at
+# fork() (so they are excluded even mid-race), while a genuinely separate run is
+# launched into its own session/group. A candidate that has already exited (empty
+# PGID) is not a live run either. The `.sh` anchor still keeps this from matching
+# test-accept-selftest.sh (a distinct, lightweight harness).
+mypgid=$(ps -o pgid= -p "$$" | tr -d ' ')
+other=""
+for pid in $(pgrep -f 'test-accept\.sh'); do
+  [ "$pid" = "$$" ] && continue
+  cpgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+  [ -z "$cpgid" ] && continue
+  [ "$cpgid" = "$mypgid" ] && continue
+  other=$pid
+  break
+done
 if [ -n "$other" ]; then
   echo "Another test-accept (pid $other) is running." >&2
   exit 1
