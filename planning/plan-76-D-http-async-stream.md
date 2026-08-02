@@ -62,9 +62,10 @@ References (read first):
 | Must be true | Command | Status |
 |---|---|---|
 | plan-74 landed (union STATE: bind/param/return/`.state`/drop) | `ls planning/completed/plan-74-*` | MET |
-| plan-76-B landed (scalar `tls::poll` on all backends) | `rg -n 'POLL' src/builtins/tls.rs`; `ls tests/rt-behavior/tls/tls-poll-rt` | NOT MET until B lands |
+| plan-76-B landed (scalar `tls::poll` on all backends) | `rg -n 'POLL' src/builtins/tls.rs`; `ls tests/rt-behavior/tls/tls-poll-rt` | MET (B complete) |
 | `net::poll(sock[, timeoutMs]) AS Boolean` scalar exists | `rg -n 'POLL' src/builtins/net.rs` → :163 | MET |
-| Feature-wide gate (tree green, gate clean) | see plan-76-A Prerequisites | UNMEASURED |
+| Feature-wide gate (tree green, gate clean) | see plan-76-A Prerequisites | MET (tests 3757/0; net+tls gates PASSED) |
+| **plan-74 union STATE works over a `TlsSocket` variant** (the DESIGN GATE this plan should have tested) | bind `RES s AS Stream STATE PendingState = tls::connect(...)`; run — must not SIGSEGV | **NOT MET (Corrections D4):** the STATE ptr at record+16 = `SSL*` in the 32-byte TLS record → https SIGSEGV. This is the falsifiable premise the entry gate missed; it makes D's `Stream STATE PendingState` design unimplementable without a TLS-record / plan-74 / D-redesign. User chose to defer D. |
 
 **Explicitly NOT prerequisites (do not braid):**
 
