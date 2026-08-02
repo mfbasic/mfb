@@ -39,18 +39,29 @@ at line 179). Fixture load is 13 projects.
 
 ### Phase Z1 — descriptor and resolver
 
-- [ ] Add `pub(crate) static TLS: BuiltinModule` with every function,
+- [x] Add `pub(crate) static TLS: BuiltinModule` with every function,
       overload, parameter (canonical + aliases), argument types, return
       type, implementation, and default.
-- [ ] Add `BuiltinType` entry for the tls builtin type.
-- [ ] Implement `TlsResolver` for `default_argument_padding`.
-- [ ] Rewrite the 10 metadata helpers as wrappers over `TLS`/`TlsResolver`.
-- [ ] Register `TLS` with the `BuiltinRegistry` from plan-72-A.
-- [ ] Parity tests for every `tls.*` name, the builtin type, and every
-      default-padding slot.
+- [x] Add `BuiltinType` entry for the tls builtin type. (Two: `TlsSocket`
+      and `TlsListener`, both `Opaque`.)
+- [x] ~~Implement `TlsResolver` for `default_argument_padding`.~~ — moot:
+      the padding is data-derivable via `DefaultValue::Fill`, so
+      `DefaultResolver::default_padding` reproduces it and NO resolver is
+      needed (`resolver: None`, the `net` shape). See Corrections.
+- [x] Rewrite the 10 metadata helpers as wrappers over `TLS`. (`is_tls_call`
+      → `contains`, `arity`/`call_return_type_name` → `DefaultResolver` with an
+      explicit `CLOSE_LISTENER` fallback, `is_builtin_type` → `TLS.types`;
+      `resolve_call`/`expected_arguments`/`argument_types`/`default_argument_padding`
+      stay hand-authored and are pinned by parity — see Corrections.)
+- [x] Register `TLS` with the `BuiltinRegistry` from plan-72-A.
+- [x] Parity tests for every `tls.*` name, the builtin type, and every
+      default-padding slot (`parity_matches_descriptor` checks
+      `DefaultResolver::default_padding` for `provided` in `0..=max`).
 
 Acceptance: `cargo test` passes; every `tls.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
+(`cargo test --bin mfb builtins::tls` → 13 passed; full acceptance run at
+finalization.)
 Commit: —
 
 ## Validation
@@ -61,4 +72,28 @@ Commit: —
 
 ## Corrections
 
-Filled during execution.
+- **No `TlsResolver` — `default_argument_padding` is data-derivable, so `tls`
+  is `resolver: None` (the `net` shape).** The plan's premise was that
+  `default_argument_padding` needed a custom resolver hook. But the descriptor's
+  `DefaultValue::Fill { type_name, expr }` (introduced in A, used by many prior
+  letters) exactly reproduces the legacy padding: `connect`'s
+  `timeoutMs=Fill(Integer,SENTINEL)`/`serverName=Fill(String,"")`,
+  `listen`'s `backlog=Fill(Integer,"0")`, `accept`'s `timeoutMs=Fill(Integer,SENTINEL)`.
+  `DefaultResolver::default_padding` skips the `provided` real args and emits the
+  remaining `Fill`s, matching `default_argument_padding(name, provided)` for every
+  `provided` in `0..=max` — verified by `parity_matches_descriptor`. A resolver
+  would have duplicated this. Evidence: `cargo test --bin mfb builtins::tls` →
+  `default_padding_branches` and `parity_matches_descriptor` both pass.
+- **`close`'s union return stays in the hand-authored `resolve_call`.** Like
+  `net::close`, `tls::close` accepts either handle type (`TlsSocket`/`TlsListener`)
+  but always returns `Nothing`. The return is *fixed per name* (`ReturnType::Fixed`),
+  so `call_return_type_name`/`arity` derive from the descriptor; only the
+  argument-set acceptance is argument-dependent and it stays in the kept
+  `resolve_call`. `expected_arguments` (`"TlsSocket or TlsListener"`) and
+  `argument_types` (joined strings) stay hand-authored (`LegacySet` sets both to
+  `None`), matching `net`.
+- **The lowered-only `CLOSE_LISTENER` is not a descriptor function.** It is
+  synthesized during IR lowering and is not user-callable, so `is_tls_call`
+  (=`DefaultResolver::contains`) excludes it; `call_return_type_name` and `arity`
+  fall back to it explicitly (the `net`/`audio` internal-name pattern), keeping
+  codegen's post-lowering queries answered.

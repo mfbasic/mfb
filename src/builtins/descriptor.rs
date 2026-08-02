@@ -640,6 +640,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::net::NET,
     &crate::builtins::os::OS,
     &crate::builtins::thread::THREAD,
+    &crate::builtins::tls::TLS,
 ]);
 
 /// The migration parity harness (plan-72).

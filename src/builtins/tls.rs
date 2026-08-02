@@ -9,6 +9,11 @@
 
 use std::borrow::Cow;
 
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinType, DefaultResolver,
+    DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType, TypeKind,
+};
+
 pub(crate) const TLS_SOCKET_TYPE: &str = "TlsSocket";
 pub(crate) const TLS_LISTENER_TYPE: &str = "TlsListener";
 
@@ -31,15 +36,138 @@ pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
 }
 
+// plan-72-Z: `TLS` is the descriptor authority for this package. tls is data-only
+// (no resolver, like `net`): every call's return type is fixed per name (the
+// `close` overloading is on the ARGUMENT type — `TlsSocket` vs `TlsListener` — not
+// the return, which is always `Nothing`), so `call_return_type_name` and `arity`
+// derive from the descriptor. Optional trailing arguments (`connect`'s
+// `timeoutMs`/`serverName`, `listen`'s `backlog`, `accept`'s `timeoutMs`) are
+// `DefaultValue::Fill`, so `DefaultResolver::default_padding` reproduces the legacy
+// `default_argument_padding` (the genuinely custom padding the overview flagged is
+// data-derivable — see Corrections in plan-72-Z). The two builtin types are opaque.
+// `resolve_call` (`close(TlsSocket|TlsListener)` type-set acceptance),
+// `expected_arguments` (`"or"`-phrased `close`), and `argument_types` (joined
+// strings, overloaded → `None`) stay hand-authored. The lowered-only
+// `CLOSE_LISTENER` is not a descriptor function; `call_return_type_name`/`arity`
+// fall back to it explicitly (the `net`/`audio` internal-name pattern).
+const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload {
+    BuiltinOverload {
+        params,
+        return_type: ReturnType::Fixed(ret),
+    }
+}
+
+const fn tf(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+) -> BuiltinFunction {
+    BuiltinFunction {
+        name,
+        doc_slug: slug,
+        overloads,
+        implementation: Implementation::Same,
+        lowering: Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+
+const fn req(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
+    Parameter {
+        name,
+        aliases,
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::None,
+    }
+}
+
+// An optional trailing parameter padded during IR lowering — `Fill` with the same
+// `(type, value)` the legacy `default_argument_padding` injects.
+const fn fill(name: &'static str, ty: &'static str, expr: &'static str) -> Parameter {
+    Parameter {
+        name,
+        aliases: &[],
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::Fill {
+            type_name: ty,
+            expr,
+        },
+    }
+}
+
+const SENTINEL: &str = crate::target::shared::code::TIMEOUT_UNBOUNDED_SENTINEL;
+
+const P_CONNECT: &[Parameter] = &[
+    req("host", &[], "String"),
+    req("port", &[], "Integer"),
+    fill("timeoutMs", "Integer", SENTINEL),
+    fill("serverName", "String", ""),
+];
+const P_LISTEN: &[Parameter] = &[
+    req("host", &[], "String"),
+    req("port", &[], "Integer"),
+    req("certPath", &[], "String"),
+    req("keyPath", &[], "String"),
+    fill("backlog", "Integer", "0"),
+];
+const P_ACCEPT: &[Parameter] = &[
+    req("listener", &[], TLS_LISTENER_TYPE),
+    fill("timeoutMs", "Integer", SENTINEL),
+];
+const P_READ: &[Parameter] = &[req("sock", &[], TLS_SOCKET_TYPE), req("maxBytes", &[], "Integer")];
+const P_WRITE: &[Parameter] = &[
+    req("sock", &[], TLS_SOCKET_TYPE),
+    req("bytes", &[], "List OF Byte"),
+];
+const P_WRITE_TEXT: &[Parameter] =
+    &[req("sock", &[], TLS_SOCKET_TYPE), req("value", &[], "String")];
+// `close` accepts either handle; the union is validated in the hand-authored
+// `resolve_call`. The param's type feeds only the descriptor's `argument_types`/
+// `expected_arguments` rendering, both of which tls keeps hand-authored, so the
+// leading `TlsSocket` spelling (the `net::close` idiom) is inert here.
+const P_CLOSE: &[Parameter] = &[req("resource", &["sock", "listener"], TLS_SOCKET_TYPE)];
+
+const TLS_FUNCTIONS: &[BuiltinFunction] = &[
+    tf(CONNECT, "connect", &[ov(P_CONNECT, TLS_SOCKET_TYPE)]),
+    tf(LISTEN, "listen", &[ov(P_LISTEN, TLS_LISTENER_TYPE)]),
+    tf(ACCEPT, "accept", &[ov(P_ACCEPT, TLS_SOCKET_TYPE)]),
+    tf(READ, "read", &[ov(P_READ, "List OF Byte")]),
+    tf(READ_TEXT, "readText", &[ov(P_READ, "String")]),
+    tf(WRITE, "write", &[ov(P_WRITE, "Nothing")]),
+    tf(WRITE_TEXT, "writeText", &[ov(P_WRITE_TEXT, "Nothing")]),
+    tf(CLOSE, "close", &[ov(P_CLOSE, "Nothing")]),
+];
+
+const TLS_TYPES: &[BuiltinType] = &[
+    BuiltinType {
+        name: TLS_SOCKET_TYPE,
+        kind: TypeKind::Opaque,
+        fields: &[],
+    },
+    BuiltinType {
+        name: TLS_LISTENER_TYPE,
+        kind: TypeKind::Opaque,
+        fields: &[],
+    },
+];
+
+pub(crate) static TLS: BuiltinModule = BuiltinModule {
+    name: "tls",
+    functions: TLS_FUNCTIONS,
+    types: TLS_TYPES,
+    source: None,
+    resolver: None,
+};
+
 /// User-facing tls calls. Recognized by `is_builtin_call`, so it must NOT
 /// include `CLOSE_LISTENER`, which is synthesized only during IR lowering and is
 /// not user-callable (bug-173 E). A user-typed `tls.closeListener(x)` must be
 /// reported as an unknown function.
 pub(crate) fn is_tls_call(name: &str) -> bool {
-    matches!(
-        name,
-        CONNECT | LISTEN | ACCEPT | READ | READ_TEXT | WRITE | WRITE_TEXT | CLOSE
-    )
+    DefaultResolver::contains(&TLS, name)
 }
 
 /// Post-lowering classifier: `is_tls_call` plus the internal listener-shaped
@@ -50,7 +178,7 @@ pub(crate) fn is_tls_runtime_call(name: &str) -> bool {
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    name == TLS_SOCKET_TYPE || name == TLS_LISTENER_TYPE
+    TLS.types.iter().any(|ty| ty.name == name)
 }
 
 pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
@@ -84,16 +212,16 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     }
 }
 
+/// Return type of a `tls::` call. Must keep the lowered-only `CLOSE_LISTENER`:
+/// IR lowering rewrites a `TlsListener`-typed `tls::close` to `tls.closeListener`
+/// and then queries this for the rewritten target's return type. User-facing
+/// calls resolve through the descriptor; the internal name falls back explicitly
+/// (the `net`/`audio` internal-name pattern).
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    match name {
-        CONNECT => Some(TLS_SOCKET_TYPE),
-        LISTEN => Some(TLS_LISTENER_TYPE),
-        ACCEPT => Some(TLS_SOCKET_TYPE),
-        READ => Some("List OF Byte"),
-        READ_TEXT => Some("String"),
-        WRITE | WRITE_TEXT | CLOSE | CLOSE_LISTENER => Some("Nothing"),
+    DefaultResolver::return_type_name(&TLS, name).or_else(|| match name {
+        CLOSE_LISTENER => Some("Nothing"),
         _ => None,
-    }
+    })
 }
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
@@ -162,15 +290,13 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static str> {
     }
 }
 
+/// Arity of a `tls::` call. Keeps the lowered-only `CLOSE_LISTENER` (arity 1)
+/// for the same reason as [`call_return_type_name`].
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    match name {
-        CONNECT => Some((2, 4)),
-        LISTEN => Some((4, 5)),
-        ACCEPT => Some((1, 2)),
-        READ | READ_TEXT | WRITE | WRITE_TEXT => Some((2, 2)),
-        CLOSE | CLOSE_LISTENER => Some((1, 1)),
+    DefaultResolver::arity(&TLS, name).or_else(|| match name {
+        CLOSE_LISTENER => Some((1, 1)),
         _ => None,
-    }
+    })
 }
 
 /// Default trailing arguments to inject during IR lowering so the fixed-ABI
@@ -428,5 +554,46 @@ mod tests {
         assert!(!consumes_argument(CLOSE, 1));
         assert!(!consumes_argument(ACCEPT, 0));
         assert!(!consumes_argument(WRITE, 0));
+    }
+
+    // plan-72-Z migration gate: prove `TLS` reproduces every legacy helper answer
+    // for every user-facing `tls.*` name (and an unknown name) — membership,
+    // arity, per-position parameter names, nominal return type, and the default
+    // padding for every arity slot (derived from `DefaultValue::Fill`) — pinning
+    // the borrowed `call_param_names` static equal to `TLS`. `resolve_call`
+    // (`close` type-set acceptance), `expected_arguments` (`"or"`-phrased), and
+    // `argument_types` (joined strings) are not descriptor-derivable and are
+    // checked by the dedicated tests above. Keep until plan-72-BB.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::parity;
+
+        let calls: Vec<&str> = TLS_FUNCTIONS.iter().map(|f| f.name).collect();
+        let legacy = parity::LegacySet {
+            is_call: &is_tls_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            return_type_name: &call_return_type_name,
+            // `"or"`-phrased `close`; kept hand-authored and checked separately.
+            expected_arguments: None,
+            param_name_overloads: None,
+            // joined-string shape; kept hand-authored and checked separately.
+            argument_types: None,
+            implementation_name: None,
+            default_padding: Some(&|name, provided| {
+                default_argument_padding(name, provided).to_vec()
+            }),
+            builtin_type_fields: None,
+        };
+        let mut probe = calls.clone();
+        probe.push("tls.nope");
+        parity::assert_parity(&TLS, &probe, &legacy, &[]);
+
+        // The two opaque handle types are the descriptor's builtin-type authority.
+        assert!(is_builtin_type(TLS_SOCKET_TYPE));
+        assert!(is_builtin_type(TLS_LISTENER_TYPE));
+        assert!(!is_builtin_type("String"));
     }
 }

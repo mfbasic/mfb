@@ -54,7 +54,7 @@ Acceptance: `cargo test` passes. Because there are no thread fixtures
 under `tests/`, acceptance for this letter is `cargo test` only unless a
 new thread fixture is added. (`cargo test --bin mfb builtins::thread` → 21
 passed incl. `parity_matches_descriptor`.)
-Commit: —
+Commit: 17cc0d9eb
 
 ## Validation
 
