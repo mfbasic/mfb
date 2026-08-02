@@ -151,7 +151,7 @@ descriptor; a descriptor-only change would leave `0` meaning block.
 - [x] Tests: descriptor unit tests pass; `cargo test` green. — MET.
 
 Acceptance: descriptor unit tests pass; `cargo test` green. — MET.
-Commit: a234b2e87? no — landed with the D commit below.
+Commit: c703e6d50
 
 ### Phase 2 — OpenSSL backend + Linux runtime proof
 
@@ -168,7 +168,7 @@ Commit: a234b2e87? no — landed with the D commit below.
       which the fixture uses.)
 
 Acceptance: box 2229 shows the new semantics; `cargo test` green; goldens
-regenerated. — MET. Commit: (D commit below)
+regenerated. — MET. Commit: c703e6d50
 
 ### Phase 3 — macOS backend + local runtime proof
 
@@ -180,7 +180,7 @@ regenerated. — MET. Commit: (D commit below)
       → `77050008` (`tests/rt-behavior/tls/tls-timeout-convention-rt`).
 
 Acceptance: macOS runtime shows the new semantics; `cargo test` green. — MET.
-Commit: (D commit below)
+Commit: c703e6d50
 
 ### Phase 4 — Schannel backend + Windows runtime proof (highest risk last)
 
@@ -204,7 +204,7 @@ Commit: (D commit below)
 
 Acceptance: box 2230 shows the new semantics; man pages cite the section;
 man_citations + spec-citation green; `cargo test` full green. — MET.
-Commit: (D commit below)
+Commit: c703e6d50
 
 ## Validation Plan
 
