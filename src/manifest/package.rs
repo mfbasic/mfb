@@ -1705,9 +1705,7 @@ mod tests {
     #[test]
     fn imported_type_defs_from_files_reads_a_record_export_fixture() {
         let dir = crate::testutil::fixture_dir("project-record-comparable-package-valid");
-        let pkg = dir
-            .join("packages")
-            .join("package_record_comparable.mfp");
+        let pkg = dir.join("packages").join("package_record_comparable.mfp");
         let defs = imported_type_defs_from_files(&[pkg]);
         assert!(!defs.is_empty(), "fixture exports at least one type");
         assert!(
@@ -1755,8 +1753,9 @@ mod tests {
         // already seeded, so the importer registers no closer for it — the loop
         // hits the `is_resource_type` skip and yields nothing.
         let dir = crate::testutil::fixture_dir("resource-state-import-rt");
-        let value =
-            json(r#"{"name":"p","version":"1","packages":[{"name":"resource_state_export_valid"}]}"#);
+        let value = json(
+            r#"{"name":"p","version":"1","packages":[{"name":"resource_state_export_valid"}]}"#,
+        );
         let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
         assert!(imported_resource_closers(&dir, manifest).is_empty());
     }
@@ -1764,11 +1763,15 @@ mod tests {
     #[test]
     fn imported_resource_closers_registers_a_native_resource() {
         let dir = crate::testutil::fixture_dir("native-resource-import-valid");
-        let value =
-            json(r#"{"name":"p","version":"1","packages":[{"name":"native_resource_link_valid"}]}"#);
+        let value = json(
+            r#"{"name":"p","version":"1","packages":[{"name":"native_resource_link_valid"}]}"#,
+        );
         let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
         let closers = imported_resource_closers(&dir, manifest);
-        assert!(!closers.is_empty(), "native package exports a closable resource");
+        assert!(
+            !closers.is_empty(),
+            "native package exports a closable resource"
+        );
         // Each resource is registered under both its bare and `<pkg>.<Type>` name.
         assert!(
             closers.iter().any(|(ty, _)| ty.contains('.')),

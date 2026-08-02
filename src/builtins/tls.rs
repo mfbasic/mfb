@@ -118,13 +118,18 @@ const P_ACCEPT: &[Parameter] = &[
     req("listener", &[], TLS_LISTENER_TYPE),
     fill("timeoutMs", "Integer", SENTINEL),
 ];
-const P_READ: &[Parameter] = &[req("sock", &[], TLS_SOCKET_TYPE), req("maxBytes", &[], "Integer")];
+const P_READ: &[Parameter] = &[
+    req("sock", &[], TLS_SOCKET_TYPE),
+    req("maxBytes", &[], "Integer"),
+];
 const P_WRITE: &[Parameter] = &[
     req("sock", &[], TLS_SOCKET_TYPE),
     req("bytes", &[], "List OF Byte"),
 ];
-const P_WRITE_TEXT: &[Parameter] =
-    &[req("sock", &[], TLS_SOCKET_TYPE), req("value", &[], "String")];
+const P_WRITE_TEXT: &[Parameter] = &[
+    req("sock", &[], TLS_SOCKET_TYPE),
+    req("value", &[], "String"),
+];
 // plan-76-B: TLS readiness query. An omitted `timeoutMs` pads the unbounded
 // sentinel (block until readable), like `accept`. Readiness includes bytes already
 // buffered in the TLS layer (decrypted, fd idle), not just raw-transport state.
@@ -683,5 +688,4 @@ mod tests {
         assert!(!func.flags.internal_only);
         assert!(!func.flags.return_type_overloaded);
     }
-
 }

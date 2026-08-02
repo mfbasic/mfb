@@ -1683,8 +1683,14 @@ mod tests {
         assert!(json.contains("\"kind\": \"cstruct\""), "cstruct: {json}");
         assert!(json.contains("\"ctype\""), "cstruct field: {json}");
         assert!(json.contains("\"kind\": \"bindIn\""), "bindIn: {json}");
-        assert!(json.contains("\"kind\": \"bindInField\""), "bindInField: {json}");
-        assert!(json.contains("\"kind\": \"bindState\""), "bindState: {json}");
+        assert!(
+            json.contains("\"kind\": \"bindInField\""),
+            "bindInField: {json}"
+        );
+        assert!(
+            json.contains("\"kind\": \"bindState\""),
+            "bindState: {json}"
+        );
     }
 
     #[test]

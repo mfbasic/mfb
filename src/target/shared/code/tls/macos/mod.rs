@@ -104,17 +104,17 @@ pub(crate) const CTX_STATE: usize = 16;
 pub(crate) const CTX_CONTENT: usize = 24;
 pub(crate) const CTX_ERROR: usize = 32;
 pub(crate) const CTX_RETAIN: usize = 40; // dispatch_retain, used by the receive block
-// plan-76-B Phase 4 (outstanding-receive model for tls::poll): a DEDICATED
-// semaphore + content/error slots for the poll readiness receive, isolated from
-// the per-op CTX_SEM/CTX_CONTENT that read/write recycle via `emit_fresh_sem`. The
-// isolation is what keeps `tls::write`/`tls::close` byte-identical — an outstanding
-// poll receive never touches CTX_SEM, so their fresh-sem invariant (bug-52/55) is
-// unaffected. `CTX_PSEM` is created once at connection-ctx setup and reused (at most
-// one poll receive is ever outstanding). `CTX_PEND_*` is the stashed decrypted
-// plaintext (a plain arena buffer, so no NW object lifetime is held across a
-// poll→read boundary); `CTX_ARMED` is 1 while a poll receive is in flight. These
-// slots live only in the CONNECTION ctx (a separate allocation from the listener
-// LCTX, whose ring starts at offset 48), so they do not collide with LCTX.
+                                         // plan-76-B Phase 4 (outstanding-receive model for tls::poll): a DEDICATED
+                                         // semaphore + content/error slots for the poll readiness receive, isolated from
+                                         // the per-op CTX_SEM/CTX_CONTENT that read/write recycle via `emit_fresh_sem`. The
+                                         // isolation is what keeps `tls::write`/`tls::close` byte-identical — an outstanding
+                                         // poll receive never touches CTX_SEM, so their fresh-sem invariant (bug-52/55) is
+                                         // unaffected. `CTX_PSEM` is created once at connection-ctx setup and reused (at most
+                                         // one poll receive is ever outstanding). `CTX_PEND_*` is the stashed decrypted
+                                         // plaintext (a plain arena buffer, so no NW object lifetime is held across a
+                                         // poll→read boundary); `CTX_ARMED` is 1 while a poll receive is in flight. These
+                                         // slots live only in the CONNECTION ctx (a separate allocation from the listener
+                                         // LCTX, whose ring starts at offset 48), so they do not collide with LCTX.
 pub(crate) const CTX_PSEM: usize = 48;
 pub(crate) const CTX_PCONTENT: usize = 56;
 pub(crate) const CTX_PERROR: usize = 64;

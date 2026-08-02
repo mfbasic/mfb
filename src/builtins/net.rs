@@ -113,13 +113,19 @@ const P_CT_HPT: &[Parameter] = &[
     req("timeoutMs", &[], "Integer"),
 ];
 const P_CT_A: &[Parameter] = &[req("address", &[], ADDRESS_TYPE)];
-const P_CT_AT: &[Parameter] = &[req("address", &[], ADDRESS_TYPE), req("timeoutMs", &[], "Integer")];
+const P_CT_AT: &[Parameter] = &[
+    req("address", &[], ADDRESS_TYPE),
+    req("timeoutMs", &[], "Integer"),
+];
 const P_LISTEN: &[Parameter] = &[
     req("host", &[], "String"),
     req("port", &[], "Integer"),
     opt("backlog", "Integer"),
 ];
-const P_ACCEPT: &[Parameter] = &[req("listener", &[], LISTENER_TYPE), opt("timeoutMs", "Integer")];
+const P_ACCEPT: &[Parameter] = &[
+    req("listener", &[], LISTENER_TYPE),
+    opt("timeoutMs", "Integer"),
+];
 const P_POLL: &[Parameter] = &[req("sock", &[], SOCKET_TYPE), opt("timeoutMs", "Integer")];
 // plan-76-A: the readiness-multiplex overload. `socks` is a `List OF RES Socket`
 // (the `RES` marker is mandatory for a resource element, §15.6); the returned
@@ -129,16 +135,27 @@ const P_POLL_LIST: &[Parameter] = &[
     req("socks", &[], "List OF RES Socket"),
     opt("timeoutMs", "Integer"),
 ];
-const P_READ: &[Parameter] = &[req("sock", &[], SOCKET_TYPE), req("maxBytes", &[], "Integer")];
-const P_WRITE: &[Parameter] = &[req("sock", &[], SOCKET_TYPE), req("bytes", &[], "List OF Byte")];
+const P_READ: &[Parameter] = &[
+    req("sock", &[], SOCKET_TYPE),
+    req("maxBytes", &[], "Integer"),
+];
+const P_WRITE: &[Parameter] = &[
+    req("sock", &[], SOCKET_TYPE),
+    req("bytes", &[], "List OF Byte"),
+];
 const P_WRITE_TEXT: &[Parameter] = &[req("sock", &[], SOCKET_TYPE), req("value", &[], "String")];
 const P_CLOSE: &[Parameter] = &[req("resource", &["sock", "listener"], SOCKET_TYPE)];
 const P_LOCAL_ADDR: &[Parameter] = &[req("sock", &["listener"], SOCKET_TYPE)];
 const P_REMOTE_ADDR: &[Parameter] = &[req("sock", &[], SOCKET_TYPE)];
-const P_TIMEOUT_SET: &[Parameter] =
-    &[req("sock", &[], SOCKET_TYPE), req("timeoutMs", &[], "Integer")];
+const P_TIMEOUT_SET: &[Parameter] = &[
+    req("sock", &[], SOCKET_TYPE),
+    req("timeoutMs", &[], "Integer"),
+];
 const P_BIND_UDP: &[Parameter] = &[req("host", &[], "String"), req("port", &[], "Integer")];
-const P_RECV: &[Parameter] = &[req("sock", &[], UDP_SOCKET_TYPE), req("maxBytes", &[], "Integer")];
+const P_RECV: &[Parameter] = &[
+    req("sock", &[], UDP_SOCKET_TYPE),
+    req("maxBytes", &[], "Integer"),
+];
 const P_SEND: &[Parameter] = &[
     req("sock", &[], UDP_SOCKET_TYPE),
     req("address", &[], ADDRESS_TYPE),
@@ -164,10 +181,25 @@ const OV_CONNECT: &[BuiltinOverload] = &[
 ];
 
 const NET_FUNCTIONS: &[BuiltinFunction] = &[
-    nf(LOOKUP, "lookup", &[ov(P_LOOKUP, "List OF Address")], Implementation::Same),
+    nf(
+        LOOKUP,
+        "lookup",
+        &[ov(P_LOOKUP, "List OF Address")],
+        Implementation::Same,
+    ),
     nf(CONNECT_TCP, "connectTcp", OV_CONNECT, Implementation::Same),
-    nf(LISTEN_TCP, "listenTcp", &[ov(P_LISTEN, LISTENER_TYPE)], Implementation::Same),
-    nf(ACCEPT, "accept", &[ov(P_ACCEPT, SOCKET_TYPE)], Implementation::Same),
+    nf(
+        LISTEN_TCP,
+        "listenTcp",
+        &[ov(P_LISTEN, LISTENER_TYPE)],
+        Implementation::Same,
+    ),
+    nf(
+        ACCEPT,
+        "accept",
+        &[ov(P_ACCEPT, SOCKET_TYPE)],
+        Implementation::Same,
+    ),
     nf(
         POLL,
         "poll",
@@ -178,21 +210,96 @@ const NET_FUNCTIONS: &[BuiltinFunction] = &[
         &[ov(P_POLL, "Boolean"), ov(P_POLL_LIST, SOCKET_TYPE)],
         Implementation::Same,
     ),
-    nf(READ, "read", &[ov(P_READ, "List OF Byte")], Implementation::Same),
-    nf(READ_TEXT, "readText", &[ov(P_READ, "String")], Implementation::Same),
-    nf(WRITE, "write", &[ov(P_WRITE, "Nothing")], Implementation::Same),
-    nf(WRITE_TEXT, "writeText", &[ov(P_WRITE_TEXT, "Nothing")], Implementation::Same),
-    nf(CLOSE, "close", &[ov(P_CLOSE, "Nothing")], Implementation::Same),
-    nf(LOCAL_ADDRESS, "localAddress", &[ov(P_LOCAL_ADDR, ADDRESS_TYPE)], Implementation::Same),
-    nf(REMOTE_ADDRESS, "remoteAddress", &[ov(P_REMOTE_ADDR, ADDRESS_TYPE)], Implementation::Same),
-    nf(SET_READ_TIMEOUT, "setReadTimeout", &[ov(P_TIMEOUT_SET, "Nothing")], Implementation::Same),
-    nf(SET_WRITE_TIMEOUT, "setWriteTimeout", &[ov(P_TIMEOUT_SET, "Nothing")], Implementation::Same),
-    nf(BIND_UDP, "bindUdp", &[ov(P_BIND_UDP, UDP_SOCKET_TYPE)], Implementation::Same),
-    nf(RECEIVE_FROM, "receiveFrom", &[ov(P_RECV, DATAGRAM_TYPE)], Implementation::Same),
-    nf(RECEIVE_TEXT_FROM, "receiveTextFrom", &[ov(P_RECV, DATAGRAM_TEXT_TYPE)], Implementation::Same),
-    nf(SEND_TO, "sendTo", &[ov(P_SEND, "Nothing")], Implementation::Same),
-    nf(SEND_TEXT_TO, "sendTextTo", &[ov(P_SEND_TEXT, "Nothing")], Implementation::Same),
-    nf(TO_URL, "toUrl", &[ov(P_TO_URL, URL_TYPE)], Implementation::Rewrite(INTERNAL_TO_URL)),
+    nf(
+        READ,
+        "read",
+        &[ov(P_READ, "List OF Byte")],
+        Implementation::Same,
+    ),
+    nf(
+        READ_TEXT,
+        "readText",
+        &[ov(P_READ, "String")],
+        Implementation::Same,
+    ),
+    nf(
+        WRITE,
+        "write",
+        &[ov(P_WRITE, "Nothing")],
+        Implementation::Same,
+    ),
+    nf(
+        WRITE_TEXT,
+        "writeText",
+        &[ov(P_WRITE_TEXT, "Nothing")],
+        Implementation::Same,
+    ),
+    nf(
+        CLOSE,
+        "close",
+        &[ov(P_CLOSE, "Nothing")],
+        Implementation::Same,
+    ),
+    nf(
+        LOCAL_ADDRESS,
+        "localAddress",
+        &[ov(P_LOCAL_ADDR, ADDRESS_TYPE)],
+        Implementation::Same,
+    ),
+    nf(
+        REMOTE_ADDRESS,
+        "remoteAddress",
+        &[ov(P_REMOTE_ADDR, ADDRESS_TYPE)],
+        Implementation::Same,
+    ),
+    nf(
+        SET_READ_TIMEOUT,
+        "setReadTimeout",
+        &[ov(P_TIMEOUT_SET, "Nothing")],
+        Implementation::Same,
+    ),
+    nf(
+        SET_WRITE_TIMEOUT,
+        "setWriteTimeout",
+        &[ov(P_TIMEOUT_SET, "Nothing")],
+        Implementation::Same,
+    ),
+    nf(
+        BIND_UDP,
+        "bindUdp",
+        &[ov(P_BIND_UDP, UDP_SOCKET_TYPE)],
+        Implementation::Same,
+    ),
+    nf(
+        RECEIVE_FROM,
+        "receiveFrom",
+        &[ov(P_RECV, DATAGRAM_TYPE)],
+        Implementation::Same,
+    ),
+    nf(
+        RECEIVE_TEXT_FROM,
+        "receiveTextFrom",
+        &[ov(P_RECV, DATAGRAM_TEXT_TYPE)],
+        Implementation::Same,
+    ),
+    nf(
+        SEND_TO,
+        "sendTo",
+        &[ov(P_SEND, "Nothing")],
+        Implementation::Same,
+    ),
+    nf(
+        SEND_TEXT_TO,
+        "sendTextTo",
+        &[ov(P_SEND_TEXT, "Nothing")],
+        Implementation::Same,
+    ),
+    nf(
+        TO_URL,
+        "toUrl",
+        &[ov(P_TO_URL, URL_TYPE)],
+        Implementation::Rewrite(INTERNAL_TO_URL),
+    ),
     nf(
         PERCENT_DECODE,
         "percentDecode",
@@ -811,7 +918,10 @@ mod tests {
     #[test]
     fn implementation_name_to_url_only() {
         assert_eq!(implementation_name(TO_URL), Some(INTERNAL_TO_URL));
-        assert_eq!(implementation_name(PERCENT_DECODE), Some(INTERNAL_PERCENT_DECODE));
+        assert_eq!(
+            implementation_name(PERCENT_DECODE),
+            Some(INTERNAL_PERCENT_DECODE)
+        );
         assert_eq!(implementation_name(PARSE_QUERY), Some(INTERNAL_PARSE_QUERY));
         assert_eq!(implementation_name(LOOKUP), None);
         assert_eq!(implementation_name("net.bogus"), None);
@@ -874,10 +984,18 @@ mod tests {
         // E0716: `nf` takes `&'static [BuiltinOverload]`, so build the slice as a
         // named const rather than a borrowed temporary.
         const OV: &[BuiltinOverload] = &[ov(P_LOOKUP, "List OF Address")];
-        let func = nf(LOOKUP, "lookup", OV, Implementation::Rewrite(INTERNAL_TO_URL));
+        let func = nf(
+            LOOKUP,
+            "lookup",
+            OV,
+            Implementation::Rewrite(INTERNAL_TO_URL),
+        );
         assert_eq!(func.name, LOOKUP);
         assert_eq!(func.doc_slug, "lookup");
-        assert_eq!(func.implementation, Implementation::Rewrite(INTERNAL_TO_URL));
+        assert_eq!(
+            func.implementation,
+            Implementation::Rewrite(INTERNAL_TO_URL)
+        );
         assert_eq!(func.lowering, Lowering::Helper);
         assert_eq!(func.overloads.len(), 1);
         assert!(!func.flags.internal_only);
@@ -912,11 +1030,13 @@ mod tests {
     #[test]
     fn argument_types_remaining_arms() {
         assert_eq!(argument_types(RECEIVE_FROM), Some("UdpSocket, Integer"));
-        assert_eq!(argument_types(RECEIVE_TEXT_FROM), Some("UdpSocket, Integer"));
+        assert_eq!(
+            argument_types(RECEIVE_TEXT_FROM),
+            Some("UdpSocket, Integer")
+        );
         assert_eq!(
             argument_types(SEND_TEXT_TO),
             Some("UdpSocket, Address, String")
         );
     }
-
 }

@@ -1,4 +1,3 @@
-
 use super::descriptor::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, DefaultResolver,
     Implementation, InjectionRule, Parameter, ParameterType, ReturnType,
@@ -153,5 +152,4 @@ mod tests {
         let augmented = augmented_project(&ast).expect("augment");
         assert_eq!(augmented.files.len(), ast.files.len());
     }
-
 }

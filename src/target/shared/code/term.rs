@@ -258,8 +258,18 @@ pub(super) fn lower_term_helper(
         "term.drawVLine" => emit_draw_line(symbol, term_state_offset, false, &mut instructions),
         "term.drawBox" => emit_draw_box(symbol, term_state_offset, &mut instructions),
         "term.fillRect" => emit_fill_rect(symbol, term_state_offset, &mut instructions),
-        "term.drawText" => emit_draw_text(symbol, term_state_offset, &mut instructions),
-        "term.drawGlyph" => emit_draw_glyph(symbol, term_state_offset, &mut instructions),
+        "term.drawText" => emit_draw_text(
+            symbol,
+            term_state_offset,
+            &mut instructions,
+            &mut relocations,
+        ),
+        "term.drawGlyph" => emit_draw_glyph(
+            symbol,
+            term_state_offset,
+            &mut instructions,
+            &mut relocations,
+        ),
         "term.getForeground" => emit_get_color(
             symbol,
             term_state_offset,
@@ -835,6 +845,10 @@ fn emit_stamp_run(
         abi::compare_registers(ctx.pos, ctx.hi),
         abi::branch_gt(&loop_done),
     ]);
+    // plan-70-C: line/box/fill glyphs are all single-width; stamp width 1 into the
+    // cell so the presenter advances one column even over a stale wide-cell width
+    // byte. `tmp` is reused as the constant-1 source across the run.
+    instructions.push(abi::move_immediate(ctx.tmp, "Integer", "1"));
     // Cell index: H → fixed*cols + pos ; V → pos*cols + fixed (`cols` is stride).
     if is_horizontal {
         instructions.extend([
@@ -850,14 +864,69 @@ fn emit_stamp_run(
     instructions.extend([
         abi::shift_left_immediate(ctx.idx, ctx.idx, 4), // * CELL_SIZE (16)
         abi::add_registers(ctx.cell, ctx.back, ctx.idx),
+    ]);
+    // plan-70-C Phase 2: clear the paired half of any wide glyph this run cell
+    // overwrites. The cell's column is `pos` for a horizontal run, `fixed` for a
+    // vertical one.
+    let run_col = if is_horizontal { ctx.pos } else { fixed };
+    emit_clear_wide_pair(ctx, ctx.cell, run_col, &format!("{tag}_run"), instructions);
+    instructions.extend([
         abi::store_u32(glyph, ctx.cell, term_grid::C_GLYPH),
         abi::store_u32(ctx.fg, ctx.cell, term_grid::C_FG),
         abi::store_u32(ctx.bg, ctx.cell, term_grid::C_BG),
         abi::store_u8(ctx.bold, ctx.cell, term_grid::C_BOLD),
         abi::store_u8(ctx.un, ctx.cell, term_grid::C_UN),
+        abi::store_u8(ctx.tmp, ctx.cell, term_grid::C_WIDTH),
         abi::add_immediate(ctx.pos, ctx.pos, 1),
         abi::branch(&loop_top),
         abi::label(&loop_done),
+    ]);
+}
+
+/// plan-70-C: before overwriting the on-grid cell at address `cell` / column
+/// `col`, clear the OTHER half of any wide glyph this cell is part of, so no
+/// orphaned half-glyph remains. If the cell is a `WIDE_TRAIL`, blank the primary
+/// to its left (col-1); if it is a wide primary (stored width 2), blank the trail
+/// to its right (col+1). Blanking = glyph 0 (a space) + width 1, attributes kept.
+/// Uses `ctx.idx` and `ctx.lo` as scratch — both dead at every call site (the
+/// cell address is already in `ctx.cell`; `lo` is a spent span bound).
+fn emit_clear_wide_pair(
+    ctx: &StampCtx,
+    cell: &str,
+    col: &str,
+    tag: &str,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    let after = format!("{tag}_cwp_after");
+    let not_trail = format!("{tag}_cwp_nt");
+    instructions.extend([
+        abi::load_u32(ctx.lo, cell, term_grid::C_GLYPH),
+        abi::move_immediate(ctx.idx, "Integer", term_grid::WIDE_TRAIL),
+        abi::compare_registers(ctx.lo, ctx.idx),
+        abi::branch_ne(&not_trail),
+        // Trailing sentinel: clear the primary to the left (if any).
+        abi::compare_immediate(col, "0"),
+        abi::branch_le(&after),
+        abi::subtract_immediate(ctx.idx, cell, term_grid::CELL_SIZE),
+        abi::move_immediate(ctx.lo, "Integer", "0"),
+        abi::store_u32(ctx.lo, ctx.idx, term_grid::C_GLYPH),
+        abi::move_immediate(ctx.lo, "Integer", "1"),
+        abi::store_u8(ctx.lo, ctx.idx, term_grid::C_WIDTH),
+        abi::branch(&after),
+        abi::label(&not_trail),
+        // Wide primary (width 2): clear the trailing sentinel to the right.
+        abi::load_u8(ctx.lo, cell, term_grid::C_WIDTH),
+        abi::compare_immediate(ctx.lo, "2"),
+        abi::branch_ne(&after),
+        abi::add_immediate(ctx.idx, col, 1),
+        abi::compare_registers(ctx.idx, ctx.cols),
+        abi::branch_ge(&after),
+        abi::add_immediate(ctx.idx, cell, term_grid::CELL_SIZE),
+        abi::move_immediate(ctx.lo, "Integer", "0"),
+        abi::store_u32(ctx.lo, ctx.idx, term_grid::C_GLYPH),
+        abi::move_immediate(ctx.lo, "Integer", "1"),
+        abi::store_u8(ctx.lo, ctx.idx, term_grid::C_WIDTH),
+        abi::label(&after),
     ]);
 }
 
@@ -869,6 +938,8 @@ fn emit_stamp_cell(
     row: &str,
     col: &str,
     glyph: &str,
+    width: &str,
+    tag: &str,
     skip: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
@@ -885,11 +956,19 @@ fn emit_stamp_cell(
         abi::add_registers(ctx.idx, ctx.idx, col),
         abi::shift_left_immediate(ctx.idx, ctx.idx, 4),
         abi::add_registers(ctx.cell, ctx.back, ctx.idx),
+    ]);
+    // plan-70-C Phase 2: clear the paired half of any wide glyph this cell was
+    // part of, before overwriting it, so no orphaned half-glyph remains.
+    emit_clear_wide_pair(ctx, ctx.cell, col, tag, instructions);
+    instructions.extend([
         abi::store_u32(glyph, ctx.cell, term_grid::C_GLYPH),
         abi::store_u32(ctx.fg, ctx.cell, term_grid::C_FG),
         abi::store_u32(ctx.bg, ctx.cell, term_grid::C_BG),
         abi::store_u8(ctx.bold, ctx.cell, term_grid::C_BOLD),
         abi::store_u8(ctx.un, ctx.cell, term_grid::C_UN),
+        // plan-70-C: record the cluster width so the presenter advances correctly
+        // (and never inherits a stale width byte from a prior wide occupant).
+        abi::store_u8(width, ctx.cell, term_grid::C_WIDTH),
     ]);
 }
 
@@ -921,8 +1000,16 @@ fn emit_load_grid(
         abi::load_u64(rows, gp, 0),
         abi::load_u64(cols, gp, 8),
         abi::add_immediate(back, gp, term_grid::HDR_SIZE),
-        abi::load_u64(fg, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_FG_OFFSET),
-        abi::load_u64(bg, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_BG_OFFSET),
+        abi::load_u64(
+            fg,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_FG_OFFSET,
+        ),
+        abi::load_u64(
+            bg,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_BG_OFFSET,
+        ),
         abi::load_u64(
             bold,
             ARENA_STATE_REGISTER,
@@ -1009,7 +1096,13 @@ fn emit_draw_line(
     } else {
         &TERM_VLINE_CODEPOINTS
     };
-    emit_select_glyph(ord, glyph, table, &format!("{symbol}_dl_glyph"), instructions);
+    emit_select_glyph(
+        ord,
+        glyph,
+        table,
+        &format!("{symbol}_dl_glyph"),
+        instructions,
+    );
     emit_stamp_run(
         &ctx,
         is_horizontal,
@@ -1038,11 +1131,7 @@ fn emit_draw_line(
 /// edge and corner is clamped independently, so a box partly off the grid draws
 /// the visible part; a fully off-grid box draws nothing. Shown on the next
 /// `term::sync`; a no-op while TUI mode is off.
-fn emit_draw_box(
-    symbol: &str,
-    term_state_offset: usize,
-    instructions: &mut Vec<CodeInstruction>,
-) {
+fn emit_draw_box(symbol: &str, term_state_offset: usize, instructions: &mut Vec<CodeInstruction>) {
     let inactive = format!("{symbol}_inactive");
     let ord = "%v9";
     let ax1 = "%v10";
@@ -1125,12 +1214,48 @@ fn emit_draw_box(
         abi::label(&y_ok),
     ]);
     // Resolve the edge glyphs (this style's H/V forms) and the four corner glyphs.
-    emit_select_glyph(ord, hglyph, &TERM_HLINE_CODEPOINTS, &format!("{symbol}_box_h"), instructions);
-    emit_select_glyph(ord, vglyph, &TERM_VLINE_CODEPOINTS, &format!("{symbol}_box_v"), instructions);
-    emit_select_glyph(ord, ctl, &TERM_CORNER_TL_CODEPOINTS, &format!("{symbol}_box_tl"), instructions);
-    emit_select_glyph(ord, ctr, &TERM_CORNER_TR_CODEPOINTS, &format!("{symbol}_box_tr"), instructions);
-    emit_select_glyph(ord, cbl, &TERM_CORNER_BL_CODEPOINTS, &format!("{symbol}_box_bl"), instructions);
-    emit_select_glyph(ord, cbr, &TERM_CORNER_BR_CODEPOINTS, &format!("{symbol}_box_br"), instructions);
+    emit_select_glyph(
+        ord,
+        hglyph,
+        &TERM_HLINE_CODEPOINTS,
+        &format!("{symbol}_box_h"),
+        instructions,
+    );
+    emit_select_glyph(
+        ord,
+        vglyph,
+        &TERM_VLINE_CODEPOINTS,
+        &format!("{symbol}_box_v"),
+        instructions,
+    );
+    emit_select_glyph(
+        ord,
+        ctl,
+        &TERM_CORNER_TL_CODEPOINTS,
+        &format!("{symbol}_box_tl"),
+        instructions,
+    );
+    emit_select_glyph(
+        ord,
+        ctr,
+        &TERM_CORNER_TR_CODEPOINTS,
+        &format!("{symbol}_box_tr"),
+        instructions,
+    );
+    emit_select_glyph(
+        ord,
+        cbl,
+        &TERM_CORNER_BL_CODEPOINTS,
+        &format!("{symbol}_box_bl"),
+        instructions,
+    );
+    emit_select_glyph(
+        ord,
+        cbr,
+        &TERM_CORNER_BR_CODEPOINTS,
+        &format!("{symbol}_box_br"),
+        instructions,
+    );
     // Four edges (each clamped/skipped independently), then four corners on top.
     // top: row ylo, cols xlo..xhi ; bottom: row yhi.
     let edges: &[(bool, &str, &str, &str, &str, &str)] = &[
@@ -1160,9 +1285,11 @@ fn emit_draw_box(
         (yhi, xlo, cbl, "cBL"),
         (yhi, xhi, cbr, "cBR"),
     ];
+    // Box corners are single-width box-drawing glyphs (plan-70-C: pass width 1).
+    instructions.push(abi::move_immediate(ctx.tmp, "Integer", "1"));
     for (row, col, glyph, tag) in corners {
         let skip = format!("{symbol}_box_{tag}_skip");
-        emit_stamp_cell(&ctx, row, col, glyph, &skip, instructions);
+        emit_stamp_cell(&ctx, row, col, glyph, ctx.tmp, &skip, &skip, instructions);
         instructions.push(abi::label(&skip));
     }
     instructions.push(abi::label(&inactive));
@@ -1179,11 +1306,7 @@ fn emit_draw_box(
 /// horizontal run per row (reusing the line stamper), so the region clamps to the
 /// grid the same way; a fully off-grid rectangle fills nothing. Shown on the next
 /// `term::sync`; a no-op while TUI mode is off.
-fn emit_fill_rect(
-    symbol: &str,
-    term_state_offset: usize,
-    instructions: &mut Vec<CodeInstruction>,
-) {
+fn emit_fill_rect(symbol: &str, term_state_offset: usize, instructions: &mut Vec<CodeInstruction>) {
     let inactive = format!("{symbol}_inactive");
     let ord = "%v9";
     let ax1 = "%v10";
@@ -1407,6 +1530,7 @@ fn emit_draw_glyph(
     symbol: &str,
     term_state_offset: usize,
     instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
 ) {
     let inactive = format!("{symbol}_inactive");
     let x = "%v9";
@@ -1436,6 +1560,16 @@ fn emit_draw_glyph(
         pos: "%v25",
         tmp: "%v26",
     };
+    // plan-70-C width path.
+    let width = "%v30";
+    let prop = "%v31";
+    let wa = "%v32";
+    let wb = "%v33";
+    let wc = "%v34";
+    let trailc = "%v35";
+    let trailglyph = "%v36";
+    let after_trail = format!("{symbol}_dg_aftertrail");
+    let w_have = format!("{symbol}_dg_whave");
 
     emit_gate_inactive(term_state_offset, &inactive, instructions);
     instructions.extend([
@@ -1468,7 +1602,62 @@ fn emit_draw_glyph(
         &format!("{symbol}_dg_enc"),
         instructions,
     );
-    emit_stamp_cell(&ctx, y, x, glyph, &inactive, instructions);
+    // plan-70-C: a single glyph is one scalar (one cluster), so just its width. A
+    // width-2 glyph reserves a WIDE_TRAIL neighbor at x+1; a zero-width glyph
+    // (a lone combining mark) falls back to width 1.
+    super::private::unicode::emit_unicode_property_ptr_free(
+        symbol,
+        &format!("{symbol}_dg_pp"),
+        cp,
+        prop,
+        wa,
+        instructions,
+        relocations,
+    );
+    super::private::unicode::emit_read_boundclass_icb_charwidth_free(
+        prop,
+        wa,
+        wb,
+        width,
+        wc,
+        instructions,
+    );
+    instructions.extend([
+        abi::compare_immediate(width, "0"),
+        abi::branch_ne(&w_have),
+        abi::move_immediate(width, "Integer", "1"),
+        abi::label(&w_have),
+    ]);
+    emit_stamp_cell(
+        &ctx,
+        y,
+        x,
+        glyph,
+        width,
+        &format!("{symbol}_dgp"),
+        &inactive,
+        instructions,
+    );
+    instructions.extend([
+        // Wide glyph: stamp the wide-trailing sentinel at x+1 (clipped by
+        // emit_stamp_cell if off the right edge).
+        abi::compare_immediate(width, "2"),
+        abi::branch_ne(&after_trail),
+        abi::add_immediate(trailc, x, 1),
+        abi::move_immediate(trailglyph, "Integer", term_grid::WIDE_TRAIL),
+        abi::move_immediate(wa, "Integer", "0"),
+    ]);
+    emit_stamp_cell(
+        &ctx,
+        y,
+        trailc,
+        trailglyph,
+        wa,
+        &format!("{symbol}_dgt"),
+        &after_trail,
+        instructions,
+    );
+    instructions.push(abi::label(&after_trail));
     instructions.push(abi::label(&inactive));
     instructions.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
@@ -1487,6 +1676,7 @@ fn emit_draw_text(
     symbol: &str,
     term_state_offset: usize,
     instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
 ) {
     let inactive = format!("{symbol}_inactive");
     let x = "%v9";
@@ -1522,6 +1712,30 @@ fn emit_draw_text(
         pos: "%v31",
         tmp: "%v32",
     };
+    // plan-70-C cluster walk + EGC pool + wide handling (mirrors emit_grid_write).
+    let cp = "%v33";
+    let width = "%v34";
+    let prop = "%v35";
+    let sbc = "%v36";
+    let sicb = "%v37";
+    let clen = "%v38";
+    let pptr = "%v39";
+    let pb0 = "%v40";
+    let plen = "%v41";
+    let pcp = "%v42";
+    let pprop = "%v43";
+    let pbc = "%v44";
+    let picb = "%v45";
+    let pwidth = "%v46";
+    let sa = "%v47";
+    let sb = "%v48";
+    let sc = "%v49";
+    let sd = "%v50";
+    let poolbase = "%v51";
+    let poolslot = "%v52";
+    let ncells = "%v53";
+    let trailc = "%v54";
+    let trailg = "%v55";
     let loop_top = format!("{symbol}_dt_loop");
     let advance = format!("{symbol}_dt_adv");
     let skip_ctrl = format!("{symbol}_dt_ctrl");
@@ -1530,6 +1744,18 @@ fn emit_draw_text(
     let clamp = format!("{symbol}_dt_clamp");
     let pack = format!("{symbol}_dt_pack");
     let cellw = format!("{symbol}_dt_cellw");
+    let peek_top = format!("{symbol}_dt_peek");
+    let peek_done = format!("{symbol}_dt_peekdone");
+    let peek_nb = format!("{symbol}_dt_peeknb");
+    let peek_l2 = format!("{symbol}_dt_pl2");
+    let peek_l3 = format!("{symbol}_dt_pl3");
+    let peek_clamp = format!("{symbol}_dt_pclamp");
+    let peek_hlen = format!("{symbol}_dt_phlen");
+    let peek_wok = format!("{symbol}_dt_pwok");
+    let w_have = format!("{symbol}_dt_whave");
+    let store_inline = format!("{symbol}_dt_inline");
+    let pool_copy_loop = format!("{symbol}_dt_pcopy");
+    let pool_copy_done = format!("{symbol}_dt_pcopydone");
 
     emit_gate_inactive(term_state_offset, &inactive, instructions);
     instructions.extend([
@@ -1609,13 +1835,208 @@ fn emit_draw_text(
         abi::or_registers(glyph, glyph, t),
         abi::label(&cellw),
     ]);
-    // Stamp at (y, col) when on the grid (col < 0 is skipped, still advancing).
-    emit_stamp_cell(&ctx, y, col, glyph, &advance, instructions);
+    // Base scalar → codepoint → boundclass/icb/charwidth; then fold following
+    // non-breaking scalars into the cluster (plan-70-C, mirrors emit_grid_write).
+    super::private::unicode::emit_utf8_codepoint_by_len(
+        &format!("{symbol}_dtd"),
+        ptr,
+        len,
+        b0,
+        cp,
+        sa,
+        sb,
+        instructions,
+    );
+    super::private::unicode::emit_unicode_property_ptr_free(
+        symbol,
+        &format!("{symbol}_dtb"),
+        cp,
+        prop,
+        sa,
+        instructions,
+        relocations,
+    );
+    super::private::unicode::emit_read_boundclass_icb_charwidth_free(
+        prop,
+        sbc,
+        sicb,
+        width,
+        sa,
+        instructions,
+    );
+    instructions.push(abi::move_register(clen, len));
+    instructions.push(abi::label(&peek_top));
+    instructions.extend([
+        abi::subtract_registers(sc, rem, clen),
+        abi::compare_immediate(sc, "0"),
+        abi::branch_eq(&peek_done),
+        abi::add_registers(pptr, ptr, clen),
+        abi::load_u8(pb0, pptr, 0),
+        abi::compare_immediate(pb0, "32"),
+        abi::branch_lt(&peek_done),
+        abi::move_immediate(plen, "Integer", "1"),
+        abi::compare_immediate(pb0, "128"),
+        abi::branch_lo(&peek_hlen),
+        abi::compare_immediate(pb0, "224"),
+        abi::branch_lo(&peek_l2),
+        abi::compare_immediate(pb0, "240"),
+        abi::branch_lo(&peek_l3),
+        abi::move_immediate(plen, "Integer", "4"),
+        abi::branch(&peek_clamp),
+        abi::label(&peek_l2),
+        abi::move_immediate(plen, "Integer", "2"),
+        abi::branch(&peek_clamp),
+        abi::label(&peek_l3),
+        abi::move_immediate(plen, "Integer", "3"),
+        abi::label(&peek_clamp),
+        abi::compare_registers(plen, sc),
+        abi::branch_ls(&peek_hlen),
+        abi::move_immediate(plen, "Integer", "1"),
+        abi::label(&peek_hlen),
+        abi::add_registers(sc, clen, plen),
+        abi::move_immediate(sd, "Integer", &term_grid::POOL_BYTES_PER_CELL.to_string()),
+        abi::compare_registers(sc, sd),
+        abi::branch_hi(&peek_done),
+    ]);
+    super::private::unicode::emit_utf8_codepoint_by_len(
+        &format!("{symbol}_dtpd"),
+        pptr,
+        plen,
+        pb0,
+        pcp,
+        sa,
+        sb,
+        instructions,
+    );
+    super::private::unicode::emit_unicode_property_ptr_free(
+        symbol,
+        &format!("{symbol}_dtpl"),
+        pcp,
+        pprop,
+        sa,
+        instructions,
+        relocations,
+    );
+    super::private::unicode::emit_read_boundclass_icb_charwidth_free(
+        pprop,
+        pbc,
+        picb,
+        pwidth,
+        sa,
+        instructions,
+    );
+    super::private::unicode::emit_grapheme_break_branch_free(
+        &format!("{symbol}_dtpb"),
+        sbc,
+        sicb,
+        pbc,
+        picb,
+        &peek_done,
+        &peek_nb,
+        instructions,
+    );
+    instructions.push(abi::label(&peek_nb));
+    instructions.extend([
+        abi::add_registers(clen, clen, plen),
+        abi::compare_immediate(width, "0"),
+        abi::branch_ne(&peek_wok),
+        abi::move_register(width, pwidth),
+        abi::label(&peek_wok),
+    ]);
+    super::private::unicode::emit_grapheme_state_update_free(
+        &format!("{symbol}_dtps"),
+        sbc,
+        sicb,
+        pbc,
+        picb,
+        instructions,
+    );
+    instructions.push(abi::branch(&peek_top));
+    instructions.push(abi::label(&peek_done));
+    instructions.extend([
+        // A lone zero-width cluster still takes one cell / one column.
+        abi::compare_immediate(width, "0"),
+        abi::branch_ne(&w_have),
+        abi::move_immediate(width, "Integer", "1"),
+        abi::label(&w_have),
+        // Clip a wide cluster that would exceed the right edge: drop it and stop
+        // the run (never split a wide glyph across the edge).
+        abi::compare_immediate(width, "2"),
+        abi::branch_ne(&format!("{symbol}_dt_afterclip")),
+        abi::add_immediate(sa, col, 1),
+        abi::compare_registers(sa, cols),
+        abi::branch_lo(&format!("{symbol}_dt_afterclip")),
+        abi::branch(&inactive),
+        abi::label(&format!("{symbol}_dt_afterclip")),
+        // Glyph: inline single scalar, else pooled into the on-grid cell's slot.
+        abi::compare_registers(clen, len),
+        abi::branch_eq(&store_inline),
+        abi::move_immediate(glyph, "Integer", &term_grid::GLYPH_POOLED_TAG.to_string()),
+        abi::or_registers(glyph, glyph, clen),
+        abi::compare_immediate(col, "0"),
+        abi::branch_lt(&store_inline),
+        // pool_base = gp + HDR + ncells*(2*CELL+OUTBUF); slot = pool_base + (y*cols+col)*POOL
+        abi::multiply_registers(ncells, rows, cols),
+        abi::move_immediate(
+            sa,
+            "Integer",
+            &(2 * term_grid::CELL_SIZE + term_grid::OUTBUF_PER_CELL).to_string(),
+        ),
+        abi::multiply_registers(sa, ncells, sa),
+        abi::add_immediate(sa, sa, term_grid::HDR_SIZE),
+        abi::add_registers(poolbase, gp, sa),
+        abi::multiply_registers(sa, y, cols),
+        abi::add_registers(sa, sa, col),
+        abi::move_immediate(sc, "Integer", &term_grid::POOL_BYTES_PER_CELL.to_string()),
+        abi::multiply_registers(sc, sa, sc),
+        abi::add_registers(poolslot, poolbase, sc),
+        abi::move_immediate(sc, "Integer", "0"),
+        abi::label(&pool_copy_loop),
+        abi::compare_registers(sc, clen),
+        abi::branch_ge(&pool_copy_done),
+        abi::add_registers(sd, ptr, sc),
+        abi::load_u8(sa, sd, 0),
+        abi::add_registers(sd, poolslot, sc),
+        abi::store_u8(sa, sd, 0),
+        abi::add_immediate(sc, sc, 1),
+        abi::branch(&pool_copy_loop),
+        abi::label(&pool_copy_done),
+        abi::label(&store_inline),
+    ]);
+    // Stamp the primary at (y, col) — off-grid (col<0 or off-row) skips to advance.
+    emit_stamp_cell(
+        &ctx,
+        y,
+        col,
+        glyph,
+        width,
+        &format!("{symbol}_dtp"),
+        &advance,
+        instructions,
+    );
+    instructions.extend([
+        // Wide glyph: stamp the wide-trailing sentinel at col+1.
+        abi::compare_immediate(width, "2"),
+        abi::branch_ne(&advance),
+        abi::add_immediate(trailc, col, 1),
+        abi::move_immediate(trailg, "Integer", term_grid::WIDE_TRAIL),
+        abi::move_immediate(sa, "Integer", "0"),
+    ]);
+    emit_stamp_cell(
+        &ctx,
+        y,
+        trailc,
+        trailg,
+        sa,
+        &format!("{symbol}_dtt"),
+        &advance,
+        instructions,
+    );
     instructions.extend([
         abi::label(&advance),
-        abi::add_immediate(col, col, 1),
-        abi::add_registers(ptr, ptr, len),
-        abi::subtract_registers(rem, rem, len),
+        abi::add_registers(col, col, width),
+        abi::add_registers(ptr, ptr, clen),
+        abi::subtract_registers(rem, rem, clen),
         abi::branch(&loop_top),
         // Control character: advance one column and one byte without stamping.
         abi::label(&skip_ctrl),

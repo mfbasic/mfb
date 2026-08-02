@@ -77,13 +77,13 @@ use builder_collection_layout::{
     list_element_is_fixed_width, list_entry_stride, push_collection_data_base_from_capacity,
     recursive_transfer_types, thread_copy_symbol, type_participates_in_cycle,
 };
+mod app;
 mod builder_collection_queries;
 mod builder_collection_query;
 mod builder_control;
 mod builder_conversions;
 mod builder_emit_helpers;
 mod builder_fixed_math;
-mod app;
 mod builder_fmod;
 mod builder_fs_paths;
 mod builder_inplace_assign;
@@ -116,9 +116,9 @@ pub(crate) mod link_locator;
 mod link_thunk;
 mod list_mutate;
 mod map_mutate;
-mod perf;
 mod net;
 mod os;
+mod perf;
 mod private;
 mod simd_kernel_coeffs;
 mod term;
@@ -1780,420 +1780,464 @@ fn lower_runtime_helper(
     // (frame, instructions, relocations, stack_slots) tuple each arm computes.
     // Build that tuple here, then construct the single CodeFunction after the
     // match (the shape the net.*/tls.* inner-match arms already used).
-    let (frame, mut instructions, mut relocations, stack_slots) = if builtins::term::is_term_call(
-        spec.call,
-    ) {
-        let term_state_offset = term_state_offset.ok_or_else(|| {
-            format!("native code plan emits '{symbol}' without reserving term state")
-        })?;
-        // App mode drives the synthesized TermView surface (plan-01-term.md §6.3):
-        // `emit_app_term_helper` now dispatches EVERY term:: helper — the mode
-        // toggle plus clear/sync/moveTo/color/attr/cursor/size — to the platform's
-        // app backend (Phase 5 landed on every app platform). It falls through to
-        // the shared console backend below only in non-app builds.
-        let app_term_helper = if app_mode {
-            platform.emit_app_term_helper(spec.call, symbol, term_state_offset)
-        } else {
-            None
-        };
-        match app_term_helper {
-            Some(result) => {
-                // plan-62-E: every app-mode `term::` helper (including `on`) is gated
-                // on the `Console` presentation mode — outside it, `term::` raises the
-                // trappable `ErrWrongMode` before touching the (absent) grid. No-op
-                // when the program cannot leave `Console` (`presentation_mode_offset`
-                // is `None`), so a program that never uses `app::` is unchanged.
-                let mut body = pad_no_slots(result?);
-                app::prepend_wrong_mode_gate(
-                    &mut body.1,
-                    &mut body.2,
+    let (frame, mut instructions, mut relocations, stack_slots) =
+        if builtins::term::is_term_call(spec.call) {
+            let term_state_offset = term_state_offset.ok_or_else(|| {
+                format!("native code plan emits '{symbol}' without reserving term state")
+            })?;
+            // App mode drives the synthesized TermView surface (plan-01-term.md §6.3):
+            // `emit_app_term_helper` now dispatches EVERY term:: helper — the mode
+            // toggle plus clear/sync/moveTo/color/attr/cursor/size — to the platform's
+            // app backend (Phase 5 landed on every app platform). It falls through to
+            // the shared console backend below only in non-app builds.
+            let app_term_helper = if app_mode {
+                platform.emit_app_term_helper(spec.call, symbol, term_state_offset)
+            } else {
+                None
+            };
+            match app_term_helper {
+                Some(result) => {
+                    // plan-62-E: every app-mode `term::` helper (including `on`) is gated
+                    // on the `Console` presentation mode — outside it, `term::` raises the
+                    // trappable `ErrWrongMode` before touching the (absent) grid. No-op
+                    // when the program cannot leave `Console` (`presentation_mode_offset`
+                    // is `None`), so a program that never uses `app::` is unchanged.
+                    let mut body = pad_no_slots(result?);
+                    app::prepend_wrong_mode_gate(
+                        &mut body.1,
+                        &mut body.2,
+                        symbol,
+                        arena_layout.presentation_mode_offset,
+                    );
+                    body
+                }
+                None => term::lower_term_helper(
+                    spec.call,
                     symbol,
-                    arena_layout.presentation_mode_offset,
-                );
-                body
+                    term_state_offset,
+                    platform_imports,
+                    platform,
+                )?,
             }
-            None => term::lower_term_helper(
-                spec.call,
-                symbol,
-                term_state_offset,
-                platform_imports,
-                platform,
-            )?,
-        }
-    } else if crypto_ec::ec_call(spec.call).is_some() {
-        crypto_ec::lower_crypto_ec_helper(spec.call, symbol, platform_imports, platform)?
-    } else {
-        match spec.call {
-            "app.getMode" | "app.setMode" => {
-                // plan-62-B: state read/write off the per-arena presentation-mode
-                // slot; setMode additionally calls the (no-op in B) per-backend
-                // surface-reconcile seam. App builds only — the slot is reserved
-                // only when `is_app()`, so its absence here is an internal error.
-                let presentation_mode_offset =
-                    arena_layout.presentation_mode_offset.ok_or_else(|| {
-                        format!(
-                            "native code plan emits '{symbol}' without reserving the \
+        } else if crypto_ec::ec_call(spec.call).is_some() {
+            crypto_ec::lower_crypto_ec_helper(spec.call, symbol, platform_imports, platform)?
+        } else {
+            match spec.call {
+                "app.getMode" | "app.setMode" => {
+                    // plan-62-B: state read/write off the per-arena presentation-mode
+                    // slot; setMode additionally calls the (no-op in B) per-backend
+                    // surface-reconcile seam. App builds only — the slot is reserved
+                    // only when `is_app()`, so its absence here is an internal error.
+                    let presentation_mode_offset =
+                        arena_layout.presentation_mode_offset.ok_or_else(|| {
+                            format!(
+                                "native code plan emits '{symbol}' without reserving the \
                              presentation-mode slot"
-                        )
-                    })?;
-                app::lower_app_helper(spec.call, symbol, presentation_mode_offset, platform)?
-            }
-            "crypto.randomBytes" => {
-                crypto::lower_crypto_random_bytes_helper(symbol, platform_imports, platform)?
-            }
-            "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
-                datetime::lower_datetime_helper(spec.call, symbol, platform_imports, platform)?
-            }
-            // plan-67-B: internal perf-tracking helpers (injected, never NIR-level).
-            "perf.init" | "perf.start" | "perf.end" | "perf.done" => {
-                perf::lower_perf_helper(spec.call, symbol, platform_imports, platform)?
-            }
-            call if builtins::os::is_os_call(call) => os::lower_os_helper(
-                spec.call,
-                symbol,
-                build_mode,
-                module_name,
-                platform_imports,
-                platform,
-            )?,
-            call if call.starts_with("io.") || call.starts_with("fs.") => match call {
-                "io.print" | "io.write" | "io.printError" | "io.writeError" => {
-                    let stderr = matches!(spec.call, "io.printError" | "io.writeError");
-                    let newline = matches!(spec.call, "io.print" | "io.printError");
-                    // App mode routes io output to the AppKit transcript window
-                    // (plan-04-macos-app.md §5.4) instead of a file descriptor.
-                    if app_mode {
-                        pad_no_slots(
-                            platform
-                                .emit_app_io_write_helper(
-                                    symbol,
-                                    stderr,
-                                    newline,
-                                    term_state_offset,
-                                    platform_imports,
-                                )
-                                .ok_or_else(|| {
+                            )
+                        })?;
+                    app::lower_app_helper(spec.call, symbol, presentation_mode_offset, platform)?
+                }
+                "crypto.randomBytes" => {
+                    crypto::lower_crypto_random_bytes_helper(symbol, platform_imports, platform)?
+                }
+                "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
+                    datetime::lower_datetime_helper(spec.call, symbol, platform_imports, platform)?
+                }
+                // plan-67-B: internal perf-tracking helpers (injected, never NIR-level).
+                "perf.init" | "perf.start" | "perf.end" | "perf.done" => {
+                    perf::lower_perf_helper(spec.call, symbol, platform_imports, platform)?
+                }
+                call if builtins::os::is_os_call(call) => os::lower_os_helper(
+                    spec.call,
+                    symbol,
+                    build_mode,
+                    module_name,
+                    platform_imports,
+                    platform,
+                )?,
+                call if call.starts_with("io.") || call.starts_with("fs.") => match call {
+                    "io.print" | "io.write" | "io.printError" | "io.writeError" => {
+                        let stderr = matches!(spec.call, "io.printError" | "io.writeError");
+                        let newline = matches!(spec.call, "io.print" | "io.printError");
+                        // App mode routes io output to the AppKit transcript window
+                        // (plan-04-macos-app.md §5.4) instead of a file descriptor.
+                        if app_mode {
+                            pad_no_slots(
+                                platform
+                                    .emit_app_io_write_helper(
+                                        symbol,
+                                        stderr,
+                                        newline,
+                                        term_state_offset,
+                                        platform_imports,
+                                    )
+                                    .ok_or_else(|| {
+                                        format!(
+                                        "native target '{}' does not support app-mode io helpers",
+                                        platform.target()
+                                    )
+                                    })??,
+                            )
+                        } else {
+                            lower_io_write_helper(
+                                symbol,
+                                platform_imports,
+                                platform,
+                                stderr,
+                                newline,
+                                term_state_offset,
+                            )?
+                        }
+                    }
+                    "io.flush" => {
+                        // App-mode transcript writes are synchronous (each io write blocks on
+                        // the main thread via performSelectorOnMainThread), so output is
+                        // already visible; flush succeeds immediately (plan §5.4).
+                        if app_mode {
+                            pad_no_slots(platform.emit_app_io_flush_helper(symbol).ok_or_else(
+                                || {
                                     format!(
                                         "native target '{}' does not support app-mode io helpers",
                                         platform.target()
                                     )
-                                })??,
-                        )
-                    } else {
-                        lower_io_write_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            stderr,
-                            newline,
-                            term_state_offset,
-                        )?
+                                },
+                            )??)
+                        } else {
+                            lower_io_flush_helper(symbol, platform_imports, platform)?
+                        }
                     }
-                }
-                "io.flush" => {
-                    // App-mode transcript writes are synchronous (each io write blocks on
-                    // the main thread via performSelectorOnMainThread), so output is
-                    // already visible; flush succeeds immediately (plan §5.4).
-                    if app_mode {
-                        pad_no_slots(platform.emit_app_io_flush_helper(symbol).ok_or_else(
-                            || {
-                                format!(
-                                    "native target '{}' does not support app-mode io helpers",
-                                    platform.target()
-                                )
-                            },
-                        )??)
-                    } else {
-                        lower_io_flush_helper(symbol, platform_imports, platform)?
+                    "io.isBuffered" => lower_io_is_buffered_helper(symbol, app_mode)?,
+                    "io.setBuffered" => lower_io_set_buffered_helper(symbol, app_mode)?,
+                    "io.pollInput" => {
+                        lower_io_poll_input_helper(symbol, platform_imports, platform, app_mode)?
                     }
-                }
-                "io.isBuffered" => lower_io_is_buffered_helper(symbol, app_mode)?,
-                "io.setBuffered" => lower_io_set_buffered_helper(symbol, app_mode)?,
-                "io.pollInput" => {
-                    lower_io_poll_input_helper(symbol, platform_imports, platform, app_mode)?
-                }
-                "io.input" | "io.readLine" => {
-                    // App-mode io.input writes its prompt to the transcript (via io.write)
-                    // then reads a line (via io.readLine); io.readLine itself is the
-                    // unchanged console helper, which reads fd 0 — the window input pipe
-                    // in app mode (plan §5.4). All other read helpers are likewise
-                    // unchanged and read the pipe.
-                    if app_mode && spec.call == "io.input" {
-                        pad_no_slots(platform.emit_app_io_input_helper(symbol).ok_or_else(
-                            || {
-                                format!(
-                                    "native target '{}' does not support app-mode io helpers",
-                                    platform.target()
-                                )
-                            },
-                        )??)
-                    } else {
-                        lower_io_read_line_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            spec.call == "io.input",
-                            app_mode,
-                            // bug-149: only a console build that also uses `term::`
-                            // brackets the line read with a cooked-mode restore.
-                            if app_mode { None } else { term_state_offset },
-                        )?
-                    }
-                }
-                "io.readChar" => {
-                    lower_io_read_char_helper(symbol, platform_imports, platform, app_mode)?
-                }
-                "io.readByte" => {
-                    lower_io_read_byte_helper(symbol, platform_imports, platform, app_mode)?
-                }
-                "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
-                    let fd = match spec.call {
-                        "io.isInputTerminal" => 0,
-                        "io.isOutputTerminal" => 1,
-                        "io.isErrorTerminal" => 2,
-                        _ => unreachable!(),
-                    };
-                    // App mode: the window is the interactive console, so these return
-                    // TRUE rather than probing a file descriptor (plan §5.4).
-                    if app_mode {
-                        pad_no_slots(
-                            platform
-                                .emit_app_io_is_terminal_helper(symbol)
-                                .ok_or_else(|| {
+                    "io.input" | "io.readLine" => {
+                        // App-mode io.input writes its prompt to the transcript (via io.write)
+                        // then reads a line (via io.readLine); io.readLine itself is the
+                        // unchanged console helper, which reads fd 0 — the window input pipe
+                        // in app mode (plan §5.4). All other read helpers are likewise
+                        // unchanged and read the pipe.
+                        if app_mode && spec.call == "io.input" {
+                            pad_no_slots(platform.emit_app_io_input_helper(symbol).ok_or_else(
+                                || {
                                     format!(
                                         "native target '{}' does not support app-mode io helpers",
                                         platform.target()
                                     )
-                                })??,
-                        )
-                    } else {
-                        lower_io_is_terminal_helper(symbol, platform_imports, platform, fd)?
+                                },
+                            )??)
+                        } else {
+                            lower_io_read_line_helper(
+                                symbol,
+                                platform_imports,
+                                platform,
+                                spec.call == "io.input",
+                                app_mode,
+                                // bug-149: only a console build that also uses `term::`
+                                // brackets the line read with a cooked-mode restore.
+                                if app_mode { None } else { term_state_offset },
+                            )?
+                        }
                     }
-                }
-                "fs.exists" => lower_fs_exists_helper(symbol, platform_imports, platform)?,
-                "fs.fileExists" | "fs.directoryExists" => {
-                    let kind = if spec.call == "fs.fileExists" {
-                        FS_MODE_REGULAR
-                    } else {
-                        FS_MODE_DIRECTORY
-                    };
-                    lower_fs_kind_exists_helper(symbol, platform_imports, platform, kind)?
-                }
-                "fs.currentDirectory" | "fs.tempDirectory" => {
-                    if spec.call == "fs.currentDirectory" {
-                        lower_fs_current_directory_helper(symbol, platform_imports, platform)?
-                    } else {
-                        lower_fs_temp_directory_helper(symbol, platform_imports, platform)?
+                    "io.readChar" => {
+                        lower_io_read_char_helper(symbol, platform_imports, platform, app_mode)?
                     }
+                    "io.readByte" => {
+                        lower_io_read_byte_helper(symbol, platform_imports, platform, app_mode)?
+                    }
+                    "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
+                        let fd = match spec.call {
+                            "io.isInputTerminal" => 0,
+                            "io.isOutputTerminal" => 1,
+                            "io.isErrorTerminal" => 2,
+                            _ => unreachable!(),
+                        };
+                        // App mode: the window is the interactive console, so these return
+                        // TRUE rather than probing a file descriptor (plan §5.4).
+                        if app_mode {
+                            pad_no_slots(
+                                platform
+                                    .emit_app_io_is_terminal_helper(symbol)
+                                    .ok_or_else(|| {
+                                        format!(
+                                        "native target '{}' does not support app-mode io helpers",
+                                        platform.target()
+                                    )
+                                    })??,
+                            )
+                        } else {
+                            lower_io_is_terminal_helper(symbol, platform_imports, platform, fd)?
+                        }
+                    }
+                    "fs.exists" => lower_fs_exists_helper(symbol, platform_imports, platform)?,
+                    "fs.fileExists" | "fs.directoryExists" => {
+                        let kind = if spec.call == "fs.fileExists" {
+                            FS_MODE_REGULAR
+                        } else {
+                            FS_MODE_DIRECTORY
+                        };
+                        lower_fs_kind_exists_helper(symbol, platform_imports, platform, kind)?
+                    }
+                    "fs.currentDirectory" | "fs.tempDirectory" => {
+                        if spec.call == "fs.currentDirectory" {
+                            lower_fs_current_directory_helper(symbol, platform_imports, platform)?
+                        } else {
+                            lower_fs_temp_directory_helper(symbol, platform_imports, platform)?
+                        }
+                    }
+                    "fs.setCurrentDirectory"
+                    | "fs.deleteFile"
+                    | "fs.createDirectory"
+                    | "fs.deleteDirectory" => {
+                        let operation = match spec.call {
+                            "fs.setCurrentDirectory" => FsPathOperation::Chdir,
+                            "fs.deleteFile" => FsPathOperation::Unlink,
+                            "fs.createDirectory" => FsPathOperation::Mkdir,
+                            "fs.deleteDirectory" => FsPathOperation::Rmdir,
+                            _ => unreachable!(),
+                        };
+                        lower_fs_path_operation_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            operation,
+                        )?
+                    }
+                    "fs.createDirectories" => {
+                        lower_fs_create_directories_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.listDirectory" => {
+                        lower_fs_list_directory_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.open" | "fs.openFile" | "fs.openFileNoFollow" => {
+                        let no_follow = spec.call == "fs.openFileNoFollow";
+                        lower_fs_open_helper(symbol, platform_imports, platform, no_follow)?
+                    }
+                    "fs.openWithin" => {
+                        lower_fs_open_within_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.createTempFile" => {
+                        lower_fs_create_temp_file_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.close" => lower_fs_close_helper(symbol, platform_imports, platform, true)?,
+                    "fs.setBuffered" => lower_fs_set_buffered_helper(symbol)?,
+                    "fs.isBuffered" => lower_fs_is_buffered_helper(symbol)?,
+                    "fs.flush" => lower_fs_flush_helper(symbol)?,
+                    "fs.writeAll" => lower_fs_write_all_helper(symbol, platform_imports, platform)?,
+                    "fs.writeAllBytes" => {
+                        lower_fs_write_all_bytes_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.readText" => {
+                        lower_fs_read_text_path_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.readBytes" => {
+                        lower_fs_read_bytes_path_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.writeText" | "fs.appendText" => {
+                        let append = spec.call == "fs.appendText";
+                        lower_fs_write_path_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            append,
+                            false,
+                        )?
+                    }
+                    "fs.writeBytes" | "fs.appendBytes" => {
+                        let append = spec.call == "fs.appendBytes";
+                        lower_fs_write_path_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            append,
+                            true,
+                        )?
+                    }
+                    "fs.writeTextAtomic" | "fs.writeBytesAtomic" => {
+                        let value_kind = if spec.call == "fs.writeTextAtomic" {
+                            AtomicWriteValueKind::String
+                        } else {
+                            AtomicWriteValueKind::Bytes
+                        };
+                        lower_fs_atomic_write_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            value_kind,
+                        )?
+                    }
+                    "fs.readAll" => lower_fs_read_all_helper(symbol, platform_imports, platform)?,
+                    "fs.readAllBytes" => {
+                        lower_fs_read_all_bytes_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.readLine" => lower_fs_read_line_helper(symbol, platform_imports, platform)?,
+                    "fs.eof" => lower_fs_eof_helper(symbol, platform_imports, platform)?,
+                    "fs.canonicalPath" => {
+                        lower_fs_canonical_path_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.isWithin" => lower_fs_is_within_helper(symbol, platform_imports, platform)?,
+                    // Defensive: unreachable — `spec_for_symbol` at the top already
+                    // rejects any io.*/fs.* symbol that has no spec. Kept only because
+                    // matching a `&str` is not exhaustive without a catch-all.
+                    other => {
+                        return Err(format!(
+                            "native code plan does not emit runtime call '{other}'"
+                        ));
+                    }
+                },
+                "thread.start"
+                | "thread.isRunning"
+                | "thread.waitFor"
+                | "thread.cancel"
+                | "thread.drop"
+                | "thread.send"
+                | "thread.poll"
+                | "thread.read"
+                | "thread.receive"
+                | "thread.emit"
+                | "thread.transferResource"
+                | "thread.acceptResource"
+                | "thread.emitResource"
+                | "thread.readResource"
+                | "thread.isCancelled"
+                | "thread.openStdIn"
+                | "thread.closeStdIn" => lower_thread_helper(
+                    symbol,
+                    spec.call,
+                    uses_rng,
+                    arena_layout.global_slots,
+                    platform_imports,
+                    platform,
+                )?,
+                call if call.starts_with("net.") => match call {
+                    "net.lookup" => {
+                        net::lower_net_lookup_helper(symbol, platform_imports, platform)?
+                    }
+                    "net.connectTcp" => {
+                        net::lower_net_connect_tcp_helper(symbol, platform_imports, platform)?
+                    }
+                    "net.connectTcpAddr" => {
+                        net::lower_net_connect_tcp_addr_helper(symbol, platform_imports, platform)?
+                    }
+                    "net.listenTcp" => {
+                        net::lower_net_listen_tcp_helper(symbol, platform_imports, platform)?
+                    }
+                    "net.accept" => {
+                        net::lower_net_accept_helper(symbol, platform_imports, platform)?
+                    }
+                    "net.poll" => net::lower_net_poll_helper(symbol, platform_imports, platform)?,
+                    "net.pollList" => {
+                        net::lower_net_poll_list_helper(symbol, platform_imports, platform)?
+                    }
+                    "net.read" => {
+                        net::lower_net_read_helper(symbol, platform_imports, platform, false)?
+                    }
+                    "net.readText" => {
+                        net::lower_net_read_helper(symbol, platform_imports, platform, true)?
+                    }
+                    "net.write" => {
+                        net::lower_net_write_helper(symbol, platform_imports, platform, false)?
+                    }
+                    "net.writeText" => {
+                        net::lower_net_write_helper(symbol, platform_imports, platform, true)?
+                    }
+                    // A socket/listener handle shares the `File` record layout, so the
+                    // standard (vreg-allocated) file close helper closes net handles too.
+                    "net.close" => {
+                        lower_fs_close_helper(symbol, platform_imports, platform, false)?
+                    }
+                    "net.localAddress" => {
+                        net::lower_net_address_helper(symbol, platform_imports, platform, false)?
+                    }
+                    "net.remoteAddress" => {
+                        net::lower_net_address_helper(symbol, platform_imports, platform, true)?
+                    }
+                    "net.setReadTimeout" => net::lower_net_set_timeout_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
+                    "net.setWriteTimeout" => {
+                        net::lower_net_set_timeout_helper(symbol, platform_imports, platform, true)?
+                    }
+                    "net.bindUdp" => {
+                        net::lower_net_bind_udp_helper(symbol, platform_imports, platform)?
+                    }
+                    "net.receiveFrom" => net::lower_net_receive_from_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
+                    "net.receiveTextFrom" => net::lower_net_receive_from_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        true,
+                    )?,
+                    "net.sendTo" => {
+                        net::lower_net_send_to_helper(symbol, platform_imports, platform, false)?
+                    }
+                    "net.sendTextTo" => {
+                        net::lower_net_send_to_helper(symbol, platform_imports, platform, true)?
+                    }
+                    // Defensive: unreachable (see the io.*/fs.* arm); required only for
+                    // `&str` match exhaustiveness.
+                    other => {
+                        return Err(format!(
+                            "native code plan does not emit runtime call '{other}'"
+                        ));
+                    }
+                },
+                call if call.starts_with("audio.") => {
+                    audio::lower_audio_helper(call, symbol, platform_imports, platform)?
                 }
-                "fs.setCurrentDirectory"
-                | "fs.deleteFile"
-                | "fs.createDirectory"
-                | "fs.deleteDirectory" => {
-                    let operation = match spec.call {
-                        "fs.setCurrentDirectory" => FsPathOperation::Chdir,
-                        "fs.deleteFile" => FsPathOperation::Unlink,
-                        "fs.createDirectory" => FsPathOperation::Mkdir,
-                        "fs.deleteDirectory" => FsPathOperation::Rmdir,
-                        _ => unreachable!(),
-                    };
-                    lower_fs_path_operation_helper(symbol, platform_imports, platform, operation)?
-                }
-                "fs.createDirectories" => {
-                    lower_fs_create_directories_helper(symbol, platform_imports, platform)?
-                }
-                "fs.listDirectory" => {
-                    lower_fs_list_directory_helper(symbol, platform_imports, platform)?
-                }
-                "fs.open" | "fs.openFile" | "fs.openFileNoFollow" => {
-                    let no_follow = spec.call == "fs.openFileNoFollow";
-                    lower_fs_open_helper(symbol, platform_imports, platform, no_follow)?
-                }
-                "fs.openWithin" => lower_fs_open_within_helper(symbol, platform_imports, platform)?,
-                "fs.createTempFile" => {
-                    lower_fs_create_temp_file_helper(symbol, platform_imports, platform)?
-                }
-                "fs.close" => lower_fs_close_helper(symbol, platform_imports, platform, true)?,
-                "fs.setBuffered" => lower_fs_set_buffered_helper(symbol)?,
-                "fs.isBuffered" => lower_fs_is_buffered_helper(symbol)?,
-                "fs.flush" => lower_fs_flush_helper(symbol)?,
-                "fs.writeAll" => lower_fs_write_all_helper(symbol, platform_imports, platform)?,
-                "fs.writeAllBytes" => {
-                    lower_fs_write_all_bytes_helper(symbol, platform_imports, platform)?
-                }
-                "fs.readText" => {
-                    lower_fs_read_text_path_helper(symbol, platform_imports, platform)?
-                }
-                "fs.readBytes" => {
-                    lower_fs_read_bytes_path_helper(symbol, platform_imports, platform)?
-                }
-                "fs.writeText" | "fs.appendText" => {
-                    let append = spec.call == "fs.appendText";
-                    lower_fs_write_path_helper(symbol, platform_imports, platform, append, false)?
-                }
-                "fs.writeBytes" | "fs.appendBytes" => {
-                    let append = spec.call == "fs.appendBytes";
-                    lower_fs_write_path_helper(symbol, platform_imports, platform, append, true)?
-                }
-                "fs.writeTextAtomic" | "fs.writeBytesAtomic" => {
-                    let value_kind = if spec.call == "fs.writeTextAtomic" {
-                        AtomicWriteValueKind::String
-                    } else {
-                        AtomicWriteValueKind::Bytes
-                    };
-                    lower_fs_atomic_write_helper(symbol, platform_imports, platform, value_kind)?
-                }
-                "fs.readAll" => lower_fs_read_all_helper(symbol, platform_imports, platform)?,
-                "fs.readAllBytes" => {
-                    lower_fs_read_all_bytes_helper(symbol, platform_imports, platform)?
-                }
-                "fs.readLine" => lower_fs_read_line_helper(symbol, platform_imports, platform)?,
-                "fs.eof" => lower_fs_eof_helper(symbol, platform_imports, platform)?,
-                "fs.canonicalPath" => {
-                    lower_fs_canonical_path_helper(symbol, platform_imports, platform)?
-                }
-                "fs.isWithin" => lower_fs_is_within_helper(symbol, platform_imports, platform)?,
-                // Defensive: unreachable — `spec_for_symbol` at the top already
-                // rejects any io.*/fs.* symbol that has no spec. Kept only because
-                // matching a `&str` is not exhaustive without a catch-all.
+                call if call.starts_with("tls.") => match call {
+                    "tls.connect" => {
+                        tls::lower_tls_connect_helper(symbol, platform_imports, platform)?
+                    }
+                    "tls.listen" => {
+                        tls::lower_tls_listen_helper(symbol, platform_imports, platform)?
+                    }
+                    "tls.accept" => {
+                        tls::lower_tls_accept_helper(symbol, platform_imports, platform)?
+                    }
+                    "tls.read" => {
+                        tls::lower_tls_read_helper(symbol, platform_imports, platform, false)?
+                    }
+                    "tls.readText" => {
+                        tls::lower_tls_read_helper(symbol, platform_imports, platform, true)?
+                    }
+                    "tls.write" => {
+                        tls::lower_tls_write_helper(symbol, platform_imports, platform, false)?
+                    }
+                    "tls.writeText" => {
+                        tls::lower_tls_write_helper(symbol, platform_imports, platform, true)?
+                    }
+                    "tls.poll" => tls::lower_tls_poll_helper(symbol, platform_imports, platform)?,
+                    "tls.pollList" => {
+                        tls::lower_tls_poll_list_helper(symbol, platform_imports, platform)?
+                    }
+                    "tls.close" => tls::lower_tls_close_helper(symbol, platform_imports, platform)?,
+                    "tls.closeListener" => {
+                        tls::lower_tls_close_listener_helper(symbol, platform_imports, platform)?
+                    }
+                    // Defensive: unreachable (see the io.*/fs.* arm); required only for
+                    // `&str` match exhaustiveness.
+                    other => {
+                        return Err(format!(
+                            "native code plan does not emit runtime call '{other}'"
+                        ));
+                    }
+                },
                 other => {
                     return Err(format!(
                         "native code plan does not emit runtime call '{other}'"
                     ));
                 }
-            },
-            "thread.start"
-            | "thread.isRunning"
-            | "thread.waitFor"
-            | "thread.cancel"
-            | "thread.drop"
-            | "thread.send"
-            | "thread.poll"
-            | "thread.read"
-            | "thread.receive"
-            | "thread.emit"
-            | "thread.transferResource"
-            | "thread.acceptResource"
-            | "thread.emitResource"
-            | "thread.readResource"
-            | "thread.isCancelled"
-            | "thread.openStdIn"
-            | "thread.closeStdIn" => lower_thread_helper(
-                symbol,
-                spec.call,
-                uses_rng,
-                arena_layout.global_slots,
-                platform_imports,
-                platform,
-            )?,
-            call if call.starts_with("net.") => match call {
-                "net.lookup" => net::lower_net_lookup_helper(symbol, platform_imports, platform)?,
-                "net.connectTcp" => {
-                    net::lower_net_connect_tcp_helper(symbol, platform_imports, platform)?
-                }
-                "net.connectTcpAddr" => {
-                    net::lower_net_connect_tcp_addr_helper(symbol, platform_imports, platform)?
-                }
-                "net.listenTcp" => {
-                    net::lower_net_listen_tcp_helper(symbol, platform_imports, platform)?
-                }
-                "net.accept" => net::lower_net_accept_helper(symbol, platform_imports, platform)?,
-                "net.poll" => net::lower_net_poll_helper(symbol, platform_imports, platform)?,
-                "net.pollList" => {
-                    net::lower_net_poll_list_helper(symbol, platform_imports, platform)?
-                }
-                "net.read" => {
-                    net::lower_net_read_helper(symbol, platform_imports, platform, false)?
-                }
-                "net.readText" => {
-                    net::lower_net_read_helper(symbol, platform_imports, platform, true)?
-                }
-                "net.write" => {
-                    net::lower_net_write_helper(symbol, platform_imports, platform, false)?
-                }
-                "net.writeText" => {
-                    net::lower_net_write_helper(symbol, platform_imports, platform, true)?
-                }
-                // A socket/listener handle shares the `File` record layout, so the
-                // standard (vreg-allocated) file close helper closes net handles too.
-                "net.close" => lower_fs_close_helper(symbol, platform_imports, platform, false)?,
-                "net.localAddress" => {
-                    net::lower_net_address_helper(symbol, platform_imports, platform, false)?
-                }
-                "net.remoteAddress" => {
-                    net::lower_net_address_helper(symbol, platform_imports, platform, true)?
-                }
-                "net.setReadTimeout" => {
-                    net::lower_net_set_timeout_helper(symbol, platform_imports, platform, false)?
-                }
-                "net.setWriteTimeout" => {
-                    net::lower_net_set_timeout_helper(symbol, platform_imports, platform, true)?
-                }
-                "net.bindUdp" => {
-                    net::lower_net_bind_udp_helper(symbol, platform_imports, platform)?
-                }
-                "net.receiveFrom" => {
-                    net::lower_net_receive_from_helper(symbol, platform_imports, platform, false)?
-                }
-                "net.receiveTextFrom" => {
-                    net::lower_net_receive_from_helper(symbol, platform_imports, platform, true)?
-                }
-                "net.sendTo" => {
-                    net::lower_net_send_to_helper(symbol, platform_imports, platform, false)?
-                }
-                "net.sendTextTo" => {
-                    net::lower_net_send_to_helper(symbol, platform_imports, platform, true)?
-                }
-                // Defensive: unreachable (see the io.*/fs.* arm); required only for
-                // `&str` match exhaustiveness.
-                other => {
-                    return Err(format!(
-                        "native code plan does not emit runtime call '{other}'"
-                    ));
-                }
-            },
-            call if call.starts_with("audio.") => {
-                audio::lower_audio_helper(call, symbol, platform_imports, platform)?
             }
-            call if call.starts_with("tls.") => match call {
-                "tls.connect" => tls::lower_tls_connect_helper(symbol, platform_imports, platform)?,
-                "tls.listen" => tls::lower_tls_listen_helper(symbol, platform_imports, platform)?,
-                "tls.accept" => tls::lower_tls_accept_helper(symbol, platform_imports, platform)?,
-                "tls.read" => {
-                    tls::lower_tls_read_helper(symbol, platform_imports, platform, false)?
-                }
-                "tls.readText" => {
-                    tls::lower_tls_read_helper(symbol, platform_imports, platform, true)?
-                }
-                "tls.write" => {
-                    tls::lower_tls_write_helper(symbol, platform_imports, platform, false)?
-                }
-                "tls.writeText" => {
-                    tls::lower_tls_write_helper(symbol, platform_imports, platform, true)?
-                }
-                "tls.poll" => tls::lower_tls_poll_helper(symbol, platform_imports, platform)?,
-                "tls.pollList" => {
-                    tls::lower_tls_poll_list_helper(symbol, platform_imports, platform)?
-                }
-                "tls.close" => tls::lower_tls_close_helper(symbol, platform_imports, platform)?,
-                "tls.closeListener" => {
-                    tls::lower_tls_close_listener_helper(symbol, platform_imports, platform)?
-                }
-                // Defensive: unreachable (see the io.*/fs.* arm); required only for
-                // `&str` match exhaustiveness.
-                other => {
-                    return Err(format!(
-                        "native code plan does not emit runtime call '{other}'"
-                    ));
-                }
-            },
-            other => {
-                return Err(format!(
-                    "native code plan does not emit runtime call '{other}'"
-                ));
-            }
-        }
-    };
+        };
     // plan-62-E: the console-reading `io::` helpers (`input`/`readLine`/`readChar`)
     // are gated on the `Console` presentation mode in an app build that uses `app::`
     // — outside `Console` the window input pipe has no producer, so an ungated read

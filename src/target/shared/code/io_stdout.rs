@@ -579,7 +579,14 @@ pub(super) fn lower_io_write_helper(
         // the shadow-grid back buffer. No terminal write happens here; the frame
         // is shown when the program calls `term::sync`.
         instructions.push(abi::label(&grid_path));
-        term_grid::emit_grid_write(symbol, tso, strobj_vreg, append_newline, &mut instructions);
+        term_grid::emit_grid_write(
+            symbol,
+            tso,
+            strobj_vreg,
+            append_newline,
+            &mut instructions,
+            &mut relocations,
+        );
         instructions.push(abi::move_immediate(
             RESULT_TAG_REGISTER,
             "Integer",

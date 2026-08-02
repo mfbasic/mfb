@@ -147,8 +147,9 @@ fn foreign_type_reexport_chain_resolves_through_siblings() {
     app.functions = vec![make];
     let mut app_meta = dep_meta("app");
     app_meta.dependencies = vec![dependency("dep")];
-    let app_inner = build_package_binary_repr_bytes(&app, &app_meta, std::slice::from_ref(&dep_path))
-        .expect("build app");
+    let app_inner =
+        build_package_binary_repr_bytes(&app, &app_meta, std::slice::from_ref(&dep_path))
+            .expect("build app");
     let app_path = dir.path().join("app.mfp");
     std::fs::write(&app_path, wrap_mfp(&app_inner, "app", "app", "1.0.0")).unwrap();
 
@@ -174,14 +175,18 @@ fn foreign_type_reexport_chain_resolves_through_siblings() {
     top.functions = vec![use_widget];
     let mut top_meta = dep_meta("top");
     top_meta.dependencies = vec![dependency("app")];
-    let top_inner = build_package_binary_repr_bytes(&top, &top_meta, std::slice::from_ref(&app_path))
-        .expect("build top");
+    let top_inner =
+        build_package_binary_repr_bytes(&top, &top_meta, std::slice::from_ref(&app_path))
+            .expect("build top");
     let top_path = dir.path().join("top.mfp");
     std::fs::write(&top_path, wrap_mfp(&top_inner, "top", "top", "1.0.0")).unwrap();
     // top's own foreign ref carries dep as the ultimate owner, not app.
     let top_refs = read_package_foreign_type_refs(&top_path).expect("top refs");
     assert_eq!(top_refs.len(), 1);
-    assert_eq!(top_refs[0].owner, "dep", "owner carries through the intermediary");
+    assert_eq!(
+        top_refs[0].owner, "dep",
+        "owner carries through the intermediary"
+    );
 }
 
 /// The resolver's non-foreign and owner-absent skip arms: an app that both owns
@@ -310,7 +315,10 @@ fn foreign_type_reexport_rejects_traversing_owner() {
         ),
         Err(err) => err,
     };
-    assert!(err.contains("not a valid path component"), "unexpected: {err}");
+    assert!(
+        err.contains("not a valid path component"),
+        "unexpected: {err}"
+    );
 }
 
 /// A Widget-owning package whose `Widget.id` field is a `String` (not the
@@ -375,7 +383,11 @@ fn foreign_type_abi_check_rejects_traversing_owner() {
     // (Widget.id: String → abi hash h2 ≠ h1). Without the guard the check reads
     // this out-of-directory file and reports an ABI mismatch — proof the read
     // happened; with the guard the hostile owner is rejected first.
-    std::fs::write(root.path().join("evil.mfp"), variant_widget_owner_mfp("evil")).unwrap();
+    std::fs::write(
+        root.path().join("evil.mfp"),
+        variant_widget_owner_mfp("evil"),
+    )
+    .unwrap();
 
     let err = match crate::manifest::package::verify_foreign_type_abi_consistency(
         std::slice::from_ref(&app_path),
@@ -386,5 +398,8 @@ fn foreign_type_abi_check_rejects_traversing_owner() {
         ),
         Err(err) => err,
     };
-    assert!(err.contains("not a valid path component"), "unexpected: {err}");
+    assert!(
+        err.contains("not a valid path component"),
+        "unexpected: {err}"
+    );
 }

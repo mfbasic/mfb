@@ -377,7 +377,13 @@ mod tests {
             "builtins/db.mfb",
             vec![
                 Item::Link(link),
-                Item::Resource(resource_decl("Hidden", "db.close", true, Visibility::Export, 2)),
+                Item::Resource(resource_decl(
+                    "Hidden",
+                    "db.close",
+                    true,
+                    Visibility::Export,
+                    2,
+                )),
             ],
         );
         // A real project file with its own resource pointing at the internal LINK.

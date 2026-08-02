@@ -20,9 +20,8 @@ fn read_fill_count(ins: &[CodeInstruction]) -> usize {
 }
 
 fn any_label_with(ins: &[CodeInstruction], needle: &str) -> bool {
-    ins.iter().any(|i| {
-        i.op == CodeOp::Label && i.get("name").is_some_and(|name| name.contains(needle))
-    })
+    ins.iter()
+        .any(|i| i.op == CodeOp::Label && i.get("name").is_some_and(|name| name.contains(needle)))
 }
 
 /// bug-416 (1): `audio::available` returns whole FRAMES, not bytes. The
@@ -35,9 +34,9 @@ fn available_returns_frames_not_bytes() {
     let (_frame, ins, _rel, _slots) =
         lower_query("t_avail", Query::Available, &imports, &TestPlatform)
             .expect("lower audio::available");
-    let scales_result = ins.iter().any(|i| {
-        i.op == CodeOp::Mul && i.get("dst") == Some(RESULT_VALUE_REGISTER)
-    });
+    let scales_result = ins
+        .iter()
+        .any(|i| i.op == CodeOp::Mul && i.get("dst") == Some(RESULT_VALUE_REGISTER));
     assert!(
         !scales_result,
         "bug-416 (1): audio::available must return frames, not frames*bpf \
@@ -76,7 +75,11 @@ fn read_timeout_preserves_unconsumed_capture_tail() {
     let imports = HashMap::new();
     let (_frame, ins, _rel, _slots) =
         lower_read("t_readto", true, &imports, &TestPlatform).expect("lower audio::readTimeout");
-    assert_eq!(read_fill_count(&ins), 2, "bug-416 (2): readTimeout must drain a carry-over tail");
+    assert_eq!(
+        read_fill_count(&ins),
+        2,
+        "bug-416 (2): readTimeout must drain a carry-over tail"
+    );
     assert!(
         any_label_with(&ins, "carry_tail"),
         "bug-416 (2): readTimeout must save the unconsumed capture tail before ReleaseBuffer"
@@ -91,8 +94,8 @@ fn read_timeout_preserves_unconsumed_capture_tail() {
 fn shared_open_guards_mix_channel_underflow() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_frame, ins, _rel, _slots) =
-        lower_open("t_openin", true, false, &imports, &TestPlatform).expect("lower audio::openInput");
+    let (_frame, ins, _rel, _slots) = lower_open("t_openin", true, false, &imports, &TestPlatform)
+        .expect("lower audio::openInput");
     let mix_ch = W_MIX_CH.to_string();
     let loads_mix_ch = ins.iter().any(|i| {
         matches!(i.op, CodeOp::LdrU64 | CodeOp::LdrU32 | CodeOp::LdrU16)

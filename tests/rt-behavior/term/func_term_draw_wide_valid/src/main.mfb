@@ -1,0 +1,24 @@
+' plan-70-C: the positioned console draw helpers are width- and cluster-aware. A
+' wide (East Asian Wide/emoji) glyph occupies two columns with a wide-trailing
+' sentinel; a multi-scalar cluster (café NFD, ZWJ family) is one pooled cell; and
+' overwriting one half of a wide glyph clears the orphaned other half. Runs piped
+' (24x80 fallback), so the captured escape stream is deterministic.
+IMPORT term
+IMPORT io
+
+FUNC main AS Integer
+  term::on()
+  term::drawText(0, 0, "日本語|")
+  term::drawText(0, 2, "cafe" & "́" & "|")
+  term::drawText(0, 4, "👨‍👩‍👧‍👦|")
+  term::drawGlyph(10, 6, 0x65E5)
+
+  ' Paired-clear: draw two wide glyphs, then overwrite the trailing half of the
+  ' first — its orphaned primary half must be blanked, leaving one clean marker.
+  term::drawText(0, 8, "日本")
+  term::drawText(1, 8, "X")
+
+  term::sync()
+  term::off()
+  RETURN 0
+END FUNC

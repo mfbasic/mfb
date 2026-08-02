@@ -567,7 +567,8 @@ mod tests {
         let Ok(path) = std::env::var("MFB_EXIT42_OUT") else {
             return;
         };
-        let bytes = write_executable(&runnable_exit42_image(), false, None, None).expect("link exit42");
+        let bytes =
+            write_executable(&runnable_exit42_image(), false, None, None).expect("link exit42");
         std::fs::write(&path, &bytes).expect("write exit42.exe");
         eprintln!("wrote {} bytes to {path}", bytes.len());
     }
@@ -838,16 +839,25 @@ mod tests {
     fn external_data_reloc_binds_to_the_iat_slot() {
         // The function import populates its IAT slot via `append_thunks`; an
         // external data reloc to it binds to that slot RVA.
-        let bytes = write_executable(&image_with_import_and_data_reloc("ExitProcess"), false, None, None)
-            .expect("link");
+        let bytes = write_executable(
+            &image_with_import_and_data_reloc("ExitProcess"),
+            false,
+            None,
+            None,
+        )
+        .expect("link");
         assert_eq!(&bytes[0..2], b"MZ");
     }
 
     #[test]
     fn external_data_reloc_with_no_slot_is_rejected() {
-        let err =
-            write_executable(&image_with_import_and_data_reloc("MissingData"), false, None, None)
-                .expect_err("unbound data");
+        let err = write_executable(
+            &image_with_import_and_data_reloc("MissingData"),
+            false,
+            None,
+            None,
+        )
+        .expect_err("unbound data");
         assert!(err.contains("cannot bind external data"), "{err}");
     }
 

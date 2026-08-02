@@ -185,6 +185,16 @@ const SEL_KEY_DOWN: (&str, &str) = ("_mfb_macapp_sel_keyDown", "keyDown:");
 const SEL_CHARACTERS: (&str, &str) = ("_mfb_macapp_sel_characters", "characters");
 const SEL_LENGTH: (&str, &str) = ("_mfb_macapp_sel_length", "length");
 const SEL_CHAR_AT_INDEX: (&str, &str) = ("_mfb_macapp_sel_characterAtIndex", "characterAtIndex:");
+// plan-70-D Phase 2: AppKit's own extended-grapheme-cluster segmentation. Returns
+// the NSRange of the composed character sequence (grapheme cluster) at an index —
+// groups a base + combining marks and emoji ZWJ sequences into one cluster.
+const SEL_RANGE_COMPOSED: (&str, &str) = (
+    "_mfb_macapp_sel_rangeOfComposedCharacterSequenceAtIndex",
+    "rangeOfComposedCharacterSequenceAtIndex:",
+);
+// Copy a range of UTF-16 units into a caller buffer (for pooling a cluster).
+const SEL_GET_CHARACTERS: (&str, &str) =
+    ("_mfb_macapp_sel_getCharactersRange", "getCharacters:range:");
 const SEL_APPEND_STRING: (&str, &str) = ("_mfb_macapp_sel_appendString", "appendString:");
 const SEL_SET_STRING: (&str, &str) = ("_mfb_macapp_sel_setString", "setString:");
 const SEL_DELETE_RANGE: (&str, &str) = (
@@ -414,21 +424,21 @@ const TV_CUR_FG_OFFSET: usize = 64; // u32 packed r|g<<8|b<<16 (default white)
 const TV_CUR_BG_OFFSET: usize = 72; // u32 packed (default black = 0)
 const TV_CUR_BOLD_OFFSET: usize = 80; // i64 bold flag
 const TV_CUR_UNDERLINE_OFFSET: usize = 88; // i64 underline flag
-// Draw-line parameters (term::drawHLine/drawVLine). The worker resolves the
-// LineStyle ordinal to a `unichar` glyph and parks these here before marshaling
-// `mfbDrawLine:` onto the main thread, which reads them, clamps the span to the
-// current grid, and stamps the glyph. Safe from the worker: only the scalar
-// fields are written (not the realloc-able `cells` pointer), and the
-// `waitUntilDone:YES` marshal serialises them with the main-thread read.
+                                           // Draw-line parameters (term::drawHLine/drawVLine). The worker resolves the
+                                           // LineStyle ordinal to a `unichar` glyph and parks these here before marshaling
+                                           // `mfbDrawLine:` onto the main thread, which reads them, clamps the span to the
+                                           // current grid, and stamps the glyph. Safe from the worker: only the scalar
+                                           // fields are written (not the realloc-able `cells` pointer), and the
+                                           // `waitUntilDone:YES` marshal serialises them with the main-thread read.
 const TV_DRAW_GLYPH_OFFSET: usize = 96; // u32 unichar (resolved by the worker)
 const TV_DRAW_FIXED_OFFSET: usize = 104; // i64 fixed line coordinate (raw)
 const TV_DRAW_LO_OFFSET: usize = 112; // i64 span endpoint A (raw, either order)
 const TV_DRAW_HI_OFFSET: usize = 120; // i64 span endpoint B (raw, either order)
 const TV_DRAW_HORIZ_OFFSET: usize = 128; // i64 1 = horizontal, 0 = vertical
-// term::drawBox parameters. The worker resolves the LineStyle ordinal to the six
-// box glyphs (edges + corners, as unichars) and parks them plus the two raw
-// corner points here before marshaling mfbDrawBox:; the main-thread IMP
-// normalises the points, clamps each edge/corner to the grid, and stamps.
+                                         // term::drawBox parameters. The worker resolves the LineStyle ordinal to the six
+                                         // box glyphs (edges + corners, as unichars) and parks them plus the two raw
+                                         // corner points here before marshaling mfbDrawBox:; the main-thread IMP
+                                         // normalises the points, clamps each edge/corner to the grid, and stamps.
 const TV_BOX_HG_OFFSET: usize = 136; // u32 horizontal edge glyph
 const TV_BOX_VG_OFFSET: usize = 144; // u32 vertical edge glyph
 const TV_BOX_CTL_OFFSET: usize = 152; // u32 top-left corner
@@ -439,23 +449,38 @@ const TV_BOX_X1_OFFSET: usize = 184; // i64 point 1 column (raw)
 const TV_BOX_Y1_OFFSET: usize = 192; // i64 point 1 row (raw)
 const TV_BOX_X2_OFFSET: usize = 200; // i64 point 2 column (raw)
 const TV_BOX_Y2_OFFSET: usize = 208; // i64 point 2 row (raw)
-// term::fillRect parameters. The worker resolves the FillStyle ordinal to the
-// block/shade glyph (unichar) and parks it plus the two raw corner points here
-// before marshaling mfbFillRect:; the IMP normalises/clamps and fills.
+                                     // term::fillRect parameters. The worker resolves the FillStyle ordinal to the
+                                     // block/shade glyph (unichar) and parks it plus the two raw corner points here
+                                     // before marshaling mfbFillRect:; the IMP normalises/clamps and fills.
 const TV_FILL_GLYPH_OFFSET: usize = 216; // u32 fill glyph
 const TV_FILL_X1_OFFSET: usize = 224; // i64 point 1 column (raw)
 const TV_FILL_Y1_OFFSET: usize = 232; // i64 point 1 row (raw)
 const TV_FILL_X2_OFFSET: usize = 240; // i64 point 2 column (raw)
 const TV_FILL_Y2_OFFSET: usize = 248; // i64 point 2 row (raw)
-// term::drawGlyph parameters: the code point (unichar) and its cell.
+                                      // term::drawGlyph parameters: the code point (unichar) and its cell.
 const TV_GLYPH_G_OFFSET: usize = 256; // u32 unichar
 const TV_GLYPH_X_OFFSET: usize = 264; // i64 column
 const TV_GLYPH_Y_OFFSET: usize = 272; // i64 row
-// term::drawText parameters: the start cell (the text itself is passed as the
-// NSString `withObject:` argument, like mfbWriteString:).
+                                      // term::drawText parameters: the start cell (the text itself is passed as the
+                                      // NSString `withObject:` argument, like mfbWriteString:).
 const TV_TEXT_X_OFFSET: usize = 280; // i64 start column
 const TV_TEXT_Y_OFFSET: usize = 288; // i64 row
-const TV_STATE_SIZE: usize = 296;
+                                     // plan-70-D Phase 2: per-cell EGC pool base (a calloc'd byte arena, rows*cols
+                                     // slots of APP_POOL_BYTES_PER_CELL each; cell i's slot = base + i*POOL). 0 when
+                                     // unallocated. Position-indexed like the console pool, so scroll/resize shift it
+                                     // in lockstep with the cells.
+const TV_POOL_OFFSET: usize = 296; // TermCell-parallel EGC pool base (u8* heap)
+const TV_STATE_SIZE: usize = 304;
+// A multi-scalar grapheme cluster (combining sequence, ZWJ emoji family, flag)
+// whose UTF-8 exceeds the 3 bytes that fit... no: the cell glyph is a u32
+// codepoint, so a cluster of >1 scalar is stored in the cell's pool slot. 64
+// covers a base + long combining run / a 4-emoji ZWJ family (25 bytes UTF-8).
+const APP_POOL_BYTES_PER_CELL: usize = 64;
+// Glyph-word tag for a pooled cell: top byte 0xC0, low 24 bits the UTF-8 byte
+// length in the slot. A codepoint is <= U+10FFFF (top byte <= 0x10), so 0xC0 never
+// collides; APP_WIDE_TRAIL (0xFFFF_FFFF) is distinct and handled first.
+const APP_GLYPH_POOLED_TAG: &str = "3221225472"; // 0xC000_0000
+const APP_GLYPH_POOLED_LEN_MASK: &str = "16777215"; // 0x00FF_FFFF
 /// Default foreground packed value (white), shared by term_init and the helpers.
 const TERM_DEFAULT_FG_PACKED: &str = "16777215";
 
@@ -464,11 +489,17 @@ const TERM_DEFAULT_FG_PACKED: &str = "16777215";
 const CELL_SIZE: usize = 16;
 // Cell field offsets, consumed by the TermView write/render path
 // (`term_view.rs`).
-const CELL_GLYPH_OFFSET: usize = 0; // u32 unichar (0 / space = blank)
+const CELL_GLYPH_OFFSET: usize = 0; // u32 Unicode scalar (0 / space = blank; plan-70-D: astral-capable)
 const CELL_FG_OFFSET: usize = 4; // u32 packed r|g<<8|b<<16
 const CELL_BG_OFFSET: usize = 8; // u32 packed r|g<<8|b<<16
 const CELL_BOLD_OFFSET: usize = 12; // u8
 const CELL_UNDERLINE_OFFSET: usize = 13; // u8
+                                         // plan-70-D: display width (0/1/2) of the cell's scalar, from A's charwidth table.
+const CELL_WIDTH_OFFSET: usize = 14; // u8
+                                     // A wide scalar occupies its primary cell (width 2) plus this wide-trailing
+                                     // sentinel in the next column; drawRect skips it. 0xFFFF_FFFF is not a valid
+                                     // Unicode scalar (max U+10FFFF), so it never collides with a real glyph.
+const APP_WIDE_TRAIL: &str = "4294967295";
 
 /// Initial TermView frame (matches the window content rect set in the bootstrap).
 const TERM_VIEW_WIDTH: u32 = 900;
@@ -647,12 +678,12 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_term_init_helper(),
         emit_term_clear_helper(),
         emit_term_scroll_helper(),
-        emit_term_write_string_helper(),
+        emit_term_write_string_helper(spec.uses_term),
         emit_term_draw_line_helper(),
         emit_term_draw_box_helper(),
         emit_term_fill_rect_helper(),
-        emit_term_draw_glyph_helper(),
-        emit_term_draw_text_helper(),
+        emit_term_draw_glyph_helper(spec.uses_term),
+        emit_term_draw_text_helper(spec.uses_term),
         emit_term_accepts_first_responder(),
         emit_term_key_down_helper(),
         emit_term_set_frame_size_helper(),
@@ -775,6 +806,8 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         SEL_CHARACTERS,
         SEL_LENGTH,
         SEL_CHAR_AT_INDEX,
+        SEL_RANGE_COMPOSED,
+        SEL_GET_CHARACTERS,
         SEL_APPEND_STRING,
         SEL_SET_STRING,
         SEL_DELETE_RANGE,

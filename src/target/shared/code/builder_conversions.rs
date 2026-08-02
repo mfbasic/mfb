@@ -352,14 +352,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&loop_start));
 
         self.emit_int_parse_sign_epilogue(
-            &result,
-            acc,
-            negative,
-            &loop_done,
-            &positive,
-            &done,
-            &invalid,
-            &overflow,
+            &result, acc, negative, &loop_done, &positive, &done, &invalid, &overflow,
         )?;
 
         Ok(ValueResult {
@@ -505,14 +498,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&loop_start));
 
         self.emit_int_parse_sign_epilogue(
-            &result,
-            acc,
-            negative,
-            &loop_done,
-            &positive,
-            &done,
-            &invalid,
-            &overflow,
+            &result, acc, negative, &loop_done, &positive, &done, &invalid, &overflow,
         )?;
 
         Ok(ValueResult {

@@ -83,6 +83,19 @@ mutates cells. The macOS `TermCell` (16 B) already has this shape; GTK packs the
 same fields into its parallel arrays. Byte layout is per-backend; the *semantics*
 are shared.
 
+Plan-70 added a **display width** to every cell: 0/1/2, stored at the pad byte
+(macOS `TermCell` offset 14, `CELL_WIDTH_OFFSET`; GTK packs it into the fg word's
+free bits 27–28; Windows is immediate-mode with no cell, so it recomputes width
+per glyph). A **wide (width-2) grapheme** occupies its primary cell plus a
+**`WIDE_TRAIL` sentinel** in the next cell (`0xFFFFFFFF` in the glyph/char word),
+and **wraps** to the next row rather than straddling the right edge. A
+**multi-scalar grapheme cluster** — combining marks, ZWJ emoji — that exceeds the
+inline glyph field is stored in a per-cell **EGC pool** (a fixed 64-byte slot per
+cell, lifecycle-free; the cell's glyph field holds a pooled tag); the renderer
+rebuilds the whole cluster from the pool so it composes as one glyph. Width comes
+from the utf8proc `charwidth` field (`(flags>>4)&3`, see
+`01_tables-and-algorithms.md`).
+
 ### Console shadow-grid header block
 
 The console has no view to hold a grid, so `term::on` allocates one arena block
@@ -110,6 +123,14 @@ and only for coordinates below 1000). The trailing 64 bytes are reserved past th
 exact `rows*cols*72` so the fixed trailing reset/CUP/cursor sequence still has
 headroom on a near-saturating repaint.
 [[src/target/shared/code/term_grid.rs:OUTBUF_PER_CELL]] [[src/target/shared/code/term_grid.rs:TRAILER_SLACK]]
+
+Plan-70-B added a per-cell **EGC pool** (`POOL_BYTES_PER_CELL` = 64) as an
+additional region in the arena block (past back/front/out-buffer; slot =
+`pool_base + cellidx*POOL_BYTES_PER_CELL`), holding the multi-scalar cluster of a
+pooled cell. The out buffer grew to `OUTBUF_PER_CELL` = 136 bytes/cell (was 72)
+to carry the multi-byte UTF-8 of wide/pooled clusters in the escape stream. The
+cell stays 16 bytes with a width byte at offset 14 (`C_WIDTH`).
+[[src/target/shared/code/term_grid.rs:POOL_BYTES_PER_CELL]]
 
 `term::off` runs the final present, frees the block, and zeroes slot 48;
 `_mfb_shutdown` frees it if `off` was skipped. On a terminal resize between frames
@@ -352,6 +373,21 @@ the right edge and skipping control characters — without moving the cursor. Bo
 are marshaled (`waitUntilDone:YES`) and present-driven. Control code points are
 skipped so they cannot corrupt the surface. [[src/target/macos_aarch64/app/term_view.rs:emit_term_draw_glyph_helper]] [[src/target/macos_aarch64/app/term_view.rs:emit_term_draw_text_helper]] [[src/target/macos_aarch64/app/app_io.rs:emit_app_draw_text]]
 
+### Unicode-wide clusters (plan-70-D)
+
+`drawRect:` decodes an astral scalar's surrogate pair as one glyph and rebuilds a
+pooled cluster via `stringWithCharacters:length:` from the cell's EGC pool slot
+(`TV_POOL_OFFSET`, 64 B/cell). `mfbWriteString:` segments graphemes via AppKit
+`rangeOfComposedCharacterSequenceAtIndex:`, looks up the cluster base's utf8proc
+`charwidth`, writes the primary cell plus a `WIDE_TRAIL` for a wide glyph (wrapping
+rather than straddling the right edge), advances `col += width`, and pools a
+multi-scalar cluster (`getCharacters:range:` into the pool slot). The draw helpers
+`mfbDrawGlyph:`/`mfbDrawText:` are width/cluster-aware, and box/line/fill clear the
+orphaned half of an overwritten wide glyph. `setFrameSize:` (resize) and
+`term_scroll` carry the pool slots in lockstep with the cells. The whole
+width/table path is gated on `uses_term`, so a non-term app never embeds the
+~1.5 MB utf8proc table.
+
 ### `term_scroll` and `term_clear`
 
 `_mfb_macapp_term_scroll(void *state)`: `memmove(cells, cells+rowBytes,
@@ -481,9 +517,50 @@ row at the bottom edge; `_mfb_gtkapp_term_init` derives the geometry at activate
 from the new allocation and forces a full redraw, so `term::terminalSize` tracks the
 live window. [[src/target/linux_gtk/term_draw.rs:emit_term_show_idle_helper]] [[src/target/linux_gtk/term_draw.rs:emit_term_write_helper]]
 
+### Unicode-wide clusters (plan-70-E)
+
+Plan-70-E moved the TUI grid to **Pango**: `_mfb_gtkapp_term_draw` builds a layout
+via `pango_cairo_create_layout` / `pango_layout_set_text` / `pango_cairo_show_layout`
+against a cached "monospace 16" `PangoFontDescription`, replacing the Cairo toy
+font API — so CJK/emoji cascade across fonts (no tofu). The cell **width** rides in
+the fg word's free bits 27–28 (`WIDTH_SHIFT`); a wide glyph reserves a
+`GTK_WIDE_TRAIL` (`0xFFFFFFFF`) char sentinel and wraps rather than straddling the
+edge. Multi-scalar clusters fold combining marks into a per-cell length-prefixed
+**EGC pool** slot (`ST_TERM_POOL`, 32 B/cell) rebuilt via `pango_layout_set_text`.
+Cell metrics come from `pango_layout_get_pixel_extents`; scroll shifts the pool
+with the char/fg/bg arrays and resize is free (fixed stride). The GTK positioned
+draw helpers (`drawText`/`drawGlyph`/`drawBox`) remain unimplemented for the grid —
+they fall through to the console emit and no-op.
+
 Like macOS, the Linux helpers update the shared console term-state global off the
 pinned arena register (`ARENA_REG = x19`) so `isOn` and the attribute getters
 agree across backends. [[src/target/linux_gtk/mod.rs:ARENA_REG]]
+
+## Windows: GDI memDC (immediate mode)
+
+Plan-70-F gave Windows app mode a `term::` renderer. Unlike macOS/Linux there is
+**no cell grid**: it is **immediate-mode**. `term::` draws into a persistent
+off-screen memory DC (`CreateCompatibleDC` + a compatible bitmap) that `WM_PAINT`
+`BitBlt`s to the client, so expose/redraw work without a retained grid. The font
+is `CreateFontW` for **Consolas** at `DEFAULT_CHARSET`, so GDI font-linking
+supplies CJK from the system fallback (replacing the glyph-less
+`SYSTEM_FIXED_FONT`).
+
+The write path (`emit_app_io_write_helper`) converts UTF-8→UTF-16 once
+(`MultiByteToWideChar`), then iterates UTF-16 units: it decodes an astral
+surrogate pair (drawn as its 2-unit pair = one glyph), computes display width via a
+compact East-Asian-Wide **range check** (`emit_win_wide_width` — the Win64 backend
+has no SCRATCH pool, so utf8proc's two-stage trie is impractical, and a range test
+also keeps the ~1.5 MB table out of every Windows app), reserves a trailing column
+for a wide glyph, wraps at the edge, advances `col += width`, and folds trailing
+combining marks (U+0300..U+036F) plus ZWJ sequences into one `TextOutW` so GDI
+composes them. [[src/target/win_x86_64/app/mod.rs:emit_app_io_write_helper]]
+[[src/target/win_x86_64/app/mod.rs:emit_win_wide_width]]
+
+The six positioned draw helpers (`drawHLine`/`drawVLine`/`drawBox`/`fillRect`/
+`drawText`/`drawGlyph`) — previously `ErrUnsupported` stubs — stamp Light
+box-drawing glyphs / positioned text directly into the memDC. The cell is a fixed
+8×16 px grid (Consolas at height 16); a font-linked CJK glyph spans two cells.
 
 ## See Also
 

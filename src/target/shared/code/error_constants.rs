@@ -426,8 +426,7 @@ pub(crate) const TERM_CORNER_BR_CODEPOINTS: [u32; 7] =
 
 /// `term::fillRect` block/shade code points, indexed by `FillStyle` ordinal:
 /// `Filled` █, `Light` ░, `Medium` ▒, `Dark` ▓, `Checker` ▚, `CheckerAlt` ▞.
-pub(crate) const TERM_FILL_CODEPOINTS: [u32; 6] =
-    [0x2588, 0x2591, 0x2592, 0x2593, 0x259A, 0x259E];
+pub(crate) const TERM_FILL_CODEPOINTS: [u32; 6] = [0x2588, 0x2591, 0x2592, 0x2593, 0x259A, 0x259E];
 
 pub(crate) const TERM_STATE_ACTIVE_OFFSET: usize = 0;
 pub(crate) const TERM_STATE_FG_OFFSET: usize = 8;

@@ -133,6 +133,11 @@ impl NativePlanPlatform for Platform {
             import("TextOutW", GDI32, "_main"),
             import("SetTextColor", GDI32, "_main"),
             import("SetBkColor", GDI32, "_main"),
+            // plan-70-F: a CJK-capable fixed-pitch font (font-linking) + wide-glyph
+            // rendering + UTF-8→UTF-16 decode for the TUI grid.
+            import("CreateFontW", GDI32, "_main"),
+            import("ExtTextOutW", GDI32, "_main"),
+            import("MultiByteToWideChar", KERNEL32, "_main"),
         ]
     }
 

@@ -1,0 +1,32 @@
+' plan-70-B Phase 2: a multi-scalar extended grapheme cluster — a base plus
+' combining marks (café written NFD as "cafe" + U+0301) or a zero-width-joiner
+' emoji family (👨‍👩‍👧‍👦) — is stored in the cell's EGC pool slot and rendered as one
+' glyph in one cell, so a following marker stays column-aligned. The family is
+' East Asian Wide (width 2); café is four width-1 clusters. Runs piped (24x80
+' fallback), so the captured escape stream is deterministic.
+IMPORT term
+IMPORT io
+
+FUNC main AS Integer
+  term::on()
+
+  ' café (NFD): the 'é' is 'e' + U+0301 combining acute — one pooled cluster. The
+  ' '|' must land at column 4 (four single-width clusters), not column 5.
+  term::moveTo(0, 0)
+  io::write("cafe" & "́" & "|")
+
+  ' A ZWJ emoji family is one wide (2-column) cluster; '|' lands at column 2.
+  term::moveTo(2, 0)
+  io::write("👨‍👩‍👧‍👦|")
+
+  term::sync()
+
+  ' Diff present: overwrite the café marker at column 4 with 'X'. The pooled 'é'
+  ' cell (always re-emitted) and the marker must stay aligned.
+  term::moveTo(0, 4)
+  io::write("X")
+  term::sync()
+
+  term::off()
+  RETURN 0
+END FUNC

@@ -946,6 +946,10 @@ impl CodeBuilder<'_> {
             || is_collection_type(payload_type)
             || payload_type.starts_with("Result OF ")
             || self.type_model.record_fields.contains_key(payload_type)
-            || self.type_model.union_names.contains(payload_type)
+            // A **data** union is inlined whole; a **resource** union is a scalar
+            // pointer to its `{tag, ptr}` block, like a concrete resource, so it
+            // occupies the 8-byte payload word — not an inlinable block (plan-75
+            // gap 4). `union_is_data` base-strips any `STATE T` suffix.
+            || self.union_is_data(payload_type)
     }
 }

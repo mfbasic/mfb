@@ -1,0 +1,32 @@
+' plan-70-B Phase 1: the console shadow grid places a double-width (East Asian
+' Wide) glyph across two columns — its primary cell plus a wide-trailing sentinel
+' the presenter skips — so a following glyph stays column-aligned and the diff
+' presenter advances its cursor model by the glyph's display width, not by 1.
+' Runs under the acceptance harness with stdout piped (not a tty), so the grid is
+' the 24x80 fallback and the captured escape stream is deterministic.
+IMPORT term
+IMPORT io
+
+FUNC main AS Integer
+  term::on()
+
+  ' Three wide CJK glyphs (6 columns) then a marker: the '|' must land at column 6.
+  term::moveTo(0, 0)
+  io::write("日本語|")
+
+  ' Wide-at-edge: 'Z' at column 78, then a wide glyph that would straddle columns
+  ' 79-80 must wrap to the next row rather than split across the right edge.
+  term::moveTo(2, 78)
+  io::write("Z日")
+
+  term::sync()
+
+  ' Diff present: overwrite just the marker at column 6 with 'X'. Only that cell
+  ' changes, and it must stay column-aligned behind the wide glyphs.
+  term::moveTo(0, 6)
+  io::write("X")
+  term::sync()
+
+  term::off()
+  RETURN 0
+END FUNC

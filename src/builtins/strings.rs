@@ -32,6 +32,10 @@ const PAD_LEFT: &str = "strings.padLeft";
 const PAD_RIGHT: &str = "strings.padRight";
 const GRAPHEME_AT: &str = "strings.graphemeAt";
 const GRAPHEMES_COUNT: &str = "strings.graphemesCount";
+// plan-70-A: the terminal column width of a string — the sum of its grapheme
+// clusters' display widths (0 for zero-width, 2 for East Asian Wide/emoji, 1
+// otherwise). Additive; does not change any scalar/grapheme/byte semantics.
+const DISPLAY_WIDTH: &str = "strings.displayWidth";
 const TRIM_CHARS: &str = "strings.trimChars";
 // The raw UTF-8 bytes backing a String, one element per byte (the inverse of
 // `toString(List OF Byte)`). The foundation the `encoding` package's Unicode
@@ -230,44 +234,145 @@ const fn strings_fn(
 
 const STRINGS_FUNCTIONS: &[BuiltinFunction] = &[
     strings_fn(TRIM, "trim", OV_VALUE_STRING, Implementation::Same),
-    strings_fn(TRIM_START, "trimStart", OV_VALUE_STRING, Implementation::Same),
+    strings_fn(
+        TRIM_START,
+        "trimStart",
+        OV_VALUE_STRING,
+        Implementation::Same,
+    ),
     strings_fn(TRIM_END, "trimEnd", OV_VALUE_STRING, Implementation::Same),
     strings_fn(UPPER, "upper", OV_VALUE_STRING, Implementation::Same),
     strings_fn(LOWER, "lower", OV_VALUE_STRING, Implementation::Same),
     strings_fn(CASE_FOLD, "caseFold", OV_VALUE_STRING, Implementation::Same),
-    strings_fn(NORMALIZE_NFC, "normalizeNfc", OV_VALUE_STRING, Implementation::Same),
-    strings_fn(GRAPHEMES, "graphemes", OV_VALUE_LIST_STRING, Implementation::Same),
-    strings_fn(STARTS_WITH, "startsWith", OV_PREFIX_BOOL, Implementation::Same),
+    strings_fn(
+        NORMALIZE_NFC,
+        "normalizeNfc",
+        OV_VALUE_STRING,
+        Implementation::Same,
+    ),
+    strings_fn(
+        GRAPHEMES,
+        "graphemes",
+        OV_VALUE_LIST_STRING,
+        Implementation::Same,
+    ),
+    strings_fn(
+        STARTS_WITH,
+        "startsWith",
+        OV_PREFIX_BOOL,
+        Implementation::Same,
+    ),
     strings_fn(ENDS_WITH, "endsWith", OV_SUFFIX_BOOL, Implementation::Same),
     strings_fn(CONTAINS, "contains", OV_NEEDLE_BOOL, Implementation::Same),
     strings_fn(SPLIT, "split", OV_SPLIT, Implementation::Same),
     strings_fn(JOIN, "join", OV_JOIN, Implementation::Same),
     strings_fn(BYTE_LEN, "byteLen", OV_VALUE_INTEGER, Implementation::Same),
-    strings_fn(STARTS_WITH_ANY, "startsWithAny", OV_PREFIXES_BOOL, Implementation::Same),
-    strings_fn(ENDS_WITH_ANY, "endsWithAny", OV_SUFFIXES_BOOL, Implementation::Same),
-    strings_fn(STRIP_PREFIX, "stripPrefix", OV_PREFIX_STRING, Implementation::Same),
-    strings_fn(STRIP_SUFFIX, "stripSuffix", OV_SUFFIX_STRING, Implementation::Same),
+    strings_fn(
+        STARTS_WITH_ANY,
+        "startsWithAny",
+        OV_PREFIXES_BOOL,
+        Implementation::Same,
+    ),
+    strings_fn(
+        ENDS_WITH_ANY,
+        "endsWithAny",
+        OV_SUFFIXES_BOOL,
+        Implementation::Same,
+    ),
+    strings_fn(
+        STRIP_PREFIX,
+        "stripPrefix",
+        OV_PREFIX_STRING,
+        Implementation::Same,
+    ),
+    strings_fn(
+        STRIP_SUFFIX,
+        "stripSuffix",
+        OV_SUFFIX_STRING,
+        Implementation::Same,
+    ),
     strings_fn(COUNT, "count", OV_NEEDLE_INT, Implementation::Same),
     strings_fn(LEFT, "left", OV_COUNT_STRING, Implementation::Same),
     strings_fn(RIGHT, "right", OV_COUNT_STRING, Implementation::Same),
     strings_fn(REPEAT, "repeat", OV_TIMES_STRING, Implementation::Same),
     strings_fn(PAD_LEFT, "padLeft", OV_PAD, Implementation::Same),
     strings_fn(PAD_RIGHT, "padRight", OV_PAD, Implementation::Same),
-    strings_fn(GRAPHEME_AT, "graphemeAt", OV_INDEX_STRING, Implementation::Same),
-    strings_fn(GRAPHEMES_COUNT, "graphemesCount", OV_VALUE_INTEGER, Implementation::Same),
-    strings_fn(TRIM_CHARS, "trimChars", OV_CHARS_STRING, Implementation::Same),
-    strings_fn(TO_BYTES, "toBytes", OV_VALUE_LIST_BYTE, Implementation::Same),
+    strings_fn(
+        GRAPHEME_AT,
+        "graphemeAt",
+        OV_INDEX_STRING,
+        Implementation::Same,
+    ),
+    strings_fn(
+        GRAPHEMES_COUNT,
+        "graphemesCount",
+        OV_VALUE_INTEGER,
+        Implementation::Same,
+    ),
+    strings_fn(
+        DISPLAY_WIDTH,
+        "displayWidth",
+        OV_VALUE_INTEGER,
+        Implementation::Same,
+    ),
+    strings_fn(
+        TRIM_CHARS,
+        "trimChars",
+        OV_CHARS_STRING,
+        Implementation::Same,
+    ),
+    strings_fn(
+        TO_BYTES,
+        "toBytes",
+        OV_VALUE_LIST_BYTE,
+        Implementation::Same,
+    ),
     strings_fn(FIND, "find", OV_FIND, Implementation::Same),
     strings_fn(MID, "mid", OV_MID, Implementation::Same),
     strings_fn(REPLACE, "replace", OV_REPLACE, Implementation::Same),
     // Scalar seam + classification predicates — source-companion rewrites.
-    strings_fn(TO_SCALARS, "toScalars", OV_VALUE_LIST_SCALAR, Implementation::Rewrite("__strings_toScalars")),
-    strings_fn(FROM_SCALARS, "fromScalars", OV_FROM_SCALARS, Implementation::Rewrite("__strings_fromScalars")),
-    strings_fn(IS_LETTER, "isLetter", OV_SCALAR_BOOL, Implementation::Rewrite("__strings_isLetter")),
-    strings_fn(IS_DIGIT, "isDigit", OV_SCALAR_BOOL, Implementation::Rewrite("__strings_isDigit")),
-    strings_fn(IS_WHITESPACE, "isWhitespace", OV_SCALAR_BOOL, Implementation::Rewrite("__strings_isWhitespace")),
-    strings_fn(IS_UPPER, "isUpper", OV_SCALAR_BOOL, Implementation::Rewrite("__strings_isUpper")),
-    strings_fn(IS_LOWER, "isLower", OV_SCALAR_BOOL, Implementation::Rewrite("__strings_isLower")),
+    strings_fn(
+        TO_SCALARS,
+        "toScalars",
+        OV_VALUE_LIST_SCALAR,
+        Implementation::Rewrite("__strings_toScalars"),
+    ),
+    strings_fn(
+        FROM_SCALARS,
+        "fromScalars",
+        OV_FROM_SCALARS,
+        Implementation::Rewrite("__strings_fromScalars"),
+    ),
+    strings_fn(
+        IS_LETTER,
+        "isLetter",
+        OV_SCALAR_BOOL,
+        Implementation::Rewrite("__strings_isLetter"),
+    ),
+    strings_fn(
+        IS_DIGIT,
+        "isDigit",
+        OV_SCALAR_BOOL,
+        Implementation::Rewrite("__strings_isDigit"),
+    ),
+    strings_fn(
+        IS_WHITESPACE,
+        "isWhitespace",
+        OV_SCALAR_BOOL,
+        Implementation::Rewrite("__strings_isWhitespace"),
+    ),
+    strings_fn(
+        IS_UPPER,
+        "isUpper",
+        OV_SCALAR_BOOL,
+        Implementation::Rewrite("__strings_isUpper"),
+    ),
+    strings_fn(
+        IS_LOWER,
+        "isLower",
+        OV_SCALAR_BOOL,
+        Implementation::Rewrite("__strings_isLower"),
+    ),
 ];
 
 /// The scalar-seam source predicate — the ONLY resolver hook `strings` needs. The
@@ -275,7 +380,11 @@ const STRINGS_FUNCTIONS: &[BuiltinFunction] = &[
 /// `uses_package` walk (import of `strings` AND a reference to a seam member).
 struct StringsResolver;
 impl BuiltinResolver for StringsResolver {
-    fn uses_source(&self, _module: &BuiltinModule, project: &crate::ast::AstProject) -> Option<bool> {
+    fn uses_source(
+        &self,
+        _module: &BuiltinModule,
+        project: &crate::ast::AstProject,
+    ) -> Option<bool> {
         Some(uses_package(project))
     }
 
@@ -337,7 +446,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         REPEAT => Some(&[&["value"], &["times"]]),
         PAD_LEFT | PAD_RIGHT => Some(&[&["value"], &["width"], &["padChar"]]),
         GRAPHEME_AT => Some(&[&["value"], &["index"]]),
-        GRAPHEMES_COUNT => Some(&[&["value"]]),
+        GRAPHEMES_COUNT | DISPLAY_WIDTH => Some(&[&["value"]]),
         TRIM_CHARS => Some(&[&["value"], &["chars"]]),
         FIND => Some(&[&["value"], &["needle"], &["start"]]),
         MID => Some(&[&["value"], &["start"], &["count"]]),
@@ -369,7 +478,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         STRIP_PREFIX | STRIP_SUFFIX | COUNT | TRIM_CHARS => Some("String, String"),
         LEFT | RIGHT | REPEAT | GRAPHEME_AT => Some("String, Integer"),
         PAD_LEFT | PAD_RIGHT => Some("String, Integer[, String]"),
-        GRAPHEMES_COUNT => Some("String"),
+        GRAPHEMES_COUNT | DISPLAY_WIDTH => Some("String"),
         FIND => Some("String, String[, Integer]"),
         MID => Some("String, Integer, Integer"),
         REPLACE => Some("String, String, String"),
@@ -635,6 +744,7 @@ mod tests {
         PAD_RIGHT,
         GRAPHEME_AT,
         GRAPHEMES_COUNT,
+        DISPLAY_WIDTH,
         TRIM_CHARS,
         TO_BYTES,
         FIND,
@@ -1002,5 +1112,4 @@ LET p AS Thing = Thing[strings::toScalars(\"hi\")]\nEND FUNC\n";
 LET m AS Map OF String TO String = Map OF String TO String { \"k\" := strings::toScalars(\"hi\") }\nEND FUNC\n";
         assert!(uses_package(&project(vec![parse_file(map_src)])));
     }
-
 }

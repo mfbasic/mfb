@@ -543,7 +543,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&ascii_size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&ascii_alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         // ARENA_ALLOC clobbers caller-saved registers; reload source ptr/len.
         self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch21, &scratch20, 0));
@@ -2673,6 +2677,123 @@ impl CodeBuilder<'_> {
             type_: "Integer".to_string(),
             location: result,
             text: "strings.graphemesCount".to_string(),
+        })
+    }
+
+    /// displayWidth: the terminal column width of `value` — the sum over its
+    /// extended grapheme clusters of each cluster's display width. A cluster's
+    /// width is the width of its **first non-zero-width scalar** (a cluster whose
+    /// scalars are all zero-width contributes 0), matching wcswidth / notcurses
+    /// EGC width. Single-pass walk with the same UAX #29 break machinery as
+    /// `lower_strings_graphemes`, accumulating width instead of a count. plan-70-A.
+    pub(super) fn lower_strings_display_width(
+        &mut self,
+        value: &NirValue,
+    ) -> Result<ValueResult, String> {
+        let ptr = self.temporary_vreg();
+        let len = self.temporary_vreg();
+        let data = self.temporary_vreg();
+        let pos = self.temporary_vreg();
+        let total = self.temporary_vreg();
+        let cluster_w = self.temporary_vreg();
+        let cp = self.temporary_vreg();
+        let adv = self.temporary_vreg();
+        let prop = self.temporary_vreg();
+        let bc_prev = self.temporary_vreg();
+        let icb_prev = self.temporary_vreg();
+        let bc_cur = self.temporary_vreg();
+        let icb_cur = self.temporary_vreg();
+        let cw = self.temporary_vreg();
+        let addr = self.temporary_vreg();
+        let (ptr, len, data, pos, total, cluster_w) = (
+            ptr.as_str(),
+            len.as_str(),
+            data.as_str(),
+            pos.as_str(),
+            total.as_str(),
+            cluster_w.as_str(),
+        );
+        let (cp, adv, prop, bc_prev, icb_prev, bc_cur, icb_cur, cw, addr) = (
+            cp.as_str(),
+            adv.as_str(),
+            prop.as_str(),
+            bc_prev.as_str(),
+            icb_prev.as_str(),
+            bc_cur.as_str(),
+            icb_cur.as_str(),
+            cw.as_str(),
+            addr.as_str(),
+        );
+        let value = self.lower_value(value)?;
+        self.require_string("strings.displayWidth value", &value)?;
+        let value_slot = self.spill_to_slot("strings_display_width_value", &value.location);
+
+        let empty = self.label("strings_display_width_empty");
+        let walk = self.label("strings_display_width_loop");
+        let is_break = self.label("strings_display_width_break");
+        let no_break = self.label("strings_display_width_no_break");
+        let after = self.label("strings_display_width_after");
+        let skip_set = self.label("strings_display_width_skip_set");
+        let loop_done = self.label("strings_display_width_loop_done");
+        let done = self.label("strings_display_width_done");
+
+        self.emit(abi::load_u64(ptr, abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64(len, ptr, 0));
+        self.emit(abi::compare_immediate(len, "0"));
+        self.emit(abi::branch_eq(&empty));
+        self.emit(abi::add_immediate(data, ptr, 8));
+        self.emit(abi::move_immediate(total, "Integer", "0"));
+        // Seed: decode the first scalar, prime the grapheme state, and set the
+        // first cluster's width from it (cluster_w starts 0, so this is the
+        // first-non-zero-width rule for scalar 0).
+        self.emit_utf8_decode_next(data, cp, adv);
+        self.emit_unicode_property_lookup(cp, prop);
+        self.emit_unicode_property_boundclass(prop, bc_prev);
+        self.emit_unicode_property_indic_conjunct_break(prop, icb_prev);
+        self.emit_unicode_property_charwidth(prop, cw);
+        self.emit(abi::move_register(cluster_w, cw));
+        self.emit(abi::move_register(pos, adv));
+        self.emit(abi::label(&walk));
+        self.emit(abi::compare_registers(pos, len));
+        self.emit(abi::branch_ge(&loop_done));
+        self.emit(abi::add_registers(addr, data, pos));
+        self.emit_utf8_decode_next(addr, cp, adv);
+        self.emit_unicode_property_lookup(cp, prop);
+        self.emit_unicode_property_boundclass(prop, bc_cur);
+        self.emit_unicode_property_indic_conjunct_break(prop, icb_cur);
+        self.emit_unicode_property_charwidth(prop, cw);
+        self.emit_grapheme_break_branch(bc_prev, icb_prev, bc_cur, icb_cur, &is_break, &no_break);
+        // A boundary ends the current cluster: flush its width and start fresh so
+        // the current scalar seeds the new cluster below.
+        self.emit(abi::label(&is_break));
+        self.emit(abi::add_registers(total, total, cluster_w));
+        self.emit(abi::move_immediate(cluster_w, "Integer", "0"));
+        self.emit(abi::branch(&after));
+        self.emit(abi::label(&no_break));
+        self.emit(abi::label(&after));
+        // First-non-zero-width rule: if this cluster has no width yet, take this
+        // scalar's. cw==0 for a combining mark, so a zero-width scalar never
+        // overrides a base already seen.
+        self.emit(abi::compare_immediate(cluster_w, "0"));
+        self.emit(abi::branch_ne(&skip_set));
+        self.emit(abi::move_register(cluster_w, cw));
+        self.emit(abi::label(&skip_set));
+        self.emit_grapheme_state_update(bc_prev, icb_prev, bc_cur, icb_cur);
+        self.emit(abi::add_registers(pos, pos, adv));
+        self.emit(abi::branch(&walk));
+        self.emit(abi::label(&loop_done));
+        self.emit(abi::add_registers(total, total, cluster_w));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&empty));
+        self.emit(abi::move_immediate(total, "Integer", "0"));
+        self.emit(abi::label(&done));
+
+        let result = self.allocate_register()?;
+        self.emit(abi::move_register(&result, total));
+        Ok(ValueResult {
+            type_: "Integer".to_string(),
+            location: result,
+            text: "strings.displayWidth".to_string(),
         })
     }
 

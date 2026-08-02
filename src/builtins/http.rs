@@ -131,7 +131,11 @@ const fn fill(name: &'static str, ty: &'static str, expr: &'static str) -> Param
     }
 }
 
-const fn req_alias(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
+const fn req_alias(
+    name: &'static str,
+    aliases: &'static [&'static str],
+    ty: &'static str,
+) -> Parameter {
     Parameter {
         name,
         aliases,
@@ -163,8 +167,10 @@ const P_SERVER_SSL: &[Parameter] = &[
     fill("host", "String", "0.0.0.0"),
     fill("backlog", "Integer", "128"),
 ];
-const P_HANDLE_REQUEST: &[Parameter] =
-    &[req_alias("listener", &["server"], LISTENER_TYPE), req("routes", ROUTE_LIST)];
+const P_HANDLE_REQUEST: &[Parameter] = &[
+    req_alias("listener", &["server"], LISTENER_TYPE),
+    req("routes", ROUTE_LIST),
+];
 const P_ROUTE: &[Parameter] = &[req("pattern", "String"), req("handler", HANDLER_TYPE)];
 const P_BODY: &[Parameter] = &[req("body", "String")];
 const P_STATUS: &[Parameter] = &[req("code", "Integer"), req("body", "String")];
@@ -175,13 +181,30 @@ const P_WITH_HEADER: &[Parameter] = &[
 ];
 const P_TEXT: &[Parameter] = &[req("text", "String")];
 const P_RESPOND_FILE: &[Parameter] = &[req("file", FILE_TYPE), fill("contentType", "String", "")];
-const P_RESPOND_PATH: &[Parameter] =
-    &[req_alias("req", &["request"], REQUEST_TYPE), req("root", "String")];
+const P_RESPOND_PATH: &[Parameter] = &[
+    req_alias("req", &["request"], REQUEST_TYPE),
+    req("root", "String"),
+];
 
 const HTTP_FUNCTIONS: &[BuiltinFunction] = &[
-    hfn(READ, "read", &[ov(P_READ, RESPONSE_TYPE)], Implementation::Rewrite(INTERNAL_READ)),
-    hfn(WRITE, "write", &[ov(P_WRITE, RESPONSE_TYPE)], Implementation::Rewrite(INTERNAL_WRITE)),
-    hfn(SERVER, "server", &[ov(P_SERVER, LISTENER_TYPE)], Implementation::Rewrite(INTERNAL_SERVER)),
+    hfn(
+        READ,
+        "read",
+        &[ov(P_READ, RESPONSE_TYPE)],
+        Implementation::Rewrite(INTERNAL_READ),
+    ),
+    hfn(
+        WRITE,
+        "write",
+        &[ov(P_WRITE, RESPONSE_TYPE)],
+        Implementation::Rewrite(INTERNAL_WRITE),
+    ),
+    hfn(
+        SERVER,
+        "server",
+        &[ov(P_SERVER, LISTENER_TYPE)],
+        Implementation::Rewrite(INTERNAL_SERVER),
+    ),
     hfn(
         SERVER_SSL,
         "serverSSL",
@@ -189,24 +212,54 @@ const HTTP_FUNCTIONS: &[BuiltinFunction] = &[
         Implementation::Rewrite(INTERNAL_SERVER_SSL),
     ),
     // Overloaded by listener type: the resolver picks the internal target.
-    hfn(HANDLE_REQUEST, "handleRequest", &[ov(P_HANDLE_REQUEST, "Nothing")], Implementation::Custom),
-    hfn(ROUTE, "route", &[ov(P_ROUTE, ROUTE_TYPE)], Implementation::Rewrite(INTERNAL_ROUTE)),
+    hfn(
+        HANDLE_REQUEST,
+        "handleRequest",
+        &[ov(P_HANDLE_REQUEST, "Nothing")],
+        Implementation::Custom,
+    ),
+    hfn(
+        ROUTE,
+        "route",
+        &[ov(P_ROUTE, ROUTE_TYPE)],
+        Implementation::Rewrite(INTERNAL_ROUTE),
+    ),
     hfn(
         RESPONSE_DEFAULT,
         "responseDefault",
         &[ov(&[], RESPONSE_TYPE)],
         Implementation::Rewrite(INTERNAL_RESPONSE_DEFAULT),
     ),
-    hfn(OK, "ok", &[ov(P_BODY, RESPONSE_TYPE)], Implementation::Rewrite(INTERNAL_OK)),
-    hfn(STATUS, "status", &[ov(P_STATUS, RESPONSE_TYPE)], Implementation::Rewrite(INTERNAL_STATUS)),
-    hfn(JSON, "json", &[ov(P_BODY, RESPONSE_TYPE)], Implementation::Rewrite(INTERNAL_JSON)),
+    hfn(
+        OK,
+        "ok",
+        &[ov(P_BODY, RESPONSE_TYPE)],
+        Implementation::Rewrite(INTERNAL_OK),
+    ),
+    hfn(
+        STATUS,
+        "status",
+        &[ov(P_STATUS, RESPONSE_TYPE)],
+        Implementation::Rewrite(INTERNAL_STATUS),
+    ),
+    hfn(
+        JSON,
+        "json",
+        &[ov(P_BODY, RESPONSE_TYPE)],
+        Implementation::Rewrite(INTERNAL_JSON),
+    ),
     hfn(
         WITH_HEADER,
         "withHeader",
         &[ov(P_WITH_HEADER, RESPONSE_TYPE)],
         Implementation::Rewrite(INTERNAL_WITH_HEADER),
     ),
-    hfn(BYTES, "bytes", &[ov(P_TEXT, BYTE_LIST)], Implementation::Rewrite(INTERNAL_BYTES)),
+    hfn(
+        BYTES,
+        "bytes",
+        &[ov(P_TEXT, BYTE_LIST)],
+        Implementation::Rewrite(INTERNAL_BYTES),
+    ),
     hfn(
         RESPOND_FILE,
         "respondFile",
@@ -222,10 +275,26 @@ const HTTP_FUNCTIONS: &[BuiltinFunction] = &[
 ];
 
 const HTTP_TYPES: &[BuiltinType] = &[
-    BuiltinType { name: RESPONSE_TYPE, kind: TypeKind::Record, fields: &[] },
-    BuiltinType { name: REQUEST_TYPE, kind: TypeKind::Record, fields: &[] },
-    BuiltinType { name: REQUEST_PART_TYPE, kind: TypeKind::Record, fields: &[] },
-    BuiltinType { name: ROUTE_TYPE, kind: TypeKind::Record, fields: &[] },
+    BuiltinType {
+        name: RESPONSE_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: REQUEST_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: REQUEST_PART_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: ROUTE_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
 ];
 
 /// The internal `__http_handleRequest{,SSL}` target: `handleRequest` is overloaded
@@ -638,7 +707,10 @@ mod tests {
         assert_eq!(f.ty, ParameterType::Named(HEADER_MAP));
         assert_eq!(
             f.default,
-            DefaultValue::Fill { type_name: HEADER_MAP, expr: "{}" }
+            DefaultValue::Fill {
+                type_name: HEADER_MAP,
+                expr: "{}"
+            }
         );
         assert!(f.aliases.is_empty());
 

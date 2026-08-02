@@ -422,7 +422,9 @@ pub(super) fn lower_tls_poll_helper(
 ) -> HelperResult {
     match platform.family() {
         PlatformFamily::MacOS => macos::lower_tls_poll_macos(symbol, platform_imports, platform),
-        PlatformFamily::Linux => openssl::lower_tls_poll_openssl(symbol, platform_imports, platform),
+        PlatformFamily::Linux => {
+            openssl::lower_tls_poll_openssl(symbol, platform_imports, platform)
+        }
         PlatformFamily::Windows => schannel::lower_tls_poll(symbol, platform_imports, platform),
     }
 }

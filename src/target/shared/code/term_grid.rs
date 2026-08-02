@@ -46,12 +46,24 @@ const H_DIRTY: usize = 32;
 pub(super) const HDR_SIZE: usize = 40;
 
 // Cell layout (16 bytes).
-const CELL_SIZE: usize = 16;
+pub(super) const CELL_SIZE: usize = 16;
 pub(super) const C_GLYPH: usize = 0;
 pub(super) const C_FG: usize = 4;
 pub(super) const C_BG: usize = 8;
 pub(super) const C_BOLD: usize = 12;
 pub(super) const C_UN: usize = 13;
+// plan-70-B: display width (0/1/2) of the cluster this cell holds, computed at
+// write time from A's charwidth table and read by the presenter so a wide glyph
+// advances the terminal cursor by 2 columns. Lives in a previously-unused pad
+// byte, so `CELL_SIZE` is unchanged.
+pub(super) const C_WIDTH: usize = 14;
+// A wide cluster occupies its primary cell (`width` 2) followed by this
+// **wide-trailing sentinel** in the next column: a reserved glyph value the
+// presenter and draw helpers skip (it emits nothing) but that keeps the second
+// column occupied for cursor math and diffing. 0xFFFF_FFFF is not a valid packed
+// UTF-8 scalar (a lead byte 0xFF never appears), so it can never collide with a
+// real glyph.
+pub(super) const WIDE_TRAIL: &str = "4294967295";
 
 /// Worst-case escape bytes emitted per changed cell. Sizes the per-block output
 /// buffer.
@@ -79,10 +91,38 @@ pub(super) const C_UN: usize = 13;
 /// passed `TRAILER_SLACK` the present loop wrote beyond the arena grid block into
 /// adjacent arena memory.
 ///
-/// 72 covers the d=5 worst case with margin. The diff coalesces SGR, so the steady
-/// state remains far below this; the budget only has to bound the pathological
-/// repaint.
-const OUTBUF_PER_CELL: usize = 72;
+/// plan-70-B Phase 2: a cell can now emit a pooled multi-scalar grapheme cluster
+/// of up to `POOL_BYTES_PER_CELL` bytes (vs. one 4-byte scalar before), so the
+/// per-cell worst case grows from `2d+58` to `2d+54+POOL_BYTES_PER_CELL`. At d=5
+/// and a 64-byte pool slot that is 128; 136 covers it with margin. The diff
+/// coalesces SGR, so the steady state remains far below this; the budget only has
+/// to bound the pathological repaint. (`outbuf_per_cell_covers_the_worst_case_escape_run`.)
+pub(super) const OUTBUF_PER_CELL: usize = 136;
+
+/// plan-70-B Phase 2: bytes reserved per cell for a pooled (multi-scalar) grapheme
+/// cluster — a combining sequence, ZWJ emoji family, or regional-indicator flag
+/// whose UTF-8 exceeds the 4 bytes that pack inline into the cell glyph word. Each
+/// cell owns a dedicated slot at `pool_base + cell_index * POOL_BYTES_PER_CELL`, so
+/// the pool needs no bump pointer, no reset, and no compaction (the cell's slot is
+/// overwritten whenever the cell is): the lifecycle problem the umbrella flags is
+/// sidestepped by fixed per-cell slots. 64 covers a base plus a long run of
+/// combining marks / a 4-emoji ZWJ family (25 bytes); a cluster longer than this
+/// stores as many whole leading scalars as fit (graceful cap).
+pub(super) const POOL_BYTES_PER_CELL: usize = 64;
+
+/// Glyph-word tag for a **pooled** cell: top byte `0xC0`, low 24 bits the cluster
+/// byte length (its bytes live in the per-cell pool slot). The high bit ALONE is
+/// NOT free — every 4-byte UTF-8 scalar packs its 4th (continuation) byte, always
+/// `0x80..=0xBF`, into bits 24-31, so an inline astral glyph (e.g. `😀` =
+/// `0x80989FF0`) has bit 31 set. But an inline glyph's top byte is only ever `0x00`
+/// (1-3 byte scalars) or `0x80..=0xBF` (4-byte) — never `0xC0..=0xFE` — so `0xC0`
+/// is a collision-free tag. `WIDE_TRAIL` (top byte `0xFF`) is distinct and is
+/// handled before the pooled check. Length <= `POOL_BYTES_PER_CELL` fits the low
+/// 24 bits with room to spare.
+pub(super) const GLYPH_POOLED_TAG: i64 = 0xC000_0000;
+/// Mask recovering a pooled cell's cluster byte length from its glyph word (clears
+/// the `0xC0` tag byte).
+const GLYPH_POOLED_LEN_MASK: i64 = 0x00FF_FFFF;
 
 /// Extra bytes reserved past the exact `rows*cols*OUTBUF_PER_CELL` out-buffer so
 /// the fixed trailing reset/CUP/cursor sequence (~24 bytes) appended after the
@@ -229,6 +269,12 @@ fn append_glyph(buf: &str, glyph: &str, tag: &str, instrs: &mut Vec<CodeInstruct
 
 /// Scroll the back buffer up one row: shift rows 1..rows into 0..rows-1 and blank
 /// the last row. `back` is the cell base, `rows`/`cols` the grid dims. No calls.
+///
+/// plan-70-B Phase 2: the per-cell EGC pool slots are position-indexed, so a
+/// pooled cluster that scrolls would otherwise render the destination cell's stale
+/// slot. This shifts the pool region (which follows the cells, at
+/// `back + ncells*(2*CELL+OUTBUF)`) in lockstep and blanks the last row's slots.
+/// `POOL_BYTES_PER_CELL` is a multiple of 8 so the shift stays word-aligned.
 fn emit_scroll_back(
     back: &str,
     rows: &str,
@@ -246,6 +292,10 @@ fn emit_scroll_back(
     let copy_done = format!("{tag}_sc_cdone");
     let clr = format!("{tag}_sc_clr");
     let clr_done = format!("{tag}_sc_cldone");
+    let pcopy = format!("{tag}_sc_pcopy");
+    let pcopy_done = format!("{tag}_sc_pcdone");
+    let pclr = format!("{tag}_sc_pclr");
+    let pclr_done = format!("{tag}_sc_pcldone");
     instrs.extend([
         abi::multiply_registers(ncells, rows, cols),
         // moved cells = (ncells - cols); copy that many cells up by `cols`.
@@ -277,6 +327,44 @@ fn emit_scroll_back(
         abi::subtract_immediate(cnt, cnt, 1),
         abi::branch(&clr),
         abi::label(&clr_done),
+        // --- shift the per-cell EGC pool slots up one row too (plan-70-B P2) ---
+        // pool_base = back + ncells*(2*CELL + OUTBUF); dst = pool_base.
+        abi::move_immediate(
+            word,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string(),
+        ),
+        abi::multiply_registers(dst, ncells, word),
+        abi::add_registers(dst, back, dst),
+        // src = pool_base + cols*POOL_BYTES_PER_CELL (row 1's slots).
+        abi::move_immediate(word, "Integer", &POOL_BYTES_PER_CELL.to_string()),
+        abi::multiply_registers(src, cols, word),
+        abi::add_registers(src, dst, src),
+        // words to move = moved slots * (POOL_BYTES_PER_CELL / 8).
+        abi::move_immediate(word, "Integer", &(POOL_BYTES_PER_CELL / 8).to_string()),
+        abi::multiply_registers(cnt, moved, word),
+        abi::label(&pcopy),
+        abi::compare_immediate(cnt, "0"),
+        abi::branch_eq(&pcopy_done),
+        abi::load_u64(word, src, 0),
+        abi::store_u64(word, dst, 0),
+        abi::add_immediate(src, src, 8),
+        abi::add_immediate(dst, dst, 8),
+        abi::subtract_immediate(cnt, cnt, 1),
+        abi::branch(&pcopy),
+        abi::label(&pcopy_done),
+        // Blank the last row's pool slots: cols slots * (POOL/8) words at dst.
+        abi::move_immediate(word, "Integer", &(POOL_BYTES_PER_CELL / 8).to_string()),
+        abi::multiply_registers(cnt, cols, word),
+        abi::move_immediate(word, "Integer", "0"),
+        abi::label(&pclr),
+        abi::compare_immediate(cnt, "0"),
+        abi::branch_eq(&pclr_done),
+        abi::store_u64(word, dst, 0),
+        abi::add_immediate(dst, dst, 8),
+        abi::subtract_immediate(cnt, cnt, 1),
+        abi::branch(&pclr),
+        abi::label(&pclr_done),
     ]);
 }
 
@@ -340,7 +428,11 @@ pub(super) fn emit_grid_alloc(
         abi::store_u64(colsv, abi::stack_pointer(), cols_slot),
         // size = HDR_SIZE + rows*cols*(2*CELL_SIZE + OUTBUF_PER_CELL)
         abi::multiply_registers(t, rowsv, colsv),
-        abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
+        abi::move_immediate(
+            m,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string(),
+        ),
         abi::multiply_registers(t, t, m),
         abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::move_register(abi::return_register(), t),
@@ -356,7 +448,11 @@ pub(super) fn emit_grid_alloc(
         abi::load_u64(rowsv, abi::stack_pointer(), rows_slot),
         abi::load_u64(colsv, abi::stack_pointer(), cols_slot),
         abi::multiply_registers(t, rowsv, colsv),
-        abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
+        abi::move_immediate(
+            m,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string(),
+        ),
         abi::multiply_registers(t, t, m),
         abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::shift_right_immediate(wc, t, 3),
@@ -410,7 +506,11 @@ pub(super) fn emit_grid_free(
         abi::load_u64(rowsv, gp, H_ROWS),
         abi::load_u64(colsv, gp, H_COLS),
         abi::multiply_registers(t, rowsv, colsv),
-        abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
+        abi::move_immediate(
+            m,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string(),
+        ),
         abi::multiply_registers(t, t, m),
         abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::move_register(abi::return_register(), gp),
@@ -441,6 +541,7 @@ pub(super) fn emit_grid_write(
     strobj: &str,
     append_newline: bool,
     instrs: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
 ) {
     let gp = "%v300";
     let back = "%v301";
@@ -460,6 +561,32 @@ pub(super) fn emit_grid_write(
     let t = "%v315";
     let idx = "%v316";
     let cell = "%v317";
+    // plan-70-B width path: codepoint decode + charwidth lookup + wide handling.
+    let cp = "%v318";
+    let width = "%v319";
+    let sa = "%v320";
+    let sb = "%v321";
+    let trail = "%v322";
+    // plan-70-B Phase 2 cluster walk + EGC pool.
+    let prop = "%v323";
+    let state_bc = "%v324";
+    let state_icb = "%v325";
+    let clen = "%v326"; // total cluster byte length
+    let pptr = "%v327"; // peek: pointer at ptr + clen
+    let pb0 = "%v328"; // peek: lead byte
+    let plen = "%v329"; // peek: scalar byte length
+    let pcp = "%v330"; // peek: codepoint
+    let pprop = "%v331"; // peek: property ptr
+    let pbc = "%v332"; // peek: boundclass
+    let picb = "%v333"; // peek: indic-conjunct-break
+    let pwidth = "%v334"; // peek: charwidth
+    let sc = "%v335"; // scratch
+    let sd = "%v336"; // scratch
+    let sd2 = "%v337"; // scratch byte
+    let cellidx = "%v338"; // linear cell index (row*cols+col) for the pool slot
+    let ncells = "%v339";
+    let poolbase = "%v340";
+    let poolslot = "%v341";
     let done = format!("{symbol}_gw_done");
     let loop_top = format!("{symbol}_gw_loop");
     let handle_nl = format!("{symbol}_gw_nl");
@@ -472,6 +599,20 @@ pub(super) fn emit_grid_write(
     let col_ok = format!("{symbol}_gw_colok");
     let row_ok = format!("{symbol}_gw_rowok");
     let nl_ok = format!("{symbol}_gw_nlok");
+    let w_have = format!("{symbol}_gw_whave");
+    let wide_edge = format!("{symbol}_gw_wideedge");
+    let after_trail = format!("{symbol}_gw_aftertrail");
+    let peek_top = format!("{symbol}_gw_peek");
+    let peek_done = format!("{symbol}_gw_peekdone");
+    let peek_nobreak = format!("{symbol}_gw_peeknb");
+    let peek_l2 = format!("{symbol}_gw_pl2");
+    let peek_l3 = format!("{symbol}_gw_pl3");
+    let peek_clamp = format!("{symbol}_gw_pclamp");
+    let peek_have_len = format!("{symbol}_gw_phlen");
+    let peek_wok = format!("{symbol}_gw_pwok");
+    let pool_copy_loop = format!("{symbol}_gw_pcopy");
+    let pool_copy_done = format!("{symbol}_gw_pcopydone");
+    let store_inline = format!("{symbol}_gw_inline");
 
     instrs.extend([
         abi::load_u64(
@@ -554,8 +695,144 @@ pub(super) fn emit_grid_write(
         abi::shift_left_immediate(t, t, 24),
         abi::or_registers(glyph, glyph, t),
         abi::label(&cellw),
+    ]);
+    // plan-70-B Phase 2: build the whole extended grapheme cluster starting at the
+    // base scalar, then place it width-aware. The base scalar's bytes are already
+    // packed into `glyph` (inline path); `clen` grows as following non-breaking
+    // scalars are folded in, and a multi-scalar cluster is stored in the cell's
+    // pool slot instead. Base scalar: codepoint, then boundclass/icb/charwidth.
+    super::private::unicode::emit_utf8_codepoint_by_len(
+        &format!("{symbol}_gwd"),
+        ptr,
+        len,
+        b0,
+        cp,
+        sa,
+        sb,
+        instrs,
+    );
+    super::private::unicode::emit_unicode_property_ptr_free(
+        symbol,
+        &format!("{symbol}_gwb"),
+        cp,
+        prop,
+        sa,
+        instrs,
+        relocations,
+    );
+    super::private::unicode::emit_read_boundclass_icb_charwidth_free(
+        prop, state_bc, state_icb, width, sa, instrs,
+    );
+    instrs.push(abi::move_register(clen, len));
+    // Peek: fold following scalars into the cluster while there is no UAX #29
+    // grapheme boundary, capping the cluster at POOL_BYTES_PER_CELL bytes.
+    instrs.push(abi::label(&peek_top));
+    instrs.extend([
+        abi::subtract_registers(sc, rem, clen),
+        abi::compare_immediate(sc, "0"),
+        abi::branch_eq(&peek_done),
+        abi::add_registers(pptr, ptr, clen),
+        abi::load_u8(pb0, pptr, 0),
+        // A newline/CR always ends the cluster (handled by the outer loop next).
+        abi::compare_immediate(pb0, "10"),
+        abi::branch_eq(&peek_done),
+        abi::compare_immediate(pb0, "13"),
+        abi::branch_eq(&peek_done),
+        // UTF-8 length of the peeked scalar, clamped to what remains.
+        abi::move_immediate(plen, "Integer", "1"),
+        abi::compare_immediate(pb0, "128"),
+        abi::branch_lo(&peek_have_len),
+        abi::compare_immediate(pb0, "224"),
+        abi::branch_lo(&peek_l2),
+        abi::compare_immediate(pb0, "240"),
+        abi::branch_lo(&peek_l3),
+        abi::move_immediate(plen, "Integer", "4"),
+        abi::branch(&peek_clamp),
+        abi::label(&peek_l2),
+        abi::move_immediate(plen, "Integer", "2"),
+        abi::branch(&peek_clamp),
+        abi::label(&peek_l3),
+        abi::move_immediate(plen, "Integer", "3"),
+        abi::label(&peek_clamp),
+        abi::compare_registers(plen, sc),
+        abi::branch_ls(&peek_have_len),
+        abi::move_immediate(plen, "Integer", "1"),
+        abi::label(&peek_have_len),
+        // Graceful cap: never let a cluster exceed the pool slot.
+        abi::add_registers(sc, clen, plen),
+        abi::move_immediate(sd, "Integer", &POOL_BYTES_PER_CELL.to_string()),
+        abi::compare_registers(sc, sd),
+        abi::branch_hi(&peek_done),
+    ]);
+    super::private::unicode::emit_utf8_codepoint_by_len(
+        &format!("{symbol}_gwpd"),
+        pptr,
+        plen,
+        pb0,
+        pcp,
+        sa,
+        sb,
+        instrs,
+    );
+    super::private::unicode::emit_unicode_property_ptr_free(
+        symbol,
+        &format!("{symbol}_gwpl"),
+        pcp,
+        pprop,
+        sa,
+        instrs,
+        relocations,
+    );
+    super::private::unicode::emit_read_boundclass_icb_charwidth_free(
+        pprop, pbc, picb, pwidth, sa, instrs,
+    );
+    super::private::unicode::emit_grapheme_break_branch_free(
+        &format!("{symbol}_gwpb"),
+        state_bc,
+        state_icb,
+        pbc,
+        picb,
+        &peek_done,
+        &peek_nobreak,
+        instrs,
+    );
+    instrs.push(abi::label(&peek_nobreak));
+    instrs.extend([
+        abi::add_registers(clen, clen, plen),
+        // Cluster width = its first non-zero-width scalar's width.
+        abi::compare_immediate(width, "0"),
+        abi::branch_ne(&peek_wok),
+        abi::move_register(width, pwidth),
+        abi::label(&peek_wok),
+    ]);
+    super::private::unicode::emit_grapheme_state_update_free(
+        &format!("{symbol}_gwps"),
+        state_bc,
+        state_icb,
+        pbc,
+        picb,
+        instrs,
+    );
+    instrs.push(abi::branch(&peek_top));
+    instrs.push(abi::label(&peek_done));
+    instrs.extend([
+        // An all-zero-width cluster (a lone combining mark) still takes one cell
+        // and advances one column.
+        abi::compare_immediate(width, "0"),
+        abi::branch_ne(&w_have),
+        abi::move_immediate(width, "Integer", "1"),
+        abi::label(&w_have),
         // Wrap at the right edge.
         abi::compare_registers(col, cols),
+        abi::branch_lo(&wide_edge),
+        abi::move_immediate(col, "Integer", "0"),
+        abi::add_immediate(row, row, 1),
+        abi::label(&wide_edge),
+        // A width-2 glyph at the last column wraps rather than straddling the edge.
+        abi::compare_immediate(width, "2"),
+        abi::branch_ne(&col_ok),
+        abi::add_immediate(sa, col, 1),
+        abi::compare_registers(sa, cols),
         abi::branch_lo(&col_ok),
         abi::move_immediate(col, "Integer", "0"),
         abi::add_immediate(row, row, 1),
@@ -568,19 +845,71 @@ pub(super) fn emit_grid_write(
     instrs.extend([
         abi::subtract_immediate(row, rows, 1),
         abi::label(&row_ok),
-        // cell = back + (row*cols + col) * CELL_SIZE
+        // cell = back + (row*cols + col) * CELL_SIZE; keep the linear index for the
+        // per-cell pool slot.
         abi::multiply_registers(idx, row, cols),
         abi::add_registers(idx, idx, col),
+        abi::move_register(cellidx, idx),
         abi::shift_left_immediate(idx, idx, 4),
         abi::add_registers(cell, back, idx),
+        // A single-scalar cluster (clen == the base scalar length) stays inline in
+        // the packed glyph word; a multi-scalar cluster goes to the pool slot.
+        abi::compare_registers(clen, len),
+        abi::branch_eq(&store_inline),
+        // pool_base = gp + HDR_SIZE + ncells*(2*CELL + OUTBUF) (the pool region
+        // follows back+front+outbuf); slot = pool_base + cellidx*POOL_BYTES_PER_CELL.
+        abi::multiply_registers(ncells, rows, cols),
+        abi::move_immediate(
+            sa,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string(),
+        ),
+        abi::multiply_registers(sa, ncells, sa),
+        abi::add_immediate(sa, sa, HDR_SIZE),
+        abi::add_registers(poolbase, gp, sa),
+        abi::move_immediate(sa, "Integer", &POOL_BYTES_PER_CELL.to_string()),
+        abi::multiply_registers(sa, cellidx, sa),
+        abi::add_registers(poolslot, poolbase, sa),
+        // Copy the cluster's bytes [ptr, ptr+clen) into the slot.
+        abi::move_immediate(sc, "Integer", "0"),
+        abi::label(&pool_copy_loop),
+        abi::compare_registers(sc, clen),
+        abi::branch_ge(&pool_copy_done),
+        abi::add_registers(sd, ptr, sc),
+        abi::load_u8(sd2, sd, 0),
+        abi::add_registers(sd, poolslot, sc),
+        abi::store_u8(sd2, sd, 0),
+        abi::add_immediate(sc, sc, 1),
+        abi::branch(&pool_copy_loop),
+        abi::label(&pool_copy_done),
+        // glyph = pooled tag | byte length.
+        abi::move_immediate(glyph, "Integer", &GLYPH_POOLED_TAG.to_string()),
+        abi::or_registers(glyph, glyph, clen),
+        abi::label(&store_inline),
         abi::store_u32(glyph, cell, C_GLYPH),
         abi::store_u32(fg, cell, C_FG),
         abi::store_u32(bg, cell, C_BG),
         abi::store_u8(bold, cell, C_BOLD),
         abi::store_u8(un, cell, C_UN),
-        abi::add_immediate(col, col, 1),
-        abi::add_registers(ptr, ptr, len),
-        abi::subtract_registers(rem, rem, len),
+        abi::store_u8(width, cell, C_WIDTH),
+        // A wide glyph reserves the next cell as a wide-trailing sentinel (same
+        // row: the wide-at-edge wrap above guarantees col <= cols-2 here). The
+        // presenter emits nothing for it and does not advance the cursor past it.
+        abi::compare_immediate(width, "2"),
+        abi::branch_ne(&after_trail),
+        abi::add_immediate(trail, cell, CELL_SIZE),
+        abi::move_immediate(sa, "Integer", WIDE_TRAIL),
+        abi::store_u32(sa, trail, C_GLYPH),
+        abi::store_u32(fg, trail, C_FG),
+        abi::store_u32(bg, trail, C_BG),
+        abi::store_u8(bold, trail, C_BOLD),
+        abi::store_u8(un, trail, C_UN),
+        abi::move_immediate(sb, "Integer", "0"),
+        abi::store_u8(sb, trail, C_WIDTH),
+        abi::label(&after_trail),
+        abi::add_registers(col, col, width),
+        abi::add_registers(ptr, ptr, clen),
+        abi::subtract_registers(rem, rem, clen),
         abi::branch(&loop_top),
         // \n : col = 0, row++, scroll if needed.
         abi::label(&handle_nl),
@@ -682,6 +1011,13 @@ pub(super) fn emit_grid_resize(
     let sptr = "%v517";
     let dptr = "%v518";
     let word = "%v519";
+    // plan-70-B Phase 2: pool-slot copy across the reflow.
+    let opb = "%v520";
+    let npb = "%v521";
+    let prloop = format!("{symbol}_rz_prloop");
+    let prdone = format!("{symbol}_rz_prdone");
+    let pcloop = format!("{symbol}_rz_pcloop");
+    let pcdone = format!("{symbol}_rz_pcdone");
     let skip = format!("{symbol}_rz_skip");
     let do_rz = format!("{symbol}_rz_do");
     let zloop = format!("{symbol}_rz_zloop");
@@ -733,7 +1069,11 @@ pub(super) fn emit_grid_resize(
         abi::store_u64(gp, sp, S_OLDGP),
         // new block = arena_alloc(HDR + newR*newC*(2*CELL+OUTBUF), 8)
         abi::multiply_registers(t, newr, newc),
-        abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
+        abi::move_immediate(
+            m,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string(),
+        ),
         abi::multiply_registers(t, t, m),
         abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::move_register(abi::return_register(), t),
@@ -750,7 +1090,11 @@ pub(super) fn emit_grid_resize(
         abi::load_u64(newr, sp, S_NEWR),
         abi::load_u64(newc, sp, S_NEWC),
         abi::multiply_registers(t, newr, newc),
-        abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
+        abi::move_immediate(
+            m,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string(),
+        ),
         abi::multiply_registers(t, t, m),
         abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::shift_right_immediate(wc, t, 3),
@@ -825,6 +1169,49 @@ pub(super) fn emit_grid_resize(
         abi::add_immediate(rr, rr, 1),
         abi::branch(&rloop),
         abi::label(&rdone),
+        // plan-70-B Phase 2: copy the per-cell EGC pool slots for the same overlap,
+        // so a pooled cluster survives the reflow (else its copied tag would point
+        // at the new block's zeroed slot and emit NUL bytes). Pool bases follow the
+        // cells: opb = gp + HDR + oldR*oldC*(2*CELL+OUTBUF); npb likewise for ng.
+        abi::multiply_registers(t, oldr, oldc),
+        abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
+        abi::multiply_registers(t, t, m),
+        abi::add_immediate(t, t, HDR_SIZE),
+        abi::add_registers(opb, gp, t),
+        abi::multiply_registers(t, newr, newc),
+        abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
+        abi::multiply_registers(t, t, m),
+        abi::add_immediate(t, t, HDR_SIZE),
+        abi::add_registers(npb, ng, t),
+        abi::move_immediate(rr, "Integer", "0"),
+        abi::label(&prloop),
+        abi::compare_registers(rr, minr),
+        abi::branch_ge(&prdone),
+        // sptr = opb + rr*oldC*POOL ; dptr = npb + rr*newC*POOL
+        abi::multiply_registers(t, rr, oldc),
+        abi::move_immediate(m, "Integer", &POOL_BYTES_PER_CELL.to_string()),
+        abi::multiply_registers(t, t, m),
+        abi::add_registers(sptr, opb, t),
+        abi::multiply_registers(t, rr, newc),
+        abi::move_immediate(m, "Integer", &POOL_BYTES_PER_CELL.to_string()),
+        abi::multiply_registers(t, t, m),
+        abi::add_registers(dptr, npb, t),
+        // copy minC slots = minC*(POOL/8) words
+        abi::move_immediate(m, "Integer", &(POOL_BYTES_PER_CELL / 8).to_string()),
+        abi::multiply_registers(cc, minc, m),
+        abi::label(&pcloop),
+        abi::compare_immediate(cc, "0"),
+        abi::branch_eq(&pcdone),
+        abi::load_u64(word, sptr, 0),
+        abi::store_u64(word, dptr, 0),
+        abi::add_immediate(sptr, sptr, 8),
+        abi::add_immediate(dptr, dptr, 8),
+        abi::subtract_immediate(cc, cc, 1),
+        abi::branch(&pcloop),
+        abi::label(&pcdone),
+        abi::add_immediate(rr, rr, 1),
+        abi::branch(&prloop),
+        abi::label(&prdone),
         // Publish the new block, then free the old one.
         abi::store_u64(
             ng,
@@ -835,7 +1222,11 @@ pub(super) fn emit_grid_resize(
         abi::load_u64(oldc, sp, S_OLDC),
         abi::load_u64(gp, sp, S_OLDGP),
         abi::multiply_registers(t, oldr, oldc),
-        abi::move_immediate(m, "Integer", &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string()),
+        abi::move_immediate(
+            m,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL + POOL_BYTES_PER_CELL).to_string(),
+        ),
         abi::multiply_registers(t, t, m),
         abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::move_register(abi::return_register(), gp),
@@ -899,12 +1290,29 @@ pub(super) fn emit_grid_present(
     let wcur = "%v232";
     let wrem = "%v233";
     let wres = "%v234";
+    // plan-70-B: this cell's stored display width, for the cursor-advance model.
+    let cwidth = "%v235";
+    // plan-70-B Phase 2: pooled-cluster emission.
+    let pe_len = "%v236";
+    let pe_base = "%v237";
+    let pe_slot = "%v238";
+    let pe_i = "%v239";
+    let pe_byte = "%v240";
+    let pe_sc = "%v241";
+    let pe_dst = "%v242";
 
     let done_ok = format!("{symbol}_pr_ok");
     let loop_top = format!("{symbol}_pr_loop");
     let after = format!("{symbol}_pr_after");
     let emit_cell = format!("{symbol}_pr_emit");
     let advance = format!("{symbol}_pr_adv");
+    let trail_present = format!("{symbol}_pr_trail");
+    let adv1 = format!("{symbol}_pr_adv1");
+    let after_setcol = format!("{symbol}_pr_aftercol");
+    let inline_glyph = format!("{symbol}_pr_inlineg");
+    let pool_emit_loop = format!("{symbol}_pr_pemit");
+    let pool_emit_done = format!("{symbol}_pr_pemitdone");
+    let after_glyph = format!("{symbol}_pr_afterg");
     let cup_done = format!("{symbol}_pr_cupdone");
     let do_cup = format!("{symbol}_pr_docup");
     let sgr_done = format!("{symbol}_pr_sgrdone");
@@ -973,6 +1381,15 @@ pub(super) fn emit_grid_present(
         // pending is by-register). [[bug-126.2]]
         abi::compare_immediate(dirty, "0"),
         abi::branch_ne(&emit_cell),
+        // plan-70-B Phase 2: a pooled cell's cluster bytes live in the pool slot,
+        // outside the 16-byte cell the XOR diff compares, so a same-tag same-attr
+        // overwrite would be missed — always re-emit a pooled cell (glyph top byte
+        // == 0xC0). Inline 4-byte scalars can set bit 31 but never the 0xC0 top
+        // byte, so this does not force-emit ordinary astral glyphs.
+        abi::load_u32(a0, bc, C_GLYPH),
+        abi::shift_right_immediate(a0, a0, 24),
+        abi::compare_immediate(a0, "192"),
+        abi::branch_eq(&emit_cell),
         abi::load_u64(a0, bc, 0),
         abi::load_u64(b0, fc, 0),
         abi::exclusive_or_registers(a0, a0, b0),
@@ -985,6 +1402,13 @@ pub(super) fn emit_grid_present(
         abi::branch_ne(&emit_cell),
         abi::branch(&advance),
         abi::label(&emit_cell),
+        // plan-70-B: a wide-trailing sentinel draws nothing — the wide glyph in its
+        // primary cell already covers this column, and the primary advanced the
+        // cursor model by 2. Mark it presented and move on without a CUP/SGR/glyph.
+        abi::load_u32(glyph, bc, C_GLYPH),
+        abi::move_immediate(a0, "Integer", WIDE_TRAIL),
+        abi::compare_registers(glyph, a0),
+        abi::branch_eq(&trail_present),
         // Cursor: emit a CUP unless the terminal cursor is already here. Equality
         // via xor + compare-to-zero keeps the rv64 selector's pending rhs an
         // immediate (register-reuse safe under spilling). [[bug-126.2]]
@@ -1054,15 +1478,67 @@ pub(super) fn emit_grid_present(
         abi::move_register(last_bold, cbold),
         abi::move_register(last_un, cun),
         abi::label(&sgr_done),
-        abi::load_u32(glyph, bc, C_GLYPH),
+    ]);
+    // plan-70-B Phase 2: emit the cluster. A pooled cell (glyph high bit set)
+    // copies its cluster bytes from this cell's pool slot; otherwise the inline
+    // packed scalar bytes via `append_glyph`. `glyph` was loaded at `emit_cell`.
+    instrs.extend([
+        abi::move_immediate(pe_sc, "Integer", &GLYPH_POOLED_TAG.to_string()),
+        abi::compare_registers(glyph, pe_sc),
+        abi::branch_lo(&inline_glyph),
+        // len = glyph & 0x00FF_FFFF (strip the 0xC0 pooled tag byte).
+        abi::move_immediate(pe_sc, "Integer", &GLYPH_POOLED_LEN_MASK.to_string()),
+        abi::and_registers(pe_len, glyph, pe_sc),
+        // pool_base = gp + HDR_SIZE + ncells*(2*CELL + OUTBUF).
+        abi::move_immediate(
+            pe_sc,
+            "Integer",
+            &(2 * CELL_SIZE + OUTBUF_PER_CELL).to_string(),
+        ),
+        abi::multiply_registers(pe_base, ncells, pe_sc),
+        abi::add_immediate(pe_base, pe_base, HDR_SIZE),
+        abi::add_registers(pe_base, gp, pe_base),
+        // slot = pool_base + idx*POOL_BYTES_PER_CELL.
+        abi::move_immediate(pe_sc, "Integer", &POOL_BYTES_PER_CELL.to_string()),
+        abi::multiply_registers(pe_slot, idx, pe_sc),
+        abi::add_registers(pe_slot, pe_base, pe_slot),
+        // Copy the cluster's bytes into the output buffer and advance it.
+        abi::move_immediate(pe_i, "Integer", "0"),
+        abi::label(&pool_emit_loop),
+        abi::compare_registers(pe_i, pe_len),
+        abi::branch_ge(&pool_emit_done),
+        abi::add_registers(pe_dst, pe_slot, pe_i),
+        abi::load_u8(pe_byte, pe_dst, 0),
+        abi::add_registers(pe_dst, buf, pe_i),
+        abi::store_u8(pe_byte, pe_dst, 0),
+        abi::add_immediate(pe_i, pe_i, 1),
+        abi::branch(&pool_emit_loop),
+        abi::label(&pool_emit_done),
+        abi::add_registers(buf, buf, pe_len),
+        abi::branch(&after_glyph),
+        abi::label(&inline_glyph),
     ]);
     append_glyph(buf, glyph, &format!("{symbol}_prg"), instrs);
-    // The terminal cursor is now one column past this cell.
+    instrs.push(abi::label(&after_glyph));
+    // The terminal cursor is now `width` columns past this cell's start: a wide
+    // glyph (stored width 2) leaves the cursor 2 columns on, so a following run of
+    // changed cells stays column-aligned without a redundant CUP (the bug-392
+    // auto-advance fix). Any stored width other than 2 (including 0 on cells the
+    // width-aware writer never touched) advances a single column.
     instrs.extend([
         abi::move_immediate(last_valid, "Integer", "1"),
         abi::move_register(last_row, row),
+        abi::load_u8(cwidth, bc, C_WIDTH),
+        abi::compare_immediate(cwidth, "2"),
+        abi::branch_ne(&adv1),
+        abi::add_immediate(last_col, col, 2),
+        abi::branch(&after_setcol),
+        abi::label(&adv1),
         abi::add_immediate(last_col, col, 1),
-        // Mark the cell presented: copy back→front (16 bytes = 2 words).
+        abi::label(&after_setcol),
+        // Mark the cell presented: copy back→front (16 bytes = 2 words). A
+        // wide-trailing sentinel joins here too (nothing emitted, still synced).
+        abi::label(&trail_present),
         abi::load_u64(a0, bc, 0),
         abi::store_u64(a0, fc, 0),
         abi::load_u64(a0, bc, 8),
@@ -1183,36 +1659,37 @@ mod tests {
     /// instead of silently overflowing a customer's terminal.
     #[test]
     fn outbuf_per_cell_covers_the_worst_case_escape_run() {
-        /// Bytes a single changed cell can emit at a `digits`-wide coordinate.
-        fn worst_case(digits: usize) -> usize {
+        /// Bytes a single changed cell can emit at a `digits`-wide coordinate with
+        /// a glyph payload of `glyph` bytes.
+        fn worst_case(digits: usize, glyph: usize) -> usize {
             let cup = 2 + digits + 1 + digits + 1; // ESC [ row ; col H
             let reset = "\x1b[0m".len();
             let bold = "\x1b[1m".len();
             let underline = "\x1b[4m".len();
             // ESC [38;2; r ; g ; b m — three components of up to three digits.
             let colour = "\x1b[38;2;".len() + 3 + 1 + 3 + 1 + 3 + "m".len();
-            let glyph = 4; // widest UTF-8 encoding
             cup + reset + bold + underline + colour * 2 + glyph
         }
 
-        // The historical budget was exactly the 3-digit worst case, which is why
-        // the shortfall only appeared on large terminals.
+        // The historical bug-313 budget was exactly the 3-digit worst case for a
+        // single 4-byte scalar, which is why the shortfall only appeared on large
+        // terminals.
         assert_eq!(
-            worst_case(3),
+            worst_case(3, 4),
             64,
-            "the 3-digit worst case is what 64 encoded"
+            "the 3-digit / 4-byte-glyph worst case is what 64 encoded"
         );
-        assert_eq!(worst_case(4), 66);
-        assert_eq!(worst_case(5), 68);
 
-        // u16 geometry means a coordinate is at most 65535 — five digits.
+        // u16 geometry means a coordinate is at most 65535 — five digits. plan-70-B
+        // Phase 2: a cell can emit a pooled cluster of up to POOL_BYTES_PER_CELL
+        // bytes, so that is the glyph payload the budget must now cover.
         let widest = u16::MAX.to_string().len();
         assert_eq!(widest, 5);
         assert!(
-            OUTBUF_PER_CELL >= worst_case(widest),
+            OUTBUF_PER_CELL >= worst_case(widest, POOL_BYTES_PER_CELL),
             "OUTBUF_PER_CELL ({OUTBUF_PER_CELL}) must cover the {widest}-digit worst \
-             case ({})",
-            worst_case(widest)
+             case with a {POOL_BYTES_PER_CELL}-byte pooled glyph ({})",
+            worst_case(widest, POOL_BYTES_PER_CELL)
         );
     }
 

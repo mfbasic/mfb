@@ -965,10 +965,13 @@ async fn challenge(
     // targeted victim's challenge budget and block the victim's own login,
     // since a challenge is the mandatory prerequisite for `/auth/login`. The
     // global ceiling is a secondary backstop, as on `/register` and `/login`.
-    if !state
+    if !state.rate_limiter.allow(
+        &format!("challenge:{}", peer.ip()),
+        CHALLENGE_PER_IP_MAX,
+        60,
+    ) || !state
         .rate_limiter
-        .allow(&format!("challenge:{}", peer.ip()), CHALLENGE_PER_IP_MAX, 60)
-        || !state.rate_limiter.allow("challenge", AUTH_GLOBAL_CEILING, 60)
+        .allow("challenge", AUTH_GLOBAL_CEILING, 60)
     {
         return Err(too_many_requests());
     }

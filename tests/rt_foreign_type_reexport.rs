@@ -121,7 +121,9 @@ fn build_expect_failure(root: &Path, name: &str) -> String {
 fn install(root: &Path, from_pkg: &str, into_pkg: &str, mfp: &str) {
     fs::copy(
         root.join(from_pkg).join(format!("{mfp}.mfp")),
-        root.join(into_pkg).join("packages").join(format!("{mfp}.mfp")),
+        root.join(into_pkg)
+            .join("packages")
+            .join(format!("{mfp}.mfp")),
     )
     .unwrap_or_else(|e| panic!("install {mfp}.mfp into {into_pkg}: {e}"));
 }
@@ -132,7 +134,8 @@ const PA_SRC: &str = "EXPORT TYPE A\n  n AS Integer\n  label AS String\nEND TYPE
                       EXPORT FUNC makeB() AS Integer\n  LET b AS B = B[42]\n  RETURN b.secret\nEND FUNC\n";
 const PB_SRC: &str =
     "IMPORT pa390\nEXPORT FUNC takesA(a AS A) AS Integer\n  RETURN a.n * 2\nEND FUNC\n";
-const PC_SRC: &str = "IMPORT pa390\nEXPORT FUNC makesA() AS A\n  RETURN A[21, \"made\"]\nEND FUNC\n";
+const PC_SRC: &str =
+    "IMPORT pa390\nEXPORT FUNC makesA() AS A\n  RETURN A[21, \"made\"]\nEND FUNC\n";
 
 /// The full acceptance model: pB/pC build, app runs, value round-trips to 42.
 #[test]
@@ -159,8 +162,14 @@ fn foreign_type_reexport_round_trips_through_two_packages() {
         .expect("pkg info");
     let info = String::from_utf8_lossy(&info.stdout).into_owned();
     assert!(info.contains("TYPE A"), "pB should re-export A:\n{info}");
-    assert!(!info.contains("TYPE C"), "pB must not re-export unused C:\n{info}");
-    assert!(!info.contains("TYPE B"), "pB must not re-export private B:\n{info}");
+    assert!(
+        !info.contains("TYPE C"),
+        "pB must not re-export unused C:\n{info}"
+    );
+    assert!(
+        !info.contains("TYPE B"),
+        "pB must not re-export private B:\n{info}"
+    );
 
     // app declares only pB and pC; pA is a transitive dependency whose `.mfp`
     // must be present for the merge and the foreign-type resolution.
@@ -175,7 +184,14 @@ fn foreign_type_reexport_round_trips_through_two_packages() {
         "  RETURN 0\n",
         "END FUNC\n",
     );
-    write_project(&root, "app390", "executable", &["pb390", "pc390"], true, app_src);
+    write_project(
+        &root,
+        "app390",
+        "executable",
+        &["pb390", "pc390"],
+        true,
+        app_src,
+    );
     install(&root, "pb390", "app390", "pb390");
     install(&root, "pc390", "app390", "pc390");
     install(&root, "pa390", "app390", "pa390"); // transitive
@@ -242,7 +258,10 @@ fn abi_incompatible_dependency_versions_are_rejected() {
         "EXPORT TYPE A\n  n AS Integer\nEND TYPE\n",
     );
     // Both are the package `pa390` (same manifest name), just different shapes.
-    for (dir, fields) in [("pa1", "n AS Integer\n  label AS String"), ("pa2", "n AS Integer")] {
+    for (dir, fields) in [
+        ("pa1", "n AS Integer\n  label AS String"),
+        ("pa2", "n AS Integer"),
+    ] {
         fs::write(
             root.join(dir).join("project.json"),
             "{\"name\":\"pa390\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"package\",\
@@ -261,21 +280,38 @@ fn abi_incompatible_dependency_versions_are_rejected() {
     build_ok(&root, "pa2");
 
     write_project(&root, "pb390", "package", &["pa390"], false, PB_SRC);
-    fs::copy(root.join("pa1/pa390.mfp"), root.join("pb390/packages/pa390.mfp")).unwrap();
+    fs::copy(
+        root.join("pa1/pa390.mfp"),
+        root.join("pb390/packages/pa390.mfp"),
+    )
+    .unwrap();
     build_ok(&root, "pb390");
 
     write_project(&root, "pc390", "package", &["pa390"], false, PC_SRC);
-    fs::copy(root.join("pa2/pa390.mfp"), root.join("pc390/packages/pa390.mfp")).unwrap();
+    fs::copy(
+        root.join("pa2/pa390.mfp"),
+        root.join("pc390/packages/pa390.mfp"),
+    )
+    .unwrap();
     build_ok(&root, "pc390");
 
     let app_src = "IMPORT pb390\nIMPORT pc390\n\
                    FUNC main AS Integer\n  RETURN pb390::takesA(pc390::makesA())\nEND FUNC\n";
-    write_project(&root, "app390", "executable", &["pb390", "pc390"], true, app_src);
+    write_project(
+        &root,
+        "app390",
+        "executable",
+        &["pb390", "pc390"],
+        true,
+        app_src,
+    );
     install(&root, "pb390", "app390", "pb390");
     install(&root, "pc390", "app390", "pc390");
     let out = build_expect_failure(&root, "app390");
     assert!(
-        out.contains("ABI") || out.to_lowercase().contains("incompatible") || out.contains("disagree"),
+        out.contains("ABI")
+            || out.to_lowercase().contains("incompatible")
+            || out.contains("disagree"),
         "expected an ABI-incompatibility error, got:\n{out}"
     );
 }

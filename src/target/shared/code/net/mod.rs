@@ -444,10 +444,10 @@ fn lower_net_endpoint_helper(
                                      // — the real port is patched into sin_port afterward). bug-113.
     const SERVICE_OFFSET: usize = 144;
     const SERVICE_STR_OFFSET: usize = 152; // holds the bytes "0\0…"
-    // plan-73-C: the former bounded `DEFAULT_CONNECT_TIMEOUT_MS` (120 s, bug-261) is
-    // removed. Under the timeout convention an omitted connect timeout BLOCKS until
-    // the connection resolves (like every other omit); a caller that must bound the
-    // wedge passes a positive `timeoutMs` (http does, via `__HTTP_CONNECT_TIMEOUT_MS`).
+                                           // plan-73-C: the former bounded `DEFAULT_CONNECT_TIMEOUT_MS` (120 s, bug-261) is
+                                           // removed. Under the timeout convention an omitted connect timeout BLOCKS until
+                                           // the connection resolves (like every other omit); a caller that must bound the
+                                           // wedge passes a positive `timeoutMs` (http does, via `__HTTP_CONNECT_TIMEOUT_MS`).
 
     let null_host = format!("{symbol}_null_host");
     let resolved = format!("{symbol}_resolved");

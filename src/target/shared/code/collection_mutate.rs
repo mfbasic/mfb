@@ -391,7 +391,10 @@ impl CodeBuilder<'_> {
     pub(super) fn lower_set_add(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let set = self.lower_value(&args[0])?;
         let Some(element_type) = set_element_type(&set.type_) else {
-            return Err(format!("native collection add does not accept {}", set.type_));
+            return Err(format!(
+                "native collection add does not accept {}",
+                set.type_
+            ));
         };
         let source_slot = self.allocate_stack_object("set_add_source", 8);
         self.emit(abi::store_u64(

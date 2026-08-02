@@ -380,8 +380,8 @@ mod tests {
         blob[0x28..0x30].copy_from_slice(&0x40u64.to_le_bytes()); // e_shoff
         blob[0x3A..0x3C].copy_from_slice(&64u16.to_le_bytes()); // e_shentsize
         blob[0x3C..0x3E].copy_from_slice(&1u16.to_le_bytes()); // e_shnum
-        // sh_type at 0x44 stays 0 (not SHT_NOBITS), so the loop proceeds to read
-        // sh_offset at 0x40+0x18 = 0x58, which is past the 0x48-byte blob.
+                                                               // sh_type at 0x44 stays 0 (not SHT_NOBITS), so the loop proceeds to read
+                                                               // sh_offset at 0x40+0x18 = 0x58, which is past the 0x48-byte blob.
         let err = elf_image_end(&blob).unwrap_err();
         assert!(err.contains("truncated"), "{err}");
     }
@@ -397,7 +397,7 @@ mod tests {
         blob[0x3A..0x3C].copy_from_slice(&64u16.to_le_bytes()); // e_shentsize
         blob[0x3C..0x3E].copy_from_slice(&1u16.to_le_bytes()); // e_shnum
         blob[0x44..0x48].copy_from_slice(&8u32.to_le_bytes()); // sh_type = SHT_NOBITS
-        // No section extents count, so the end is sht_end = 0x40 + 64*1 = 0x80.
+                                                               // No section extents count, so the end is sht_end = 0x40 + 64*1 = 0x80.
         assert_eq!(elf_image_end(&blob).unwrap(), 0x80);
     }
 

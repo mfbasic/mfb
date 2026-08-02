@@ -73,10 +73,16 @@
     { "op": "bind", "line": 44, "mutable": false, "name": "size", "type": "TermSize", "value": { "kind": "call", "type": "TermSize", "target": "term.terminalSize", "args": [] } },
     { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "size" }, "member": "columns" }] }] } },
     { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "size" }, "member": "rows" }] }] } },
-    { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "term.clear", "args": [] } },
-    { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "term.sync", "args": [] } },
-    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "term.off", "args": [] } },
-    { "op": "return", "line": 55, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "term.drawText", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "String", "value": "日本語" }] } },
+    { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "term.drawText", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "cafe" }, "right": { "kind": "const", "type": "String", "value": "́" } }] } },
+    { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "term.drawText", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "String", "value": "👨‍👩‍👧‍👦" }] } },
+    { "op": "eval", "line": 56, "value": { "kind": "call", "type": "Nothing", "target": "term.drawGlyph", "args": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "6" }, { "kind": "const", "type": "Integer", "value": "26085" }] } },
+    { "op": "eval", "line": 57, "value": { "kind": "call", "type": "Nothing", "target": "term.drawText", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "8" }, { "kind": "const", "type": "String", "value": "日本" }] } },
+    { "op": "eval", "line": 58, "value": { "kind": "call", "type": "Nothing", "target": "term.drawText", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "8" }, { "kind": "const", "type": "String", "value": "X" }] } },
+    { "op": "eval", "line": 61, "value": { "kind": "call", "type": "Nothing", "target": "term.clear", "args": [] } },
+    { "op": "eval", "line": 62, "value": { "kind": "call", "type": "Nothing", "target": "term.sync", "args": [] } },
+    { "op": "eval", "line": 65, "value": { "kind": "call", "type": "Nothing", "target": "term.off", "args": [] } },
+    { "op": "return", "line": 67, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

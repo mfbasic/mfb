@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
 use super::descriptor::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, DefaultResolver,
-    DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType,
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver,
+    DefaultResolver, DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType,
 };
 
 const ERROR: &str = "error";
@@ -926,7 +926,10 @@ mod tests {
             expected_arguments(TO_MONEY),
             Some("String, Integer, Float, Fixed, or Byte")
         );
-        assert_eq!(expected_arguments(TO_SCALAR), Some("Integer, String, or Byte"));
+        assert_eq!(
+            expected_arguments(TO_SCALAR),
+            Some("Integer, String, or Byte")
+        );
     }
 
     #[test]
@@ -952,5 +955,4 @@ mod tests {
         // An unbalanced parameter list has no top-level close paren.
         assert_eq!(function_parts("FUNC(FUNC(Integer) AS Integer"), None);
     }
-
 }

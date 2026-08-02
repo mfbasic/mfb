@@ -815,7 +815,10 @@ fn load_has_rvv_flag(dst: &str) -> Vec<CodeInstruction> {
     let sym = crate::target::shared::code::HAS_RVV_GLOBAL_SYMBOL;
     vec![
         ci("adrp", &[("dst", dst), ("symbol", sym)]),
-        ci("add_pageoff", &[("dst", dst), ("src", dst), ("symbol", sym)]),
+        ci(
+            "add_pageoff",
+            &[("dst", dst), ("src", dst), ("symbol", sym)],
+        ),
         ci("ldr_u8", &[("dst", dst), ("base", dst), ("offset", "0")]),
     ]
 }
@@ -885,32 +888,55 @@ fn rvv_arm(
             load(&mut out, &b);
             out.push(ci(
                 "rv.vop",
-                &[("vop", mn), ("dst", &vname(&d)), ("lhs", &vname(&a)), ("rhs", &vname(&b))],
+                &[
+                    ("vop", mn),
+                    ("dst", &vname(&d)),
+                    ("lhs", &vname(&a)),
+                    ("rhs", &vname(&b)),
+                ],
             ));
             store(&mut out, &d);
         }
         // Fused multiply-add/subtract (single rounding), matching the scalar
         // fmadd_d/fnmsub_d: vfmacc = vd += lhs*rhs, vfnmsac = vd -= lhs*rhs.
         FMlaV | FMlsV => {
-            let mn = if op == FMlaV { "vfmacc.vv" } else { "vfnmsac.vv" };
+            let mn = if op == FMlaV {
+                "vfmacc.vv"
+            } else {
+                "vfnmsac.vv"
+            };
             let (d, a, b) = (f(fields, "dst"), f(fields, "lhs"), f(fields, "rhs"));
             load(&mut out, &d); // the accumulator lane
             load(&mut out, &a);
             load(&mut out, &b);
             out.push(ci(
                 "rv.vop",
-                &[("vop", mn), ("dst", &vname(&d)), ("lhs", &vname(&a)), ("rhs", &vname(&b))],
+                &[
+                    ("vop", mn),
+                    ("dst", &vname(&d)),
+                    ("lhs", &vname(&a)),
+                    ("rhs", &vname(&b)),
+                ],
             ));
             store(&mut out, &d);
         }
         // abs/neg via sign-injection (bit ops, exact); sqrt at RNE (exact).
         FAbsV | FNegV => {
-            let mn = if op == FAbsV { "vfsgnjx.vv" } else { "vfsgnjn.vv" };
+            let mn = if op == FAbsV {
+                "vfsgnjx.vv"
+            } else {
+                "vfsgnjn.vv"
+            };
             let (d, s) = (f(fields, "dst"), f(fields, "src"));
             load(&mut out, &s);
             out.push(ci(
                 "rv.vop",
-                &[("vop", mn), ("dst", &vname(&d)), ("lhs", &vname(&s)), ("rhs", &vname(&s))],
+                &[
+                    ("vop", mn),
+                    ("dst", &vname(&d)),
+                    ("lhs", &vname(&s)),
+                    ("rhs", &vname(&s)),
+                ],
             ));
             store(&mut out, &d);
         }
@@ -919,7 +945,11 @@ fn rvv_arm(
             load(&mut out, &s);
             out.push(ci(
                 "rv.vop",
-                &[("vop", "vfsqrt.v"), ("dst", &vname(&d)), ("src", &vname(&s))],
+                &[
+                    ("vop", "vfsqrt.v"),
+                    ("dst", &vname(&d)),
+                    ("src", &vname(&s)),
+                ],
             ));
             store(&mut out, &d);
         }
@@ -930,7 +960,11 @@ fn rvv_arm(
             load(&mut out, &s);
             out.push(ci(
                 "rv.vop",
-                &[("vop", "vfcvt.rtz.x.f.v"), ("dst", &vname(&d)), ("src", &vname(&s))],
+                &[
+                    ("vop", "vfcvt.rtz.x.f.v"),
+                    ("dst", &vname(&d)),
+                    ("src", &vname(&s)),
+                ],
             ));
             store(&mut out, &d);
         }
@@ -939,7 +973,11 @@ fn rvv_arm(
             load(&mut out, &s);
             out.push(ci(
                 "rv.vop",
-                &[("vop", "vfcvt.f.x.v"), ("dst", &vname(&d)), ("src", &vname(&s))],
+                &[
+                    ("vop", "vfcvt.f.x.v"),
+                    ("dst", &vname(&d)),
+                    ("src", &vname(&s)),
+                ],
             ));
             store(&mut out, &d);
         }
@@ -956,7 +994,12 @@ fn rvv_arm(
             load(&mut out, &b);
             out.push(ci(
                 "rv.vop",
-                &[("vop", mn), ("dst", &vname(&d)), ("lhs", &vname(&a)), ("rhs", &vname(&b))],
+                &[
+                    ("vop", mn),
+                    ("dst", &vname(&d)),
+                    ("lhs", &vname(&a)),
+                    ("rhs", &vname(&b)),
+                ],
             ));
             store(&mut out, &d);
         }
@@ -966,7 +1009,12 @@ fn rvv_arm(
             // vrsub.vx vd, vs, x0 = 0 - vs.
             out.push(ci(
                 "rv.vop",
-                &[("vop", "vrsub.vx"), ("dst", &vname(&d)), ("lhs", &vname(&s)), ("gpr", ZERO)],
+                &[
+                    ("vop", "vrsub.vx"),
+                    ("dst", &vname(&d)),
+                    ("lhs", &vname(&s)),
+                    ("gpr", ZERO),
+                ],
             ));
             store(&mut out, &d);
         }
@@ -987,7 +1035,12 @@ fn rvv_arm(
             load(&mut out, &s);
             out.push(ci(
                 "rv.vop",
-                &[("vop", mn), ("dst", &vname(&d)), ("lhs", &vname(&s)), ("imm", &sh)],
+                &[
+                    ("vop", mn),
+                    ("dst", &vname(&d)),
+                    ("lhs", &vname(&s)),
+                    ("imm", &sh),
+                ],
             ));
             store(&mut out, &d);
         }
@@ -1011,7 +1064,12 @@ fn rvv_arm(
                 // Reach lane 1 via the reserved v31 scratch, then extract element 0.
                 out.push(ci(
                     "rv.vop",
-                    &[("vop", "vslidedown.vi"), ("dst", "v31"), ("lhs", &vname(&s)), ("imm", "1")],
+                    &[
+                        ("vop", "vslidedown.vi"),
+                        ("dst", "v31"),
+                        ("lhs", &vname(&s)),
+                        ("imm", "1"),
+                    ],
                 ));
                 out.push(ci(
                     "rv.vop",
@@ -1047,7 +1105,12 @@ fn rvv_arm(
             load(&mut out, &b);
             out.push(ci(
                 "rv.vop",
-                &[("vop", mn), ("dst", &vname(&d)), ("lhs", &vname(&a)), ("rhs", &vname(&b))],
+                &[
+                    ("vop", mn),
+                    ("dst", &vname(&d)),
+                    ("lhs", &vname(&a)),
+                    ("rhs", &vname(&b)),
+                ],
             ));
             store(&mut out, &d);
         }
@@ -1069,7 +1132,12 @@ fn rvv_arm(
             };
             out.push(ci(
                 "rv.vop",
-                &[("vop", mn), ("dst", "v0"), ("lhs", &vname(x)), ("rhs", &vname(y))],
+                &[
+                    ("vop", mn),
+                    ("dst", "v0"),
+                    ("lhs", &vname(x)),
+                    ("rhs", &vname(y)),
+                ],
             ));
             lanes_from_mask(&mut out, &vname(&d));
             store(&mut out, &d);
@@ -1078,7 +1146,10 @@ fn rvv_arm(
             let (d, s) = (f(fields, "dst"), f(fields, "src"));
             load(&mut out, &s);
             // v31 = +0.0 (integer 0 bits) to compare against.
-            out.push(ci("rv.vop", &[("vop", "vmv.v.i"), ("dst", "v31"), ("imm", "0")]));
+            out.push(ci(
+                "rv.vop",
+                &[("vop", "vmv.v.i"), ("dst", "v31"), ("imm", "0")],
+            ));
             let z = "v31".to_string();
             let sr = vname(&s);
             let (mn, x, y) = match op {
@@ -1107,7 +1178,12 @@ fn rvv_arm(
             };
             out.push(ci(
                 "rv.vop",
-                &[("vop", mn), ("dst", "v0"), ("lhs", &vname(x)), ("rhs", &vname(y))],
+                &[
+                    ("vop", mn),
+                    ("dst", "v0"),
+                    ("lhs", &vname(x)),
+                    ("rhs", &vname(y)),
+                ],
             ));
             lanes_from_mask(&mut out, &vname(&d));
             store(&mut out, &d);
@@ -1120,15 +1196,30 @@ fn rvv_arm(
             load(&mut out, &b);
             out.push(ci(
                 "rv.vop",
-                &[("vop", "vxor.vv"), ("dst", "v31"), ("lhs", &vname(&a)), ("rhs", &vname(&b))],
+                &[
+                    ("vop", "vxor.vv"),
+                    ("dst", "v31"),
+                    ("lhs", &vname(&a)),
+                    ("rhs", &vname(&b)),
+                ],
             )); // a^b
             out.push(ci(
                 "rv.vop",
-                &[("vop", "vand.vv"), ("dst", "v31"), ("lhs", "v31"), ("rhs", &vname(&d))],
+                &[
+                    ("vop", "vand.vv"),
+                    ("dst", "v31"),
+                    ("lhs", "v31"),
+                    ("rhs", &vname(&d)),
+                ],
             )); // & mask
             out.push(ci(
                 "rv.vop",
-                &[("vop", "vxor.vv"), ("dst", &vname(&d)), ("lhs", &vname(&b)), ("rhs", "v31")],
+                &[
+                    ("vop", "vxor.vv"),
+                    ("dst", &vname(&d)),
+                    ("lhs", &vname(&b)),
+                    ("rhs", "v31"),
+                ],
             )); // rhs ^ ...
             store(&mut out, &d);
         }
@@ -1140,15 +1231,30 @@ fn rvv_arm(
             load(&mut out, &m);
             out.push(ci(
                 "rv.vop",
-                &[("vop", "vxor.vv"), ("dst", "v31"), ("lhs", &vname(&d)), ("rhs", &vname(&a))],
+                &[
+                    ("vop", "vxor.vv"),
+                    ("dst", "v31"),
+                    ("lhs", &vname(&d)),
+                    ("rhs", &vname(&a)),
+                ],
             )); // dst^lhs
             out.push(ci(
                 "rv.vop",
-                &[("vop", "vand.vv"), ("dst", "v31"), ("lhs", "v31"), ("rhs", &vname(&m))],
+                &[
+                    ("vop", "vand.vv"),
+                    ("dst", "v31"),
+                    ("lhs", "v31"),
+                    ("rhs", &vname(&m)),
+                ],
             )); // & mask
             out.push(ci(
                 "rv.vop",
-                &[("vop", "vxor.vv"), ("dst", &vname(&d)), ("lhs", &vname(&d)), ("rhs", "v31")],
+                &[
+                    ("vop", "vxor.vv"),
+                    ("dst", &vname(&d)),
+                    ("lhs", &vname(&d)),
+                    ("rhs", "v31"),
+                ],
             )); // dst ^ ...
             store(&mut out, &d);
         }
@@ -1166,10 +1272,18 @@ fn rvv_arm(
 /// so downstream `BslV`/`BitV`/`AndV` are the same bit algebra as the scalar arm.
 /// `imm` 31 is the 5-bit `-1` the merge sign-extends to an all-ones lane.
 fn lanes_from_mask(out: &mut Vec<CodeInstruction>, vd: &str) {
-    out.push(ci("rv.vop", &[("vop", "vmv.v.i"), ("dst", vd), ("imm", "0")]));
     out.push(ci(
         "rv.vop",
-        &[("vop", "vmerge.vim"), ("dst", vd), ("src", vd), ("imm", "31")],
+        &[("vop", "vmv.v.i"), ("dst", vd), ("imm", "0")],
+    ));
+    out.push(ci(
+        "rv.vop",
+        &[
+            ("vop", "vmerge.vim"),
+            ("dst", vd),
+            ("src", vd),
+            ("imm", "31"),
+        ],
     ));
 }
 
@@ -1299,7 +1413,12 @@ pub(crate) fn lower_v128_run(
     // beqz t0, .scalar — the flag is clear on non-V hardware.
     out.push(ci(
         "rv.br",
-        &[("lhs", T0), ("rhs", ZERO), ("cond", "eq"), ("target", &scalar_label)],
+        &[
+            ("lhs", T0),
+            ("rhs", ZERO),
+            ("cond", "eq"),
+            ("target", &scalar_label),
+        ],
     ));
     out.extend(rvv_body);
     out.push(ci("b", &[("target", &done_label)]));
@@ -1565,8 +1684,14 @@ mod tests {
 
         // Reuse: six values across two disjoint straight-line ops → three regs.
         let straight = vec![
-            mir(MirOp::FAddV, &[("dst", "%f0"), ("lhs", "%f1"), ("rhs", "%f2")]),
-            mir(MirOp::FAddV, &[("dst", "%f3"), ("lhs", "%f4"), ("rhs", "%f5")]),
+            mir(
+                MirOp::FAddV,
+                &[("dst", "%f0"), ("lhs", "%f1"), ("rhs", "%f2")],
+            ),
+            mir(
+                MirOp::FAddV,
+                &[("dst", "%f3"), ("lhs", "%f4"), ("rhs", "%f5")],
+            ),
         ];
         let regs = build_vreg_map(&straight).expect("fits the pool");
         assert_eq!(regs.len(), 6, "all six values are assigned a register");
@@ -1580,32 +1705,62 @@ mod tests {
         // Loop-carried: the same ops inside a loop keep all six distinct.
         let looped = vec![
             mir(MirOp::Label, &[("name", "top")]),
-            mir(MirOp::FAddV, &[("dst", "%f0"), ("lhs", "%f1"), ("rhs", "%f2")]),
-            mir(MirOp::FAddV, &[("dst", "%f3"), ("lhs", "%f4"), ("rhs", "%f5")]),
-            mir(MirOp::BranchEq, &[("lhs", "a0"), ("rhs", "a1"), ("target", "top")]),
+            mir(
+                MirOp::FAddV,
+                &[("dst", "%f0"), ("lhs", "%f1"), ("rhs", "%f2")],
+            ),
+            mir(
+                MirOp::FAddV,
+                &[("dst", "%f3"), ("lhs", "%f4"), ("rhs", "%f5")],
+            ),
+            mir(
+                MirOp::BranchEq,
+                &[("lhs", "a0"), ("rhs", "a1"), ("target", "top")],
+            ),
         ];
         let looped_regs = build_vreg_map(&looped).expect("six fits the pool");
         let looped_distinct: HashSet<u8> = looped_regs.values().copied().collect();
-        assert_eq!(looped_distinct.len(), 6, "loop extension keeps all six distinct");
+        assert_eq!(
+            looped_distinct.len(),
+            6,
+            "loop extension keeps all six distinct"
+        );
 
         // Overflow: N values all live at once (loaded, then all stored). 30 fits
         // the pool; 31 exceeds it and falls back to scalar-only (`None`).
         let all_live = |n: usize| -> Vec<MirInstruction> {
             let mut v = Vec::new();
             for i in 0..n {
-                v.push(mir(MirOp::LdrQ, &[("dst", "%f0"), ("base", "a0"), ("offset", "0")]));
+                v.push(mir(
+                    MirOp::LdrQ,
+                    &[("dst", "%f0"), ("base", "a0"), ("offset", "0")],
+                ));
                 // Overwrite dst with a distinct name each iteration.
-                *v.last_mut().unwrap().fields.iter_mut().find(|(k, _)| *k == "dst").unwrap() =
-                    ("dst", format!("%f{i}"));
+                *v.last_mut()
+                    .unwrap()
+                    .fields
+                    .iter_mut()
+                    .find(|(k, _)| *k == "dst")
+                    .unwrap() = ("dst", format!("%f{i}"));
             }
             for i in 0..n {
-                v.push(mir(MirOp::StrQ, &[("src", "%f0"), ("base", "a0"), ("offset", "0")]));
-                *v.last_mut().unwrap().fields.iter_mut().find(|(k, _)| *k == "src").unwrap() =
-                    ("src", format!("%f{i}"));
+                v.push(mir(
+                    MirOp::StrQ,
+                    &[("src", "%f0"), ("base", "a0"), ("offset", "0")],
+                ));
+                *v.last_mut()
+                    .unwrap()
+                    .fields
+                    .iter_mut()
+                    .find(|(k, _)| *k == "src")
+                    .unwrap() = ("src", format!("%f{i}"));
             }
             v
         };
-        assert!(build_vreg_map(&all_live(30)).is_some(), "30 concurrent fits v1..=v30");
+        assert!(
+            build_vreg_map(&all_live(30)).is_some(),
+            "30 concurrent fits v1..=v30"
+        );
         assert!(
             build_vreg_map(&all_live(31)).is_none(),
             "31 concurrent overflows the pool → scalar-arm-only"
@@ -1624,8 +1779,10 @@ mod tests {
             ("rhs", "%f2".to_string()),
         ];
         let slots = map(&[("%f0", 0), ("%f1", 1), ("%f2", 2)]);
-        let vregs: HashMap<String, u8> =
-            [("%f0", 1u8), ("%f1", 2), ("%f2", 3)].iter().map(|(k, v)| (k.to_string(), *v)).collect();
+        let vregs: HashMap<String, u8> = [("%f0", 1u8), ("%f1", 2), ("%f2", 3)]
+            .iter()
+            .map(|(k, v)| (k.to_string(), *v))
+            .collect();
 
         let out = lower_v128_run(&[(CodeOp::FAddV, fields.clone())], &slots, &vregs, 0);
         let vop = |i: &CodeInstruction| i.get("vop").map(str::to_string);
@@ -1642,14 +1799,21 @@ mod tests {
             && i.get("lhs") == Some("v2")
             && i.get("rhs") == Some("v3")));
         // Scalar arm (unchanged) is present behind the label, and both arms converge.
-        assert!(out.iter().any(|i| i.op.mnemonic() == "label" && i.get("name") == Some("v128_scalar_0")));
+        assert!(out
+            .iter()
+            .any(|i| i.op.mnemonic() == "label" && i.get("name") == Some("v128_scalar_0")));
         assert!(out.iter().any(|i| i.op.mnemonic() == "fadd_d"));
-        assert!(out.iter().any(|i| i.op.mnemonic() == "label" && i.get("name") == Some("v128_done_0")));
+        assert!(out
+            .iter()
+            .any(|i| i.op.mnemonic() == "label" && i.get("name") == Some("v128_done_0")));
 
         // A non-lowerable op (or overflow) is never accumulated into a run —
         // `rvv_lowerable` rejects it, so `select_riscv64` scalarizes it directly,
         // with no guard.
-        assert!(!rvv_lowerable(CodeOp::FRintnV, &[("dst", "%f0".to_string()), ("src", "%f1".to_string())]));
+        assert!(!rvv_lowerable(
+            CodeOp::FRintnV,
+            &[("dst", "%f0".to_string()), ("src", "%f1".to_string())]
+        ));
         assert!(!scalarize_v128(CodeOp::FAddV, &fields, &slots)
             .iter()
             .any(|i| i.op.mnemonic() == "adrp"));
@@ -1667,26 +1831,45 @@ mod tests {
             .collect();
         let slots = map(&[("%f0", 0), ("%f1", 1), ("%f2", 2)]);
         let vop_seq = |out: &[CodeInstruction]| -> Vec<String> {
-            out.iter().filter_map(|i| i.get("vop").map(str::to_string)).collect()
+            out.iter()
+                .filter_map(|i| i.get("vop").map(str::to_string))
+                .collect()
         };
 
         // FCmGtV → vmflt.vv into v0, then vmv.v.i / vmerge.vim into the dst reg.
         let cmp = rvv_arm(
             CodeOp::FCmGtV,
-            &[("dst", "%f0".to_string()), ("lhs", "%f1".to_string()), ("rhs", "%f2".to_string())],
+            &[
+                ("dst", "%f0".to_string()),
+                ("lhs", "%f1".to_string()),
+                ("rhs", "%f2".to_string()),
+            ],
             &slots,
             &vregs,
         )
         .expect("FCmGtV is vector-lowered");
-        assert!(cmp.iter().any(|i| i.get("vop") == Some("vmflt.vv") && i.get("dst") == Some("v0")));
+        assert!(cmp
+            .iter()
+            .any(|i| i.get("vop") == Some("vmflt.vv") && i.get("dst") == Some("v0")));
         let seq = vop_seq(&cmp);
-        let merge = seq.iter().position(|v| v == "vmerge.vim").expect("materializes lanes");
-        assert_eq!(seq[merge - 1], "vmv.v.i", "zero the lane vector before merging -1");
+        let merge = seq
+            .iter()
+            .position(|v| v == "vmerge.vim")
+            .expect("materializes lanes");
+        assert_eq!(
+            seq[merge - 1],
+            "vmv.v.i",
+            "zero the lane vector before merging -1"
+        );
 
         // BslV → vxor;vand;vxor over the lane vectors.
         let bsl = rvv_arm(
             CodeOp::BslV,
-            &[("dst", "%f0".to_string()), ("lhs", "%f1".to_string()), ("rhs", "%f2".to_string())],
+            &[
+                ("dst", "%f0".to_string()),
+                ("lhs", "%f1".to_string()),
+                ("rhs", "%f2".to_string()),
+            ],
             &slots,
             &vregs,
         )
@@ -1703,7 +1886,11 @@ mod tests {
         for (op, mn) in [(CodeOp::FMinV, "vfmin.vv"), (CodeOp::FMaxV, "vfmax.vv")] {
             let out = rvv_arm(
                 op,
-                &[("dst", "%f0".to_string()), ("lhs", "%f1".to_string()), ("rhs", "%f2".to_string())],
+                &[
+                    ("dst", "%f0".to_string()),
+                    ("lhs", "%f1".to_string()),
+                    ("rhs", "%f2".to_string()),
+                ],
                 &slots,
                 &vregs,
             )
@@ -1730,34 +1917,48 @@ mod tests {
         let run = vec![
             (
                 CodeOp::FAddV,
-                vec![("dst", "%f3".to_string()), ("lhs", "%f0".to_string()), ("rhs", "%f1".to_string())],
+                vec![
+                    ("dst", "%f3".to_string()),
+                    ("lhs", "%f0".to_string()),
+                    ("rhs", "%f1".to_string()),
+                ],
             ),
             (
                 CodeOp::FMulV,
-                vec![("dst", "%f5".to_string()), ("lhs", "%f3".to_string()), ("rhs", "%f2".to_string())],
+                vec![
+                    ("dst", "%f5".to_string()),
+                    ("lhs", "%f3".to_string()),
+                    ("rhs", "%f2".to_string()),
+                ],
             ),
         ];
         let slots = map(&[("%f0", 0), ("%f1", 1), ("%f2", 2), ("%f3", 3), ("%f5", 4)]);
-        let vregs: HashMap<String, u8> = [("%f0", 1u8), ("%f1", 2), ("%f2", 3), ("%f3", 4), ("%f5", 5)]
-            .iter()
-            .map(|(k, v)| (k.to_string(), *v))
-            .collect();
+        let vregs: HashMap<String, u8> =
+            [("%f0", 1u8), ("%f1", 2), ("%f2", 3), ("%f3", 4), ("%f5", 5)]
+                .iter()
+                .map(|(k, v)| (k.to_string(), *v))
+                .collect();
 
         let out = lower_v128_run(&run, &slots, &vregs, 0);
         // One guard, one config for the whole run.
         assert_eq!(
-            out.iter().filter(|i| i.op.mnemonic() == "label" && i.get("name") == Some("v128_scalar_0")).count(),
+            out.iter()
+                .filter(|i| i.op.mnemonic() == "label" && i.get("name") == Some("v128_scalar_0"))
+                .count(),
             1,
             "one guard per run"
         );
         assert_eq!(
-            out.iter().filter(|i| i.get("vop") == Some("vsetivli")).count(),
+            out.iter()
+                .filter(|i| i.get("vop") == Some("vsetivli"))
+                .count(),
             1,
             "one vsetivli per run"
         );
         // Residency: %f3 lives in v4; op2 must NOT reload it (no vle64 into v4).
         assert!(
-            !out.iter().any(|i| i.get("vop") == Some("vle64.v") && i.get("dst") == Some("v4")),
+            !out.iter()
+                .any(|i| i.get("vop") == Some("vle64.v") && i.get("dst") == Some("v4")),
             "the mid-run value stays resident — its reload is elided"
         );
         // The multiply still reads it from its register.
@@ -2071,7 +2272,8 @@ mod tests {
             rvv_arm(op, &fl(pairs), &slots, &vregs)
                 .unwrap_or_else(|| panic!("{} must be vector-lowered", op.mnemonic()))
         };
-        let has = |out: &[CodeInstruction], vop: &str| out.iter().any(|i| i.get("vop") == Some(vop));
+        let has =
+            |out: &[CodeInstruction], vop: &str| out.iter().any(|i| i.get("vop") == Some(vop));
 
         let ss = &[("dst", "v0"), ("src", "v1")]; // two-reg-misc
         let abc = &[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]; // three-same
@@ -2145,12 +2347,18 @@ mod tests {
             ),
             "DupVFromX → vmv.v.x"
         );
-        let umov0 = arm(CodeOp::UmovXFromV, &[("dst", "a0"), ("src", "v1"), ("index", "0")]);
+        let umov0 = arm(
+            CodeOp::UmovXFromV,
+            &[("dst", "a0"), ("src", "v1"), ("index", "0")],
+        );
         assert!(
             has(&umov0, "vmv.x.s") && !has(&umov0, "vslidedown.vi"),
             "umov lane 0"
         );
-        let umov1 = arm(CodeOp::UmovXFromV, &[("dst", "a0"), ("src", "v1"), ("index", "1")]);
+        let umov1 = arm(
+            CodeOp::UmovXFromV,
+            &[("dst", "a0"), ("src", "v1"), ("index", "1")],
+        );
         assert!(
             has(&umov1, "vslidedown.vi") && has(&umov1, "vmv.x.s"),
             "umov lane 1"
@@ -2159,14 +2367,20 @@ mod tests {
         // 128-bit unit-stride load/store from an arbitrary base+offset.
         assert!(
             has(
-                &arm(CodeOp::LdrQ, &[("dst", "v0"), ("base", "a0"), ("offset", "0")]),
+                &arm(
+                    CodeOp::LdrQ,
+                    &[("dst", "v0"), ("base", "a0"), ("offset", "0")]
+                ),
                 "vle64.v"
             ),
             "LdrQ → vle64.v"
         );
         assert!(
             has(
-                &arm(CodeOp::StrQ, &[("src", "v0"), ("base", "a0"), ("offset", "0")]),
+                &arm(
+                    CodeOp::StrQ,
+                    &[("src", "v0"), ("base", "a0"), ("offset", "0")]
+                ),
                 "vse64.v"
             ),
             "StrQ → vse64.v"
@@ -2184,7 +2398,11 @@ mod tests {
         ] {
             let out = arm(op, abc);
             assert!(has(&out, vop), "{} → {vop}", op.mnemonic());
-            assert!(has(&out, "vmerge.vim"), "{} materializes lanes", op.mnemonic());
+            assert!(
+                has(&out, "vmerge.vim"),
+                "{} materializes lanes",
+                op.mnemonic()
+            );
         }
         // Compare-against-zero (the `+0.0` register is `vmv.v.i v31,0`).
         for (op, vop) in [
@@ -2196,14 +2414,20 @@ mod tests {
         ] {
             let out = arm(op, ss);
             assert!(has(&out, vop), "{} → {vop}", op.mnemonic());
-            assert!(has(&out, "vmerge.vim"), "{} materializes lanes", op.mnemonic());
+            assert!(
+                has(&out, "vmerge.vim"),
+                "{} materializes lanes",
+                op.mnemonic()
+            );
         }
 
         // Bit-select and bit-insert are the same `vxor`/`vand`/`vxor` bit algebra.
         for op in [CodeOp::BslV, CodeOp::BitV] {
             let out = arm(op, abc);
             assert_eq!(
-                out.iter().filter(|i| i.get("vop") == Some("vxor.vv")).count(),
+                out.iter()
+                    .filter(|i| i.get("vop") == Some("vxor.vv"))
+                    .count(),
                 2,
                 "{} is two xors around one and",
                 op.mnemonic()
@@ -2213,7 +2437,12 @@ mod tests {
 
         // Deferred ops (the rounding/ties-away conversions, wide shifts) always
         // return `None` so the caller emits the scalar arm.
-        for op in [CodeOp::FRintnV, CodeOp::FRintmV, CodeOp::FCvtasV, CodeOp::AbsV] {
+        for op in [
+            CodeOp::FRintnV,
+            CodeOp::FRintmV,
+            CodeOp::FCvtasV,
+            CodeOp::AbsV,
+        ] {
             assert!(
                 rvv_arm(op, &fl(ss), &slots, &vregs).is_none(),
                 "{} must defer to the scalar arm",
@@ -2280,7 +2509,10 @@ mod tests {
             .iter()
             .filter(|i| i.get("vop") == Some("vle64.v") && i.get("dst") == Some("v3"))
             .count();
-        assert_eq!(v2_loads, 1, "the second v2 reload is elided (register-resident)");
+        assert_eq!(
+            v2_loads, 1,
+            "the second v2 reload is elided (register-resident)"
+        );
         // Unique labels per run.
         assert!(out
             .iter()
