@@ -82,7 +82,7 @@ passed`; full `builtins::` suite → 403 passed); `strings.*` fixtures (incl.
 `tests/byte-identity/strings`) verified byte-identical in the consolidated T–X
 acceptance at finalization (metadata-only wrappers proven equal by parity; the
 descriptor `REGISTRY` is never read in production dispatch).
-Commit: —
+Commit: 5a460a0bf
 
 ## Validation
 
