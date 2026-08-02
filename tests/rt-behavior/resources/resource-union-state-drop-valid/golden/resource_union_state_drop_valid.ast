@@ -1,0 +1,157 @@
+{
+  "project": "resource_union_state_drop_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "net", "line": 2 },
+    { "module": "io", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Cursor",
+      "line": 5,
+      "fields": [
+      { "visibility": null, "name": "pos", "type": "Integer", "line": 6 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Stream",
+      "line": 9,
+      "includes": [],
+      "variants": [
+      { "name": "File", "line": 10 },
+      { "name": "Socket", "line": 11 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "touchDrop",
+      "line": 18,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 18 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "s", "type": "Stream", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 19 },
+      { "kind": "stateAssignment", "resource": "s", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "42" } }] }, "line": 20 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "earlyClose",
+      "line": 25,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 25 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "s", "type": "Stream", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 26 },
+      { "kind": "stateAssignment", "resource": "s", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "7" } }] }, "line": 27 },
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "s" },
+        "line": 28,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "File", "binding": "f" },
+          "guard": null,
+          "line": 29,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 30 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Socket", "binding": "sock" },
+          "guard": null,
+          "line": 31,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected socket" }] }, "line": 32 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "errExit",
+      "line": 38,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 38 },
+      { "name": "bad", "type": "String", "default": null, "line": 38 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "s", "type": "Stream", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 39 },
+      { "kind": "stateAssignment", "resource": "s", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "9" } }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "extra", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "bad" }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "extra" }] }, "line": 42 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 43 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 46,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "target/resource_union_state_drop_valid.txt" }, "line": 47 },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "fs.fileExists", "arguments": [{ "kind": "identifier", "value": "path" }] },
+        "line": 48,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 49 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "seed", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "write" }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "seed" }, { "kind": "string", "value": "x" }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "seed" }] }, "line": 53 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 55 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "2000" } },
+        "line": 56,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "touchDrop", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 57 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "earlyClose", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 58 },
+        { "kind": "binding", "mutable": false, "name": "r", "type": "Integer", "value": {
+          "kind": "trapped",
+          "binding": "e",
+          "line": 59,
+          "expression": { "kind": "call", "callee": "errExit", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "target/no_such_dir_74/missing.txt" }] },
+          "handler": [
+          { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 60 }
+          ]
+        }, "line": 59 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 62 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 65 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 66 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 67 }
+      ]
+    }
+    ]
+  }
+  ]
+}

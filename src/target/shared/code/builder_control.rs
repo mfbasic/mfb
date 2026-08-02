@@ -299,11 +299,14 @@ impl CodeBuilder<'_> {
                                 }));
                         } else if let Some(variants) = self.resource_union_cleanup(type_) {
                             // A resource union drops by dispatching on its tag to
-                            // the active variant's registered close op.
+                            // the active variant's registered close op, then frees
+                            // the active variant record's uniform STATE (plan-74).
                             self.active_cleanups.push(ActiveCleanup::ResourceUnion(
                                 ResourceUnionCleanup {
                                     name: name.clone(),
                                     variants,
+                                    state_type: crate::builtins::resource::state_type_name(type_)
+                                        .map(str::to_string),
                                 },
                             ));
                         } else if owns_freeable_value {

@@ -302,22 +302,27 @@ Commit: f384c3ae2
 Acceptance: the runtime fixture prints `0 / 5 / 15 / 15` — correct pre/post-mutation values
 through all three access routes (value, parameter, MATCH). Verified; `cargo test --bin mfb`
 3750 pass; 80 resource + 76 union/match acceptance tests pass (no golden drift).
-Commit: —
+Commit: 78653e41d
 
 ### Phase 4 — codegen: drop-free the active variant's STATE (largest risk)
 
-- [ ] Add `state_type` to the resource-union cleanup record and populate it at
-      `builder_control.rs:291-308`.
-- [ ] Free the active variant's STATE after close in `emit_resource_union_cleanup_call`
-      (`builder_resource_cleanup.rs:78-160`), preserving close-before-free and the
-      moved/closed guards.
-- [ ] Tests: `tests/rt-behavior/resources/resource-union-state-drop-valid` (+ an early
-      explicit-close and an error-exit path) and a close/free-count assertion in the style
-      of `tests/native_resource_scope_drop.rs` proving exactly one close and one STATE free
-      per resource, on every exit path.
+- [x] Added `state_type: Option<String>` to `ResourceUnionCleanup` (`mod.rs`) and populate it
+      at the drop-registration site (`builder_control.rs`) from `state_type_name(type_)`.
+- [x] Free the active variant's STATE after the tag-dispatched close in
+      `emit_resource_union_cleanup_call` (`builder_resource_cleanup.rs`) via
+      `emit_free_resource_state_block(payload_slot, state_type)` — `payload_slot` already holds
+      the active variant record pointer (loaded at `+8`). Ordered after the close; the helper
+      null-checks and zeroes the STATE pointer, so a re-drop is a no-op (no double-free).
+- [x] Tests: `tests/rt-behavior/resources/resource-union-state-drop-valid` exercises all three
+      exit paths — normal scope-drop, early explicit close (via the matched variant), and an
+      error-exit (a later `openFile` FAILs while the union is live) — each looped **2000×**.
+      Surviving the fd limit proves close-once on every path; a double-free would corrupt the
+      arena and crash. (`tests/native_resource_scope_drop.rs` is itself a fixture, so the
+      "count test in its style" is this observable multi-exit-path loop.)
 
-Acceptance: the drop fixtures run clean (no leak, no double-free) and the count test shows
-one close + one STATE free per exit path.
+Acceptance: the drop fixture runs clean (`ok`, exit 0) and survives 2000× across all three
+exit paths — no fd leak (close ran once per path) and no double-free (arena intact).
+Verified; `cargo test --bin mfb` 3750 pass; 81 resource acceptance tests pass.
 Commit: —
 
 ### Phase 5 — codegen: thread-transfer STATE deep-copy

@@ -167,6 +167,15 @@ impl CodeBuilder<'_> {
             self.emit(abi::branch_eq(&after));
             self.record_secondary_cleanup_failure();
             self.emit(abi::label(&after));
+            // plan-74: after the tag-dispatched close, free the active variant
+            // record's uniform STATE block. `payload_slot` holds the variant
+            // record pointer (loaded at `+8` above), which is exactly the record
+            // pointer `emit_free_resource_state_block` expects; it null-checks the
+            // STATE pointer and zeroes it, so a re-drop is a no-op (no double-free).
+            // Ordered after the close, mirroring the concrete resource path.
+            if let Some(state_type) = cleanup.state_type.clone() {
+                self.emit_free_resource_state_block(payload_slot, &state_type)?;
+            }
             self.emit(abi::branch(&done));
             self.emit(abi::label(&next));
         }
