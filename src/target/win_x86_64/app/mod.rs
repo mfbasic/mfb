@@ -1017,6 +1017,66 @@ pub(super) fn emit_app_io_write_helper(
         ins.push(abi::move_immediate(abi::ARG[1], "Integer", "2"));
         ins.push(abi::store_u64(abi::ARG[1], abi::stack_pointer(), UCOUNT));
         ins.push(abi::label("term_have_cp"));
+        // plan-70-F: fold trailing combining marks (U+0300..U+036F) and ZWJ sequences
+        // (U+200D + the joined scalar) into this cluster's unit run so a single
+        // TextOutW composes them (café NFD, ZWJ emoji families). Combining marks are
+        // zero-width, so the cluster keeps the base's display width.
+        ins.push(abi::label("term_extend"));
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), GI));
+        ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), UCOUNT));
+        ins.push(abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1])); // j = i + uc
+        ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), WCCOUNT));
+        ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+        ins.push(abi::branch_ge("term_extend_done"));
+        ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), WBUF));
+        ins.push(abi::shift_left_immediate(abi::ARG[1], abi::ARG[0], 1));
+        ins.push(abi::add_registers(abi::ARG[2], abi::ARG[2], abi::ARG[1]));
+        ins.push(abi::load_u16(abi::ARG[0], abi::ARG[2], 0)); // nextUnit
+        ins.push(abi::move_immediate(abi::ARG[1], "Integer", "8205")); // ZWJ U+200D
+        ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+        ins.push(abi::branch_eq("term_ext_zwj"));
+        ins.push(abi::move_immediate(abi::ARG[1], "Integer", "768")); // U+0300
+        ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+        ins.push(abi::branch_lt("term_extend_done"));
+        ins.push(abi::move_immediate(abi::ARG[1], "Integer", "879")); // U+036F
+        ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+        ins.push(abi::branch_gt("term_extend_done"));
+        // combining mark → extend by one unit and re-test.
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), UCOUNT));
+        ins.push(abi::add_immediate(abi::ARG[0], abi::ARG[0], 1));
+        ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), UCOUNT));
+        ins.push(abi::branch("term_extend"));
+        ins.push(abi::label("term_ext_zwj"));
+        // ZWJ: consume the joiner, then the joined scalar (BMP 1 / astral 2 units).
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), UCOUNT));
+        ins.push(abi::add_immediate(abi::ARG[0], abi::ARG[0], 1));
+        ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), UCOUNT));
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), GI));
+        ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), UCOUNT));
+        ins.push(abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1])); // k
+        ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), WCCOUNT));
+        ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+        ins.push(abi::branch_ge("term_extend_done")); // ZWJ at end (defensive)
+        ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), WBUF));
+        ins.push(abi::shift_left_immediate(abi::ARG[1], abi::ARG[0], 1));
+        ins.push(abi::add_registers(abi::ARG[2], abi::ARG[2], abi::ARG[1]));
+        ins.push(abi::load_u16(abi::ARG[0], abi::ARG[2], 0)); // unit after ZWJ
+        ins.push(abi::move_immediate(abi::ARG[1], "Integer", "55296")); // 0xD800
+        ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+        ins.push(abi::branch_lt("term_zwj_bmp"));
+        ins.push(abi::move_immediate(abi::ARG[1], "Integer", "56320")); // 0xDC00
+        ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+        ins.push(abi::branch_ge("term_zwj_bmp"));
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), UCOUNT));
+        ins.push(abi::add_immediate(abi::ARG[0], abi::ARG[0], 2)); // astral scalar
+        ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), UCOUNT));
+        ins.push(abi::branch("term_extend"));
+        ins.push(abi::label("term_zwj_bmp"));
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), UCOUNT));
+        ins.push(abi::add_immediate(abi::ARG[0], abi::ARG[0], 1)); // BMP scalar
+        ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), UCOUNT));
+        ins.push(abi::branch("term_extend"));
+        ins.push(abi::label("term_extend_done"));
         emit_win_wide_width(&mut ins, CPSLOT, WIDTHSLOT);
         // wide-at-edge: a width-2 glyph that would straddle the right edge wraps first.
         ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), WIDTHSLOT));
