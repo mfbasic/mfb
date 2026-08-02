@@ -1605,6 +1605,7 @@ mod tests {
                 expected_return: Some("Integer"),
                 expected_impl: None,
                 expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
@@ -1613,6 +1614,7 @@ mod tests {
                 expected_return: Some("Integer"),
                 expected_impl: None,
                 expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
@@ -1621,6 +1623,7 @@ mod tests {
                 expected_return: Some("List OF String"),
                 expected_impl: None,
                 expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
@@ -1629,6 +1632,7 @@ mod tests {
                 expected_return: Some("List OF Integer"),
                 expected_impl: None,
                 expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
@@ -1637,6 +1641,7 @@ mod tests {
                 expected_return: Some("List OF Integer"),
                 expected_impl: None,
                 expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
@@ -1645,6 +1650,7 @@ mod tests {
                 expected_return: Some("Boolean"),
                 expected_impl: None,
                 expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
@@ -1653,6 +1659,7 @@ mod tests {
                 expected_return: Some("Boolean"),
                 expected_impl: None,
                 expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
@@ -1661,6 +1668,7 @@ mod tests {
                 expected_return: Some("Set OF Integer"),
                 expected_impl: None,
                 expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
@@ -1669,6 +1677,7 @@ mod tests {
                 expected_return: Some("List OF Integer"),
                 expected_impl: None,
                 expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
@@ -1677,6 +1686,7 @@ mod tests {
                 expected_return: Some("Integer"),
                 expected_impl: None,
                 expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
@@ -1685,6 +1695,7 @@ mod tests {
                 expected_return: Some("Integer"),
                 expected_impl: None,
                 expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
             parity::ResolverSample {
@@ -1693,6 +1704,7 @@ mod tests {
                 expected_return: Some("List OF Integer"),
                 expected_impl: None,
                 expected_padding: None,
+                expected_type: None,
                 expected_overload_target: None,
             },
         ];

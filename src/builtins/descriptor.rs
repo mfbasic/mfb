@@ -68,11 +68,17 @@ pub(crate) enum ReturnType {
 pub(crate) enum DefaultValue {
     /// A required parameter — no default.
     None,
-    /// An optional parameter padded with `(type_name, expr)`.
+    /// An optional parameter padded with `(type_name, expr)` when omitted — IR
+    /// lowering injects the literal (`time`'s `second`/`nanos` → `0`).
     Fill {
         type_name: &'static str,
         expr: &'static str,
     },
+    /// An optional parameter that widens arity but is NOT default-padded — the
+    /// implementation selects a distinct body by argument count instead
+    /// (`datetime.parse`'s trailing `zone`). Contributes to the arity range like
+    /// `Fill`, but `default_padding` skips it.
+    Optional,
 }
 
 /// One parameter of one overload.
@@ -276,14 +282,19 @@ pub(crate) trait BuiltinResolver: Sync {
         None
     }
 
-    /// Monomorph/override target for an overloaded call. Default: none.
+    /// Monomorph target for an overloaded call, using the argument types and the
+    /// contextual expected type. `Ok(None)` when the callee is not this package's
+    /// overloaded name; `Err(())` when a return-type overload cannot be resolved
+    /// without an expected type (`encoding.utf8Encode` with no
+    /// `List OF Byte`/`List OF Integer` context). Default: `Ok(None)`.
     fn resolve_overload_target(
         &self,
         _module: &BuiltinModule,
         _name: &str,
         _arg_types: &[String],
-    ) -> Option<String> {
-        None
+        _expected_type: Option<&str>,
+    ) -> Result<Option<String>, ()> {
+        Ok(None)
     }
 
     /// Custom source-companion use predicate for [`InjectionRule::WhenUsed`].
@@ -361,13 +372,17 @@ impl DefaultResolver {
     }
 
     /// Per-position name spellings for named-argument binding — legacy
-    /// `call_param_names`. Uses the function's canonical (first) overload; a
-    /// function whose overloads place a name at different positions is a
-    /// `call_param_name_overloads` case and is resolved elsewhere.
+    /// `call_param_names`. A function with a single overload returns its
+    /// per-position spellings; a function whose overloads disagree on positions
+    /// returns `None` (its names live in `param_name_overloads`), matching the way
+    /// legacy `call_param_names` returns `None` for such a call (`audio.openInput`).
     pub(crate) fn param_names(module: &BuiltinModule, name: &str) -> Option<Vec<Vec<&'static str>>> {
-        let overload = module.function(name)?.overloads.first()?;
+        let function = module.function(name)?;
+        if function.overloads.len() != 1 {
+            return None;
+        }
         Some(
-            overload
+            function.overloads[0]
                 .params
                 .iter()
                 .map(Parameter::name_spellings)
@@ -378,13 +393,18 @@ impl DefaultResolver {
     /// Per-overload canonical parameter-name lists — legacy
     /// `call_param_name_overloads`. Each entry is one overload's parameter names
     /// (canonical spelling only), so a call whose overloads place a name at
-    /// different positions (`net::connectTcp`'s `timeoutMs`) is described
-    /// faithfully rather than merged. `None` for an unknown call.
+    /// different positions (`audio.openInput`, `net::connectTcp`) is described
+    /// faithfully rather than merged. `None` for a single-overload or unknown call
+    /// (its names live in `param_names`), matching legacy
+    /// `call_param_name_overloads`.
     pub(crate) fn param_name_overloads(
         module: &BuiltinModule,
         name: &str,
     ) -> Option<Vec<Vec<&'static str>>> {
         let function = module.function(name)?;
+        if function.overloads.len() <= 1 {
+            return None;
+        }
         Some(
             function
                 .overloads
@@ -477,7 +497,7 @@ impl DefaultResolver {
             .skip(provided)
             .filter_map(|param| match param.default {
                 DefaultValue::Fill { type_name, expr } => Some((type_name, expr)),
-                DefaultValue::None => None,
+                DefaultValue::None | DefaultValue::Optional => None,
             })
             .collect()
     }
@@ -590,12 +610,17 @@ impl BuiltinRegistry {
 /// legacy per-package helper (the `mod.rs` adapters fall back on a registry
 /// miss). BB then deletes the legacy helpers the adapters fall back to.
 ///
-/// Migrated so far: `app` (plan-72-B), `bits` (plan-72-D), `collections`
-/// (plan-72-E).
+/// Migrated so far: `app` (B), `bits` (D), `collections` (E), `csv` (G),
+/// `crypto` (F), `audio` (C), `datetime` (H), `encoding` (I).
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::bits::BITS,
     &crate::builtins::collections::COLLECTIONS,
+    &crate::builtins::csv::CSV,
+    &crate::builtins::crypto::CRYPTO,
+    &crate::builtins::audio::AUDIO,
+    &crate::builtins::datetime::DATETIME,
+    &crate::builtins::encoding::ENCODING,
 ]);
 
 /// The migration parity harness (plan-72).
@@ -653,6 +678,9 @@ pub(crate) mod parity {
         pub expected_return: Option<&'a str>,
         pub expected_impl: Option<&'a str>,
         pub expected_padding: Option<Vec<(&'static str, &'static str)>>,
+        /// The contextual expected type driving a return-type overload
+        /// (`encoding.utf8Encode`). Passed to `resolve_overload_target`.
+        pub expected_type: Option<&'a str>,
         pub expected_overload_target: Option<&'a str>,
     }
 
@@ -740,8 +768,11 @@ pub(crate) mod parity {
 
         if let Some(builtin_type_fields) = legacy.builtin_type_fields {
             for ty in module.types {
+                // An opaque/enum type carries no record fields; the descriptor
+                // models that as an empty slice, the legacy helper as `None`.
+                let descriptor_fields = (!ty.fields.is_empty()).then_some(ty.fields);
                 assert_eq!(
-                    Some(ty.fields),
+                    descriptor_fields,
                     builtin_type_fields(ty.name),
                     "builtin-type-field parity for {}",
                     ty.name
@@ -789,10 +820,13 @@ pub(crate) mod parity {
             }
             if let Some(expected) = sample.expected_overload_target {
                 assert_eq!(
-                    resolver
-                        .resolve_overload_target(module, sample.call, &arg_types)
-                        .as_deref(),
-                    Some(expected),
+                    resolver.resolve_overload_target(
+                        module,
+                        sample.call,
+                        &arg_types,
+                        sample.expected_type
+                    ),
+                    Ok(Some(expected.to_string())),
                     "resolver overload-target parity for {} {:?}",
                     sample.call,
                     sample.arg_types
@@ -1408,15 +1442,16 @@ mod tests {
             _module: &BuiltinModule,
             name: &str,
             arg_types: &[String],
-        ) -> Option<String> {
+            _expected_type: Option<&str>,
+        ) -> Result<Option<String>, ()> {
             if name != "s.pick" {
-                return None;
+                return Ok(None);
             }
-            Some(if arg_types.len() >= 2 {
+            Ok(Some(if arg_types.len() >= 2 {
                 "s.pick#1".to_string()
             } else {
                 "s.pick#0".to_string()
-            })
+            }))
         }
 
         fn uses_source(
@@ -1476,7 +1511,9 @@ mod tests {
         let legacy = parity::LegacySet {
             is_call: &|name| name == "s.pick",
             arity: &|name| (name == "s.pick").then_some((1, 2)),
-            param_names: &|name| (name == "s.pick").then(|| vec![vec!["a"]]),
+            // `s.pick` is multi-overload, so its names live in
+            // `param_name_overloads`; `param_names` is None (single-overload only).
+            param_names: &|_| None,
             // Return type is resolver-owned, so this row is not asserted for a
             // resolver-backed module; supply the data-only default anyway.
             return_type_name: &|_| None,
@@ -1499,6 +1536,7 @@ mod tests {
                 expected_return: Some("Integer"),
                 expected_impl: Some("__s_pick1"),
                 expected_padding: Some(vec![("Integer", "0")]),
+                expected_type: None,
                 expected_overload_target: Some("s.pick#0"),
             },
             parity::ResolverSample {
@@ -1507,6 +1545,7 @@ mod tests {
                 expected_return: Some("Integer"),
                 expected_impl: Some("__s_pick2"),
                 expected_padding: Some(vec![]),
+                expected_type: None,
                 expected_overload_target: Some("s.pick#1"),
             },
         ];

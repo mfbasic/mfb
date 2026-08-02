@@ -682,6 +682,29 @@ pub(crate) fn registry_expected_arguments(
     legacy(callee)
 }
 
+/// plan-72-I: resolve an overloaded builtin call to its concrete monomorph target
+/// via the descriptor registry, delegating to the owning package's resolver. This
+/// is the descriptor-API entry point the monomorphizer uses in place of the
+/// `encoding`-specific free function. `Ok(None)` when the callee is not a
+/// registered overloaded builtin; `Err(())` when a return-type overload needs an
+/// expected type that is absent (`utf8Encode` with no `List OF Byte`/`List OF
+/// Integer` context).
+pub(crate) fn resolve_overload_target(
+    callee: &str,
+    arg_types: &[String],
+    expected_type: Option<&str>,
+) -> Result<Option<String>, ()> {
+    let Some((module, _function)) = descriptor::REGISTRY.function(callee) else {
+        return Ok(None);
+    };
+    match module.resolver {
+        Some(resolver) => {
+            resolver.resolve_overload_target(module, callee, arg_types, expected_type)
+        }
+        None => Ok(None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -248,11 +248,9 @@ mod tests {
             }),
             implementation_name: Some(&|_| None),
             default_padding: None,
-            // `Mode` is an enum builtin type with no record fields.
-            builtin_type_fields: Some(&|name| match name {
-                "Mode" => Some(&[] as &'static [(&'static str, &'static str)]),
-                _ => None,
-            }),
+            // `Mode` is an enum builtin type with no record fields, and `app`
+            // has no `builtin_type_fields` helper; membership is asserted below.
+            builtin_type_fields: None,
         };
         parity::assert_parity(&APP, &[GET_MODE, SET_MODE, "app.nope"], &legacy, &[]);
 

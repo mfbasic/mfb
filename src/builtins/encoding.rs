@@ -1,5 +1,11 @@
 use std::borrow::Cow;
 
+use super::descriptor::{
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
+    DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
+    ParameterType, ReturnType,
+};
+
 // Byte<->text and Unicode codecs, implemented in MFBASIC source over `bits`,
 // `strings`, and `collections` (see `encoding_package.mfb`). Public names map to
 // internal `__encoding_*` helpers via `implementation_name`; the two overloaded
@@ -49,49 +55,137 @@ const UTF8_DECODE_INTS: &str = "encoding.utf8DecodeInts";
 const BYTES: &str = "List OF Byte";
 const INTS: &str = "List OF Integer";
 
+// plan-72-I: `ENCODING` is the descriptor authority. Every function is unary
+// with a fixed return, so `is_encoding_call`/`arity`/`call_return_type_name`/
+// `implementation_name` derive from the descriptor. Non-overloaded functions (and
+// the 4 monomorph targets) carry `Implementation::Rewrite(__encoding_*)`; the two
+// overloaded names `utf8Encode`/`utf8Decode` are `Implementation::Custom`
+// (`is_overloaded`), resolved by `EncodingResolver::resolve_overload_target`.
+// `resolve_call` argument validation is also resolver-owned. `WhenImported` source.
+const fn p(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
+    Parameter {
+        name,
+        aliases,
+        ty: ParameterType::Named(ty),
+        default: DefaultValue::None,
+    }
+}
+const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload {
+    BuiltinOverload {
+        params,
+        return_type: ReturnType::Fixed(ret),
+    }
+}
+const fn ef(
+    name: &'static str,
+    slug: &'static str,
+    overloads: &'static [BuiltinOverload],
+    implementation: Implementation,
+) -> BuiltinFunction {
+    BuiltinFunction {
+        name,
+        doc_slug: slug,
+        overloads,
+        implementation,
+        lowering: Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    }
+}
+const VALTEXT: &[&str] = &["text"];
+
+const ENCODING_FUNCTIONS: &[BuiltinFunction] = &[
+    // The two overloaded names: Custom implementation (resolved by the resolver).
+    ef(UTF8_ENCODE, "utf8Encode", &[ov(&[p("value", VALTEXT, "String")], BYTES)], Implementation::Custom),
+    ef(UTF8_DECODE, "utf8Decode", &[ov(&[p("value", &[], BYTES)], "String")], Implementation::Custom),
+    // The 4 monomorph targets.
+    ef(UTF8_ENCODE_BYTES, "utf8EncodeBytes", &[ov(&[p("value", &[], "String")], BYTES)], Implementation::Rewrite("__encoding_utf8EncodeBytes")),
+    ef(UTF8_ENCODE_INTS, "utf8EncodeInts", &[ov(&[p("value", &[], "String")], INTS)], Implementation::Rewrite("__encoding_utf8EncodeInts")),
+    ef(UTF8_DECODE_BYTES, "utf8DecodeBytes", &[ov(&[p("value", &[], BYTES)], "String")], Implementation::Rewrite("__encoding_utf8DecodeBytes")),
+    ef(UTF8_DECODE_INTS, "utf8DecodeInts", &[ov(&[p("value", &[], INTS)], "String")], Implementation::Rewrite("__encoding_utf8DecodeInts")),
+    // Non-overloaded codecs.
+    ef(UTF16_ENCODE, "utf16Encode", &[ov(&[p("value", VALTEXT, "String")], INTS)], Implementation::Rewrite("__encoding_utf16Encode")),
+    ef(UTF16_DECODE, "utf16Decode", &[ov(&[p("value", &[], INTS)], "String")], Implementation::Rewrite("__encoding_utf16Decode")),
+    ef(UTF32_ENCODE, "utf32Encode", &[ov(&[p("value", VALTEXT, "String")], INTS)], Implementation::Rewrite("__encoding_utf32Encode")),
+    ef(UTF32_DECODE, "utf32Decode", &[ov(&[p("value", &[], INTS)], "String")], Implementation::Rewrite("__encoding_utf32Decode")),
+    ef(HEX_ENCODE, "hexEncode", &[ov(&[p("data", &[], BYTES)], "String")], Implementation::Rewrite("__encoding_hexEncode")),
+    ef(HEX_DECODE, "hexDecode", &[ov(&[p("text", &[], "String")], BYTES)], Implementation::Rewrite("__encoding_hexDecode")),
+    ef(BASE32_ENCODE, "base32Encode", &[ov(&[p("data", &[], BYTES)], "String")], Implementation::Rewrite("__encoding_base32Encode")),
+    ef(BASE32_DECODE, "base32Decode", &[ov(&[p("text", &[], "String")], BYTES)], Implementation::Rewrite("__encoding_base32Decode")),
+    ef(BASE64_ENCODE, "base64Encode", &[ov(&[p("data", &[], BYTES)], "String")], Implementation::Rewrite("__encoding_base64Encode")),
+    ef(BASE64_DECODE, "base64Decode", &[ov(&[p("text", &[], "String")], BYTES)], Implementation::Rewrite("__encoding_base64Decode")),
+    ef(BASE64URL_ENCODE, "base64UrlEncode", &[ov(&[p("data", &[], BYTES)], "String")], Implementation::Rewrite("__encoding_base64UrlEncode")),
+    ef(BASE64URL_DECODE, "base64UrlDecode", &[ov(&[p("text", &[], "String")], BYTES)], Implementation::Rewrite("__encoding_base64UrlDecode")),
+    ef(PERCENT_ENCODE, "percentEncode", &[ov(&[p("value", VALTEXT, "String")], "String")], Implementation::Rewrite("__encoding_percentEncode")),
+    ef(PERCENT_DECODE, "percentDecode", &[ov(&[p("value", VALTEXT, "String")], "String")], Implementation::Rewrite("__encoding_percentDecode")),
+    ef(HTML_ESCAPE, "htmlEscape", &[ov(&[p("value", VALTEXT, "String")], "String")], Implementation::Rewrite("__encoding_htmlEscape")),
+    ef(HTML_UNESCAPE, "htmlUnescape", &[ov(&[p("value", VALTEXT, "String")], "String")], Implementation::Rewrite("__encoding_htmlUnescape")),
+    ef(FORM_URL_ENCODE, "formUrlEncode", &[ov(&[p("value", VALTEXT, "String")], "String")], Implementation::Rewrite("__encoding_formUrlEncode")),
+    ef(FORM_URL_DECODE, "formUrlDecode", &[ov(&[p("value", VALTEXT, "String")], "String")], Implementation::Rewrite("__encoding_formUrlDecode")),
+    ef(PUNYCODE_ENCODE, "punycodeEncode", &[ov(&[p("domain", &[], "String")], "String")], Implementation::Rewrite("__encoding_punycodeEncode")),
+    ef(PUNYCODE_DECODE, "punycodeDecode", &[ov(&[p("asciiDomain", &[], "String")], "String")], Implementation::Rewrite("__encoding_punycodeDecode")),
+    ef(ULEB128_ENCODE, "uleb128Encode", &[ov(&[p("value", &[], "Integer")], BYTES)], Implementation::Rewrite("__encoding_uleb128Encode")),
+    ef(ULEB128_DECODE, "uleb128Decode", &[ov(&[p("data", &[], BYTES)], "Integer")], Implementation::Rewrite("__encoding_uleb128Decode")),
+    ef(SLEB128_ENCODE, "sleb128Encode", &[ov(&[p("value", &[], "Integer")], BYTES)], Implementation::Rewrite("__encoding_sleb128Encode")),
+    ef(SLEB128_DECODE, "sleb128Decode", &[ov(&[p("data", &[], BYTES)], "Integer")], Implementation::Rewrite("__encoding_sleb128Decode")),
+    ef(VARINT_ENCODE, "varintEncode", &[ov(&[p("value", &[], "Integer")], BYTES)], Implementation::Rewrite("__encoding_varintEncode")),
+    ef(VARINT_DECODE, "varintDecode", &[ov(&[p("data", &[], BYTES)], "Integer")], Implementation::Rewrite("__encoding_varintDecode")),
+];
+
+/// Argument-dependent resolution for encoding: `resolve_call` validation and the
+/// overloaded `utf8Encode`/`utf8Decode` monomorph-target selection. Both delegate
+/// to the retained `dispatch_*` helpers.
+struct EncodingResolver;
+impl BuiltinResolver for EncodingResolver {
+    fn resolve_return_type(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        dispatch_resolve(name, arg_types).map(|resolved| resolved.return_type.into_owned())
+    }
+
+    fn resolve_overload_target(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+        expected_type: Option<&str>,
+    ) -> Result<Option<String>, ()> {
+        dispatch_overload_target(name, arg_types, expected_type)
+            .map(|opt| opt.map(str::to_string))
+    }
+}
+static ENCODING_RESOLVER: EncodingResolver = EncodingResolver;
+
+pub(crate) static ENCODING: BuiltinModule = BuiltinModule {
+    name: "encoding",
+    functions: ENCODING_FUNCTIONS,
+    types: &[],
+    source: Some(BuiltinSource {
+        rule: InjectionRule::WhenImported,
+        loader: source_file,
+    }),
+    resolver: Some(&ENCODING_RESOLVER),
+};
+
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
     pub(crate) return_type: Cow<'a, str>,
 }
 
 pub(crate) fn is_encoding_call(name: &str) -> bool {
-    matches!(
-        name,
-        UTF8_ENCODE
-            | UTF8_DECODE
-            | UTF16_ENCODE
-            | UTF16_DECODE
-            | UTF32_ENCODE
-            | UTF32_DECODE
-            | HEX_ENCODE
-            | HEX_DECODE
-            | BASE32_ENCODE
-            | BASE32_DECODE
-            | BASE64_ENCODE
-            | BASE64_DECODE
-            | BASE64URL_ENCODE
-            | BASE64URL_DECODE
-            | PERCENT_ENCODE
-            | PERCENT_DECODE
-            | HTML_ESCAPE
-            | HTML_UNESCAPE
-            | FORM_URL_ENCODE
-            | FORM_URL_DECODE
-            | PUNYCODE_ENCODE
-            | PUNYCODE_DECODE
-            | ULEB128_ENCODE
-            | ULEB128_DECODE
-            | SLEB128_ENCODE
-            | SLEB128_DECODE
-            | VARINT_ENCODE
-            | VARINT_DECODE
-            | UTF8_ENCODE_BYTES
-            | UTF8_ENCODE_INTS
-            | UTF8_DECODE_BYTES
-            | UTF8_DECODE_INTS
-    )
+    DefaultResolver::contains(&ENCODING, name)
 }
 
+// `call_param_names`/`expected_arguments`/`argument_types` return `&'static`
+// borrowed shapes the owned `DefaultResolver` cannot produce (and the latter two
+// use bespoke phrasing). They stay static: `call_param_names` PINNED equal to
+// `ENCODING` by the parity test; the others verified by the existing tests. BB
+// removes them.
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         UTF8_ENCODE | UTF16_ENCODE | UTF32_ENCODE | PERCENT_ENCODE | PERCENT_DECODE
@@ -110,24 +204,13 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    match name {
-        // utf8Encode is a return-type overload; report its default (List OF Byte)
-        // form so the call is recognized. The precise type is resolved with the
-        // expected (contextual) type in the checker and monomorphizer.
-        UTF8_ENCODE | UTF8_ENCODE_BYTES | HEX_DECODE | BASE32_DECODE | BASE64_DECODE
-        | BASE64URL_DECODE | ULEB128_ENCODE | SLEB128_ENCODE | VARINT_ENCODE => Some(BYTES),
-        UTF16_ENCODE | UTF32_ENCODE | UTF8_ENCODE_INTS => Some(INTS),
-        UTF8_DECODE | UTF8_DECODE_BYTES | UTF8_DECODE_INTS | UTF16_DECODE | UTF32_DECODE
-        | HEX_ENCODE | BASE32_ENCODE | BASE64_ENCODE | BASE64URL_ENCODE | PERCENT_ENCODE
-        | PERCENT_DECODE | HTML_ESCAPE | HTML_UNESCAPE | FORM_URL_ENCODE | FORM_URL_DECODE
-        | PUNYCODE_ENCODE | PUNYCODE_DECODE => Some("String"),
-        ULEB128_DECODE | SLEB128_DECODE | VARINT_DECODE => Some("Integer"),
-        _ => None,
-    }
+    // utf8Encode reports its default (List OF Byte) form; the precise type is
+    // resolved with the contextual expected type in the checker/monomorphizer.
+    DefaultResolver::return_type_name(&ENCODING, name)
 }
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    is_encoding_call(name).then_some((1, 1))
+    DefaultResolver::arity(&ENCODING, name)
 }
 
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
@@ -168,6 +251,18 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static [&'static str]> {
 }
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    let return_type = ENCODING
+        .resolver?
+        .resolve_return_type(&ENCODING, name, arg_types)?;
+    Some(ResolvedCall {
+        return_type: Cow::Owned(return_type),
+    })
+}
+
+/// The argument-validating return-type resolution, invoked through the descriptor
+/// resolver by `resolve_call`. Every member is unary; `utf8Decode` accepts either
+/// `List OF Byte` or `List OF Integer`.
+fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 1 {
         return None;
     }
@@ -208,39 +303,10 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
 /// `resolve_overload_target` during monomorphization using the call's argument
 /// and expected types.
 pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
-    match name {
-        UTF8_ENCODE_BYTES => Some("__encoding_utf8EncodeBytes"),
-        UTF8_ENCODE_INTS => Some("__encoding_utf8EncodeInts"),
-        UTF8_DECODE_BYTES => Some("__encoding_utf8DecodeBytes"),
-        UTF8_DECODE_INTS => Some("__encoding_utf8DecodeInts"),
-        UTF16_ENCODE => Some("__encoding_utf16Encode"),
-        UTF16_DECODE => Some("__encoding_utf16Decode"),
-        UTF32_ENCODE => Some("__encoding_utf32Encode"),
-        UTF32_DECODE => Some("__encoding_utf32Decode"),
-        HEX_ENCODE => Some("__encoding_hexEncode"),
-        HEX_DECODE => Some("__encoding_hexDecode"),
-        BASE32_ENCODE => Some("__encoding_base32Encode"),
-        BASE32_DECODE => Some("__encoding_base32Decode"),
-        BASE64_ENCODE => Some("__encoding_base64Encode"),
-        BASE64_DECODE => Some("__encoding_base64Decode"),
-        BASE64URL_ENCODE => Some("__encoding_base64UrlEncode"),
-        BASE64URL_DECODE => Some("__encoding_base64UrlDecode"),
-        PERCENT_ENCODE => Some("__encoding_percentEncode"),
-        PERCENT_DECODE => Some("__encoding_percentDecode"),
-        HTML_ESCAPE => Some("__encoding_htmlEscape"),
-        HTML_UNESCAPE => Some("__encoding_htmlUnescape"),
-        FORM_URL_ENCODE => Some("__encoding_formUrlEncode"),
-        FORM_URL_DECODE => Some("__encoding_formUrlDecode"),
-        PUNYCODE_ENCODE => Some("__encoding_punycodeEncode"),
-        PUNYCODE_DECODE => Some("__encoding_punycodeDecode"),
-        ULEB128_ENCODE => Some("__encoding_uleb128Encode"),
-        ULEB128_DECODE => Some("__encoding_uleb128Decode"),
-        SLEB128_ENCODE => Some("__encoding_sleb128Encode"),
-        SLEB128_DECODE => Some("__encoding_sleb128Decode"),
-        VARINT_ENCODE => Some("__encoding_varintEncode"),
-        VARINT_DECODE => Some("__encoding_varintDecode"),
-        _ => None,
-    }
+    // Non-overloaded names carry an `Implementation::Rewrite(__encoding_*)`; the
+    // two overloaded names are `Custom` and resolve to a target via
+    // `resolve_overload_target`, so they return `None` here.
+    DefaultResolver::implementation_name(&ENCODING, name)
 }
 
 /// Resolve the overloaded `utf8Encode`/`utf8Decode` public calls to a concrete
@@ -248,8 +314,9 @@ pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
 /// (contextual) type. Returns `Ok(Some(name))` on a unique match, `Ok(None)`
 /// when the callee is not an overloaded encoding name, and `Err(())` when a
 /// return-type overload cannot be resolved without an expected type
-/// (`utf8Encode` with no `List OF Byte`/`List OF Integer` context).
-pub(crate) fn resolve_overload_target(
+/// (`utf8Encode` with no `List OF Byte`/`List OF Integer` context). Invoked
+/// through the descriptor resolver by `builtins::resolve_overload_target`.
+fn dispatch_overload_target(
     callee: &str,
     arg_types: &[String],
     expected_type: Option<&str>,
@@ -266,10 +333,12 @@ pub(crate) fn resolve_overload_target(
     }
 }
 
-/// Whether `callee` is one of the overloaded encoding public names handled by
-/// `resolve_overload_target` (rather than the flat `implementation_name` map).
+/// Whether `callee` is one of the overloaded encoding public names: derived from
+/// the descriptor (an overloaded name carries `Implementation::Custom`).
 pub(crate) fn is_overloaded(callee: &str) -> bool {
-    matches!(callee, UTF8_ENCODE | UTF8_DECODE)
+    ENCODING
+        .function(callee)
+        .is_some_and(|function| matches!(function.implementation, Implementation::Custom))
 }
 
 super::package_source_glue!(
@@ -524,41 +593,23 @@ mod tests {
 
     #[test]
     fn resolve_overload_target_all_paths() {
-        assert_eq!(
-            resolve_overload_target(UTF8_ENCODE, &strings(&["String"]), Some(BYTES)),
-            Ok(Some(UTF8_ENCODE_BYTES))
-        );
-        assert_eq!(
-            resolve_overload_target(UTF8_ENCODE, &strings(&["String"]), Some(INTS)),
-            Ok(Some(UTF8_ENCODE_INTS))
-        );
+        // Route through the generic descriptor entry point (which delegates to
+        // `EncodingResolver::resolve_overload_target`), the same path monomorph
+        // uses. Results are owned `String`s.
+        let target = |callee: &str, args: &[&str], expected: Option<&str>| {
+            crate::builtins::resolve_overload_target(callee, &strings(args), expected)
+        };
+        assert_eq!(target(UTF8_ENCODE, &["String"], Some(BYTES)), Ok(Some(UTF8_ENCODE_BYTES.to_string())));
+        assert_eq!(target(UTF8_ENCODE, &["String"], Some(INTS)), Ok(Some(UTF8_ENCODE_INTS.to_string())));
         // no expected type -> Err
-        assert_eq!(
-            resolve_overload_target(UTF8_ENCODE, &strings(&["String"]), None),
-            Err(())
-        );
-        assert_eq!(
-            resolve_overload_target(UTF8_ENCODE, &strings(&["String"]), Some("String")),
-            Err(())
-        );
+        assert_eq!(target(UTF8_ENCODE, &["String"], None), Err(()));
+        assert_eq!(target(UTF8_ENCODE, &["String"], Some("String")), Err(()));
         // utf8Encode with wrong arg types is not the overload arm -> Ok(None)
-        assert_eq!(
-            resolve_overload_target(UTF8_ENCODE, &strings(&["Integer"]), Some(BYTES)),
-            Ok(None)
-        );
-        assert_eq!(
-            resolve_overload_target(UTF8_DECODE, &strings(&[BYTES]), None),
-            Ok(Some(UTF8_DECODE_BYTES))
-        );
-        assert_eq!(
-            resolve_overload_target(UTF8_DECODE, &strings(&[INTS]), None),
-            Ok(Some(UTF8_DECODE_INTS))
-        );
+        assert_eq!(target(UTF8_ENCODE, &["Integer"], Some(BYTES)), Ok(None));
+        assert_eq!(target(UTF8_DECODE, &[BYTES], None), Ok(Some(UTF8_DECODE_BYTES.to_string())));
+        assert_eq!(target(UTF8_DECODE, &[INTS], None), Ok(Some(UTF8_DECODE_INTS.to_string())));
         // non-overloaded callee -> Ok(None)
-        assert_eq!(
-            resolve_overload_target(HEX_ENCODE, &strings(&[BYTES]), None),
-            Ok(None)
-        );
+        assert_eq!(target(HEX_ENCODE, &[BYTES], None), Ok(None));
     }
 
     #[test]
@@ -592,5 +643,86 @@ mod tests {
             augmented_project(&ast).expect("a").files.len(),
             ast.files.len()
         );
+    }
+
+    // plan-72-I migration gate: prove `ENCODING` + `EncodingResolver` reproduce
+    // the legacy answers — membership/arity/param-names + the flat implementation
+    // rewrite map via the descriptor, and resolve_call validation + the
+    // `utf8Encode`/`utf8Decode` overload targets via resolver samples. Keep until BB.
+    #[test]
+    fn parity_matches_descriptor() {
+        use crate::builtins::descriptor::parity;
+
+        let legacy = parity::LegacySet {
+            is_call: &is_encoding_call,
+            arity: &arity,
+            param_names: &|name| {
+                call_param_names(name).map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            return_type_name: &|_| None, // resolver-backed: skipped; verified by existing tests
+            expected_arguments: None,    // custom "or"-phrased strings
+            param_name_overloads: None,  // encoding has no per-overload name tables
+            argument_types: None,
+            implementation_name: None,   // descriptor-derived; verified by implementation_name_flat_map
+            default_padding: None,
+            builtin_type_fields: None,
+        };
+        // The 4 monomorph targets are members with arity (1,1) but no
+        // `call_param_names` entry (they are never named-arg-bound), so they are
+        // verified explicitly below rather than through the param-name harness.
+        let mut probe: Vec<&str> = ALL_PUBLIC.to_vec();
+        probe.push("encoding.nope");
+
+        let ret = |call, args, r: &'static str| parity::ResolverSample {
+            call, arg_types: args, expected_return: Some(r), expected_impl: None,
+            expected_padding: None, expected_type: None, expected_overload_target: None,
+        };
+        let target = |call, args, expected: Option<&'static str>, t: &'static str| parity::ResolverSample {
+            call, arg_types: args, expected_return: None, expected_impl: None,
+            expected_padding: None, expected_type: expected, expected_overload_target: Some(t),
+        };
+        let samples = [
+            ret(UTF8_ENCODE, &["String"], BYTES),
+            ret(UTF8_ENCODE_INTS, &["String"], INTS),
+            ret(UTF8_DECODE, &[BYTES], "String"),
+            ret(UTF8_DECODE, &[INTS], "String"),
+            ret(UTF16_ENCODE, &["String"], INTS),
+            ret(HEX_ENCODE, &[BYTES], "String"),
+            ret(HEX_DECODE, &["String"], BYTES),
+            ret(PERCENT_ENCODE, &["String"], "String"),
+            ret(ULEB128_ENCODE, &["Integer"], BYTES),
+            ret(VARINT_DECODE, &[BYTES], "Integer"),
+            // Overloaded utf8Encode/utf8Decode monomorph target selection.
+            target(UTF8_ENCODE, &["String"], Some(BYTES), UTF8_ENCODE_BYTES),
+            target(UTF8_ENCODE, &["String"], Some(INTS), UTF8_ENCODE_INTS),
+            target(UTF8_DECODE, &[BYTES], None, UTF8_DECODE_BYTES),
+            target(UTF8_DECODE, &[INTS], None, UTF8_DECODE_INTS),
+        ];
+        parity::assert_parity(&ENCODING, &probe, &legacy, &samples);
+
+        // is_overloaded derives from the descriptor (Custom implementation).
+        assert!(is_overloaded(UTF8_ENCODE));
+        assert!(is_overloaded(UTF8_DECODE));
+        assert!(!is_overloaded(HEX_ENCODE));
+        assert!(!is_overloaded(UTF8_ENCODE_BYTES));
+        // implementation_name (descriptor-derived) — overloaded names have none.
+        assert_eq!(implementation_name(HEX_ENCODE), Some("__encoding_hexEncode"));
+        assert_eq!(implementation_name(UTF8_ENCODE), None);
+        assert_eq!(implementation_name(UTF8_ENCODE_BYTES), Some("__encoding_utf8EncodeBytes"));
+
+        // The 4 monomorph targets: members with arity (1,1), the right return
+        // type and implementation, and no call_param_names entry.
+        for (target, ret, imp) in [
+            (UTF8_ENCODE_BYTES, BYTES, "__encoding_utf8EncodeBytes"),
+            (UTF8_ENCODE_INTS, INTS, "__encoding_utf8EncodeInts"),
+            (UTF8_DECODE_BYTES, "String", "__encoding_utf8DecodeBytes"),
+            (UTF8_DECODE_INTS, "String", "__encoding_utf8DecodeInts"),
+        ] {
+            assert!(is_encoding_call(target), "{target}");
+            assert_eq!(arity(target), Some((1, 1)), "{target}");
+            assert_eq!(call_return_type_name(target), Some(ret), "{target}");
+            assert_eq!(implementation_name(target), Some(imp), "{target}");
+            assert_eq!(call_param_names(target), None, "{target}");
+        }
     }
 }
