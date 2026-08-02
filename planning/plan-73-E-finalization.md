@@ -240,6 +240,22 @@ fixture the gate flags) — the sanctioned "code proven correct → refresh the 
 snapshot" path, not a weakening. This is exactly the regression E's tree-wide gate
 exists to catch that the per-family targeted checks could not.
 
+The full gate caught stale goldens in **two rounds**, all from the per-phase
+targeted checks only ever covering `byte-identity/`:
+- Round 1 (5 diffs): `byte-identity/fs` `.ncodesum` (5 targets) + `byte-identity/thread`
+  (4 targets), from the fs/thread-gated `standard_error_messages()` removal (A/C).
+- Round 2 (8 diffs): fixtures OUTSIDE `byte-identity/` that also exercise the changed
+  lowering — six tls `.ir` host dumps (`syntax/tls/{accept,close,connect,listen}_valid`,
+  `syntax/security/bug96_audit_tls_http_crypto`, `rt-behavior/http/func_http_response_valid`)
+  from D's `tls::connect/accept` omit→sentinel padding, and `syntax/app/macos-app-mode-io`
+  app-mode `.ncode` (macos + windows) from F's `io::pollInput` helper change.
+All 8 were verified legitimate refreshes (the connect `.ir` diff is exactly the
+`0`→`9223372036854775808` padding on the omit form; `.nir`/`.nplan` unchanged as the
+io change is native-codegen only). Lasting lesson: a byte-identity/ecosystem change
+must regenerate goldens **tree-wide** (syntax/ + rt-behavior/ too), not just the
+`byte-identity/` cover fixtures — the fast per-phase check is a smoke test, and only
+the full `artifact-gate` is authoritative. Regenerated in commits b2b79e105 + 0dd8298c3.
+
 **E-C3 — `thread::poll` is documented as value-conforming, not migrated.**
 `thread::poll(t, ms)` has arity `(2,2)` — `ms` is required, so it has no omit form.
 But its value-meanings already match the table (rejects negatives → 77050002, `0`
