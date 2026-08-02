@@ -1525,6 +1525,25 @@ fn accepts_exit_program_in_range() {
     ));
 }
 
+#[test]
+fn rejects_exit_program_i128_min_without_panic() {
+    // `Unary("-", Const{Integer, i128::MIN})` parses to i128::MIN and the
+    // verifier's negation of it must not overflow-panic (debug build); it is
+    // out of the 0..255 host range, so it must be reported as such.
+    let body = vec![IrOp::ExitProgram {
+        code: unary(
+            "-",
+            const_of("Integer", "-170141183460469231731687303715884105728"),
+            "Integer",
+        ),
+        loc: IrSourceLoc::default(),
+    }];
+    expect_rule(
+        &project(vec![func_returns("run", "Nothing", vec![], body)], vec![]),
+        "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
+    );
+}
+
 // --- fail / propagate ------------------------------------------------------
 
 #[test]

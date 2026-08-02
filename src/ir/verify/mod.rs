@@ -1102,7 +1102,12 @@ fn integer_constant_value(value: &IrValue) -> Option<i128> {
             value.parse::<i128>().ok()
         }
         IrValue::Unary { op, operand, .. } if op == "-" => {
-            integer_constant_value(operand).map(|n| -n)
+            // `wrapping_neg` so a negated `i128::MIN` operand does not
+            // overflow-panic in debug. Wrapping preserves the release-build
+            // behavior exactly (`-i128::MIN` wraps back to `i128::MIN`), which
+            // is still out of the 0..255 exit-code range and thus reported as
+            // `EXIT_PROGRAM_CODE_OUT_OF_RANGE` rather than silently accepted.
+            integer_constant_value(operand).map(|n| n.wrapping_neg())
         }
         _ => None,
     }
