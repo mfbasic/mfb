@@ -29,6 +29,8 @@ while IFS= read -r pj; do
   [ -n "$pkg" ] || continue
   g="$td/golden"; [ -d "$g" ] || continue
   ran=$((ran+1))
+  # Per-fixture accounting so each test gets a status line (PASSED/DIFF/MISSING/SKIP).
+  f_diffs=$diffs; f_checked=$checked
 
   # Which targets does this fixture carry native goldens for? Derived from the
   # golden filenames (`$pkg.<target>.<ext>`), so adding a golden for a new target
@@ -110,6 +112,18 @@ while IFS= read -r pj; do
     done
     rm -f "$td/$pkg".{nir,nplan,nobj,ncode,mir} 2>/dev/null
   done
+
+  # Per-fixture status. The MISSING/DIFF lines above already name each failing
+  # golden; this rolls the fixture up into a single labeled result so a clean
+  # run streams a PASSED line per test instead of running silent.
+  f_checked_n=$((checked - f_checked)); f_diffs_n=$((diffs - f_diffs))
+  if [ "$f_checked_n" -eq 0 ]; then
+    echo "SKIP    $rel/$pkg (no matching goldens)"
+  elif [ "$f_diffs_n" -eq 0 ]; then
+    echo "PASSED  $rel/$pkg ($f_checked_n golden(s))"
+  else
+    echo "FAILED  $rel/$pkg ($f_diffs_n/$f_checked_n golden(s))"
+  fi
 done < <(find "$REPO"/tests -name project.json | sort)
 echo "artifact-gate: $ran tests, $builds build(s), $checked golden(s) checked, $diffs diff(s)"
 [ "$diffs" -eq 0 ]
