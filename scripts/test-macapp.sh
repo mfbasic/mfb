@@ -25,6 +25,16 @@ if [ "$(uname -s)" != "Darwin" ]; then
   exit 0
 fi
 
+# Refuse to run concurrently with another test-macapp — concurrent runs thrash
+# disk/CPU building the .app bundle and race for the window-server session two
+# headless NSApplication launches would contend over. `pgrep -f` matches this
+# script's own process too, so exclude our own PID ($$).
+other=$(pgrep -f 'test-macapp\.sh' | grep -v "^$$\$" | head -1)
+if [ -n "$other" ]; then
+  echo "Another test-macapp (pid $other) is running." >&2
+  exit 1
+fi
+
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 failures=0

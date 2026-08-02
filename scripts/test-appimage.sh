@@ -51,6 +51,16 @@ case "$LIBC" in
   *) echo "--libc must be glibc|musl|both" >&2; exit 2 ;;
 esac
 
+# Refuse to run concurrently with another test-appimage — concurrent runs thrash
+# disk/CPU building AppImages and race each other's remote work dir on the shared
+# target boxes. `pgrep -f` matches this script's own process too, so exclude our
+# own PID ($$).
+other=$(pgrep -f 'test-appimage\.sh' | grep -v "^$$\$" | head -1)
+if [ -n "$other" ]; then
+  echo "Another test-appimage (pid $other) is running." >&2
+  exit 1
+fi
+
 # The measured (arch × libc) box matrix (plan-56-C §4.2.1). **Re-probe rather
 # than assume** — three of these facts changed during plan-56 itself:
 #   2228  x86_64  glibc   GTK4, /dev/fuse, suid fusermount3  -> FUSE mount works

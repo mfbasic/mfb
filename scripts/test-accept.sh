@@ -15,6 +15,17 @@ FILTERS=("$@")
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TEST_ROOT="$ROOT/tests"
 
+# Refuse to run concurrently with another test-accept — concurrent runs thrash
+# disk/CPU and clobber each other's actual output, yielding phantom "missing
+# actual" failures on unrelated fixtures. `pgrep -f` matches this script's own
+# process too, so exclude our own PID ($$). The pattern anchors on `.sh` so it
+# does not also match test-accept-selftest.sh (a distinct, lightweight harness).
+other=$(pgrep -f 'test-accept\.sh' | grep -v "^$$\$" | head -1)
+if [ -n "$other" ]; then
+  echo "Another test-accept (pid $other) is running." >&2
+  exit 1
+fi
+
 # Shared codegen-dump artifact table (also sourced by scripts/artifact-gate.sh),
 # so the two drivers cannot drift about which build dumps exist. It defines the
 # host and native dump kinds this harness's native-artifact regions iterate; the
