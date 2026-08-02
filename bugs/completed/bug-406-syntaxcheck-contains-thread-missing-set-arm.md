@@ -5,9 +5,30 @@ Effort: small (<1h)
 Severity: LOW
 Class: Correctness (latent soundness) — missing match arm
 
-Status: Open
-Regression Test: tests/ — a checker unit test: `contains_thread(Set OF Thread)` and
-`contains_resource_or_thread(Set OF Thread)` must return `true`.
+Status: FIXED (c835a90dd)
+Regression Test: `src/syntaxcheck/resources.rs::resources_tests::contains_thread_walks_set_element`
+— a direct-checker unit test: `contains_thread(Set OF Thread)` and
+`contains_resource_or_thread(Set OF Thread)` must return `true`. RED before the
+fix (fell through to `_ => false`), GREEN after.
+
+## STATUS: FIXED (c835a90dd)
+
+Added a `Type::Set(element)` recursion arm to both `contains_thread_with_seen`
+(`src/syntaxcheck/resources.rs:50`) and `contains_resource_or_thread_with_seen`
+(`resources.rs:93`), immediately after each `Type::List` arm — matching the
+sibling walks `is_copyable_type_with_seen` / `is_thread_sendable_type_with_seen`.
+A `Set` element is now walked exactly like a `List` element.
+
+Blast-radius audit (per §Blast Radius): every other `Type::List` walk in
+`src/syntaxcheck/` already carries a matching `Set` arm
+(`checking.rs:560`, `mod.rs:574`/`:1439`/`:1571`, and the two other predicates in
+`resources.rs`). The two `builtins.rs` `Type::List` matches (`:847`, `:861`) are
+`strings::contains`/`replace`/`find` argument extractions, not recursive
+type-walks, so no `Set` arm applies. No deviation from the plan.
+
+Verified: RED→GREEN on the new unit test; full `cargo test` green
+(3725 bin + all integration targets, 0 failed). No golden shift (the predicate
+is latent — no reachable source path changes codegen output).
 
 `contains_thread_with_seen` (`src/syntaxcheck/resources.rs:42-81`) and
 `contains_resource_or_thread_with_seen` (`resources.rs:83-127`) recurse through
