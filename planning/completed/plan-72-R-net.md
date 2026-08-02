@@ -72,7 +72,7 @@ plan.
 Acceptance: `cargo test` passes; every `net.*` fixture runs clean under
 `scripts/test-accept.sh target/debug/mfb target/accept-actual`, including
 the existing `tests/byte-identity/net` cohort.
-Commit: <R-hash>
+Commit: 2b1626c51
 
 ## Validation
 
