@@ -102,5 +102,15 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
         }
         rename_operand_field_values(&mut instruction.fields, ARENA_BASE, ARENA_BASE_REGISTER);
     }
+    // plan-71-B Phase 1: the Category-2 self-move probe. `out` now carries fully
+    // realized ABI registers (`%argK`/`%retK` → `xN`), so a same-index staging
+    // move would already read as a `mov xN,xN` no-op here. Report those under
+    // `MFB_BUG387_SELFMOVE`; unset, this reads nothing and every emitted byte is
+    // unchanged (the scan never mutates `out`).
+    if std::env::var_os("MFB_BUG387_SELFMOVE").is_some() {
+        for line in crate::target::shared::code::bug387_selfmove_lines(&out, "aarch64") {
+            eprintln!("{line}");
+        }
+    }
     out
 }

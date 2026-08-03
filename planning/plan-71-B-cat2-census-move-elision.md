@@ -143,7 +143,7 @@ what this pass must be ready to elide.
 | `move_register` has a `dst==src` guard | 0 (none) | `sed -n '443,447p' src/target/shared/abi.rs` — emits `mov` unconditionally |
 | `%argK` and `%retK` collide to one `xN` on AArch64 | yes | `realize_abi_token` (`abi.rs:327`): `"%arg0" \| "%ret0" … => "x0"` |
 | known hand-removed self-moves in shared code | ≥1 | `grep -rn 'self-move\|x0<-x0' src/target/shared/code/` → `crypto.rs:64` |
-| distinct emitted `mov xN,xN` (dst==src post-realization), per target | **UNMEASURED** | B Phase 1 (the probe below) — this is the number that decides whether Phase 3 runs |
+| distinct emitted `mov xN,xN` (dst==src post-realization), per target | **486 / 234 / 486** (linux-aarch64 / macos-aarch64 / linux-riscv64); 1 distinct shape (`mov %ret1,%ret1`) | B Phase 1 probe (`plan-71-census.md` §"Category-2 probe"). NOTE: this count does NOT decide Phase 3 — see Corrections; the self-moves are symmetric, non-divergent, byte-baseline |
 | divergence-set values consumed at two conflicting role tokens | **UNMEASURED** | B Phase 2 (value-level partition proof) |
 
 ### Verified properties
@@ -157,8 +157,11 @@ what this pass must be ready to elide.
   src/target/shared/code` finds only overflow-check elision and the hand-removal comment
   at `crypto.rs:64` — confirming self-moves are culled manually, not by a pass. (This is
   plan-71-A §2's "no elision pass exists" claim, re-verified for this letter.)
-- **Whether any `mov xN,xN` is emitted today is UNVERIFIED — this letter's first task.**
-  plan-71-A §2 assigns it here; the probe (Phase 1) settles it.
+- **~~Whether any `mov xN,xN` is emitted today is UNVERIFIED~~ — RESOLVED (Phase 1).**
+  YES: 486/234/486 per reuse target, all the redundant `mov %ret1,%ret1` Result-return
+  idiom (`RESULT_VALUE_REGISTER == RET[1]`), symmetric with x86's `mov rdx,rdx`,
+  non-divergent, byte-baseline. See Corrections + `plan-71-census.md` §"Category-2 probe".
+  This falsifies §2/§Current-State's "the tree has no `mov xN,xN`".
 - **The census's Category-1/Category-2 partition is operand-level, not value-level
   (VERIFIED by reading `plan-71-census.md` §"Category 2" + §Residue).** No divergent
   operand sits on a boundary op and every inferred register has a role-token preimage,
@@ -266,21 +269,27 @@ staging moves).
 
 Resolves the unproven premise before any pass is built.
 
-- [ ] Add the post-realization self-move probe (`BUG387-SELFMOVE`) to the AArch64 and
+- [x] Add the post-realization self-move probe (`BUG387-SELFMOVE`) to the AArch64 and
       RISC-V selection paths (`src/arch/aarch64/select.rs`, `src/arch/riscv64/select.rs`),
-      env-gated and byte-identical when off — same discipline as plan-71-A's audit
-      (`remap_x86_abi_inner` returns lines; wrapper `eprintln!`s).
-- [ ] Sweep the full 1139-fixture corpus for `linux-aarch64`, `macos-aarch64`,
-      `linux-riscv64`; collect all `BUG387-SELFMOVE` lines; record the distinct
-      normalized count per target in a new `plan-71-census.md` "Category-2 probe"
-      subsection, each count carrying its command.
-- [ ] Tests: a unit test asserting the probe emits exactly one line for a constructed
-      `mov x0,x0` and none for `mov x0,x1`.
+      env-gated and byte-identical when off — same discipline as plan-71-A's audit.
+      Landed as `src/target/shared/code/selfmove_probe.rs` (pure `bug387_selfmove_lines`)
+      + env-gated wrapper (`MFB_BUG387_SELFMOVE`) at the tail of `select_aarch64` and after
+      `remap_riscv_abi` in `select_riscv64`.
+- [x] Sweep the full corpus (1162 fixtures) for `linux-aarch64`, `macos-aarch64`,
+      `linux-riscv64`; collect all `BUG387-SELFMOVE` lines; record the count per target in
+      `plan-71-census.md` "Category-2 probe". Measured: **486 / 234 / 486**, one shape each
+      (`mov %ret1,%ret1`). Source, symmetry, and non-divergence recorded there + in
+      Corrections.
+- [x] Tests: unit tests asserting the probe emits exactly one line for a constructed
+      `mov x0,x0`, none for `mov x0,x1`, and none for a `str x0,[x0]`
+      (`selfmove_probe::tests`, green).
 
 Acceptance: `plan-71-census.md` gains a measured self-move count per reuse target (no
-`~`); `bug387-gate.sh … full` PASS with the probe env unset (byte-identical, five
-targets). If the count is >0, Phase 3 is required; if 0, Phase 3 is skipped and that is
-recorded with its command.
+`~`) — MET (486/234/486). `bug387-gate.sh … full` PASS with the probe env unset
+(byte-identical, five targets) — see Commit. **CORRECTED decision rule (see Corrections):**
+the count is >0 (486/234/486), but these are byte-baseline non-divergent no-ops, so the
+count does NOT force Phase 3. Phase 3 (elision) runs only if Phase 2 finds a genuine
+Category-2 value (a *new asymmetric* staging plan-71-E would add); otherwise it is skipped.
 Commit: —
 
 ### Phase 2 — value-level Category-1/Category-2 partition proof
@@ -296,9 +305,17 @@ Category 2; if none, the Category-1 partition is marked proven-at-the-value-leve
 the precondition plan-71-C depends on.
 Commit: —
 
-### Phase 3 — AArch64/RISC-V self-move elision pass (iff Phase 1 count > 0)
+### Phase 3 — AArch64/RISC-V self-move elision pass (iff Phase 2 finds a Category-2 value)
 
-Largest blast radius; behind tests; runs only if the probe found reuse.
+**CORRECTED trigger (see Corrections):** NOT "Phase 1 count > 0". The 486/234/486 existing
+self-moves are byte-baseline non-divergent no-ops; a blanket `mov xN,xN` elision would
+delete them and BREAK byte-identity. This pass runs ONLY if Phase 2 finds a genuine
+Category-2 value — a value plan-71-E would newly stage with an explicit `mov %argK,%retK`
+that becomes a NEW (not-in-baseline) `mov xK,xK` on the reuse ISAs. If Phase 2 finds none,
+Phase 3 is SKIPPED. Should it run, the pass must elide ONLY plan-71-E's newly-inserted
+staging move, never the pre-existing Result-return self-moves (which stay byte-baseline).
+
+Largest blast radius; behind tests; runs only if Phase 2 found a Category-2 value.
 
 - [ ] Add `elide_redundant_self_moves` (shared helper called from `select_aarch64` and
       `select_riscv64` after their remaps) removing every `mov` with realized
@@ -345,7 +362,37 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Prerequisite baselines were stale; re-recorded from current `main`.** The
+  `/tmp/bug387/oracle-*.txt` + `app-ncode-base.txt` baselines were recorded during the
+  plan-71-A session; `main` has since advanced (plan-78: typed-`Operand` storage
+  `02f9bd2ea`, sweep-based `colored_mask_at` `2eaaf92a5`), which moved bytes — the
+  clean-`main` app-ncode gate showed a DIFF vs the old baseline. Re-recorded all five
+  baselines from the worktree's clean HEAD (`8bb42c92f`) before any byte-identity check.
+  Current clean-`main` executable counts: linux-x86_64 1315, windows-x86_64 630,
+  linux-riscv64 1315, linux-aarch64 1303 (was 1282/611/1280/1282 in the stale set).
+
+- **§2 "the tree has no `mov xN,xN`" is FALSE — corrected.** The Phase-1 probe measured
+  **486 / 234 / 486** self-moves on linux-aarch64 / macos-aarch64 / linux-riscv64, all one
+  shape (`mov x1,x1` / `mov a1,a1`). They come from the Result-return idiom
+  `abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1])` where `RESULT_VALUE_REGISTER ==
+  abi::RET[1]` (`error_constants.rs:26`) — a literal redundant `mov %ret1,%ret1` at **19
+  shared-builder sites**. Verified: they reach final `-ncode` (7× in `tests/byte-identity/fs`
+  for linux-aarch64), are **symmetric** across ISAs (x86 emits `mov rdx,rdx` at the same
+  sites — a plain no-op everywhere, NOT asymmetric Category-2 staging), and are
+  **non-divergent** (no `mov [dst=%?1,src=%?1]` in the audit) so C/D/E leave them
+  byte-invariant. Details + commands recorded in `plan-71-census.md` §"Category-2 probe".
+  §2's "Verified property" that «Whether any `mov xN,xN` is emitted today is UNVERIFIED»
+  is now resolved: YES, 486/234/486, byte-baseline.
+
+- **Phase 3's trigger ("count > 0 ⇒ build the elision pass") is DEFECTIVE — corrected.**
+  Because those self-moves are already in the byte-identity baseline, a blanket
+  "remove every `mov xN,xN`" pass would DELETE them and BREAK byte-identity (the opposite
+  of the plan's "elides nothing today" claim, which rested on the false zero-count premise).
+  The raw self-move count does not decide the elision. The correct trigger is whether
+  plan-71-E introduces a *new asymmetric* staging move — a genuine Category-2 value — which
+  is the Phase-2 value-level question, not the Phase-1 count. Phase 3 is now conditioned on
+  Phase 2 finding a Category-2 value, not on the (non-zero) self-move count. If Phase 2
+  finds none, Phase 3 is skipped and NO elision pass is built.
 
 ## Summary
 

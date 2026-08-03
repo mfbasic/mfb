@@ -645,6 +645,16 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
         rename_operand_field_values(&mut instruction.fields, ARENA_BASE, ARENA_BASE_REGISTER);
     }
     remap_riscv_abi(&mut out);
+    // plan-71-B Phase 1: the Category-2 self-move probe, after `remap_riscv_abi`
+    // has realized the ABI role tokens to their lp64d homes (`%argK`/`%retK` →
+    // the same `aN`). A same-index staging move would read as a `mov aN,aN`
+    // no-op here. Report those under `MFB_BUG387_SELFMOVE`; unset, this reads
+    // nothing and every emitted byte is unchanged (the scan never mutates `out`).
+    if std::env::var_os("MFB_BUG387_SELFMOVE").is_some() {
+        for line in crate::target::shared::code::bug387_selfmove_lines(&out, "riscv64") {
+            eprintln!("{line}");
+        }
+    }
     out
 }
 

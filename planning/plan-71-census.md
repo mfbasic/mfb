@@ -148,6 +148,52 @@ open-ended risk is the *safety* of the Category-1 re-tokenization — that no si
 that value as Category 2). That is a per-value property the operand-level audit cannot
 see; it is resolved by plan-71-B before the bulk re-tokenization of C.
 
+## Category-2 probe (plan-71-B Phase 1) — measured
+
+The operand audit is blind to same-register `mov xN,xN` (an explicit staging move's
+operands agree, so it emits no `BUG387-MISMATCH`), so plan-71-B added a dedicated
+post-realization probe (`MFB_BUG387_SELFMOVE`, `src/target/shared/code/selfmove_probe.rs`,
+invoked at the tail of `select_aarch64` and after `remap_riscv_abi` in `select_riscv64`)
+and swept the corpus for the three reuse ISAs (`/tmp/bug387/selfmove-sweep.sh <exe> <tgt>`,
+the same 1162-fixture walk as `census-sweep.sh`).
+
+| target | raw self-moves | distinct shape | command |
+|---|---|---|---|
+| linux-aarch64 | **486** | `mov x1,x1` (1) | `selfmove-sweep.sh … linux-aarch64 \| wc -l` |
+| macos-aarch64 | **234** | `mov x1,x1` (1) | `selfmove-sweep.sh … macos-aarch64 \| wc -l` |
+| linux-riscv64 | **486** | `mov a1,a1` (1) | `selfmove-sweep.sh … linux-riscv64 \| wc -l` |
+
+**The count is NOT zero — and this corrects a false premise in plan-71-B §2.** All of
+these are one shape: a redundant same-token `mov %ret1,%ret1`, emitted by the
+Result-return staging idiom `abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1])`
+where `RESULT_VALUE_REGISTER == abi::RET[1]` (`error_constants.rs:26`). **19 shared-builder
+sites** emit it (`grep -rnE 'move_register\(\s*RESULT_VALUE_REGISTER\s*,\s*abi::RET\[1\]'
+src/target/shared/`: term, link_thunk, crypto, tls/{openssl,schannel_server,macos/*},
+net/io, fs/{io,paths,atomic}). Verified properties of this population:
+
+- **They reach final emitted code** (not a pre-regalloc artifact): the `-ncode` dump of
+  `tests/byte-identity/fs` for `linux-aarch64` carries 7 × `{ "op":"mov","dst":"x1","src":"x1" }`.
+- **They are SYMMETRIC across ISAs — not the asymmetric Category-2 staging.** The same
+  fs sites emit `mov rdx,rdx` on `linux-x86_64` (7 ×, `RESULT_VALUE_REGISTER=%ret1→rdx`).
+  A genuine Category-2 reuse would be a *real* cross-register move on x86 (`mov rdi,rax`)
+  that is a no-op only on the reuse ISAs; this is a plain no-op on **every** target.
+- **They are NON-DIVERGENT** — no `mov [dst=%?1, src=%?1]` shape appears in the divergence
+  audit (`grep 'site: mov \[dst=%.*1, src=%.*1\]' distinct-*.txt` → empty). So plan-71-C/D
+  (which re-tokenize only divergent Family-1a/1b sites) never touch them, and plan-71-E
+  (x86-local; non-divergent ⇒ `map_token_direct == inferred` here) leaves them
+  byte-identical. **They are byte-invariant across all of plan-71.**
+
+**Consequence for the elision decision (corrects plan-71-B Phase 3's trigger).** Because
+these 486/234/486 self-moves are already in the byte-identity baseline, a blanket
+"remove every `mov xN,xN`" elision pass (plan-71-B Phase 3 as written) would *delete* them
+and **break byte-identity** — the opposite of its stated "elides nothing today". The raw
+self-move count therefore does NOT decide whether an elision pass is needed. The real
+trigger is whether plan-71-E introduces a *new asymmetric* staging move (a genuine
+Category-2 value — a value the x86 fixpoint stages via a real `mov rdi,rax` that has no
+explicit shared-stream counterpart, so deletion would strand it). That is the value-level
+question Phase 2 answers; if Phase 2 finds no Category-2 value, plan-71-E adds no new
+staging and **no elision pass is built** (Phase 3 skipped — see plan-71-B Corrections).
+
 ## B-onward split (implementation order = letter order; each depends only on its predecessor)
 
 Derived from the counts above. The uncertainty (Category-2 existence + re-tokenization
