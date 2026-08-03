@@ -84,6 +84,18 @@ impl Operand {
         Operand::Imm(value)
     }
 
+    /// The operand's rendered spelling, borrowed when possible: a `Raw` lends its
+    /// inner `&str` with no allocation; `VReg`/`Imm` render into an owned string.
+    /// The allocator hot path (plan-78-C) reads operands through this to avoid the
+    /// per-read `String` clone `render()` makes — in the pre-allocation stream
+    /// every register operand is `Raw`, so this borrows in the overwhelming case.
+    pub(crate) fn rendered(&self) -> std::borrow::Cow<'_, str> {
+        match self {
+            Operand::Raw(text) => std::borrow::Cow::Borrowed(text),
+            _ => std::borrow::Cow::Owned(self.render()),
+        }
+    }
+
     /// Reproduce the exact operand string the codegen emits for this value.
     /// Virtual registers render through the same `vreg_name`/`fp_vreg_name` the
     /// allocator uses; immediates render as decimal; `Raw` is verbatim.

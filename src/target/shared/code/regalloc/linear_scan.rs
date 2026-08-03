@@ -18,13 +18,11 @@
 //! with binary-search interference checks — fast even on the multi-thousand-
 //! instruction generated functions (the regex engine).
 
-use std::collections::HashMap;
-
 use crate::target::shared::regmodel::{RegClass, RegisterModel};
 
 use super::super::types::CodeInstruction;
 use super::super::Operand;
-use super::analysis::{self, physical_busy, ClassModel};
+use super::analysis::{self, physical_busy, ClassModel, RegRef};
 
 pub(super) struct RunResult {
     pub(super) instructions: Vec<CodeInstruction>,
@@ -51,8 +49,15 @@ pub(super) fn run(
     slot_bytes: usize,
     reserved: &[&str],
 ) -> RunResult {
-    let live = analysis::analyze(instructions, class_model);
     let n = instructions.len();
+    // plan-78-C compute-once: classify every instruction's effect a single time
+    // and share it between the liveness pass and the rewrite loop below (the two
+    // passes over this stream that previously each recomputed `effect`).
+    let effects: Vec<analysis::Effect> = instructions
+        .iter()
+        .map(|instruction| analysis::effect(instruction, class_model))
+        .collect();
+    let live = analysis::analyze(instructions, class_model, &effects);
 
     // Per-physical sorted index lists where the physical is busy, for O(log)
     // "is physical p busy anywhere in [s, e]" interference checks. 32 covers
@@ -123,8 +128,8 @@ pub(super) fn run(
     // hold. Expired by start order.
     let mut active: Vec<(usize, u32, u32)> = Vec::new();
     let mut active_mask: u64 = 0;
-    let mut assignment: HashMap<u32, String> = HashMap::new();
-    let mut assigned_index: HashMap<u32, u32> = HashMap::new();
+    let mut assignment: analysis::U32Map<String> = analysis::U32Map::default();
+    let mut assigned_index: analysis::U32Map<u32> = analysis::U32Map::default();
     let mut spilled: Vec<u32> = Vec::new();
 
     for &(v, s, e) in &vregs {
@@ -158,7 +163,7 @@ pub(super) fn run(
     }
 
     // Assign a stack slot to each spilled vreg.
-    let mut spill_slot: HashMap<u32, usize> = HashMap::new();
+    let mut spill_slot: analysis::U32Map<usize> = analysis::U32Map::default();
     for &v in &spilled {
         let k = spill_slot.len();
         spill_slot.insert(v, spill_base_offset + k * slot_bytes);
@@ -179,7 +184,7 @@ pub(super) fn run(
     // those slots the frame must reserve.
     let evict_base = spill_base_offset + spill_slot_count * slot_bytes;
     let mut max_evictions = 0usize;
-    let spilled_set: std::collections::HashSet<u32> = spilled.iter().copied().collect();
+    let spilled_set: analysis::U32Set = spilled.iter().copied().collect();
     // Callee-saved registers commandeered by the *genuinely-free* scratch branch
     // below. Unlike a colored home (recorded from `assignment` later) or an
     // eviction victim (save/restored around its single use), a genuinely-free
@@ -192,30 +197,28 @@ pub(super) fn run(
     // than the pool holds); surfaced by `allocate` (bug-127.2).
     let mut alloc_error: Option<String> = None;
     'rewrite: for (i, instruction) in instructions.iter().enumerate() {
-        let eff = analysis::effect(instruction, class_model);
-        let used_spilled: Vec<u32> = eff
-            .uses
-            .iter()
-            .filter_map(|name| (class_model.parse_vreg)(name))
-            .filter(|v| spilled_set.contains(v))
-            .collect();
-        let def_spilled: Vec<u32> = eff
-            .defs
-            .iter()
-            .filter_map(|name| (class_model.parse_vreg)(name))
-            .filter(|v| spilled_set.contains(v))
-            .collect();
+        // plan-78-C: reuse the effect classified once above (no re-parse).
+        let eff = &effects[i];
+        let spilled_vreg = |reg: &RegRef| -> Option<u32> {
+            match reg {
+                RegRef::VReg(v) if spilled_set.contains(v) => Some(*v),
+                _ => None,
+            }
+        };
+        let used_spilled: Vec<u32> = eff.uses.iter().filter_map(spilled_vreg).collect();
+        let def_spilled: Vec<u32> = eff.defs.iter().filter_map(spilled_vreg).collect();
 
-        let mut scratch_for: HashMap<u32, String> = HashMap::new();
+        let mut scratch_for: analysis::U32Map<String> = analysis::U32Map::default();
         // Registers this instruction actually reads or writes (after coloring) —
         // a spill scratch may never reuse one of these, even by eviction.
         let mut operand_mask = 0u64;
-        for name in eff.defs.iter().chain(eff.uses.iter()) {
-            if let Some(p) = (class_model.physical_index)(name) {
-                operand_mask |= 1u64 << p;
-            } else if let Some(v) = (class_model.parse_vreg)(name) {
-                if let Some(&pi) = assigned_index.get(&v) {
-                    operand_mask |= 1u64 << pi;
+        for reg in eff.defs.iter().chain(eff.uses.iter()) {
+            match *reg {
+                RegRef::Phys(p) => operand_mask |= 1u64 << p,
+                RegRef::VReg(v) => {
+                    if let Some(&pi) = assigned_index.get(&v) {
+                        operand_mask |= 1u64 << pi;
+                    }
                 }
             }
         }
@@ -370,8 +373,8 @@ pub(super) fn run(
 /// hardcoded-physical occupancy), exactly like the naive form.
 fn colored_mask_sweep(
     phys_busy_at: &[u64],
-    vreg_interval: &HashMap<u32, (usize, usize)>,
-    assigned_index: &HashMap<u32, u32>,
+    vreg_interval: &analysis::U32Map<(usize, usize)>,
+    assigned_index: &analysis::U32Map<u32>,
 ) -> Vec<u64> {
     let n = phys_busy_at.len();
     let mut masks = phys_busy_at.to_vec();
@@ -416,7 +419,7 @@ fn occupied_at(
 ) -> u64 {
     let mut mask = colored_mask_at.get(i).copied().unwrap_or(0);
     for (_field, value) in &instruction.fields {
-        if let Some(p) = (class_model.physical_index)(&value.render()) {
+        if let Some(p) = (class_model.physical_index)(&value.rendered()) {
             mask |= 1u64 << p;
         }
     }
@@ -428,8 +431,8 @@ fn occupied_at(
 /// per-instruction scratch.
 fn substitute(
     instruction: &CodeInstruction,
-    assignment: &HashMap<u32, String>,
-    scratch_for: &HashMap<u32, String>,
+    assignment: &analysis::U32Map<String>,
+    scratch_for: &analysis::U32Map<String>,
     class_model: &ClassModel,
 ) -> CodeInstruction {
     let mut copy = CodeInstruction {
@@ -437,7 +440,7 @@ fn substitute(
         fields: instruction.fields.clone(),
     };
     for (_field, value) in copy.fields.iter_mut() {
-        if let Some(v) = (class_model.parse_vreg)(&value.render()) {
+        if let Some(v) = (class_model.parse_vreg)(&value.rendered()) {
             if let Some(phys) = assignment.get(&v) {
                 *value = Operand::from(phys.as_str());
             } else if let Some(scratch) = scratch_for.get(&v) {
@@ -458,8 +461,8 @@ mod tests {
     /// hardcoded-physical occupancy.
     fn colored_mask_naive(
         phys_busy_at: &[u64],
-        vreg_interval: &HashMap<u32, (usize, usize)>,
-        assigned_index: &HashMap<u32, u32>,
+        vreg_interval: &analysis::U32Map<(usize, usize)>,
+        assigned_index: &analysis::U32Map<u32>,
     ) -> Vec<u64> {
         let mut masks = phys_busy_at.to_vec();
         for (v, &(s, e)) in vreg_interval {
@@ -490,8 +493,8 @@ mod tests {
         for trial in 0..500 {
             let n = 1 + next() as usize % 40;
             let phys_busy_at: Vec<u64> = (0..n).map(|_| (next() as u64) & 0xFF).collect();
-            let mut vreg_interval: HashMap<u32, (usize, usize)> = HashMap::new();
-            let mut assigned_index: HashMap<u32, u32> = HashMap::new();
+            let mut vreg_interval: analysis::U32Map<(usize, usize)> = analysis::U32Map::default();
+            let mut assigned_index: analysis::U32Map<u32> = analysis::U32Map::default();
             let vcount = next() as usize % 30;
             for v in 0..vcount as u32 {
                 let a = next() as usize % n;
@@ -516,10 +519,10 @@ mod tests {
     #[test]
     fn overlapping_same_index_clears_only_after_last() {
         let phys_busy_at = vec![0u64; 6];
-        let mut vreg_interval = HashMap::new();
+        let mut vreg_interval = analysis::U32Map::default();
         vreg_interval.insert(1u32, (0usize, 4usize)); // outer
         vreg_interval.insert(2u32, (1usize, 2usize)); // nested, same index
-        let mut assigned_index = HashMap::new();
+        let mut assigned_index = analysis::U32Map::default();
         assigned_index.insert(1u32, 3u32);
         assigned_index.insert(2u32, 3u32);
         let masks = colored_mask_sweep(&phys_busy_at, &vreg_interval, &assigned_index);

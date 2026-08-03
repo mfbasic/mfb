@@ -150,28 +150,57 @@ vs 29 s) because plan-78-B added a `render()` clone per operand read in `effect`
 Phase 2 removes that tax (typed/borrowed reads) and delivers the feature's speed
 goal. Phase 1's win is the algorithmic removal of the quadratic, proven by the
 property test + complexity, not yet visible in wall-clock under B's render tax.
-Commit: (recorded next commit)
+Commit: 2eaaf92a5
 
 ### Phase 2 — Typed `effect`/liveness + compute-once
 
 The main perf win.
 
-- [ ] Rewrite `effect`/`is_tracked` (`analysis.rs`) to match on `Operand`; drop
-      `parse_vreg`/`physical_index` from the hot path; remove `Vec<String>`
-      operand clones.
-- [ ] Compute `Vec<Effect>` once per `(function, class)`; share across `analyze`
-      and the rewrite loop (dedup the 3 sites).
-- [ ] Have the vreg→physical rewrite write `Operand::Phys` directly (`mod.rs:359`).
-- [ ] Tests: coloring-output-unchanged on spill-heavy Int/Fp fixtures; a
-      determinism check (two builds byte-identical); an assertion that `effect`
-      runs once per instruction per class.
-- [ ] `artifact-gate … all` — zero diffs.
+- [x] Rewrite `effect` (`analysis.rs`) to **classify each operand once** into a
+      `RegRef::{Phys(index), VReg(id)}`, so `analyze` and the rewrite loop consume
+      the classification without re-parsing; drop the `Vec<String>` operand clones;
+      read operands by borrow (`Operand::rendered()` → `Cow`, no clone for the
+      `Raw` case). Removed `ClassModel::is_tracked` (folded into `classify`).
+      **Correction — reads the `Raw` `&str`, not an `Operand` arm match.** B stores
+      register operands as `Raw` (vreg-source typing is the 1794-site change B
+      deferred), so the pre-allocation stream has no `VReg`/`Phys` arms to match;
+      the equivalent win is the fast-reject below + classify-once + no-clone.
+      Added a `%`-prefix fast-reject to `int_concrete_physical_index` /
+      `fp_physical_index` — this is what actually removed the measured #1/#2
+      `str::eq` (the `REG_ARRAY.position` scan that every cross-class vreg operand
+      used to fall through): profile `str::eq` self-time ~800 → ~57 samples.
+- [x] Compute `Vec<Effect>` once in `linear_scan::run` and share it between
+      `analyze` (new `effects` param) and the rewrite loop (2 of the 3 recompute
+      sites deduped; `integer_live_out` is a separate post-coloring pass, left as
+      its own). Also replaced the allocator's `u32`-keyed `HashMap`/`HashSet`
+      (SipHash) with a fast multiplicative `U32Hasher` — the liveness fixpoint +
+      interning were the top self-time after `str::eq` was removed.
+- [x] ~~Have the vreg→physical rewrite write `Operand::Phys` directly.~~ —
+      **moot:** post-rewrite no consumer reads a typed `Phys` (peephole/finalize
+      read via rendered strings), so a `Phys{class,index,name}` there would carry a
+      never-read `index`/`class` (dead field). The rewrite keeps writing the
+      physical name as `Raw` (byte-identical). The `Phys` arm stays deferred with
+      `VReg` (see the perf correction below).
+- [x] Tests: `sweep_equals_naive` (Phase 1) covers determinism/coloring-unchanged
+      via the gate; full `cargo test --bin mfb` green (3765); the classify-once
+      path is exercised by every codegen test + proven byte-identical by the gate.
+- [x] `artifact-gate … all` — **0 diff(s)** (1144 tests, 1286 builds, 1549
+      goldens), verified 2026-08-02 — the classify-once, fast-reject, and fast
+      hasher are all byte-identical (the hasher perturbs no output-affecting order).
 
-Acceptance: `artifact-gate … all` byte-identical; `str::eq` and SipHash out of
-the top self-time in the one-regex profile; **feature goal met** —
-`bench-lowering.sh` reports one `regex::match` const ≤ 3 s debug and
-`mfb test tests/acceptance` ≤ 60 s debug.
-Commit: —
+Acceptance (corrected — the numeric targets rested on a false premise; see the
+Corrections "perf premise" entry): `artifact-gate … all` byte-identical (0 diffs)
+✓; `str::eq` out of the top self-time (~800 → ~57 samples) ✓; SipHash removed from
+the liveness pass via `U32Hasher` ✓; the sweep is provably O(instructions + Σ
+endpoints) with a property test ✓. **Measured wall-clock:** one-regex 28.7 s debug
+(from 29.2 s), acceptance 256 s debug (from 266 s) — a ~4% net gain, NOT the
+≤3 s / ≤60 s the plan targeted. The targets are unreachable because they assumed
+the `colored_mask_at` quadratic + `str::eq` dominated these workloads; profiling
+shows one-regex barely spills (13-sample sweep) and the runtime is dominated by
+distributed per-instruction processing of the ~860k-instruction lowered stream in
+debug mode. C's mechanisms are correct and byte-identical; the magnitude estimate
+was wrong.
+Commit: (recorded next commit)
 
 ## Validation Plan
 
@@ -193,12 +222,50 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **The perf premise ("regex spills heavily"; the `str::eq` + spill quadratic
+  dominate) is false — a design-gate defect.** The plan set the ≤3 s / ≤60 s
+  targets on the assumption that fixing `colored_mask_at` (the quadratic) and the
+  `str::eq` scan would recover ~90% of the runtime. Profiling the one-regex build
+  (`sample`) after C shows: the sweep is 13 samples (one-regex barely spills, so
+  the quadratic was never its bottleneck); `str::eq` fell from ~800 to ~57 samples
+  (the fast-reject worked) yet wall-clock moved 29.2 s → 28.7 s; the remaining cost
+  is *distributed* — `effect` (285), `substitute`/`render`/`CodeInstruction` drop
+  (~490), `analyze` (153), the coloring loop (~596) — over the ~860k-instruction
+  lowered stream in debug mode, with no single 10× lever. Acceptance moved 266 s →
+  256 s (~4%). **C's mechanisms landed correctly and byte-identically; the
+  magnitude estimate did not hold.** Per the user's decision (2026-08-02), C is
+  landed and the Phase-2 acceptance criterion is corrected to the checkable,
+  achieved outcomes (byte-identity, `str::eq`/SipHash out of the profile, sweep
+  proven non-quadratic, measured wall-clock) rather than the falsified numeric
+  targets. Recorded here as a **Prerequisites/design-gate defect**: the entry gate
+  should have profiled where the time actually goes before committing to the
+  numeric targets. Evidence: `/tmp/p78-sample*.txt` (profiles), one-regex 28.7 s,
+  acceptance 256 s.
+- **`effect` reads the `Raw` `&str`, it does not match `Operand` arms; no
+  `Operand::Phys` is written at the rewrite.** B stores register operands as `Raw`
+  (vreg-source typing is a 1794-site change out of B/C scope), so there are no
+  `VReg`/`Phys` arms in the pre-allocation stream to match. The win is delivered by
+  classify-once (`RegRef`) + reading operands by borrow (`rendered()`) + the
+  `%`-prefix fast-reject in the physical-index scans. `VReg`/`Phys` remain the
+  test-exercised typed surface A introduced; typing register operands at source is
+  a well-scoped future follow-up, not required for the (delivered) byte-identity or
+  the (measured) speed.
+- **Added a fast `U32Hasher` for the allocator's dense-`u32` keys.** The default
+  SipHash on the liveness `HashSet<u32>` / interning `HashMap<u32,…>` was the top
+  self-time once `str::eq` was removed; a multiplicative hash removes it. Applied
+  only where iteration order does not feed emitted bytes (every order-dependent use
+  is sorted first — bug-87), proven byte-identical by the gate.
 
 ## Summary
 
-C is where the speed arrives: typed register reads delete the `str::eq`/hash hot
-loops, compute-once removes the 3× `effect` recompute, and the sweep kills the
-spill-path quadratic — all provably byte-identical via `artifact-gate … all`.
-After C, the acceptance suite compiles well within CI budget on the debug binary
-that broke it, without changing a single emitted byte.
+C lands the register-allocator improvements: the sweep-based `colored_mask_at`
+(kills the spill-path quadratic for genuinely spill-heavy code), classify-once
+`effect` reads, the `%`-prefix fast-reject (removes the `str::eq` scan), and a fast
+`u32` hasher (removes SipHash from the liveness pass) — **all provably
+byte-identical** via `artifact-gate … all` (0 diffs). The plan's ≤3 s / ≤60 s
+wall-clock targets were NOT met: they rested on a false premise that these hot
+loops dominate, but profiling shows one-regex barely spills and the runtime is
+distributed per-instruction work over the ~860k-instruction stream in debug mode
+(one-regex 29.2 s → 28.7 s; acceptance 266 s → 256 s). The mechanisms are correct;
+the magnitude estimate was the defect (see Corrections). Per the user's decision,
+C is landed on the corrected, checkable acceptance criterion.

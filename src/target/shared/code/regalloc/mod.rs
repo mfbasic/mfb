@@ -194,7 +194,7 @@ pub(crate) fn find_physical_operand(instructions: &[CodeInstruction]) -> Option<
             }
             // plan-78-B: render the typed operand to its string for the
             // physical-name sniff (unchanged classification).
-            let value = value.render();
+            let value = value.rendered();
             if value.starts_with('%') || value == "sp" {
                 continue;
             }
@@ -247,7 +247,7 @@ pub(crate) fn allocate(
         let mut fp_vregs = std::collections::HashSet::new();
         for instruction in instructions.iter() {
             for (_name, value) in &instruction.fields {
-                let value = value.render();
+                let value = value.rendered();
                 if let Some(id) = parse_vreg(&value) {
                     int_vregs.insert(id);
                 } else if let Some(id) = parse_fp_vreg(&value) {
@@ -361,7 +361,7 @@ pub(crate) fn allocate(
                     .fields
                     .iter()
                     .any(|(_, value)| {
-                        let value = value.render();
+                        let value = value.rendered();
                         parse_vreg(&value).is_some() || parse_fp_vreg(&value).is_some()
                     })),
                 "regalloc left an uncolored vreg/fp-vreg sentinel in an operand field \
@@ -395,7 +395,7 @@ fn rewrite(
 ) {
     for instruction in instructions.iter_mut() {
         for (_name, value) in instruction.fields.iter_mut() {
-            if let Some(index) = parse(&value.render()) {
+            if let Some(index) = parse(&value.rendered()) {
                 let assigned = physical.get(index as usize).unwrap_or_else(|| {
                     panic!("register allocator: virtual register {index} has no assignment")
                 });

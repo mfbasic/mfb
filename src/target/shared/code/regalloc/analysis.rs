@@ -10,11 +10,55 @@
 //! so the linear-scan coloring stays near-linear.
 
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 
 use crate::arch::ops::CodeOp;
 use crate::target::shared::regmodel::{RegClass, RegisterModel};
 
 use super::super::types::CodeInstruction;
+use super::super::Operand;
+
+/// A fast hasher for the allocator's dense-`u32` keys — interned virtual-register
+/// ids, spill slots, per-vreg colorings. Rust's default `SipHash` is
+/// DoS-hardened and comparatively slow; these keys are internal compiler data
+/// (never attacker-controlled), and on the ~135k-vreg inlined regex body the
+/// hashing dominated the liveness pass (plan-78-C: `HashMap::entry` +
+/// `hashbrown` were the top self-time after the `str::eq` scan was removed). A
+/// single multiplicative mix is well-distributed for small dense integers.
+///
+/// Iteration order of a map/set differs from the default hasher's, so this is
+/// only applied where order does not affect output: every allocator structure
+/// whose iteration feeds emitted bytes is sorted first (`vregs` by `(start,
+/// id)`, `extra_callee_saved` before use — bug-87), and the liveness sets are
+/// compared by set equality, so the swap is byte-identical (guarded by the gate).
+#[derive(Default)]
+pub(super) struct U32Hasher(u64);
+
+impl Hasher for U32Hasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        // Only the integer `write_u32`/`write_usize` paths are exercised by the
+        // allocator's keys; keep a correct generic fallback anyway.
+        for &byte in bytes {
+            self.0 = (self.0.rotate_left(8) ^ byte as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        }
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        self.0 = (value as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        self.0 = (value as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+}
+
+/// A `u32`-keyed map / set using [`U32Hasher`] (plan-78-C).
+pub(super) type U32Map<V> = HashMap<u32, V, BuildHasherDefault<U32Hasher>>;
+pub(super) type U32Set = std::collections::HashSet<u32, BuildHasherDefault<U32Hasher>>;
 
 /// Fields that name a register the instruction *writes*. AArch64 is
 /// three-address with no tied operands, so a `dst` field is always a pure
@@ -211,6 +255,15 @@ fn aarch64_scratch_occupancy_index(name: &str) -> Option<u32> {
 /// or rv64 lp64d ABI names), or `None`. ISA-neutral: a function is single-ISA and
 /// the three name spaces never collide.
 fn int_concrete_physical_index(name: &str) -> Option<u32> {
+    // Fast-reject the sentinel-prefixed operands (`%vN` int / `%fN` fp virtual
+    // registers, and any `%`-token not already resolved by the occupancy parser
+    // upstream): none is a concrete physical name, so skip the three linear
+    // register-name scans below. On the ~135k-vreg regex body this eliminates the
+    // measured #1/#2 `str::eq` self-time — every cross-class vreg operand used to
+    // fall through to the full `REG_ARRAY.position` scans here (plan-78-C).
+    if name.starts_with('%') {
+        return None;
+    }
     if let Some(rest) = name.strip_prefix('x') {
         if let Ok(n) = rest.parse::<u32>() {
             return (n <= 30).then_some(n);
@@ -267,6 +320,13 @@ pub(super) fn fp_physical_index(name: &str) -> Option<u32> {
             return (n <= 7).then_some(n);
         }
     }
+    // Past the FP scratch tokens, a `%`-prefixed operand (`%vN`/`%fN` virtual
+    // register of either class) is never a concrete FP register name, so skip the
+    // `d`/`v`/`xmm`/riscv scans below — the fp-pass twin of the fast-reject in
+    // `int_concrete_physical_index` (plan-78-C).
+    if name.starts_with('%') {
+        return None;
+    }
     if let Some(rest) = name.strip_prefix('d').or_else(|| name.strip_prefix('v')) {
         if let Ok(n) = rest.parse::<u32>() {
             return (n <= 31).then_some(n);
@@ -298,35 +358,53 @@ pub(super) fn riscv_fp_index(name: &str) -> Option<u32> {
         .map(|i| i as u32)
 }
 
-impl ClassModel {
-    /// Whether `name` is a register this class tracks (a virtual or physical one).
-    pub(super) fn is_tracked(&self, name: &str) -> bool {
-        (self.parse_vreg)(name).is_some() || (self.physical_index)(name).is_some()
-    }
+/// A register operand classified to this class's numbering: a physical-register
+/// index, or a virtual-register id. [`effect`] computes this **once** per operand
+/// (reading the operand string by borrow, no clone), so `analyze` and the
+/// linear-scan rewrite loop consume it without ever re-parsing the string — the
+/// plan-78-C hot-path win. A `Raw`/`Imm`/label operand that is not a register of
+/// this class produces no `RegRef`.
+#[derive(Clone, Copy)]
+pub(super) enum RegRef {
+    Phys(u32),
+    VReg(u32),
 }
 
 /// The registers (of one class) an instruction defines and uses, plus whether it
-/// is a call/syscall (clobbers caller-saved registers).
+/// is a call/syscall (clobbers caller-saved registers). Each register is already
+/// classified to a [`RegRef`], so no consumer re-parses an operand string.
 pub(super) struct Effect {
-    pub(super) defs: Vec<String>,
-    pub(super) uses: Vec<String>,
+    pub(super) defs: Vec<RegRef>,
+    pub(super) uses: Vec<RegRef>,
     pub(super) is_call: bool,
 }
 
 pub(super) fn effect(instruction: &CodeInstruction, model: &ClassModel) -> Effect {
+    // Classify one operand to this class's numbering, once. Reads the operand
+    // spelling by borrow (`rendered()` lends a `Raw`'s `&str` — every register
+    // operand in the pre-allocation stream is `Raw`), then a vreg-prefix test
+    // (cheap) before the physical-index lookup. `parse_vreg` first matches the
+    // string-classification order the previous `is_tracked` used, so the def/use
+    // sets are identical (byte-identical liveness).
+    let classify = |value: &Operand| -> Option<RegRef> {
+        let spelling = value.rendered();
+        if let Some(id) = (model.parse_vreg)(&spelling) {
+            Some(RegRef::VReg(id))
+        } else {
+            (model.physical_index)(&spelling).map(RegRef::Phys)
+        }
+    };
     let mut defs = Vec::new();
     let mut uses = Vec::new();
-    // plan-78-B: `fields` now stores typed `Operand`s; render each to its string
-    // and keep the existing string-classification path. plan-78-C replaces this
-    // with a direct match on the `Operand` arm (no render, no re-parse).
     for (name, value) in &instruction.fields {
-        let value = value.render();
         if DEF_FIELDS.contains(name) {
-            if model.is_tracked(&value) {
-                defs.push(value);
+            if let Some(reg) = classify(value) {
+                defs.push(reg);
             }
-        } else if USE_FIELDS.contains(name) && model.is_tracked(&value) {
-            uses.push(value);
+        } else if USE_FIELDS.contains(name) {
+            if let Some(reg) = classify(value) {
+                uses.push(reg);
+            }
         }
     }
     // Read-modify-write ops accumulate into / select through `dst`, so `dst` is
@@ -343,9 +421,8 @@ pub(super) fn effect(instruction: &CodeInstruction, model: &ClassModel) -> Effec
         CodeOp::FMlaV | CodeOp::FMlsV | CodeOp::BslV | CodeOp::BitV
     ) {
         if let Some((_, dst)) = instruction.fields.iter().find(|(name, _)| *name == "dst") {
-            let dst = dst.render();
-            if model.is_tracked(&dst) {
-                uses.push(dst);
+            if let Some(reg) = classify(dst) {
+                uses.push(reg);
             }
         }
     }
@@ -471,7 +548,7 @@ pub(super) struct Liveness {
     /// is busy. `allocate_register` temporaries are single-def, def-before-use,
     /// and statement-local, so the textual span from first to last occurrence is
     /// a sound, tight live interval (no dataflow needed for virtual registers).
-    pub(super) vreg_interval: HashMap<u32, (usize, usize)>,
+    pub(super) vreg_interval: U32Map<(usize, usize)>,
     /// Per-instruction occupancy of hardcoded physical registers: bit `p` set
     /// means physical `xP` is busy (live, used, or defined) at that instruction.
     /// Physical liveness *does* need dataflow (a value can be live across an
@@ -527,12 +604,12 @@ pub(super) fn integer_live_out(
             phys_def[i] |= call_clobber_mask(instruction, &model);
         }
         for d in &eff.defs {
-            if let Some(p) = (model.physical_index)(d) {
+            if let RegRef::Phys(p) = *d {
                 phys_def[i] |= 1u64 << p;
             }
         }
         for u in &eff.uses {
-            if let Some(p) = (model.physical_index)(u) {
+            if let RegRef::Phys(p) = *u {
                 phys_use[i] |= 1u64 << p;
             }
         }
@@ -580,7 +657,15 @@ pub(super) fn integer_live_out(
 /// would miss, so real dataflow is required; but the live set at any point is
 /// small (statement-local temporaries), so it stays fast even on the
 /// multi-thousand-block generated functions.
-pub(super) fn analyze(instructions: &[CodeInstruction], model: &ClassModel) -> Liveness {
+/// `effects[i]` is the precomputed [`effect`] of `instructions[i]` (plan-78-C
+/// compute-once): the caller builds the per-instruction effects a single time and
+/// shares them between this liveness pass and the linear-scan rewrite loop, so
+/// each instruction is classified once instead of three times.
+pub(super) fn analyze(
+    instructions: &[CodeInstruction],
+    model: &ClassModel,
+    effects: &[Effect],
+) -> Liveness {
     let n = instructions.len();
     let blocks = build_cfg(instructions);
     let nb = blocks.len();
@@ -593,9 +678,9 @@ pub(super) fn analyze(instructions: &[CodeInstruction], model: &ClassModel) -> L
     let mut vuse: Vec<Vec<u32>> = vec![Vec::new(); n];
     let mut call_clobber: Vec<(usize, PhysMask)> = Vec::new();
     // Virtual-register index -> dense id, and the reverse.
-    let mut vid_of: HashMap<u32, u32> = HashMap::new();
+    let mut vid_of: U32Map<u32> = U32Map::default();
     let mut vreg_of: Vec<u32> = Vec::new();
-    let intern = |v: u32, vid_of: &mut HashMap<u32, u32>, vreg_of: &mut Vec<u32>| -> u32 {
+    let intern = |v: u32, vid_of: &mut U32Map<u32>, vreg_of: &mut Vec<u32>| -> u32 {
         *vid_of.entry(v).or_insert_with(|| {
             let id = vreg_of.len() as u32;
             vreg_of.push(v);
@@ -603,22 +688,20 @@ pub(super) fn analyze(instructions: &[CodeInstruction], model: &ClassModel) -> L
         })
     };
     for (i, instruction) in instructions.iter().enumerate() {
-        let eff = effect(instruction, model);
+        let eff = &effects[i];
         if eff.is_call {
             call_clobber.push((i, call_clobber_mask(instruction, model)));
         }
         for d in &eff.defs {
-            if let Some(p) = (model.physical_index)(d) {
-                phys_def[i] |= 1u64 << p;
-            } else if let Some(v) = (model.parse_vreg)(d) {
-                vdef[i].push(intern(v, &mut vid_of, &mut vreg_of));
+            match *d {
+                RegRef::Phys(p) => phys_def[i] |= 1u64 << p,
+                RegRef::VReg(v) => vdef[i].push(intern(v, &mut vid_of, &mut vreg_of)),
             }
         }
         for u in &eff.uses {
-            if let Some(p) = (model.physical_index)(u) {
-                phys_use[i] |= 1u64 << p;
-            } else if let Some(v) = (model.parse_vreg)(u) {
-                vuse[i].push(intern(v, &mut vid_of, &mut vreg_of));
+            match *u {
+                RegRef::Phys(p) => phys_use[i] |= 1u64 << p,
+                RegRef::VReg(v) => vuse[i].push(intern(v, &mut vid_of, &mut vreg_of)),
             }
         }
     }
@@ -656,12 +739,12 @@ pub(super) fn analyze(instructions: &[CodeInstruction], model: &ClassModel) -> L
     }
 
     // Virtual-register liveness (sparse backward dataflow over interned ids).
-    let mut vin: Vec<std::collections::HashSet<u32>> = vec![std::collections::HashSet::new(); nb];
+    let mut vin: Vec<U32Set> = vec![U32Set::default(); nb];
     let mut changed = true;
     while changed {
         changed = false;
         for b in (0..nb).rev() {
-            let mut live: std::collections::HashSet<u32> = std::collections::HashSet::new();
+            let mut live: U32Set = U32Set::default();
             for &s in &blocks[b].succ {
                 for &id in &vin[s] {
                     live.insert(id);
@@ -682,9 +765,9 @@ pub(super) fn analyze(instructions: &[CodeInstruction], model: &ClassModel) -> L
         }
     }
     // Expand to virtual-register intervals: busy(i) = live-in(i) ∪ def(i).
-    let mut vreg_interval: HashMap<u32, (usize, usize)> = HashMap::new();
+    let mut vreg_interval: U32Map<(usize, usize)> = U32Map::default();
     for block in &blocks {
-        let mut live: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        let mut live: U32Set = U32Set::default();
         for &s in &block.succ {
             for &id in &vin[s] {
                 live.insert(id);
