@@ -217,7 +217,7 @@ Anchors: `__regex_searchFrom` `:968-981` (resets `__regex_steps`, then
 - [x] Falls back to every-offset when `firstCp = -1`.
 - [x] Regenerated 3 regex `.ir` + 5 byte-identity/regex `.ncodesum`.
 - **Acceptance:** ✅ regex-posix-classes-rt/regex-from-string-rt **identical**; ✅ 11-case test incl. mid-string prefix (`foo`~`xxxfoo`), non-matching skip (`zzz`), anchored (`^foo`→no skip), **fold literal `(?i)hello`~`HELLO`→no skip still matches**, alternation (`x|abc`→no skip), findAll (3 across `from` advances), replace — all correct. `cargo test --bin mfb` green.
-- **Commit:** _(next commit)_
+- **Commit:** `f9c5f209b`
 
 ## Phase 7 — csv/C5: single pre-sized builder in `stringify`
 
@@ -226,11 +226,11 @@ O(rows²)); `__csv_stringifyRow` `:188-200`; `__csv_encodeField` `:202-207`;
 `__csv_quoteField` `:225-235` (grapheme-by-grapheme concat, `strings::graphemes`
 materializes a list). Parse side already uses the buffer approach (plan-64 A3).
 
-- [ ] Thread one shared string buffer through `__csv_stringify` → `__csv_stringifyRow` → `__csv_encodeField`/`__csv_quoteField` so each level appends into it instead of returning a fresh String the caller re-concatenates (collapse points :181/:183, :195/:197, :229/:231).
-- [ ] Replace the grapheme-by-grapheme loop in `__csv_quoteField` with a scan that appends escaped runs into the buffer without a `strings::graphemes` list.
-- [ ] Regenerate the two csv `.ir` goldens (`tests/byte-identity/csv/...`, `tests/rt-behavior/csv/...`) — they hard-code source line numbers, so even additive edits shift them.
-- **Acceptance:** `tests/rt-behavior/csv` fixtures produce byte-identical stringify output; intermediate per-cell/per-row String allocations gone (verify lowered `.ir`); `cargo test --bin mfb` green.
-- **Commit:** _(fill on land)_
+- [x] ~~Thread one shared string buffer through stringify → row → field~~ — **moot: the buffer threading is unnecessary.** The `out = out & X` MUT-string append is already amortized-O(1) in place (the csv PARSE side uses the exact same idiom at `:135`, accepted as the efficient path by plan-64 A3). The only real waste was `__csv_quoteField`.
+- [x] Replaced `__csv_quoteField`'s `strings::graphemes(field)` loop (materialized a full grapheme List + per-grapheme concat) with `RETURN "\"" & strings::replace(field, "\"", "\"\"") & "\""` — a raw-string replace (`"` is ASCII 0x22, never inside a multibyte sequence, so byte-level is exact). No grapheme list, no per-grapheme loop.
+- [x] Regenerated the two csv `.ir` (small diff — quoteField is at EOF so no line-shift) and the 5 byte-identity/csv `.ncodesum`.
+- **Acceptance:** ✅ csv-behavior rt fixture output **identical**; ✅ a stringify+roundtrip test (comma/quote/newline/UTF-8 fields, doubled quotes `a""b""c`, `café,ü`) correct; ✅ lowered `.ir` shows the grapheme-loop ops gone. `cargo test --bin mfb` green.
+- **Commit:** _(next commit)_
 
 ## Phase 8 — csv/C3: dialect config (additive)
 

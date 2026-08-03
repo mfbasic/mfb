@@ -223,13 +223,9 @@ FUNC __csv_needsQuote(field AS String) AS Boolean
 END FUNC
 
 FUNC __csv_quoteField(field AS String) AS String
-  MUT out AS String = "\""
-  FOR EACH ch IN strings::graphemes(field)
-    IF ch = "\"" THEN
-      out = out & "\"\""
-    ELSE
-      out = out & ch
-    END IF
-  NEXT
-  RETURN out & "\""
+  ' plan-77 C5: double every embedded quote and wrap. strings::replace works on
+  ' the raw string, so this avoids materializing a grapheme list and the
+  ' per-grapheme concat the old loop did (`"` is ASCII 0x22 and cannot occur
+  ' inside a multi-byte UTF-8 sequence, so a byte-level replace is exact).
+  RETURN "\"" & strings::replace(field, "\"", "\"\"") & "\""
 END FUNC

@@ -587,28 +587,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 226, "mutable": true, "name": "out", "type": "String", "value": { "kind": "const", "type": "String", "value": "\"" } },
-    {
-      "op": "forEach",
-      "line": 227,
-      "name": "ch",
-      "type": "String",
-      "iterable": { "kind": "call", "type": "List OF String", "target": "strings.graphemes", "args": [{ "kind": "local", "name": "field" }] },
-      "body": [
-      {
-        "op": "if",
-        "line": 228,
-        "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\"" } },
-        "then": [
-        { "op": "assign", "line": 229, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "\"\"" } } }
-        ],
-        "else": [
-        { "op": "assign", "line": 231, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "local", "name": "ch" } } }
-        ]
-      }
-      ]
-    },
-    { "op": "return", "line": 234, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "\"" } } }
+    { "op": "return", "line": 230, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "\"" }, "right": { "kind": "call", "type": "String", "target": "strings.replace", "args": [{ "kind": "local", "name": "field" }, { "kind": "const", "type": "String", "value": "\"" }, { "kind": "const", "type": "String", "value": "\"\"" }] } }, "right": { "kind": "const", "type": "String", "value": "\"" } } }
     ]
   },
   {
