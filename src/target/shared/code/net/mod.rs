@@ -389,12 +389,15 @@ fn emit_address_from_sockaddr(
     Ok(())
 }
 
-/// Allocate a 16-byte socket/listener handle record from the file descriptor in
-/// `x9`, leaving the record pointer in `x1`. Branches to `alloc_fail` on
-/// failure.
+/// Allocate a socket/listener handle record (the canonical plan-80 envelope)
+/// from the file descriptor in `x9`, leaving the record pointer in `x1`. Writes
+/// the plan-80 header { tag, fd (handle), closed=0, STATE=0 }; `tag` is the
+/// caller's `RESOURCE_TAG_*` (Socket / UdpSocket / Listener). Branches to
+/// `alloc_fail` on failure.
 fn emit_make_handle(
     symbol: &str,
     fd_off: usize,
+    tag: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     alloc_fail: &str,
@@ -406,6 +409,8 @@ fn emit_make_handle(
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
         abi::move_register("%v10", abi::RET[1]), // alloc result → vreg base; x1 stays the returned ptr
+        abi::move_immediate("%v9", "Integer", tag),
+        abi::store_u64("%v9", "%v10", RESOURCE_OFFSET_TAG),
         abi::load_u64("%v9", abi::stack_pointer(), fd_off),
         abi::store_u64("%v9", "%v10", FILE_OFFSET_FD),
         abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_CLOSED),
@@ -874,6 +879,11 @@ fn lower_net_endpoint_helper(
     emit_make_handle(
         symbol,
         FD_OFFSET,
+        if listen {
+            RESOURCE_TAG_LISTENER
+        } else {
+            RESOURCE_TAG_SOCKET
+        },
         &mut instructions,
         &mut relocations,
         &alloc_fail,

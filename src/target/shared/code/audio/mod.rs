@@ -17,24 +17,30 @@ use super::*;
 use super::builder_collection_layout::emit_alloc_byte_list;
 
 // --- AudioHandle: arena record, pointer-sized reference (plan-33-A §5.1) ------
-// Identical layout for both resource types.
-pub(super) const H_KIND: usize = 0; // 1 = input, 2 = output
-pub(super) const H_CLOSED: usize = 8; // mirror; authoritative `closed` is in state
-pub(super) const H_SAMPLE_RATE: usize = 16;
-pub(super) const H_CHANNELS: usize = 24;
-pub(super) const H_BYTES_PER_FRAME: usize = 32; // channels * 2
-pub(super) const H_BUFFER_FRAMES: usize = 40;
-pub(super) const H_STATE: usize = 48; // -> mmap'd AudioState
-pub(super) const H_RECORD_SIZE: usize = 64;
+// Identical layout for both resource types. Shares the canonical plan-80
+// header: tag@0, handle (`H_KIND`)@8, closed@16, generic union STATE@24 — then
+// the audio-specific tail (sample-rate/…/mmap-`H_STATE` ptr) at 32+.
+pub(super) const H_KIND: usize = RESOURCE_OFFSET_HANDLE; // 1 = input, 2 = output
+pub(super) const H_CLOSED: usize = RESOURCE_OFFSET_CLOSED; // mirror; authoritative `closed` is in state
+pub(super) const H_SAMPLE_RATE: usize = 32;
+pub(super) const H_CHANNELS: usize = 40;
+pub(super) const H_BYTES_PER_FRAME: usize = 48; // channels * 2
+pub(super) const H_BUFFER_FRAMES: usize = 56;
+pub(super) const H_STATE: usize = 64; // -> mmap'd AudioState
+pub(super) const H_RECORD_SIZE: usize = RESOURCE_RECORD_SIZE_BYTES;
 
-// The offset-8 `closed` mirror is the canonical resource closed-flag offset
-// (plan-38): the closed-default (`lower_default_value`) sets exactly this byte,
-// and the whole handle record fits inside the shared closed-default record so
-// the zeroed default covers it. `S_CLOSED` (in the mmap'd state) is the
-// authoritative flag; the guards read this arena-resident mirror, so offset 8 is
-// what the default needs.
+// The `closed` mirror is at the canonical resource closed-flag offset
+// (plan-38/80): the closed-default (`lower_default_value`) sets exactly this
+// byte, and the whole handle record fits inside the shared closed-default
+// record so the zeroed default covers it. `S_CLOSED` (in the mmap'd state) is
+// the authoritative flag; the guards read this arena-resident mirror.
+const _: () = assert!(H_KIND == RESOURCE_OFFSET_HANDLE);
 const _: () = assert!(H_CLOSED == RESOURCE_OFFSET_CLOSED);
 const _: () = assert!(H_RECORD_SIZE <= RESOURCE_RECORD_SIZE_BYTES);
+// The audio-specific tail (mmap `H_STATE` ptr) fits inside the shared envelope,
+// clear of the generic union STATE slot at `RESOURCE_OFFSET_STATE`.
+const _: () = assert!(H_STATE + 8 <= RESOURCE_RECORD_SIZE_BYTES);
+const _: () = assert!(H_SAMPLE_RATE > RESOURCE_OFFSET_STATE);
 
 pub(super) const KIND_INPUT: &str = "1";
 pub(super) const KIND_OUTPUT: &str = "2";

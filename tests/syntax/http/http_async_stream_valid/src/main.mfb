@@ -1,0 +1,22 @@
+' plan-76-D: the non-blocking client surface resolves at -ast -ir. Compile-only
+' (no live peer): startRead returns the stateful Stream union; ready/done are
+' Boolean; pump is Nothing; finish is Response. The RES ... STATE ... bind and the
+' union parameter spelling both type-check.
+IMPORT http
+IMPORT net
+IMPORT io
+
+FUNC drive(u AS net::Url) AS Integer
+  RES s AS http::Stream STATE PendingState = http::startRead(u)
+  WHILE http::done(s) = FALSE
+    IF http::ready(s) THEN
+      http::pump(s)
+    END IF
+  END WHILE
+  LET resp AS http::Response = http::finish(s)
+  RETURN resp.status
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

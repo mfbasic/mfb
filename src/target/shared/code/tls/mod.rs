@@ -4,8 +4,9 @@
 //! backend (see the `macos` submodule) drives Network.framework through a
 //! dispatch-semaphore synchronous bridge.
 //!
-//! On Linux a `TlsSocket` handle is a 32-byte arena record: `fd` at 0, a
-//! `closed` flag at 8, the `SSL*` at 16, and the `SSL_CTX*` at 24. Each helper
+//! On Linux a `TlsSocket` handle is an arena record with the canonical plan-80
+//! header (`tag`@0, `fd`@8, `closed`@16, `STATE`@24) and a TLS tail: the
+//! `SSL_CTX*` at 32 and the `SSL*` at 40. Each helper
 //! re-`dlopen`s `libssl` (cheap once loaded — it just bumps the refcount) and
 //! `dlsym`s the `SSL_*` symbols it needs; `dlsym` resolves the library's default
 //! symbol version, which is why a single binary works against both OpenSSL
@@ -17,29 +18,45 @@ use super::native_helpers::{emit_data_address, emit_fail, hex_encode_cstring};
 use super::*;
 use crate::target::shared::abi;
 
-// OpenSSL handles share this fixed record layout (distinct from the `File`
-// layout used by `Socket`/`UdpSocket`). An accepted (server-side) `TlsSocket`
+// TLS handles share the canonical resource-record header (plan-80): tag@0,
+// fd (handle)@8, closed@16, STATE@24 — then the TLS-specific `SSL_CTX*`/`SSL*`
+// tail at 32+. Before plan-80 this record was 32 bytes with `SSL*` at 16, which
+// collided with the generic `STATE` slot and SIGSEGV'd a `Stream STATE` union
+// over a `TlsSocket` (plan-76-D D4). An accepted (server-side) `TlsSocket`
 // stores 0 in the `SSL_CTX*` slot: the marker that it points at the listener's
 // shared server context and must not free it (plan-06-tls-server.md §5.1).
-pub(super) const TLS_OFFSET_FD: usize = 0;
-pub(super) const TLS_OFFSET_CLOSED: usize = 8;
-pub(super) const TLS_OFFSET_SSL: usize = 16;
-pub(super) const TLS_OFFSET_CTX: usize = 24;
-pub(super) const TLS_RECORD_SIZE: &str = "32";
+pub(super) const TLS_OFFSET_FD: usize = RESOURCE_OFFSET_HANDLE;
+pub(super) const TLS_OFFSET_CLOSED: usize = RESOURCE_OFFSET_CLOSED;
+pub(super) const TLS_OFFSET_STATE: usize = RESOURCE_OFFSET_STATE;
+pub(super) const TLS_OFFSET_CTX: usize = 32;
+pub(super) const TLS_OFFSET_SSL: usize = 40;
+pub(super) const TLS_RECORD_SIZE: &str = RESOURCE_RECORD_SIZE;
 
-// The `TlsListener` record (Linux/OpenSSL): the listening fd plus the server
-// `SSL_CTX*` it owns (freed exactly once, when the listener closes). The
-// fourth slot is reserved (plan-06-tls-server.md §5.1).
-pub(super) const TLS_LISTENER_OFFSET_FD: usize = 0;
-pub(super) const TLS_LISTENER_OFFSET_CLOSED: usize = 8;
-pub(super) const TLS_LISTENER_OFFSET_CTX: usize = 16;
+// The schannel (Windows) backend stores a pointer to its separate SSPI
+// credential/context arena block in the record. Before plan-80 that pointer sat
+// at offset 16 (a bare literal); the header now owns 0..32, so it moves to the
+// TLS-specific tail at 40 (there is no `SSL*` slot on Windows — SSPI keeps its
+// handles in the block this points at).
+pub(super) const TLS_SCHANNEL_OFFSET_BLOCK: usize = 40;
 
-// Both OpenSSL records place the `closed` flag at the canonical resource
-// closed-flag offset (plan-38), so the backend-independent closed-default sets
-// exactly the byte these guards read. The macOS Network.framework backend
-// carries its own `REC_CLOSED` assert in `macos.rs`.
+// The `TlsListener` record: the listening fd plus the server `SSL_CTX*` it owns
+// (freed exactly once, when the listener closes). Shares the canonical header;
+// the `SSL_CTX*` moves to the type-specific tail at 32 (plan-80).
+pub(super) const TLS_LISTENER_OFFSET_FD: usize = RESOURCE_OFFSET_HANDLE;
+pub(super) const TLS_LISTENER_OFFSET_CLOSED: usize = RESOURCE_OFFSET_CLOSED;
+pub(super) const TLS_LISTENER_OFFSET_CTX: usize = 32;
+
+// Both OpenSSL records place `closed`/`STATE` at the canonical resource offsets
+// (plan-38, plan-80), so the backend-independent closed-default and union STATE
+// land on the right bytes. The macOS Network.framework backend carries its own
+// `REC_CLOSED`/`REC_STATE` asserts in `macos.rs`.
 const _: () = assert!(TLS_OFFSET_CLOSED == RESOURCE_OFFSET_CLOSED);
 const _: () = assert!(TLS_LISTENER_OFFSET_CLOSED == RESOURCE_OFFSET_CLOSED);
+const _: () = assert!(TLS_OFFSET_STATE == RESOURCE_OFFSET_STATE);
+const _: () = assert!(TLS_OFFSET_FD == RESOURCE_OFFSET_HANDLE);
+// The widest TLS tail (`SSL*`@40) fits inside the shared envelope.
+const _: () = assert!(TLS_OFFSET_SSL + 8 <= RESOURCE_RECORD_SIZE_BYTES);
+const _: () = assert!(TLS_SCHANNEL_OFFSET_BLOCK + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 
 pub(super) const SOCK_STREAM: &str = "1";
 pub(super) const HINTS_FAMILY_WORD: &str = "8589934592"; // ai_family = AF_INET (2 << 32), ai_flags = 0

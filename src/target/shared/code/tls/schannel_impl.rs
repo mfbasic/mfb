@@ -354,6 +354,11 @@ pub(super) fn lower_tls_connect(
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
         abi::store_u64(abi::RET[1], abi::stack_pointer(), REC),
+        // Canonical plan-80 header: tag@0, fd@8, closed@16, STATE@24 (the SSPI
+        // credential/context block ptr lives in the tail at TLS_SCHANNEL_OFFSET_BLOCK).
+        abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_SCHANNEL),
+        abi::store_u64("%v9", abi::RET[1], RESOURCE_OFFSET_TAG),
+        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_STATE),
         abi::load_u64("%v9", abi::stack_pointer(), FD),
         abi::store_u64("%v9", abi::RET[1], TLS_OFFSET_FD),
         abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_CLOSED),
@@ -631,7 +636,7 @@ pub(super) fn lower_tls_connect(
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), STATE),
         abi::load_u64("%v10", abi::stack_pointer(), REC),
-        abi::store_u64("%v9", "%v10", 16),
+        abi::store_u64("%v9", "%v10", TLS_SCHANNEL_OFFSET_BLOCK),
         abi::move_register(RESULT_VALUE_REGISTER, "%v10"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),

@@ -2,8 +2,9 @@ use super::*;
 
 impl CodeBuilder<'_> {
     /// Resolve a resource *value* pointer (held in `value_ptr`) of declared
-    /// `type_` to the pointer to its 80-byte resource **record**, whose `STATE`
-    /// slot is at `FILE_OFFSET_STATE`. For a concrete resource the value already
+    /// `type_` to the pointer to its resource **record**, whose `STATE`
+    /// slot is at `RESOURCE_OFFSET_STATE` (24, free in every backend layout —
+    /// plan-80). For a concrete resource the value already
     /// IS the record. For a resource union (plan-74) the value is a
     /// `{ tag @0, record-ptr @8 }` block, so the record is loaded from `+8` — the
     /// single indirection that makes every STATE path work for a union.
@@ -24,7 +25,7 @@ impl CodeBuilder<'_> {
     /// Default-initialize a `RES` binding's `STATE` payload. The resource value
     /// at `resource_slot` is a pointer to its record (a concrete resource) or to a
     /// `{tag, record-ptr}` union block whose record is at `+8` (`resource_type`
-    /// selects, plan-74); if the state slot (`FILE_OFFSET_STATE`) of the record is
+    /// selects, plan-74); if the state slot (`RESOURCE_OFFSET_STATE`) of the record is
     /// null, allocate and store a default `state_type` record. A resource that
     /// already carries state (moved/returned in) is left untouched. Values are
     /// spilled to the stack across allocations to avoid register aliasing.
@@ -38,7 +39,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&block, abi::stack_pointer(), resource_slot));
         let ptr = self.emit_resource_record_ptr(&block, resource_type)?;
         let current = self.allocate_register()?;
-        self.emit(abi::load_u64(&current, &ptr, FILE_OFFSET_STATE));
+        self.emit(abi::load_u64(&current, &ptr, RESOURCE_OFFSET_STATE));
         let done = self.label("resource_state_init_done");
         self.emit(abi::compare_immediate(&current, "0"));
         self.emit(abi::branch_ne(&done));
@@ -54,7 +55,7 @@ impl CodeBuilder<'_> {
         let ptr2 = self.emit_resource_record_ptr(&block2, resource_type)?;
         let value = self.allocate_register()?;
         self.emit(abi::load_u64(&value, abi::stack_pointer(), default_slot));
-        self.emit(abi::store_u64(&value, &ptr2, FILE_OFFSET_STATE));
+        self.emit(abi::store_u64(&value, &ptr2, RESOURCE_OFFSET_STATE));
         self.emit(abi::label(&done));
         Ok(())
     }
@@ -114,8 +115,8 @@ impl CodeBuilder<'_> {
                 // reconstructible default. The site that needs one is the
                 // error-path binding of `RES x = <fallible> TRAP`. Return a CLOSED
                 // resource: an arena record whose internals are invalid but whose
-                // `closed` flag — offset 8, shared by every built-in resource
-                // record — is set. Every operation then short-circuits safely:
+                // `closed` flag — `RESOURCE_OFFSET_CLOSED` (16), shared by every
+                // built-in resource record — is set. Every operation then short-circuits safely:
                 // `close` is an idempotent no-op and `read`/`write`/... raise via
                 // their closed guard. No null handle is ever exposed to a program.
                 let record = self.allocate_register()?;
@@ -218,7 +219,7 @@ impl CodeBuilder<'_> {
                 let record =
                     self.emit_resource_record_ptr(&target_value.location, &target_value.type_)?;
                 let register = self.allocate_register()?;
-                self.emit(abi::load_u64(&register, &record, FILE_OFFSET_STATE));
+                self.emit(abi::load_u64(&register, &record, RESOURCE_OFFSET_STATE));
                 return Ok(ValueResult {
                     type_: state_type,
                     location: register.render(),

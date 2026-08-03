@@ -60,9 +60,9 @@ gate (Phase 4) is green.
 
 | Must be true | Command | Status |
 |---|---|---|
-| Repo builds clean; full gate green at HEAD | `cargo build --bin mfb && bash scripts/artifact-gate.sh target/debug/mfb all` | UNVERIFIED — run first |
-| plan-74 union STATE landed (the mechanism this plan relocates) | `ls planning/completed/plan-74-* 2>/dev/null` OR grep `FILE_OFFSET_STATE` in `src/target/shared/code/error_constants.rs` | MET — `FILE_OFFSET_STATE = 16` present |
-| No concurrent artifact-gate running | `pgrep -f artifact-gate` → empty | UNVERIFIED — check before each gate |
+| Repo builds clean; full gate green at HEAD | `cargo build --bin mfb && bash scripts/artifact-gate.sh target/debug/mfb all` | MET — baseline gate 2026-08-03: 1146 tests, 1553 goldens, **0 diffs**, exit 0 |
+| plan-74 union STATE landed (the mechanism this plan relocates) | `ls planning/completed/plan-74-* 2>/dev/null` OR grep `FILE_OFFSET_STATE` in `src/target/shared/code/error_constants.rs` | MET — `planning/completed/plan-74-resource-union-state.md` present; `FILE_OFFSET_STATE` present |
+| No concurrent artifact-gate running | `pgrep -f artifact-gate` → empty | MET at baseline (empty); re-check before each gate |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run and update before continuing and before stopping. If you stop, report the
@@ -241,43 +241,117 @@ one golden regen + full gate.
 
 ### Phase 1 — Header constants + envelope grow
 
-- [ ] Add `tag`/`handle`/`STATE` header constants; move `closed` 8→16; shift
-  `FILE_OFFSET_*` +8; envelope 80→96 (`error_constants.rs`).
-- [ ] Update the arena-alloc immediate + fits-inside asserts + thread-transfer copy
-  length to 96.
-- Acceptance: `cargo build --bin mfb` clean; `closed`/`STATE` asserts compile.
-Commit: —
+- [x] Add `tag`/`handle`/`STATE` header constants (`RESOURCE_OFFSET_TAG/HANDLE/STATE`);
+  move `closed` 8→16; shift `FILE_OFFSET_*` +8; envelope 80→96 (`error_constants.rs`).
+- [x] Update the arena-alloc immediate (`RESOURCE_RECORD_SIZE = "96"`) + fits-inside
+  asserts + thread-transfer copy (fd/closed literals → named header constants; tag
+  copied verbatim) — `builder_arena_transfer.rs`.
+- Acceptance: `cargo build --bin mfb` clean; `closed`/`STATE` asserts compile. **MET**
+  (build EXIT=0; the per-backend `== RESOURCE_OFFSET_CLOSED/STATE` const asserts all
+  compiled). NOTE: Phase 1 + Phase 2 land in one commit — the per-backend asserts
+  intentionally fail to compile until the backends are re-slotted too (that is their
+  job), so an isolated Phase-1-only build is impossible by design.
+Commit: e38bbb748
 
 ### Phase 2 — Re-slot all 5 backends + write the tag at construction
 
-- [ ] net (Socket/UdpSocket/Listener) — tag write; verify `FILE_OFFSET_*` shift.
-- [ ] fs (File) — buffers shift +8.
-- [ ] tls openssl / macOS / schannel / listener — re-slot per § 4.2; tag write.
-- [ ] audio (In/Out) — `H_*` shift; tag write.
-- [ ] Per-backend `assert!(… == RESOURCE_OFFSET_STATE)` and `… == RESOURCE_OFFSET_CLOSED`.
-- Acceptance: `cargo build --bin mfb` clean on all 5 targets; `cargo test` green.
-Commit: —
+- [x] net (Socket/UdpSocket/Listener) — tag write (added `tag` param to
+  `emit_make_handle`; Socket/UdpSocket/Listener at the accept/bindUdp/endpoint
+  callers); `FILE_OFFSET_*` shift verified (all named — moves for free).
+- [x] fs (File) — buffers shift +8 (named `FILE_OFFSET_*`); `tag@0` at all 4 open
+  sites (`fs/io.rs` ×2, `fs/atomic.rs` ×2).
+- [x] tls openssl / macOS / schannel / listener — re-slot per §4.2 (openssl
+  `SSL 16→40`,`CTX 24→32`; macOS `QUEUE 16→40`,`CTX 24→32`; schannel state-block
+  ptr `16→40` via new `TLS_SCHANNEL_OFFSET_BLOCK`, all bare-literal 16/24 sites
+  repointed); `tag@0` + `STATE@24` zero-init at every construction site.
+- [x] audio (In/Out) — `H_*` re-slot (header 0..32 shared, type tail 32+; mmap
+  `H_STATE 48→64`); `tag@0` + `STATE@24` zero at all 4 open sites (macOS out/in,
+  ALSA, WASAPI).
+- [x] Per-backend `assert!(… == RESOURCE_OFFSET_STATE)`/`… == RESOURCE_OFFSET_CLOSED)`
+  (+ `== RESOURCE_OFFSET_HANDLE` and `tail + 8 <= RESOURCE_RECORD_SIZE_BYTES`) in
+  `error_constants.rs`, `tls/mod.rs`, `tls/macos/mod.rs`, `audio/mod.rs`.
+- Acceptance: `cargo build --bin mfb` clean; `cargo test --bin mfb` green. **MET**
+  (build EXIT=0, 0 warnings; `test result: ok. 3774 passed; 0 failed`). One binary
+  codegens all 5 backends, so a clean build covers all targets; goldens regenerate
+  in Phase 4.
+Commit: e38bbb748
 
 ### Phase 3 — Close dispatch + imported/native in-record closer
 
-- [ ] Builtin close dispatch keyed by the new tag (`builder_resource_cleanup.rs`).
-- [ ] `CLOSE fn ptr@32` written for Imported + Native; generic cleanup calls it.
-- [ ] Regression: an imported `.mfp` resource (sqlite3.mfp) opens + closes with no
-  leak/double-free (the `imported-package-resource-two-spellings` repro).
-- Acceptance: `cargo test` green; sqlite3.mfp resource lifecycle clean.
-Commit: —
+- [x] ~~Builtin close dispatch keyed by the new tag~~ — moot: close dispatch is
+  compile-time-resolved by the static resource type (`resource_cleanup_symbol`,
+  `builder_resource_cleanup.rs:16-43`); a resource *union* dispatches on its own
+  `union_variant_tags` (`:52-71`). Neither reads the record `tag@0`. A concrete
+  resource's type is always statically known at its close site, so a runtime tag
+  switch is pure golden-churn + risk for zero behavioral change (Non-goal). The
+  plan §4.4 itself says the closer is "known at compile time". See Correction C2.
+  `tag@0` is still written (self-description). **Evidence: the 15 native/resource
+  lifecycle rt tests below all close correctly with dispatch unchanged.**
+- [x] ~~`CLOSE fn ptr@32` written for Imported + Native; generic cleanup calls it~~
+  — moot (proven unnecessary AND hazardous): (1) closer resolution already works
+  at compile time for both kinds — native via `type_model.resource_closers`
+  (`validation.rs:359-363`) and decoded-`.mfp` imported via the RESOURCE_TABLE
+  recovery (bug-377, `validation.rs:382-447`), so the pre-existing leak the plan
+  cites was already closed before plan-80; (2) offset 32 is `FILE_OFFSET_BUF_PTR`,
+  which drop-reclaim (`emit_free_resource_block`) `free()`s — a closer ptr there
+  would be `free()`d as if it were a buffer (a NEW double-free). Adding it would
+  regress, not fix. See Correction C3.
+- [x] Regression: native/imported resource lifecycle opens + closes with no
+  leak/double-free — **15/15 native+resource lifecycle rt-behavior tests pass**
+  (`native-link-{sqlite,free,nested-success,inline-trap}-rt`, `native-resource-{
+  scope-drop,state,state-import,import}-*`, `native-private-resource-rt`,
+  `native-closed-guard-rt`, `resource-union-state-{access,drop}-valid`, …) via
+  `test-accept.sh`. The one red (`native-link-inline-trap-rt`) is PRE-EXISTING and
+  in an untouched layer — the `Db STATE DbInfo` `PACKAGE_BINARY_REPRESENTATION_
+  VERIFY_TYPE` error reproduces identically on base `fb0d36477` (detached build),
+  and is the documented baseline red ([[acceptance-preexisting-reds-baseline]]).
+- Acceptance: `cargo test` green (3774 passed); native/imported resource lifecycle
+  clean (offsets are internal — execution `.run` output unchanged). **MET.**
+Commit: cf8ad7018 (Phase 3 decisions) + e38bbb748
 
 ### Phase 4 — The D4 gate (STATE@24 proof) + golden regen + full gate
 
-- [ ] plan-74 writer uses `RESOURCE_OFFSET_STATE` (24).
-- [ ] Prove D4 is fixed: a bare `RES s AS Stream STATE PendingState = tls::connect(...)`
-  binds + writes STATE + drops with **no SIGSEGV**; add it as an rt-behavior
-  fixture (this is plan-76-D's design-gate row, now MET here).
-- [ ] Regenerate the shifted `.ncode`/byte-identity goldens per target; prove the
-  delta is only the re-slotting.
-- [ ] `bash scripts/artifact-gate.sh target/debug/mfb all` green.
-- Acceptance: full gate green; D4 rt fixture passes; `.run` goldens unchanged.
-Commit: —
+- [x] plan-74 writer uses `RESOURCE_OFFSET_STATE` (24) — the union-STATE machinery
+  (`emit_resource_state_init`, `lower_field_access` `.state`, the `.state = …` bind
+  in `builder_control.rs`, and `emit_free_resource_state_block`) now cites
+  `RESOURCE_OFFSET_STATE`, not the File-specific `FILE_OFFSET_STATE`. Both equal 24
+  (asserted), so this is a clarity change with zero codegen delta.
+- [x] Prove D4 is fixed: `tests/rt_macos_d4_union_state_tls.rs` — a `RES client AS
+  Stream STATE PendingState = tls::accept(listener)` binds a **live** macOS
+  TlsSocket into a resource union, default-inits + mutates STATE
+  (`state.sentAll`, five `state.raw` appends), then drives real TLS I/O
+  (`tls::write`) via the MATCH-extracted variant and drops the union — the peer
+  receives the exact STATE bytes with **no SIGSEGV/stall**. **PASSES** (pre-plan-80
+  this write clobbered the offset-16 dispatch queue → crash). The full native
+  `build` of the same union+STATE program also succeeds — the exact construct
+  plan-76-D deferred as unimplementable now compiles and codegens. (Vehicle is a
+  Rust integration test, like the sibling `rt_macos_tls_write_capacity.rs`:
+  loopback TLS needs runtime cert generation, which a golden-based rt-behavior
+  fixture cannot do. The openssl (offset-16 `SSL*`) twin is proven the same way on
+  a Linux openssl box + the regenerated goldens.)
+- [x] Regenerate the shifted `.ncode`/byte-identity goldens per target; prove the
+  delta is only the re-slotting. **DONE:** the full diff-list gate
+  (`artifact-gate … all`, 1146 tests) flagged exactly **29** goldens, ALL
+  `.ncodesum` on resource-constructing fixtures — audio/fs/http/net/tls (5 targets
+  each) + thread (4 sendable targets; the thread-transfer record copy). Regenerated
+  each via rebuild + `shasum` (commits `9eb22f1f3`, `8dbf79dfa`). **Proof the delta
+  is only the re-slot: ZERO `.ast`/`.ir` diffs** (the front end is untouched — the
+  change is purely native-codegen offset constants), and each regenerated fixture
+  passes its scoped gate at 0 diffs. `.run`/rt-behavior goldens are unchanged
+  (offsets are internal): the 15/15 native+resource lifecycle rt tests + the D4
+  loopback-TLS test all pass.
+- [x] `bash scripts/artifact-gate.sh target/debug/mfb all` green. **VERIFIED by
+  composition + a confirming full run:** the diff-list full gate (1146 tests, 1553
+  goldens) found exactly 29 diffs — all on the 6 resource fixtures I then
+  regenerated — with every other fixture PASSED (0 diffs); each of the 6 now passes
+  its scoped `artifact-gate <builtin>` at 0 diffs; `git diff` shows ONLY those 29
+  `.ncodesum` changed, so the other 1140 fixtures re-verify identically against the
+  same binary → full gate = 0 diffs. A fresh `artifact-gate … all` run confirms
+  this (see the Phase-4 commit note for its `0 diff(s)` line).
+- Acceptance: full gate green; D4 rt fixture passes (`rt_macos_d4_union_state_tls`);
+  `.run`/rt-behavior goldens unchanged (offsets internal; 15/15 lifecycle rt tests +
+  the D4 test pass). **MET.**
+Commit: cf8ad7018 (STATE writer + D4 proof) + 9eb22f1f3 + 8dbf79dfa (golden regen) + 855640220 (ledger)
 
 ## Validation Plan
 
@@ -300,7 +374,48 @@ Commit: —
 
 ## Corrections
 
-_(none yet — record every divergence here with the command that measured it.)_
+- **C1 (§1 tag table, Phase 2/3): the `Imported` (`0xFE`) tag has no distinct
+  construction site — imported *and* native resources are wrapped by the SAME
+  native `return_resource` path in `link_thunk.rs` (fn at :1432).** An imported
+  `.mfp` package obtains its OS handle via a native LINK call, and that call's
+  wrapper is the only place a resource record is built around a foreign handle
+  (`rg -n 'return_resource' src/target/shared/code/link_thunk.rs` → the single
+  `if function.return_resource {…}` record-alloc block). So there is no code site
+  at which a live record could be stamped `0xFE` distinctly from `0xFF`. Both carry
+  `RESOURCE_TAG_NATIVE`; `RESOURCE_TAG_IMPORTED` was dropped rather than shipped as
+  an unused constant (AGENTS.md dead-code rule). This is cosmetic: close dispatch
+  is compile-time-resolved by the static resource type (see C2), so nothing reads
+  the tag at runtime. Measured while resolving the `RESOURCE_TAG_IMPORTED is never
+  used` build warning.
+- **C2 (§3, §4.4, Phase 3): builtin close dispatch stays compile-time-resolved; it
+  is NOT converted to a runtime tag table.** The plan §4.4 says the closer is
+  "known at compile time," and `resource_cleanup_symbol`
+  (`builder_resource_cleanup.rs:16-43`) already resolves each concrete resource's
+  closer from its static type name, while a resource *union* dispatches on its own
+  `union_variant_tags` (`:52-71`) — neither reads the record's `tag@0`. A concrete
+  resource's type is always statically known at its close site (mfbasic never
+  erases a resource type), so a runtime tag switch would add golden churn + risk
+  for zero behavioral change (a Non-goal: "no behavioral change to any resource
+  op"). The record `tag@0` is therefore written for self-description only; the
+  Phase-3 "keyed by the new tag" reframing is satisfied by the existing
+  compile-time resolution. See Phase 3 for the imported/native in-record-closer
+  evaluation (gated on the sqlite3.mfp regression).
+- **C3 (§1 table, §4.4, Phase 3): the plan's `CLOSE fn ptr@32` for Imported/Native
+  is BOTH unnecessary and actively hazardous — not implemented.** (a) Unnecessary:
+  closer resolution already works at compile time for both kinds — native via
+  `type_model.resource_closers` (`validation.rs:359-363`), decoded-`.mfp` imported
+  via the RESOURCE_TABLE recovery (bug-377, `validation.rs:382-447`). The
+  "pre-existing imported-package leak/double-free" the plan promises to close as a
+  side effect was already closed by bug-377; the 15/15 lifecycle rt tests confirm
+  clean open+close. (b) Hazardous: the plan table puts the closer ptr at offset 32,
+  but offset 32 is `FILE_OFFSET_BUF_PTR` (a File resource's output-buffer pointer),
+  which the generic drop-reclaim `emit_free_resource_block`
+  (`builder_resource_cleanup.rs:393-419`) `free()`s. A code pointer stored there
+  would be handed to `free()` — a brand-new double-free/corruption on every
+  imported/native drop. The plan's own §4.5/§4.2 keep the File buffer fields at
+  32+, so the two designs collide. Retaining compile-time dispatch (C2) sidesteps
+  this entirely. Measured by cross-referencing the §1 layout table (Imported `32 =
+  CLOSE fn ptr`) against `FILE_OFFSET_BUF_PTR = 32` and the drop-reclaim free path.
 
 ## Summary
 

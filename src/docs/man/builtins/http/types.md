@@ -1,6 +1,6 @@
 # types
 
-the http package record types
+the http package types
 
 ## Synopsis
 
@@ -9,6 +9,8 @@ http::Response
 http::Request
 http::RequestPart
 http::Route
+http::Stream         ' a resource union (non-blocking client)
+http::PendingState   ' the Stream's plan-74 STATE record
 ```
 
 ## Package
@@ -29,11 +31,21 @@ client adds `IMPORT net` for `net::Url`. [[src/builtins/http.rs:augmented_projec
 
 ## Description
 
-The `http` package defines four record types. All four are ordinary copyable
-value records: none holds a socket or any other resource handle, so a `Response`
-or a `Request` can be assigned, copied, stored in a collection, returned from a
-function, and sent across threads even though the exchange that produced it has
-already closed its connection. [[src/builtins/http_package.mfb:Response]]
+The `http` package defines four value record types plus, for the non-blocking
+client, a resource union and its STATE record. The four record types — `Response`,
+`Request`, `RequestPart`, `Route` — are ordinary copyable values: none holds a
+socket or any other resource handle, so a `Response` or a `Request` can be
+assigned, copied, stored in a collection, returned from a function, and sent
+across threads even though the exchange that produced it has already closed its
+connection. [[src/builtins/http_package.mfb:Response]]
+
+`Stream` is different: it is a **resource** union over the two transports
+(`net::Socket` and `net::TlsSocket`) that `http::startRead` returns, and it carries
+a `PendingState` as plan-74 union STATE. A `Stream` owns a live connection, so
+unlike the value records it is bound with `RES`, driven in place, and closed
+exactly once by its scope drop — it is neither copyable nor thread-transferable.
+`PendingState` is the mutable state the drive loop accumulates into.
+[[src/builtins/http_package.mfb:Stream]]
 
 `Response` is shared by both halves of the package. On the client it is what
 `http::read` and `http::write` return; on the server it is what a route handler
@@ -111,6 +123,32 @@ One entry in a server's routing table: a path pattern and the handler to invoke 
 | --- | --- | --- |
 | `pattern` | `String` | The path pattern, matched segment by segment: a literal segment must match exactly, `:name` captures one segment, a trailing `:name?` is an optional segment, and a trailing `*` captures the whole remaining path. `:name?` and `*` are legal only as final segments; a trailing slash is normalized away except for root `/`. |
 | `handler` | `FUNC(Request) AS Response` | The function invoked when `pattern` matches; it receives the parsed `http::Request` and returns the `http::Response` to send. A handler that fails becomes a `500` rather than tearing down the server. |
+
+### http::Stream
+
+The non-blocking client's transport handle: a **resource union** over the two
+transports, returned by `http::startRead` carrying a `PendingState`. Bind it with
+`RES … STATE PendingState`, drive it with `http::ready`/`http::pump`/`http::done`,
+and finish with `http::finish`; its socket is closed once by scope drop.
+[[src/builtins/http_package.mfb:Stream]]
+
+| Variant | Type | Description |
+| --- | --- | --- |
+| `Socket` | `net::Socket` | The plaintext transport, used for an `http://` URL. |
+| `TlsSocket` | `net::TlsSocket` | The TLS transport, used for an `https://` URL. |
+
+### http::PendingState
+
+The mutable state a `Stream` carries as plan-74 union STATE while the drive loop
+runs. `http::pump` accumulates into it; `http::done` and `http::finish` read it.
+[[src/builtins/http_package.mfb:PendingState]]
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `sentAll` | `Boolean` | `TRUE` once the whole request has been written (set by `http::startRead`; reserved for a future write-pump). |
+| `closed` | `Boolean` | `TRUE` once the peer closed the connection (the `Connection: close` terminator), set by a zero-byte `pump` read. |
+| `raw` | `List OF Byte` | The response bytes accumulated so far across `pump` calls; parsed by `http::finish`. |
+| `err` | `Integer` | `0` while healthy, else a captured transport failure code (for example `ErrTimeout`) that `http::done` treats as terminal and `http::finish` re-raises. |
 
 ## See also
 

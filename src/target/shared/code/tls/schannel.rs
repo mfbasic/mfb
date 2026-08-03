@@ -7,10 +7,11 @@
 //! after the handshake with `CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL)`
 //! against `serverName` — the check the plan flags as easy to omit and never notice.
 //!
-//! The 32-byte `tls::` resource cannot hold Schannel state, so slot 16 points at an
-//! arena STATE block (see `st::*`): the credential/context handles, the negotiated
-//! stream sizes, the ciphertext receive buffer, and any leftover decrypted plaintext
-//! a short read left behind.
+//! The `tls::` resource record cannot hold Schannel state inline, so
+//! `TLS_SCHANNEL_OFFSET_BLOCK` (in the plan-80 record tail) points at an arena
+//! STATE block (see `st::*`): the credential/context handles, the negotiated
+//! stream sizes, the ciphertext receive buffer, and any leftover decrypted
+//! plaintext a short read left behind.
 
 use std::collections::HashMap;
 
@@ -18,7 +19,10 @@ use super::super::emit_alloc;
 use super::super::native_helpers::{emit_build_byte_list, emit_fail};
 use super::super::net::emit_string_result_build;
 use super::super::*;
-use super::{TLS_LISTENER_OFFSET_CLOSED, TLS_OFFSET_CLOSED, TLS_OFFSET_FD, TLS_RECORD_SIZE};
+use super::{
+    TLS_LISTENER_OFFSET_CLOSED, TLS_OFFSET_CLOSED, TLS_OFFSET_FD, TLS_OFFSET_STATE,
+    TLS_RECORD_SIZE, TLS_SCHANNEL_OFFSET_BLOCK,
+};
 use crate::target::shared::abi;
 
 const SECUR32: &str = "secur32.dll";

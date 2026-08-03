@@ -1419,10 +1419,11 @@ fn lower_link_thunk(
     // stateless case too is what gives it a `closed` flag at offset 8, which it
     // had nowhere to store while the handle itself was the value.
     // RESULT_VALUE_REGISTER currently holds
-    // the native handle; wrap it in an 80-byte resource record so the value the
-    // caller binds is a pointer to {FD@0, CLOSED@8, STATE@16, buffers…} — the exact
-    // shape a built-in `File STATE S` uses, so `.state`, drop-reclamation
-    // (plan-52-B), and the closed guard all work unchanged. STATE@16 is left NULL:
+    // the native handle; wrap it in a resource record so the value the
+    // caller binds is a pointer to the canonical plan-80 record {tag@0, FD@8,
+    // CLOSED@16, STATE@24, buffers…} — the exact shape a built-in `File STATE S`
+    // uses, so `.state`, drop-reclamation (plan-52-B), and the closed guard all
+    // work unchanged. STATE@24 is left NULL:
     // the caller's `RES x AS T STATE S = …` bind runs `emit_resource_state_init`,
     // which default-allocates the `S` record exactly as it does for a built-in
     // resource (or `BIND STATE` populates it first — plan-53-B). Without this the
@@ -1442,9 +1443,12 @@ fn lower_link_thunk(
             abi::load_u64("%v9", abi::stack_pointer(), rec_handle_off),
             abi::load_u64("%v10", abi::stack_pointer(), rec_ptr_off),
             abi::store_u64("%v9", "%v10", FILE_OFFSET_FD),
+            // Canonical plan-80 header: tag@0 marks this a Native resource.
+            abi::move_immediate("%v9", "Integer", RESOURCE_TAG_NATIVE),
+            abi::store_u64("%v9", "%v10", RESOURCE_OFFSET_TAG),
             // Zero CLOSED (open) and the File I/O buffer words a native resource
             // never uses (they must be zero, not the arena-alloc's poison —
-            // plan-52-B). STATE@16 is handled below.
+            // plan-52-B). STATE@24 is handled below.
             abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_CLOSED),
             abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_BUF_PTR),
             abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_BUF_FILLED),

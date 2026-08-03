@@ -493,13 +493,16 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             result_slot,
         ));
-        // fd @0 and the closed flag @8 move verbatim (the OS handle itself).
+        // The canonical header — tag @0, handle (fd) @8, closed flag @16 — moves
+        // verbatim (the OS handle itself, and its self-describing type tag).
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
-        self.emit(abi::load_u64(&scratch10, &scratch9, 0));
-        self.emit(abi::store_u64(&scratch10, abi::RET[1], 0));
-        self.emit(abi::load_u64(&scratch10, &scratch9, 8));
-        self.emit(abi::store_u64(&scratch10, abi::RET[1], 8));
-        // STATE @16 (plan-54 §5).
+        self.emit(abi::load_u64(&scratch10, &scratch9, RESOURCE_OFFSET_TAG));
+        self.emit(abi::store_u64(&scratch10, abi::RET[1], RESOURCE_OFFSET_TAG));
+        self.emit(abi::load_u64(&scratch10, &scratch9, FILE_OFFSET_FD));
+        self.emit(abi::store_u64(&scratch10, abi::RET[1], FILE_OFFSET_FD));
+        self.emit(abi::load_u64(&scratch10, &scratch9, FILE_OFFSET_CLOSED));
+        self.emit(abi::store_u64(&scratch10, abi::RET[1], FILE_OFFSET_CLOSED));
+        // STATE @24 (plan-54 §5, relocated by plan-80).
         match crate::builtins::resource::state_type_name(type_) {
             // Stateful: deep-copy the STATE record into the current (receiver)
             // arena so the moved handle owns an independent payload — never an

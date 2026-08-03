@@ -280,7 +280,7 @@ pub(super) fn lower_tls_write(
         abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
-        abi::load_u64("%v9", abi::return_register(), 16),
+        abi::load_u64("%v9", abi::return_register(), TLS_SCHANNEL_OFFSET_BLOCK),
         abi::store_u64("%v9", abi::stack_pointer(), STATE),
         abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_FD),
         abi::store_u64("%v9", abi::stack_pointer(), FD),

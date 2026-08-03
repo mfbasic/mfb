@@ -45,7 +45,7 @@ pub(super) fn lower_tls_read(
         abi::load_u64("%v9", abi::stack_pointer(), MAX),
         abi::compare_immediate("%v9", "0"),
         abi::branch_le(&invalid),
-        abi::load_u64("%v9", abi::return_register(), 16),
+        abi::load_u64("%v9", abi::return_register(), TLS_SCHANNEL_OFFSET_BLOCK),
         abi::store_u64("%v9", abi::stack_pointer(), STATE),
         // If undelivered plaintext remains, serve it.
         abi::load_u64("%v10", "%v9", st::LEFT_LEN),
@@ -376,7 +376,7 @@ pub(super) fn lower_tls_close(
         abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&already),
-        abi::load_u64("%v9", abi::return_register(), 16),
+        abi::load_u64("%v9", abi::return_register(), TLS_SCHANNEL_OFFSET_BLOCK),
         abi::store_u64("%v9", abi::stack_pointer(), STATE),
         abi::load_u64("%v10", abi::return_register(), TLS_OFFSET_FD),
         abi::store_u64("%v10", abi::stack_pointer(), FD),
@@ -510,7 +510,7 @@ pub(super) fn lower_tls_poll(
         // Buffered decrypted plaintext? STATE ptr is at record[16] (schannel repurposes
         // the SSL slot; the read helper loads it from the same literal offset);
         // LEFT_LEN is the undelivered plaintext byte count.
-        abi::load_u64("%v9", abi::return_register(), 16),
+        abi::load_u64("%v9", abi::return_register(), TLS_SCHANNEL_OFFSET_BLOCK),
         abi::load_u64("%v10", "%v9", st::LEFT_LEN),
         abi::compare_immediate("%v10", "0"),
         abi::branch_gt(&ready),

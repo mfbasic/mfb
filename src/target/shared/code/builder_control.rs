@@ -634,7 +634,7 @@ impl CodeBuilder<'_> {
                         let ptr = self.emit_resource_record_ptr(&block, &resource_type)?;
                         let val = self.allocate_register()?;
                         self.emit(abi::load_u64(&val, abi::stack_pointer(), value_slot));
-                        self.emit(abi::store_u64(&val, &ptr, FILE_OFFSET_STATE));
+                        self.emit(abi::store_u64(&val, &ptr, RESOURCE_OFFSET_STATE));
                     }
                     NirOp::Eval { value } => {
                         self.lower_value(value)?;

@@ -739,6 +739,9 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
     instructions.extend([
         abi::branch(&done),
         abi::label(&file_alloc_ok),
+        // Canonical plan-80 header: tag@0 (x0 is dead after the alloc-ok compare).
+        abi::move_immediate(abi::return_register(), "Integer", RESOURCE_TAG_FILE),
+        abi::store_u64(abi::return_register(), abi::RET[1], RESOURCE_OFFSET_TAG),
         abi::store_u64(&fd, abi::RET[1], FILE_OFFSET_FD),
         abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_CLOSED),
         abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_STATE),
@@ -1231,6 +1234,9 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     instructions.extend([
         abi::branch(&done),
         abi::label(&file_alloc_ok),
+        // Canonical plan-80 header: tag@0 (x0 is dead after the alloc-ok compare).
+        abi::move_immediate(abi::return_register(), "Integer", RESOURCE_TAG_FILE),
+        abi::store_u64(abi::return_register(), abi::RET[1], RESOURCE_OFFSET_TAG),
         abi::store_u64(&fd, abi::RET[1], FILE_OFFSET_FD),
         abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_CLOSED),
         abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_STATE),
