@@ -48,6 +48,40 @@ LET __HTTP_MAX_RESPONSE AS Integer = 67108864
 LET __HTTP_CONNECT_TIMEOUT_MS AS Integer = 30000
 LET __HTTP_READ_TIMEOUT_MS AS Integer = 30000
 
+' plan-76-D: the non-blocking client. `Stream` is a RESOURCE union over the two
+' transports (bare variant ids — the parser does not normalize `pkg::` on a union
+' variant, and the close-wiring keys on the bare builtin-resource name; declaring
+' `net::Socket` would leak the socket with no diagnostic). It carries a
+' `PendingState` (plan-74 union STATE), relocated to a record slot free in every
+' backend by plan-80 so STATE over a `TlsSocket` no longer clobbers the live
+' handle. A program drives an exchange without blocking its thread:
+'   RES s AS http::Stream STATE PendingState = http::startRead(url, {}, "GET")
+'   WHILE http::done(s) = FALSE
+'     IF http::ready(s) THEN http::pump(s)   ' interleave the caller's own work
+'   END WHILE
+'   LET resp AS Response = http::finish(s)
+EXPORT UNION Stream
+  Socket
+  TlsSocket
+END UNION
+
+EXPORT TYPE PendingState
+  sentAll AS Boolean       ' request fully written (reserved for a future write-pump)
+  closed  AS Boolean       ' peer EOF observed (the Connection: close terminator)
+  raw     AS List OF Byte  ' accumulated response bytes
+  err     AS Integer       ' 0 = ok; else a captured transport failure code
+END TYPE
+
+' One non-blocking read's outcome, marshalled out of a top-level per-transport
+' helper. A `<call> TRAP` bound inside a `MATCH CASE` mis-types its temp as
+' `Unknown` at native codegen (plan-76-D Correction D3), so `pump`'s MATCH only
+' CALLS these helpers — the read + TRAP live at function top level here.
+TYPE __http_PumpRead
+  bytes  AS List OF Byte
+  closed AS Boolean
+  err    AS Integer
+END TYPE
+
 ' bug-339 B2: __http_indexOf / __http_slice / __http_defaultPort duplicate the
 ' identical net_package.mfb helpers. The dup is language-mandated (built-in package
 ' sources are file-local; http cannot reach net's private __net_* helpers even
@@ -370,6 +404,156 @@ FUNC __http_exchange(url AS net::Url, requestText AS String) AS List OF Byte
   END IF
   RETURN __http_exchangeTcp(url, requestText)
 END FUNC
+
+' ---- plan-76-D: non-blocking client core ----
+
+' Read up to `n` bytes from a plaintext Socket (the caller has confirmed
+' readiness, so this returns promptly). A 0-byte read or `ErrConnectionClosed`
+' marks the stream closed; any other transport failure is captured in `err`. The
+' read + TRAP is at top level here, NEVER inside a MATCH CASE (Correction D3).
+FUNC __http_readNet(RES p AS net::Socket, n AS Integer) AS __http_PumpRead
+  MUT chunk AS List OF Byte = []
+  MUT closed AS Boolean = FALSE
+  MUT err AS Integer = 0
+  chunk = net::read(p, n) TRAP(e)
+    IF e.code = errorCode::ErrConnectionClosed THEN
+      closed = TRUE
+      RECOVER []
+    END IF
+    err = e.code
+    RECOVER []
+  END TRAP
+  IF len(chunk) = 0 THEN
+    closed = TRUE
+  END IF
+  RETURN __http_PumpRead[chunk, closed, err]
+END FUNC
+
+FUNC __http_readTls(RES t AS tls::TlsSocket, n AS Integer) AS __http_PumpRead
+  MUT chunk AS List OF Byte = []
+  MUT closed AS Boolean = FALSE
+  MUT err AS Integer = 0
+  chunk = tls::read(t, n) TRAP(e)
+    IF e.code = errorCode::ErrConnectionClosed THEN
+      closed = TRUE
+      RECOVER []
+    END IF
+    err = e.code
+    RECOVER []
+  END TRAP
+  IF len(chunk) = 0 THEN
+    closed = TRUE
+  END IF
+  RETURN __http_PumpRead[chunk, closed, err]
+END FUNC
+
+' Connect per `url.scheme`, write the whole request, and return the transport as a
+' `Stream` union carrying a default `PendingState`. The bind widens the concrete
+' variant into the union and default-inits the STATE (plan-74); `RETURN s` carries
+' the STATE out (plan-74 stateful-union return, unblocked by plan-80). Shared by
+' `startRead` (no body) and the blocking `read`/`write` wrappers.
+FUNC __http_startExchange(url AS net::Url, body AS String, hasBody AS Boolean, headers AS Map OF String TO String, method AS String) AS RES Stream STATE PendingState
+  LET verb AS String = __http_normalizeMethod(method)
+  LET request AS String = __http_buildRequest(verb, url, body, hasBody, headers)
+  IF url.scheme = "https" THEN
+    RES s AS Stream STATE PendingState = tls::connect(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS, url.host)
+    MATCH s
+      CASE TlsSocket(t)
+        tls::writeText(t, request)
+      CASE Socket(p)
+        net::writeText(p, request)
+    END MATCH
+    s.state.sentAll = TRUE
+    RETURN s
+  END IF
+  RES s AS Stream STATE PendingState = net::connectTcp(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS)
+  MATCH s
+    CASE Socket(p)
+      net::writeText(p, request)
+    CASE TlsSocket(t)
+      tls::writeText(t, request)
+  END MATCH
+  s.state.sentAll = TRUE
+  RETURN s
+END FUNC
+
+FUNC __http_startRead(url AS net::Url, headers AS Map OF String TO String, method AS String) AS RES Stream STATE PendingState
+  RETURN __http_startExchange(url, "", FALSE, headers, method)
+END FUNC
+
+' `TRUE` iff a non-blocking read would return bytes or EOF now.
+FUNC __http_ready(RES s AS Stream STATE PendingState) AS Boolean
+  MATCH s
+    CASE Socket(p)
+      RETURN net::poll(p, 0)
+    CASE TlsSocket(t)
+      RETURN tls::poll(t, 0)
+  END MATCH
+  RETURN FALSE
+END FUNC
+
+' One non-blocking read of available bytes (gated on readiness so it never
+' blocks), appended to `s.state.raw`. The MATCH only CALLS a top-level read helper
+' and assigns into the pre-declared `r` — no `<call> TRAP` binding inside the CASE
+' (Correction D3). A 0-byte read sets `closed`; a transport failure sets `err`.
+SUB __http_pump(RES s AS Stream STATE PendingState)
+  IF __http_ready(s) = FALSE THEN
+    EXIT SUB
+  END IF
+  MUT r AS __http_PumpRead = __http_PumpRead[[], FALSE, 0]
+  MATCH s
+    CASE Socket(p)
+      r = __http_readNet(p, 65536)
+    CASE TlsSocket(t)
+      r = __http_readTls(t, 65536)
+  END MATCH
+  IF r.closed THEN
+    s.state.closed = TRUE
+  END IF
+  IF r.err <> 0 THEN
+    s.state.err = r.err
+  END IF
+  IF len(r.bytes) > 0 THEN
+    s.state.raw = collections::append(s.state.raw, r.bytes)
+  END IF
+  IF len(s.state.raw) > __HTTP_MAX_RESPONSE THEN
+    s.state.err = 77050010
+  END IF
+END SUB
+
+' `TRUE` iff the response is complete: a failure, clean EOF, or a fully-framed
+' response (Content-Length satisfied / final chunk — an early-out before EOF).
+FUNC __http_done(RES s AS Stream STATE PendingState) AS Boolean
+  IF s.state.err <> 0 THEN
+    RETURN TRUE
+  END IF
+  IF s.state.closed THEN
+    RETURN TRUE
+  END IF
+  RETURN __http_frameComplete(s.state.raw)
+END FUNC
+
+' Parse the accumulated bytes into a `Response`, or FAIL if a transport error was
+' captured. The stream stays bound and is closed by the caller's drop.
+FUNC __http_finish(RES s AS Stream STATE PendingState) AS Response
+  IF s.state.err <> 0 THEN
+    FAIL error(s.state.err, "http stream transport failed")
+  END IF
+  RETURN __http_parseResponse(s.state.raw)
+END FUNC
+
+' Internal: BLOCK until the active transport is readable (omitted poll timeout).
+' The only blocking wait in the async core — `pump` stays non-blocking — so the
+' blocking `read`/`write` wrappers reuse the same drive loop cooperatively.
+SUB __http_waitReadable(RES s AS Stream STATE PendingState)
+  MUT ok AS Boolean = FALSE
+  MATCH s
+    CASE Socket(p)
+      ok = net::poll(p)
+    CASE TlsSocket(t)
+      ok = tls::poll(t)
+  END MATCH
+END SUB
 
 ' ---- Public entry points (§B.1) ----
 
