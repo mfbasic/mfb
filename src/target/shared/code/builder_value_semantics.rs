@@ -469,7 +469,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(right_len, write_cur, 0));
         self.emit(abi::add_registers(total_len, left_len, right_len));
         self.emit(abi::store_u64(total_len, abi::stack_pointer(), total_slot));
-        self.emit(abi::add_immediate(abi::return_register(), total_len, 9));
+        // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
+        self.emit(abi::add_immediate(abi::ARG[0], total_len, 9));
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));

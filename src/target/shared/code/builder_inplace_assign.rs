@@ -523,7 +523,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&cap_keep));
         self.emit(abi::store_u64(&newcap, abi::stack_pointer(), newcap_slot));
         // alloc size = 8 (len word) + newcap_payload + 1 (NUL).
-        self.emit(abi::add_immediate(abi::return_register(), &newcap, 9));
+        // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
+        self.emit(abi::add_immediate(abi::ARG[0], &newcap, 9));
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
@@ -556,11 +557,8 @@ impl CodeBuilder<'_> {
         // below) and its size is in oldsize_slot; the new buffer is already
         // spilled in newbuf_slot, so it survives this call. arena_free clobbers
         // all caller-saved registers. This free runs exactly once per regrow.
-        self.emit(abi::load_u64(
-            abi::return_register(),
-            abi::stack_pointer(),
-            name_slot,
-        ));
+        // plan-71-C Family-1a: ptr is arg 0 of arena-free → `%arg0`.
+        self.emit(abi::load_u64(abi::ARG[0], abi::stack_pointer(), name_slot));
         self.emit(abi::load_u64(
             abi::ARG[1],
             abi::stack_pointer(),
