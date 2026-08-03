@@ -314,7 +314,10 @@ fn linear_scan_colors_short_range_in_register() {
     // v0 colored to some allocatable physical; both operands match.
     let colored = instructions[1].get("dst").unwrap().to_string();
     assert!(colored.starts_with('x'));
-    assert_eq!(instructions[2].get("lhs").as_deref(), Some(colored.as_str()));
+    assert_eq!(
+        instructions[2].get("lhs").as_deref(),
+        Some(colored.as_str())
+    );
 }
 
 /// plan-34-D hazard regression: an `abi::FP_SCRATCH` token occupies its
@@ -363,7 +366,10 @@ fn linear_scan_avoids_live_fp_scratch_token_realization() {
     );
     assert_ne!(colored, "d0", "%f0 is live across %fscratch0 (realizes d0)");
     // The token itself is never rewritten by coloring.
-    assert_eq!(instructions[2].get("dst").as_deref(), Some(abi::FP_SCRATCH[0]));
+    assert_eq!(
+        instructions[2].get("dst").as_deref(),
+        Some(abi::FP_SCRATCH[0])
+    );
     // And the analysis sees the token at its realization's index.
     assert_eq!(analysis::fp_physical_index(abi::FP_SCRATCH[0]), Some(0));
     assert_eq!(analysis::fp_physical_index("%fscratch7"), Some(7));

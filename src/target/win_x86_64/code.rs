@@ -3034,7 +3034,9 @@ mod fionbio_tests {
             emit_ioctl_fionbio("t", 0x10, nonblocking, &mut instructions, &mut relocations);
             let cmd = instructions
                 .iter()
-                .find(|ins| ins.op == CodeOp::MovImm && ins.get("dst").as_deref() == Some(abi::ARG[1]))
+                .find(|ins| {
+                    ins.op == CodeOp::MovImm && ins.get("dst").as_deref() == Some(abi::ARG[1])
+                })
                 .and_then(|ins| ins.get("value"))
                 .expect("emit_ioctl_fionbio must move the FIONBIO cmd into ARG[1]");
             assert_eq!(

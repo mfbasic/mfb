@@ -343,13 +343,20 @@ pub(crate) fn rename_operand_field_values(
 /// Render a `CodeInstruction`'s typed operand fields (plan-78-B) into the
 /// `String`-valued field bag `MirInstruction` still uses. Byte-identical: the
 /// rendered string is exactly what was stored before the flip.
-pub(crate) fn mir_fields_from_code(fields: &[(&'static str, Operand)]) -> Vec<(&'static str, String)> {
-    fields.iter().map(|(key, value)| (*key, value.render())).collect()
+pub(crate) fn mir_fields_from_code(
+    fields: &[(&'static str, Operand)],
+) -> Vec<(&'static str, String)> {
+    fields
+        .iter()
+        .map(|(key, value)| (*key, value.render()))
+        .collect()
 }
 
 /// Wrap a `MirInstruction`'s `String` field bag into the `Operand`-valued bag a
 /// `CodeInstruction` now carries — each value as a verbatim `Operand::Raw`.
-pub(crate) fn code_fields_from_mir(fields: &[(&'static str, String)]) -> Vec<(&'static str, Operand)> {
+pub(crate) fn code_fields_from_mir(
+    fields: &[(&'static str, String)],
+) -> Vec<(&'static str, Operand)> {
     fields
         .iter()
         .map(|(key, value)| (*key, Operand::from(value.as_str())))

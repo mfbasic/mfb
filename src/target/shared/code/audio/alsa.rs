@@ -2418,9 +2418,9 @@ mod open_error_cleanup_tests {
         assert!(from < to, "expected {start} to precede {end}");
         let dl = sym_data_symbol(name);
         let libc = format!("_{name}");
-        ins[from..to]
-            .iter()
-            .any(|i| i.get("symbol").as_deref() == Some(&dl) || i.get("target").as_deref() == Some(&libc))
+        ins[from..to].iter().any(|i| {
+            i.get("symbol").as_deref() == Some(&dl) || i.get("target").as_deref() == Some(&libc)
+        })
     }
 
     // The `unavailable` exit is reached from the dlopen and from every dlsym

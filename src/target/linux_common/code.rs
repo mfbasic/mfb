@@ -1299,7 +1299,9 @@ mod tests {
         let done_index = rv
             .instructions
             .iter()
-            .position(|i| i.op.mnemonic() == "label" && i.get("name").as_deref() == Some("entry_hwcap_done"))
+            .position(|i| {
+                i.op.mnemonic() == "label" && i.get("name").as_deref() == Some("entry_hwcap_done")
+            })
             .expect("scan must emit the entry_hwcap_done label");
         assert!(rv.instructions.iter().any(|i| {
             i.op.mnemonic() == "label" && i.get("name").as_deref() == Some("entry_hwcap_auxv_loop")

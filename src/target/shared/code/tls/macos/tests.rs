@@ -297,8 +297,8 @@ fn readbytes_has_no_encoding_error_exit() {
     // readBytes has no UTF-8 validation, so it never emits an encoding_error
     // label — confirming the bug-52 fix is scoped to the text path only.
     assert!(
-        !ins.iter()
-            .any(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some("t_readbytes_encoding_error")),
+        !ins.iter().any(|i| i.op == CodeOp::Label
+            && i.get("name").as_deref() == Some("t_readbytes_encoding_error")),
         "tls::read (bytes) must not have an encoding_error exit"
     );
 }
@@ -329,7 +329,8 @@ fn window<'a>(ins: &'a [CodeInstruction], start: &str, end: &str) -> &'a [CodeIn
 /// drain loop, so only a windowed check proves the *error exits* release.
 fn resolves_in(win: &[CodeInstruction], name: &str) -> bool {
     let want = sym_data_symbol(name);
-    win.iter().any(|i| i.get("symbol").as_deref() == Some(&want))
+    win.iter()
+        .any(|i| i.get("symbol").as_deref() == Some(&want))
 }
 
 // bug-317 T1: `accept` owns a +1 on the popped connection (the
@@ -505,9 +506,9 @@ fn has_cancel_drain(win: &[CodeInstruction], drain_label: &str, cancelled_state:
     let has_drain_label = win
         .iter()
         .any(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(drain_label));
-    let reads_state = win
-        .iter()
-        .any(|i| i.op == CodeOp::LdrU32 && i.get("offset").as_deref() == Some(&CTX_STATE.to_string()));
+    let reads_state = win.iter().any(|i| {
+        i.op == CodeOp::LdrU32 && i.get("offset").as_deref() == Some(&CTX_STATE.to_string())
+    });
     let checks_cancelled = win
         .iter()
         .any(|i| i.op == CodeOp::CmpImm && i.get("rhs").as_deref() == Some(cancelled_state));

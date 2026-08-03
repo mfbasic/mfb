@@ -264,7 +264,11 @@ fn remap_x86_abi_inner(
         std::collections::HashMap::new();
     let mut role_site: Vec<Option<String>> = vec![None; instructions.len()];
     for (i, inst) in instructions.iter_mut().enumerate() {
-        if !inst.fields.iter().any(|(_, v)| is_abi_role_token(&v.render())) {
+        if !inst
+            .fields
+            .iter()
+            .any(|(_, v)| is_abi_role_token(&v.render()))
+        {
             continue;
         }
         if audit {

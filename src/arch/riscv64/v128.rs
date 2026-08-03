@@ -1513,7 +1513,8 @@ mod tests {
             ];
             let out = scalarize_v128(CodeOp::UmovXFromV, &fields, &map(&[("v1", 0)]));
             assert!(
-                out.iter().any(|i| i.get("offset").as_deref() == Some(offset)),
+                out.iter()
+                    .any(|i| i.get("offset").as_deref() == Some(offset)),
                 "lane {index} should read offset {offset}"
             );
         }
@@ -1788,7 +1789,8 @@ mod tests {
         let vop = |i: &CodeInstruction| i.get("vop");
         // Guard: load the flag and branch to the scalar label when it is clear.
         assert!(out.iter().any(|i| i.op.mnemonic() == "adrp"
-            && i.get("symbol").as_deref() == Some(crate::target::shared::code::HAS_RVV_GLOBAL_SYMBOL)));
+            && i.get("symbol").as_deref()
+                == Some(crate::target::shared::code::HAS_RVV_GLOBAL_SYMBOL)));
         assert!(out.iter().any(|i| i.op.mnemonic() == "rv.br"
             && i.get("target").as_deref() == Some("v128_scalar_0")
             && i.get("cond").as_deref() == Some("eq")));
@@ -1799,13 +1801,15 @@ mod tests {
             && i.get("lhs").as_deref() == Some("v2")
             && i.get("rhs").as_deref() == Some("v3")));
         // Scalar arm (unchanged) is present behind the label, and both arms converge.
-        assert!(out
-            .iter()
-            .any(|i| i.op.mnemonic() == "label" && i.get("name").as_deref() == Some("v128_scalar_0")));
+        assert!(out.iter().any(
+            |i| i.op.mnemonic() == "label" && i.get("name").as_deref() == Some("v128_scalar_0")
+        ));
         assert!(out.iter().any(|i| i.op.mnemonic() == "fadd_d"));
-        assert!(out
-            .iter()
-            .any(|i| i.op.mnemonic() == "label" && i.get("name").as_deref() == Some("v128_done_0")));
+        assert!(
+            out.iter()
+                .any(|i| i.op.mnemonic() == "label"
+                    && i.get("name").as_deref() == Some("v128_done_0"))
+        );
 
         // A non-lowerable op (or overflow) is never accumulated into a run —
         // `rvv_lowerable` rejects it, so `select_riscv64` scalarizes it directly,
@@ -1831,9 +1835,7 @@ mod tests {
             .collect();
         let slots = map(&[("%f0", 0), ("%f1", 1), ("%f2", 2)]);
         let vop_seq = |out: &[CodeInstruction]| -> Vec<String> {
-            out.iter()
-                .filter_map(|i| i.get("vop"))
-                .collect()
+            out.iter().filter_map(|i| i.get("vop")).collect()
         };
 
         // FCmGtV → vmflt.vv into v0, then vmv.v.i / vmerge.vim into the dst reg.
@@ -1850,7 +1852,8 @@ mod tests {
         .expect("FCmGtV is vector-lowered");
         assert!(cmp
             .iter()
-            .any(|i| i.get("vop").as_deref() == Some("vmflt.vv") && i.get("dst").as_deref() == Some("v0")));
+            .any(|i| i.get("vop").as_deref() == Some("vmflt.vv")
+                && i.get("dst").as_deref() == Some("v0")));
         let seq = vop_seq(&cmp);
         let merge = seq
             .iter()
@@ -1943,7 +1946,8 @@ mod tests {
         // One guard, one config for the whole run.
         assert_eq!(
             out.iter()
-                .filter(|i| i.op.mnemonic() == "label" && i.get("name").as_deref() == Some("v128_scalar_0"))
+                .filter(|i| i.op.mnemonic() == "label"
+                    && i.get("name").as_deref() == Some("v128_scalar_0"))
                 .count(),
             1,
             "one guard per run"
@@ -1958,13 +1962,16 @@ mod tests {
         // Residency: %f3 lives in v4; op2 must NOT reload it (no vle64 into v4).
         assert!(
             !out.iter()
-                .any(|i| i.get("vop").as_deref() == Some("vle64.v") && i.get("dst").as_deref() == Some("v4")),
+                .any(|i| i.get("vop").as_deref() == Some("vle64.v")
+                    && i.get("dst").as_deref() == Some("v4")),
             "the mid-run value stays resident — its reload is elided"
         );
         // The multiply still reads it from its register.
-        assert!(out.iter().any(|i| i.get("vop").as_deref() == Some("vfmul.vv")
-            && i.get("lhs").as_deref() == Some("v4")
-            && i.get("rhs").as_deref() == Some("v3")));
+        assert!(out
+            .iter()
+            .any(|i| i.get("vop").as_deref() == Some("vfmul.vv")
+                && i.get("lhs").as_deref() == Some("v4")
+                && i.get("rhs").as_deref() == Some("v3")));
     }
 
     #[test]
@@ -2272,8 +2279,9 @@ mod tests {
             rvv_arm(op, &fl(pairs), &slots, &vregs)
                 .unwrap_or_else(|| panic!("{} must be vector-lowered", op.mnemonic()))
         };
-        let has =
-            |out: &[CodeInstruction], vop: &str| out.iter().any(|i| i.get("vop").as_deref() == Some(vop));
+        let has = |out: &[CodeInstruction], vop: &str| {
+            out.iter().any(|i| i.get("vop").as_deref() == Some(vop))
+        };
 
         let ss = &[("dst", "v0"), ("src", "v1")]; // two-reg-misc
         let abc = &[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]; // three-same
@@ -2507,15 +2515,17 @@ mod tests {
         // v2 lives in v3; its slot (offset 32) is loaded once, not twice.
         let v2_loads = out
             .iter()
-            .filter(|i| i.get("vop").as_deref() == Some("vle64.v") && i.get("dst").as_deref() == Some("v3"))
+            .filter(|i| {
+                i.get("vop").as_deref() == Some("vle64.v") && i.get("dst").as_deref() == Some("v3")
+            })
             .count();
         assert_eq!(
             v2_loads, 1,
             "the second v2 reload is elided (register-resident)"
         );
         // Unique labels per run.
-        assert!(out
-            .iter()
-            .any(|i| i.op.mnemonic() == "label" && i.get("name").as_deref() == Some("v128_scalar_7")));
+        assert!(out.iter().any(
+            |i| i.op.mnemonic() == "label" && i.get("name").as_deref() == Some("v128_scalar_7")
+        ));
     }
 }

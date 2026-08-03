@@ -113,12 +113,9 @@ pub(crate) fn fuse_scalar_fma(instructions: &mut Vec<CodeInstruction>) {
         // fires and the emitted code is unchanged; it converts a future reused
         // product vreg from a silent miscompile into a skipped fusion.
         let redefined_between = instructions[i + 1..j].iter().any(|inst| {
-            inst.fields
-                .iter()
-                .any(|(name, v)| {
-                    is_def_field(name)
-                        && (v == a.as_str() || v == b.as_str() || v == product.as_str())
-                })
+            inst.fields.iter().any(|(name, v)| {
+                is_def_field(name) && (v == a.as_str() || v == b.as_str() || v == product.as_str())
+            })
         });
         if redefined_between {
             continue;

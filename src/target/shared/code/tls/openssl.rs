@@ -2872,7 +2872,9 @@ mod error_path_release_tests {
         let (from, to) = (at(start), at(end));
         assert!(from < to, "expected {start} to precede {end}");
         let want = sym_data_symbol(name);
-        ins[from..to].iter().any(|i| i.get("symbol").as_deref() == Some(&want))
+        ins[from..to]
+            .iter()
+            .any(|i| i.get("symbol").as_deref() == Some(&want))
     }
 
     // bug-317 T2: `tls_fail` is branched to from SSL_new onward — SSL_set_fd,

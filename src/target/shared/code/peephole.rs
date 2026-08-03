@@ -84,9 +84,7 @@ fn classify(instruction: &CodeInstruction, is_x86: bool) -> Effect {
             instruction.get("offset"),
             instruction.get("dst"),
         ) {
-            (Some(base), Some(offset), Some(dst)) if base == "sp" => {
-                Effect::LoadSp { dst, offset }
-            }
+            (Some(base), Some(offset), Some(dst)) if base == "sp" => Effect::LoadSp { dst, offset },
             (Some(_), _, Some(_)) => Effect::DefDst, // non-sp load: just defines dst
             _ => Effect::Barrier,
         },

@@ -64,7 +64,8 @@ use super::regalloc::{fp_vreg_name, parse_fp_vreg, parse_vreg, vreg_name};
 pub(crate) enum Operand {
     /// A virtual-register sentinel: `%vN` for the integer class, `%fN` for the
     /// floating-point class. `id` is the register number the allocator interns.
-    #[allow(dead_code)] // constructed by plan-78-C's typed reads; proven live by the corpus test
+    #[allow(dead_code)]
+    // constructed by plan-78-C's typed reads; proven live by the corpus test
     VReg { class: RegClass, id: u32 },
     /// A decimal integer immediate.
     Imm(i64),
@@ -260,10 +261,7 @@ mod tests {
             ("true".into(), Kind::Bool),
             ("false".into(), Kind::Bool),
             // Labels (the `name` field of a `label` op).
-            (
-                "_mfb_rt_io_io_print_buf_line_fits".into(),
-                Kind::Label,
-            ),
+            ("_mfb_rt_io_io_print_buf_line_fits".into(), Kind::Label),
             // Symbols — a runtime helper and a libc import.
             ("_mfb_arena_alloc".into(), Kind::Symbol),
             ("_exit".into(), Kind::Symbol),
@@ -332,7 +330,10 @@ mod tests {
         assert_eq!(Operand::from(owned.clone()).render(), "_mfb_arena_alloc");
         // Each is the `Raw` arm, never a typed one.
         assert!(matches!(Operand::from("42"), Operand::Raw(_)));
-        assert!(matches!(Operand::from(String::from("%v3")), Operand::Raw(_)));
+        assert!(matches!(
+            Operand::from(String::from("%v3")),
+            Operand::Raw(_)
+        ));
     }
 
     #[test]

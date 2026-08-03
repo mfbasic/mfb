@@ -958,7 +958,8 @@ mod tests {
         let utf8_call = ins
             .iter()
             .position(|i| {
-                i.op == CodeOp::BranchLink && i.get("target").as_deref() == Some("g_unichar_to_utf8")
+                i.op == CodeOp::BranchLink
+                    && i.get("target").as_deref() == Some("g_unichar_to_utf8")
             })
             .expect("printable branch must call g_unichar_to_utf8");
 
@@ -992,7 +993,10 @@ mod tests {
             "guard must follow the ST_LINE_LEN load"
         );
         assert_eq!(ldr.get("dst").as_deref(), Some("x9"));
-        assert_eq!(ldr.get("offset").as_deref(), Some(ST_LINE_LEN.to_string().as_str()));
+        assert_eq!(
+            ldr.get("offset").as_deref(),
+            Some(ST_LINE_LEN.to_string().as_str())
+        );
 
         // And the guard must sit before the destination-pointer arithmetic that the
         // encode writes through, so a dropped key never computes an out-of-range dst.
@@ -1019,7 +1023,9 @@ mod tests {
         let dup2_calls: Vec<usize> = ins
             .iter()
             .enumerate()
-            .filter(|(_, i)| i.op == CodeOp::BranchLink && i.get("target").as_deref() == Some("dup2"))
+            .filter(|(_, i)| {
+                i.op == CodeOp::BranchLink && i.get("target").as_deref() == Some("dup2")
+            })
             .map(|(idx, _)| idx)
             .collect();
         assert_eq!(dup2_calls.len(), 1, "activate must call dup2 exactly once");
@@ -1028,7 +1034,9 @@ mod tests {
         let close_calls: Vec<usize> = ins
             .iter()
             .enumerate()
-            .filter(|(_, i)| i.op == CodeOp::BranchLink && i.get("target").as_deref() == Some("close"))
+            .filter(|(_, i)| {
+                i.op == CodeOp::BranchLink && i.get("target").as_deref() == Some("close")
+            })
             .map(|(idx, _)| idx)
             .collect();
         assert_eq!(
@@ -1145,10 +1153,8 @@ mod tests {
             "backspace must gate the transcript erase on LINE_ECHO mode — bug-421"
         );
         assert!(
-            region
-                .iter()
-                .any(|i| i.op == CodeOp::BranchLink
-                    && i.get("target").as_deref() == Some(DELETE_LAST_CHAR_SYMBOL)),
+            region.iter().any(|i| i.op == CodeOp::BranchLink
+                && i.get("target").as_deref() == Some(DELETE_LAST_CHAR_SYMBOL)),
             "LINE_ECHO backspace must call the transcript delete-last-char helper so \
              the echo tracks the code-point-aware line buffer — bug-421"
         );

@@ -357,10 +357,9 @@ pub(crate) fn allocate(
             // field fails loudly here in debug builds instead of silently emitting a
             // bogus operand.
             debug_assert!(
-                !instructions.iter().any(|instruction| instruction
-                    .fields
+                !instructions
                     .iter()
-                    .any(|(_, value)| {
+                    .any(|instruction| instruction.fields.iter().any(|(_, value)| {
                         let value = value.rendered();
                         parse_vreg(&value).is_some() || parse_fp_vreg(&value).is_some()
                     })),
