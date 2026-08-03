@@ -61,11 +61,8 @@ impl CodeBuilder<'_> {
         }
         let parts_slot = self.spill_to_slot("fs_path_join_parts", &parts.location);
         let alloc_ok = self.label("fs_path_join_alloc_ok");
-        self.emit(abi::load_u64(
-            abi::return_register(),
-            abi::stack_pointer(),
-            parts_slot,
-        ));
+        // plan-71-C Family-1a: the parts pointer is arg 0 of the fs_path_join call → `%arg0`.
+        self.emit(abi::load_u64(abi::ARG[0], abi::stack_pointer(), parts_slot));
         self.emit(abi::branch_link(FS_PATH_JOIN_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -353,7 +350,8 @@ impl CodeBuilder<'_> {
         // manufactures a 1-byte content from a 0-byte input, so its NUL would land at
         // offset 9 -- one past a `length + 9` request. Reserve `length + 10` so that
         // fallback's terminator stays in-bounds without relying on arena size rounding.
-        self.emit(abi::add_immediate(abi::return_register(), &scratch10, 10));
+        // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
+        self.emit(abi::add_immediate(abi::ARG[0], &scratch10, 10));
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));

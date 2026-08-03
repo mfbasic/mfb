@@ -540,8 +540,9 @@ impl CodeBuilder<'_> {
                 };
                 let closure_register = self.allocate_register()?;
                 let alloc_ok = self.label("closure_alloc_ok");
+                // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
                 self.emit(abi::move_immediate(
-                    abi::return_register(),
+                    abi::ARG[0],
                     "Integer",
                     &CLOSURE_OBJECT_SIZE.to_string(),
                 ));
