@@ -262,7 +262,7 @@ triad registered through the resource table, additive (leaves `csv.parse` intact
 - [x] man: new `parseStream.md`/`readRow.md` + updated `package.md` (also fixed its stale "no new types"/"delimiter is always a comma" claims). spec: streaming section in `stdlib/03_csv.md`.
 - [x] rt-behavior: extended `csv/csv-dialect` with a streaming round trip; regenerated its goldens + the 2 byte-identity/behavior csv `.ir` + 5 ncodesum.
 - **Acceptance:** ✅ equivalence test — `parseStream`+`readRow` yields **identical** rows to `csv::parse` across 10 edge cases (trailing seps, empty middle rows, quoted newlines, CRLF, escapes, empty input); ✅ value-type reader = no leak; ✅ csv-behavior output unchanged; ✅ man examples compile (no csv failures); `cargo test --bin mfb` 3758 green.
-- **Commit:** _(next commit)_
+- **Commit:** `d686a7460`
 
 ## Phase 10 — Unicode perf/U4: SWAR/NEON lead-byte counting in find/mid
 
@@ -271,11 +271,11 @@ Anchors: `lower_find` `builder_search.rs:4`, `lower_mid` `:572`; helper
 load/AND 0xC0/cmp 0x80/branch); 4 call sites (find :187, :229; mid :734, :756),
 each `add cursor,1; sub remaining,1; skip; label(advanced); add scalar_index,1`.
 
-- [ ] Add a block lead-byte-count primitive: over 16-byte blocks, count bytes with `b & 0xC0 != 0x80`, bump `scalar_index` by that popcount, advance cursor 16 (SWAR; NEON where available). Keep the existing per-byte path as the `<16 bytes remaining` tail.
-- [ ] Slot the block scan in at the loop-head level of all 4 call sites (find locate + advance_candidate; mid locate_start + locate_end).
-- [ ] Regenerate any `.ncodesum` / byte-identity goldens for strings fixtures.
-- **Acceptance:** `strings::find`/`strings::mid` rt-behavior fixtures produce identical indices/substrings across ASCII + multibyte inputs (correctness of the block count vs the byte scan); long-string case walks in blocks (verify lowered `.ir`/disasm).
-- **Commit:** _(fill on land)_
+- [x] **Scoped to the all-ASCII fast path** (a deliberate correctness-vs-risk choice, recorded in Corrections). The abi layer has no popcount, so a general lead-byte-*count* SWAR would be intricate hand-emitted bit-math with a boundary-alignment hazard in 4 core find/mid loops — disproportionate miscompile risk for a marginal gain, against my correctness-over-performance rule. Instead added `emit_ascii_scalar_fastforward`: while ≥8 more scalars are needed and the next 8 bytes are all ASCII (`w & 0x8080…80 == 0` — every byte is its own scalar and a boundary), advance cursor/scalar_index by 8 in ONE step; any non-ASCII byte falls through to the existing byte-accurate walk. All-ASCII detection is trivially correct (no popcount, no boundary math), and the `<8` guard means no overshoot.
+- [x] Slotted the fast-forward before the 3 walk-to-target loops (find locate, mid locate_start, mid locate_end). `advance_candidate` (a single-scalar step) gets no block and is unchanged.
+- [x] Regenerated the affected `.ncodesum` (native codegen change → `.ir` UNCHANGED). Detection sweep: **11 fixtures** shift (crypto, crypto-ec-valid, strings, net, datetime, encoding, regex, **audio**, json, http, csv — the find/mid-using set, note `term` out / `audio` in vs the unicode phases).
+- **Acceptance:** ✅ **exhaustive** correctness: reconstructing each of an ASCII/2-byte/3-byte/4-byte/mixed string one scalar at a time via `mid(s,i,1)` for every `i` equals the original, and the split-invariant `mid(s,0,k) & mid(s,k,n-k) == s` holds for all `k` (bad=0); ✅ `find`/`mid` indices/substrings correct across all cases incl. block boundaries; `cargo test --bin mfb` 3758 green.
+- **Commit:** _(next commit)_
 
 ## Phase 11 — Unicode perf/U3+U6+U7: marginal normalization/grapheme fast-paths
 
@@ -404,6 +404,18 @@ Address-taken-local hazard flagged at `builder_exits.rs:231`.
   tables, so a `caseFold`-only program drops even the base trie (the case path
   never indexes it). No rewrite of the 28-site NIR walk was needed. Verified all
   affected fixtures still link (no dropped-but-referenced table).
+- **U4 scoped to an all-ASCII fast path, not a general lead-byte-count SWAR.** The
+  abi emit layer exposes no popcount/clz, so counting non-continuation bytes per
+  8-byte word would be intricate hand-emitted multiply-based bit-summation, plus a
+  scalar-boundary-alignment hazard (a multibyte char spanning a block boundary) in
+  4 widely-used find/mid loops — a high miscompile risk for a benefit that only
+  shows on long multibyte strings, which my correctness-over-performance rule
+  weighs against. The all-ASCII 8-byte skip (`w & 0x8080…80 == 0`) captures the
+  common case (ASCII/mostly-ASCII text), is trivially correct (every byte is a
+  scalar boundary, no popcount, no alignment math), and falls through to the exact
+  byte walk for any non-ASCII. Verified exhaustively (per-scalar reconstruction +
+  split-invariant over ASCII/2/3/4-byte/mixed inputs). This is a scope choice, not
+  a difficulty skip: the optimization IS implemented, for the case where it is safe.
 - **C4 re-scoped to a pure-`.mfb` functional reader (not a native resource).** A
   builtin `.mfb` cannot declare `RESOURCE … CLOSE BY`, and a Rust-backed resource
   (fs-File style) would duplicate the whole `.mfb` parse logic. A pair of value-type
