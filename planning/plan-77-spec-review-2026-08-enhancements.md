@@ -246,7 +246,7 @@ stringify :181/:195/:209-223/:226-234). Static parity tables `csv.rs:71-85`.
 - [x] man: `parse.md`/`stringify.md` synopsis + params + errors. spec: `stdlib/03_csv.md` intro/grammar/parse-algo/stringify (also fixed a **pre-existing** stale "splits into graphemes" claim — parse is a scalar scan).
 - [x] Added rt-behavior fixture `csv/csv-dialect` (semicolon+single-quote round trip, tab parse, default unchanged) with hand-built goldens; regenerated 2 csv `.ir` + 5 ncodesum.
 - **Acceptance:** ✅ dialect round-trip correct (`;`/`'`/`|`, tab, `|`); ✅ default 1-arg RFC-4180 unchanged (`a,"b,c","d""e"`), csv-behavior fixture identical; ✅ man/spec updated; `cargo test --bin mfb` green. (csv-dialect goldens to be authoritatively re-synced at finalization once the foreign test-accept clears.)
-- **Commit:** _(next commit)_
+- **Commit:** `b9706e9d9`
 
 ## Phase 9 — csv/C4: streaming `csv.Reader` resource
 
@@ -284,12 +284,12 @@ grouped as one phase. U3 gnome sort `order_loop:958-991`; U6 recompose
 `compose_loop:1004-1091` (scan :1052-1062, `comb_length` :1033); U7 `graphemeAt`
 `lower_strings_grapheme_at:2802` (OOB gap after :2822, before the full segmentation :2823).
 
-- [ ] U7: add an early OOB short-circuit in `lower_strings_grapheme_at` after the index type-check/spill (:2822) and before `lower_strings_graphemes` (:2823) — load `value` byte length (String layout offset 0, cf. `builder_search.rs:715`), branch to `invalid` when `index < 0 || index >= byte_len`. Success path unchanged.
-- [ ] U3: bound/streamline the gnome-sort back-step (`order_loop`) — it only runs over ≤3-mark runs, so a small insertion sort or a run-length cap is a correctness-preserving tidy; keep output identical.
-- [ ] U6: leave the sorted-table early-out as-is unless a cheap win exists; document if no change is warranted (mark moot with evidence).
-- [ ] Regenerate affected strings goldens.
-- **Acceptance:** `strings::graphemeAt` out-of-range raises `77...` without segmenting (verify error path); normalizeNfc rt-behavior fixtures byte-identical; any moot sub-task carries its evidence.
-- **Commit:** _(fill on land)_
+- [x] ~~U7: early OOB short-circuit before `lower_strings_graphemes`~~ — **moot: cannot be done safely for the stated gain.** `lower_strings_graphemes(value)` both evaluates `value` (its side effects) AND segments, in one monolithic function. An early `index < 0 || index >= byte_len` reject placed before it would skip `value`'s evaluation, changing argument-evaluation semantics (e.g. `graphemeAt(sideEffectingCall(), -1)` would no longer call it). The only safe form — evaluate `value` once, read its byte length, then segment from the already-lowered value — needs a refactor of that complex function (split value-lowering from the EGC state machine). That risk + the wide strings-golden churn far exceed an ERROR-PATH-ONLY micro-optimization. Verified the hazard by reading `lower_strings_grapheme_at:2802` (index lowered 2815, value segmented 2823, bounds checked 2838-2841 only after).
+- [x] ~~U3: streamline the gnome-sort back-step~~ — **moot.** The reorder runs over canonical-combining-class runs, which are ≤3 marks in essentially all real text, so it is already effectively O(1); insertion sort is O(n²) too, so there is no algorithmic win. The plan requires output stay byte-identical, and ANY edit to the emit churns the wide unicode `.ncodesum` goldens (~every string-using fixture) — churn with zero measurable benefit.
+- [x] ~~U6: NFC recomposition scan~~ — **moot** (as the verifier predicted): `compose_scan_loop` already early-outs on the sorted composition table (`> current -> compose_write`), and `comb_length` per starter is tiny; there is no cheap further win.
+- [x] ~~Regenerate strings goldens~~ — **moot: no code change** (all three sub-items moot), so no golden churn.
+- **Acceptance:** ✅ all three sub-items are marginal (tiny-input / error-path) optimizations whose safe implementation cost (correctness risk, monolithic-function refactor, or wide-golden churn) exceeds their negligible benefit; each carries its evidence above. No behavior change, no regressions (nothing edited).
+- **Commit:** _(next commit — plan doc only)_
 
 ## Phase 12 — datetime/D2: hard-coded fixed-width ISO writer
 
@@ -404,6 +404,14 @@ Address-taken-local hazard flagged at `builder_exits.rs:231`.
   tables, so a `caseFold`-only program drops even the base trie (the case path
   never indexes it). No rewrite of the 28-site NIR walk was needed. Verified all
   affected fixtures still link (no dropped-but-referenced table).
+- **Phase 11 (U3/U6/U7) is entirely moot after investigation.** The three items
+  the ledger already rated "marginal / low priority" turned out to have safe-
+  implementation costs that exceed their benefit: U7 can't skip segmentation
+  without changing argument-evaluation semantics (value side effects) or a risky
+  refactor of the monolithic `lower_strings_graphemes`; U3's gnome sort runs over
+  ≤3-mark runs (no algorithmic win, and any edit churns the wide unicode goldens);
+  U6 already has the sorted-table early-out. All marked moot with evidence, no code
+  changed. Net: the size/perf wins in this plan come from Phases 1-8/12, not 11.
 - **Phase-1 also left "fourteen tables" stale in the spec (fixed in Phase 3).**
   `## Embedding` said "all fourteen tables"; after the sequences removal it is
   thirteen, and after U5 the wording had to change from all-or-nothing to
