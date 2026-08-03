@@ -1598,6 +1598,46 @@ mod builtins_tests {
         ));
     }
 
+    #[test]
+    fn thread_start_self_entry_accepted() {
+        // plan-81: `thread::start(self::worker, …)` accepts a same-package
+        // EXPORT ISOLATED FUNC purely because its self-import signature carries
+        // `imported_package_export == true` — the checker itself has no `self`
+        // awareness.
+        assert!(accepts(concat!(
+            "IMPORT thread\n",
+            "IMPORT self\n",
+            "EXPORT ISOLATED FUNC echoText(worker AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n",
+            "  RETURN len(seed)\n",
+            "END FUNC\n",
+            "EXPORT FUNC spawn AS Integer\n",
+            "  LET t AS Thread OF String TO Integer = thread::start(self::echoText, \"hi\")\n",
+            "  RETURN thread::waitFor(t)\n",
+            "END FUNC\n",
+        )));
+    }
+
+    #[test]
+    fn thread_start_self_non_exported_rejected() {
+        // plan-81: `self::` sees only EXPORT symbols, so a PUBLIC (non-exported)
+        // ISOLATED FUNC is invisible through `self` and rejected as a thread entry,
+        // exactly as an external importer would see it.
+        assert!(rejects_with(
+            concat!(
+                "IMPORT thread\n",
+                "IMPORT self\n",
+                "ISOLATED FUNC hidden(worker AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n",
+                "  RETURN len(seed)\n",
+                "END FUNC\n",
+                "EXPORT FUNC spawn AS Integer\n",
+                "  LET t AS Thread OF String TO Integer = thread::start(self::hidden, \"hi\")\n",
+                "  RETURN thread::waitFor(t)\n",
+                "END FUNC\n",
+            ),
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
     // ---- general override target (toString on a package/builtin type) ------
 
     #[test]

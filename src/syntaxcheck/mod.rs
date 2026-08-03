@@ -1,7 +1,7 @@
 use crate::ast::{
     AstFile, AstProject, CallArg, ConstructorArg, ExitTarget, Expression, Function, FunctionKind,
     Item, LoopKind, MatchPattern, RecordUpdate, Statement, TopLevelBinding, TypeDecl, TypeDeclKind,
-    TypeField, Visibility,
+    TypeField, Visibility, SELF_IMPORT,
 };
 use crate::binary_repr::{
     self, BinaryReprExportKind, BinaryReprTypeExport, BinaryReprTypeField, BinaryReprTypeVariant,
@@ -733,6 +733,18 @@ impl<'a> SyntaxChecker<'a> {
                 if !seen.insert(binding.clone()) || builtins::is_builtin_import(&package) {
                     continue;
                 }
+                // `IMPORT self` binds the current package's own EXPORT interface,
+                // not a `.mfp` on disk. Register those exports under the `self`/alias
+                // binding as imported-package signatures so `self::worker` looks up
+                // like any external import and the thread-entry checker accepts it
+                // with zero `self` awareness (plan-81-import-self.md §4.2). Reached
+                // only in a package project — an executable's `IMPORT self` is a hard
+                // resolver error (`IMPORT_SELF_IN_EXECUTABLE`) that aborts the build
+                // before syntaxcheck runs.
+                if package == SELF_IMPORT {
+                    self.collect_self_exports(&binding);
+                    continue;
+                }
                 let package_file = self
                     .project_dir
                     .join("packages")
@@ -787,6 +799,63 @@ impl<'a> SyntaxChecker<'a> {
                         .or_default()
                         .push(sig);
                 }
+            }
+        }
+    }
+
+    /// Register the current project's EXPORT top-level FUNC/SUB declarations under
+    /// the `self`/alias `binding` as imported-package signatures
+    /// (`imported_package_export = true`, `Visibility::Export`), mirroring the
+    /// `.mfp` export-loading loop in `collect_package_functions`. This is what makes
+    /// `self::worker` resolve to a signature the thread-entry checker accepts, and
+    /// — because only EXPORT declarations are registered — makes `self::` expose
+    /// exactly the public API an external importer would see (a `self::` reference
+    /// to a PUBLIC/PRIVATE symbol finds no `self.`-keyed sig and fails, just like an
+    /// external import). The existing bare in-project registrations (flag `false`,
+    /// keyed by bare name) from `collect_functions` are left untouched, so ordinary
+    /// unqualified in-project calls are unaffected (plan-81-import-self.md §4.2).
+    fn collect_self_exports(&mut self, binding: &str) {
+        for file in &self.ast.files {
+            for item in &file.items {
+                let Item::Function(function) = item else {
+                    continue;
+                };
+                if function.visibility != Visibility::Export {
+                    continue;
+                }
+                let return_type = match function.kind {
+                    FunctionKind::Func => function
+                        .return_type
+                        .as_deref()
+                        .map(|name| self.parse_type(name))
+                        .unwrap_or(Type::Unknown),
+                    FunctionKind::Sub => Type::Nothing,
+                };
+                let params = function
+                    .params
+                    .iter()
+                    .map(|param| ParamSig {
+                        name: param.name.clone(),
+                        type_: param
+                            .type_name
+                            .as_deref()
+                            .map(|name| self.parse_type(name))
+                            .unwrap_or(Type::Unknown),
+                        has_default: param.default.is_some(),
+                    })
+                    .collect();
+                self.functions
+                    .entry(format!("{binding}.{}", function.name))
+                    .or_default()
+                    .push(FunctionSig {
+                        kind: function.kind,
+                        params,
+                        return_type,
+                        isolated: function.isolated,
+                        imported_package_export: true,
+                        visibility: Visibility::Export,
+                        owner_file_path: file.path.clone(),
+                    });
             }
         }
     }

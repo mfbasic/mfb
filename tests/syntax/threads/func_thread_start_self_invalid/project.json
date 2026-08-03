@@ -1,0 +1,8 @@
+{
+  "name": "func_thread_start_self_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "self:: of a non-exported or non-isolated func is rejected as a thread entry (plan-81-import-self.md).",
+  "sources": [{ "root": "src", "role": "package", "include": ["**/*.mfb"] }]
+}

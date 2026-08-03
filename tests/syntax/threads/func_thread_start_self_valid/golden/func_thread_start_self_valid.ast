@@ -1,0 +1,43 @@
+{
+  "project": "func_thread_start_self_valid",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    { "module": "thread", "line": 1 },
+    { "module": "self", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "export",
+      "isolated": true,
+      "name": "echoText",
+      "line": 4,
+      "params": [
+      { "name": "worker", "type": "ThreadWorker OF String TO Integer", "default": null, "line": 4 },
+      { "name": "seed", "type": "String", "default": null, "line": 4 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "seed" }] }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "isolated": false,
+      "name": "spawn",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "self.echoText" }, { "kind": "string", "value": "hi" }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 10 }
+      ]
+    }
+    ]
+  }
+  ]
+}

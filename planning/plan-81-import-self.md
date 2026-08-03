@@ -350,43 +350,57 @@ Front-end recognition of the reserved specifier, with no thread involvement yet.
 Acceptance: the four fixtures produce the expected `golden/build.log` (test-accept
 green); the executable case shows the dedicated diagnostic (not
 `SYMBOL_UNKNOWN_IMPORT`). MET.
-Commit: —
+Commit: fdcbf62e2
 
 ### Phase 3 — Self-import signatures carry `imported_package_export`
 
 Make `self::name` resolve to signatures the thread checker accepts, with zero
 change to the checker.
 
-- [ ] When `self` is imported (package project), register the project's EXPORT
+- [x] When `self` is imported (package project), register the project's EXPORT
       top-level declarations under the `self`/alias binding as imported-package
-      signatures (`imported_package_export = true`, `Visibility::Export`),
-      reusing the registration shape at `src/syntaxcheck/mod.rs:774`. Do not
-      alter the existing in-project (`false`) registrations.
-- [ ] Confirm `visible_from` hides non-EXPORT symbols through `self` (a
-      `self::privateOrPublicOnlyFunc` reference fails), matching external-import
-      behavior.
-- [ ] Verify `check_thread_builtin_call` is **unchanged** and now accepts
-      `thread::start(self::worker, …)` for an exported ISOLATED FUNC purely
-      because the looked-up sig has `imported_package_export == true`.
-- [ ] Tests: extend `tests/syntax/threads/` — a `func_thread_start_self_valid`
-      fixture (`kind: "package"`, `thread::start(self::echoText, …)` accepted)
-      and a `func_thread_start_self_invalid` fixture (`self::` of a non-exported
-      or non-isolated func rejected with the existing messages). Inline unit test
-      alongside `thread_start_bad_entry_rejected` for the accepted self path.
+      signatures (`imported_package_export = true`, `Visibility::Export`) via new
+      `SyntaxChecker::collect_self_exports` (called from `collect_package_functions`
+      before the `.mfp` probe), reusing the registration shape at
+      `src/syntaxcheck/mod.rs:774`. The existing bare in-project (`false`)
+      registrations from `collect_functions` are untouched.
+- [x] Confirm `visible_from` hides non-EXPORT through `self`: only EXPORT decls are
+      registered under `self.`, so a `self::hiddenWorker` (PUBLIC) reference finds
+      no `self`-keyed sig and is rejected — shown by `func_thread_start_self_invalid`
+      and the `thread_start_self_non_exported_rejected` unit test.
+- [x] Verified `check_thread_builtin_call` is **unchanged** (`git diff --stat
+      src/syntaxcheck/builtins.rs` = empty apart from the added tests; grep for
+      `SELF_IMPORT`/`self::` in the checker → none) and now accepts
+      `thread::start(self::echoText, …)` purely because the looked-up sig has
+      `imported_package_export == true`.
+- [x] Tests: `tests/syntax/threads/func_thread_start_self_valid` (`kind:
+      "package"`, `thread::start(self::echoText, …)` accepted, exit 0 with correct
+      `functionRef` IR) and `func_thread_start_self_invalid` (`self::` of a
+      non-exported PUBLIC func **and** an EXPORT non-ISOLATED func both rejected
+      with the existing `TYPE_CALL_ARGUMENT_MISMATCH` message). Inline unit tests
+      `thread_start_self_entry_accepted` / `thread_start_self_non_exported_rejected`
+      alongside `thread_start_bad_entry_rejected`.
 
-Acceptance: the self-valid fixture compiles clean; self-invalid reproduces the
-existing `TYPE_CALL_ARGUMENT_MISMATCH` / visibility errors; the thread-checker
-source has no `self` reference (grep proof).
+Acceptance: the self-valid fixture compiles clean (test-accept green); self-invalid
+reproduces the existing `TYPE_CALL_ARGUMENT_MISMATCH` errors; the thread-checker
+source has no `self` reference (grep proof; empty non-test diff). MET.
 Commit: —
 
 ### Phase 4 — Runtime/codegen wiring & end-to-end proof (largest blast radius last)
 
 Make a self-spawned worker actually run as an isolated instance.
 
-- [ ] Wire `thread::start(self::w, …)` lowering so the worker entry references
-      the current package's already-compiled ISOLATED FUNC and instantiates a
-      fresh package instance (per Phase 1's finding). If Phase 1 found the
-      mechanism already exists, this is connect-the-reference only.
+- [x] Wire `thread::start(self::w, …)` lowering so the worker entry references
+      the current package's already-compiled ISOLATED FUNC. **Landed early (with
+      Phase 3)** because the valid fixture's `.ir` golden depends on it: a one-line
+      special case in `src/ir/lower.rs:canonical_import_name` maps `self.worker`
+      to the bare current-package key `worker`, so the `Identifier` lowering finds
+      it in `function_types` and emits `functionRef name="worker"` (→
+      `_mfb_fn_worker`) instead of a dangling `Local`. Confirmed in
+      `func_thread_start_self_valid.ir` (`"kind": "functionRef", "name":
+      "echoText"`). Fresh-instance instantiation is the existing arena mechanism
+      (Phase 1), reached unchanged. Blast radius nil: the branch only fires for a
+      `self`-bound qualifier, which did not exist before this plan.
 - [ ] Runtime test: a package-project program that `IMPORT self`, spawns ≥2
       self-workers that each mutate a top-level `MUT`, and asserts (a) parallel
       results are correct and (b) top-level `MUT` is NOT shared across the parent

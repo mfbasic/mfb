@@ -1,0 +1,8 @@
+{
+  "name": "func_thread_start_self_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "thread::start(self::worker, …) accepts a same-package exported ISOLATED FUNC via IMPORT self (plan-81-import-self.md).",
+  "sources": [{ "root": "src", "role": "package", "include": ["**/*.mfb"] }]
+}
