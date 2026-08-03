@@ -245,7 +245,7 @@ Result-return self-moves). Recorded with commands above.
 
 ## C work-list (plan-71-C Phase 1) — the Family-1a source sites, deterministically derived
 
-Built with the plan-71-C Phase-0 source-instrumentation tool (commit `bac02f1c6`): the
+Built with the plan-71-C Phase-0 source-instrumentation tool (commit `bac02f1c6`; byte-identity gate PASS all 5 targets, `/tmp/bug387/gate-C-phase0.log`): the
 `MFB_BUG387_AUDIT` line now carries `@src=file:line` (the shared-builder emission site,
 threaded through `CodeInstruction`→MIR→`select_x86` via `#[track_caller]`). The work-list
 is a deterministic derivation, not an ambiguous grep:
