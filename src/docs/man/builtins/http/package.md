@@ -19,7 +19,7 @@ transport is provided by the native `net` and `tls` packages, so an `http://`
 request goes over `net` and an `https://` request goes over `tls`, and the
 package works on both Linux and macOS. A program writes `IMPORT http`; because
 the public surface takes a `net::Url`, callers also `IMPORT net`. They never
-need `IMPORT tls` — the TLS branch stays sealed inside `http`. [[src/builtins/http_package.mfb:__http_exchange]]
+need `IMPORT tls` — the TLS branch stays sealed inside `http`. [[src/builtins/http_package.mfb:__http_pump]]
 
 `http::read` performs a body-less request (GET by default; also HEAD, DELETE,
 OPTIONS) and `http::write` performs a request that carries a body (POST by
@@ -49,7 +49,7 @@ function. [[src/builtins/http_package.mfb:__http_parseResponse]]
 deadline (30 s) and, on the plaintext path, a per-read deadline (30 s), so a slow
 or black-holed peer cannot wedge the calling thread indefinitely — a stalled
 exchange fails with a timeout rather than blocking forever. The response is
-capped at 64 MiB regardless. [[src/builtins/http_package.mfb:__http_exchangeTcp]]
+capped at 64 MiB regardless. [[src/builtins/http_package.mfb:__http_readNet]]
 
 **No SSRF filtering (OS-10).** The client validates only the URL scheme; it does
 **not** restrict which host or address a request may target. A program that
@@ -111,7 +111,7 @@ tearing down the server. `Content-Length`, the reason phrase, and
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | raised by `read`/`write` when the method is empty or contains a space, when a caller header name/value or the URL-derived request-target/Host carries a control byte below `0x20` (in particular CR/LF — request-splitting is rejected, not framed), and by `route` when a `*`/`:name?` segment is not trailing [[src/builtins/http_package.mfb:__http_normalizeMethod]] [[src/builtins/http_package.mfb:__http_hasControlBytes]] |
 | `77050003` | `ErrInvalidFormat` | raised by `read`/`write` on a malformed response status line, header block, or chunked framing; the server maps the same class of request-parse failure (malformed request line, non-text headers, bad multipart framing) to a `400` response [[src/builtins/http_package.mfb:__http_parseStatusLine]] |
-| `77050010` | `ErrOverflow` | raised by `read`/`write` when the response exceeds the internal 64 MiB size cap; the server maps an oversize request to a `413` response [[src/builtins/http_package.mfb:__http_exchangeTcp]] |
+| `77050010` | `ErrOverflow` | raised by `read`/`write` when the response exceeds the internal 64 MiB size cap; the server maps an oversize request to a `413` response [[src/builtins/http_package.mfb:__http_readNet]] |
 
 Client transport failures from `net` and `tls` are propagated unchanged; a clean
 end of stream terminates an EOF-framed body and is not an error. The server,

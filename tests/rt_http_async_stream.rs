@@ -1,26 +1,32 @@
-//! plan-76-D Phase 2/3: the non-blocking http client drives a real HTTP exchange
-//! end to end over the `Stream` resource union carrying plan-74 `PendingState`.
+//! plan-76-D: the non-blocking http client drives a real HTTP exchange end to end
+//! over the `Stream` resource union carrying plan-74 `PendingState`, and the
+//! rewritten blocking `http::read` produces the same `Response` over the same core.
 //!
-//! A program binds `RES s AS http::Stream STATE PendingState = http::startRead(url)`,
-//! then loops `IF http::ready(s) THEN http::pump(s)` until `http::done(s)`, and
-//! `http::finish(s)` yields the `Response`. This exercises all five entry points +
-//! the union STATE mutation (`state.raw` accumulation across pumps), which is only
-//! expressible because plan-80 relocated the STATE slot (the D4 fix).
+//! - Async (Phase 2/3): `RES s AS http::Stream STATE PendingState =
+//!   http::startRead(url)`, then `IF http::ready(s) THEN http::pump(s)` until
+//!   `http::done(s)`, then `http::finish(s)`. Exercises all five entry points + the
+//!   union STATE mutation (`state.raw` accumulated across MULTIPLE pumps — only
+//!   expressible because plan-80 relocated the STATE slot, the D4 fix).
+//! - Blocking parity (Phase 4): `http::read(url)` — now a thin wrapper over the
+//!   same core — yields the identical status + body.
 //!
 //! The peer is a one-shot Python raw-socket HTTP/1.1 server (Connection: close, so
-//! the terminator is peer EOF, matching what `__http_buildRequest` forces). Gated
-//! only on `python3` being available (skipped otherwise). Not macOS-specific — the
-//! plaintext client uses the `net` Socket variant, which every backend supports.
+//! the terminator is peer EOF, matching what `__http_buildRequest` forces), which
+//! splits the body across two writes so the async client must pump more than once.
+//! Gated only on `python3`. Not macOS-specific — the plaintext client uses the
+//! `net` Socket variant, supported on every backend.
 
 mod common;
 
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::Path;
+use std::process::{Command, Output, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const PORT: u16 = 18473;
+const PORT_ASYNC: u16 = 18473;
+const PORT_BLOCKING: u16 = 18474;
+const EXPECT_BODY: &str = "hello-async-stream-BODY";
 
 fn nonce() -> u128 {
     SystemTime::now()
@@ -39,10 +45,10 @@ fn have_python() -> bool {
         .unwrap_or(false)
 }
 
-/// A one-shot HTTP/1.1 server: accept one connection, drain the request headers,
-/// reply with a fixed body sent in TWO writes (a small flush, then the rest after
-/// a brief pause) so the client must `pump` more than once to accumulate the full
-/// `state.raw` — proving multi-pump accumulation. Prints `READY` once listening.
+/// One-shot HTTP/1.1 server: accept one connection, drain the request headers,
+/// reply with a fixed body sent in TWO writes (a small flush, a brief pause, then
+/// the rest) so an async client accumulates `state.raw` across pumps. Prints
+/// `READY` once listening.
 const SERVER_PY: &str = r#"
 import socket, sys, time
 port = int(sys.argv[1])
@@ -60,7 +66,6 @@ while b"\r\n\r\n" not in data:
     data += chunk
 body = b"hello-async-stream-BODY"
 head = b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\nConnection: close\r\n\r\n" % len(body)
-# Split the response so the client accumulates across pumps.
 conn.sendall(head + body[:5])
 time.sleep(0.2)
 conn.sendall(body[5:])
@@ -68,31 +73,14 @@ conn.close()
 srv.close()
 "#;
 
-fn build_client(root: &Path) -> PathBuf {
+fn build_client(root: &Path, source: &str) -> std::path::PathBuf {
     fs::create_dir_all(root.join("src")).expect("create src dir");
     fs::write(
         root.join("project.json"),
-        "{\"name\":\"asyncstream\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\"sources\":[{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}],\"entry\":\"main\",\"targets\":[\"native\"]}\n",
+        "{\"name\":\"httpc\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\"sources\":[{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}],\"entry\":\"main\",\"targets\":[\"native\"]}\n",
     )
     .expect("write project.json");
-    let source = format!(
-        "IMPORT http\nIMPORT net\nIMPORT io\n\n\
-         FUNC main AS Integer\n\
-        \x20 LET u AS net::Url = net::toUrl(\"http://127.0.0.1:{PORT}/\")\n\
-        \x20 RES s AS http::Stream STATE PendingState = http::startRead(u)\n\
-        \x20 WHILE http::done(s) = FALSE\n\
-        \x20   IF http::ready(s) THEN\n\
-        \x20     http::pump(s)\n\
-        \x20   END IF\n\
-        \x20 END WHILE\n\
-        \x20 LET resp AS http::Response = http::finish(s)\n\
-        \x20 io::print(\"status=\" & toString(resp.status))\n\
-        \x20 io::print(\"body=\" & toString(resp.body))\n\
-        \x20 RETURN 0\n\
-         END FUNC\n",
-    );
     fs::write(root.join("src/main.mfb"), source).expect("write source");
-
     let output = Command::new(common::mfb_exe())
         .arg("build")
         .arg(root)
@@ -104,30 +92,26 @@ fn build_client(root: &Path) -> PathBuf {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    let stdout = String::from_utf8(output.stdout).expect("utf8 build output");
-    stdout
+    String::from_utf8(output.stdout)
+        .expect("utf8 build output")
         .lines()
         .find_map(|line| line.strip_prefix("Wrote executable to "))
-        .map(PathBuf::from)
+        .map(std::path::PathBuf::from)
         .expect("build output executable path")
 }
 
-#[test]
-fn async_stream_client_drives_a_full_exchange_over_the_union() {
-    if !have_python() {
-        eprintln!("skipping: python3 not available");
-        return;
-    }
-    let root = std::env::temp_dir().join(format!("mfb_p76d_async_{}", nonce()));
+/// Build `source`, start the one-shot server on `port`, run the client with a hard
+/// deadline, and return its process output. Panics (not hangs) on timeout.
+fn drive(port: u16, source: &str) -> Output {
+    let root = std::env::temp_dir().join(format!("mfb_p76d_{}_{}", port, nonce()));
     fs::create_dir_all(&root).expect("create temp root");
     let py = root.join("server.py");
     fs::write(&py, SERVER_PY).expect("write server.py");
-    let exe = build_client(&root);
+    let exe = build_client(&root, source);
 
-    // Start the one-shot server; wait for its READY line before connecting.
     let mut server = Command::new("python3")
         .arg(&py)
-        .arg(PORT.to_string())
+        .arg(port.to_string())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
@@ -137,16 +121,16 @@ fn async_stream_client_drives_a_full_exchange_over_the_union() {
         let mut rdr = BufReader::new(out);
         let mut line = String::new();
         rdr.read_line(&mut line).expect("read server READY");
-        assert!(line.starts_with("READY"), "server did not report READY: {line:?}");
+        assert!(
+            line.starts_with("READY"),
+            "server did not report READY: {line:?}"
+        );
     }
 
-    // Drive the client with a hard deadline so a hang (e.g. `ready` never firing)
-    // fails fast instead of wedging the suite.
     let server_pid = server.id();
     let (tx, rx) = std::sync::mpsc::channel();
-    let exe2 = exe.clone();
     let worker = std::thread::spawn(move || {
-        let out = Command::new(&exe2).output().expect("run async client");
+        let out = Command::new(&exe).output().expect("run http client");
         let _ = tx.send(out);
     });
 
@@ -161,28 +145,72 @@ fn async_stream_client_drives_a_full_exchange_over_the_union() {
                 .args(["-9", &server_pid.to_string()])
                 .status();
             let _ = fs::remove_dir_all(&root);
-            panic!(
-                "plan-76-D: async client did not finish within 30s — startRead/ready/\
-                 pump/done/finish loop hung (ready never fired, or done never true)"
-            );
+            panic!("plan-76-D: http client did not finish within 30s (loop hung)");
         }
     };
+    let _ = fs::remove_dir_all(&root);
+    out
+}
 
+fn assert_ok_response(out: &Output) {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
         out.status.success(),
-        "async client exited non-zero: {:?}\nstdout:\n{stdout}\nstderr:\n{}",
+        "client exited non-zero: {:?}\nstdout:\n{stdout}\nstderr:\n{}",
         out.status,
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(
         stdout.contains("status=200"),
-        "expected status=200 from the async exchange; got:\n{stdout}"
+        "expected status=200; got:\n{stdout}"
     );
     assert!(
-        stdout.contains("body=hello-async-stream-BODY"),
-        "expected the full accumulated body (multi-pump); got:\n{stdout}"
+        stdout.contains(&format!("body={EXPECT_BODY}")),
+        "expected the full body {EXPECT_BODY:?}; got:\n{stdout}"
     );
+}
 
-    let _ = fs::remove_dir_all(&root);
+#[test]
+fn async_stream_client_drives_a_full_exchange_over_the_union() {
+    if !have_python() {
+        eprintln!("skipping: python3 not available");
+        return;
+    }
+    let source = format!(
+        "IMPORT http\nIMPORT net\nIMPORT io\n\n\
+         FUNC main AS Integer\n\
+        \x20 LET u AS net::Url = net::toUrl(\"http://127.0.0.1:{PORT_ASYNC}/\")\n\
+        \x20 RES s AS http::Stream STATE PendingState = http::startRead(u)\n\
+        \x20 WHILE http::done(s) = FALSE\n\
+        \x20   IF http::ready(s) THEN\n\
+        \x20     http::pump(s)\n\
+        \x20   END IF\n\
+        \x20 END WHILE\n\
+        \x20 LET resp AS http::Response = http::finish(s)\n\
+        \x20 io::print(\"status=\" & toString(resp.status))\n\
+        \x20 io::print(\"body=\" & toString(resp.body))\n\
+        \x20 RETURN 0\n\
+         END FUNC\n",
+    );
+    assert_ok_response(&drive(PORT_ASYNC, &source));
+}
+
+#[test]
+fn blocking_read_over_the_async_core_yields_the_same_response() {
+    if !have_python() {
+        eprintln!("skipping: python3 not available");
+        return;
+    }
+    // The rewritten blocking wrapper (Phase 4) drives the same core internally.
+    let source = format!(
+        "IMPORT http\nIMPORT net\nIMPORT io\n\n\
+         FUNC main AS Integer\n\
+        \x20 LET u AS net::Url = net::toUrl(\"http://127.0.0.1:{PORT_BLOCKING}/\")\n\
+        \x20 LET resp AS http::Response = http::read(u)\n\
+        \x20 io::print(\"status=\" & toString(resp.status))\n\
+        \x20 io::print(\"body=\" & toString(resp.body))\n\
+        \x20 RETURN 0\n\
+         END FUNC\n",
+    );
+    assert_ok_response(&drive(PORT_BLOCKING, &source));
 }

@@ -336,74 +336,13 @@ FUNC __http_decodeBody(status AS Integer, headers AS Map OF String TO String, bo
 END FUNC
 
 ' ---- Transport branches (§B.5) ----
-
-' bug-303: accumulate BYTES, not decoded text. `readText` decodes each 64 KiB
-' receive independently, so a multi-byte UTF-8 sequence straddling a read boundary
-' raised ErrEncoding and failed the whole request -- the inline TRAP only recovers
-' ErrConnectionClosed. Framing is a byte-level concern and decoding happens once,
-' at the end, which is what plan-03-http specified in the first place.
-FUNC __http_exchangeTcp(url AS net::Url, requestText AS String) AS List OF Byte
-  ' bug-268 / OS-11: bounded connect + per-read deadlines so a slow/stalled peer
-  ' cannot wedge the calling thread indefinitely.
-  RES sock = net::connectTcp(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS)
-  net::setReadTimeout(sock, __HTTP_READ_TIMEOUT_MS)
-  net::writeText(sock, requestText)
-  MUT raw AS List OF Byte = []
-  MUT more AS Boolean = TRUE
-  WHILE more
-    MUT chunk AS List OF Byte = []
-    chunk = net::read(sock, 65536) TRAP(e)
-      IF e.code = errorCode::ErrConnectionClosed THEN
-        RECOVER []
-      END IF
-      PROPAGATE
-    END TRAP
-    IF len(chunk) = 0 THEN
-      more = FALSE
-    ELSE
-      raw = collections::append(raw, chunk)
-      IF len(raw) > __HTTP_MAX_RESPONSE THEN
-        FAIL error(77050010, "response too large")
-      END IF
-    END IF
-  END WHILE
-  RETURN raw
-END FUNC
-
-' bug-303: byte accumulation, as for the plaintext branch above.
-FUNC __http_exchangeTls(url AS net::Url, requestText AS String) AS List OF Byte
-  ' bug-268 / OS-11: bounded TLS connect deadline (the TLS surface has no
-  ' per-read timeout; the 64 MiB response cap bounds a stalled read's memory).
-  RES sock = tls::connect(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS, url.host)
-  tls::writeText(sock, requestText)
-  MUT raw AS List OF Byte = []
-  MUT more AS Boolean = TRUE
-  WHILE more
-    MUT chunk AS List OF Byte = []
-    chunk = tls::read(sock, 65536) TRAP(e)
-      IF e.code = errorCode::ErrConnectionClosed THEN
-        RECOVER []
-      END IF
-      PROPAGATE
-    END TRAP
-    IF len(chunk) = 0 THEN
-      more = FALSE
-    ELSE
-      raw = collections::append(raw, chunk)
-      IF len(raw) > __HTTP_MAX_RESPONSE THEN
-        FAIL error(77050010, "response too large")
-      END IF
-    END IF
-  END WHILE
-  RETURN raw
-END FUNC
-
-FUNC __http_exchange(url AS net::Url, requestText AS String) AS List OF Byte
-  IF url.scheme = "https" THEN
-    RETURN __http_exchangeTls(url, requestText)
-  END IF
-  RETURN __http_exchangeTcp(url, requestText)
-END FUNC
+'
+' plan-76-D: the blocking `__http_exchange{,Tcp,Tls}` read loops were removed —
+' the transport now lives in the non-blocking core above (`__http_readNet` /
+' `__http_readTls`, gated by `__http_ready`), driven by `__http_pump`. The blocking
+' `__http_read`/`__http_write` are thin wrappers over that core (below), so there
+' is exactly one read-loop implementation (no divergent second copy). Byte-for-byte
+' the same `Response` as before: identical request, accumulated bytes, and parse.
 
 ' ---- plan-76-D: non-blocking client core ----
 
@@ -542,33 +481,50 @@ FUNC __http_finish(RES s AS Stream STATE PendingState) AS Response
   RETURN __http_parseResponse(s.state.raw)
 END FUNC
 
-' Internal: BLOCK until the active transport is readable (omitted poll timeout).
-' The only blocking wait in the async core — `pump` stays non-blocking — so the
-' blocking `read`/`write` wrappers reuse the same drive loop cooperatively.
+' Internal: BLOCK until the active transport is readable, bounded by the read
+' deadline. The only blocking wait in the async core (`pump` stays non-blocking),
+' so the blocking `read`/`write` wrappers reuse the drive loop cooperatively. The
+' timed poll preserves the pre-plan-76-D read deadline (bug-268 / OS-11): the old
+' blocking path set `net::setReadTimeout`, so a black-holed peer failed cleanly
+' with `ErrTimeout` instead of wedging the thread. A timeout marks the stream's
+' STATE `err`, which `done` treats as terminal and `finish` reports.
 SUB __http_waitReadable(RES s AS Stream STATE PendingState)
-  MUT ok AS Boolean = FALSE
+  MUT rdy AS Boolean = FALSE
   MATCH s
     CASE Socket(p)
-      ok = net::poll(p)
+      rdy = net::poll(p, __HTTP_READ_TIMEOUT_MS)
     CASE TlsSocket(t)
-      ok = tls::poll(t)
+      rdy = tls::poll(t, __HTTP_READ_TIMEOUT_MS)
   END MATCH
+  IF rdy = FALSE THEN
+    s.state.err = errorCode::ErrTimeout
+  END IF
 END SUB
 
 ' ---- Public entry points (§B.1) ----
 
+' plan-76-D: the blocking client is now a thin driver over the non-blocking core.
+' It produces the SAME `Response` as the pre-plan-76-D `__http_exchange` path —
+' identical request (`__http_buildRequest`), identical accumulated bytes, identical
+' parse (`__http_parseResponse`) — only the read loop's shape differs (readiness-
+' gated `pump` vs a direct `net::read` loop). `__http_waitReadable` preserves the
+' read deadline; the socket is closed exactly once by `s`'s scope drop.
 FUNC __http_read(url AS net::Url, headers AS Map OF String TO String, method AS String) AS Response
-  LET verb AS String = __http_normalizeMethod(method)
-  LET request AS String = __http_buildRequest(verb, url, "", FALSE, headers)
-  LET raw AS List OF Byte = __http_exchange(url, request)
-  RETURN __http_parseResponse(raw)
+  RES s AS Stream STATE PendingState = __http_startExchange(url, "", FALSE, headers, method)
+  WHILE __http_done(s) = FALSE
+    __http_waitReadable(s)
+    __http_pump(s)
+  END WHILE
+  RETURN __http_finish(s)
 END FUNC
 
 FUNC __http_write(url AS net::Url, body AS String, headers AS Map OF String TO String, method AS String) AS Response
-  LET verb AS String = __http_normalizeMethod(method)
-  LET request AS String = __http_buildRequest(verb, url, body, TRUE, headers)
-  LET raw AS List OF Byte = __http_exchange(url, request)
-  RETURN __http_parseResponse(raw)
+  RES s AS Stream STATE PendingState = __http_startExchange(url, body, TRUE, headers, method)
+  WHILE __http_done(s) = FALSE
+    __http_waitReadable(s)
+    __http_pump(s)
+  END WHILE
+  RETURN __http_finish(s)
 END FUNC
 
 ' ============================================================================

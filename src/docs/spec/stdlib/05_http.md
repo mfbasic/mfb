@@ -180,7 +180,7 @@ is recovered as `""` (treated as a clean close, ending the loop); any other
 transport error propagates. The size cap is enforced inside the loop. The socket
 is a scoped resource (`RES`), closed when the exchange function returns.
 
-[[src/builtins/http_package.mfb:__http_exchange]] [[src/builtins/http_package.mfb:__http_exchangeTcp]] [[src/builtins/http_package.mfb:__http_exchangeTls]]
+[[src/builtins/http_package.mfb:__http_pump]] [[src/builtins/http_package.mfb:__http_readNet]] [[src/builtins/http_package.mfb:__http_readTls]]
 
 ## Request Flow
 
