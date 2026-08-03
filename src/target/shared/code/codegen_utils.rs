@@ -685,17 +685,22 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
         // and the owned-value zero-inits landed save_size bytes away from the
         // slots the scope-drops actually read.
         let stack_relative = instruction.fields.iter().any(|(name, value)| {
-            let value = value.render();
-            matches!(*name, "base" | "src")
-                && (abi::is_stack_pointer(&value)
-                    || value == crate::arch::x86_64::regmodel::STACK_POINTER)
+            // Check the field name before rendering so a non-`base`/`src` operand
+            // (the common case) never allocates. `rendered()` borrows the `Raw`/
+            // `Phys` register spelling — no `String` clone.
+            if !matches!(*name, "base" | "src") {
+                return false;
+            }
+            let value = value.rendered();
+            abi::is_stack_pointer(&value)
+                || value.as_ref() == crate::arch::x86_64::regmodel::STACK_POINTER
         });
         if !stack_relative {
             continue;
         }
         for (name, value) in &mut instruction.fields {
             if matches!(*name, "offset" | "imm") {
-                if let Ok(offset) = value.render().parse::<usize>() {
+                if let Ok(offset) = value.rendered().parse::<usize>() {
                     *value = Operand::imm((offset + offset_delta) as i64);
                 }
             }
@@ -745,10 +750,12 @@ fn assert_stack_accesses_fit_frame(instructions: &[CodeInstruction], total_stack
             continue;
         }
         let stack_relative = instruction.fields.iter().any(|(name, value)| {
-            let value = value.render();
-            matches!(*name, "base" | "src")
-                && (abi::is_stack_pointer(&value)
-                    || value == crate::arch::x86_64::regmodel::STACK_POINTER)
+            if !matches!(*name, "base" | "src") {
+                return false;
+            }
+            let value = value.rendered();
+            abi::is_stack_pointer(&value)
+                || value.as_ref() == crate::arch::x86_64::regmodel::STACK_POINTER
         });
         if !stack_relative {
             continue;
@@ -757,7 +764,7 @@ fn assert_stack_accesses_fit_frame(instructions: &[CodeInstruction], total_stack
             if !matches!(*name, "offset" | "imm") {
                 continue;
             }
-            let Ok(offset) = value.render().parse::<usize>() else {
+            let Ok(offset) = value.rendered().parse::<usize>() else {
                 continue;
             };
             // A load/store consumes 8 bytes at `offset`; an address computation
@@ -777,12 +784,15 @@ fn assert_stack_accesses_fit_frame(instructions: &[CodeInstruction], total_stack
 }
 
 /// Read the `base`/`offset` of a stack-argument sentinel load/store (bug-08).
-fn base_of(instruction: &CodeInstruction) -> Option<String> {
+/// Borrows the base operand's spelling (`rendered()` lends the `Raw` sentinel
+/// string with no allocation); the callers only compare it against the two
+/// sentinel constants.
+fn base_of(instruction: &CodeInstruction) -> Option<std::borrow::Cow<'_, str>> {
     instruction
         .fields
         .iter()
         .find(|(name, _)| *name == "base")
-        .map(|(_, value)| value.render())
+        .map(|(_, value)| value.rendered())
 }
 
 fn offset_of(instruction: &CodeInstruction) -> usize {
@@ -790,7 +800,7 @@ fn offset_of(instruction: &CodeInstruction) -> usize {
         .fields
         .iter()
         .find(|(name, _)| *name == "offset")
-        .and_then(|(_, value)| value.render().parse::<usize>().ok())
+        .and_then(|(_, value)| value.rendered().parse::<usize>().ok())
         .unwrap_or(0)
 }
 
@@ -829,9 +839,9 @@ fn resolve_stack_arg_sentinels(
             Some(base) => base,
             None => continue,
         };
-        let incoming = if base == abi::INCOMING_ARGS_BASE {
+        let incoming = if base.as_ref() == abi::INCOMING_ARGS_BASE {
             true
-        } else if base == abi::OUTGOING_ARGS_BASE {
+        } else if base.as_ref() == abi::OUTGOING_ARGS_BASE {
             false
         } else {
             continue;

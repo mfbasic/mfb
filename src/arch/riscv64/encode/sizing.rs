@@ -96,7 +96,14 @@ fn build_li(value: i64, steps: &mut Vec<LiStep>) {
 pub(super) fn instruction_size(instruction: &CodeInstruction) -> Result<usize, String> {
     let mut probe = Encoder::new(Vec::new(), HashMap::new());
     for (_, value) in &instruction.fields {
-        probe.imports.insert(value.render(), String::new());
+        // Only a `Raw` operand can name a call/data symbol the encoder resolves
+        // against `imports`; a `Phys`/`Imm`/`VReg` register or literal is never a
+        // relocation target, so seeding it renders a `String` binding resolution
+        // never reads. Binding never affects the byte count, so restricting the
+        // seed to `Raw` operands is size-identical (mirrors the aarch64 sizing).
+        if let crate::target::shared::code::Operand::Raw(text) = value {
+            probe.imports.insert(text.to_string(), String::new());
+        }
     }
     probe.emit_instruction(instruction)?;
     Ok(probe.text.len())

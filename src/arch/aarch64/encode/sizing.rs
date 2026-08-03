@@ -12,7 +12,17 @@ use crate::arch::encode_plan::InstructionEncoder;
 pub(super) fn instruction_size(instruction: &CodeInstruction) -> Result<usize, String> {
     let mut probe = Encoder::new(Vec::new(), HashMap::new());
     for (_, value) in &instruction.fields {
-        probe.imports.insert(value.render(), String::new());
+        // Only a `Raw` operand can name a call/data symbol the encoder resolves
+        // against `imports` (a call target / `adrp` symbol is a label-or-symbol
+        // string, stored `Raw`); a `Phys`/`Imm`/`VReg` register or literal is
+        // never a relocation target, so seeding it renders a `String` the binding
+        // resolution never looks up — pure waste. Binding never affects the byte
+        // count either way, so restricting the seed to `Raw` operands is
+        // size-identical while dropping the per-field `render()` allocation for
+        // the register/immediate operands that dominate the stream.
+        if let crate::target::shared::code::Operand::Raw(text) = value {
+            probe.imports.insert(text.to_string(), String::new());
+        }
     }
     probe.emit_instruction(instruction)?;
     Ok(probe.text.len())

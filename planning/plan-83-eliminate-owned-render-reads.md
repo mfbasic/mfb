@@ -42,9 +42,9 @@ and discard it. The allocation is pure waste.
 
 | Must be true | Command | Status |
 |---|---|---|
-| Typed `Operand` with `rendered()` (borrow) + `operand()` accessor exist | `rg -n 'fn rendered' src/target/shared/code/operand.rs` and `rg -n 'fn operand\(' src/target/shared/code/code_impl.rs` | MET |
-| Byte-identity oracle + acceptance harness | `ls scripts/artifact-gate.sh tests/acceptance/project.json` | MET |
-| The attribution probe is reproducible | see "Why this plan exists" (re-add the sampling allocator to `main.rs`, `MFB_ATTR_ALLOCS=1`) | MET (used to author this plan) |
+| Typed `Operand` with `rendered()` (borrow) + `operand()` accessor exist | `rg -n 'fn rendered' src/target/shared/code/operand.rs` and `rg -n 'fn operand\(' src/target/shared/code/code_impl.rs` | MET (confirmed 2026-08-03: `rendered` @operand.rs:118, `operand(` @code_impl.rs:52) |
+| Byte-identity oracle + acceptance harness | `ls scripts/artifact-gate.sh tests/acceptance/project.json` | MET (both present) |
+| The attribution probe is reproducible | see "Why this plan exists" (re-add the sampling allocator to `main.rs`, `MFB_ATTR_ALLOCS=1`) | MET (re-added as an uncommitted `MFB_ALLOC_STATS` counting allocator + `render()` counter; deterministic `render_calls`) |
 
 ## Non-goals
 
@@ -98,15 +98,25 @@ did; byte-identity is the guardrail.
 
 ### Phase 1 — The two biggest, cleanest post-regalloc sites
 
-- [ ] `arch::aarch64::encode::sizing::instruction_size` (8%): stop rendering every
-      field into the `probe.imports` map — key only the fields that need it, via
-      `rendered()`; or size without the owned map.
-- [ ] `codegen_utils::finalize_frame` (7%): read operands via `operand()`/
-      `rendered()` instead of `get()`/`render()`.
+- [x] `arch::aarch64::encode::sizing::instruction_size` (8%): stop rendering every
+      field into the `probe.imports` map — seed only `Raw` operands (a call/`adrp`
+      target is a symbol string, stored `Raw`; a `Phys`/`Imm`/`VReg` is never a
+      relocation target and binding never affects the byte count). Same fix applied
+      to `riscv64` sizing (identical waste; see Corrections).
+- [x] `codegen_utils::finalize_frame` (7%): the render buckets live in its helpers
+      (`adjust_stack_instruction_offsets`, `base_of`/`offset_of`,
+      `assert_stack_accesses_fit_frame`) — converted to borrowing `rendered()` and
+      name-checked-before-render; `base_of` now returns `Cow` instead of `String`.
 
-Acceptance: `artifact-gate … all` 0 diffs; `cargo test --bin mfb` green; re-run the
-attribution probe and confirm the `sizing`+`finalize_frame` `Operand::render`
-buckets are gone/greatly reduced (record before/after est-alloc numbers here).
+Acceptance: `artifact-gate … all` 0 NEW diffs (the only 2 diffs — `control_flow_if`
++ `parser_hello_world` `.mir`, a `%ret0`→`%arg0` role-token label drift — reproduce
+byte-for-byte on unmodified `main`, so they are pre-existing stale goldens, not
+plan-83; regenerated as a fix, see Corrections). `cargo test --bin mfb` green
+(3780 passed). Measured (deterministic `render_calls`, `MFB_ALLOC_STATS` probe over
+`mfb build -ncode scripts/bench-probes/one-regex`): base `render_calls=22,279,314`,
+`allocs≈126.57M` → after Phase 1 `render_calls=15,721,114`, `allocs≈120.02M`. Δ =
+**−6,558,200 render calls (−29.4%)**, ≈ **−6.55M allocations (~−5.2% of all)**,
+≈1:1 render→alloc as expected. `sizing`+`finalize_frame` buckets eliminated.
 Commit: —
 
 ### Phase 2 — peephole + fma_fusion (post-regalloc)
@@ -154,7 +164,29 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Phase 1 scope extended to `riscv64::encode::sizing::instruction_size`.** The
+  aarch64 `instruction_size` had a byte-for-byte twin in the riscv64 encoder with
+  the identical per-field `value.render()` seed of `probe.imports`. Both encoders
+  consult `imports` only through `resolve_call_binding`/`resolve_data_binding`
+  (call/data symbol targets, always stored `Raw`), and binding never changes the
+  byte count, so seeding non-`Raw` operands is pure waste in both. The plan named
+  only aarch64; leaving the identical riscv64 waste would be a deferral, so the
+  same `Raw`-only fix was applied there. Byte-identity covered by the gate's
+  multi-target riscv64 `.ncodesum` goldens (0 diffs).
+
+- **Two pre-existing stale `.mir` goldens, unrelated to plan-83, fixed.** The
+  `artifact-gate … all` run reported exactly 2 diffs:
+  `rt-behavior/control-flow/control-flow-if/…macos-aarch64.mir` and
+  `syntax/lexical/parser-hello-world/…macos-aarch64.mir`, both a `%ret0`→`%arg0`
+  role-token *label* drift in `ldr_u64`/`add_imm` `dst` fields. Verified at HEAD:
+  a detached `git worktree` at the base tip (`171fc43cf`), rebuilt clean, produces
+  the *identical* `%arg0` output — so these are pre-existing stale goldens (an
+  earlier change, likely plan-85's typed ABI tokens, didn't regenerate them), not
+  a plan-83 regression. The machine-code goldens (`.ncode`/`.nobj`) match on both,
+  proving `%arg0` and `%ret0` realize to the same physical register (x0) — a purely
+  cosmetic dump-label drift. Per AGENTS.md ("fix a bug you find, not excused by
+  pre-existing, verify at HEAD"), regenerated the 2 `.mir` goldens (the only lines
+  changed are `%ret0`→`%arg0`). This makes plan-83's gate a genuine 0 diffs.
 
 ## Summary
 
