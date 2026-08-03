@@ -1129,13 +1129,17 @@ pub(in crate::target::shared::code::tls) fn lower_tls_listen_macos(
         abi::branch(&wait_loop),      // invalid / waiting
         abi::label(&ready),
     ]);
-    // Build the TlsListener record { closed=0, listener, queue, lctx }.
+    // Build the TlsListener record: header { tag, listener, closed=0, STATE=0 }
+    // then the macOS tail { lctx, queue } (plan-80).
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", REC_SIZE),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
+        abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_LISTENER),
+        abi::store_u64("%v9", abi::RET[1], REC_TAG),
+        abi::store_u64(abi::ZERO, abi::RET[1], REC_STATE),
         abi::store_u64(abi::ZERO, abi::RET[1], REC_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), LISTENER),
         abi::store_u64("%v9", abi::RET[1], REC_CONN),
@@ -1596,6 +1600,9 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
+        abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_MACOS),
+        abi::store_u64("%v9", abi::RET[1], REC_TAG),
+        abi::store_u64(abi::ZERO, abi::RET[1], REC_STATE),
         abi::store_u64(abi::ZERO, abi::RET[1], REC_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), CONN),
         abi::store_u64("%v9", abi::RET[1], REC_CONN),

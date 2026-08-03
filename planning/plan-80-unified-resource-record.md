@@ -60,9 +60,9 @@ gate (Phase 4) is green.
 
 | Must be true | Command | Status |
 |---|---|---|
-| Repo builds clean; full gate green at HEAD | `cargo build --bin mfb && bash scripts/artifact-gate.sh target/debug/mfb all` | UNVERIFIED — run first |
-| plan-74 union STATE landed (the mechanism this plan relocates) | `ls planning/completed/plan-74-* 2>/dev/null` OR grep `FILE_OFFSET_STATE` in `src/target/shared/code/error_constants.rs` | MET — `FILE_OFFSET_STATE = 16` present |
-| No concurrent artifact-gate running | `pgrep -f artifact-gate` → empty | UNVERIFIED — check before each gate |
+| Repo builds clean; full gate green at HEAD | `cargo build --bin mfb && bash scripts/artifact-gate.sh target/debug/mfb all` | MET — baseline gate 2026-08-03: 1146 tests, 1553 goldens, **0 diffs**, exit 0 |
+| plan-74 union STATE landed (the mechanism this plan relocates) | `ls planning/completed/plan-74-* 2>/dev/null` OR grep `FILE_OFFSET_STATE` in `src/target/shared/code/error_constants.rs` | MET — `planning/completed/plan-74-resource-union-state.md` present; `FILE_OFFSET_STATE` present |
+| No concurrent artifact-gate running | `pgrep -f artifact-gate` → empty | MET at baseline (empty); re-check before each gate |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run and update before continuing and before stopping. If you stop, report the
@@ -241,21 +241,39 @@ one golden regen + full gate.
 
 ### Phase 1 — Header constants + envelope grow
 
-- [ ] Add `tag`/`handle`/`STATE` header constants; move `closed` 8→16; shift
-  `FILE_OFFSET_*` +8; envelope 80→96 (`error_constants.rs`).
-- [ ] Update the arena-alloc immediate + fits-inside asserts + thread-transfer copy
-  length to 96.
-- Acceptance: `cargo build --bin mfb` clean; `closed`/`STATE` asserts compile.
+- [x] Add `tag`/`handle`/`STATE` header constants (`RESOURCE_OFFSET_TAG/HANDLE/STATE`);
+  move `closed` 8→16; shift `FILE_OFFSET_*` +8; envelope 80→96 (`error_constants.rs`).
+- [x] Update the arena-alloc immediate (`RESOURCE_RECORD_SIZE = "96"`) + fits-inside
+  asserts + thread-transfer copy (fd/closed literals → named header constants; tag
+  copied verbatim) — `builder_arena_transfer.rs`.
+- Acceptance: `cargo build --bin mfb` clean; `closed`/`STATE` asserts compile. **MET**
+  (build EXIT=0; the per-backend `== RESOURCE_OFFSET_CLOSED/STATE` const asserts all
+  compiled). NOTE: Phase 1 + Phase 2 land in one commit — the per-backend asserts
+  intentionally fail to compile until the backends are re-slotted too (that is their
+  job), so an isolated Phase-1-only build is impossible by design.
 Commit: —
 
 ### Phase 2 — Re-slot all 5 backends + write the tag at construction
 
-- [ ] net (Socket/UdpSocket/Listener) — tag write; verify `FILE_OFFSET_*` shift.
-- [ ] fs (File) — buffers shift +8.
-- [ ] tls openssl / macOS / schannel / listener — re-slot per § 4.2; tag write.
-- [ ] audio (In/Out) — `H_*` shift; tag write.
-- [ ] Per-backend `assert!(… == RESOURCE_OFFSET_STATE)` and `… == RESOURCE_OFFSET_CLOSED`.
-- Acceptance: `cargo build --bin mfb` clean on all 5 targets; `cargo test` green.
+- [x] net (Socket/UdpSocket/Listener) — tag write (added `tag` param to
+  `emit_make_handle`; Socket/UdpSocket/Listener at the accept/bindUdp/endpoint
+  callers); `FILE_OFFSET_*` shift verified (all named — moves for free).
+- [x] fs (File) — buffers shift +8 (named `FILE_OFFSET_*`); `tag@0` at all 4 open
+  sites (`fs/io.rs` ×2, `fs/atomic.rs` ×2).
+- [x] tls openssl / macOS / schannel / listener — re-slot per §4.2 (openssl
+  `SSL 16→40`,`CTX 24→32`; macOS `QUEUE 16→40`,`CTX 24→32`; schannel state-block
+  ptr `16→40` via new `TLS_SCHANNEL_OFFSET_BLOCK`, all bare-literal 16/24 sites
+  repointed); `tag@0` + `STATE@24` zero-init at every construction site.
+- [x] audio (In/Out) — `H_*` re-slot (header 0..32 shared, type tail 32+; mmap
+  `H_STATE 48→64`); `tag@0` + `STATE@24` zero at all 4 open sites (macOS out/in,
+  ALSA, WASAPI).
+- [x] Per-backend `assert!(… == RESOURCE_OFFSET_STATE)`/`… == RESOURCE_OFFSET_CLOSED)`
+  (+ `== RESOURCE_OFFSET_HANDLE` and `tail + 8 <= RESOURCE_RECORD_SIZE_BYTES`) in
+  `error_constants.rs`, `tls/mod.rs`, `tls/macos/mod.rs`, `audio/mod.rs`.
+- Acceptance: `cargo build --bin mfb` clean; `cargo test --bin mfb` green. **MET**
+  (build EXIT=0, 0 warnings; `test result: ok. 3774 passed; 0 failed`). One binary
+  codegens all 5 backends, so a clean build covers all targets; goldens regenerate
+  in Phase 4.
 Commit: —
 
 ### Phase 3 — Close dispatch + imported/native in-record closer
@@ -300,7 +318,32 @@ Commit: —
 
 ## Corrections
 
-_(none yet — record every divergence here with the command that measured it.)_
+- **C1 (§1 tag table, Phase 2/3): the `Imported` (`0xFE`) tag has no distinct
+  construction site — imported *and* native resources are wrapped by the SAME
+  native `return_resource` path in `link_thunk.rs` (fn at :1432).** An imported
+  `.mfp` package obtains its OS handle via a native LINK call, and that call's
+  wrapper is the only place a resource record is built around a foreign handle
+  (`rg -n 'return_resource' src/target/shared/code/link_thunk.rs` → the single
+  `if function.return_resource {…}` record-alloc block). So there is no code site
+  at which a live record could be stamped `0xFE` distinctly from `0xFF`. Both carry
+  `RESOURCE_TAG_NATIVE`; `RESOURCE_TAG_IMPORTED` was dropped rather than shipped as
+  an unused constant (AGENTS.md dead-code rule). This is cosmetic: close dispatch
+  is compile-time-resolved by the static resource type (see C2), so nothing reads
+  the tag at runtime. Measured while resolving the `RESOURCE_TAG_IMPORTED is never
+  used` build warning.
+- **C2 (§3, §4.4, Phase 3): builtin close dispatch stays compile-time-resolved; it
+  is NOT converted to a runtime tag table.** The plan §4.4 says the closer is
+  "known at compile time," and `resource_cleanup_symbol`
+  (`builder_resource_cleanup.rs:16-43`) already resolves each concrete resource's
+  closer from its static type name, while a resource *union* dispatches on its own
+  `union_variant_tags` (`:52-71`) — neither reads the record's `tag@0`. A concrete
+  resource's type is always statically known at its close site (mfbasic never
+  erases a resource type), so a runtime tag switch would add golden churn + risk
+  for zero behavioral change (a Non-goal: "no behavioral change to any resource
+  op"). The record `tag@0` is therefore written for self-description only; the
+  Phase-3 "keyed by the new tag" reframing is satisfied by the existing
+  compile-time resolution. See Phase 3 for the imported/native in-record-closer
+  evaluation (gated on the sqlite3.mfp regression).
 
 ## Summary
 

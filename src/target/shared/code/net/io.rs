@@ -273,6 +273,7 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
     emit_make_handle(
         symbol,
         FD_OFFSET,
+        RESOURCE_TAG_SOCKET,
         &mut instructions,
         &mut relocations,
         &alloc_fail,
@@ -1418,6 +1419,7 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
     emit_make_handle(
         symbol,
         FD_OFFSET,
+        RESOURCE_TAG_UDP_SOCKET,
         &mut instructions,
         &mut relocations,
         &alloc_fail,

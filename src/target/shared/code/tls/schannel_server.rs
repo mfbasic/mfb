@@ -550,19 +550,22 @@ pub(super) fn lower_tls_listen(
         abi::branch_lt(&tls_fail_fd),
     ]);
 
-    // Build the listener record { fd, closed=0, WORK ptr @16, 0 @24 }.
+    // Build the listener record: canonical header { tag, fd, closed=0, STATE=0 }
+    // then the tail { WORK block ptr @TLS_SCHANNEL_OFFSET_BLOCK } (plan-80).
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &tls_fail_fd);
     ins.extend([
+        abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_LISTENER),
+        abi::store_u64("%v9", abi::RET[1], RESOURCE_OFFSET_TAG),
+        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_STATE),
         abi::load_u64("%v9", abi::stack_pointer(), FD),
         abi::store_u64("%v9", abi::RET[1], TLS_OFFSET_FD),
         abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), WORK),
-        abi::store_u64("%v9", abi::RET[1], 16),
-        abi::store_u64(abi::ZERO, abi::RET[1], 24),
+        abi::store_u64("%v9", abi::RET[1], TLS_SCHANNEL_OFFSET_BLOCK),
         abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -641,7 +644,7 @@ pub(super) fn lower_tls_accept(
         abi::branch_ne(&closed),
         abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_FD),
         abi::store_u64("%v9", abi::stack_pointer(), LISTENFD),
-        abi::load_u64("%v9", abi::return_register(), 16), // WORK ptr
+        abi::load_u64("%v9", abi::return_register(), TLS_SCHANNEL_OFFSET_BLOCK), // WORK ptr
         abi::add_immediate("%v9", "%v9", stl::CRED),
         abi::store_u64("%v9", abi::stack_pointer(), LCRED),
         // plan-73-D: the unbounded sentinel => a blocking accept (omit = block); `0`
@@ -930,19 +933,22 @@ pub(super) fn lower_tls_accept(
         abi::store_u32("%v9", "%v10", st::MAXMSG),
     ]);
 
-    // Build the TlsSocket record { fd, closed=0, state@16, 0@24 }.
+    // Build the TlsSocket record: canonical header { tag, fd, closed=0, STATE=0 }
+    // then the tail { SSPI block ptr @TLS_SCHANNEL_OFFSET_BLOCK } (plan-80).
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
+        abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_SCHANNEL),
+        abi::store_u64("%v9", abi::RET[1], RESOURCE_OFFSET_TAG),
+        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_STATE),
         abi::load_u64("%v9", abi::stack_pointer(), CONNFD),
         abi::store_u64("%v9", abi::RET[1], TLS_OFFSET_FD),
         abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), STATE),
-        abi::store_u64("%v9", abi::RET[1], 16),
-        abi::store_u64(abi::ZERO, abi::RET[1], 24),
+        abi::store_u64("%v9", abi::RET[1], TLS_SCHANNEL_OFFSET_BLOCK),
         abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1007,7 +1013,7 @@ pub(super) fn lower_tls_close_listener(
         abi::branch_ne(&already),
         abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_FD),
         abi::store_u64("%v9", abi::stack_pointer(), FD),
-        abi::load_u64("%v9", abi::return_register(), 16),
+        abi::load_u64("%v9", abi::return_register(), TLS_SCHANNEL_OFFSET_BLOCK),
         abi::store_u64("%v9", abi::stack_pointer(), WORK),
         // FreeCredentialsHandle(&WORK.CRED)
         abi::load_u64("%v9", abi::stack_pointer(), WORK),

@@ -418,6 +418,10 @@ fn lower_open(
     instructions.extend([
         abi::move_register("%v15", abi::RET[1]),
         abi::store_u64("%v15", abi::stack_pointer(), HANDLE_OFF),
+        // Canonical plan-80 header: tag@0, kind (handle)@8, closed@16, STATE@24.
+        abi::move_immediate("%v9", "Integer", RESOURCE_TAG_AUDIO),
+        abi::store_u64("%v9", "%v15", RESOURCE_OFFSET_TAG),
+        abi::store_u64(abi::ZERO, "%v15", RESOURCE_OFFSET_STATE),
         abi::move_immediate(
             "%v9",
             "Integer",

@@ -76,22 +76,26 @@ const NW_STATE_READY: &str = "3";
 const NW_LISTENER_READY: &str = "2";
 const NW_LISTENER_FAILED: &str = "3";
 
-// The handle record: nw_connection, closed flag, dispatch queue, ctx pointer.
-// The `closed` flag sits at the canonical resource closed-flag offset 8
-// (plan-38 F7) so the backend-independent closed-default (which zeroes the
-// record and sets offset 8) marks this record closed too. Before plan-38 the
-// closed flag was at offset 0 and offset 8 held `REC_CONN`; a closed-default
-// record then read as *open* and `close` dereferenced offset 8 (=1) as the
-// connection pointer → `nw_connection_cancel((void*)0x1)` SIGSEGV on the drop
-// path. Swapping the two offsets fixes it and satisfies the shared assert. All
-// record accesses go through these named constants, so the swap is transparent.
-const REC_CONN: usize = 0;
-const REC_CLOSED: usize = 8;
-const REC_QUEUE: usize = 16;
-const REC_CTX: usize = 24;
-const REC_SIZE: &str = "32";
+// The handle record shares the canonical plan-80 header: tag@0, handle
+// (nw_connection)@8, closed@16, STATE@24 — then the macOS tail { ctx@32,
+// dispatch-queue@40 }. The `closed` flag sits at the canonical resource
+// closed-flag offset (plan-38 F7) so the backend-independent closed-default
+// (which zeroes the record and sets the closed byte) marks this record closed
+// too. STATE@24 is the generic union payload slot (plan-74/80), null until the
+// bind lazy-inits it. All record accesses go through these named constants, so
+// the re-slot is transparent.
+const REC_TAG: usize = RESOURCE_OFFSET_TAG;
+const REC_CONN: usize = RESOURCE_OFFSET_HANDLE;
+const REC_CLOSED: usize = RESOURCE_OFFSET_CLOSED;
+const REC_STATE: usize = RESOURCE_OFFSET_STATE;
+const REC_CTX: usize = 32;
+const REC_QUEUE: usize = 40;
+const REC_SIZE: &str = RESOURCE_RECORD_SIZE;
 
 const _: () = assert!(REC_CLOSED == RESOURCE_OFFSET_CLOSED);
+const _: () = assert!(REC_STATE == RESOURCE_OFFSET_STATE);
+const _: () = assert!(REC_CONN == RESOURCE_OFFSET_HANDLE);
+const _: () = assert!(REC_QUEUE + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 
 // The shared block context (arena): semaphore, the captured signal fn, and
 // the slots each block writes before signaling.

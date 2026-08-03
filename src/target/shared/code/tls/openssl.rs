@@ -679,13 +679,17 @@ pub(super) fn lower_tls_connect_openssl(
         TIMEVAL_OFFSET,
     )?;
     instructions.push(abi::label(&hs_timeout_clear));
-    // Build the TlsSocket record { fd, closed = 0, ssl, ctx }.
+    // Build the TlsSocket record: canonical header { tag, fd, closed=0, STATE=0 }
+    // then the TLS tail { ssl, ctx } (plan-80).
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
+        abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_OPENSSL),
+        abi::store_u64("%v9", abi::RET[1], RESOURCE_OFFSET_TAG),
+        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_STATE),
         abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
         abi::store_u64("%v9", abi::RET[1], TLS_OFFSET_FD),
         abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_CLOSED),
@@ -1359,7 +1363,8 @@ pub(super) fn lower_tls_listen_openssl(
         abi::compare_immediate(abi::return_register(), "1"),
         abi::branch_ne(&ctx_fail),
     ]);
-    // Build the TlsListener record { fd, closed = 0, ctx, reserved = 0 }.
+    // Build the TlsListener record: canonical header { tag, fd, closed=0, STATE=0 }
+    // then the TLS tail { ctx } (plan-80).
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
@@ -1377,12 +1382,14 @@ pub(super) fn lower_tls_listen_openssl(
         &alloc_fail_ctx_fd,
     );
     instructions.extend([
+        abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_LISTENER),
+        abi::store_u64("%v9", abi::RET[1], RESOURCE_OFFSET_TAG),
+        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_STATE),
         abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
         abi::store_u64("%v9", abi::RET[1], TLS_LISTENER_OFFSET_FD),
         abi::store_u64(abi::ZERO, abi::RET[1], TLS_LISTENER_OFFSET_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), CTX_OFFSET),
         abi::store_u64("%v9", abi::RET[1], TLS_LISTENER_OFFSET_CTX),
-        abi::store_u64(abi::ZERO, abi::RET[1], 24),
         abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1796,15 +1803,19 @@ pub(super) fn lower_tls_accept_openssl(
         TIMEVAL_OFFSET,
     )?;
     instructions.push(abi::label(&hs_timeout_cleared));
-    // Build the TlsSocket record { fd, closed = 0, ssl, ctx = 0 } — the zero
-    // ctx slot marks a non-owned (listener-owned) server context, which the
-    // close helper must not free (plan-06-tls-server.md §6.4).
+    // Build the TlsSocket record: canonical header { tag, fd, closed=0, STATE=0 }
+    // then the TLS tail { ssl, ctx = 0 } (plan-80) — the zero ctx slot marks a
+    // non-owned (listener-owned) server context, which the close helper must not
+    // free (plan-06-tls-server.md §6.4).
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
+        abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_OPENSSL),
+        abi::store_u64("%v9", abi::RET[1], RESOURCE_OFFSET_TAG),
+        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_STATE),
         abi::load_u64("%v9", abi::stack_pointer(), CONNFD_OFFSET),
         abi::store_u64("%v9", abi::RET[1], TLS_OFFSET_FD),
         abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_CLOSED),

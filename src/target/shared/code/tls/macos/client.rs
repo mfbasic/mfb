@@ -593,13 +593,17 @@ pub(in crate::target::shared::code::tls) fn lower_tls_connect_macos(
         abi::branch(&conn_fail), // waiting/failed/cancelled
         abi::label(&ready),
     ]);
-    // Build the TlsSocket record { closed=0, conn, queue, ctx }.
+    // Build the TlsSocket record: header { tag, conn, closed=0, STATE=0 } then
+    // the macOS tail { ctx, queue } (plan-80).
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", REC_SIZE),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
+        abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_MACOS),
+        abi::store_u64("%v9", abi::RET[1], REC_TAG),
+        abi::store_u64(abi::ZERO, abi::RET[1], REC_STATE),
         abi::store_u64(abi::ZERO, abi::RET[1], REC_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), CONN),
         abi::store_u64("%v9", abi::RET[1], REC_CONN),
