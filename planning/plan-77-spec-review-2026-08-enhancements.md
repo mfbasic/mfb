@@ -230,7 +230,7 @@ materializes a list). Parse side already uses the buffer approach (plan-64 A3).
 - [x] Replaced `__csv_quoteField`'s `strings::graphemes(field)` loop (materialized a full grapheme List + per-grapheme concat) with `RETURN "\"" & strings::replace(field, "\"", "\"\"") & "\""` — a raw-string replace (`"` is ASCII 0x22, never inside a multibyte sequence, so byte-level is exact). No grapheme list, no per-grapheme loop.
 - [x] Regenerated the two csv `.ir` (small diff — quoteField is at EOF so no line-shift) and the 5 byte-identity/csv `.ncodesum`.
 - **Acceptance:** ✅ csv-behavior rt fixture output **identical**; ✅ a stringify+roundtrip test (comma/quote/newline/UTF-8 fields, doubled quotes `a""b""c`, `café,ü`) correct; ✅ lowered `.ir` shows the grapheme-loop ops gone. `cargo test --bin mfb` green.
-- **Commit:** _(next commit)_
+- **Commit:** `49fa3b9f9`
 
 ## Phase 8 — csv/C3: dialect config (additive)
 
@@ -298,10 +298,10 @@ Anchors: `__datetime_toIso` `datetime_package.mfb:730-732` = `__datetime_format(
 char-by-char pattern interpreter. Golden ripple: `.ir`/`.ast` + `.ncodesum` across
 5 targets.
 
-- [ ] Replace `__datetime_toIso` body with direct field extraction + zero-padding emitting the 24-char `yyyy-MM-ddTHH:mm:ss.fffZ` layout in one pass (no pattern scan, no `__datetime_formatToken` dispatch). Truncate fractional seconds (matches D3 verdict — do NOT round).
-- [ ] Regenerate datetime `.ir`/`.ast` goldens and the 5-target `.ncodesum`.
-- **Acceptance:** `strings`/datetime rt-behavior fixtures calling `toIso` produce byte-identical output vs the old formatter across a spread of datetimes (incl. sub-second, Z); suites green.
-- **Commit:** _(fill on land)_
+- [x] Replaced `__datetime_toIso`'s `__datetime_format(dt, "yyyy-MM-dd'T'HH:mm:ss.fffZ")` with direct field access: `padN(year,4) & "-" & pad2(month) & "-" & pad2(day) & "T" & pad2(hour) & ":" & pad2(minute) & ":" & pad2(second) & "." & left(padN(nanos,9),3) & isoZone(offset)`. Uses the SAME helpers `formatToken` uses (padN/pad2/left/offsetLabel), so it is byte-identical by construction — no pattern scan, no per-letter run counting, no `formatToken` dispatch. `.fff` = `left(padN(nanos,9),3)` truncates (matches D3). Added `__datetime_isoZone` at EOF; kept `toIso` line-neutral (3→3 lines) so the churn is minimal.
+- [x] Regenerated 13 datetime-importing `.ir`/`.ast` goldens + the 5 byte-identity/datetime `.ncodesum`.
+- **Acceptance:** ✅ direct byte-match test: `toIso(dt) == format(dt, "yyyy-MM-dd'T'HH:mm:ss.fffZ")` for UTC/`+05:30`/`-08:00`/epoch/others; ✅ datetime-format-valid, datetime-instant-valid, datetime-civil-valid rt fixtures **identical** output. `cargo test --bin mfb` green.
+- **Commit:** _(next commit)_
 
 ## Phase 13 — Memory/M4: optional threshold compaction on in-place value-grow
 
