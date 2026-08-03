@@ -152,16 +152,24 @@ index.
 | …across files | 44 | `rg -l 'allocate_register\|allocate_fp_register\|temporary_vreg' src/ \| wc -l` |
 | Register-string consumers (`parse_vreg`/`*_physical_index`/`vreg_name`/…) | 85 occ / 10 files | `rg -c 'parse_vreg\|parse_fp_vreg\|int_concrete_physical_index\|fp_physical_index\|vreg_name\|fp_vreg_name' src/` |
 | Render surface (`.render()`/`.rendered()`/`Operand::`) | 125 occ / 21 files | `rg -c '\.rendered\(\)\|\.render\(\)\|Operand::' src/` |
-| Compound/addressing-mode `Raw` operands (embedded register) | UNMEASURED | first task of Phase 1 |
+| Compound/addressing-mode `Raw` operands (embedded register) | **0** | `rg -n --glob '!**/tests*' '\.field\([^,]+,\s*&?format!' src/ \| wc -l` (0) — plus `rg -n 'format!\("\[' src/` (only 4, all in `ast/serialize.rs`, not operands) |
 
 ### Verified properties
 
-- **Producers bind to a local, then reuse it** (verified by reading
-  `builder_collection_layout.rs:109-376`): `let s = self.temporary_vreg();` then
-  `s` flows into `.field(...)` and, for addressing modes, into `format!`. So the
-  return-type change in C is not purely `.field()`-mechanical — the `format!`
-  sites are the compound-operand subset premise (2) above. UNVERIFIED: the exact
-  fraction that only ever `.field()` the bare register — Phase 1 measures it.
+- **Producers bind to a local, then reuse it**: `let s = self.temporary_vreg();`
+  then `s` flows into `.field(...)`. **CORRECTED (Phase 1, 2026-08-02):** the plan
+  premised that some producers format the register into a compound `format!`
+  string (addressing modes). That is FALSE. Addressing modes store the register in
+  a **separate `base` field** and the displacement in a **separate `offset`
+  field** (`peephole.rs:385` `.field("base","sp").field("offset","1120")`; the
+  aarch64 encoder reads them as two fields, `emitter.rs:224` `reg(field(.,"base"))`
+  + `immediate(field(.,"offset"))`). Shift amounts are a separate `shift`
+  immediate field (`abi.rs:681`), never fused with the register. There are **zero**
+  production `.field(name, format!…)` sites (`rg -n --glob '!**/tests*'
+  '\.field\([^,]+,\s*&?format!' src/` → 0); the only `.field(…, &format!("d{r}"))`
+  is a regalloc **test** (`regalloc/tests.rs:237`). So **every** register operand
+  is a bare register in its own field — the return-type change in C is purely
+  `.field()`-mechanical, with no compound subset to hand-migrate.
 
 ## 3. Design Overview
 
@@ -201,17 +209,24 @@ leaves the `position` scans. plan-82 does the real representation change.
 
 Falsify/confirm premise 2 before any type is added.
 
-- [ ] Enumerate every production site that builds a `Raw` operand containing a
+- [x] Enumerate every production site that builds a `Raw` operand containing a
       register token that is NOT a bare register (addressing modes `[...]`,
-      shifted/extended regs, reg lists). Command + count recorded in this file's
-      Measured populations table (replace UNMEASURED).
-- [ ] Decide and record here: compound operands stay `Raw` (register-in-string)
-      **or** gain a typed arm. Recommendation: stay `Raw` for A–C; revisit in D
-      only if they block the encode-side scan removal. Record the evidence.
+      shifted/extended regs, reg lists). **Count = 0** (command in Measured
+      populations table). Addressing uses separate `base`/`offset` fields; shifts
+      use a separate `shift` field; no reg-list operand exists. See the corrected
+      Verified-properties bullet.
+- [x] Decide and record here: compound operands stay `Raw` **or** gain a typed
+      arm. **DECISION: the question is moot — there are zero compound-register
+      operands.** Every register operand is a bare register in its own field, so
+      all of them become typed `VReg`/`Phys` in B/C/D with no `Raw`
+      register-in-string survivor. No typed memory-operand arm is needed. Evidence:
+      the 0-count census above + the encoder reading `base`/`offset` as two
+      separate fields.
 
-Acceptance: the Measured-populations row is filled with its command, and the
-decision is written with a one-line rationale.
-Commit: —
+Acceptance: the Measured-populations row is filled with its command (count 0), and
+the decision is recorded — no compound subset exists, so no register operand stays
+`Raw`.
+Commit: (recorded next commit)
 
 ### Phase 2 — Add the typed `Phys` arm + faithful per-arch rendering
 
@@ -259,13 +274,43 @@ Commit: —
 
 ## Open Decisions
 
-- Compound-operand representation (Phase 1) — **stay `Raw` through C**
-  (recommended) vs. typed memory-operand arm now. Decide in Phase 1 with the
-  measured count. (§Phase 1)
+- ~~Compound-operand representation (Phase 1) — stay `Raw` through C vs. typed
+  memory-operand arm now.~~ **RESOLVED (Phase 1): moot — zero compound-register
+  operands exist. No register operand stays `Raw`; no memory-operand arm needed.**
 
 ## Corrections
 
-<Filled in during execution.>
+- **Premise 2 (compound operands embed register text) is FALSIFIED.** The plan
+  assumed a real subset of operands fuse a register into a bracketed/compound
+  `Raw` string (`[%v5, #16]`) that could not become a bare typed register.
+  Measurement (Phase 1): there are **zero** such production sites. Addressing
+  modes carry the register in a separate `base` field and the displacement in a
+  separate `offset` field; shift amounts are a separate `shift` immediate field;
+  no register-list operand exists. Command: `rg -n --glob '!**/tests*'
+  '\.field\([^,]+,\s*&?format!' src/` → 0. Consequence: C's migration is purely
+  `.field()`-mechanical (no hand-migrated compound class), and D can delete the
+  physical-index scans outright with no `Raw` inner-register fallback (plan-82-D
+  Open Decision resolves to "no fallback needed").
+
+- **Premise 1 resolution — CONFIRMED, but via a carried `&'static str` name, not a
+  forward table scan.** The plan proposed rendering `Phys { class, index }` by
+  reading each arch's register table *forward* (index → name) inside `render()`.
+  That cannot work as written: `Operand::render()` / `Display` / `rendered()` /
+  `PartialEq<str>` carry **no arch parameter**, and the same `{class, index}`
+  renders to different tokens per arch (`index 0` = `x0`/`rax`/`zero`), so a
+  parameter-less `render()` cannot disambiguate. Threading an arch through every
+  `Display`/`format!` diagnostic call site is invasive and unwarranted, because
+  every `RegisterModel` already exposes physical names as `&'static str`
+  (`allocatable`/`caller_saved` → `&'static [&'static str]`). The faithful,
+  **zero-allocation** representation is therefore
+  `Phys { class: RegClass, index: u32, name: &'static str }`: `name` (a static
+  pointer, no heap box) makes `render()` byte-identical with no arch context, and
+  `index` is plan-82-D's direct encode read (== the register-table position,
+  proven by the Phase 2 round-trip test). This is exactly the
+  `Phys { class, index, name }` arm the plan-78-A module doc anticipated. It meets
+  every plan-82 goal (byte-identity, zero heap allocation for physicals, direct
+  index read) and confirms premise 1 (physical registers *can* render faithfully
+  from a typed value).
 
 ## Summary
 
