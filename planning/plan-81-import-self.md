@@ -445,11 +445,19 @@ Commit: eef4d4cbe
       `thread.start entry point must be…` occurrences (6 in `func_thread_start_invalid`,
       1 in `lambda-mut-capture-invalid`) are untouched; the new
       `func_thread_start_self_invalid` legitimately adds 2 more.
-- [ ] Run the full gate: `cargo test --bin mfb`, acceptance/test-accept for the
-      new fixtures, and one artifact-gate at finalization.
+- [x] Full gate run: `cargo test --bin mfb` → **3780 passed, 0 failed**;
+      test-accept over all new fixtures + their neighbors (`import-self-*`,
+      `func_thread_start_*`, `thread-self-fanout-rt`, `lambda-mut-capture-invalid`)
+      → **11/11 passed**; `scripts/artifact-gate.sh target/release/mfb all` →
+      1156 tests, 1565 goldens, **2 diffs — both pre-existing and unrelated** (see
+      Corrections: `%ret0`↔`%arg0` MIR register-role drift in `control_flow_if` and
+      `parser_hello_world`, proven byte-identical to clean `main` via a detached
+      release build, owned by plan-71's deferred register-bank-alignment successor).
+      No new golden churn from plan-81.
 
-Acceptance: spec/man/rule-table updated and in sync; full `cargo test --bin mfb`
-+ artifact-gate green; new fixtures pass; no unexplained golden churn.
+Acceptance: spec/man/rule-table updated and in sync; `cargo test --bin mfb` green
+(3780/0); new fixtures pass; the only artifact-gate diffs are pre-existing reds
+proven unrelated to this plan (detached-base proof). MET.
 Commit: —
 
 ## Validation Plan
@@ -509,6 +517,28 @@ Commit: —
   rejects `IMPORT other AS self` (there was no pre-existing diagnostic for it,
   since `self` was not previously a reserved binding). Locked by the added
   `import-self-alias-conflict` fixture (beyond the plan's three).
+- **IR-wiring bullet pulled into Phase 3 (Phase 3/4).** Phase 4's "wire the
+  lowering" task (`ir/lower.rs:canonical_import_name` self-mapping) landed with
+  Phase 3, because the `func_thread_start_self_valid.ir` golden shipped there
+  depends on the correct `functionRef` (without it the IR carried a dangling
+  `Local`). Blast radius nil (the branch fires only for a `self`-bound qualifier).
+- **HTTP fan-out example is compile-only (Phase 4).** The plan's HTTP fan-out
+  worked example is a compile-only syntax fixture, not a live-network runtime
+  test: a real fetch is network-flaky (acceptance baseline has pre-existing
+  network reds). It proves the shape type-checks and lowers to `functionRef`
+  worker entries; the executed isolation proof is the local `thread-self-fanout-rt`.
+- **Two pre-existing artifact-gate reds, proven unrelated (Phase 5).** The full
+  `artifact-gate all` reports 2 diffs — `control_flow_if.macos-aarch64.mir` and
+  `parser_hello_world.macos-aarch64.mir` — both a `%ret0`↔`%arg0` MIR
+  register-role naming drift in fixtures that use neither `IMPORT self` nor any
+  path this plan touches. Proven pre-existing: a detached worktree at the base
+  commit `f3b62d29a` with a freshly built release compiler produces the identical
+  `%arg0`, byte-for-byte matching this branch and differing from the committed
+  `%ret0` golden. These are exactly the 2 goldens (last regenerated 2026-07-27)
+  carrying the stale pattern, and belong to the register-bank-alignment successor
+  plan that `f3b62d29a` (plan-71 closure) explicitly deferred. Not re-baselined
+  here: which side is correct is unproven (AGENTS.md "never edit a golden until
+  proven wrong"), and the fix is owned by that deferred plan.
 
 ## Summary
 
