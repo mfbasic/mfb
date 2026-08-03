@@ -41,6 +41,35 @@ pub(super) fn collect_address_taken_locals(ops: &[NirOp], out: &mut HashSet<Stri
     Collector { out }.visit_ops(ops);
 }
 
+/// plan-77 M6: names of every local used as a VALUE — read (`Local`) or
+/// address-taken (`LocalRef`) — anywhere in `ops`. A closure binding whose name
+/// is NOT in this set never flows anywhere except as a direct call target (an
+/// invoke lowers `Call { target: name }`, whose `target` is a String, not a
+/// `NirValue`, so it is not visited): it is not returned, passed as an argument,
+/// stored, captured, or aliased, so it is provably dead at scope end and safe to
+/// free. Reuses the exhaustive `NirVisitor` seam (a new value variant is a
+/// compile error in `walk_value`), so no escape route can be silently missed —
+/// which for a would-be-freed closure is the difference between a reclaim and a
+/// use-after-free. Conservative in the safe direction: any doubt keeps the name.
+pub(super) fn collect_value_used_locals(ops: &[NirOp], out: &mut HashSet<String>) {
+    use nir::visit::{walk_value, NirVisitor};
+    struct Collector<'a> {
+        out: &'a mut HashSet<String>,
+    }
+    impl NirVisitor for Collector<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            match value {
+                NirValue::Local(name) | NirValue::LocalRef { name, .. } => {
+                    self.out.insert(name.clone());
+                }
+                _ => {}
+            }
+            walk_value(self, value);
+        }
+    }
+    Collector { out }.visit_ops(ops);
+}
+
 /// Collect every local *read* (`Local`) in `value`, via the shared NIR value
 /// seam (bug-328).
 fn collect_value_local_reads(value: &NirValue, out: &mut HashSet<String>) {
@@ -537,6 +566,7 @@ pub(super) fn lower_function(
         float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
+        value_used_locals: HashSet::new(),
         regalloc_kind: regalloc::active_kind(),
         regalloc_error: None,
         next_label: 0,
@@ -641,6 +671,7 @@ pub(super) fn lower_function(
     builder.prescan_string_self_appends(&function.body);
     // Locals whose address is taken anywhere — never loop-promoted (plan-03 D2).
     collect_address_taken_locals(&function.body, &mut builder.address_taken_locals);
+    collect_value_used_locals(&function.body, &mut builder.value_used_locals);
     // Small-vector locals that can live in registers for their whole lifetime with
     // no arena block (plan-01-vector).
     builder.promotable_vector_locals =
@@ -795,6 +826,7 @@ pub(super) fn lower_builtin_function_wrapper(
         float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
+        value_used_locals: HashSet::new(),
         regalloc_kind: regalloc::active_kind(),
         regalloc_error: None,
         next_label: 0,
@@ -934,6 +966,7 @@ pub(super) fn lower_thread_copy_function(
         float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
+        value_used_locals: HashSet::new(),
         regalloc_kind: regalloc::active_kind(),
         regalloc_error: None,
         next_label: 0,
@@ -999,4 +1032,101 @@ pub(super) fn lower_thread_copy_function(
         relocations: builder.relocations,
         stack_slots,
     })
+}
+
+#[cfg(test)]
+mod m6_escape_tests {
+    use super::collect_value_used_locals;
+    use crate::target::shared::nir::{NirOp, NirSourceLoc, NirValue};
+    use std::collections::HashSet;
+
+    fn closure() -> NirValue {
+        NirValue::Closure {
+            name: "lambda_impl".to_string(),
+            type_: "FUNC(Integer) AS Integer".to_string(),
+            captures: vec![],
+        }
+    }
+    fn used(ops: &[NirOp]) -> HashSet<String> {
+        let mut out = HashSet::new();
+        collect_value_used_locals(ops, &mut out);
+        out
+    }
+
+    // plan-77 M6: the escape analysis. A closure binding invoked ONLY as a call
+    // target is not "value-used" (non-escaping, safe to free); any other reference
+    // — argument, return, store, assign, LocalRef — marks it value-used (escaping,
+    // NOT freed). A missed escape here would be a use-after-free, so pin it.
+    #[test]
+    fn invoke_only_closure_is_not_value_used() {
+        let ops = vec![
+            NirOp::Bind {
+                mutable: false,
+                name: "f".to_string(),
+                type_: "FUNC(Integer) AS Integer".to_string(),
+                value: Some(closure()),
+            },
+            // `f(x)` lowers to Call { target: "f" } — the target is a String, not a
+            // NirValue, so "f" is not visited as a value.
+            NirOp::Eval {
+                value: NirValue::Call {
+                    target: "f".to_string(),
+                    args: vec![NirValue::Const {
+                        type_: "Integer".to_string(),
+                        value: "5".to_string(),
+                    }],
+                    loc: NirSourceLoc::default(),
+                },
+            },
+        ];
+        assert!(!used(&ops).contains("f"));
+    }
+
+    #[test]
+    fn returned_closure_is_value_used() {
+        let ops = vec![NirOp::Return {
+            value: Some(NirValue::Local("g".to_string())),
+        }];
+        assert!(used(&ops).contains("g"));
+    }
+
+    #[test]
+    fn passed_as_argument_closure_is_value_used() {
+        let ops = vec![NirOp::Eval {
+            value: NirValue::Call {
+                target: "collections.forEach".to_string(),
+                args: vec![
+                    NirValue::Local("list".to_string()),
+                    NirValue::Local("h".to_string()),
+                ],
+                loc: NirSourceLoc::default(),
+            },
+        }];
+        let u = used(&ops);
+        assert!(u.contains("h"));
+        assert!(u.contains("list"));
+    }
+
+    #[test]
+    fn address_taken_and_aliased_closures_are_value_used() {
+        let ops = vec![
+            // `LET k = f` aliases f — f escapes to k.
+            NirOp::Bind {
+                mutable: false,
+                name: "k".to_string(),
+                type_: "FUNC(Integer) AS Integer".to_string(),
+                value: Some(NirValue::Local("f".to_string())),
+            },
+            // A LocalRef of `m` (address taken) is also an escape.
+            NirOp::Eval {
+                value: NirValue::LocalRef {
+                    name: "m".to_string(),
+                    type_: "FUNC(Integer) AS Integer".to_string(),
+                },
+            },
+        ];
+        let u = used(&ops);
+        assert!(u.contains("f"));
+        assert!(u.contains("m"));
+    }
 }

@@ -242,6 +242,11 @@ struct CodeBuilder<'a> {
     /// Such a local may be observed or mutated through the slot reference, so it is never
     /// loop-promoted (its slot must stay authoritative).
     address_taken_locals: HashSet<String>,
+    /// plan-77 M6: locals used as a *value* (read `Local` or address-taken
+    /// `LocalRef`) anywhere in the function. A closure binding whose name is NOT
+    /// here is only ever a direct invoke target and never escapes, so it is freed
+    /// at scope end.
+    value_used_locals: HashSet<String>,
     /// The register-allocation strategy selected for this build (`-regalloc`).
     regalloc_kind: regalloc::RegallocKind,
     /// First scratch-register-exhaustion error recorded by an infallible vreg
@@ -526,6 +531,12 @@ struct OwnedValueCleanup {
     type_: String,
     /// Stack offset of the binding's slot (holds the block pointer).
     stack_offset: usize,
+    /// plan-77 M6: when `Some`, this is a non-escaping closure binding rather than
+    /// a flat value; the slot holds the closure object pointer and the vec is the
+    /// static types of its captures. The drop frees the object, its env block, and
+    /// each freeable-flat capture (skipping by-value scalars/floats) instead of a
+    /// single flat `arena_free`.
+    closure_captures: Option<Vec<String>>,
 }
 
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free
@@ -1698,13 +1709,28 @@ pub(crate) fn lower_module_for_platform(
     // heuristic could deem a `caseFold(localVar)` static (folded, table skipped)
     // while codegen lowered it at runtime, leaving the `_mfb_unicode_casefold_*`
     // relocation undefined — a deterministic build failure this closes.
-    let references_unicode_table = code_functions.iter().any(|function| {
-        function.relocations.iter().any(|relocation| {
+    let referenced_unicode_tables: std::collections::HashSet<&str> = code_functions
+        .iter()
+        .flat_map(|function| function.relocations.iter())
+        .filter(|relocation| {
             relocation.binding == "data" && relocation.to.starts_with("_mfb_unicode_")
         })
-    });
-    if references_unicode_table || module_uses_unicode_runtime_tables(module) {
-        data_objects.extend(unicode_runtime_data_objects());
+        .map(|relocation| relocation.to.as_str())
+        .collect();
+    if !referenced_unicode_tables.is_empty() {
+        // Per-symbol emission (plan-77 U5): emit exactly the tables some function
+        // relocates against, so a program that only reaches part of the unicode
+        // surface (e.g. `strings::graphemes` but no case mapping) stops carrying
+        // the tables it never touches.
+        data_objects.extend(unicode_runtime_data_objects(Some(
+            &referenced_unicode_tables,
+        )));
+    } else if module_uses_unicode_runtime_tables(module) {
+        // The NIR heuristic sees unicode use but no relocation names a specific
+        // table (practically unreachable — the builder emits a relocation for
+        // every table read). Fall back to the full set rather than risk an
+        // undefined symbol.
+        data_objects.extend(unicode_runtime_data_objects(None));
     }
 
     // MIR seam for the hand-written runtime helpers (plan-00-F). Builder-emitted

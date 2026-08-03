@@ -204,13 +204,16 @@ implement, so those POSIX classes effectively never match a scalar.[[src/builtin
   general category.
 - Two-letter general-category names (`Lu`, `Ll`, `Nd`, `Mn`, `Zs`, …) — exact match.
 - Binary properties `White_Space` (alias `whitespace`) and `Alphabetic` (alias `alpha`).
-- Script names `Latin Greek Cyrillic Han Hiragana Katakana Hangul Arabic Hebrew Common`
-  (matched by hard-coded code-point ranges in `__regex_scriptTest`, not the table).[[src/builtins/regex_package.mfb:__regex_scriptTest]]
+- Any Unicode Script name (all 170 of Unicode 16.0.0 — `Latin`, `Greek`, `Han`,
+  `Armenian`, `Thai`, `Devanagari`, …), matched against the scalar's Script
+  property. `__regex_scriptTest(name, cp)` returns `__regex_scriptOf(cp) = name`.[[src/builtins/regex_package.mfb:__regex_scriptTest]]
 - `key=value` form with `gc`/`general_category` or `sc`/`script` keys.
 
 Unknown property names are parse errors. The general-category lookup `__regex_genCat`
 maps each scalar to its two-letter category via contiguous ranges over `0..0x10FFFF`,
-generated from Unicode 16.0.0.[[src/builtins/unicode_gencat.mfb:__regex_genCat]]
+generated from Unicode 16.0.0.[[src/builtins/unicode_gencat.mfb:__regex_genCat]] The
+Script lookup `__regex_scriptOf` is the analogous run-length table, generated from the
+vendored UCD `Scripts.txt` (Unicode 16.0.0).[[src/builtins/unicode_scripts.mfb:__regex_scriptOf]]
 
 ## Flags
 

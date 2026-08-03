@@ -6,7 +6,6 @@ const UTF8PROC_DATA: &str = include_str!("../../third_party/utf8proc/utf8proc_da
 const U16_MAX: u16 = u16::MAX;
 
 pub(crate) struct UnicodeRuntimeTables {
-    pub(crate) sequences: Vec<u16>,
     pub(crate) stage1: Vec<u16>,
     pub(crate) stage2: Vec<u16>,
     pub(crate) properties: Vec<PackedProperty>,
@@ -25,11 +24,6 @@ pub(crate) struct UnicodeRuntimeTables {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PackedProperty {
     pub(crate) combining_class: u16,
-    pub(crate) decomp_type: u16,
-    pub(crate) decomp_seqindex: u16,
-    pub(crate) casefold_seqindex: u16,
-    pub(crate) uppercase_seqindex: u16,
-    pub(crate) lowercase_seqindex: u16,
     pub(crate) comb_index: u16,
     pub(crate) comb_length: u16,
     pub(crate) flags: u16,
@@ -51,8 +45,7 @@ impl PackedProperty {
     const CONTROL_BOUNDARY: u16 = 1 << 3;
     // plan-70-A: the vendored `charwidth:2` (0/1/2 terminal columns) and
     // `ambiguous_width:1` (East Asian Ambiguous) fields pack into the previously
-    // unused `flags` bits 4–6, so the 24-byte record and every asserted table
-    // size are unchanged — only the `flags` byte values move.
+    // unused `flags` bits 4–6.
     const CHARWIDTH_SHIFT: u16 = 4;
     const CHARWIDTH_MASK: u16 = 0b11 << 4;
     const AMBIGUOUS: u16 = 1 << 6;
@@ -66,13 +59,12 @@ impl PackedProperty {
     }
 
     fn encode_le(&self, output: &mut Vec<u8>) {
+        // 6 live u16 fields = a 12-byte record. Offsets: combining_class 0,
+        // comb_index 2, comb_length 4, flags 6, boundclass 8,
+        // indic_conjunct_break 10. Must match the reader offsets in
+        // `target/shared/code/private/unicode.rs`.
         for value in [
             self.combining_class,
-            self.decomp_type,
-            self.decomp_seqindex,
-            self.casefold_seqindex,
-            self.uppercase_seqindex,
-            self.lowercase_seqindex,
             self.comb_index,
             self.comb_length,
             self.flags,
@@ -81,7 +73,6 @@ impl PackedProperty {
         ] {
             output.extend_from_slice(&value.to_le_bytes());
         }
-        output.extend_from_slice(&0_u16.to_le_bytes());
     }
 }
 
@@ -96,10 +87,6 @@ pub(crate) fn stage1_hex() -> String {
 
 pub(crate) fn stage2_hex() -> String {
     u16_hex(&tables().stage2)
-}
-
-pub(crate) fn sequences_hex() -> String {
-    u16_hex(&tables().sequences)
 }
 
 pub(crate) fn properties_hex() -> String {
@@ -190,10 +177,6 @@ fn parse_tables() -> UnicodeRuntimeTables {
     let (casefold_entries, casefold_sequences) =
         build_mapping_tables(|value| value.to_string().case_fold().map(|ch| ch as u32).collect());
     UnicodeRuntimeTables {
-        sequences: parse_numeric_array("utf8proc_sequences")
-            .into_iter()
-            .map(to_u16)
-            .collect(),
         stage1: parse_numeric_array("utf8proc_stage1table")
             .into_iter()
             .map(to_u16)
@@ -312,11 +295,6 @@ fn parse_properties() -> Vec<PackedProperty> {
 
             Some(PackedProperty {
                 combining_class: to_u16(parse_value(fields[1])),
-                decomp_type: to_u16(parse_value(fields[3])),
-                decomp_seqindex: to_u16(parse_value(fields[4])),
-                casefold_seqindex: to_u16(parse_value(fields[5])),
-                uppercase_seqindex: to_u16(parse_value(fields[6])),
-                lowercase_seqindex: to_u16(parse_value(fields[7])),
                 comb_index: to_u16(parse_value(fields[9])),
                 comb_length: to_u16(parse_value(fields[10])),
                 flags,
@@ -353,13 +331,14 @@ fn parse_value(value: &str) -> i64 {
         "UINT16_MAX" => U16_MAX as i64,
         "true" => 1,
         "false" => 0,
-        // The general-category (field 0) and bidi-class (field 2) columns are
-        // never consumed — `parse_properties` reads only fields 1,3–7,9–11,
-        // 13–15,19,20 — so a `UTF8PROC_CATEGORY_*` string never reaches here.
-        // Bidi class still maps (to 0) for symmetry; the 30-arm category lookup
-        // it used to need was dead and was removed (bug-343 A4).
+        // The general-category (field 0), bidi-class (field 2), and
+        // decomposition (fields 3–7: decomp_type + the case/decomp seqindexes)
+        // columns are never consumed — `parse_properties` reads only fields
+        // 1,9–11,13–17,19,20 — so a `UTF8PROC_CATEGORY_*`/`UTF8PROC_DECOMP_TYPE_*`
+        // string never reaches here. Bidi class still maps (to 0) for symmetry;
+        // the 30-arm category lookup and the 16-arm decomp_type lookup it used
+        // to need were dead and were removed (bug-343 A4; plan-77 U1).
         _ if value.starts_with("UTF8PROC_BIDI_CLASS_") => 0,
-        _ if value.starts_with("UTF8PROC_DECOMP_TYPE_") => decomp_type_value(value) as i64,
         _ if value.starts_with("UTF8PROC_BOUNDCLASS_") => boundclass_value(value) as i64,
         _ if value.starts_with("UTF8PROC_INDIC_CONJUNCT_BREAK_") => {
             indic_conjunct_break_value(value) as i64
@@ -414,28 +393,6 @@ fn bytes_hex(bytes: &[u8]) -> String {
     output
 }
 
-fn decomp_type_value(value: &str) -> u16 {
-    match value {
-        "UTF8PROC_DECOMP_TYPE_FONT" => 1,
-        "UTF8PROC_DECOMP_TYPE_NOBREAK" => 2,
-        "UTF8PROC_DECOMP_TYPE_INITIAL" => 3,
-        "UTF8PROC_DECOMP_TYPE_MEDIAL" => 4,
-        "UTF8PROC_DECOMP_TYPE_FINAL" => 5,
-        "UTF8PROC_DECOMP_TYPE_ISOLATED" => 6,
-        "UTF8PROC_DECOMP_TYPE_CIRCLE" => 7,
-        "UTF8PROC_DECOMP_TYPE_SUPER" => 8,
-        "UTF8PROC_DECOMP_TYPE_SUB" => 9,
-        "UTF8PROC_DECOMP_TYPE_VERTICAL" => 10,
-        "UTF8PROC_DECOMP_TYPE_WIDE" => 11,
-        "UTF8PROC_DECOMP_TYPE_NARROW" => 12,
-        "UTF8PROC_DECOMP_TYPE_SMALL" => 13,
-        "UTF8PROC_DECOMP_TYPE_SQUARE" => 14,
-        "UTF8PROC_DECOMP_TYPE_FRACTION" => 15,
-        "UTF8PROC_DECOMP_TYPE_COMPAT" => 16,
-        other => panic!("unknown utf8proc decomposition type `{other}`"),
-    }
-}
-
 fn boundclass_value(value: &str) -> u16 {
     match value {
         "UTF8PROC_BOUNDCLASS_START" => 0,
@@ -483,7 +440,6 @@ mod tests {
         assert_eq!(tables.stage1.len(), 4352);
         assert_eq!(tables.stage2.len(), 46336);
         assert_eq!(tables.properties.len(), 8385);
-        assert_eq!(tables.sequences.len(), 12961);
         assert_eq!(
             tables.combinations_second.len(),
             tables.combinations_combined.len()
@@ -496,7 +452,7 @@ mod tests {
     #[test]
     fn packs_properties_as_fixed_size_records() {
         let hex = properties_hex();
-        assert_eq!(hex.len(), tables().properties.len() * 24 * 2);
+        assert_eq!(hex.len(), tables().properties.len() * 12 * 2);
     }
 
     #[test]
@@ -560,7 +516,6 @@ mod tests {
         for (label, hex) in [
             ("stage1", stage1_hex()),
             ("stage2", stage2_hex()),
-            ("sequences", sequences_hex()),
             ("properties", properties_hex()),
             ("combinations_second", combinations_second_hex()),
             ("combinations_combined", combinations_combined_hex()),
@@ -593,7 +548,6 @@ mod tests {
         // The `E_ZWG` boundclass and the boolean parser's success arms are not
         // exercised by every corpus walk; assert them directly.
         assert_eq!(boundclass_value("UTF8PROC_BOUNDCLASS_E_ZWG"), 20);
-        assert_eq!(decomp_type_value("UTF8PROC_DECOMP_TYPE_COMPAT"), 16);
         assert_eq!(
             indic_conjunct_break_value("UTF8PROC_INDIC_CONJUNCT_BREAK_EXTEND"),
             3
@@ -606,12 +560,6 @@ mod tests {
     #[should_panic(expected = "not true/false")]
     fn parse_bool_rejects_non_boolean() {
         let _ = parse_bool("maybe");
-    }
-
-    #[test]
-    #[should_panic(expected = "unknown utf8proc decomposition type")]
-    fn decomp_type_rejects_unknown() {
-        let _ = decomp_type_value("UTF8PROC_DECOMP_TYPE_BOGUS");
     }
 
     #[test]

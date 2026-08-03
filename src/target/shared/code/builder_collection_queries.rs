@@ -2064,10 +2064,12 @@ impl CodeBuilder<'_> {
                 self.emit_owned_value_drop(&OwnedValueCleanup {
                     type_: collection.type_.clone(),
                     stack_offset: matched_slot,
+                    closure_captures: None,
                 })?;
                 self.emit_owned_value_drop(&OwnedValueCleanup {
                     type_: collection.type_.clone(),
                     stack_offset: unmatched_slot,
+                    closure_captures: None,
                 })?;
                 for (reg, slot) in regs.iter().zip(&save) {
                     self.emit(abi::load_u64(reg, abi::stack_pointer(), *slot));
@@ -3475,6 +3477,7 @@ impl CodeBuilder<'_> {
             self.emit_owned_value_drop(&OwnedValueCleanup {
                 type_,
                 stack_offset: block_slot,
+                closure_captures: None,
             })?;
             for (reg, slot) in regs.iter().zip(&slots) {
                 self.emit(abi::load_u64(reg, abi::stack_pointer(), *slot));

@@ -1,6 +1,52 @@
 use super::*;
 
 impl CodeBuilder<'_> {
+    /// plan-77 U4: fast-forward a scalar-walk loop over runs of ASCII bytes.
+    /// While at least 8 more scalars are needed to reach `target`, at least 8
+    /// bytes remain, and the next 8 bytes are all ASCII (`b & 0x80 == 0`, so each
+    /// is its own 1-byte scalar and a boundary), advance `cursor`/`remaining` by 8
+    /// and `scalar_index` by 8 in one step instead of the per-byte continuation
+    /// walk. All-ASCII is the only case handled (its correctness is trivial: every
+    /// byte is a scalar start); any non-ASCII byte falls through to the caller's
+    /// existing byte-accurate loop, so multibyte input is unaffected. The `< 8`
+    /// guard means the walk never overshoots `target`. Emitted just before the
+    /// per-scalar loop it accelerates; the three scratch registers must be free.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_ascii_scalar_fastforward(
+        &mut self,
+        cursor: &str,
+        remaining: &str,
+        scalar_index: &str,
+        target: &str,
+        diff: &str,
+        word: &str,
+        ascii_mask: &str,
+    ) {
+        let block = self.label("ascii_ff_block");
+        let done = self.label("ascii_ff_done");
+        // 0x8080808080808080 — the high bit of every byte.
+        self.emit(abi::move_immediate(
+            ascii_mask,
+            "Integer",
+            "9259542123273814144",
+        ));
+        self.emit(abi::label(&block));
+        self.emit(abi::subtract_registers(diff, target, scalar_index));
+        self.emit(abi::compare_immediate(diff, "8"));
+        self.emit(abi::branch_lo(&done));
+        self.emit(abi::compare_immediate(remaining, "8"));
+        self.emit(abi::branch_lo(&done));
+        self.emit(abi::load_u64(word, cursor, 0));
+        self.emit(abi::and_registers(word, word, ascii_mask));
+        self.emit(abi::compare_immediate(word, "0"));
+        self.emit(abi::branch_ne(&done));
+        self.emit(abi::add_immediate(cursor, cursor, 8));
+        self.emit(abi::subtract_immediate(remaining, remaining, 8));
+        self.emit(abi::add_immediate(scalar_index, scalar_index, 8));
+        self.emit(abi::branch(&block));
+        self.emit(abi::label(&done));
+    }
+
     pub(super) fn lower_find(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
@@ -177,6 +223,19 @@ impl CodeBuilder<'_> {
         // lead byte but before skipping its continuations, so when character
         // `start-1` was multibyte the cursor stopped on a continuation byte and
         // every returned index was inflated by one (bug-133). Mirrors `lower_mid`.
+        // plan-77 U4: skip whole 8-byte ASCII runs before the per-scalar walk.
+        let ff_diff = self.temporary_vreg();
+        let ff_word = self.temporary_vreg();
+        let ff_mask = self.temporary_vreg();
+        self.emit_ascii_scalar_fastforward(
+            cursor,
+            remaining,
+            scalar_index,
+            start,
+            &ff_diff,
+            &ff_word,
+            &ff_mask,
+        );
         self.emit(abi::label(&locate_start));
         self.emit(abi::compare_registers(scalar_index, start));
         self.emit(abi::branch_eq(&start_ready));
@@ -724,6 +783,19 @@ impl CodeBuilder<'_> {
             super::private::unicode::UTF8_CONTINUATION_MASK,
         ));
 
+        // plan-77 U4: skip whole 8-byte ASCII runs before the per-scalar walk.
+        let ff_diff = self.temporary_vreg();
+        let ff_word = self.temporary_vreg();
+        let ff_mask = self.temporary_vreg();
+        self.emit_ascii_scalar_fastforward(
+            cursor,
+            remaining,
+            scalar_index,
+            start_index,
+            &ff_diff,
+            &ff_word,
+            &ff_mask,
+        );
         self.emit(abi::label(&locate_start));
         self.emit(abi::compare_registers(scalar_index, start_index));
         self.emit(abi::branch_eq(&start_ready));
@@ -746,6 +818,19 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&start_ready));
         self.emit(abi::move_register(start_ptr, cursor));
         self.emit(abi::move_register(end_ptr, cursor));
+        // plan-77 U4: skip whole 8-byte ASCII runs before the per-scalar walk.
+        let ff_diff_end = self.temporary_vreg();
+        let ff_word_end = self.temporary_vreg();
+        let ff_mask_end = self.temporary_vreg();
+        self.emit_ascii_scalar_fastforward(
+            cursor,
+            remaining,
+            scalar_index,
+            end_index,
+            &ff_diff_end,
+            &ff_word_end,
+            &ff_mask_end,
+        );
         self.emit(abi::label(&locate_end));
         self.emit(abi::compare_registers(scalar_index, end_index));
         self.emit(abi::branch_eq(&end_ready));

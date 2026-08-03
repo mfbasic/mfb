@@ -69,6 +69,7 @@ impl CodeBuilder<'_> {
         self.emit_owned_value_drop(&OwnedValueCleanup {
             type_: type_.to_string(),
             stack_offset: block_slot,
+            closure_captures: None,
         })?;
         let register = self.allocate_register()?;
         self.emit(abi::load_u64(&register, abi::stack_pointer(), keep));

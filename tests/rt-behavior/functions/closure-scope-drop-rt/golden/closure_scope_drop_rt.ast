@@ -1,0 +1,74 @@
+{
+  "project": "closure_scope_drop_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 3 },
+    { "module": "collections", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "make",
+      "line": 7,
+      "params": [
+      { "name": "base", "type": "Integer", "default": null, "line": 7 }
+      ],
+      "returnType": "FUNC(Integer) AS Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "f", "type": "FUNC(Integer) AS Integer", "value": { "kind": "lambda", "params": [
+{ "name": "x", "type": "Integer", "default": null, "line": 8 }], "body": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "identifier", "value": "base" } } }, "line": 8 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "f" }, "line": 9 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 12,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "base", "type": "Integer", "value": { "kind": "number", "value": "100" }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "add", "type": "FUNC(Integer) AS Integer", "value": { "kind": "lambda", "params": [
+{ "name": "x", "type": "Integer", "default": null, "line": 15 }], "body": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "identifier", "value": "base" } } }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "nonesc scalar: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "add", "arguments": [{ "kind": "number", "value": "5" }] }] } }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "prefix", "type": "String", "value": { "kind": "string", "value": "hi-" }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "tag", "type": "FUNC(Integer) AS Integer", "value": { "kind": "lambda", "params": [
+{ "name": "x", "type": "Integer", "default": null, "line": 20 }], "body": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "prefix" }] } } }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "nonesc string cap: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "tag", "arguments": [{ "kind": "number", "value": "10" }] }] } }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "g", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "callee": "make", "arguments": [{ "kind": "number", "value": "7" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "escaping return: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "g", "arguments": [{ "kind": "number", "value": "3" }] }] } }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "fs", "type": "List OF FUNC(Integer) AS Integer", "value": { "kind": "list", "values": [{ "kind": "lambda", "params": [
+{ "name": "x", "type": "Integer", "default": null, "line": 28 }], "body": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "2" } } }, { "kind": "lambda", "params": [
+{ "name": "x", "type": "Integer", "default": null, "line": 28 }], "body": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "3" } } }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "picked", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "fs" }, { "kind": "number", "value": "1" }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "escaping list: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "picked", "arguments": [{ "kind": "number", "value": "4" }] }] } }] }, "line": 30 },
+      { "kind": "binding", "mutable": true, "name": "sum", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 33 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 34 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1000" } },
+        "line": 35,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "s", "type": "String", "value": { "kind": "string", "value": "x" }, "line": 36 },
+        { "kind": "binding", "mutable": false, "name": "h", "type": "FUNC(Integer) AS Integer", "value": { "kind": "lambda", "params": [
+{ "name": "v", "type": "Integer", "default": null, "line": 37 }], "body": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] } } }, "line": 37 },
+        { "kind": "assignment", "name": "sum", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "sum" }, "right": { "kind": "call", "callee": "h", "arguments": [{ "kind": "identifier", "value": "i" }] } }, "line": 38 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 39 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "stress sum: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "sum" }] } }] }, "line": 41 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 42 }
+      ]
+    }
+    ]
+  }
+  ]
+}

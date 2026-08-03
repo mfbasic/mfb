@@ -2,10 +2,18 @@
 
 Last updated: 2026-08-02
 Effort: large (3h–1d)
-Depends on: plan-76-B (scalar `tls::poll` — `http::ready`/`pump` gate TLS reads on it) and
-plan-74 (uniform STATE on a resource union — landed). NOT dependent on plan-76-A or plan-76-C (this
-single-stream client uses only *scalar* readiness), and NOT on plan-75 (the stream is never
-transferred across threads).
+Depends on: **plan-80 (unified resource-record header — HARD PRECONDITION; fixes the D4
+core-premise defect below)**, plan-76-B (scalar `tls::poll` — `http::ready`/`pump` gate TLS reads on
+it), and plan-74 (uniform STATE on a resource union — landed). NOT dependent on plan-76-A or
+plan-76-C (this single-stream client uses only *scalar* readiness), and NOT on plan-75 (the stream is
+never transferred across threads).
+
+> **BLOCKED on plan-80.** D's design carries plan-74 `STATE` on a `Stream = {Socket | TlsSocket}`
+> union. That is unimplementable until `STATE` lives at a record offset free in the `TlsSocket`
+> layout — see Corrections **D4**. plan-80 relocates `STATE` to offset 24 and adds the per-backend
+> `STATE`-slot assert whose absence D4 identified. D must NOT start until plan-80's Phase 4 (the
+> `STATE@24` / D4 gate) is green: `ls planning/completed/plan-80-* 2>/dev/null` OR plan-80 Phase 4
+> ticked, then re-run D's own design-gate row (Prerequisites line 68).
 
 This sub-plan turns the `http` client from blocking-only into a cooperatively-drivable one, and is
 the motivating consumer of plan-74's resource-union STATE. It introduces a `Stream` resource union
@@ -65,7 +73,7 @@ References (read first):
 | plan-76-B landed (scalar `tls::poll` on all backends) | `rg -n 'POLL' src/builtins/tls.rs`; `ls tests/rt-behavior/tls/tls-poll-rt` | MET (B complete) |
 | `net::poll(sock[, timeoutMs]) AS Boolean` scalar exists | `rg -n 'POLL' src/builtins/net.rs` → :163 | MET |
 | Feature-wide gate (tree green, gate clean) | see plan-76-A Prerequisites | MET (tests 3757/0; net+tls gates PASSED) |
-| **plan-74 union STATE works over a `TlsSocket` variant** (the DESIGN GATE this plan should have tested) | bind `RES s AS Stream STATE PendingState = tls::connect(...)`; run — must not SIGSEGV | **NOT MET (Corrections D4):** the STATE ptr at record+16 = `SSL*` in the 32-byte TLS record → https SIGSEGV. This is the falsifiable premise the entry gate missed; it makes D's `Stream STATE PendingState` design unimplementable without a TLS-record / plan-74 / D-redesign. User chose to defer D. |
+| **plan-74 union STATE works over a `TlsSocket` variant** (the DESIGN GATE this plan should have tested) | bind `RES s AS Stream STATE PendingState = tls::connect(...)`; run — must not SIGSEGV | **NOT MET → resolved by plan-80 (Corrections D4):** the STATE ptr at record+16 = `SSL*` in the 32-byte TLS record → https SIGSEGV. This is the falsifiable premise the entry gate missed. **plan-80** (unified resource-record header) relocates STATE to offset 24 (free in every layout) + adds the per-backend STATE-slot assert. This row becomes MET when plan-80 Phase 4 is green (`ls planning/completed/plan-80-* 2>/dev/null` OR plan-80 Phase 4 ticked; then re-run this bind). |
 
 **Explicitly NOT prerequisites (do not braid):**
 
@@ -504,6 +512,12 @@ Commit: —
   that STATE-on-union works for a TlsSocket). Measured via the http:// vs https runtime split + the
   stateless-union probe; layout via `FILE_OFFSET_STATE=16` vs `TLS_OFFSET_SSL=16`,
   `RESOURCE_RECORD_SIZE=80` vs `TLS_RECORD_SIZE=32`.
+  **CHOSEN (user, 2026-08-02): fork (A), landed as its own plan — `planning/plan-80-unified-resource-record.md`.**
+  plan-80 gives every resource one canonical header with `STATE` at offset 24 (free in every layout)
+  and adds the per-backend `STATE`-slot assert whose absence caused D4. D is now a HARD dependent of
+  plan-80 (see the header `Depends on`): D resumes once plan-80 Phase 4 (the `STATE@24` / D4 gate) is
+  green, at which point this design-gate row flips to MET. Forks (B) and (C) rejected in favor of (A)
+  because (A) makes resource STATE correct for *every* resource, not just D's `Stream`.
 
 ## Summary
 

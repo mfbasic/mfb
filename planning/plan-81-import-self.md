@@ -1,0 +1,432 @@
+# IMPORT self — self-referencing thread workers Plan
+
+Last updated: 2026-08-02
+Effort: large (3h–1d)
+
+Let a package import its own public interface under the reserved specifier
+`self`, so `thread::start(self::worker, …)` can spawn an exported `ISOLATED
+FUNC` that lives in the *current* package. Today a thread entry point must be an
+exported `ISOLATED FUNC` **from an imported package**; a same-package worker is
+rejected. That forces a package author who wants intra-package fan-out (e.g. an
+HTTP fetch that spawns 5 parallel document fetches) to split cohesive logic
+across two packages purely to satisfy the compiler.
+
+The single behavioral outcome a correct implementation produces: **in a
+`kind: "package"` project, `IMPORT self` binds `self` to the current package's
+exported API, and `thread::start(self::exportedIsolatedWorker, …)` compiles and
+runs a fresh isolated instance of the current package — while the same code in a
+`kind: "executable"` project fails to compile with a clear diagnostic, because
+an executable has no exported interface to import.**
+
+The design keeps `self` deliberately dumb: it is modelled as an ordinary import
+whose target happens to be the current project's own EXPORT declarations. No
+`self`-aware branch is added to the thread-entry checker, the visibility rule,
+or `package::identifier` resolution — the app exclusion falls out for free
+because an executable has no EXPORT symbols and no importable interface.
+
+References:
+
+- `./mfb spec language threads` and `./mfb man thread` — source-level thread model; the entry-point rule ("exported ISOLATED FUNC from an imported package").
+- `./mfb spec threading` (source-model → *Entry-point enforcement*) — the compiler-side enforcement contract this plan must not weaken.
+- `./mfb spec language modules-and-packages` — import resolution order, visibility (PRIVATE/PUBLIC/EXPORT), `EXPORT_IN_EXECUTABLE`, `package::identifier` rules.
+- `.ai/compiler.md`, `.ai/specifications.md`, `.ai/man_*` templates — standing obligations for compiler/spec/man changes.
+
+## Prerequisites
+
+These are preconditions on the whole feature, not dependencies to negotiate.
+
+| Must be true | Command | Status |
+|---|---|---|
+| Working tree clean / on a work branch | `git status --porcelain` | MET (snapshot) |
+| No other plan is mid-flight on the thread checker or import resolver | `ls planning/plan-*import* planning/plan-*thread* 2>/dev/null` | MET (snapshot) |
+
+This plan depends on **no other plan**. Everything below is written against the
+current `main`.
+
+> **NOTE — the Status column is a snapshot; the Command column is the truth.**
+> Re-run every command before continuing and before deciding to stop.
+
+## 1. Goal
+
+- In a `kind: "package"` project, `IMPORT self` (optionally `IMPORT self AS x`)
+  binds a name to the current package's **exported** API.
+- `thread::start(self::w, …)` where `w` is an exported `ISOLATED FUNC` of the
+  correct shape compiles and, at runtime, spawns a fresh independent instance of
+  the current package (its top-level `MUT` not shared with the parent thread).
+- `self::name` sees **only** EXPORT symbols of the current package — exactly what
+  an external importer would see (PUBLIC and PRIVATE symbols are invisible
+  through `self`).
+- In a `kind: "executable"` project, `IMPORT self` is rejected with a clear,
+  dedicated diagnostic (an executable has no exported interface to import).
+- The existing rejection of a bare current-package worker
+  (`thread::start(localWorker, …)`) is unchanged: only the `self::`-qualified
+  path is newly accepted.
+
+### Non-goals (explicit constraints)
+
+- **No new visibility tier.** No `EXPORT PRIVATE` / package-internal-but-
+  spawnable concept. Spawnable-through-`self` ⟺ EXPORT, full stop. (Recorded as a
+  future idea only.)
+- **No special-casing in the thread-entry checker.** `check_thread_builtin_call`
+  (`src/syntaxcheck/builtins.rs`) must not learn about `self`. It keeps requiring
+  `imported_package_export && Func && isolated`; `self` satisfies it by
+  producing signatures that carry `imported_package_export == true`.
+- **No change to `package::identifier` rules.** Still exactly two parts; nested
+  qualifiers still illegal; dot vs `::` semantics unchanged.
+- **No change to the meaning of a bare same-package reference.** `worker` (no
+  qualifier) is still a current-package function and still rejected as a thread
+  entry.
+- **No cross-package transitivity / re-export.** `self` is not exportable and
+  does not create re-export chains.
+- **No wire/format change** to `.mfp` metadata unless Phase 1 proves it is
+  required (see Open Decisions).
+
+## 2. Current State
+
+**Thread-entry enforcement.** `src/syntaxcheck/builtins.rs:check_thread_builtin_call`
+(the `callee == "thread.start"` arm) accepts the first argument only when it
+resolves to a visible signature that is simultaneously
+`sig.imported_package_export && matches!(sig.kind, FunctionKind::Func) &&
+sig.isolated`; otherwise it reports `TYPE_CALL_ARGUMENT_MISMATCH` (`2-203-0021`)
+with *"thread.start entry point must be an exported ISOLATED FUNC from an
+imported package."* It matches only `Expression::Identifier(name)` and maps
+package-qualified spellings via `canonical_import_name`. Confirmed by fixtures:
+`tests/syntax/threads/func_thread_start_valid/src/main.mfb` uses
+`thread::start(thread_workers::echoText, …)` (qualified), and
+`func_thread_start_invalid` asserts the rejection for a bare `localWorker`.
+
+**The distinguishing field.** `FunctionSig.imported_package_export: bool`
+(`src/syntaxcheck/mod.rs:96`) is `true` only for signatures loaded from an
+imported package's exports — set at `src/syntaxcheck/mod.rs:774` inside the
+export-loading loop (registered with `Visibility::Export`, `owner_file_path =
+package_file`). In-project functions are registered with the flag `false`
+(`src/syntaxcheck/mod.rs:1040`, `src/syntaxcheck/link.rs:854`). This field — not
+`isolated` — is the reason a current-package `ISOLATED FUNC` is rejected.
+
+**Import resolution.** `src/resolver/packages.rs:resolve_imported_package`
+implements the resolution order: `is_builtin_import` → `dependency_packages`
+map (else `IMPORT_PACKAGE_NOT_DECLARED`) → `local://` → `packages/{name}.mfp` →
+`packages/{name}/project.json` → `IMPORT_PACKAGE_NOT_INSTALLED`. Driven from
+`src/resolver/resolution.rs:resolve_file` (loops `file.imports`, computes
+`binding_name()`/`package_name()`, dedup/alias diagnostics, then resolves).
+`src/resolver/packages.rs:validate_source_package_manifest` checks the *imported*
+package's `name`/`kind` (`IMPORT_PACKAGE_NAME_MISMATCH`,
+`IMPORT_PACKAGE_KIND_INVALID`) — there is **no** check today that a project
+imports its own name.
+
+**Import AST.** `src/ast/types.rs:Import { module, alias, line }`;
+`binding_name()` = alias or `package_name()`; `import_bindings()` maps binding →
+package name. `self` is **not** currently a lexer keyword or reserved parser
+token (`rg` in `src/lexer*` → no matches).
+
+**package::identifier resolution & visibility.**
+`src/resolver/resolution.rs:resolve_package_qualified_name` splits the root
+binding, looks it up in `imports` (else `SYMBOL_UNKNOWN_IMPORT`, `2-201-0014`).
+Visibility is centralized in `src/syntaxcheck/mod.rs:visible_from`
+(`Export | Public => true`, `Private => same file`); `visible_function_sigs`
+filters through it. Imported sigs are registered `Visibility::Export`, so an
+importer sees only exports.
+
+**Package/executable kind.** `EXPORT_IN_EXECUTABLE` (`2-203-0103`) is emitted by
+`src/syntaxcheck/mod.rs:export_in_executable_diagnostics`, which takes an
+explicit `is_package: bool` (does not thread through `SyntaxChecker`). The kind
+comes from `src/manifest/mod.rs:project_kind` (`kind == "package"`), passed in by
+`src/cli/build/mod.rs` (~line 430). This same `is_package` boolean is the natural
+gate for `IMPORT self`.
+
+**Runtime isolation (the load-bearing unknown).** The spec states: *"Starting
+isolated functions from the same package multiple times creates multiple
+independent instances; their top-level MUT bindings are not shared."* So the
+runtime already supports N independent instances of one imported package. The
+open question is whether the **current** package participates in that same
+per-instance state scheme, or whether the current/main package's top-level `MUT`
+lives in process-global storage that a self-spawned worker would share. This is
+where correctness risk concentrates — see Phase 1.
+
+### Measured populations
+
+| What | Count | Command |
+|---|---|---|
+| Golden files asserting the thread.start rejection message | 7 | `rg -rl "thread.start entry point must be" tests/ \| wc -l → 7` |
+| `self` as lexer/parser keyword today | 0 | `rg -n '"self"' src/lexer* → no matches` |
+| Thread syntax fixtures (dir) | 26 | `ls tests/syntax/threads/ → 26 entries` |
+
+### Verified properties
+
+- **The thread checker is gated on `imported_package_export`, not on a distinct
+  compiled artifact.** Verified by reading `check_thread_builtin_call` — it only
+  consults the `FunctionSig` flags, so producing a self-import signature with the
+  flag set is sufficient at the syntaxcheck layer. (Read: `src/syntaxcheck/builtins.rs`.)
+- **UNVERIFIED — runtime per-instance state for the current package.** Whether a
+  fresh instance of the *current* package can be spawned as a worker (isolated
+  top-level `MUT`) is not yet confirmed. Phase 1 turns this into a verified
+  property or a scoped work item. Do not assume it is free.
+- **UNVERIFIED — worker function-id / package-call lowering.** The threading
+  spec's *function-ids-and-package-calls* contract assigns worker/package call
+  targets at link time; whether the current package's functions are already
+  addressable as worker entry points (vs only merged-imported-package functions)
+  is confirmed in Phase 1.
+
+## 3. Design Overview
+
+Model `IMPORT self` as an **ordinary import whose source is the current
+project's own EXPORT declarations**. The one and only special case lives in
+import resolution: when the import specifier is the reserved word `self`, instead
+of probing the package store, the resolver binds `self` (or its alias) to the
+current package and registers the project's EXPORT top-level declarations as
+imported-package signatures — i.e. with `imported_package_export == true`,
+`Visibility::Export`, mirroring the loop at `src/syntaxcheck/mod.rs:774`.
+
+Everything downstream is untouched and works by construction:
+
+- `self::worker` resolves through the existing `resolve_package_qualified_name`
+  path and `canonical_import_name`, finding the self-import signature.
+- The thread-entry checker sees `imported_package_export == true` and accepts —
+  no `self` awareness.
+- `visible_from` already hides non-EXPORT symbols, so `self::` exposes only the
+  public API — same as any external importer.
+
+**Where correctness risk concentrates (schedule LAST, behind Phase 1's proof):**
+the runtime/codegen wiring that instantiates a fresh instance of the current
+package for a self-spawned worker.
+
+**Where design uncertainty concentrates (schedule FIRST):** whether that runtime
+instantiation already exists for the current package or is net-new work. Phase 1
+is the cheap experiment that resolves the whole plan's size.
+
+**Rejected alternatives:**
+
+- *Teach the thread checker to accept a same-package ISOLATED FUNC directly.*
+  Rejected: reintroduces a same-package special case, breaks the "spawnable ⟺
+  exported" contract, and loses the automatic app exclusion.
+- *Let `self` see PRIVATE/PUBLIC (non-exported) symbols.* Rejected as a non-goal:
+  it would make `self` mean something different from a real import and require a
+  new visibility concept.
+- *Import the current package by its own real name (`IMPORT mypkg`).* Rejected:
+  it would route through the package store, fail (not a declared dependency of
+  itself), and could produce a second compiled copy. `self` as a reserved
+  specifier is clearer and copy-free.
+
+## 4. Detailed Design
+
+### 4.1 Reserved specifier `self`
+
+`self` becomes a reserved import specifier recognized in `resolve_file` /
+`resolve_imported_package` before the builtin/dependency lookup. It is *not* made
+a general reserved identifier — only the import root position treats it
+specially. `IMPORT self AS x` is permitted (alias binds `x` to the current
+package); the bare `self` name is also usable unless shadowed by the normal
+alias-conflict rules (which already reject collisions with top-level decls and
+builtins — `self` is not a builtin, so `self::` is available by default).
+
+### 4.2 Self-import signature synthesis (resolver/syntaxcheck)
+
+When `self` is imported, register the current project's EXPORT top-level FUNC/
+SUB/TYPE/etc. under the `self` binding as imported-package signatures
+(`imported_package_export = true`, `Visibility::Export`), reusing the same
+registration shape as `src/syntaxcheck/mod.rs:774`. These are *additional*
+signatures keyed under the `self`/alias binding; the existing in-project
+registrations (flag `false`, keyed bare) are unchanged, so ordinary unqualified
+in-project calls are unaffected.
+
+### 4.3 Executable rejection
+
+In a `kind: "executable"` project, `IMPORT self` is rejected with a dedicated
+diagnostic (new rule, e.g. `IMPORT_SELF_IN_EXECUTABLE`) explaining that an
+executable has no exported interface to import; suggest that self-referencing
+threads require a `kind: "package"` project. The gate reuses the same
+`is_package` boolean already computed at `src/manifest/mod.rs:project_kind` and
+passed into `export_in_executable_diagnostics`. Even without the dedicated
+diagnostic, an executable has zero EXPORT symbols, so `self::worker` would fail
+resolution — but an explicit, self-explaining error is required (no silent
+"unknown identifier").
+
+### 4.4 Runtime/codegen instantiation
+
+`thread::start(self::w, …)` must lower to a worker that runs a fresh instance of
+the current package. Phase 1 determines whether this is already covered by the
+existing "multiple independent instances of the same package" machinery (in
+which case this is wiring only) or requires new per-instance state setup for the
+current package. Any new work here is the highest-blast-radius part and lands
+last, behind runtime tests.
+
+## Compatibility / Format Impact
+
+- **Source surface:** adds one accepted form (`IMPORT self`). No existing valid
+  program changes meaning; no existing diagnostic is removed or weakened.
+- **`.mfp` format:** unchanged unless Phase 1 proves the current package needs
+  new per-instance metadata to be self-spawnable (see Open Decisions). Default
+  expectation: no format change.
+- **Unchanged:** `package::identifier` grammar, visibility semantics, the
+  bare-same-package-worker rejection, `EXPORT_IN_EXECUTABLE`.
+
+## Phases
+
+> Order: uncertainty first (Phase 1 spike), then the localized front-end work,
+> then the highest-blast-radius runtime wiring behind tests, then docs.
+
+### Phase 1 — Runtime-instance spike (resolve the load-bearing unknown)
+
+Determine, before touching the parser, whether a fresh instance of the **current**
+package can be spawned as a worker with isolated top-level `MUT`.
+
+- [ ] Read the threading runtime/codegen path (`./mfb spec threading`
+      source-model → *worker-and-package-functions*, *function-ids-and-package-calls*,
+      *control-block*; and the corresponding `src/` codegen/runtime for
+      thread-start worker entry) and determine how per-package instance state is
+      allocated, and whether the current package participates in the same scheme
+      as a multiply-started imported package.
+- [ ] Record the answer as a **Verified property** in §2 (replace the two
+      UNVERIFIED entries): either "current package rides the existing
+      per-instance mechanism → §4.4 is wiring only" **or** "current package state
+      is process-global → net-new per-instance work required," with the
+      file:symbol evidence.
+- [ ] If net-new runtime work is required, re-estimate the plan and split per the
+      write-plan rule (record in Corrections + Open Decisions) before proceeding.
+
+Acceptance: §2 contains a cited verified-or-refuted statement of whether a
+self-spawned worker gets isolated top-level `MUT`, and the plan's effort/split is
+re-confirmed against that finding.
+Commit: —
+
+### Phase 2 — Parse & resolve `IMPORT self`
+
+Front-end recognition of the reserved specifier, with no thread involvement yet.
+
+- [ ] Recognize `self` as a reserved import specifier in the import-resolution
+      entry (`src/resolver/resolution.rs:resolve_file` /
+      `src/resolver/packages.rs:resolve_imported_package`), short-circuiting
+      before builtin/dependency probing. Support `IMPORT self` and `IMPORT self AS x`.
+- [ ] Bind `self` (or alias) to the current package in the import bindings
+      (`src/ast/types.rs` / resolver import-binding map) so
+      `resolve_package_qualified_name` treats `self::name` as a known qualified
+      reference (no `SYMBOL_UNKNOWN_IMPORT`).
+- [ ] Emit `IMPORT_SELF_IN_EXECUTABLE` (new rule in `src/rules/table.rs`) when
+      the project is not `kind: "package"`, gated on the existing `is_package`
+      boolean (threaded from `src/cli/build/mod.rs` /
+      `src/manifest/mod.rs:project_kind`, mirroring
+      `export_in_executable_diagnostics`).
+- [ ] Preserve existing alias-conflict diagnostics (a user aliasing another
+      import to `self`, or `IMPORT self AS <existing>`, must still be caught).
+- [ ] Tests: `tests/syntax/project/import-self-*` fixtures — (i) `IMPORT self` in
+      a package resolves with no error; (ii) `IMPORT self` in an executable emits
+      `IMPORT_SELF_IN_EXECUTABLE`; (iii) alias form. Inline unit tests in
+      `src/resolver/*` mirroring `undeclared_package_is_reported`.
+
+Acceptance: the three fixtures produce the expected `golden/build.log`; the
+executable case shows the dedicated diagnostic (not `SYMBOL_UNKNOWN_IMPORT`).
+Commit: —
+
+### Phase 3 — Self-import signatures carry `imported_package_export`
+
+Make `self::name` resolve to signatures the thread checker accepts, with zero
+change to the checker.
+
+- [ ] When `self` is imported (package project), register the project's EXPORT
+      top-level declarations under the `self`/alias binding as imported-package
+      signatures (`imported_package_export = true`, `Visibility::Export`),
+      reusing the registration shape at `src/syntaxcheck/mod.rs:774`. Do not
+      alter the existing in-project (`false`) registrations.
+- [ ] Confirm `visible_from` hides non-EXPORT symbols through `self` (a
+      `self::privateOrPublicOnlyFunc` reference fails), matching external-import
+      behavior.
+- [ ] Verify `check_thread_builtin_call` is **unchanged** and now accepts
+      `thread::start(self::worker, …)` for an exported ISOLATED FUNC purely
+      because the looked-up sig has `imported_package_export == true`.
+- [ ] Tests: extend `tests/syntax/threads/` — a `func_thread_start_self_valid`
+      fixture (`kind: "package"`, `thread::start(self::echoText, …)` accepted)
+      and a `func_thread_start_self_invalid` fixture (`self::` of a non-exported
+      or non-isolated func rejected with the existing messages). Inline unit test
+      alongside `thread_start_bad_entry_rejected` for the accepted self path.
+
+Acceptance: the self-valid fixture compiles clean; self-invalid reproduces the
+existing `TYPE_CALL_ARGUMENT_MISMATCH` / visibility errors; the thread-checker
+source has no `self` reference (grep proof).
+Commit: —
+
+### Phase 4 — Runtime/codegen wiring & end-to-end proof (largest blast radius last)
+
+Make a self-spawned worker actually run as an isolated instance.
+
+- [ ] Wire `thread::start(self::w, …)` lowering so the worker entry references
+      the current package's already-compiled ISOLATED FUNC and instantiates a
+      fresh package instance (per Phase 1's finding). If Phase 1 found the
+      mechanism already exists, this is connect-the-reference only.
+- [ ] Runtime test: a package-project program that `IMPORT self`, spawns ≥2
+      self-workers that each mutate a top-level `MUT`, and asserts (a) parallel
+      results are correct and (b) top-level `MUT` is NOT shared across the parent
+      and workers (isolation holds). Place under the runtime/acceptance suite per
+      `.ai/compiler.md` (release-seeded per the perf-goldens caveat).
+- [ ] The HTTP fan-out shape as a worked example: one exported ISOLATED FUNC
+      fetching a document, started N times via `self::` from within the same
+      package.
+
+Acceptance: the runtime test passes showing correct parallel results **and**
+isolated top-level `MUT`; `cargo test --bin mfb` green; artifact-gate green.
+Commit: —
+
+### Phase 5 — Spec, man, goldens, gate
+
+- [ ] Update `./mfb spec language modules-and-packages` (import section) and
+      `./mfb spec language threads` / `./mfb spec threading` (entry-point rule:
+      "exported ISOLATED FUNC from an imported package **or via `IMPORT self`**")
+      per `.ai/specifications.md`. Note the executable exclusion explicitly.
+- [ ] Update `./mfb man thread` (`start` description + the entry-point sentence)
+      per the man templates in `.ai/`.
+- [ ] Add the new rule row for `IMPORT_SELF_IN_EXECUTABLE` to the diagnostics
+      spec/rule table.
+- [ ] Regenerate affected goldens; confirm the 7 existing rejection-message
+      goldens are unchanged (the bare-worker rejection message is untouched).
+- [ ] Run the full gate: `cargo test --bin mfb`, acceptance/test-accept for the
+      new fixtures, and one artifact-gate at finalization.
+
+Acceptance: spec/man/rule-table updated and in sync; full `cargo test --bin mfb`
++ artifact-gate green; new fixtures pass; no unexplained golden churn.
+Commit: —
+
+## Validation Plan
+
+- **Tests:** syntax fixtures (self resolve OK; executable rejection; self-worker
+  accept/reject) + runtime isolation test + inline unit tests in `src/resolver/*`
+  and `src/syntaxcheck/builtins.rs`. Include negative cases (executable,
+  non-exported target, non-isolated target, alias conflict).
+- **Coverage check:** confirm the new self-path is exercised by
+  `cargo test --bin mfb` (compiler tests live in the bin target, not `--lib`) —
+  a green run must include the new fixtures in its denominator.
+- **Runtime proof:** the Phase 4 program prints correct fan-out results and
+  demonstrates non-shared top-level `MUT` across parent and self-workers.
+- **Doc sync:** `mfb spec language modules-and-packages`, `mfb spec language
+  threads`, `mfb spec threading`, `mfb man thread`, the diagnostics/rule table.
+- **Acceptance:** `cargo test --bin mfb` + one finalization artifact-gate (do not
+  run the full gate per phase; check `pgrep -f artifact-gate` first — no
+  concurrent gate).
+
+## Open Decisions
+
+- **Runtime instance mechanism** — *Recommended:* reuse the existing multiply-
+  started-package per-instance state for the current package (Phase 1 confirms).
+  *Alternative:* net-new per-instance setup for the current package, which would
+  raise effort to x-large and force a split. Resolve in Phase 1 before any
+  parser work. (§4.4, Phase 1)
+- **Alias support** — *Recommended:* allow `IMPORT self AS x`. *Alternative:*
+  bare `self` only. Allowing the alias costs nothing (it rides the existing
+  alias machinery) and is consistent with every other import. (§4.1)
+- **Diagnostic granularity** — *Recommended:* a dedicated
+  `IMPORT_SELF_IN_EXECUTABLE`. *Alternative:* let it fall through to
+  `SYMBOL_UNKNOWN_IMPORT`. The dedicated error is required by the "no silent
+  fallthrough" bar. (§4.3)
+
+## Corrections
+
+<Filled in during execution.>
+
+## Summary
+
+The engineering risk is concentrated in one place: whether the runtime can spawn
+a fresh instance of the **current** package with isolated top-level `MUT`
+(Phase 1). Everything else is a deliberately small, localized front-end change —
+`IMPORT self` is modelled as an ordinary import of the project's own EXPORT
+declarations, so the thread-entry checker, visibility rule, and qualified-name
+resolution are all left untouched, and the application exclusion is free. Future
+work (a package-internal-but-spawnable visibility, e.g. `EXPORT PRIVATE`) is
+explicitly out of scope; today's floor is spawnable ⟺ exported.
