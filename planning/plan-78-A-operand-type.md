@@ -38,9 +38,9 @@ independent and are neither prerequisites nor scope.
 
 | Must be true | Command | Status |
 |---|---|---|
-| Repo builds clean at HEAD | `cargo build --bin mfb` → exit 0 | MET |
-| Baseline goldens green (byte-identity oracle works) | `bash scripts/artifact-gate.sh target/debug/mfb all` → pass | UNVERIFIED — run first |
-| Codegen tests green | `cargo test --bin mfb` → ok | UNVERIFIED — run first |
+| Repo builds clean at HEAD | `cargo build --bin mfb` → exit 0 | MET (2026-08-02, exit 0) |
+| Baseline goldens green (byte-identity oracle works) | `bash scripts/artifact-gate.sh target/debug/mfb all` → pass | MET (2026-08-02: 1144 tests, 1286 builds, 1549 goldens, 0 diffs) |
+| Codegen tests green | `cargo test --bin mfb` → ok | MET (2026-08-02: 3757 passed, 0 failed) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run and update before continuing and before stopping.
@@ -161,18 +161,31 @@ A. The only new surface is the `Operand` type and the `field` signature acceptin
 Repeatable measurement so B/C have before/after numbers and the perf goal is
 checkable. Safe alone (tooling only).
 
-- [ ] Add `scripts/bench-lowering.sh` building three fixed probes — trivial
-      baseline, one `regex::match("a","a")` const, full `tests/acceptance`
-      compile — printing wall-clock each. Deterministic, no network.
-- [ ] Record current baselines (debug + release) in `planning/plan-78-baseline.txt`:
-      one-regex 31 s/6 s, full acceptance 4 m21 s/51 s, baseline 0.05 s.
-- [ ] Capture the inlined regex function's instruction + vreg count (debug
-      `eprintln` behind an env var in `function_lowering.rs:lower_function`, or
-      from `-ncode`) so B/C can report "N instructions colored in T ms".
+- [x] Add `scripts/bench-lowering.sh` building three fixed probes — trivial
+      baseline (`scripts/bench-probes/trivial`), one `regex::match("a","a")` const
+      (`scripts/bench-probes/one-regex`), full `tests/acceptance` compile —
+      printing wall-clock each. Deterministic, no network. **Correction:** the
+      acceptance app is a TESTING project (no `main` entry), so `mfb build -ncode`
+      rejects it (`error 2-200-0011 PROJECT_ENTRY_INVALID`); the probe compiles it
+      via `mfb test tests/acceptance` — exactly the command plan-78-C's goal cites.
+- [x] Record current baselines (debug + release) in `planning/plan-78-baseline.txt`.
+      **Correction:** authoring guesses were close on the two heavy probes, off on
+      the floor. Measured (run2): one-regex 29.2 s / 6.7 s (guess 31/6); acceptance
+      266 s / 52.8 s (guess 4m21s/51s ✓); trivial 0.61 s / 0.35 s (guess 0.05 s —
+      the front-end + link floor is ~0.6 s debug, ~10× the guess). Spread ≤20% on
+      every probe over two runs.
+- [x] Capture the inlined regex function's instruction + vreg count. **Correction:**
+      placed the env-gated (`MFB_BENCH_LOWERING`) size probe at the top of
+      `regalloc::allocate` (`regalloc/mod.rs`), not `lower_function` — the single
+      point that sees the *pre-allocation* stream + `%v`/`%f` sentinels for every
+      caller (a plain `-ncode` dump is post-allocation → 0 vregs). Reports any
+      ≥100k-instruction function: regex body = 860,981 instructions / 135,293 int
+      vregs / 0 fp vregs.
 
 Acceptance: `bash scripts/bench-lowering.sh` prints stable timings on two runs
-(±20%); baseline file records the starting numbers incl. the function size.
-Commit: —
+(±20%) — verified 2026-08-02; baseline file records the starting numbers incl.
+the function size (860,981 instructions / 135,293 int vregs).
+Commit: (recorded next commit)
 
 ### Phase 2 — `Operand` type + render + `field` funnel
 
@@ -213,7 +226,21 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Phase 1 acceptance probe uses `mfb test`, not `mfb build -ncode`.** The
+  acceptance app is a TESTING project with no `main` entry, so `mfb build -ncode
+  tests/acceptance` fails with `error[2-200-0011 PROJECT_ENTRY_INVALID]`. The
+  harness compiles it via `mfb test tests/acceptance` — the exact command
+  plan-78-C's perf goal (`≤ 60 s debug`) is stated against. Evidence: `./target/
+  debug/mfb build -q -ncode tests/acceptance` → the entry-point error.
+- **Phase 1 baseline floor guess was ~10× low.** Measured trivial-probe compile is
+  0.61 s debug / 0.35 s release, not the 0.05 s the plan guessed; the two heavy
+  probes matched their guesses (one-regex 29.2 s/6.7 s vs 31/6; acceptance 266 s vs
+  4m21s). Recorded in `planning/plan-78-baseline.txt` with the measuring command.
+- **Size probe lives in `regalloc::allocate`, not `lower_function`.** The plan
+  offered either location; `allocate` is the one point that sees the
+  pre-allocation stream with `%v`/`%f` sentinels intact (a `-ncode` dump is
+  post-allocation and shows 0 vregs), so the `MFB_BENCH_LOWERING` env-gated probe
+  went there. Regex body = 860,981 instructions / 135,293 int vregs.
 
 ## Summary
 

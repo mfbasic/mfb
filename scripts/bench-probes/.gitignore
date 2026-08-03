@@ -1,0 +1,3 @@
+# plan-78 benchmark probes emit an `-ncode` dump at the project root; keep only
+# the committed source (project.json + src/), never the generated artifact.
+*.ncode

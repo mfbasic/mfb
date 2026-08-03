@@ -230,6 +230,33 @@ pub(crate) fn allocate(
     spill_base_offset: usize,
     reserved: &[&str],
 ) -> AllocOutcome {
+    // plan-78 Phase 1: env-gated size probe. When `MFB_BENCH_LOWERING` is set,
+    // report the pre-allocation instruction count and the distinct virtual-
+    // register count (int + fp) of each sizable function, so B/C can quote
+    // "N instructions / M vregs colored" against a real baseline. Gated on both
+    // the env var and a size threshold, it prints nothing on a normal build and
+    // only surfaces the large generated bodies (e.g. the inlined regex engine)
+    // rather than every tiny helper. It reads only, never mutates the stream, so
+    // it cannot affect emitted bytes.
+    if std::env::var_os("MFB_BENCH_LOWERING").is_some() && instructions.len() >= 100_000 {
+        let mut int_vregs = std::collections::HashSet::new();
+        let mut fp_vregs = std::collections::HashSet::new();
+        for instruction in instructions.iter() {
+            for (_name, value) in &instruction.fields {
+                if let Some(id) = parse_vreg(value) {
+                    int_vregs.insert(id);
+                } else if let Some(id) = parse_fp_vreg(value) {
+                    fp_vregs.insert(id);
+                }
+            }
+        }
+        eprintln!(
+            "MFB_BENCH_LOWERING: function instructions={} int_vregs={} fp_vregs={}",
+            instructions.len(),
+            int_vregs.len(),
+            fp_vregs.len()
+        );
+    }
     match kind {
         RegallocKind::BumpAndReset => {
             let allocation = BumpAndReset.assign(&AllocInput { eager });

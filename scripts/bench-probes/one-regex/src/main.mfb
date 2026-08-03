@@ -1,0 +1,13 @@
+IMPORT io
+IMPORT regex
+
+REM plan-78 benchmark probe: a single constant `regex::match`. A const pattern
+REM lowers the whole regex engine inline as one very large function (thousands of
+REM instructions, hundreds of virtual registers), which is exactly the workload
+REM whose lowering/regalloc pass this plan makes fast (str::eq/SipHash hot loops
+REM in analysis + the colored_mask_at spill quadratic). This probe isolates that
+REM cost from the fixed front-end + link floor the trivial probe measures.
+FUNC main AS Integer
+  io::print(toString(regex::match("a", "a")))
+  RETURN 0
+END FUNC
