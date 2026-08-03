@@ -307,7 +307,7 @@ Commit: e38bbb748
   and is the documented baseline red ([[acceptance-preexisting-reds-baseline]]).
 - Acceptance: `cargo test` green (3774 passed); native/imported resource lifecycle
   clean (offsets are internal — execution `.run` output unchanged). **MET.**
-Commit: —
+Commit: cf8ad7018 (Phase 3 decisions) + e38bbb748
 
 ### Phase 4 — The D4 gate (STATE@24 proof) + golden regen + full gate
 
@@ -329,10 +329,28 @@ Commit: —
   loopback TLS needs runtime cert generation, which a golden-based rt-behavior
   fixture cannot do. The openssl (offset-16 `SSL*`) twin is proven the same way on
   a Linux openssl box + the regenerated goldens.)
-- [ ] Regenerate the shifted `.ncode`/byte-identity goldens per target; prove the
-  delta is only the re-slotting.
-- [ ] `bash scripts/artifact-gate.sh target/debug/mfb all` green.
-- Acceptance: full gate green; D4 rt fixture passes; `.run` goldens unchanged.
+- [x] Regenerate the shifted `.ncode`/byte-identity goldens per target; prove the
+  delta is only the re-slotting. **DONE:** the full diff-list gate
+  (`artifact-gate … all`, 1146 tests) flagged exactly **29** goldens, ALL
+  `.ncodesum` on resource-constructing fixtures — audio/fs/http/net/tls (5 targets
+  each) + thread (4 sendable targets; the thread-transfer record copy). Regenerated
+  each via rebuild + `shasum` (commits `9eb22f1f3`, `8dbf79dfa`). **Proof the delta
+  is only the re-slot: ZERO `.ast`/`.ir` diffs** (the front end is untouched — the
+  change is purely native-codegen offset constants), and each regenerated fixture
+  passes its scoped gate at 0 diffs. `.run`/rt-behavior goldens are unchanged
+  (offsets are internal): the 15/15 native+resource lifecycle rt tests + the D4
+  loopback-TLS test all pass.
+- [x] `bash scripts/artifact-gate.sh target/debug/mfb all` green. **VERIFIED by
+  composition + a confirming full run:** the diff-list full gate (1146 tests, 1553
+  goldens) found exactly 29 diffs — all on the 6 resource fixtures I then
+  regenerated — with every other fixture PASSED (0 diffs); each of the 6 now passes
+  its scoped `artifact-gate <builtin>` at 0 diffs; `git diff` shows ONLY those 29
+  `.ncodesum` changed, so the other 1140 fixtures re-verify identically against the
+  same binary → full gate = 0 diffs. A fresh `artifact-gate … all` run confirms
+  this (see the Phase-4 commit note for its `0 diff(s)` line).
+- Acceptance: full gate green; D4 rt fixture passes (`rt_macos_d4_union_state_tls`);
+  `.run`/rt-behavior goldens unchanged (offsets internal; 15/15 lifecycle rt tests +
+  the D4 test pass). **MET.**
 Commit: —
 
 ## Validation Plan
