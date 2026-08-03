@@ -1,10 +1,77 @@
 # plan-71-C: re-tokenize Family 1a (result-named value used as an argument)
 
-Last updated: 2026-08-02
+Last updated: 2026-08-03
 Effort: large (3h–1d)
 Depends on: plan-71-B (the verified value-level Category-1/Category-2 partition; and,
 if the probe found reuse, the AArch64/RISC-V self-move elision pass). plan-71-B
 depends on plan-71-A.
+
+---
+
+## FINAL STATUS — plan-71 CLOSED 2026-08-03: byte-identical cleanup landed; fixpoint deletion DEFERRED
+
+plan-71 is being **closed without deleting the fixpoint.** The byte-identical
+re-tokenization cleanup landed and merged to main; the fixpoint deletion is
+**deferred to a successor plan** built on the register-bank-alignment finding
+below. Reason: the plan's core premise — *"re-tokenize every divergence to zero
+byte-identically, then delete the fixpoint"* — was **falsified for the majority of
+the remaining work** (a Prerequisites-class defect: the entry gate never tested it).
+
+### What landed (merged to main)
+- **plan-71-B**: the value-level Category-1/2 partition proof + the `selfmove_probe`
+  (Category-2 probe). Archived to `planning/completed/`.
+- **The Phase-0 source-instrumentation tool**: `#[track_caller]` on the `abi` helpers
+  + a `source` field on `MirInstruction`/`CodeInstruction` + the `@src` audit line,
+  and the `selfmove_probe` module. All env-gated (`MFB_BUG387_AUDIT` /
+  `MFB_BUG387_SELFMOVE`), **byte-identical when off**.
+- **The arena / index-0 re-tokenizations** (`%ret0 → %arg0` at ~14 arena-alloc/free
+  argument-producer sites): byte-identical, gate-verified per batch. Audit divergences
+  fell from the plan-71-A census (~1.08M raw operands) to **272,012** last measured.
+- Merges of main: plan-79/82 (typed operands), plan-80 (unified resource header),
+  plan-76-D (async http). All conflicts resolved; `cargo test` = 3776 passed.
+
+### Why the deletion was deferred — the falsified premise
+The x86 SysV divergences split cleanly by ABI register **index**:
+- **Index 0** (`%ret0`↔`%arg0` = rax vs rdi): the bulk by count, but a **single-role
+  mislabel** — a value used only as an argument that the builder labeled `%ret`. This
+  is byte-identically re-tokenizable, and is the work that **landed**.
+- **Indices 1–3** (the ~192K "error-Result residual"): **dual-role** values — a
+  `Result`'s {value, message, source} that are genuinely BOTH a return value and a
+  call argument, threaded through spill/restore. These **cannot** be driven to zero by
+  re-tokenization — **proven twice** (`emit_park_error_block_from_registers` and
+  `store_pending_current_result` both *spiked* divergences when their spill sites were
+  re-tokenized to `ARG[k]`). Here the fixpoint does genuine context-sensitive work.
+
+### The fix that WILL work (successor plan) — register-bank alignment
+Root cause: on x86 SysV, `RET[k] ≠ ARG[k]` for k=1..3, whereas on ARM/RISC-V they are
+the **same** register (`x_k`). Redefine the SysV RET bank to align with ARG — exactly
+as **Win64 already does**:
+
+    SysV today:  ARG=[rdi,rsi,rdx,rcx]  RET=[rax,rdx,rcx,rsi]   (misaligned 1..3)
+    Win64 today: ARG=[rcx,rdx,r8,r9]    RET=[rax,rdx,r8,r9]     (ALIGNED 1..3 already)
+    SysV fix:    ARG=[rdi,rsi,rdx,rcx]  RET=[rax,rsi,rdx,rcx]   (aligned 1..3)
+
+**Evidence it works:** the census shows **Windows has ZERO index-1..3 divergences**,
+precisely because Win64's RET is already ARG-aligned. Aligning SysV's RET the same way
+dissolves the entire error-Result residual — **no custom helper ABI, no staging moves.**
+- **Index 0 is irreducible**: `rax` (C return) and `rdi` (C arg-0) are both C-ABI-forced
+  and distinct — no permutation coincides them (Win64 keeps the same index-0 mismatch,
+  rax vs rcx). So index 0 stays as the byte-identical re-tokenization already landed.
+- **Scope/cost:** byte-**CHANGING** on **linux-x86 (SysV) only** — ARM/RISC-V and Win64
+  are already aligned and unchanged. So it is OUTSIDE plan-71's byte-identity rule and
+  needs its own plan. Work: redefine `RETS` in `src/arch/x86_64/select.rs`; update the
+  x86 `_mfb_*` helpers that return their 2nd value in `rdx`; **audit the SysV `rax:rdx`
+  two-value-return dependency** (FFI / entry / runtime helpers) FIRST; regenerate
+  linux-x86 goldens; then delete the fixpoint (the direct map suffices).
+
+### Ledger note
+The unticked `- [ ]` boxes in C (indices 1–3), D, and E below are **DEFERRED, not
+done** — superseded by the bank-alignment approach and carried into the successor
+plan. C's index-0 re-tokenization is partial-but-byte-identical and landed. This
+closure is the honest state; the boxes are left as-written (not falsely ticked) and
+the docs are archived to `planning/completed/`.
+
+---
 
 This sub-plan does the bulk of the fixpoint-removal preparation: it re-tokenizes every
 **Family 1a** producer — a value the shared builders emit as `%retK` (via
