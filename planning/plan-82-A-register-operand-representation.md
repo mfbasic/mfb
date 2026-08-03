@@ -250,16 +250,18 @@ Acceptance: the round-trip test passes over every physical register name in
 every consuming arch's tables; `cargo test --bin mfb` green. No `Phys` is
 constructed on any production path yet (the arm may carry a scoped
 `#[allow(dead_code)]` with a comment pointing at plan-82-B, removed in B).
-Commit: (recorded next commit)
+Commit: cf792e1b3
 
 ### Phase 3 — Byte-identity gate
 
-- [ ] Run `scripts/artifact-gate.sh … all` (the execution-free byte oracle) and
+- [x] Run `scripts/artifact-gate.sh … all` (the execution-free byte oracle) and
       confirm zero diffs vs the pre-plan tip — this sub-plan added only additive,
-      unconstructed types + tests.
+      unconstructed types + tests. **Result: `1146 tests, 1288 build(s), 1553
+      golden(s) checked, 0 diff(s)`** (`target/release/mfb all`).
 
 Acceptance: artifact-gate reports byte-identity across all four codegen targets;
-`.ncodesum` goldens unchanged.
+`.ncodesum` goldens unchanged. ✓ 0 diffs.
+Commit: (recorded next commit)
 Commit: —
 
 ## Validation Plan
