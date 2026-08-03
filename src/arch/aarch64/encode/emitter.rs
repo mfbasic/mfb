@@ -201,20 +201,20 @@ impl Encoder {
                 shifted_reg(field(instruction, "lhs")?)?,
                 shifted_reg(field(instruction, "rhs")?)?,
             ),
-            "b.eq" => self.emit_label_branch("b.eq", field(instruction, "target")?),
-            "b.ne" => self.emit_label_branch("b.ne", field(instruction, "target")?),
-            "b.ge" => self.emit_label_branch("b.ge", field(instruction, "target")?),
-            "b.lt" => self.emit_label_branch("b.lt", field(instruction, "target")?),
-            "b.gt" => self.emit_label_branch("b.gt", field(instruction, "target")?),
-            "b.le" => self.emit_label_branch("b.le", field(instruction, "target")?),
-            "b.vc" => self.emit_label_branch("b.vc", field(instruction, "target")?),
-            "b.vs" => self.emit_label_branch("b.vs", field(instruction, "target")?),
-            "b.hi" => self.emit_label_branch("b.hi", field(instruction, "target")?),
-            "b.lo" => self.emit_label_branch("b.lo", field(instruction, "target")?),
-            "b.mi" => self.emit_label_branch("b.mi", field(instruction, "target")?),
-            "b.ls" => self.emit_label_branch("b.ls", field(instruction, "target")?),
-            "b" => self.emit_label_branch("b", field(instruction, "target")?),
-            "bl" => self.emit_bl(field(instruction, "target")?),
+            "b.eq" => self.emit_label_branch("b.eq", field(instruction, "target")?.into_owned()),
+            "b.ne" => self.emit_label_branch("b.ne", field(instruction, "target")?.into_owned()),
+            "b.ge" => self.emit_label_branch("b.ge", field(instruction, "target")?.into_owned()),
+            "b.lt" => self.emit_label_branch("b.lt", field(instruction, "target")?.into_owned()),
+            "b.gt" => self.emit_label_branch("b.gt", field(instruction, "target")?.into_owned()),
+            "b.le" => self.emit_label_branch("b.le", field(instruction, "target")?.into_owned()),
+            "b.vc" => self.emit_label_branch("b.vc", field(instruction, "target")?.into_owned()),
+            "b.vs" => self.emit_label_branch("b.vs", field(instruction, "target")?.into_owned()),
+            "b.hi" => self.emit_label_branch("b.hi", field(instruction, "target")?.into_owned()),
+            "b.lo" => self.emit_label_branch("b.lo", field(instruction, "target")?.into_owned()),
+            "b.mi" => self.emit_label_branch("b.mi", field(instruction, "target")?.into_owned()),
+            "b.ls" => self.emit_label_branch("b.ls", field(instruction, "target")?.into_owned()),
+            "b" => self.emit_label_branch("b", field(instruction, "target")?.into_owned()),
+            "bl" => self.emit_bl(field(instruction, "target")?.into_owned()),
             "blr" => self.emit_blr(reg(field(instruction, "register")?)?),
             "svc" => self.emit_word(0xd400_0001),
             "branch_self" => self.emit_word(0x1400_0000),
@@ -272,12 +272,12 @@ impl Encoder {
             "adrp" => self.emit_symbol_ref(
                 "adrp",
                 reg(field(instruction, "dst")?)?,
-                field(instruction, "symbol")?,
+                field(instruction, "symbol")?.into_owned(),
             ),
             "add_pageoff" => self.emit_symbol_ref(
                 "add_pageoff",
                 reg(field(instruction, "dst")?)?,
-                field(instruction, "symbol")?,
+                field(instruction, "symbol")?.into_owned(),
             ),
             "fmov_x_from_d" => self.emit_fmov_x_from_d(
                 reg(field(instruction, "dst")?)?,
@@ -1283,7 +1283,7 @@ impl crate::arch::encode_plan::InstructionEncoder for Encoder {
     }
 
     fn label_name(instruction: &CodeInstruction) -> Result<String, String> {
-        super::operand::field(instruction, "name")
+        super::operand::field(instruction, "name").map(|c| c.into_owned())
     }
 
     fn emit_one(&mut self, instruction: &CodeInstruction) -> Result<(), String> {

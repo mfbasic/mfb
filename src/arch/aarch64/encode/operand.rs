@@ -17,8 +17,9 @@ pub(super) fn is_stack_pointer(name: &str) -> bool {
 /// `reg()` for an operand slot that will be encoded in a shifted-register form,
 /// where register 31 means XZR. Rejects an `sp`-spelled operand rather than
 /// silently encoding a read of zero (bug-284 C1).
-pub(super) fn shifted_reg(name: String) -> Result<u8, String> {
-    if is_stack_pointer(&name) {
+pub(super) fn shifted_reg(name: impl AsRef<str>) -> Result<u8, String> {
+    let name = name.as_ref();
+    if is_stack_pointer(name) {
         return Err(format!(
             "'{name}' cannot be used as a shifted-register operand: register 31 \
              encodes XZR there, so the stack pointer would silently read as zero"
@@ -27,8 +28,9 @@ pub(super) fn shifted_reg(name: String) -> Result<u8, String> {
     reg(name)
 }
 
-pub(super) fn reg(name: String) -> Result<u8, String> {
-    match name.as_str() {
+pub(super) fn reg(name: impl AsRef<str>) -> Result<u8, String> {
+    let name = name.as_ref();
+    match name {
         "sp" | "raw_sp" | "x31" | "xzr" => Ok(31),
         "x0" | "w0" => Ok(0),
         "x1" | "w1" => Ok(1),
@@ -80,7 +82,8 @@ pub(super) fn reg(name: String) -> Result<u8, String> {
 /// load/store spelling, and the `d0`..`d31` scalar view the register allocator
 /// hands out for FP virtual registers (the arrangement suffix, e.g. `.2d`, is
 /// implied by the op, so only the register number is decoded here).
-pub(super) fn vreg(name: String) -> Result<u8, String> {
+pub(super) fn vreg(name: impl AsRef<str>) -> Result<u8, String> {
+    let name = name.as_ref();
     let digits = name
         .strip_prefix('v')
         .or_else(|| name.strip_prefix('q'))

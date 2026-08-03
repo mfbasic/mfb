@@ -191,7 +191,7 @@ Commit: (recorded with Phase 2)
 
 Acceptance: builds; `cargo test --bin mfb` 3774 green; `.mir`/`.ncode`
 byte-identical (0 diffs). ✓
-Commit: (recorded with Phase 3)
+Commit: 58be85f65
 
 ### Phase 3 — Migrate the per-arch `select` readers + measure the win
 
@@ -213,7 +213,7 @@ Commit: (recorded with Phase 3)
 Acceptance: `artifact-gate … all` byte-identical (0 diffs); the MIR boundary does no
 `Operand`↔`String` round-trip; **allocations fell 168.5M (−20.8%)** — the win
 plan-82-A/B/C could not realize because of the String MIR barrier this plan removed.
-Commit: (recorded next commit)
+Commit: 58be85f65
 
 ## Validation Plan
 
