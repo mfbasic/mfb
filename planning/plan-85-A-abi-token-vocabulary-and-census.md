@@ -1,9 +1,9 @@
 # plan-85-A: convention-explicit ABI token vocabulary + aligned per-target realization + census
 
 Last updated: 2026-08-03
-Overall Effort: huge (>3d — ~4,900 emission sites re-classified across 72 files, 4
-native backends re-wired, the 646-line x86 fixpoint deleted, SysV-x86 goldens
-regenerated for the aligned convention)
+Overall Effort: huge (>3d — ~4,900 emission sites re-classified across 72 files onto a
+typed `Operand::Abi` variant, 4 native backends re-wired, the 646-line x86 fixpoint +
+legacy string-token path deleted, SysV-x86 goldens regenerated for the aligned convention)
 Effort: large (3h–1d)
 Depends on: nothing (plan-71 is complete/archived — it landed the prerequisites
 this feature builds on: the `@src` source-instrumentation tool, the
@@ -27,13 +27,25 @@ and results coincide there), and their byte-identity is the migration's cross-ta
 gate. SysV-x86 correctness is gated on **rt-behavior** (real execution), not
 byte-identity.
 
+The six tokens are a **typed `Operand::Abi { convention, role, index }` variant** — not
+string constants. Today the ABI role tokens are the last register category still
+funnelling through `Operand::Raw(Box<str>)` (`operand.rs:28`: *"physical registers
+reaching the code layer as a bare `&str` … still funnel through `Raw`"*), a
+heap-allocated boxed string per emission on the **allocation-bound** acceptance compile
+(memory `codeinstruction-operand-typing-and-regalloc-perf`: 808M allocs, malloc-dominated).
+Because plan-85 already re-touches every one of the ~4,900 ABI-token sites and rewrites
+their realization, it is the leverage point to **finish plan-82's `Raw`→typed migration
+for tokens**: a `Copy` typed arm (zero allocation) realized by a typed match, replacing
+the `Raw(Box<str>)` strings. This rides along with the ABI work at no extra site-touch cost.
+
 plan-85-A itself changes **no emitted byte** — it is a pure primitive addition +
-measurement: (1) the six tokens exist and realize to their **final aligned** physical
-registers on all four backends; (2) `select_x86` is taught to realize an explicit
-token **directly** (bypassing the fixpoint), the seam the deletion needs; (3) the
-per-operand **classification census** assigning every current emission site to one of
-the six conventions. No site emits the new tokens yet, so A alone stays byte-identical
-on all five targets.
+measurement: (1) the six tokens exist as `Operand::Abi` and realize to their **final
+aligned** physical registers on all four backends; (2) `select_x86` is taught to realize
+an explicit token **directly** (bypassing the fixpoint), the seam the deletion needs;
+(3) the per-operand **classification census** assigning every current emission site to one
+of the six conventions. No site emits the new tokens yet, so A alone stays byte-identical
+on all five targets (a typed operand that renders to the same register name emits the same
+byte — plan-82's premise).
 
 ## Why this exists — bug-387, and why plan-71 stopped short
 
@@ -63,6 +75,13 @@ References:
   `CALL_ARGS`/`RETS`/`SYS_ARGS`/`CALL_ARGS_WIN64`/`RETS_WIN64` (`:82`/`:90`/`:83`/`:116`/`:120`).
 - `src/arch/aarch64/select.rs:106`, `src/arch/riscv64/select.rs:732` — the other two
   token-realizing backends.
+- `src/target/shared/code/operand.rs` — the `Operand` enum (plan-78/79/82): the typed
+  `VReg`/`Phys`/`Imm` arms and the `Raw(Box<str>)` fallback the ABI tokens still use
+  (`:28`, `:71`); `Cow` rendering (`:114`). The `Operand::Abi` arm lands here.
+- `planning/completed/` plan-78 / plan-79 / plan-82 — the typed-operand refactor
+  (`CodeInstruction`/`MirInstruction.fields: Vec<(_, Operand)>`, −28.6% compile
+  allocations) this finishes for the token category. Memory:
+  `codeinstruction-operand-typing-and-regalloc-perf` (the compile is allocation-bound).
 - `src/target/shared/code/selfmove_probe.rs` — the `MFB_BUG387_SELFMOVE` probe
   (plan-71-B) the staging-move elision (plan-85-D) relies on.
 - `planning/completed/plan-71-*.md` — the byte-identity oracle mechanics
@@ -234,21 +253,32 @@ Rejected alternatives:
 
 ## 4. Detailed Design
 
-### 4.1 Token definitions (`abi.rs`)
+### 4.1 Token definitions — the typed `Operand::Abi` variant (`operand.rs` + `abi.rs`)
+Add to the `Operand` enum (`operand.rs`) a `Copy` typed arm, and the two small enums it
+carries:
 ```
-pub(crate) const ARG_MFB: [&str; 8]; RET_MFB: [&str; 4];   // MFB internal
-pub(crate) const ARG_C:   [&str; 8]; RET_C:   [&str; 2];   // C ABI (≤2 return regs)
-pub(crate) const ARG_SYS: [&str; 6]; RET_SYS: &str;        // syscall
+enum AbiConvention { Mfb, C, Sys }        // Copy, Eq
+enum AbiRole       { Arg, Ret }           // Copy, Eq
+// in enum Operand:
+Abi { convention: AbiConvention, role: AbiRole, index: u8 },   // Copy — no allocation
 ```
-Add `mfb_arg/mfb_return/c_arg/c_return/sys_arg/sys_return` accessors. Keep the legacy
-`ARG`/`RET`/`SYSARG`/`argument_register`/`return_register` during migration.
+`render()` produces `"%argMFB0"` etc. on demand (for `@src`/dumps); `rendered()` returns
+`Cow::Owned` (a token has no static backing string — acceptable, it renders only in
+diagnostics, never on the emit hot path, which reads the realized register). Add
+`abi::mfb_arg(k)`/`mfb_return(k)`/`c_arg(k)`/`c_return(k)`/`sys_arg(k)`/`sys_return()`
+accessors returning `Operand::Abi{…}`. Keep the legacy `ARG`/`RET`/`SYSARG`/
+`argument_register`/`return_register` (which still yield `Raw` strings) during migration;
+they are deleted in plan-85-D once no site emits them.
 
-### 4.2 Realization (final, aligned)
-Extend `realize_abi_token` with the AArch64 spelling per §2 (all collapse to `xN`).
-`map_token_direct` (`select.rs:168`) gains a SysV and Win64 case per new token from the
-§2 columns — `%retMFB[k]` → the aligned `[rdi,rsi,rdx,rcx]` on SysV. RISC-V
-`remap_register` composes (xN→aN). No `MFB_ALIGNED` switch — aligned is the only
-realization.
+### 4.2 Realization (typed match, final aligned registers)
+Realization moves from string matching to a **typed** function
+`realize_abi(convention, role, index, target) -> &'static str` returning the §2 register
+(a `&'static [&'static str]` bank index — no allocation). Each backend matches
+`Operand::Abi{…}` and calls it: AArch64/RISC-V collapse every family to `xN`/`aN`; x86's
+`map_token_direct` (`select.rs:168`) returns the SysV/Win64 register per §2 (`%retMFB[k]`
+→ aligned `[rdi,rsi,rdx,rcx]` on SysV). The legacy `realize_abi_token(&str)` stays for the
+not-yet-converted `Raw` `%arg`/`%ret` until plan-85-D. No `MFB_ALIGNED` switch — aligned
+is the only realization.
 
 ### 4.3 The direct-realize seam (`select_x86`)
 In `select_x86` (`:917`), before deferring an operand to `remap_x86_abi`, check
@@ -264,35 +294,44 @@ token + justifying boundary per `file:line`) is appended from the `@src`
 
 ## Compatibility / Format Impact
 
-plan-85-A: none (dormant primitive; five-target byte-identical). Whole feature: the
-**SysV-x86 `.ncode`/executable byte layout changes** for register-using code (the
-aligned MFB convention) — additive/mechanical, regenerated per plan-80's precedent and
-proven rt-behavior-equivalent. Win64/AArch64/RISC-V byte-identical. `.mfp` format,
-`MFBABI` hash, and all runtime semantics unchanged.
+plan-85-A: no emitted-byte or format change (dormant primitive; five-target
+byte-identical). It **adds an `Operand::Abi` enum arm** — an internal compiler-data-
+structure change with no observable effect (a typed operand renders to the same register
+name, so emit is unchanged; plan-82's premise). Whole feature: the **SysV-x86
+`.ncode`/executable byte layout changes** for register-using code (the aligned MFB
+convention) — additive/mechanical, regenerated per plan-80's precedent and proven
+rt-behavior-equivalent; and the ~4,900 ABI tokens stop allocating `Raw(Box<str>)` (a
+compile-time allocation reduction, no output effect). Win64/AArch64/RISC-V byte-identical.
+`.mfp` format, `MFBABI` hash, and all runtime semantics unchanged.
 
 ## Phases
 
 > Keep the checkboxes current in the same commit as the work. An unticked box means
 > NOT DONE.
 
-### Phase 1 — the six token families + accessors (`abi.rs`)
-- [ ] Add `ARG_MFB`/`RET_MFB`/`ARG_C`/`RET_C`/`ARG_SYS`/`RET_SYS` + accessors; leave
-      legacy tokens in place.
-- [ ] Tests: `abi::tests` — each new token well-formed; accessors return expected token.
+### Phase 1 — the typed `Operand::Abi` variant + accessors (`operand.rs`, `abi.rs`)
+- [ ] Add the `Operand::Abi{convention, role, index}` arm + the `AbiConvention`/`AbiRole`
+      enums (`operand.rs`); implement `render()`/`rendered()` for it; add the
+      `mfb_arg`/`c_arg`/`sys_arg`/… accessors returning `Operand::Abi` (`abi.rs`). Leave
+      the legacy string tokens in place.
+- [ ] Tests: `operand::tests` — `Operand::Abi` is `Copy`, round-trips through
+      `render()`, and each accessor yields the expected variant.
 
-Acceptance: `cargo test --bin mfb abi::` green; no emission changed; `bug387-gate.sh
-full` byte-identical (five targets).
+Acceptance: `cargo test --bin mfb operand:: abi::` green; no emission site changed;
+`bug387-gate.sh full` byte-identical (five targets).
 Commit: —
 
-### Phase 2 — aligned realization (all four backends) + the direct-realize seam
-- [ ] Extend `realize_abi_token` with each new token's AArch64 spelling (§2).
-- [ ] Extend `map_token_direct` with SysV + Win64 cases per §2 (aligned `%retMFB`).
-- [ ] Add the `is_explicit_convention_token` direct-realize branch in `select_x86`
-      (§4.3); confirm RISC-V `remap_register` composes.
-- [ ] Tests: a realization unit test per token per backend asserting the §2 register.
+### Phase 2 — aligned typed realization (all four backends) + the direct-realize seam
+- [ ] Add `realize_abi(convention, role, index, target)` (§4.2) returning the §2 register;
+      have each backend match `Operand::Abi` and call it — AArch64 (`select.rs:106`),
+      RISC-V (`:732`), and x86's `map_token_direct` (SysV + Win64 columns, aligned `%retMFB`).
+- [ ] Add the `Operand::Abi` direct-realize branch in `select_x86` (§4.3) so an explicit
+      token bypasses `remap_x86_abi`; legacy `Raw` `%arg`/`%ret` still defer to the fixpoint.
+- [ ] Tests: a realization unit test per (convention, role, index) per backend asserting
+      the §2 register; a `select_x86` test proving an `Operand::Abi` bypasses the fixpoint.
 
 Acceptance: realization tests green on all four backends; `bug387-gate.sh full`
-byte-identical (five targets — nothing emits the new tokens yet).
+byte-identical (five targets — nothing emits `Operand::Abi` yet).
 Commit: —
 
 ### Phase 3 — per-operand census work-list
@@ -327,6 +366,16 @@ Commit: —
 - **rt-behavior gate scope** — full remote Linux-x86 execution suite per subsystem vs.
   once at plan-85-D. Recommend: per-subsystem smoke on the converted area + one full
   run at D, since bytes move incrementally.
+- **Typed `Operand::Abi` tokens vs. string tokens (the string-removal ride-along).**
+  Recommend: **typed** — the tokens are the last register category still on
+  `Operand::Raw(Box<str>)` (`operand.rs:28`), and plan-85 already re-touches all ~4,900
+  sites, so typing them here **finishes plan-82's `Raw`→typed migration for tokens and
+  cuts those per-compile boxed-string allocations** on the allocation-bound compile at
+  no extra site-touch cost. The trade: it **widens plan-85-A** to the `Operand` enum and
+  every `realize`/`map`/`@src`-render path (which take `&str` today), and the B/C/D gates
+  now also cover the representation change. Accepted as worth it; recorded here so it is
+  a deliberate scope choice, not a silent add. (Alternative: keep string tokens in
+  plan-85 and type them in a separate later plan — rejected: that re-touches every site.)
 
 ## Corrections
 
@@ -334,9 +383,11 @@ Commit: —
 
 ## Summary
 
-plan-85-A adds the six-token vocabulary, realizes it to the final aligned registers on
-every backend, installs the direct-realize seam the fixpoint deletion needs, and
-records the complete classification census. It changes no emitted byte (dormant until
+plan-85-A adds the six-token vocabulary as a **typed `Operand::Abi` variant** (finishing
+plan-82's `Raw`→typed migration for the last register category, so tokens stop
+heap-allocating on the allocation-bound compile), realizes it to the final aligned
+registers on every backend, installs the direct-realize seam the fixpoint deletion needs,
+and records the complete classification census. It changes no emitted byte (dormant until
 B). The risk it *removes* is plan-71's: with `%retMFB` and `%argC` distinct — and MFB's
 convention aligned so they coincide on SysV except at the `rax` C boundary — a dual-role
 value is expressible and hop-free, so the fixpoint deletion stops being blocked by the

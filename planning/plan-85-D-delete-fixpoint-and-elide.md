@@ -151,7 +151,12 @@ Rejected alternatives:
 3. **Delete `remap_x86_abi`.** Remove the function + the deferral branch in `select_x86`;
    realize every operand via `map_token_direct`. Update/remove any test referencing the
    deleted symbols in the same commit; no `#![allow(dead_code)]`.
-4. **Reconcile** spec + bug-387 + bug-85/plan-34-B.
+4. **Delete the legacy string-token path.** With no `Raw` `%arg`/`%ret` left (plan-85-C
+   Phase 3), remove the legacy `ARG`/`RET`/`SYSARG` arrays, `argument_register`/
+   `return_register`, and `realize_abi_token(&str)`'s role-token arms — only the typed
+   `Operand::Abi` realization remains. This is the point plan-82's `Raw`→typed migration
+   is *complete* for the token category.
+5. **Reconcile** spec + bug-387 + bug-85/plan-34-B.
 
 ## Compatibility / Format Impact
 
@@ -176,10 +181,15 @@ Acceptance: elision tests green; ARM/RISC-V byte-identical with staging unified;
 `cargo test --bin mfb` green.
 Commit: —
 
-### Phase 2 — delete the fixpoint
+### Phase 2 — delete the fixpoint + the legacy string-token path
 - [ ] Delete `remap_x86_abi`/`remap_x86_abi_inner` + `select_x86`'s deferral; realize every
       operand via `map_token_direct`; retain a `debug_assert`/unit-test guard. Update/remove
       referencing tests in the same commit.
+- [ ] Delete the legacy `ARG`/`RET`/`SYSARG` arrays, `argument_register`/`return_register`,
+      and `realize_abi_token(&str)`'s role-token arms (no `Raw` `%arg`/`%ret` remain) — the
+      `Operand::Abi` typed realization is the only path; plan-82's `Raw`→typed migration is
+      complete for tokens. `grep -rE '%arg[0-9]|%ret[0-9]|argument_register|return_register'
+      src/target/shared/` → empty.
 - [ ] Gate: Win64/AArch64/RISC-V `bug387-gate.sh full` byte-identical; SysV-x86
       `artifact-gate.sh` regenerated+reviewed (re-slot only) + `exe-oracle` re-slot diff;
       `cargo test --bin mfb` real `test result: ok`.

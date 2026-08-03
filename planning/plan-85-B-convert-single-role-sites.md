@@ -126,7 +126,11 @@ Rejected alternatives:
 ## 4. Detailed Design
 
 For each work-list entry `(file:line, current-token, target-token, boundary)`: change the
-emission to the target accessor. If `boundary` is "consumes a C/syscall return", emit the
+emission to the target accessor (`abi::c_arg(k)`/`abi::mfb_return(k)`/…), which
+constructs the **typed `Operand::Abi`** (plan-85-A) — so each conversion also replaces a
+`Raw(Box<str>)` token with the zero-allocation typed arm (the string-removal ride-along;
+no output effect, since it realizes to the same register). If `boundary` is "consumes a
+C/syscall return", emit the
 explicit `%retC[k]`→`%argMFB[k]`/`%retMFB[k]` move at the consumption point (on SysV a
 real `mov rdi,rax`; on ARM/RISC-V a `mov xN,xN` no-op — left for plan-85-D's elision, so
 Win64/ARM/RISC-V stay byte-identical because the no-op move is *not yet* emitted there…
