@@ -49,6 +49,8 @@ mod codegen_utils;
 use codegen_utils::*;
 mod code_impl;
 use code_impl::{join_json, ToCodeJson};
+mod operand;
+pub(crate) use operand::Operand;
 mod fs;
 use fs::*;
 mod float_format;

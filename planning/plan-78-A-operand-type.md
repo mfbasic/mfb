@@ -125,24 +125,31 @@ typed register ids directly; the typed enum is clearer and faster.
 
 ## 4. Detailed Design
 
+As built in A (corrected — the original `Phys { class, index }` arm was dropped;
+see Corrections):
+
 ```
 pub(crate) enum Operand {
-    Phys { class: RegClass, index: u32 },   // renders to the ISA name (x0/d3/…)
-    VReg { class: RegClass, id: u32 },       // renders to %v<n> / %f<n>
-    Imm(i64),                                // renders to decimal
-    Raw(String),                             // labels, symbols, types, sentinels, bool
+    VReg { class: RegClass, id: u32 },  // renders to %v<n> (Int) / %f<n> (Fp)
+    Imm(i64),                            // renders to decimal
+    Raw(Box<str>),                       // physical names, labels, symbols, types,
+                                         // sentinels, bool — rendered verbatim
 }
 ```
 
+(plan-78-C adds `Phys { class, index, name }` — the physical name is the render
+source of truth because `(class, index)` alone is ISA-ambiguous, see Corrections.)
+
 - `render()` mirrors the exact current spellings: `VReg` via `vreg_name`/
-  `fp_vreg_name` (`regalloc/mod.rs:40,50`); `Phys` via the ISA name tables the
-  encoders already own; `Imm` via decimal `to_string`; `Raw` verbatim.
-- `parse(&str) -> Operand` mirrors the encoder/analysis sniff order (vreg prefix
-  → physical name → decimal → else `Raw`). Used only by the corpus test in A;
-  producers pass typed operands directly once they migrate (B).
-- `From<&str>`/`From<String>` produce `Raw` (so unmigrated call sites compile
-  unchanged); typed constructors (`Operand::phys`, `::vreg`, `::imm`) are used
-  where the kind is known.
+  `fp_vreg_name` (`regalloc/mod.rs:40,50`); `Imm` via decimal `to_string`; `Raw`
+  verbatim (which is what makes a physical register name faithful in A).
+- `parse(&str) -> Operand` mirrors the sniff order (vreg prefix → canonical
+  decimal → else `Raw`); it types an arm only when that arm renders back to the
+  exact input, so the classification is always faithful. Used only by the corpus
+  test in A; producers pass typed operands directly once they migrate (B).
+- `From<&str>`/`From<&String>`/`From<String>`/`From<&&str>` produce `Raw` (so
+  unmigrated call sites compile unchanged); typed constructors (`Operand::vreg`,
+  `::imm`) are used where the kind is known.
 - `CodeInstruction::field(name, v: impl Into<Operand>)` stores `v.into().render()`
   (String) in A.
 
@@ -185,27 +192,46 @@ checkable. Safe alone (tooling only).
 Acceptance: `bash scripts/bench-lowering.sh` prints stable timings on two runs
 (±20%) — verified 2026-08-02; baseline file records the starting numbers incl.
 the function size (860,981 instructions / 135,293 int vregs).
-Commit: (recorded next commit)
+Commit: c4156d5b4
 
 ### Phase 2 — `Operand` type + render + `field` funnel
 
 Introduce the type; route the canonical constructor through it; storage stays
 String.
 
-- [ ] Add `Operand` (`code_impl.rs` or a new `operand.rs` in the same module) per
-      §4, with `render`, `parse`, `From<&str>`/`From<String>`, `phys`/`vreg`/`imm`.
-- [ ] Change `CodeInstruction::field` (`code_impl.rs:11`) to
+- [x] Add `Operand` in a new `operand.rs` in the same module (per §4's Open
+      Decision) with `render`, `parse`, `vreg`, `imm`, and `From<&str>`/
+      `From<&String>`/`From<String>`/`From<&&str>`. **Correction — no `Phys` arm /
+      `phys` constructor in A.** A physical register's spelling is not recoverable
+      from `(class, index)` alone (`x0`/`rax`/`zero` all sit at integer index 0;
+      `d3`/`v3` alias fp index 3 *within* AArch64), so a `Phys{class,index}` arm
+      could not render faithfully — the one property A must guarantee. Physical
+      registers stay `Raw` (name = render source of truth) through A and B;
+      plan-78-C introduces `Phys{class,index,name}` at the allocation rewrite site,
+      where the name and index are both in hand, and reads it on the hot path.
+      **Correction — added `From<&String>`/`From<&&str>`.** Switching `field` from
+      `&str` to `impl Into<Operand>` drops the deref coercion that let callers pass
+      `&imm.to_string()` (`&String`) and the `ci(&[(_, &str)])` table helpers pass
+      `&&str`; these two impls keep all 861 call sites compiling verbatim as `Raw`.
+- [x] Change `CodeInstruction::field` (`code_impl.rs:11`) to
       `field(name, v: impl Into<Operand>)` storing `v.into().render()`.
-- [ ] Tests: `regalloc/tests.rs` (or a new `operand` test module) — round-trip
-      `Operand::parse(s).render() == s` over a corpus harvested from real output:
-      dump `-ncode` for a handful of fixtures spanning registers/immediates/
-      labels/symbols/types, extract every distinct value string, assert round-trip.
-- [ ] Run `artifact-gate.sh target/debug/mfb all` — zero diffs.
+- [x] Tests: new `operand::tests` module — round-trip `Operand::parse(s).render()
+      == s` over a corpus harvested from real `-ncode` output (`scripts/bench-
+      probes/{trivial,one-regex}`, 2026-08-02) spanning phys registers / immediates
+      / bools / labels / symbols / type names / stack sentinels, plus real
+      `vreg_name`/`fp_vreg_name` spellings; a coverage assertion that every §2 kind
+      is present; a class-tagging test; a non-canonical-decimal test; and a
+      `From`-conversion test. 5 tests, all green.
+- [x] Run `artifact-gate.sh target/debug/mfb all` — **0 diff(s)** (1144 tests,
+      1286 builds, 1549 goldens), verified 2026-08-02.
 
-Acceptance: `artifact-gate … all` byte-identical; the corpus round-trip test
-passes with the corpus containing ≥1 of each operand kind in §2 (assert the kind
-set is covered, so a missing kind fails the test rather than passing vacuously).
-Commit: —
+Acceptance: `artifact-gate … all` byte-identical (0 diffs); the corpus round-trip
+test passes with the corpus containing ≥1 of each operand kind in §2 (kind-set
+coverage asserted). `cargo test --bin mfb` green (3761 passed). Per-file coverage
+of `operand.rs` is satisfied by construction — every non-test line (render's 4
+arms, parse's branches, vreg/imm, all four `From`s) is exercised by the 5 unit
+tests; confirmed at finalization rather than a per-phase instrumented run.
+Commit: (recorded next commit)
 
 ## Validation Plan
 
@@ -241,6 +267,28 @@ Commit: —
   pre-allocation stream with `%v`/`%f` sentinels intact (a `-ncode` dump is
   post-allocation and shows 0 vregs), so the `MFB_BENCH_LOWERING` env-gated probe
   went there. Regex body = 860,981 instructions / 135,293 int vregs.
+- **`Operand` has no `Phys` arm in A (design defect in §4).** The plan's
+  `Phys { class, index }` cannot render faithfully: `x0`/`rax`/`zero` all sit at
+  integer index 0 across the three ISAs, and `d3`/`v3` alias fp index 3 *within*
+  AArch64, so a spelling cannot be reconstructed from `(class, index)` — yet exact
+  render is the one property A must guarantee. Physical registers therefore stay
+  `Raw` (name is the render source of truth) in A and B; plan-78-C introduces
+  `Phys { class, index, name }` at the allocation rewrite site (`mod.rs:359`),
+  where the physical name *and* class+index are both in hand, and reads the index
+  on the hot path. The `phys` constructor moves to C with the arm. This does not
+  change B's or C's deliverable (B's write sites build tokens/vregs/immediates,
+  not physical names; C is where physical names are written), only where the arm
+  is introduced. Evidence: `int_concrete_physical_index`/`fp_physical_index`
+  (`regalloc/analysis.rs`) map all three ISAs' names into one index space.
+- **Added `From<&String>` and `From<&&str>` beyond the plan's
+  `From<&str>`/`From<String>`.** Changing `field` to `impl Into<Operand>` drops the
+  deref coercion the old `&str` param relied on, so `.field("imm",
+  &imm.to_string())` (`&String`) and the `ci(op, &[(_, &str)])` table-builder
+  helpers (arch `select`/encoder tests + the production riscv64 `select`/`v128`
+  builders, which yield `&&str`) no longer compile. The two extra `From` impls
+  keep every existing call site verbatim as `Raw`. Evidence: without them,
+  `cargo build --bin mfb` failed with `Operand: From<&&str> is not satisfied` at
+  `riscv64/select.rs` and `riscv64/v128.rs`.
 
 ## Summary
 

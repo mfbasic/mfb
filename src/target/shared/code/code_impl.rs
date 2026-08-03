@@ -8,8 +8,12 @@ impl CodeInstruction {
         }
     }
 
-    pub(crate) fn field(mut self, name: &'static str, value: &str) -> Self {
-        self.fields.push((name, value.to_string()));
+    /// Append a named operand field. Accepts any `impl Into<Operand>` (a typed
+    /// `Operand`, or a `&str`/`&String`/`String` that becomes `Operand::Raw`);
+    /// storage stays `String` in plan-78-A, so the field stores the operand's
+    /// rendered spelling — byte-identical to the old `value.to_string()`.
+    pub(crate) fn field(mut self, name: &'static str, value: impl Into<Operand>) -> Self {
+        self.fields.push((name, value.into().render()));
         self
     }
 
