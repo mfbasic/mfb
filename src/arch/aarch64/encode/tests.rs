@@ -474,6 +474,7 @@ fn codeop_sizes_cover_large_add_imm() {
             ("src", Operand::from("sp")),
             ("imm", Operand::from("6400")),
         ],
+        source: None,
     };
 
     assert_eq!(instruction_size(&add).unwrap(), 8);

@@ -28,6 +28,11 @@ use super::*;
 pub(crate) struct MirInstruction {
     pub(crate) op: MirOp,
     pub(crate) fields: Vec<(&'static str, String)>,
+    /// plan-71-C Phase 0: carries the builder source `file:line` from the
+    /// [`CodeInstruction`] this MIR op was lowered from, so `select_x86` can stamp
+    /// it back onto the selected instruction and the `MFB_BUG387_AUDIT` cross-check
+    /// can name the exact re-tokenization site. Never serialized; byte-identical.
+    pub(crate) source: Option<&'static core::panic::Location<'static>>,
 }
 
 // The MIR op set is four groups (`mir.md §4`/§10):
@@ -464,7 +469,13 @@ pub(crate) fn lower_to_mir(instructions: &[CodeInstruction]) -> Vec<MirInstructi
         if shared {
             fields.push((FUSED_SHARE_FIELD, "true".to_string()));
         }
-        MirInstruction { op, fields }
+        // Fused ops (cmp+branch) are never a Family-1a re-tokenization target, so a
+        // precise source is unneeded; carry the branch's for completeness.
+        MirInstruction {
+            op,
+            fields,
+            source: branch.source,
+        }
     }
 
     // Fuse an `adrp; add_pageoff` page pair into one `addr_of`, or `None` if the
@@ -484,6 +495,7 @@ pub(crate) fn lower_to_mir(instructions: &[CodeInstruction]) -> Vec<MirInstructi
             Some(MirInstruction {
                 op: MirOp::AddrOf,
                 fields: mir_fields_from_code(&adrp.fields),
+                source: adrp.source,
             })
         } else {
             None
@@ -533,6 +545,7 @@ pub(crate) fn lower_to_mir(instructions: &[CodeInstruction]) -> Vec<MirInstructi
         out.push(MirInstruction {
             op: MirOp::from_code(setter.op),
             fields: mir_fields_from_code(&setter.fields),
+            source: setter.source,
         });
         i += 1;
     }

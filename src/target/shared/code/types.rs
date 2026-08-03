@@ -43,6 +43,13 @@ pub(crate) struct CodeInstruction {
     /// build `Operand::Imm`. Read the rendered string via [`CodeInstruction::get`]
     /// or the typed value via [`CodeInstruction::operand`].
     pub(crate) fields: Vec<(&'static str, Operand)>,
+    /// plan-71-C Phase 0: the source `file:line` that emitted this instruction,
+    /// captured via `#[track_caller]` at construction/emit. Audit-only metadata —
+    /// it is NEVER serialized (`ToCodeJson` ignores it) and never affects emitted
+    /// bytes; it lets the `MFB_BUG387_AUDIT` cross-check report the exact builder
+    /// site of each divergent operand so plan-71-C's re-tokenization work-list is a
+    /// deterministic derivation instead of an ambiguous grep.
+    pub(crate) source: Option<&'static core::panic::Location<'static>>,
 }
 
 pub(crate) struct CodeRelocation {

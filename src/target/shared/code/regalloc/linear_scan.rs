@@ -438,6 +438,7 @@ fn substitute(
     let mut copy = CodeInstruction {
         op: instruction.op,
         fields: instruction.fields.clone(),
+        source: instruction.source,
     };
     for (_field, value) in copy.fields.iter_mut() {
         if let Some(v) = (class_model.parse_vreg)(&value.rendered()) {

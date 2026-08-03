@@ -622,6 +622,7 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
         // neutral→concrete renames, e.g. `call`→`bl`, `mulhi_u`→`umulh`); the
         // rv64 encoder realizes each CodeOp as RISC-V bytes.
         out.push(CodeInstruction {
+            source: instruction.source,
             op: instruction
                 .op
                 .to_code()

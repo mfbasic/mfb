@@ -278,7 +278,14 @@ fn remap_x86_abi_inner(
                 .map(|(k, v)| format!("{k}={v}"))
                 .collect::<Vec<_>>()
                 .join(", ");
-            role_site[i] = Some(format!("{} [{fields}]", inst.op.mnemonic()));
+            // plan-71-C Phase 0: append the builder source (`file:line`) captured
+            // through the CodeInstruction→MIR→select pipeline, so the audit names
+            // the exact emission site the re-tokenization work-list needs.
+            let src = inst
+                .source
+                .map(|loc| format!(" @src={}:{}", loc.file(), loc.line()))
+                .unwrap_or_default();
+            role_site[i] = Some(format!("{} [{fields}]{src}", inst.op.mnemonic()));
         }
         for (p, (_, value)) in inst.fields.iter_mut().enumerate() {
             let rendered = value.render();
@@ -824,6 +831,7 @@ fn remap_x86_abi_inner(
                 ("dst", Operand::from(home.clone())),
                 ("src", Operand::from(*arg)),
             ],
+            source: None, // synthetic param bridge (measured dead: BUG387-PARAMBRIDGE=0)
         });
     }
     if !prologue.is_empty() {
@@ -918,6 +926,7 @@ pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<Co
             out.push(CodeInstruction {
                 op: CodeOp::Adrp,
                 fields: code_fields_from_mir(&instruction.fields),
+                source: instruction.source,
             });
             continue;
         }
@@ -943,6 +952,7 @@ pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<Co
                 out.push(CodeInstruction {
                     op: setter_op,
                     fields: setter_fields,
+                    source: instruction.source,
                 });
             }
             // A branch reading a float compare's flags needs the x86 IEEE remap:
@@ -966,6 +976,7 @@ pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<Co
                 out.push(CodeInstruction {
                     op: branch_op,
                     fields: branch_fields,
+                    source: instruction.source,
                 });
             }
         } else {
@@ -978,6 +989,8 @@ pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<Co
                     .to_code()
                     .expect("non-fused MIR op maps to a single CodeOp"),
                 fields: code_fields_from_mir(&instruction.fields),
+                // plan-71-C Phase 0: carry the builder source so the audit names it.
+                source: instruction.source,
             });
         }
     }

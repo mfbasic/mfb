@@ -1,10 +1,16 @@
 use super::*;
 
 impl CodeInstruction {
+    #[track_caller]
     pub(crate) fn new(op: &str) -> Self {
         Self {
             op: CodeOp::from_mnemonic(op).unwrap_or_else(|err| panic!("{err}")),
             fields: Vec::new(),
+            // plan-71-C Phase 0: record where this instruction was built. With the
+            // `abi::` emit helpers also `#[track_caller]`, this resolves to the
+            // shared-builder line, not `abi.rs`. `self.emit()` refines it to the
+            // builder's `emit` call site for the common path.
+            source: Some(core::panic::Location::caller()),
         }
     }
 

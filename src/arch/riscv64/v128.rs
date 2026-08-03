@@ -1615,6 +1615,7 @@ mod tests {
         MirInstruction {
             op,
             fields: fields.iter().map(|(k, v)| (*k, v.to_string())).collect(),
+            source: None,
         }
     }
 

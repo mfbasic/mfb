@@ -274,7 +274,13 @@ impl CodeBuilder<'_> {
         label
     }
 
-    pub(super) fn emit(&mut self, instruction: CodeInstruction) {
+    #[track_caller]
+    pub(super) fn emit(&mut self, mut instruction: CodeInstruction) {
+        // plan-71-C Phase 0: refine the instruction's source to the builder's
+        // `self.emit(...)` call site (the caller of `emit`), which is the exact
+        // shared-builder line the audit needs — more precise than the `abi::`
+        // helper line captured at construction. Audit-only metadata; byte-identical.
+        instruction.source = Some(core::panic::Location::caller());
         self.instructions.push(instruction);
     }
 }

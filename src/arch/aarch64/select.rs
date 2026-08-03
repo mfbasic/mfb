@@ -68,11 +68,13 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                 out.push(CodeInstruction {
                     op: setter_op,
                     fields: setter_fields,
+                    source: instruction.source,
                 });
             }
             out.push(CodeInstruction {
                 op: branch_op,
                 fields: branch_fields,
+                source: instruction.source,
             });
         } else {
             out.push(CodeInstruction {
@@ -81,6 +83,7 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                     .to_code()
                     .expect("non-fused MIR op maps to a single CodeOp"),
                 fields: code_fields_from_mir(&instruction.fields),
+                source: instruction.source,
             });
         }
     }
