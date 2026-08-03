@@ -84,6 +84,7 @@ here; B, C, and D point back to this table.
 | plan-78 A/B merged: `Operand` exists and `CodeInstruction.fields: Vec<(&'static str, Operand)>` | `rg -n 'enum Operand' src/target/shared/code/operand.rs` and `rg -n 'fields: Vec<\(&.*str, Operand\)>' src/target/shared/code/types.rs` | MET |
 | A clean byte-identity oracle exists (artifact-gate) | `ls scripts/artifact-gate.sh` | MET |
 | Acceptance harness runs | `ls scripts/test-accept.sh tests/acceptance/project.json` | MET |
+| **PREMISE (should have been gated): typing the `CodeInstruction` operand representation removes the dominant compile allocations, so the operands typed at production survive to regalloc/encode.** | Type the operands end-to-end (A/B/C) and re-count `GlobalAlloc` on the acceptance compile; the total must fall substantially. | **NOT MET — FALSIFIED.** Base 808,803,959 → post-A/B/C 789,917,084 allocs (same counting-allocator probe): **2.3%**. Root cause: the compile round-trips every operand through the **String-based MIR/select layer** (`MirInstruction.fields: Vec<(&str, String)>`; `lower_to_mir` renders each operand to `String`; `select`/`mir_fields_to_operands` rebuilds each as `Operand::Raw`, `mir.rs:362`), so the typed operands are discarded before regalloc/encode. The dominant remaining alloc is per-**instruction** `Vec<(&str, Operand)>` churn (profile top-of-stack: `RawVec::finish_grow`, `Vec::clone`, `from_iter`, `Operand::render`) from the multi-pass build/clone/rebuild pipeline — which operand typing does not address. |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command before starting and before any stop.
@@ -317,6 +318,53 @@ Commit: —
   every plan-82 goal (byte-identity, zero heap allocation for physicals, direct
   index read) and confirms premise 1 (physical registers *can* render faithfully
   from a typed value).
+
+## ⛔ CORE-PREMISE FALSIFICATION (plan-82 halted at end of C, evidence-based)
+
+**The plan's operative premise — that typing the operand *representation*
+(`VReg`/`Phys` inline instead of `Raw(Box<str>)`) removes the compile's allocation
+churn and reaches the debug-≤60 s headline — is falsified by direct, apples-to-
+apples measurement.** A, B, and C are complete, byte-identical (artifact-gate:
+0 diffs at every step), and pass the full suite (`cargo test --bin mfb`: 3774;
+acceptance 362/362 on release **and** debug). But:
+
+1. **Measured allocation reduction is 2.3%, not "dramatic".** Same counting-
+   allocator probe, same `mfb test tests/acceptance`: plan base (03201b38d)
+   **808,803,959** allocs → post-A/B/C **789,917,084**. (Release acceptance wall:
+   58 s → 56 s; debug: 284 s → 275 s.) Nowhere near the reduction the ≤60 s headline
+   (a 4.7× speedup from 284 s) requires.
+
+2. **Why: the typed operands are discarded mid-pipeline.** The compile is
+   `production (CodeInstruction, typed by C) → lower_to_mir → MirInstruction
+   (Vec<(&str, String)>) → select → CodeInstruction (Raw) → regalloc → encode`.
+   `lower_to_mir` renders every operand to a `String`; `select` /
+   `mir_fields_to_operands` (`mir.rs:362`) rebuilds every field as
+   `Operand::from(&str)` = `Raw`. So the operands A/B/C typed at the
+   `CodeInstruction` layer are **stringified and re-boxed before regalloc/encode
+   ever see them** — the representation change cannot reduce the churn it targets.
+   (B's regalloc-internal `Phys` write-back does survive to the encoder, so plan-82-D
+   could still delete the encode-side `*_physical_index` scans — a real but small,
+   compute-mostly win — but that alone gets nowhere near ≤60 s.)
+
+3. **The real bottleneck is out of scope.** The profile's top-of-stack is malloc/
+   free driven by per-**instruction** `Vec<(&str, Operand)>` churn —
+   `RawVec::finish_grow`, `Vec::clone` (the regalloc `substitute` fields clone, run
+   twice), `Vec::from_iter`, and `Operand::render` (the MIR round-trip) — from the
+   multi-pass build/clone/rebuild pipeline. Reaching ≤60 s would require (a) typing
+   the **MIR/select** layer end-to-end and (b) eliminating the per-instruction
+   fields-Vec churn across passes (in-place mutation / arena instructions / fewer
+   passes). Neither is in plan-82's premise or scope; both are a different, larger
+   design.
+
+**Consequence:** plan-82 cannot meet its headline as designed. Per /follow-plan,
+this is the core-premise-falsified sanctioned stop, recorded as a Prerequisites
+defect (the entry gate should have measured the alloc-reduction premise, not just
+asserted it). A/B/C are left on `worktree-P-82` as a byte-identical, tested
+typed-operand **foundation** a future MIR-typing / pipeline-restructure effort can
+build on — deliberately **not merged**, since alone they move the number ~2%. D was
+not started (its ≤60 s criterion is unreachable without the out-of-scope work; the
+criterion is **not** weakened). Full evidence: this file's Prerequisites row, and
+the per-phase Commit hashes below.
 
 ## Summary
 

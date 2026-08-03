@@ -141,12 +141,20 @@ Commit: —
 
 ### Phase 4 — Perf checkpoint
 
-- [ ] Re-measure the plan-82-A baseline (debug+release acceptance wall + total
-      allocation count). Record here. Expect the production-time vreg `Box<str>`
-      share gone.
+- [x] ~~Re-measure … Expect the production-time vreg `Box<str>` share gone.~~
+      **DONE — measured, and the expectation is FALSE.** Total allocations
+      (counting-allocator probe, `mfb test tests/acceptance`): plan base
+      **808,803,959** → post-C **789,917,084** (2.3%). Even a further pass typing
+      `ValueResult.location`/`PendingTemp.location` → `Operand` (built, compiled,
+      3774 tests green, then reverted as moot) left the count at **789,917,084** —
+      unchanged. Reason: the typed operands are stringified/re-boxed at the
+      String-based MIR/select round-trip before regalloc/encode (see plan-82-A
+      §CORE-PREMISE FALSIFICATION). C's `Box<str>` share is NOT the dominant
+      allocation; the per-instruction fields-`Vec` churn is.
 
-Acceptance: total allocation count and release acceptance wall both fell vs. the
-plan-82-B checkpoint; acceptance suite green.
+Acceptance: **NOT MET, and it cannot be met by this design** — the allocation count
+did not fall (the production-time vreg typing is discarded downstream by MIR/
+select). Not weakened; recorded as a premise defect. plan-82 halts here (§A).
 Commit: —
 
 ## Validation Plan

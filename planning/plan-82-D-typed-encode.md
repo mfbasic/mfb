@@ -28,6 +28,21 @@ References:
 - `src/target/shared/code/regalloc/analysis.rs` — the physical-index scans to
   delete; and the x86-64/riscv64 encoders' equivalent consumers.
 
+## ⛔ NOT STARTED — plan-82 halted at end of C (core premise falsified)
+
+See **plan-82-A §CORE-PREMISE FALSIFICATION**. Measurement after A/B/C: the
+compile round-trips every operand through the String-based MIR/select layer, so
+typing the `CodeInstruction` operand representation reduces allocations only ~2.3%
+(808.8M → 789.9M), and the debug-≤60 s headline (below) is unreachable without
+out-of-scope work (typing MIR/select + eliminating per-instruction fields-`Vec`
+churn). D's own Phase 3 escape ("if the target is not met, name the residual
+hotspots → follow-on letter") is triggered *a priori*: the residual hotspots are
+the **MIR/select String round-trip** and the **multi-pass fields-`Vec` churn**
+(profile evidence in plan-82-A). D's compute-only sub-win (deleting the encode-side
+`*_physical_index` scans, which B's `Phys` write-back does reach) would not move the
+headline and is not worth landing in isolation against a falsified premise. The
+≤60 s criterion is **not weakened**; D is left unstarted pending a re-scoped design.
+
 ## Prerequisites
 
 See plan-82-A §Prerequisites. Additionally: **if plan-82-C is not complete,
