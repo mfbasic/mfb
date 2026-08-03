@@ -1,0 +1,344 @@
+# plan-85-A: convention-explicit ABI token vocabulary + aligned per-target realization + census
+
+Last updated: 2026-08-03
+Overall Effort: huge (>3d — ~4,900 emission sites re-classified across 72 files, 4
+native backends re-wired, the 646-line x86 fixpoint deleted, SysV-x86 goldens
+regenerated for the aligned convention)
+Effort: large (3h–1d)
+Depends on: nothing (plan-71 is complete/archived — it landed the prerequisites
+this feature builds on: the `@src` source-instrumentation tool, the
+`selfmove_probe`, and the value-level Category-1/2 partition proof).
+
+This is the lead sub-plan of plan-85. It **replaces the two overloaded ABI role
+tokens `%arg`/`%ret` (plus `%sysarg`) with six convention-explicit tokens** —
+`%argMFB`/`%retMFB` (MFB's internal convention), `%argC`/`%retC` (the platform C
+ABI), `%argSys`/`%retSys` (the syscall convention) — so that every operand in the
+shared MIR stream **names the calling convention it belongs to** instead of leaving
+x86 to *infer* it. The single behavioral outcome of the whole plan-85 feature
+(delivered across A→D): the 646-line `remap_x86_abi` fixpoint is **deleted**, MFB's
+internal convention is **aligned** (`%retMFB` = `%argMFB` = `[rdi,rsi,rdx,rcx]` on
+SysV, no `rax`), and every operand's register is a direct lookup keyed on its explicit
+token.
+
+**This is a byte-CHANGING feature on SysV-x86** (linux/macos-x86): the aligned MFB
+convention deliberately reassigns registers, so SysV-x86 goldens regenerate.
+Win64-x86, AArch64, and RISC-V are **byte-identical** (they are already aligned — args
+and results coincide there), and their byte-identity is the migration's cross-target
+gate. SysV-x86 correctness is gated on **rt-behavior** (real execution), not
+byte-identity.
+
+plan-85-A itself changes **no emitted byte** — it is a pure primitive addition +
+measurement: (1) the six tokens exist and realize to their **final aligned** physical
+registers on all four backends; (2) `select_x86` is taught to realize an explicit
+token **directly** (bypassing the fixpoint), the seam the deletion needs; (3) the
+per-operand **classification census** assigning every current emission site to one of
+the six conventions. No site emits the new tokens yet, so A alone stays byte-identical
+on all five targets.
+
+## Why this exists — bug-387, and why plan-71 stopped short
+
+The shared lowering emits `%arg`/`%ret` role tokens that `realize_abi_token`
+(`src/target/shared/abi.rs:329`) maps to **AArch64's** register file, where the k-th
+argument and k-th result are the *same* register (`%arg0`|`%ret0` → `x0`, line 331).
+x86 alone splits those roles, so it runs the 646-line `remap_x86_abi` CFG fixpoint
+(`src/arch/x86_64/select.rs:210`) to *re-infer* each operand's role from control flow.
+That is bug-387: the "neutral" stream carries an ARM assumption, and x86 pays for it.
+
+plan-71 tried to delete the fixpoint by re-tokenizing `%ret`→`%arg`. It succeeded for
+the **index-0 single-role** sites but was **falsified for the indices-1..3 dual-role
+error-Result values** (`planning/completed/plan-71-C-retokenize-family-1a.md` FINAL
+STATUS): those values are a *result* and an *argument* at different points, and no
+single overloaded token can express that. plan-85 fixes the vocabulary so the
+ambiguity cannot arise — `%retMFB` where it is a result, `%argC` where it is an
+argument, with an explicit staging move at the transition (plan-85-D) — and then
+**aligns** MFB's convention so those transitions are hop-free at every index (only the
+genuine C/kernel boundary keeps `rax`).
+
+References:
+
+- `src/target/shared/abi.rs` — `ARG`/`RET`/`SYSARG` token arrays (`:139`/`:146`/`:155`),
+  `argument_register`/`return_register` (`:12`/`:95`), `realize_abi_token` (`:329`).
+- `src/arch/x86_64/select.rs` — `map_token_direct` (`:168`), `remap_x86_abi` /
+  `remap_x86_abi_inner` (`:210`/`:231`, ~646 lines), `select_x86` (`:917`), the banks
+  `CALL_ARGS`/`RETS`/`SYS_ARGS`/`CALL_ARGS_WIN64`/`RETS_WIN64` (`:82`/`:90`/`:83`/`:116`/`:120`).
+- `src/arch/aarch64/select.rs:106`, `src/arch/riscv64/select.rs:732` — the other two
+  token-realizing backends.
+- `src/target/shared/code/selfmove_probe.rs` — the `MFB_BUG387_SELFMOVE` probe
+  (plan-71-B) the staging-move elision (plan-85-D) relies on.
+- `planning/completed/plan-71-*.md` — the byte-identity oracle mechanics
+  (`scripts/bug387-gate.sh`, `scripts/exe-oracle.sh`), the `@src` tool, and the FINAL
+  STATUS of why re-tokenization stalled (the design this supersedes).
+- `planning/completed/plan-80-unified-resource-record.md` — the precedent for a
+  byte-CHANGING codegen migration gated by "regenerate goldens + prove the delta is
+  only the intended change + rt-behavior" (this plan's SysV-x86 gate model).
+- `.ai/compiler.md` (silent-wrong-register is the worst class), `.ai/remote_systems.md`
+  (the GTK Linux boxes for rt-behavior execution proof).
+
+## Prerequisites
+
+Stated once here for the whole plan-85 feature; every later letter points here.
+
+| Must be true | Command | Status |
+|---|---|---|
+| plan-71 complete & archived (its tool + probe + arena work landed) | `ls planning/plan-71-*.md 2>/dev/null` → none; `ls src/target/shared/code/selfmove_probe.rs` exists | MET — plan-71 archived; `selfmove_probe.rs` on main (f3b62d29a) |
+| Repo builds clean; full byte-identity gate green at HEAD | `cargo build --release --bin mfb && bash scripts/bug387-gate.sh target/release/mfb full` (record fresh SERIAL baselines first) | UNVERIFIED — run first |
+| exe-oracle baselines re-recorded from clean `main` **serially** | `for t in linux-x86_64 windows-x86_64 linux-riscv64 linux-aarch64; do bash scripts/exe-oracle.sh <exe> $t record /tmp/bug387/oracle-$t.txt; done` (one at a time) | RE-RECORD FIRST |
+| A Linux x86 box reachable for SysV-x86 rt-behavior execution proof | per `.ai/remote_systems.md` | RE-PROBE at plan-85-B/D |
+| No concurrent artifact-gate / exe-oracle running | `pgrep -f 'artifact-gate\|exe-oracle'` → empty | UNVERIFIED — check before each gate |
+
+> **NOTE — the Status column is a snapshot; the Command column is the truth.** The
+> `/tmp/bug387/*` baselines are ephemeral and MUST be re-recorded from clean `main`
+> **serially, one target at a time** — concurrent `exe-oracle` runs share
+> `tests/*/build` and silently drop entries → phantom DIFF (memory
+> `exe-oracle-concurrent-clobber`). If you stop, report the status of *all* rows.
+
+Everything below is written against the world where these hold.
+
+## 1. Goal
+
+**plan-85-A goal** (checkable):
+
+- The six tokens `%argMFB[0..7]`, `%retMFB[0..3]`, `%argC[0..7]`, `%retC[0..1]`,
+  `%argSys[0..5]`, `%retSys` are defined in `abi.rs` and `realize_abi_token` (plus the
+  riscv/x86 remaps) map every one to its **final aligned** physical register on all
+  four backends (§2 table), verified by a unit test per token per backend.
+- `select_x86` realizes an explicit token **directly** through `map_token_direct`
+  (bypassing `remap_x86_abi`); legacy `%arg`/`%ret` still flow through the fixpoint.
+  The two coexist (a within-plan migration seam, deleted in plan-85-D).
+- A complete **classification census** (`planning/plan-85-census.md`) maps every
+  emission site to one of the six conventions, counts stated with commands, no `~`.
+- No emission site converted yet → `bug387-gate.sh full` byte-identical on all five
+  targets (A is a dormant primitive).
+
+**plan-85 overall goal (context, delivered across A–D):** `remap_x86_abi` deleted;
+`%retMFB`=`%argMFB`=`[rdi,rsi,rdx,rcx]` on SysV; every operand a direct token lookup;
+byte-identical on Win64/AArch64/RISC-V; byte-changed on SysV-x86 and proven
+rt-behavior-equivalent.
+
+### Non-goals (explicit constraints)
+
+- **Any emitted byte, in plan-85-A.** A adds dormant tokens + the direct-realization
+  seam + the census; nothing emits the new tokens, so all five targets stay
+  byte-identical. (The feature's byte change begins in plan-85-B and is confined to
+  SysV-x86.)
+- **Converting emission sites (B/C), deleting the fixpoint (D).**
+- **Win64/AArch64/RISC-V register assignments.** They are already aligned; the six
+  tokens collapse onto their existing `xN`/`aN` there. Those targets never move.
+- **The `.mfp` format, the `MFBABI` metadata hash, runtime semantics.** The `MFBABI\0`
+  string (`src/binary_repr/sections.rs`) is the package-compat hash — unrelated;
+  untouched.
+- **The syscall register assignment.** `%argSys`/`%retSys` reproduce `SYS_ARGS`/`rax`
+  exactly; the kernel ABI is fixed.
+
+## 2. Current State
+
+Shared builders emit `abi::ARG[k]`, `abi::RET[k]`/`return_register()`, `abi::SYSARG[k]`,
+realized to AArch64 spellings by `realize_abi_token` (`abi.rs:329`), where `%argK`,
+`%retK`, `%sysargK` collide to one `xN` (`:331`). AArch64 uses that directly; RISC-V
+remaps `xN`→`aN`; x86 realizes to `xN` then runs the 646-line `remap_x86_abi` to
+re-derive SysV/Win64 roles. The `%arg`/`%ret` overloading is the defect the six-token
+vocabulary removes.
+
+### Measured populations
+
+| What | Count | Command |
+|---|---|---|
+| files emitting `abi::ARG[`/`abi::RET[` | 72 | `grep -rlE 'abi::(ARG\|RET)\[' src/target/shared/code/ \| wc -l` |
+| MFB error-Result convention (`RESULT_*_REGISTER`, dual-role tail) | 884 (56 files) | `grep -rohE 'RESULT_(TAG\|VALUE\|ERROR_MESSAGE\|ERROR_SOURCE)_REGISTER' src/target/shared/code/ \| wc -l` |
+| single-role emissions (arg 1,609 + ret 2,383 + sys 16, mechanical bulk) | ~4,008 | `planning/plan-85-census.md` |
+| `remap_x86_abi` span (fixpoint to delete) | ~646 lines | `awk '/^fn remap_x86_abi/{s=NR} s&&/^fn /&&NR>s{print NR-s; exit}' src/arch/x86_64/select.rs` |
+
+The **split-deciding census is complete** (`planning/plan-85-census.md`): the 884-site
+error-Result convention is the dual-role tail → **plan-85-C**; the ~4,008 single-role
+sites are the uniform bulk → **plan-85-B**; then **plan-85-D** (staging + elision +
+fixpoint deletion). There is no separate alignment letter — the aligned realization
+lands in A and takes effect as B/C convert (byte-changing SysV-x86).
+
+### The register mapping the six tokens realize to (final, aligned)
+
+| token family | SysV (linux/mac-x86) | Win64 (win-x86) | AArch64 | RISC-V |
+|---|---|---|---|---|
+| `%argMFB[0..3]` | rdi, rsi, rdx, rcx | rcx, rdx, r8, r9 | x0..x3 | a0..a3 |
+| `%retMFB[0..3]` | **rdi, rsi, rdx, rcx** | rcx, rdx, r8, r9 | x0..x3 | a0..a3 |
+| `%argC[0..3]` | rdi, rsi, rdx, rcx | rcx, rdx, r8, r9 | x0..x3 | a0..a3 |
+| `%retC[0..1]` | **rax**, rdx | **rax**, rdx | x0, x1 | a0, a1 |
+| `%argSys[0..5]` | rdi, rsi, rdx, r10, r8, r9 | (n/a) | x0..x5 | a0..a5 |
+| `%retSys` | rax | (n/a) | x0 | a0 |
+
+On SysV this collapses to **one aligned bank `[rdi,rsi,rdx,rcx]`** (every MFB arg, MFB
+return, and C-call arg) plus **`rax`** (appears only in `%retC` and the syscall return).
+`%retMFB` on SysV = `[rdi,rsi,rdx,rcx]` (no `rax`) is the byte-changing choice — it
+differs from today's `RETS = [rax,rdx,rcx,rsi]`, so MFB result registers move.
+
+### Verified properties
+
+- **The `%arg`/`%ret` collision to one `xN` is the ARM assumption (VERIFIED —
+  `abi.rs:331`).**
+- **Win64 already aligns `RET[1..3]` with `ARG[1..3]` (VERIFIED — `select.rs:116/120`);
+  the census shows Windows has ZERO index-1..3 divergences.** So Win64 (and ARM/RISC-V)
+  do not move — the existence proof that aligned works and the migration's cross-target
+  gate.
+- **`%retMFB` never crosses to C as a 2-register value without an explicit `%retC`
+  (UNVERIFIED — plan-85-B must confirm).** The SysV `rax:rdx` two-value C return, FFI,
+  and `main`'s return must all use `%retC` (rax-exact); an MFB value that reaches those
+  boundaries needs an explicit `%retC`→`%retMFB`/`%argMFB` shim. Auditing that no
+  boundary silently relies on the old `RETS` layout is plan-85-B's first task.
+- **The `@src` tool + `selfmove_probe` exist on main (VERIFIED — f3b62d29a).**
+
+## 3. Design Overview
+
+Three pieces; A builds the first and measures the third.
+
+1. **The token vocabulary + aligned realization + the direct-realize seam (A).** Add
+   the six families to `abi.rs`; teach `realize_abi_token`/`map_token_direct`/the riscv
+   remap to map each per-target per §2 (aligned). Teach `select_x86` to realize an
+   explicit token directly via `map_token_direct`, leaving `remap_x86_abi` to handle
+   only the legacy `%arg`/`%ret` still present during migration. Dormant until B emits
+   the tokens.
+
+2. **The staged conversion (B single-role, C error-Result).** Convert emission sites to
+   explicit tokens. On SysV this **changes bytes** (aligned registers), so each
+   subsystem regenerates its SysV-x86 goldens and proves rt-behavior; Win64/ARM/RISC-V
+   stay byte-identical (gate). Where an MFB value consumes a C/syscall return (`%retC`
+   in `rax`), the conversion emits an explicit `%retC`→`%argMFB`/`%retMFB` staging move
+   (rax→rdi). Where an MFB result feeds a C call, it is already in the aligned bank =
+   the C arg register, so no move.
+
+3. **The deletion (D).** Once no `%arg`/`%ret` remain, `remap_x86_abi` is deleted;
+   `select_x86` realizes every token through `map_token_direct` in one pass. The
+   explicit staging moves that land as `mov xN,xN` no-ops on AArch64/RISC-V are removed
+   by the `selfmove_probe`-guided elision.
+
+**Where design uncertainty concentrates (schedule FIRST — plan-85-B Phase 1):** the
+`%retC` boundary audit — does anything (FFI, entry, a runtime helper, a 2-register C
+return) silently depend on MFB returning in `RETS = [rax,rdx,rcx,rsi]`? If yes, those
+sites need an explicit `%retC` shim before the aligned convention is safe. The audit is
+the cheapest experiment that could falsify "the C boundary is cleanly separable."
+
+**Where correctness risk concentrates (schedule LAST — plan-85-C/D):** the error-Result
+staging and the fixpoint deletion, on the codegen path every x86 program uses, gated by
+rt-behavior on a real Linux-x86 box + Win64/ARM/RISC-V byte-identity.
+
+Rejected alternatives:
+
+- *Keep `%arg`/`%ret`, re-tokenize (plan-71).* Falsified for dual-role values.
+- *A disjoint MFB register set from C.* Impossible — 9 volatile registers, C claims 7,
+  and arg/return registers are inherently volatile. Separate the conventions (tokens),
+  not the registers.
+- *A byte-IDENTICAL intermediate (two realizations, align later).* Considered and
+  **dropped** (project decision): the aligned convention is adopted directly and gated
+  on rt-behavior, accepting SysV-x86 golden regen from B onward rather than carrying a
+  migration-only realization + `MFB_ALIGNED` switch.
+- *Separate `%argWin`/`%retWin`.* Redundant — "C on Windows" is Win64; one `%argC`/
+  `%retC` realizes per-platform.
+
+## 4. Detailed Design
+
+### 4.1 Token definitions (`abi.rs`)
+```
+pub(crate) const ARG_MFB: [&str; 8]; RET_MFB: [&str; 4];   // MFB internal
+pub(crate) const ARG_C:   [&str; 8]; RET_C:   [&str; 2];   // C ABI (≤2 return regs)
+pub(crate) const ARG_SYS: [&str; 6]; RET_SYS: &str;        // syscall
+```
+Add `mfb_arg/mfb_return/c_arg/c_return/sys_arg/sys_return` accessors. Keep the legacy
+`ARG`/`RET`/`SYSARG`/`argument_register`/`return_register` during migration.
+
+### 4.2 Realization (final, aligned)
+Extend `realize_abi_token` with the AArch64 spelling per §2 (all collapse to `xN`).
+`map_token_direct` (`select.rs:168`) gains a SysV and Win64 case per new token from the
+§2 columns — `%retMFB[k]` → the aligned `[rdi,rsi,rdx,rcx]` on SysV. RISC-V
+`remap_register` composes (xN→aN). No `MFB_ALIGNED` switch — aligned is the only
+realization.
+
+### 4.3 The direct-realize seam (`select_x86`)
+In `select_x86` (`:917`), before deferring an operand to `remap_x86_abi`, check
+`is_explicit_convention_token(tok)`; if so realize it immediately via
+`map_token_direct(tok, abi)` and do NOT defer it. Legacy `%arg`/`%ret` defer to the
+fixpoint as today. This is the seam plan-85-D widens to "everything direct, fixpoint
+gone." Dormant in A (no explicit tokens emitted yet).
+
+### 4.4 The census
+Recorded in `planning/plan-85-census.md` (done). Per-operand refinement (the target
+token + justifying boundary per `file:line`) is appended from the `@src`
+`MFB_BUG387_AUDIT` sweep as B/C convert.
+
+## Compatibility / Format Impact
+
+plan-85-A: none (dormant primitive; five-target byte-identical). Whole feature: the
+**SysV-x86 `.ncode`/executable byte layout changes** for register-using code (the
+aligned MFB convention) — additive/mechanical, regenerated per plan-80's precedent and
+proven rt-behavior-equivalent. Win64/AArch64/RISC-V byte-identical. `.mfp` format,
+`MFBABI` hash, and all runtime semantics unchanged.
+
+## Phases
+
+> Keep the checkboxes current in the same commit as the work. An unticked box means
+> NOT DONE.
+
+### Phase 1 — the six token families + accessors (`abi.rs`)
+- [ ] Add `ARG_MFB`/`RET_MFB`/`ARG_C`/`RET_C`/`ARG_SYS`/`RET_SYS` + accessors; leave
+      legacy tokens in place.
+- [ ] Tests: `abi::tests` — each new token well-formed; accessors return expected token.
+
+Acceptance: `cargo test --bin mfb abi::` green; no emission changed; `bug387-gate.sh
+full` byte-identical (five targets).
+Commit: —
+
+### Phase 2 — aligned realization (all four backends) + the direct-realize seam
+- [ ] Extend `realize_abi_token` with each new token's AArch64 spelling (§2).
+- [ ] Extend `map_token_direct` with SysV + Win64 cases per §2 (aligned `%retMFB`).
+- [ ] Add the `is_explicit_convention_token` direct-realize branch in `select_x86`
+      (§4.3); confirm RISC-V `remap_register` composes.
+- [ ] Tests: a realization unit test per token per backend asserting the §2 register.
+
+Acceptance: realization tests green on all four backends; `bug387-gate.sh full`
+byte-identical (five targets — nothing emits the new tokens yet).
+Commit: —
+
+### Phase 3 — per-operand census work-list
+- [x] ~~Measure the split-deciding distribution~~ — done during planning
+      (`planning/plan-85-census.md`: 884 / ~4,008 / 16, with commands).
+- [ ] Append the per-`file:line` target token + justifying callee/boundary from the
+      `MFB_BUG387_AUDIT=1` `@src` sweep on a release build — the B and C work-lists.
+
+Acceptance: `planning/plan-85-census.md` carries a complete per-`file:line` work-list;
+every site has a target token justified by its callee/boundary; counts carry commands.
+Commit: —
+
+## Validation Plan
+
+- Tests: `src/target/shared/abi::tests` (token + realization); the `select_x86` direct-
+  realize branch has a unit test proving an explicit token bypasses the fixpoint.
+- Coverage check: realization tests exercise every new token on every backend;
+  `bug387-gate.sh full` PASS means nothing *covered* moved (A is dormant).
+- Runtime proof: none for A (byte-identical primitive); the five-target gate IS the
+  proof. rt-behavior proof begins in plan-85-B when bytes first move.
+- Doc sync: `planning/plan-85-census.md`. Spec register-role text updated in plan-85-D.
+- Acceptance: `cargo test --bin mfb` real `test result: ok`; `bug387-gate.sh <exe> full`
+  PASS (five targets); `artifact-gate.sh` if no concurrent run.
+
+## Open Decisions
+
+- **`%retMFB` width / Result return** — MFB's `Result` uses 4 result registers; on SysV
+  the aligned bank `[rdi,rsi,rdx,rcx]` supplies all four, but `%retC` is width-2 (the C
+  ABI returns ≤2). Confirm no path returns a 4-register `Result` across a genuine C
+  boundary (it would need marshalling). Recommend: the `%retC` boundary audit
+  (plan-85-B Phase 1) settles it.
+- **rt-behavior gate scope** — full remote Linux-x86 execution suite per subsystem vs.
+  once at plan-85-D. Recommend: per-subsystem smoke on the converted area + one full
+  run at D, since bytes move incrementally.
+
+## Corrections
+
+<Filled in during execution.>
+
+## Summary
+
+plan-85-A adds the six-token vocabulary, realizes it to the final aligned registers on
+every backend, installs the direct-realize seam the fixpoint deletion needs, and
+records the complete classification census. It changes no emitted byte (dormant until
+B). The risk it *removes* is plan-71's: with `%retMFB` and `%argC` distinct — and MFB's
+convention aligned so they coincide on SysV except at the `rax` C boundary — a dual-role
+value is expressible and hop-free, so the fixpoint deletion stops being blocked by the
+error-Result residual. Untouched in A: every emitted byte, the `.mfp` format, the
+`MFBABI` hash, and all runtime behavior.
