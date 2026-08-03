@@ -243,6 +243,39 @@ new asymmetric staging move ⇒ no new `mov xN,xN` appears on the reuse ISAs ⇒
 pass is needed (and a blanket one would wrongly delete the 486/234/486 baseline
 Result-return self-moves). Recorded with commands above.
 
+## C work-list (plan-71-C Phase 1) — the Family-1a source sites, deterministically derived
+
+Built with the plan-71-C Phase-0 source-instrumentation tool (commit `bac02f1c6`): the
+`MFB_BUG387_AUDIT` line now carries `@src=file:line` (the shared-builder emission site,
+threaded through `CodeInstruction`→MIR→`select_x86` via `#[track_caller]`). The work-list
+is a deterministic derivation, not an ambiguous grep:
+
+```
+bash /tmp/bug387/audit2-sweep.sh target/release/mfb linux-x86_64 \
+  | grep '^BUG387-MISMATCH' | grep -oE '@src=[^ ]+' | sort | uniq -c | sort -rn
+```
+
+linux-x86_64: **1,082,777** mismatches → **115 distinct `@src` sites** across **20 files**;
+**0** mismatches lack a source. Per-file (site count):
+
+| file | sites | note |
+|---|---|---|
+| `builder_error_emission.rs` | 28 | the error-Result construction (~half of all divergences; line 278 alone = 240,472) |
+| `abi.rs` | 18 | **imprecise** — instructions added via `.push`/`.extend` (not `self.emit`) capture the abi-helper line, not the builder. Refine by making the `abi::` emit helpers `#[track_caller]` (deferred; a minority, ~3% of raw) |
+| `builder_arena_transfer.rs` | 11 | |
+| `builder_collection_layout.rs` | 10 | line 332 = 69,089 |
+| `builder_owned_cleanup.rs` | 8 | the arena_free arg pattern (`load_u64(return_register(), …)` then `emit_arena_free_call`; 187/193/201 = 150,760 each) |
+| `builder_collection_query.rs` | 8 | |
+| `builder_values.rs` | 7 | |
+| others (12 files) | 15 | inplace_assign 4, strings 3, search 3, map/list/value_semantics/resource_cleanup/fs_paths 2 each, +6 single-site files |
+
+**Each site is a candidate `return_register()`/`RET[K]` → `ARG[K]` re-tokenization** where the
+produced value is consumed as a call argument (verified per-site by reading the builder + the
+byte-identity gate, never by the `@src` count alone — a genuine *result* producer at the same
+line must stay `%retK`). The 18 `abi.rs` sites need the helper `#[track_caller]` refinement to
+pin their builder before re-tokenization. C Phase 2 works this list per-file, each a
+byte-identity-gated commit.
+
 ## B-onward split (implementation order = letter order; each depends only on its predecessor)
 
 Derived from the counts above. The uncertainty (Category-2 existence + re-tokenization

@@ -203,16 +203,23 @@ observable contract changes; no emitted byte changes.
 
 ### Phase 1 — Family-1a site census (the work-list)
 
-- [ ] From the `MFB_BUG387_AUDIT` sweep, map every Family-1a divergence to its source
-      emission site in `src/target/shared/code/` (`file:line` + the `abi::RET[K]` /
-      `return_register()` call), cross-checked against B's value-level partition.
-      Record the grouped-by-file work-list (each entry with its census justification) in
-      `plan-71-census.md` (a new "C work-list" subsection) or a sibling doc.
-- [ ] State the measured site count with its command (no `~`).
+- [x] **Phase 0 tool (was a hidden prerequisite — see Corrections):** built audit
+      source-location instrumentation (`@src=file:line`) so the mapping is mechanical.
+      Commit `bac02f1c6`; byte-identical (metadata only).
+- [x] Mapped every Family-1a divergence to its source emission site via the tool +
+      `audit2-sweep.sh`: **115 distinct `@src` sites / 20 files** on linux-x86_64
+      (1,082,777 mismatches, 0 without a source). Recorded per-file in `plan-71-census.md`
+      §"C work-list" with the derivation command.
+- [x] Site count stated with its command (see census; 115 sites, `grep -oE '@src=…' | sort
+      -u | wc -l`). NOTE: 18 sites resolve to `abi.rs` (the `.push`/`.extend` paths capture
+      the helper line, not the builder) — refine by making the `abi::` emit helpers
+      `#[track_caller]` before re-tokenizing those (a minority).
 
-Acceptance: a complete, per-file, census-justified list of Family-1a emission sites
-exists, each cleared by B's partition; the count carries its command.
-Commit: —
+Acceptance: a complete, per-file, deterministically-derived list of Family-1a emission
+sites exists (115 sites), each to be cleared per-site against B's partition + the
+byte-identity gate in Phase 2; the count carries its command. **MET** (modulo the 18
+`abi.rs` sites' refinement, tracked above).
+Commit: `bac02f1c6` (Phase-0 tool) + this doc.
 
 ### Phase 2 — per-file re-tokenization (repeat until the work-list is empty)
 
