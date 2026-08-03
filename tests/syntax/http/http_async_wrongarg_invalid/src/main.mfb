@@ -1,0 +1,14 @@
+' plan-76-D: the async client rejects wrong-typed arguments. pump/ready/done/
+' finish each take the Stream union, not a scalar; startRead takes a Url.
+IMPORT http
+IMPORT net
+
+FUNC main AS Integer
+  ' pump expects a Stream, not an Integer.
+  http::pump(42)
+  ' ready expects a Stream, not a String.
+  LET b AS Boolean = http::ready("nope")
+  ' startRead expects a Url, not an Integer.
+  LET u AS net::Url = http::startRead(7)
+  RETURN 0
+END FUNC

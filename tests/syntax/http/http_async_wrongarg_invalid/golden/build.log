@@ -1,0 +1,44 @@
+$ mfb build -ast -ir tests/syntax/http/http_async_wrongarg_invalid
+   6 | FUNC main AS Integer
+   7 |   ' pump expects a Stream, not an Integer.
+   8 |   http::pump(42)
+     | ^
+tests/syntax/http/http_async_wrongarg_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `http.pump` has argument type(s) (Integer), expected Stream STATE PendingState.
+   8 |   http::pump(42)
+   9 |   ' ready expects a Stream, not a String.
+  10 |   LET b AS Boolean = http::ready("nope")
+     | ^
+tests/syntax/http/http_async_wrongarg_invalid/src/main.mfb:10 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `http.ready` has argument type(s) (String), expected Stream STATE PendingState.
+   8 |   http::pump(42)
+   9 |   ' ready expects a Stream, not a String.
+  10 |   LET b AS Boolean = http::ready("nope")
+     | ^
+tests/syntax/http/http_async_wrongarg_invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `b` does not have a known type.
+  10 |   LET b AS Boolean = http::ready("nope")
+  11 |   ' startRead expects a Url, not an Integer.
+  12 |   LET u AS net::Url = http::startRead(7)
+     | ^
+tests/syntax/http/http_async_wrongarg_invalid/src/main.mfb:12 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `http.startRead` has argument type(s) (Integer), expected Url, Map OF String TO String, String.
+  10 |   LET b AS Boolean = http::ready("nope")
+  11 |   ' startRead expects a Url, not an Integer.
+  12 |   LET u AS net::Url = http::startRead(7)
+     | ^
+tests/syntax/http/http_async_wrongarg_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `u` does not have a known type.
+   6 | FUNC main AS Integer
+   7 |   ' pump expects a Stream, not an Integer.
+   8 |   http::pump(42)
+     | ^
+tests/syntax/http/http_async_wrongarg_invalid/src/main.mfb:8 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               Argument 1 for `#http_pump` is declared `STATE PendingState` but carries no STATE; a parameter cannot attach one — declare `STATE PendingState` on the owning binding.
+   8 |   http::pump(42)
+   9 |   ' ready expects a Stream, not a String.
+  10 |   LET b AS Boolean = http::ready("nope")
+     | ^
+tests/syntax/http/http_async_wrongarg_invalid/src/main.mfb:10 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               Argument 1 for `#http_ready` is declared `STATE PendingState` but carries no STATE; a parameter cannot attach one — declare `STATE PendingState` on the owning binding.
+[exit 1]

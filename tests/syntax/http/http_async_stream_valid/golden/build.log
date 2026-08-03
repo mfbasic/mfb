@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/http/http_async_stream_valid
+Wrote AST to tests/syntax/http/http_async_stream_valid/http_async_stream_valid.ast
+Wrote IR to tests/syntax/http/http_async_stream_valid/http_async_stream_valid.ir
+[exit 0]

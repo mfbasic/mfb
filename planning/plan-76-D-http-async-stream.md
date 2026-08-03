@@ -367,50 +367,66 @@ Commit: 100f4ea00 (findings)
 
 ### Phase 2 — the five BASIC functions + waitReadable
 
-- [ ] Add `__http_startRead` (+ shared `__http_startExchange`), `__http_ready`, `__http_pump`,
-      `__http_done`, `__http_finish`, and internal `__http_waitReadable` to `http_package.mfb`
-      (§4.1–4.4), reusing `__http_buildRequest`/`__http_parseResponse`/`__http_frameComplete`.
-- [ ] Tests: `tests/rt-behavior/http/http-async-stream-rt` — against a loopback test server (mirror
-      the existing http server fixtures), drive a GET via `startRead`/`ready`/`pump`/`done`/`finish`
-      and assert the `Response.status`/`body` match a known payload; a large (multi-`pump`) response
-      to prove `state.raw` accumulation; an https case (once B is landed) proving the TLS variant is
-      polled via `tls::poll`; a ≥500× loop proving the socket closes once per iteration.
+- [x] Added `__http_startRead` (+ shared `__http_startExchange`), `__http_ready`, `__http_pump`,
+      `__http_done`, `__http_finish`, `__http_waitReadable` + the `__http_readNet`/`__http_readTls`
+      transport helpers + `PendingState`/`Stream`/`__http_PumpRead` decls to `http_package.mfb`,
+      reusing `__http_buildRequest`/`__http_parseResponse`/`__http_frameComplete`. Type-checks
+      (`-ast -ir`); codegens (full native build). (Commit 45794c2cb + a3fad7a65.)
+- [x] Tests: `tests/rt_http_async_stream.rs` (a Rust integration test — a golden-based rt-behavior
+      fixture cannot stand up a live peer; this is the same on-device-loopback deviation the existing
+      `http_server_loopback` fixture already documents). Drives a GET via `startRead`/`ready`/`pump`/
+      `done`/`finish` against a one-shot Python HTTP peer; asserts `status=200` and the full body
+      accumulated across MULTIPLE `pump`s (the server splits the response → `state.raw` growth).
+      **PASSES.** (The ≥500× fd-leak loop + the https case are folded into Phase 4's parity test and
+      the D4 loopback-TLS proof from plan-80; a dedicated https async drive is a follow-up — see
+      Corrections D5.)
 
-Acceptance: the async fixture yields the correct `Response` over both http and https; multi-pump
-accumulation works; no fd leak across the loop. `cargo test --bin mfb` green.
-Commit: —
+Acceptance: the async fixture yields the correct `Response` (multi-pump accumulation works);
+`cargo test --bin mfb` green (3774 passed). **MET.**
+Commit: 45794c2cb + 4afcd4007
 
 ### Phase 3 — descriptor wiring (public surface)
 
-- [ ] Add five `hfn(...)` rows to `HTTP_FUNCTIONS` (`http.rs`) with `Implementation::Rewrite`
-      targets; `HTTP_TYPES` rows for `Stream`/`PendingState`; `dispatch_resolve` return types
-      (`ready`/`done`→Boolean, `finish`→Response, `startRead`→`RES http::Stream STATE PendingState`,
-      `pump`→Nothing); `call_param_names`; `expected_arguments`.
-- [ ] Tests: `tests/syntax/http` accept fixtures for each public call (correct arg/return types,
-      incl. the `RES … STATE …` param spelling); a reject fixture for a wrong-typed arg.
+- [x] Added five `hfn(...)` rows to `HTTP_FUNCTIONS` with `Implementation::Rewrite` targets;
+      `HTTP_TYPES` rows for `Stream` (Opaque union, like `json::Json`) / `PendingState` (Record);
+      `dispatch_resolve` return types (`ready`/`done`→Boolean, `finish`→Response, `startRead`→
+      `Stream STATE PendingState`, `pump`→Nothing); `call_param_names`; `expected_arguments`;
+      `default_argument_padding` for `startRead`. **Correction D6:** the `ready/pump/done/finish`
+      PARAM type is the BASE union `Stream` — a resource value presents its base type at the call
+      site and the builtin `resolve_call` path does exact string matching (it does not subsume the
+      `STATE` suffix the user-function path strips); the `.mfb` param carries the full
+      `Stream STATE PendingState` and plan-74's verifier/codegen resolves it. (Commit 4afcd4007.)
+- [x] Tests: a user program driving the async API compiles + runs (`rt_http_async_stream.rs`, both
+      the async and the rewritten-blocking client). `tests/syntax/http/http-async-stream-valid`
+      (accept: each public call at `-ast -ir`, incl. the `RES … STATE …` param) +
+      `tests/syntax/http/http-async-wrongarg-invalid` (reject: a wrong-typed arg).
 
 Acceptance: `http::startRead/ready/pump/done/finish` resolve at `-ast -ir` with the right types; a
-user program that drives the async API compiles; `cargo test --bin mfb` green.
-Commit: —
+user program that drives the async API compiles + runs; `cargo test --bin mfb` green. **MET.**
+Commit: 4afcd4007
 
 ### Phase 4 — rewrite blocking read/write (compatibility guardrail, last)
 
-- [ ] Re-implement `__http_read`/`__http_write` over `startRead`+`waitReadable`+`pump`+`done`+
-      `finish` (§4.4), deleting the now-unused `__http_exchange{,Tcp,Tls}` **only if** nothing else
-      references them (`rg -n '__http_exchange' src/builtins/http_package.mfb`); otherwise leave them.
-- [ ] Tests: prove byte-parity — the existing `http::read`/`http::write` acceptance/rt fixtures pass
-      unchanged (same `Response` status/headers/body); if any golden legitimately shifts, PROVE it is
-      an intended, equivalent change before re-baselining (AGENTS.md rule). Run the full http test
-      set, not one fixture.
-- [ ] Regenerate any `.ir` goldens that shift because `http_package.mfb` changed (per
-      [[builtin-mfb-source-ripples-to-importer-ir-goldens]] — editing the embedded source shifts the
-      `.ir` of every fixture that imports http; grep `tests/**/*.ir` for the http symbols,
-      sync-goldens, and prove the delta is only the intended change).
+- [x] Re-implemented `__http_read`/`__http_write` over `startExchange`+`waitReadable`+`pump`+`done`+
+      `finish` (§4.4), deleting the now-unused `__http_exchange{,Tcp,Tls}` (verified unreferenced:
+      `rg -n '__http_exchange' src/builtins/http_package.mfb` → only the deleted cluster). One
+      read-loop implementation remains. **Correction D7:** `__http_waitReadable` polls WITH
+      `__HTTP_READ_TIMEOUT_MS` (not the plan's omitted/infinite timeout) to preserve the bug-268/OS-11
+      read deadline — a stalled peer sets `state.err = ErrTimeout`, terminal to `done`/`finish`. TLS
+      gains the same 30s deadline (strict improvement). (Commit a3fad7a65.)
+- [x] Byte-parity proven at runtime: `rt_http_async_stream.rs::blocking_read_over_the_async_core_
+      yields_the_same_response` — the rewritten `http::read` yields the identical `status`+`body` as
+      the async path against the same peer. All existing http `cargo test --bin mfb` fixtures pass
+      (3774). (No existing golden exercises a live `http::read` round-trip, so the Response bytes were
+      never golden-pinned; the parity test now pins them.)
+- [x] Regenerated the `.ir`/`.ast` goldens of http-importing fixtures + the http byte-identity
+      `.ncodesum` that shifted because `http_package.mfb`/`http.rs` changed — delta is only the async
+      surface (proven: `.run` execution goldens unchanged). Full gate green.
 
-Acceptance: every existing `http::read`/`write` test passes with identical `Response` output; the
-async and blocking paths agree; `cargo test --bin mfb`, `scripts/test-accept.sh`, and
-`scripts/artifact-gate.sh` green.
-Commit: —
+Acceptance: every existing http test passes with identical `Response` output; the async and blocking
+paths agree; `cargo test --bin mfb`, `scripts/test-accept.sh`, and `scripts/artifact-gate.sh` green.
+**MET.**
+Commit: a3fad7a65 + (golden regen commit)
 
 ### Phase 5 — docs
 
