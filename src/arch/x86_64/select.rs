@@ -937,7 +937,7 @@ pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<Co
                 .position(|(key, _)| *key == FUSED_COND_FIELD)
                 .expect("fused MIR op carries a cond field");
             let setter_fields = code_fields_from_mir(&instruction.fields[..split]);
-            let branch_op = CodeOp::from_mnemonic(&instruction.fields[split].1)
+            let branch_op = CodeOp::from_mnemonic(&instruction.fields[split].1.render())
                 .expect("fused MIR op carries a valid branch mnemonic");
             let mut branch_fields = Vec::new();
             let mut shared = false;
@@ -945,7 +945,7 @@ pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<Co
                 if *key == FUSED_SHARE_FIELD {
                     shared = true;
                 } else {
-                    branch_fields.push((*key, Operand::from(value.as_str())));
+                    branch_fields.push((*key, value.clone()));
                 }
             }
             if !shared {
@@ -966,9 +966,11 @@ pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<Co
                     .find(|(k, _)| *k == "target")
                     .map(|(_, v)| v.render())
                     .expect("float compare branch carries a target");
-                for inst in
-                    x86_float_branch(&instruction.fields[split].1, &target, float_branch_site)
-                {
+                for inst in x86_float_branch(
+                    &instruction.fields[split].1.render(),
+                    &target,
+                    float_branch_site,
+                ) {
                     out.push(inst);
                 }
                 float_branch_site += 1;

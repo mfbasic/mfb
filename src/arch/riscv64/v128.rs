@@ -30,7 +30,7 @@ use std::collections::{BinaryHeap, HashMap};
 
 use crate::arch::ops::CodeOp;
 use crate::target::shared::code::mir::MirInstruction;
-use crate::target::shared::code::CodeInstruction;
+use crate::target::shared::code::{CodeInstruction, Operand};
 
 /// Maximum distinct `v128` values per function. Capped so the largest lane
 /// offset (`(SLOT_COUNT-1)*16 + 8`) stays within the 12-bit signed load/store
@@ -253,12 +253,13 @@ fn v128_live_ranges(
             continue;
         }
         for (_, value) in &instruction.fields {
-            if is_vector_operand(value) {
+            if is_vector_operand(&value.render()) {
+                let value = value.render();
                 first.entry(value.clone()).or_insert_with(|| {
                     order.push(value.clone());
                     idx
                 });
-                last.insert(value.clone(), idx);
+                last.insert(value, idx);
             }
         }
     }
@@ -268,18 +269,18 @@ fn v128_live_ranges(
     // extend any overlapping range to span the whole loop. Iterate to a fixpoint
     // for nested/overlapping loops. Without this, a slot freed inside a loop is
     // reused while a loop-carried value still needs it (silent corruption).
-    let mut label_idx: HashMap<&str, usize> = HashMap::new();
+    let mut label_idx: HashMap<String, usize> = HashMap::new();
     for (idx, instruction) in instructions.iter().enumerate() {
         if instruction.op.to_code() == Some(CodeOp::Label) {
             if let Some((_, name)) = instruction.fields.iter().find(|(k, _)| *k == "name") {
-                label_idx.insert(name.as_str(), idx);
+                label_idx.insert(name.render(), idx);
             }
         }
     }
     let mut loops: Vec<(usize, usize)> = Vec::new();
     for (idx, instruction) in instructions.iter().enumerate() {
         if let Some((_, target)) = instruction.fields.iter().find(|(k, _)| *k == "target") {
-            if let Some(&t) = label_idx.get(target.as_str()) {
+            if let Some(&t) = label_idx.get(&target.render()) {
                 if t < idx {
                     loops.push((t, idx));
                 }
@@ -315,11 +316,11 @@ fn v128_live_ranges(
     (order, first, last)
 }
 
-fn f(fields: &[(&'static str, String)], name: &str) -> String {
+fn f(fields: &[(&'static str, Operand)], name: &str) -> String {
     fields
         .iter()
         .find(|(k, _)| *k == name)
-        .map(|(_, v)| v.clone())
+        .map(|(_, v)| v.render())
         .unwrap_or_default()
 }
 
@@ -327,7 +328,7 @@ fn f(fields: &[(&'static str, String)], name: &str) -> String {
 /// `slots` to place each vector value.
 pub(crate) fn scalarize_v128(
     op: CodeOp,
-    fields: &[(&'static str, String)],
+    fields: &[(&'static str, Operand)],
     slots: &HashMap<String, usize>,
 ) -> Vec<CodeInstruction> {
     let mut out = Vec::new();
@@ -834,7 +835,7 @@ fn load_has_rvv_flag(dst: &str) -> Vec<CodeInstruction> {
 /// mirror, and the integer/bitwise/mem ops are exact.
 fn rvv_arm(
     op: CodeOp,
-    fields: &[(&'static str, String)],
+    fields: &[(&'static str, Operand)],
     slots: &HashMap<String, usize>,
     vregs: &HashMap<String, u8>,
 ) -> Option<Vec<CodeInstruction>> {
@@ -1310,7 +1311,7 @@ fn rvv_prologue(out: &mut Vec<CodeInstruction>) {
 /// Whether `op` (with these `fields`) is realized on the native-RVV arm. A quick
 /// predicate mirroring [`rvv_arm`]'s coverage, so the run builder can decide
 /// membership without emitting; ops it rejects always scalarize.
-pub(crate) fn rvv_lowerable(op: CodeOp, fields: &[(&'static str, String)]) -> bool {
+pub(crate) fn rvv_lowerable(op: CodeOp, fields: &[(&'static str, Operand)]) -> bool {
     use CodeOp::*;
     match op {
         FAddV | FSubV | FMulV | FDivV | FMlaV | FMlsV | FAbsV | FNegV | FSqrtV | FCvtzsV
@@ -1394,7 +1395,7 @@ fn drop_redundant_reloads(body: Vec<CodeInstruction>) -> Vec<CodeInstruction> {
 /// unchanged per-op `scalarize_v128`), reconciled at the shared slot region.
 /// `seq` makes the two arm labels unique within the function.
 pub(crate) fn lower_v128_run(
-    run: &[(CodeOp, Vec<(&'static str, String)>)],
+    run: &[(CodeOp, Vec<(&'static str, Operand)>)],
     slots: &HashMap<String, usize>,
     vregs: &HashMap<String, u8>,
     seq: usize,
@@ -1455,9 +1456,9 @@ mod tests {
     #[test]
     fn fadd_v_scalarizes_to_two_lane_adds() {
         let fields = vec![
-            ("dst", "v0".to_string()),
-            ("lhs", "%f7".to_string()),
-            ("rhs", "v2".to_string()),
+            ("dst", "v0".into()),
+            ("lhs", "%f7".into()),
+            ("rhs", "v2".into()),
         ];
         let slots = map(&[("v0", 0), ("%f7", 1), ("v2", 2)]);
         let out = scalarize_v128(CodeOp::FAddV, &fields, &slots);
@@ -1485,9 +1486,9 @@ mod tests {
     #[should_panic(expected = "umov .d lane index out of range")]
     fn umov_rejects_an_out_of_range_lane_index() {
         let fields = vec![
-            ("dst", "a0".to_string()),
-            ("src", "v1".to_string()),
-            ("index", "2".to_string()),
+            ("dst", "a0".into()),
+            ("src", "v1".into()),
+            ("index", "2".into()),
         ];
         scalarize_v128(CodeOp::UmovXFromV, &fields, &map(&[("v1", 0)]));
     }
@@ -1496,9 +1497,9 @@ mod tests {
     #[should_panic(expected = "umov .d lane index out of range")]
     fn umov_rejects_a_malformed_lane_index() {
         let fields = vec![
-            ("dst", "a0".to_string()),
-            ("src", "v1".to_string()),
-            ("index", "high".to_string()),
+            ("dst", "a0".into()),
+            ("src", "v1".into()),
+            ("index", "high".into()),
         ];
         scalarize_v128(CodeOp::UmovXFromV, &fields, &map(&[("v1", 0)]));
     }
@@ -1507,9 +1508,9 @@ mod tests {
     fn umov_still_accepts_both_real_lanes() {
         for (index, offset) in [("0", "0"), ("1", "8")] {
             let fields = vec![
-                ("dst", "a0".to_string()),
-                ("src", "v1".to_string()),
-                ("index", index.to_string()),
+                ("dst", "a0".into()),
+                ("src", "v1".into()),
+                ("index", index.into()),
             ];
             let out = scalarize_v128(CodeOp::UmovXFromV, &fields, &map(&[("v1", 0)]));
             assert!(
@@ -1530,9 +1531,9 @@ mod tests {
     #[should_panic(expected = "needs a numeric offset")]
     fn ldr_q_rejects_a_non_numeric_offset_on_its_own_terms() {
         let fields = vec![
-            ("dst", "v0".to_string()),
-            ("base", "a0".to_string()),
-            ("offset", "-8".to_string()),
+            ("dst", "v0".into()),
+            ("base", "a0".into()),
+            ("offset", "-8".into()),
         ];
         scalarize_v128(CodeOp::LdrQ, &fields, &map(&[("v0", 0)]));
     }
@@ -1541,9 +1542,9 @@ mod tests {
     #[should_panic(expected = "needs a numeric offset")]
     fn str_q_rejects_a_non_numeric_offset_on_its_own_terms() {
         let fields = vec![
-            ("src", "v0".to_string()),
-            ("base", "a0".to_string()),
-            ("offset", "some_symbol".to_string()),
+            ("src", "v0".into()),
+            ("base", "a0".into()),
+            ("offset", "some_symbol".into()),
         ];
         scalarize_v128(CodeOp::StrQ, &fields, &map(&[("v0", 0)]));
     }
@@ -1551,9 +1552,9 @@ mod tests {
     #[test]
     fn ldr_q_lanes_stay_eight_bytes_apart_for_a_real_offset() {
         let fields = vec![
-            ("dst", "v0".to_string()),
-            ("base", "a0".to_string()),
-            ("offset", "32".to_string()),
+            ("dst", "v0".into()),
+            ("base", "a0".into()),
+            ("offset", "32".into()),
         ];
         let out = scalarize_v128(CodeOp::LdrQ, &fields, &map(&[("v0", 0)]));
         assert!(out.iter().any(|i| i.get("offset").as_deref() == Some("32")));
@@ -1566,9 +1567,9 @@ mod tests {
         // scalar RISC-V shift is an encoder error (shamt is 6 bits), so the
         // boundary is lowered directly: arithmetic → sign fill, logical → zero.
         let fields = vec![
-            ("dst", "v0".to_string()),
-            ("src", "v1".to_string()),
-            ("shift", "64".to_string()),
+            ("dst", "v0".into()),
+            ("src", "v1".into()),
+            ("shift", "64".into()),
         ];
         let slots = map(&[("v0", 0), ("v1", 1)]);
 
@@ -1595,9 +1596,9 @@ mod tests {
 
         // In-range shifts are untouched.
         let three = vec![
-            ("dst", "v0".to_string()),
-            ("src", "v1".to_string()),
-            ("shift", "3".to_string()),
+            ("dst", "v0".into()),
+            ("src", "v1".into()),
+            ("shift", "3".into()),
         ];
         let out = scalarize_v128(CodeOp::UshrV, &three, &slots);
         assert_eq!(
@@ -1614,7 +1615,7 @@ mod tests {
     ) -> MirInstruction {
         MirInstruction {
             op,
-            fields: fields.iter().map(|(k, v)| (*k, v.to_string())).collect(),
+            fields: fields.iter().map(|(k, v)| (*k, v.into())).collect(),
             source: None,
         }
     }
@@ -1743,7 +1744,7 @@ mod tests {
                     .fields
                     .iter_mut()
                     .find(|(k, _)| *k == "dst")
-                    .unwrap() = ("dst", format!("%f{i}"));
+                    .unwrap() = ("dst", format!("%f{i}").into());
             }
             for i in 0..n {
                 v.push(mir(
@@ -1755,7 +1756,7 @@ mod tests {
                     .fields
                     .iter_mut()
                     .find(|(k, _)| *k == "src")
-                    .unwrap() = ("src", format!("%f{i}"));
+                    .unwrap() = ("src", format!("%f{i}").into());
             }
             v
         };
@@ -1776,9 +1777,9 @@ mod tests {
     #[test]
     fn dual_path_emits_guard_rvv_and_scalar_arms() {
         let fields = vec![
-            ("dst", "%f0".to_string()),
-            ("lhs", "%f1".to_string()),
-            ("rhs", "%f2".to_string()),
+            ("dst", "%f0".into()),
+            ("lhs", "%f1".into()),
+            ("rhs", "%f2".into()),
         ];
         let slots = map(&[("%f0", 0), ("%f1", 1), ("%f2", 2)]);
         let vregs: HashMap<String, u8> = [("%f0", 1u8), ("%f1", 2), ("%f2", 3)]
@@ -1817,7 +1818,7 @@ mod tests {
         // with no guard.
         assert!(!rvv_lowerable(
             CodeOp::FRintnV,
-            &[("dst", "%f0".to_string()), ("src", "%f1".to_string())]
+            &[("dst", "%f0".into()), ("src", "%f1".into())]
         ));
         assert!(!scalarize_v128(CodeOp::FAddV, &fields, &slots)
             .iter()
@@ -1843,9 +1844,9 @@ mod tests {
         let cmp = rvv_arm(
             CodeOp::FCmGtV,
             &[
-                ("dst", "%f0".to_string()),
-                ("lhs", "%f1".to_string()),
-                ("rhs", "%f2".to_string()),
+                ("dst", "%f0".into()),
+                ("lhs", "%f1".into()),
+                ("rhs", "%f2".into()),
             ],
             &slots,
             &vregs,
@@ -1870,9 +1871,9 @@ mod tests {
         let bsl = rvv_arm(
             CodeOp::BslV,
             &[
-                ("dst", "%f0".to_string()),
-                ("lhs", "%f1".to_string()),
-                ("rhs", "%f2".to_string()),
+                ("dst", "%f0".into()),
+                ("lhs", "%f1".into()),
+                ("rhs", "%f2".into()),
             ],
             &slots,
             &vregs,
@@ -1891,9 +1892,9 @@ mod tests {
             let out = rvv_arm(
                 op,
                 &[
-                    ("dst", "%f0".to_string()),
-                    ("lhs", "%f1".to_string()),
-                    ("rhs", "%f2".to_string()),
+                    ("dst", "%f0".into()),
+                    ("lhs", "%f1".into()),
+                    ("rhs", "%f2".into()),
                 ],
                 &slots,
                 &vregs,
@@ -1905,7 +1906,7 @@ mod tests {
         // A deferred op (FRint*) still returns None → scalar-only.
         assert!(rvv_arm(
             CodeOp::FRintnV,
-            &[("dst", "%f0".to_string()), ("src", "%f1".to_string())],
+            &[("dst", "%f0".into()), ("src", "%f1".into())],
             &slots,
             &vregs,
         )
@@ -1922,17 +1923,17 @@ mod tests {
             (
                 CodeOp::FAddV,
                 vec![
-                    ("dst", "%f3".to_string()),
-                    ("lhs", "%f0".to_string()),
-                    ("rhs", "%f1".to_string()),
+                    ("dst", "%f3".into()),
+                    ("lhs", "%f0".into()),
+                    ("rhs", "%f1".into()),
                 ],
             ),
             (
                 CodeOp::FMulV,
                 vec![
-                    ("dst", "%f5".to_string()),
-                    ("lhs", "%f3".to_string()),
-                    ("rhs", "%f2".to_string()),
+                    ("dst", "%f5".into()),
+                    ("lhs", "%f3".into()),
+                    ("rhs", "%f2".into()),
                 ],
             ),
         ];
@@ -1977,7 +1978,7 @@ mod tests {
 
     #[test]
     fn dup_broadcasts_both_lanes() {
-        let fields = vec![("dst", "v3".to_string()), ("src", "a0".to_string())];
+        let fields = vec![("dst", "v3".into()), ("src", "a0".into())];
         let slots = map(&[("v3", 0)]);
         let out = scalarize_v128(CodeOp::DupVFromX, &fields, &slots);
         assert_eq!(
@@ -1996,8 +1997,8 @@ mod tests {
     }
 
     /// Build `(field, String)` operand pairs.
-    fn fl(pairs: &[(&'static str, &str)]) -> Vec<(&'static str, String)> {
-        pairs.iter().map(|(k, v)| (*k, v.to_string())).collect()
+    fn fl(pairs: &[(&'static str, &str)]) -> Vec<(&'static str, Operand)> {
+        pairs.iter().map(|(k, v)| (*k, v.into())).collect()
     }
 
     fn count(out: &[CodeInstruction], mnemonic: &str) -> usize {

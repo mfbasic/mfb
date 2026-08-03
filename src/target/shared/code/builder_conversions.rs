@@ -22,7 +22,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::move_register(&register, &value.location));
             return Ok(ValueResult {
                 type_: "Integer".to_string(),
-                location: register,
+                location: register.render(),
                 text: format!("toInt({})", value.text),
             });
         }
@@ -62,10 +62,10 @@ impl CodeBuilder<'_> {
 
     pub(super) fn emit_fixed_to_int_value(
         &mut self,
-        source_register: &str,
+        source_register: impl Into<Operand>,
     ) -> Result<ValueResult, String> {
         let value_reg = self.temporary_vreg();
-        let value = value_reg.as_str();
+        let value = &value_reg;
         let result = self.allocate_register()?;
         let nonnegative = self.label("fixed_to_int_nonnegative");
         let done = self.label("fixed_to_int_done");
@@ -81,7 +81,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result,
+            location: result.render(),
             text: "toInt(Fixed)".to_string(),
         })
     }
@@ -90,7 +90,7 @@ impl CodeBuilder<'_> {
     /// zero (plan-29-G §4.3). Always fits Integer.
     pub(super) fn emit_money_to_int_value(
         &mut self,
-        source_register: &str,
+        source_register: impl Into<Operand>,
     ) -> Result<ValueResult, String> {
         let scale = self.allocate_register()?;
         let result = self.allocate_register()?;
@@ -102,25 +102,25 @@ impl CodeBuilder<'_> {
         ));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result,
+            location: result.render(),
             text: "toInt(Money)".to_string(),
         })
     }
 
     pub(super) fn emit_float_to_int_value(
         &mut self,
-        source_register: &str,
+        source_register: impl Into<Operand>,
     ) -> Result<ValueResult, String> {
         let bits_reg = self.temporary_vreg();
         let exponent_reg = self.temporary_vreg();
         let mantissa_reg = self.temporary_vreg();
         let sign_reg = self.temporary_vreg();
         let mask_reg = self.temporary_vreg();
-        let bits = bits_reg.as_str();
-        let exponent = exponent_reg.as_str();
-        let mantissa = mantissa_reg.as_str();
-        let sign = sign_reg.as_str();
-        let mask = mask_reg.as_str();
+        let bits = &bits_reg;
+        let exponent = &exponent_reg;
+        let mantissa = &mantissa_reg;
+        let sign = &sign_reg;
+        let mask = &mask_reg;
         let ok = self.label("float_to_int_ok");
         let check_edge = self.label("float_to_int_check_edge");
         let edge_sign_ok = self.label("float_to_int_edge_sign_ok");
@@ -156,7 +156,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result,
+            location: result.render(),
             text: "toInt(Float)".to_string(),
         })
     }
@@ -170,38 +170,44 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_string_to_int_sign_prologue(
         &mut self,
-        string: &str,
-        length: &str,
-        index: &str,
-        cursor: &str,
-        byte: &str,
-        acc: &str,
-        negative: &str,
+        string: impl Into<Operand>,
+        length: impl Into<Operand>,
+        index: impl Into<Operand>,
+        cursor: impl Into<Operand>,
+        byte: impl Into<Operand>,
+        acc: impl Into<Operand>,
+        negative: impl Into<Operand>,
         invalid: &str,
         first_not_minus: &str,
         sign_done: &str,
     ) {
-        self.emit(abi::load_u64(length, string, 0));
-        self.emit(abi::compare_immediate(length, "0"));
+        let string: Operand = string.into();
+        let length: Operand = length.into();
+        let index: Operand = index.into();
+        let cursor: Operand = cursor.into();
+        let byte: Operand = byte.into();
+        let negative: Operand = negative.into();
+        self.emit(abi::load_u64(length.clone(), string.clone(), 0));
+        self.emit(abi::compare_immediate(length.clone(), "0"));
         self.emit(abi::branch_eq(invalid));
-        self.emit(abi::add_immediate(cursor, string, 8));
-        self.emit(abi::move_immediate(index, "Integer", "0"));
+        self.emit(abi::add_immediate(cursor.clone(), string, 8));
+        self.emit(abi::move_immediate(index.clone(), "Integer", "0"));
         self.emit(abi::move_immediate(acc, "Integer", "0"));
-        self.emit(abi::move_immediate(negative, "Integer", "0"));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::compare_immediate(byte, "45"));
+        self.emit(abi::move_immediate(negative.clone(), "Integer", "0"));
+        self.emit(abi::load_u8(byte.clone(), cursor.clone(), 0));
+        self.emit(abi::compare_immediate(byte.clone(), "45"));
         self.emit(abi::branch_ne(first_not_minus));
         self.emit(abi::move_immediate(negative, "Integer", "1"));
-        self.emit(abi::add_immediate(index, index, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::add_immediate(index.clone(), index.clone(), 1));
+        self.emit(abi::add_immediate(cursor.clone(), cursor.clone(), 1));
         self.emit(abi::branch(sign_done));
         self.emit(abi::label(first_not_minus));
         self.emit(abi::compare_immediate(byte, "43"));
         self.emit(abi::branch_ne(sign_done));
-        self.emit(abi::add_immediate(index, index, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::add_immediate(index.clone(), index.clone(), 1));
+        self.emit(abi::add_immediate(cursor.clone(), cursor, 1));
         self.emit(abi::label(sign_done));
-        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::compare_registers(index.clone(), length));
         self.emit(abi::branch_ge(invalid));
     }
 
@@ -214,10 +220,10 @@ impl CodeBuilder<'_> {
     /// 2^63 where unsigned and signed order agree.
     pub(super) fn emit_int_parse_cutoff_guard(
         &mut self,
-        acc: &str,
-        cutoff: &str,
-        digit: &str,
-        cutlim: &str,
+        acc: impl Into<Operand>,
+        cutoff: impl Into<Operand>,
+        digit: impl Into<Operand>,
+        cutlim: impl Into<Operand>,
         overflow: &str,
         cutoff_equal: &str,
         digit_ok: &str,
@@ -239,19 +245,25 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_int_parse_sign_epilogue(
         &mut self,
-        result: &str,
-        acc: &str,
-        negative: &str,
+        result: impl Into<Operand>,
+        acc: impl Into<Operand>,
+        negative: impl Into<Operand>,
         loop_done: &str,
         positive: &str,
         done: &str,
         invalid: &str,
         overflow: &str,
     ) -> Result<(), String> {
+        let result: Operand = result.into();
+        let acc: Operand = acc.into();
         self.emit(abi::label(loop_done));
         self.emit(abi::compare_immediate(negative, "0"));
         self.emit(abi::branch_eq(positive));
-        self.emit(abi::subtract_registers(result, abi::ZERO, acc));
+        self.emit(abi::subtract_registers(
+            result.clone(),
+            abi::ZERO,
+            acc.clone(),
+        ));
         self.emit(abi::branch(done));
         self.emit(abi::label(positive));
         self.emit(abi::move_register(result, acc));
@@ -266,7 +278,7 @@ impl CodeBuilder<'_> {
 
     pub(super) fn emit_string_to_int_value(
         &mut self,
-        source_register: &str,
+        source_register: impl Into<Operand>,
     ) -> Result<ValueResult, String> {
         // Pure integer parse with no call ABI: every working register is scratch,
         // minted as a vreg so the allocator colors it per-ISA. `xzr` below stays
@@ -282,17 +294,17 @@ impl CodeBuilder<'_> {
         let cutoff_v = self.temporary_vreg();
         let cutlim_v = self.temporary_vreg();
         let ten_v = self.temporary_vreg();
-        let string = string_v.as_str();
-        let length = length_v.as_str();
-        let index = index_v.as_str();
-        let cursor = cursor_v.as_str();
-        let byte = byte_v.as_str();
-        let acc = acc_v.as_str();
-        let negative = negative_v.as_str();
-        let digit = digit_v.as_str();
-        let cutoff = cutoff_v.as_str();
-        let cutlim = cutlim_v.as_str();
-        let ten = ten_v.as_str();
+        let string = &string_v;
+        let length = &length_v;
+        let index = &index_v;
+        let cursor = &cursor_v;
+        let byte = &byte_v;
+        let acc = &acc_v;
+        let negative = &negative_v;
+        let digit = &digit_v;
+        let cutoff = &cutoff_v;
+        let cutlim = &cutlim_v;
+        let ten = &ten_v;
         let invalid = self.label("string_to_int_invalid");
         let overflow = self.label("string_to_int_overflow");
         let first_not_minus = self.label("string_to_int_first_not_minus");
@@ -357,7 +369,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result,
+            location: result.render(),
             text: "toInt(String)".to_string(),
         })
     }
@@ -374,7 +386,7 @@ impl CodeBuilder<'_> {
     /// range FAILs `77050010` (ErrOverflow).
     pub(super) fn emit_string_to_int_value_base(
         &mut self,
-        source_register: &str,
+        source_register: impl Into<Operand>,
         base_slot: usize,
     ) -> Result<ValueResult, String> {
         // All working registers are scratch (no call ABI); mint as vregs so the
@@ -392,18 +404,18 @@ impl CodeBuilder<'_> {
         let cutlim_v = self.temporary_vreg();
         let base_v = self.temporary_vreg();
         let scratch_v = self.temporary_vreg();
-        let string = string_v.as_str();
-        let length = length_v.as_str();
-        let index = index_v.as_str();
-        let cursor = cursor_v.as_str();
-        let byte = byte_v.as_str();
-        let acc = acc_v.as_str();
-        let negative = negative_v.as_str();
-        let digit = digit_v.as_str();
-        let cutoff = cutoff_v.as_str();
-        let cutlim = cutlim_v.as_str();
-        let base = base_v.as_str();
-        let scratch = scratch_v.as_str();
+        let string = &string_v;
+        let length = &length_v;
+        let index = &index_v;
+        let cursor = &cursor_v;
+        let byte = &byte_v;
+        let acc = &acc_v;
+        let negative = &negative_v;
+        let digit = &digit_v;
+        let cutoff = &cutoff_v;
+        let cutlim = &cutlim_v;
+        let base = &base_v;
+        let scratch = &scratch_v;
         let invalid = self.label("string_to_int_base_invalid");
         let overflow = self.label("string_to_int_base_overflow");
         let first_not_minus = self.label("string_to_int_base_first_not_minus");
@@ -503,7 +515,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result,
+            location: result.render(),
             text: "toInt(String, base)".to_string(),
         })
     }
@@ -527,7 +539,7 @@ impl CodeBuilder<'_> {
                 &value.location,
                 &scale,
             ));
-            whole
+            whole.render()
         } else {
             value.location.clone()
         };
@@ -545,7 +557,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&ok));
         Ok(ValueResult {
             type_: "Byte".to_string(),
-            location: result,
+            location: result.render(),
             text: format!("toByte({})", value.text),
         })
     }
@@ -563,7 +575,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&register, &value.location));
                 Ok(ValueResult {
                     type_: "Scalar".to_string(),
-                    location: register,
+                    location: register.render(),
                     text: format!("toScalar({})", value.text),
                 })
             }
@@ -592,7 +604,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&register, &cp));
                 Ok(ValueResult {
                     type_: "Scalar".to_string(),
-                    location: register,
+                    location: register.render(),
                     text: format!("toScalar({})", value.text),
                 })
             }
@@ -600,7 +612,7 @@ impl CodeBuilder<'_> {
                 let result = self.emit_string_to_scalar_value(&value.location)?;
                 Ok(ValueResult {
                     type_: "Scalar".to_string(),
-                    location: result,
+                    location: result.render(),
                     text: format!("toScalar({})", value.text),
                 })
             }
@@ -621,17 +633,23 @@ impl CodeBuilder<'_> {
     ///
     /// `scratch` is clobbered; callers re-materialize the 0x3F payload mask after
     /// calling, since this reuses the same register for the 0xC0 test.
-    fn emit_continuation_byte_check(&mut self, byte: &str, scratch: &str, invalid: &str) {
-        self.emit(abi::move_immediate(scratch, "Integer", "192")); // 0xC0
-        self.emit(abi::and_registers(scratch, byte, scratch));
+    fn emit_continuation_byte_check(
+        &mut self,
+        byte: impl Into<Operand>,
+        scratch: impl Into<Operand>,
+        invalid: &str,
+    ) {
+        let scratch: Operand = scratch.into();
+        self.emit(abi::move_immediate(scratch.clone(), "Integer", "192")); // 0xC0
+        self.emit(abi::and_registers(scratch.clone(), byte, scratch.clone()));
         self.emit(abi::compare_immediate(scratch, "128")); // 0x80
         self.emit(abi::branch_ne(invalid));
     }
 
     pub(super) fn emit_string_to_scalar_value(
         &mut self,
-        source_register: &str,
-    ) -> Result<String, String> {
+        source_register: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
         let string_v = self.temporary_vreg();
         let length_v = self.temporary_vreg();
         let b0_v = self.temporary_vreg();
@@ -639,13 +657,13 @@ impl CodeBuilder<'_> {
         let cont_v = self.temporary_vreg();
         let mask_v = self.temporary_vreg();
         let nbytes_v = self.temporary_vreg();
-        let string = string_v.as_str();
-        let length = length_v.as_str();
-        let b0 = b0_v.as_str();
-        let cp = cp_v.as_str();
-        let cont = cont_v.as_str();
-        let mask = mask_v.as_str();
-        let nbytes = nbytes_v.as_str();
+        let string = &string_v;
+        let length = &length_v;
+        let b0 = &b0_v;
+        let cp = &cp_v;
+        let cont = &cont_v;
+        let mask = &mask_v;
+        let nbytes = &nbytes_v;
 
         let one_byte = self.label("str_scalar_one");
         let two_byte = self.label("str_scalar_two");
@@ -784,14 +802,14 @@ impl CodeBuilder<'_> {
     /// materializes an owned arena `String` from them.
     pub(super) fn emit_scalar_to_string_value(
         &mut self,
-        source_register: &str,
+        source_register: impl Into<Operand>,
     ) -> Result<ValueResult, String> {
         let cp_v = self.temporary_vreg();
         let buf_v = self.temporary_vreg();
         let len_v = self.temporary_vreg();
-        let cp = cp_v.as_str();
-        let buf = buf_v.as_str();
-        let len = len_v.as_str();
+        let cp = &cp_v;
+        let buf = &buf_v;
+        let len = &len_v;
         let buf_slot = self.allocate_stack_object("scalar_utf8_buf", 8);
 
         // S3 (bug-333): route through the canonical UTF-8 codec in
@@ -814,7 +832,7 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&buf_addr, len)?;
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: result.render(),
             text: "toString(Scalar)".to_string(),
         })
     }
@@ -839,7 +857,7 @@ impl CodeBuilder<'_> {
             "Fixed" => {
                 let temp = ValueResult {
                     type_: "Fixed".to_string(),
-                    location: source,
+                    location: source.render(),
                     text: value.text.clone(),
                 };
                 self.load_numeric_as_double(abi::FP_SCRATCH[0], &temp)?;
@@ -849,7 +867,7 @@ impl CodeBuilder<'_> {
             "Money" => {
                 let temp = ValueResult {
                     type_: "Money".to_string(),
-                    location: source,
+                    location: source.render(),
                     text: value.text.clone(),
                 };
                 self.load_numeric_as_double(abi::FP_SCRATCH[0], &temp)?;
@@ -877,7 +895,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: "Float".to_string(),
-            location: result,
+            location: result.render(),
             text: format!("toFloat({})", value.text),
         })
     }
@@ -918,7 +936,7 @@ impl CodeBuilder<'_> {
                 self.emit_parse_decimal_string_to_double(&source, &invalid)?;
                 self.emit_double_overflow_check(abi::FP_SCRATCH[0], &overflow);
                 let parsed_bits_reg = self.temporary_vreg();
-                let parsed_bits = parsed_bits_reg.as_str();
+                let parsed_bits = &parsed_bits_reg;
                 self.emit(abi::float_move_x_from_d(parsed_bits, abi::FP_SCRATCH[0]));
                 self.emit_float_bits_to_fixed_value(parsed_bits, &result)?;
                 let done = self.label("to_fixed_done");
@@ -937,7 +955,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: "Fixed".to_string(),
-            location: result,
+            location: result.render(),
             text: format!("toFixed({})", value.text),
         })
     }
@@ -988,7 +1006,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::float_move_d_from_x(&fval, &source));
                 self.emit_float_finite_or_invalid(&fval)?;
                 let scale = self.allocate_fp_register()?;
-                self.emit_f64_const(&scale, scratch.as_str(), 100_000.0);
+                self.emit_f64_const(&scale, &scratch, 100_000.0);
                 let scaled = self.allocate_fp_register()?;
                 self.emit(abi::float_multiply_d(&scaled, &fval, &scale));
                 self.emit_round_double_to_money_raw(&scaled, &result)?;
@@ -1001,7 +1019,7 @@ impl CodeBuilder<'_> {
                 let parsed = self.allocate_fp_register()?;
                 self.emit(abi::float_move_d_from_d(&parsed, abi::FP_SCRATCH[0]));
                 let scale = self.allocate_fp_register()?;
-                self.emit_f64_const(&scale, scratch.as_str(), 100_000.0);
+                self.emit_f64_const(&scale, &scratch, 100_000.0);
                 let scaled = self.allocate_fp_register()?;
                 self.emit(abi::float_multiply_d(&scaled, &parsed, &scale));
                 self.emit_round_double_to_money_raw(&scaled, &result)?;
@@ -1018,7 +1036,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: "Money".to_string(),
-            location: result,
+            location: result.render(),
             text: format!("toMoney({})", value.text),
         })
     }
@@ -1052,7 +1070,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result,
+            location: result.render(),
             text: format!("isNumeric({})", value.text),
         })
     }
@@ -1087,7 +1105,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result,
+            location: result.render(),
             text: format!("{name}({})", value.text),
         })
     }
@@ -1140,7 +1158,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result,
+            location: result.render(),
             text: format!("{name}({})", value.text),
         })
     }
@@ -1174,25 +1192,26 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result,
+            location: result.render(),
             text: format!("{name}({})", len.text),
         })
     }
 
     pub(super) fn emit_integer_to_fixed_value(
         &mut self,
-        source: &str,
-        result: &str,
+        source: impl Into<Operand>,
+        result: impl Into<Operand>,
     ) -> Result<(), String> {
+        let source: Operand = source.into();
         let min = self.allocate_register()?;
         let max = self.allocate_register()?;
         let overflow = self.label("int_to_fixed_overflow");
         let ok = self.label("int_to_fixed_ok");
         self.emit(abi::move_immediate(&min, "Integer", "18446744071562067968"));
-        self.emit(abi::compare_registers(source, &min));
+        self.emit(abi::compare_registers(source.clone(), &min));
         self.emit(abi::branch_lt(&overflow));
         self.emit(abi::move_immediate(&max, "Integer", "2147483647"));
-        self.emit(abi::compare_registers(source, &max));
+        self.emit(abi::compare_registers(source.clone(), &max));
         self.emit(abi::branch_gt(&overflow));
         self.emit(abi::shift_left_immediate(result, source, 32));
         self.emit(abi::branch(&ok));
@@ -1204,8 +1223,8 @@ impl CodeBuilder<'_> {
 
     pub(super) fn emit_float_bits_to_fixed_value(
         &mut self,
-        source: &str,
-        result: &str,
+        source: impl Into<Operand>,
+        result: impl Into<Operand>,
     ) -> Result<(), String> {
         let bits_reg = self.temporary_vreg();
         let exponent_reg = self.temporary_vreg();
@@ -1213,12 +1232,12 @@ impl CodeBuilder<'_> {
         let sign_reg = self.temporary_vreg();
         let mantissa_reg = self.temporary_vreg();
         let const_reg = self.temporary_vreg();
-        let bits = bits_reg.as_str();
-        let exponent = exponent_reg.as_str();
-        let mask = mask_reg.as_str();
-        let sign = sign_reg.as_str();
-        let mantissa = mantissa_reg.as_str();
-        let const_bits = const_reg.as_str();
+        let bits = &bits_reg;
+        let exponent = &exponent_reg;
+        let mask = &mask_reg;
+        let sign = &sign_reg;
+        let mantissa = &mantissa_reg;
+        let const_bits = &const_reg;
         let invalid = self.label("float_to_fixed_invalid");
         let overflow = self.label("float_to_fixed_overflow");
         let ok = self.label("float_to_fixed_ok");
@@ -1261,7 +1280,7 @@ impl CodeBuilder<'_> {
 
     pub(super) fn emit_parse_decimal_string_to_double(
         &mut self,
-        source_register: &str,
+        source_register: impl Into<Operand>,
         invalid_label: &str,
     ) -> Result<(), String> {
         let string_reg = self.temporary_vreg();
@@ -1279,21 +1298,21 @@ impl CodeBuilder<'_> {
         let exponent_reg = self.temporary_vreg();
         let exponent_negative_reg = self.temporary_vreg();
         let exponent_ten_reg = self.temporary_vreg();
-        let string = string_reg.as_str();
-        let length = length_reg.as_str();
-        let index = index_reg.as_str();
-        let cursor = cursor_reg.as_str();
-        let byte = byte_reg.as_str();
-        let digit = digit_reg.as_str();
-        let negative = negative_reg.as_str();
-        let seen_digit = seen_digit_reg.as_str();
-        let ten_bits = ten_bits_reg.as_str();
-        let dot_seen = dot_seen_reg.as_str();
-        let zero_src = zero_src_reg.as_str();
-        let one_bits = one_bits_reg.as_str();
-        let exponent = exponent_reg.as_str();
-        let exponent_negative = exponent_negative_reg.as_str();
-        let exponent_ten = exponent_ten_reg.as_str();
+        let string = &string_reg;
+        let length = &length_reg;
+        let index = &index_reg;
+        let cursor = &cursor_reg;
+        let byte = &byte_reg;
+        let digit = &digit_reg;
+        let negative = &negative_reg;
+        let seen_digit = &seen_digit_reg;
+        let ten_bits = &ten_bits_reg;
+        let dot_seen = &dot_seen_reg;
+        let zero_src = &zero_src_reg;
+        let one_bits = &one_bits_reg;
+        let exponent = &exponent_reg;
+        let exponent_negative = &exponent_negative_reg;
+        let exponent_ten = &exponent_ten_reg;
         let loop_start = self.label("parse_decimal_loop");
         let after_sign = self.label("parse_decimal_after_sign");
         let not_minus = self.label("parse_decimal_not_minus");
@@ -1509,11 +1528,11 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_float_exponent_range_guard(
         &mut self,
-        bits: &str,
-        exponent: &str,
-        mask: &str,
-        sign: &str,
-        mantissa: &str,
+        bits: impl Into<Operand>,
+        exponent: impl Into<Operand>,
+        mask: impl Into<Operand>,
+        sign: impl Into<Operand>,
+        mantissa: impl Into<Operand>,
         threshold: Option<&str>,
         range_ok: &str,
         edge: &str,
@@ -1521,10 +1540,21 @@ impl CodeBuilder<'_> {
         invalid: &str,
         overflow: &str,
     ) {
-        self.emit(abi::shift_right_immediate(exponent, bits, 52));
-        self.emit(abi::move_immediate(mask, "Integer", "2047"));
-        self.emit(abi::and_registers(exponent, exponent, mask));
-        self.emit(abi::compare_immediate(exponent, "2047"));
+        let bits: Operand = bits.into();
+        let exponent: Operand = exponent.into();
+        let mask: Operand = mask.into();
+        self.emit(abi::shift_right_immediate(
+            exponent.clone(),
+            bits.clone(),
+            52,
+        ));
+        self.emit(abi::move_immediate(mask.clone(), "Integer", "2047"));
+        self.emit(abi::and_registers(
+            exponent.clone(),
+            exponent.clone(),
+            mask.clone(),
+        ));
+        self.emit(abi::compare_immediate(exponent.clone(), "2047"));
         self.emit(abi::branch_eq(invalid));
         let Some(threshold) = threshold else {
             return;
@@ -1534,18 +1564,28 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(edge));
         self.emit(abi::branch(overflow));
         self.emit(abi::label(edge));
-        self.emit(abi::shift_right_immediate(sign, bits, 63));
+        let sign: Operand = sign.into();
+        let mantissa: Operand = mantissa.into();
+        self.emit(abi::shift_right_immediate(sign.clone(), bits.clone(), 63));
         self.emit(abi::compare_immediate(sign, "1"));
         self.emit(abi::branch_eq(edge_sign_ok));
         self.emit(abi::branch(overflow));
         self.emit(abi::label(edge_sign_ok));
-        self.emit(abi::move_immediate(mask, "Integer", F64_MANTISSA_MASK));
-        self.emit(abi::and_registers(mantissa, bits, mask));
+        self.emit(abi::move_immediate(
+            mask.clone(),
+            "Integer",
+            F64_MANTISSA_MASK,
+        ));
+        self.emit(abi::and_registers(mantissa.clone(), bits, mask));
         self.emit(abi::compare_immediate(mantissa, "0"));
         self.emit(abi::branch_ne(overflow));
     }
 
-    pub(super) fn emit_double_overflow_check(&mut self, source: &str, overflow_label: &str) {
+    pub(super) fn emit_double_overflow_check(
+        &mut self,
+        source: impl Into<Operand>,
+        overflow_label: &str,
+    ) {
         let bits = self.temporary_vreg();
         let exponent = self.temporary_vreg();
         let mask = self.temporary_vreg();

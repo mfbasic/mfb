@@ -14,35 +14,57 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_ascii_scalar_fastforward(
         &mut self,
-        cursor: &str,
-        remaining: &str,
-        scalar_index: &str,
-        target: &str,
-        diff: &str,
-        word: &str,
-        ascii_mask: &str,
+        cursor: impl Into<Operand>,
+        remaining: impl Into<Operand>,
+        scalar_index: impl Into<Operand>,
+        target: impl Into<Operand>,
+        diff: impl Into<Operand>,
+        word: impl Into<Operand>,
+        ascii_mask: impl Into<Operand>,
     ) {
+        let cursor = cursor.into();
+        let remaining = remaining.into();
+        let scalar_index = scalar_index.into();
+        let diff = diff.into();
+        let word = word.into();
+        let ascii_mask = ascii_mask.into();
         let block = self.label("ascii_ff_block");
         let done = self.label("ascii_ff_done");
         // 0x8080808080808080 — the high bit of every byte.
         self.emit(abi::move_immediate(
-            ascii_mask,
+            ascii_mask.clone(),
             "Integer",
             "9259542123273814144",
         ));
         self.emit(abi::label(&block));
-        self.emit(abi::subtract_registers(diff, target, scalar_index));
-        self.emit(abi::compare_immediate(diff, "8"));
+        self.emit(abi::subtract_registers(
+            diff.clone(),
+            target,
+            scalar_index.clone(),
+        ));
+        self.emit(abi::compare_immediate(diff.clone(), "8"));
         self.emit(abi::branch_lo(&done));
-        self.emit(abi::compare_immediate(remaining, "8"));
+        self.emit(abi::compare_immediate(remaining.clone(), "8"));
         self.emit(abi::branch_lo(&done));
-        self.emit(abi::load_u64(word, cursor, 0));
-        self.emit(abi::and_registers(word, word, ascii_mask));
-        self.emit(abi::compare_immediate(word, "0"));
+        self.emit(abi::load_u64(word.clone(), cursor.clone(), 0));
+        self.emit(abi::and_registers(
+            word.clone(),
+            word.clone(),
+            ascii_mask.clone(),
+        ));
+        self.emit(abi::compare_immediate(word.clone(), "0"));
         self.emit(abi::branch_ne(&done));
-        self.emit(abi::add_immediate(cursor, cursor, 8));
-        self.emit(abi::subtract_immediate(remaining, remaining, 8));
-        self.emit(abi::add_immediate(scalar_index, scalar_index, 8));
+        self.emit(abi::add_immediate(cursor.clone(), cursor.clone(), 8));
+        self.emit(abi::subtract_immediate(
+            remaining.clone(),
+            remaining.clone(),
+            8,
+        ));
+        self.emit(abi::add_immediate(
+            scalar_index.clone(),
+            scalar_index.clone(),
+            8,
+        ));
         self.emit(abi::branch(&block));
         self.emit(abi::label(&done));
     }
@@ -164,21 +186,21 @@ impl CodeBuilder<'_> {
         }
 
         let result_slot = self.allocate_stack_object("find_result", 8);
-        let haystack_ptr = scratch8.as_str();
-        let needle_ptr = scratch9.as_str();
-        let haystack_len = scratch10.as_str();
-        let needle_len = scratch11.as_str();
-        let start = scratch12.as_str();
-        let scalar_index = scratch13.as_str();
-        let cursor = scratch14.as_str();
-        let remaining = scratch15.as_str();
-        let byte = scratch16.as_str();
-        let mask = scratch17.as_str();
-        let candidate = scratch20.as_str();
-        let compare_remaining = scratch21.as_str();
-        let needle_cursor = scratch22.as_str();
-        let haystack_byte = scratch23.as_str();
-        let needle_byte = scratch24.as_str();
+        let haystack_ptr = &scratch8;
+        let needle_ptr = &scratch9;
+        let haystack_len = &scratch10;
+        let needle_len = &scratch11;
+        let start = &scratch12;
+        let scalar_index = &scratch13;
+        let cursor = &scratch14;
+        let remaining = &scratch15;
+        let byte = &scratch16;
+        let mask = &scratch17;
+        let candidate = &scratch20;
+        let compare_remaining = &scratch21;
+        let needle_cursor = &scratch22;
+        let haystack_byte = &scratch23;
+        let needle_byte = &scratch24;
 
         let locate_start = self.label("find_locate_start");
         let locate_continue = self.label("find_locate_continue");
@@ -312,7 +334,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result,
+            location: result.render(),
             text: "find(String, String)".to_string(),
         })
     }
@@ -442,7 +464,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result,
+            location: result.render(),
             text: format!("find({list_type}, {element_type})"),
         })
     }
@@ -623,7 +645,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result,
+            location: result.render(),
             text: format!("find({list_type}, {list_type}) over {element_type}"),
         })
     }
@@ -731,22 +753,22 @@ impl CodeBuilder<'_> {
         let result_slot = self.allocate_stack_object("mid_result", 8);
         let start_ptr_slot = self.allocate_stack_object("mid_start_ptr", 8);
         let byte_len_slot = self.allocate_stack_object("mid_byte_len", 8);
-        let value_ptr = scratch8.as_str();
-        let string_len = scratch9.as_str();
-        let cursor = scratch10.as_str();
-        let remaining = scratch11.as_str();
-        let scalar_index = scratch12.as_str();
-        let start_index = scratch13.as_str();
-        let count_value = scratch14.as_str();
-        let end_index = scratch15.as_str();
-        let byte = scratch16.as_str();
-        let mask = scratch17.as_str();
-        let start_ptr = scratch20.as_str();
-        let end_ptr = scratch21.as_str();
-        let copy_src = scratch22.as_str();
-        let copy_dst = scratch23.as_str();
-        let copy_remaining = scratch24.as_str();
-        let byte_len = scratch25.as_str();
+        let value_ptr = &scratch8;
+        let string_len = &scratch9;
+        let cursor = &scratch10;
+        let remaining = &scratch11;
+        let scalar_index = &scratch12;
+        let start_index = &scratch13;
+        let count_value = &scratch14;
+        let end_index = &scratch15;
+        let byte = &scratch16;
+        let mask = &scratch17;
+        let start_ptr = &scratch20;
+        let end_ptr = &scratch21;
+        let copy_src = &scratch22;
+        let copy_dst = &scratch23;
+        let copy_remaining = &scratch24;
+        let byte_len = &scratch25;
 
         let locate_start = self.label("mid_locate_start");
         let locate_start_continue = self.label("mid_locate_start_continue");
@@ -908,7 +930,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: result.render(),
             text: "mid(String, Integer, Integer)".to_string(),
         })
     }
@@ -1289,7 +1311,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result,
+            location: result.render(),
             text: format!("mid({list_type}, Integer, Integer) over {element_type}"),
         })
     }

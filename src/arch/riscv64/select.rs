@@ -62,11 +62,11 @@ const ZERO: &str = "zero";
 const GP: &str = "gp";
 
 /// The value of a named field (empty string if absent).
-fn field_value(fields: &[(&'static str, String)], name: &str) -> String {
+fn field_value(fields: &[(&'static str, Operand)], name: &str) -> String {
     fields
         .iter()
         .find(|(k, _)| *k == name)
-        .map(|(_, v)| v.clone())
+        .map(|(_, v)| v.render())
         .unwrap_or_default()
 }
 
@@ -157,16 +157,16 @@ fn float_branch(cond: &str, lhs: &str, rhs: &str, target: &str) -> Vec<CodeInstr
 }
 
 /// The `cond` value carried by an integer compare-branch, plus the branch target.
-fn cond_and_target(fields: &[(&'static str, String)]) -> (String, String) {
+fn cond_and_target(fields: &[(&'static str, Operand)]) -> (String, String) {
     let split = fields
         .iter()
         .position(|(key, _)| *key == FUSED_COND_FIELD)
         .expect("fused MIR op carries a cond field");
-    let cond = fields[split].1.clone();
+    let cond = fields[split].1.render();
     let target = fields[split + 1..]
         .iter()
         .find(|(key, _)| *key == "target")
-        .map(|(_, v)| v.clone())
+        .map(|(_, v)| v.render())
         .expect("fused compare-branch carries a target");
     (cond, target)
 }
@@ -175,7 +175,7 @@ fn cond_and_target(fields: &[(&'static str, String)]) -> (String, String) {
 /// compare-and-branch is self-contained (no shared flags), so a shared branch
 /// simply re-emits the whole compare — but the operands are the same, so it is
 /// correct and cheap.
-fn is_shared(fields: &[(&'static str, String)]) -> bool {
+fn is_shared(fields: &[(&'static str, Operand)]) -> bool {
     fields.iter().any(|(key, _)| *key == FUSED_SHARE_FIELD)
 }
 
@@ -185,13 +185,13 @@ fn is_shared(fields: &[(&'static str, String)]) -> bool {
 fn expand_fused(
     op: MirOp,
     setter_op: CodeOp,
-    fields: &[(&'static str, String)],
+    fields: &[(&'static str, Operand)],
 ) -> Vec<CodeInstruction> {
     let get = |name: &str| -> String {
         fields
             .iter()
             .find(|(key, _)| *key == name)
-            .map(|(_, v)| v.clone())
+            .map(|(_, v)| v.render())
             .unwrap_or_default()
     };
     let (cond, target) = cond_and_target(fields);
@@ -396,7 +396,7 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
     let mut v128_seq = 0usize;
     // plan-32-D: the currently-accumulating maximal run of consecutive
     // RVV-lowerable v128 ops (flushed as one dual-path dispatch).
-    let mut v128_run: Vec<(CodeOp, Vec<(&'static str, String)>)> = Vec::new();
+    let mut v128_run: Vec<(CodeOp, Vec<(&'static str, Operand)>)> = Vec::new();
     // Slots are recycled across non-overlapping live ranges, so the region size
     // is the peak concurrent slot count (highest index + 1), not the number of
     // distinct values.
@@ -591,10 +591,17 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                 .find(|(k, _)| *k == "symbol")
                 .map(|(_, v)| v.clone())
                 .expect("addr_of carries a symbol");
-            out.push(ci("adrp", &[("dst", &dst), ("symbol", &symbol)]));
+            out.push(ci(
+                "adrp",
+                &[("dst", &dst.render()), ("symbol", &symbol.render())],
+            ));
             out.push(ci(
                 "add_pageoff",
-                &[("dst", &dst), ("src", &dst), ("symbol", &symbol)],
+                &[
+                    ("dst", &dst.render()),
+                    ("src", &dst.render()),
+                    ("symbol", &symbol.render()),
+                ],
             ));
             continue;
         }
@@ -948,8 +955,8 @@ mod tests {
 
     // ---------- branch-condition mapping helpers ----------
 
-    fn fl(pairs: &[(&'static str, &str)]) -> Vec<(&'static str, String)> {
-        pairs.iter().map(|(k, v)| (*k, v.to_string())).collect()
+    fn fl(pairs: &[(&'static str, &str)]) -> Vec<(&'static str, Operand)> {
+        pairs.iter().map(|(k, v)| (*k, Operand::from(*v))).collect()
     }
 
     #[test]

@@ -8,8 +8,9 @@ pub(super) use crate::arch::encode_operand::{field, immediate, shift};
 /// register names. The numbering is the architectural encoding:
 /// `rax=0, rcx=1, rdx=2, rbx=3, rsp=4, rbp=5, rsi=6, rdi=7, r8..r15=8..15`.
 /// `r8`..`r15` need the REX.B/R/X extension bit, handled by the emitter.
-pub(super) fn reg(name: String) -> Result<u8, String> {
-    Ok(match name.as_str() {
+pub(super) fn reg(name: impl AsRef<str>) -> Result<u8, String> {
+    let name = name.as_ref();
+    Ok(match name {
         "rax" => 0,
         "rcx" => 1,
         "rdx" => 2,
@@ -43,7 +44,8 @@ pub(super) fn is_zero_token(r: u8) -> bool {
 
 /// Parse an SSE register name `xmm0`..`xmm15` to its 0–15 index (select_x86 maps
 /// the AArch64 `dN` bank to `xmmN`, and the FP allocator colors `%fN` here too).
-pub(super) fn fp_reg(name: String) -> Result<u8, String> {
+pub(super) fn fp_reg(name: impl AsRef<str>) -> Result<u8, String> {
+    let name = name.as_ref();
     name.strip_prefix("xmm")
         .and_then(|rest| rest.parse::<u8>().ok())
         .filter(|n| *n < 16)

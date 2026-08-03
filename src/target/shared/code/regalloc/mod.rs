@@ -296,12 +296,14 @@ pub(crate) fn allocate(
             // `xmm8`–`xmm14` as surviving a call SysV says destroys them
             // (bug-350).
             let int_model = ClassModel {
+                class: RegClass::Int,
                 parse_vreg,
                 physical_index: int_physical_index,
                 is_fp: false,
                 caller_saved: analysis::caller_saved_mask(model, RegClass::Int, int_physical_index),
             };
             let fp_model = ClassModel {
+                class: RegClass::Fp,
                 parse_vreg: parse_fp_vreg,
                 physical_index: analysis::fp_physical_index,
                 is_fp: true,

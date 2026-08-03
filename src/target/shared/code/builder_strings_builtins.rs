@@ -254,7 +254,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "List OF String".to_string(),
-            location: result,
+            location: result.render(),
             text: "strings.graphemes".to_string(),
         })
     }
@@ -426,7 +426,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "List OF Byte".to_string(),
-            location: result,
+            location: result.render(),
             text: "strings.toBytes".to_string(),
         })
     }
@@ -436,22 +436,23 @@ impl CodeBuilder<'_> {
     /// with a ±32 adjustment is bit-identical to the full Unicode lookup for
     /// codepoints < 0x80. Upper lowers-to-upper (a-z → -32); Lower and CaseFold
     /// both upper-to-lower (A-Z → +32; ASCII fold == lower).
-    fn emit_ascii_case_transform(&mut self, map: UnicodeCaseMap, reg: &str) {
+    fn emit_ascii_case_transform(&mut self, map: UnicodeCaseMap, reg: impl Into<Operand>) {
+        let reg = reg.into();
         let skip = self.label("strings_case_map_ascii_skip");
         match map {
             UnicodeCaseMap::Upper => {
-                self.emit(abi::compare_immediate(reg, "97")); // 'a'
+                self.emit(abi::compare_immediate(reg.clone(), "97")); // 'a'
                 self.emit(abi::branch_lt(&skip));
-                self.emit(abi::compare_immediate(reg, "122")); // 'z'
+                self.emit(abi::compare_immediate(reg.clone(), "122")); // 'z'
                 self.emit(abi::branch_gt(&skip));
-                self.emit(abi::subtract_immediate(reg, reg, 32));
+                self.emit(abi::subtract_immediate(reg.clone(), reg, 32));
             }
             UnicodeCaseMap::Lower | UnicodeCaseMap::CaseFold => {
-                self.emit(abi::compare_immediate(reg, "65")); // 'A'
+                self.emit(abi::compare_immediate(reg.clone(), "65")); // 'A'
                 self.emit(abi::branch_lt(&skip));
-                self.emit(abi::compare_immediate(reg, "90")); // 'Z'
+                self.emit(abi::compare_immediate(reg.clone(), "90")); // 'Z'
                 self.emit(abi::branch_gt(&skip));
-                self.emit(abi::add_immediate(reg, reg, 32));
+                self.emit(abi::add_immediate(reg.clone(), reg, 32));
             }
         }
         self.emit(abi::label(&skip));
@@ -701,7 +702,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: result.render(),
             text: map.name().to_string(),
         })
     }
@@ -1181,7 +1182,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: result.render(),
             text: "strings.normalizeNfc".to_string(),
         })
     }
@@ -1284,7 +1285,7 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: result.render(),
             text: "strings.trim".to_string(),
         })
     }
@@ -1299,7 +1300,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&register, &value.location, 0));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: register,
+            location: register.render(),
             text: format!("strings.byteLen({})", value.text),
         })
     }
@@ -1436,9 +1437,9 @@ impl CodeBuilder<'_> {
         let cursor_v = self.temporary_vreg();
         let remaining_v = self.temporary_vreg();
         let byte_v = self.temporary_vreg();
-        let cursor = cursor_v.as_str();
-        let remaining = remaining_v.as_str();
-        let byte = byte_v.as_str();
+        let cursor = &cursor_v;
+        let remaining = &remaining_v;
+        let byte = &byte_v;
 
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), parts_slot));
         self.emit(abi::load_u64(
@@ -1531,7 +1532,7 @@ impl CodeBuilder<'_> {
         // Carry the result pointer in a vreg, not physical x1 (a reload with no
         // call context maps unreliably on x86; the concat/split pattern).
         let out_ptr_v = self.temporary_vreg();
-        let out_ptr = out_ptr_v.as_str();
+        let out_ptr = &out_ptr_v;
         self.emit(abi::load_u64(out_ptr, abi::stack_pointer(), result_slot));
         self.emit(abi::add_immediate(&scratch13, out_ptr, 8));
         self.emit_collection_data_pointer_for(&scratch14, &scratch16, "String");
@@ -1594,7 +1595,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: result.render(),
             text: "strings.join".to_string(),
         })
     }
@@ -1653,11 +1654,11 @@ impl CodeBuilder<'_> {
         let delim_ptr_v = self.temporary_vreg();
         let sbyte_v = self.temporary_vreg();
         let dbyte_v = self.temporary_vreg();
-        let scan_i = scan_i_v.as_str();
-        let scan_ptr = scan_ptr_v.as_str();
-        let delim_ptr = delim_ptr_v.as_str();
-        let sbyte = sbyte_v.as_str();
-        let dbyte = dbyte_v.as_str();
+        let scan_i = &scan_i_v;
+        let scan_ptr = &scan_ptr_v;
+        let delim_ptr = &delim_ptr_v;
+        let sbyte = &sbyte_v;
+        let dbyte = &dbyte_v;
 
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(
@@ -1783,7 +1784,7 @@ impl CodeBuilder<'_> {
         // Carry the list pointer in a vreg, not physical x1 (a reload with no
         // call context maps unreliably on x86; the concat/repeat pattern).
         let list_ptr_v = self.temporary_vreg();
-        let list_ptr = list_ptr_v.as_str();
+        let list_ptr = &list_ptr_v;
         self.emit(abi::load_u64(list_ptr, abi::stack_pointer(), result_slot));
         self.emit(abi::add_immediate(
             &scratch20,
@@ -1838,7 +1839,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "List OF String".to_string(),
-            location: result,
+            location: result.render(),
             text: "strings.split".to_string(),
         })
     }
@@ -2040,7 +2041,7 @@ impl CodeBuilder<'_> {
         };
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: result.render(),
             text: label.to_string(),
         })
     }
@@ -2124,7 +2125,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&after));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result,
+            location: result.render(),
             text: "strings.count".to_string(),
         })
     }
@@ -2256,7 +2257,7 @@ impl CodeBuilder<'_> {
         };
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: result.render(),
             text: label.to_string(),
         })
     }
@@ -2303,15 +2304,15 @@ impl CodeBuilder<'_> {
         let inner_src_v = self.temporary_vreg();
         let inner_cnt_v = self.temporary_vreg();
         let byte_v = self.temporary_vreg();
-        let val_ptr = val_ptr_v.as_str();
-        let times_rem = times_rem_v.as_str();
-        let len = len_v.as_str();
-        let total = total_v.as_str();
-        let dst = dst_v.as_str();
-        let src_base = src_base_v.as_str();
-        let inner_src = inner_src_v.as_str();
-        let inner_cnt = inner_cnt_v.as_str();
-        let byte = byte_v.as_str();
+        let val_ptr = &val_ptr_v;
+        let times_rem = &times_rem_v;
+        let len = &len_v;
+        let total = &total_v;
+        let dst = &dst_v;
+        let src_base = &src_base_v;
+        let inner_src = &inner_src_v;
+        let inner_cnt = &inner_cnt_v;
+        let byte = &byte_v;
 
         self.emit(abi::load_u64(val_ptr, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(times_rem, abi::stack_pointer(), times_slot));
@@ -2379,7 +2380,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&after));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: result.render(),
             text: "strings.repeat".to_string(),
         })
     }
@@ -2429,7 +2430,7 @@ impl CodeBuilder<'_> {
             ));
             self.emit(abi::move_immediate(&scratch12, "Integer", "1"));
             let space = self.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
-            self.spill_to_slot("strings_pad_char", &space)
+            self.spill_to_slot("strings_pad_char", &space.render())
         };
         // Number of pad chars to prepend/append.
         let pad_count_slot = self.allocate_stack_object("strings_pad_count", 8);
@@ -2568,13 +2569,13 @@ impl CodeBuilder<'_> {
         // holding the arena_alloc result register across the copy (the
         // concat/split pattern). Copy-loop scratch is minted as vregs too.
         let out_ptr_v = self.temporary_vreg();
-        let out_ptr = out_ptr_v.as_str();
+        let out_ptr = &out_ptr_v;
         let pad_src_v = self.temporary_vreg();
         let pad_cnt_v = self.temporary_vreg();
         let byte_v = self.temporary_vreg();
-        let pad_src = pad_src_v.as_str();
-        let pad_cnt = pad_cnt_v.as_str();
-        let byte = byte_v.as_str();
+        let pad_src = &pad_src_v;
+        let pad_cnt = &pad_cnt_v;
+        let byte = &byte_v;
         self.emit(abi::load_u64(out_ptr, abi::stack_pointer(), result_slot));
         self.emit(abi::add_immediate(&scratch13, out_ptr, 8));
 
@@ -2657,7 +2658,7 @@ impl CodeBuilder<'_> {
         };
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: result.render(),
             text: label.to_string(),
         })
     }
@@ -2675,7 +2676,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, &scratch16, COLLECTION_OFFSET_COUNT));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result,
+            location: result.render(),
             text: "strings.graphemesCount".to_string(),
         })
     }
@@ -2705,24 +2706,9 @@ impl CodeBuilder<'_> {
         let icb_cur = self.temporary_vreg();
         let cw = self.temporary_vreg();
         let addr = self.temporary_vreg();
-        let (ptr, len, data, pos, total, cluster_w) = (
-            ptr.as_str(),
-            len.as_str(),
-            data.as_str(),
-            pos.as_str(),
-            total.as_str(),
-            cluster_w.as_str(),
-        );
+        let (ptr, len, data, pos, total, cluster_w) = (&ptr, &len, &data, &pos, &total, &cluster_w);
         let (cp, adv, prop, bc_prev, icb_prev, bc_cur, icb_cur, cw, addr) = (
-            cp.as_str(),
-            adv.as_str(),
-            prop.as_str(),
-            bc_prev.as_str(),
-            icb_prev.as_str(),
-            bc_cur.as_str(),
-            icb_cur.as_str(),
-            cw.as_str(),
-            addr.as_str(),
+            &cp, &adv, &prop, &bc_prev, &icb_prev, &bc_cur, &icb_cur, &cw, &addr,
         );
         let value = self.lower_value(value)?;
         self.require_string("strings.displayWidth value", &value)?;
@@ -2792,7 +2778,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, total));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result,
+            location: result.render(),
             text: "strings.displayWidth".to_string(),
         })
     }
@@ -2876,7 +2862,7 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&scratch15, &scratch14)?;
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: result.render(),
             text: "strings.graphemeAt".to_string(),
         })
     }
@@ -3023,7 +3009,7 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: result.render(),
             text: "strings.trimChars".to_string(),
         })
     }
