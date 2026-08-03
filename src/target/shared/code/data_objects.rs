@@ -1373,7 +1373,10 @@ mod tests {
         .collect();
         let graphemes_only = unicode_runtime_data_objects(Some(&base));
         let emitted: HashSet<&str> = graphemes_only.iter().map(|o| o.symbol.as_str()).collect();
-        assert_eq!(emitted, base, "graphemes-only must emit exactly the base trie");
+        assert_eq!(
+            emitted, base,
+            "graphemes-only must emit exactly the base trie"
+        );
         for dead in [
             UNICODE_CASEFOLD_ENTRIES_SYMBOL,
             UNICODE_CASEFOLD_SEQUENCES_SYMBOL,
@@ -1390,9 +1393,12 @@ mod tests {
             );
         }
 
-        let casefold: HashSet<&str> = [UNICODE_CASEFOLD_ENTRIES_SYMBOL, UNICODE_CASEFOLD_SEQUENCES_SYMBOL]
-            .into_iter()
-            .collect();
+        let casefold: HashSet<&str> = [
+            UNICODE_CASEFOLD_ENTRIES_SYMBOL,
+            UNICODE_CASEFOLD_SEQUENCES_SYMBOL,
+        ]
+        .into_iter()
+        .collect();
         let casefold_only = unicode_runtime_data_objects(Some(&casefold));
         let emitted: HashSet<&str> = casefold_only.iter().map(|o| o.symbol.as_str()).collect();
         assert_eq!(

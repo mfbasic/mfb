@@ -228,7 +228,13 @@ impl CodeBuilder<'_> {
         let ff_word = self.temporary_vreg();
         let ff_mask = self.temporary_vreg();
         self.emit_ascii_scalar_fastforward(
-            cursor, remaining, scalar_index, start, &ff_diff, &ff_word, &ff_mask,
+            cursor,
+            remaining,
+            scalar_index,
+            start,
+            &ff_diff,
+            &ff_word,
+            &ff_mask,
         );
         self.emit(abi::label(&locate_start));
         self.emit(abi::compare_registers(scalar_index, start));

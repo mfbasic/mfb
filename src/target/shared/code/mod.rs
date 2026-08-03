@@ -1696,7 +1696,9 @@ pub(crate) fn lower_module_for_platform(
         // relocates against, so a program that only reaches part of the unicode
         // surface (e.g. `strings::graphemes` but no case mapping) stops carrying
         // the tables it never touches.
-        data_objects.extend(unicode_runtime_data_objects(Some(&referenced_unicode_tables)));
+        data_objects.extend(unicode_runtime_data_objects(Some(
+            &referenced_unicode_tables,
+        )));
     } else if module_uses_unicode_runtime_tables(module) {
         // The NIR heuristic sees unicode use but no relocation names a specific
         // table (practically unreachable — the builder emits a relocation for
