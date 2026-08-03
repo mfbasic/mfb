@@ -283,6 +283,16 @@ impl From<String> for Operand {
     }
 }
 
+/// A borrowed `Operand` clones into an owned one, so a stored/threaded operand (a
+/// MIR field value, plan-79) flows into a `.field(name, &value)` / `abi::*(&value,
+/// …)` call by reference with no explicit `.clone()`. A `VReg`/`Phys`/`Imm` clone
+/// is heap-free; only `Raw` boxes, exactly as `From<&str>`/`From<&String>` did.
+impl From<&Operand> for Operand {
+    fn from(value: &Operand) -> Self {
+        value.clone()
+    }
+}
+
 /// The `ci(op, &[("dst", "x0"), …])` table-builder helpers (arch `select`/
 /// encoder tests, and the production riscv64 `select`/`v128` builders) iterate a
 /// `&[(&'static str, &str)]` slice, so each operand value arrives as `&&str`.
