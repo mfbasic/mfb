@@ -193,7 +193,7 @@ Acceptance: compiler builds; `cargo test --bin mfb` green (3763 passed);
 `artifact-gate … all` byte-identical across all four targets. `bench-lowering.sh`
 no-regression check deferred to C's before/after (B is perf-neutral by design and
 adds a `render()` per read, which C removes with typed reads).
-Commit: (recorded next commit)
+Commit: 02f9bd2ea
 
 ## Validation Plan
 

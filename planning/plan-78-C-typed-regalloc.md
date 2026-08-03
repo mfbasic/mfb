@@ -31,8 +31,8 @@ See plan-78-A's Prerequisites table (feature-wide). Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-78-B complete (fields are `Operand`, `operand()` accessor exists) | `ls planning/completed/plan-78-B-* 2>/dev/null` OR B's phases all ticked | NOT MET until B lands |
-| `bench-lowering.sh` baselines recorded (from A) | `cat planning/plan-78-baseline.txt` | NOT MET until A lands |
+| plan-78-B complete (fields are `Operand`, `operand()` accessor exists) | B's phases all ticked (commits 4eafd3830, 02f9bd2ea) | MET (2026-08-02) |
+| `bench-lowering.sh` baselines recorded (from A) | `cat planning/plan-78-baseline.txt` | MET (2026-08-02: one-regex 29.2s debug, acceptance 266s debug, regex fn 860,981 instrs / 135,293 int vregs) |
 
 > If B is not complete, C cannot start — full stop. C reads `operand()`, which B
 > introduces; it does not itself flip storage.
