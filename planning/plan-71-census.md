@@ -194,6 +194,55 @@ explicit shared-stream counterpart, so deletion would strand it). That is the va
 question Phase 2 answers; if Phase 2 finds no Category-2 value, plan-71-E adds no new
 staging and **no elision pass is built** (Phase 3 skipped — see plan-71-B Corrections).
 
+## Value-level partition + param-bridge (plan-71-B Phase 2) — proven
+
+Re-measured on **current `main`** (the plan-71-A census predates plan-78, which moved
+bytes) with `MFB_BUG387_AUDIT=1` via `/tmp/bug387/audit2-sweep.sh` (captures both
+`BUG387-MISMATCH` and the new `BUG387-PARAMBRIDGE` probe):
+
+| target | raw mismatches | distinct shapes | param-bridge insertions | boundary-op divergences |
+|---|---|---|---|---|
+| linux-x86_64 | 1,096,094 | 79 | **0** | **0** |
+| windows-x86_64 | 513,699 | (win64 3 families) | **0** | **0** |
+
+Fresh transitions are exactly the plan-71-A families (linux `%ret0..3`→arg regs +
+`%arg0/1/2`→result regs; win64 `%ret0`→rcx, `%arg0`→rax, `%sysarg1`→rdx). Every divergent
+operand sits on a **value-producing/consuming op** (`mov`/`add_imm`/`ldr_*`/`str_*`/`cmp*`/
+`add`/`sub*`/`sxtw`/`mul`/`eor`/`adrp`), **never** a boundary op (`bl`/`call`/`svc`/`ret`) —
+re-confirmed on fresh data for both targets.
+
+**Category-1 partition proven at the value level — no Category-2 value exists.** The proof
+is structural and measured, not assumed:
+
+- **The x86 fixpoint inserts NO instructions.** Its only `instructions.insert(…)`
+  (`select.rs`, the param-bridge prologue) fires **0** times across both x86 corpora
+  (`BUG387-PARAMBRIDGE` = 0). `grep 'instructions\.(insert|splice)' select.rs` shows that
+  is the *only* insertion site. So `remap_x86_abi` is a **pure per-operand register
+  rename** — every operand gets exactly one register, no move is ever added.
+- **Therefore every value already occupies a single consistent register** across its def
+  and all uses. If any value needed two conflicting homes (a Category-2 result→arg reuse),
+  the fixpoint — which inserts no bridging move — would have to color the def and a use
+  with different registers and NOT bridge them, i.e. the *current* code would miscompile.
+  It does not (the whole suite + byte-identity gate pass), so **no such value exists**.
+- Consequently C may re-tokenize every Family-1a producer knowing none is secretly a
+  value that must also stay `%retK` at a conflicting use. **This is the proven-at-the-value-level
+  partition plan-71-C depends on.**
+
+**Bonus finding for plan-71-E (de-risks the deletion).** The param-bridge prologue being
+dead (0 insertions) means the fixpoint's *only* non-rename behavior is absent on the real
+corpus, so deleting `remap_x86_abi` and replacing it with the context-free
+`map_token_direct` loses **no** inserted instruction — the "audit-at-zero ⟹ byte-identical
+deletion" premise (plan-71-E) is sound on this axis. (This corrects the §Residue "no third
+mechanism" wording: there *is* a third mechanism — instruction insertion via the
+param-bridge — but it is empty, so it collapses to renaming in practice. plan-71-E should
+still keep a live assert / re-add a bridge only if a future param layout ever makes
+`param_home != arg`.)
+
+**Elision decision (plan-71-B Phase 3): SKIPPED.** No Category-2 value ⇒ plan-71-E emits no
+new asymmetric staging move ⇒ no new `mov xN,xN` appears on the reuse ISAs ⇒ no elision
+pass is needed (and a blanket one would wrongly delete the 486/234/486 baseline
+Result-return self-moves). Recorded with commands above.
+
 ## B-onward split (implementation order = letter order; each depends only on its predecessor)
 
 Derived from the counts above. The uncertainty (Category-2 existence + re-tokenization

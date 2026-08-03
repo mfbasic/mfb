@@ -290,20 +290,32 @@ Acceptance: `plan-71-census.md` gains a measured self-move count per reuse targe
 the count is >0 (486/234/486), but these are byte-baseline non-divergent no-ops, so the
 count does NOT force Phase 3. Phase 3 (elision) runs only if Phase 2 finds a genuine
 Category-2 value (a *new asymmetric* staging plan-71-E would add); otherwise it is skipped.
-Commit: —
+Commit: `07d477e99` (probe + census + corrections). Byte-identity gate **PASS** —
+`bug387-gate.sh … full` (probe unset) byte-identical on all five targets against
+serially-recorded clean baselines: linux-x86_64 1320, windows-x86_64 630, linux-riscv64
+1318, linux-aarch64 1320, app-ncode ✓ (`/tmp/bug387/gate-B-phase1b.log`: "BUG387-GATE:
+PASS"). NOTE: the first gate attempt failed on a CORRUPT baseline — the 4 baseline records
+had been run concurrently and clobbered shared `tests/*/build` dirs (dropped 5 glibc
+entries); re-recorded serially and re-gated green. **Phase 1 COMPLETE.**
 
 ### Phase 2 — value-level Category-1/Category-2 partition proof
 
-- [ ] Group the divergence audit lines by pre-`norm` `%vN` and confirm each value's
-      role-token set realizes to a single register per ISA (no value demands both
-      `%argK` and a conflicting `%retK`).
-- [ ] Record the result as a verified property in `plan-71-census.md` (the partition C
-      relies on), with the command that produced it.
+- [x] Re-captured the divergence audit on **current `main`** (the plan-71-A census
+      predates plan-78) via `/tmp/bug387/audit2-sweep.sh` for linux-x86_64 (1,096,094
+      mismatches, 79 shapes) and windows-x86_64 (513,699). Confirmed the value-level
+      partition **structurally**: the fixpoint's ONLY `instructions.insert` (the
+      param-bridge prologue) fires **0** times on both corpora (new `BUG387-PARAMBRIDGE`
+      probe), so `remap_x86_abi` is a pure per-operand rename — every value already has a
+      single consistent register (else current code would miscompile without the absent
+      bridge). No value demands two conflicting tokens ⇒ **no Category-2 value**.
+- [x] Recorded as a verified property in `plan-71-census.md` §"Value-level partition +
+      param-bridge", with commands; the "proven-at-the-value-level" marker plan-71-C's
+      prerequisite greps for is present.
 
-Acceptance: `plan-71-census.md` states, with a command, whether any value is
-Category 2; if none, the Category-1 partition is marked proven-at-the-value-level —
-the precondition plan-71-C depends on.
-Commit: —
+Acceptance: `plan-71-census.md` states, with commands, that **no value is Category 2**
+(param-bridge=0 ⇒ pure-rename ⇒ single register per value); the Category-1 partition is
+marked proven-at-the-value-level — the precondition plan-71-C depends on. **MET.**
+Commit: — (with Phase 3 skip, below)
 
 ### Phase 3 — AArch64/RISC-V self-move elision pass (iff Phase 2 finds a Category-2 value)
 
@@ -317,18 +329,22 @@ staging move, never the pre-existing Result-return self-moves (which stay byte-b
 
 Largest blast radius; behind tests; runs only if Phase 2 found a Category-2 value.
 
-- [ ] Add `elide_redundant_self_moves` (shared helper called from `select_aarch64` and
-      `select_riscv64` after their remaps) removing every `mov` with realized
-      `dst == src`; op-`mov`-only, order-preserving.
-- [ ] Tests: `mov x0,x0` dropped; `mov x0,x1` survives; `str x0,[x0]` survives; a
-      corpus byte-identity assertion (pass installed removes nothing on the current
-      tree).
-- [ ] Gate: `bug387-gate.sh … full` byte-identical on all five targets with the pass
-      installed.
+- [x] ~~Add `elide_redundant_self_moves`~~ — **moot**: Phase 2 proved no Category-2 value
+      exists (param-bridge=0 ⇒ fixpoint is a pure rename ⇒ plan-71-E adds no new
+      asymmetric staging), so no new `mov xN,xN` ever appears on the reuse ISAs. A blanket
+      elision would additionally DELETE the 486/234/486 byte-baseline Result-return
+      self-moves and BREAK byte-identity. No elision pass is built.
+- [x] ~~Tests: `mov x0,x0` dropped …~~ — **moot** (no elision pass; see above).
+- [x] ~~Gate with the pass installed~~ — **moot** (no pass). The Phase-1 gate already
+      proved the probe byte-identical on all five targets.
 
-Acceptance: elision unit tests green; `bug387-gate.sh … full` PASS (byte-identical);
-full `cargo test --bin mfb` → real `test result: ok`.
-Commit: —
+Acceptance: **SKIPPED with evidence** — Phase 2 found zero Category-2 values and zero
+param-bridge insertions (`plan-71-census.md` §"Value-level partition + param-bridge"), so
+the elision pass is unnecessary AND would be byte-incompatible. plan-71-E will keep the
+live cross-check assert as the regression net; if a future param layout ever makes
+`param_home != arg` (param-bridge > 0) or introduces a genuine Category-2 value, the
+elision can be pulled forward then.
+Commit: — (Phase 2 + Phase 3-skip land together)
 
 ## Validation Plan
 
@@ -393,6 +409,25 @@ Commit: —
   is the Phase-2 value-level question, not the Phase-1 count. Phase 3 is now conditioned on
   Phase 2 finding a Category-2 value, not on the (non-zero) self-move count. If Phase 2
   finds none, Phase 3 is skipped and NO elision pass is built.
+
+- **Phase 2 resolved by a structural proof — and it de-risks plan-71-E.** Added a
+  `BUG387-PARAMBRIDGE` probe to the fixpoint's param-bridge prologue
+  (`remap_x86_abi_inner`, audit-gated, byte-identical). Fresh audit sweeps on current
+  `main` measured the param-bridge firing **0** times on both linux-x86_64 and
+  windows-x86_64. Since that prologue is the fixpoint's ONLY `instructions.insert`
+  (verified by grep), `remap_x86_abi` is a **pure per-operand register rename** — no move
+  is ever inserted. That yields the value-level partition directly: every value already
+  lives in one consistent register (else the current, passing code would miscompile
+  without the absent bridge), so **no Category-2 value exists**. Recorded in
+  `plan-71-census.md` §"Value-level partition + param-bridge". Bonus for plan-71-E: the
+  fixpoint's only non-rename behavior is empty, so the direct-map replacement loses no
+  inserted instruction — E's "audit-at-zero ⟹ byte-identical" premise is sound (E should
+  re-confirm param-bridge=0 immediately before the deletion; the probe stays in-tree for
+  that). This also corrects `plan-71-census.md` §Residue's "no third mechanism": there IS
+  a third mechanism (instruction insertion), but it is empty on the real corpus.
+- **Phase 3 SKIPPED (not run).** No Category-2 value ⇒ no new asymmetric staging from E ⇒
+  no elision pass needed; and a blanket elision would break byte-identity by deleting the
+  486/234/486 baseline Result-return self-moves.
 
 ## Summary
 

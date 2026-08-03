@@ -801,6 +801,23 @@ fn remap_x86_abi_inner(
         if home == arg {
             continue;
         }
+        // plan-71-B Phase 2 probe: this inserted param-bridge `mov home, arg` is an
+        // instruction the fixpoint ADDS — it has no role-token preimage in the
+        // shared stream, so the context-free `map_token_direct` (plan-71-E's
+        // replacement) cannot reproduce it. Report each one under `audit` so a
+        // corpus sweep can measure whether the bridge is ever non-empty (if it is,
+        // plan-71-E's "audit-at-zero ⟹ byte-identical deletion" premise must also
+        // account for reproducing this prologue). Byte-identical: the insertion
+        // below is unchanged; this only observes it.
+        if audit {
+            mismatches.push(format!(
+                "BUG387-PARAMBRIDGE abi={} param={k} arg={arg} home={home}",
+                match abi {
+                    X86Abi::SysV => "sysv",
+                    X86Abi::Win64 => "win64",
+                },
+            ));
+        }
         prologue.push(CodeInstruction {
             op: CodeOp::from_mnemonic("mov").expect("x86 has a register-move op"),
             fields: vec![
