@@ -200,7 +200,7 @@ shows one-regex barely spills (13-sample sweep) and the runtime is dominated by
 distributed per-instruction processing of the ~860k-instruction lowered stream in
 debug mode. C's mechanisms are correct and byte-identical; the magnitude estimate
 was wrong.
-Commit: (recorded next commit)
+Commit: 6b65a1f3a
 
 ## Validation Plan
 
