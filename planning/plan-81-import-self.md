@@ -458,7 +458,7 @@ Commit: eef4d4cbe
 Acceptance: spec/man/rule-table updated and in sync; `cargo test --bin mfb` green
 (3780/0); new fixtures pass; the only artifact-gate diffs are pre-existing reds
 proven unrelated to this plan (detached-base proof). MET.
-Commit: —
+Commit: 9e6f2a141 (docs 4db7834f9)
 
 ## Validation Plan
 
