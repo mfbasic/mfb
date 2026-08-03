@@ -177,10 +177,18 @@ entries/sequences symbols and the entry count differ.
 
 ## Embedding: data objects and symbols
 
-A compiler pass emits all fourteen tables as raw, read-only
-`CodeDataObject`s, but only when the module actually uses a Unicode-aware
-builtin (a usage check gates inclusion). Each table's
-bytes come from a hex serializer; sizes and
+A compiler pass emits the thirteen tables as raw, read-only `CodeDataObject`s.
+Emission is **per-table**, driven by the relocations the generated code actually
+carries (plan-77 U5): a table is emitted iff some function relocates against its
+`_mfb_unicode_*` symbol. So a program that reaches only part of the Unicode
+surface carries only the tables it reads — `strings::graphemes`/`displayWidth`
+pull just the base trie (`stage1`/`stage2`/`properties`); `strings::caseFold`
+pulls just the two casefold tables (the case-mapping path never indexes the
+property trie); `strings::normalizeNfc` pulls the base trie plus the
+`combinations_*`/`nfd_*` tables. The relocation scan is the ground truth; a
+coarse NIR usage heuristic remains only as a fallback that emits the full set
+should unicode use be detected with no table relocation named (practically
+unreachable). Each table's bytes come from a hex serializer; sizes and
 alignments are fixed per table (u16 tables align 2, u32 / record tables align
 4). [[src/target/shared/code/data_objects.rs:unicode_runtime_data_objects]]
 [[src/target/shared/code/module_analysis.rs:module_uses_unicode_runtime_tables]]
