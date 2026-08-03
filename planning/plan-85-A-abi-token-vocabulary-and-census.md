@@ -262,9 +262,12 @@ enum AbiRole       { Arg, Ret }           // Copy, Eq
 // in enum Operand:
 Abi { convention: AbiConvention, role: AbiRole, index: u8 },   // Copy — no allocation
 ```
-`render()` produces `"%argMFB0"` etc. on demand (for `@src`/dumps); `rendered()` returns
-`Cow::Owned` (a token has no static backing string — acceptable, it renders only in
-diagnostics, never on the emit hot path, which reads the realized register). Add
+`render()`/`rendered()` resolve the spelling through a **static token-string table**
+(a `&'static str` per (convention, role, index), like `Operand::Phys` carries its static
+`name` — `operand.rs:123`), so `rendered()` returns `Cow::Borrowed` with **no
+allocation**. This keeps `Abi` allocation-free on any read path and makes plan-85
+complementary to **plan-83** (which eliminates owned-`render()` reads) rather than
+re-introducing an allocating operand kind. Add
 `abi::mfb_arg(k)`/`mfb_return(k)`/`c_arg(k)`/`c_return(k)`/`sys_arg(k)`/`sys_return()`
 accessors returning `Operand::Abi{…}`. Keep the legacy `ARG`/`RET`/`SYSARG`/
 `argument_register`/`return_register` (which still yield `Raw` strings) during migration;
