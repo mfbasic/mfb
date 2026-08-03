@@ -316,7 +316,7 @@ intervening copy.
 - [x] ~~Pick a threshold / measure~~ — **the numbers:** the grow is geometric (capacity doubles), so the accumulated dead slack across N in-place grows of a value is a geometric series bounded by ≈ the final live value size — i.e. the data region is ≤ ~2× live, NOT unbounded. And it is reset to ~1× at the next tight copy (`copy_collection_tight`, which every bind/return/transfer triggers). So the worst case an explicit pass could fix is a bounded ~2× *transient* overhead on a value that grows many times with NO intervening copy — the narrow case the verifier flagged.
 - [x] ~~Regenerate goldens~~ — **moot: no code change.**
 - **Acceptance:** ✅ M4 marked moot with the analysis above (already-bounded ≤2× transient slack + unaffordable deadSlack precondition); the plan explicitly allowed "mark moot with the numbers." No behavior change, no regressions.
-- **Commit:** _(next commit — plan doc only)_
+- **Commit:** `4483e4f9b`
 
 ## Phase 14 — Regex/R2: full Unicode script table for `\p{Script=…}`
 
@@ -327,13 +327,13 @@ generated `src/builtins/unicode_gencat.mfb` via `scripts/gen_regex_unicode.py`,
 embedded through `include_str!` + `.replace` (`strings.rs:523`); regeneration guarded
 by `scripts/check-generated.sh` (Unicode 16.0.0 pin).
 
-- [ ] Obtain the Unicode 16.0.0 `Scripts.txt` data source (record provenance); resolve the Open Decision on how it is vendored/fetched for `check-generated.sh`.
-- [ ] Extend `gen_regex_unicode.py` to emit a run-length `__regex_scriptOf(cp) AS String` (or per-script range table) into a new generated `.mfb`, mirroring the gc generator.
-- [ ] Embed it the same `include_str!`/`.replace` way; replace the 10-branch `__regex_scriptTest` (`:371-460`) with a lookup against the generated table.
-- [ ] Wire the new generated file into `scripts/check-generated.sh`.
-- [ ] man/spec: document the now-full `\p{Script=…}` support; regenerate regex + generated-file goldens.
-- **Acceptance:** `\p{Script=…}` matches scripts beyond the original 10 (rt-behavior fixture over e.g. Armenian/Thai/Devanagari), the original 10 still match, unknown script names still parse-then-not-match; `check-generated.sh` green.
-- **Commit:** _(fill on land)_
+- [x] **Open Decision resolved: vendor the data.** Fetched Unicode 16.0.0 `Scripts.txt` (189588 B, `Scripts-16.0.0.txt`) and committed it to `third_party/unicode/Scripts-16.0.0.txt`. A NEW generator `scripts/gen_regex_scripts.py` reads only that committed file (no network, no `unicodedata` — which has no Script API), so it is reproducible under any python3, unlike the gc generator which needs python3.14.
+- [x] The generator emits `src/builtins/unicode_scripts.mfb` (1708 run-length arms) with `__regex_scriptOf(cp) AS String` (cp→canonical Script name, else "Unknown") **and** `__regex_scriptCanonName(low) AS String` (all 170 lowercased script names → canonical, else "").
+- [x] Combined `unicode_scripts.mfb` into the regex `source_file` (`regex.rs`, alongside gencat). Replaced the 90-line hand-coded `__regex_scriptTest` with `RETURN __regex_scriptOf(cp) = name` and the 10-entry `__regex_scriptCanon` with `RETURN __regex_scriptCanonName(low)`.
+- [x] Wired `check scripts/gen_regex_scripts.py src/builtins/unicode_scripts.mfb` into `check-generated.sh`; verified the committed artifact matches the generator (and is reproducible twice).
+- [x] Regenerated the 3 regex `.ir` + 5 byte-identity/regex `.ncodesum`. **Size note:** scriptOf is inlined into every regex binary (patterns are runtime-dynamic, so the engine can't be feature-DCE'd) — the cost of full script support, consistent with the already-embedded 4109-line gencat table.
+- **Acceptance:** ✅ `\p{Script=Armenian/Thai/Devanagari}` (beyond the original 10) match; ✅ the original Latin/Greek/Cyrillic/Han still match (now via authoritative UCD ranges, not the old hand approximations); ✅ `\p{Script=Bogus}` is rejected (invalid regex); ✅ `check-generated.sh` artifact matches; `cargo test --bin mfb` green. man/spec updated below.
+- **Commit:** _(next commit)_
 
 ## Phase 15 — Memory/M6: closure escape analysis + recursive scope-drop (HIGHEST RISK)
 

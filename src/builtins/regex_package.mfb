@@ -335,129 +335,17 @@ FUNC __regex_isGcName(name AS String) AS Boolean
   RETURN FALSE
 END FUNC
 
+' plan-77 R2: canonicalize against the full generated Unicode script list
+' (`__regex_scriptCanonName`, from third_party/unicode/Scripts-16.0.0.txt) instead
+' of the 10 hand-listed scripts.
 FUNC __regex_scriptCanon(low AS String) AS String
-  IF low = "latin" THEN
-    RETURN "Latin"
-  END IF
-  IF low = "greek" THEN
-    RETURN "Greek"
-  END IF
-  IF low = "cyrillic" THEN
-    RETURN "Cyrillic"
-  END IF
-  IF low = "han" THEN
-    RETURN "Han"
-  END IF
-  IF low = "hiragana" THEN
-    RETURN "Hiragana"
-  END IF
-  IF low = "katakana" THEN
-    RETURN "Katakana"
-  END IF
-  IF low = "hangul" THEN
-    RETURN "Hangul"
-  END IF
-  IF low = "arabic" THEN
-    RETURN "Arabic"
-  END IF
-  IF low = "hebrew" THEN
-    RETURN "Hebrew"
-  END IF
-  IF low = "common" THEN
-    RETURN "Common"
-  END IF
-  RETURN ""
+  RETURN __regex_scriptCanonName(low)
 END FUNC
 
+' plan-77 R2: a scalar is in script `name` iff its generated Script property
+' (`__regex_scriptOf`) equals `name`.
 FUNC __regex_scriptTest(name AS String, cp AS Integer) AS Boolean
-  IF name = "Latin" THEN
-    IF cp >= 65 AND cp <= 90 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 97 AND cp <= 122 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 192 AND cp <= 696 AND cp <> 215 AND cp <> 247 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 7680 AND cp <= 7935 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 65313 AND cp <= 65338 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 65345 AND cp <= 65370 THEN
-      RETURN TRUE
-    END IF
-    RETURN FALSE
-  END IF
-  IF name = "Greek" THEN
-    IF cp >= 880 AND cp <= 1023 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 7936 AND cp <= 8191 THEN
-      RETURN TRUE
-    END IF
-    RETURN FALSE
-  END IF
-  IF name = "Cyrillic" THEN
-    RETURN cp >= 1024 AND cp <= 1327
-  END IF
-  IF name = "Han" THEN
-    IF cp >= 19968 AND cp <= 40959 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 13312 AND cp <= 19903 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 63744 AND cp <= 64255 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 131072 AND cp <= 173791 THEN
-      RETURN TRUE
-    END IF
-    RETURN FALSE
-  END IF
-  IF name = "Hiragana" THEN
-    RETURN cp >= 12353 AND cp <= 12447
-  END IF
-  IF name = "Katakana" THEN
-    IF cp >= 12449 AND cp <= 12543 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 65382 AND cp <= 65439 THEN
-      RETURN TRUE
-    END IF
-    RETURN FALSE
-  END IF
-  IF name = "Hangul" THEN
-    IF cp >= 44032 AND cp <= 55203 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 4352 AND cp <= 4607 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 12592 AND cp <= 12687 THEN
-      RETURN TRUE
-    END IF
-    RETURN FALSE
-  END IF
-  IF name = "Arabic" THEN
-    IF cp >= 1536 AND cp <= 1791 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 1872 AND cp <= 1919 THEN
-      RETURN TRUE
-    END IF
-    RETURN FALSE
-  END IF
-  IF name = "Hebrew" THEN
-    RETURN cp >= 1425 AND cp <= 1524
-  END IF
-  IF name = "Common" THEN
-    RETURN cp < 65 OR (cp > 122 AND cp < 192)
-  END IF
-  RETURN FALSE
+  RETURN __regex_scriptOf(cp) = name
 END FUNC
 
 FUNC __regex_isScriptName(low AS String) AS Boolean
