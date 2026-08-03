@@ -349,6 +349,27 @@ Commit: —
     gate over all 1162 fixtures catches any mis-classification), with fresh focus; it is the
     "silent wrong register — worst class" surface.
 
+- **CRITICAL — byte-identity is necessary but NOT sufficient for a C re-tokenization; it
+  must ALSO reduce the divergence count.** Verified the hard way: re-tokenizing the
+  `emit_park_error_block_from_registers` spill/reload sites `RESULT_*_REGISTER → ARG[1..3]`
+  passed `bug387-gate full` **byte-identical on all 5 targets** — yet the `MFB_BUG387_AUDIT`
+  count **EXPLODED 291,606 → 1,562,598** (new ~1.3M divergences at the edited sites
+  `builder_error_emission.rs:725-739`). Reverted (`b080194e2`). Root cause: unlike the
+  arena args (where `%argK`'s home is a *stable* register — arg0 is always rdi regardless of
+  context), the error-Result **spill-preserved** values have a **context-sensitive**
+  fixpoint inference: emitting `%arg1` at the spill destabilizes the inference for the
+  surrounding error-construction (the reload feeds a caller still using `%retK`), so `direct
+  != inferred` at *more* sites. **Consequence for the workflow:** every C batch must be
+  accepted on BOTH (a) `bug387-gate full` byte-identical AND (b) an `audit2-sweep` showing
+  the total mismatch count strictly *decreased* — the byte-gate alone silently admits a
+  divergence-increasing edit. **Consequence for the tier:** the error-Result sites are NOT
+  the simple per-site `%retK→%argK` swap. They must be re-tokenized as the **whole
+  error-Result convention at once** (all transient `RESULT_*_REGISTER` uses across every
+  error-construction helper, consistently, so the fixpoint's inference converges), OR they
+  are a genuine residual that plan-71-E must handle specially (keep `%retK` + a targeted
+  fixpoint-equivalent). This is a design-level task requiring fresh, careful analysis — do
+  NOT batch-swap them. The arena tier (−73%, all gated + divergence-verified) stands.
+
 ## Summary
 
 C is the high-volume, low-novelty heart of the fixpoint-removal prep: re-tokenize every
