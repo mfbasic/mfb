@@ -73,7 +73,7 @@ References (read first):
 | plan-76-B landed (scalar `tls::poll` on all backends) | `rg -n 'POLL' src/builtins/tls.rs`; `ls tests/rt-behavior/tls/tls-poll-rt` | MET (B complete) |
 | `net::poll(sock[, timeoutMs]) AS Boolean` scalar exists | `rg -n 'POLL' src/builtins/net.rs` → :163 | MET |
 | Feature-wide gate (tree green, gate clean) | see plan-76-A Prerequisites | MET (tests 3757/0; net+tls gates PASSED) |
-| **plan-74 union STATE works over a `TlsSocket` variant** (the DESIGN GATE this plan should have tested) | bind `RES s AS Stream STATE PendingState = tls::connect(...)`; run — must not SIGSEGV | **NOT MET → resolved by plan-80 (Corrections D4):** the STATE ptr at record+16 = `SSL*` in the 32-byte TLS record → https SIGSEGV. This is the falsifiable premise the entry gate missed. **plan-80** (unified resource-record header) relocates STATE to offset 24 (free in every layout) + adds the per-backend STATE-slot assert. This row becomes MET when plan-80 Phase 4 is green (`ls planning/completed/plan-80-* 2>/dev/null` OR plan-80 Phase 4 ticked; then re-run this bind). |
+| **plan-74 union STATE works over a `TlsSocket` variant** (the DESIGN GATE this plan should have tested) | bind `RES s AS Stream STATE PendingState = tls::connect(...)`; run — must not SIGSEGV | **MET (2026-08-03) — plan-80 landed.** `ls planning/completed/plan-80-*` → present; STATE relocated to `RESOURCE_OFFSET_STATE = 24` (free in every layout) with per-backend asserts. Re-ran the bind: `tests/rt_macos_d4_union_state_tls.rs` binds `RES s AS Stream STATE PendingState = tls::accept(...)` over a live TlsSocket, mutates STATE, drives real TLS I/O — **no SIGSEGV** (was exit 139 pre-plan-80). Full gate green. |
 
 **Explicitly NOT prerequisites (do not braid):**
 
@@ -335,15 +335,15 @@ async public API keeps its cooperative semantics.
 
 > Tick `- [x]` in the same commit as the work. An unticked box means NOT DONE.
 
-> **DEFERRED (user decision).** Phase 1 (the go/no-go) uncovered a core-premise defect: plan-74
-> union STATE is layout-incompatible with a `TlsSocket` variant (Corrections **D4** — `Stream STATE
-> PendingState` over `{Socket, TlsSocket}` SIGSEGVs on https because the STATE ptr at record+16
-> collides with `SSL*`). The three viable fixes (grow all TLS records to the 80-byte STATE layout;
-> redesign plan-74 union STATE; or redesign D to a stateless union + threaded `PendingState`) are each
-> a substantial architecture decision. Surfaced to the user, who chose to **land A+B+C and defer D**.
-> Phases 2–5 are NOT attempted. The full engineering work below is fully specified for a future
-> effort; the WIP that proved the defect (declarations + the five functions) is reverted from the tree
-> and preserved only in this document + the conversation record.
+> **RESUMED (2026-08-03) — plan-80 landed, D4 fixed.** Phase 1 (the go/no-go) uncovered a
+> core-premise defect: plan-74 union STATE was layout-incompatible with a `TlsSocket` variant
+> (Corrections **D4** — the STATE ptr at record+16 collided with `SSL*`/dispatch-queue). The chosen
+> fix, **plan-80 (unified resource-record header)**, relocated STATE to offset 24 (free in every
+> layout) and is now landed + archived (`planning/completed/plan-80-*`), with the D4 defect proven
+> fixed at runtime (`tests/rt_macos_d4_union_state_tls.rs`: a `Stream STATE PendingState` union over a
+> live TlsSocket binds/mutates STATE/drives TLS I/O with no SIGSEGV). Phases 2–5 are now being
+> implemented on this basis. (Phase 1's WIP was reverted after the go/no-go; it is re-created here as
+> the real implementation.)
 
 ### Phase 1 — falsify the resource-union-over-imported-variants (design uncertainty first)
 
