@@ -248,7 +248,7 @@
     { "op": "add", "dst": "%v10", "lhs": "%v10", "rhs": "%v11" },
     { "op": "str_u64", "src": "%v10", "base": "sp", "offset": "72" },
     { "op": "label", "name": "error_src_size_done_2" },
-    { "op": "ldr_u64", "dst": "%ret0", "base": "sp", "offset": "72" },
+    { "op": "ldr_u64", "dst": "%arg0", "base": "sp", "offset": "72" },
     { "op": "mov_imm", "dst": "%arg1", "type": "Integer", "value": "8" },
     { "op": "call", "target": "_mfb_arena_alloc" },
     { "op": "br_cc_imm", "lhs": "%ret0", "rhs": "0", "cond": "b.eq", "target": "error_inline_alloc_ok_3" },
