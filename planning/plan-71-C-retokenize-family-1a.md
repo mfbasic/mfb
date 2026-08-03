@@ -235,10 +235,15 @@ Each file (or small related group) is one landable, byte-identical commit.
       - `builder_owned_cleanup.rs` (187/193/201, arena-free ptr) — DONE, gated PASS, commit
         `3b29873c5`. 1,082,777 → 635,000 (−448K).
       - `builder_error_emission.rs:278` (error-block alloc size) + `builder_collection_layout.rs:332`
-        (flat-copy alloc size) — edited, gating.
-      - ~90 work-list sites remain (see census §"C work-list"). **NOTE:** `@src` line numbers
-        drift as edits add/remove lines — re-sweep after each batch; the total-mismatch delta
-        is the progress metric, not fixed line numbers.
+        (flat-copy alloc size) — DONE, gated PASS, commit `749593d66`. 635,000 → 323,452.
+      - **Running total: 1,082,777 → 323,452 (−70%) with 3 files (all byte-identity gated).**
+      - Remaining tail (re-sweep `audit5`): `builder_error_emission.rs` many sites (80, 463–479,
+        718–728, 740–755, 981–996, 94/96 — the error-Result construction, varied — NOT all the
+        simple arena idiom; each needs per-site reasoning), `builder_collection_layout.rs:944`
+        + a few more alloc sites, and the `abi.rs` sites (450/796/444, ~42K) which need the
+        `abi::` emit-helper `#[track_caller]` refinement to pin the builder before re-tokenizing.
+      **NOTE:** `@src` line numbers drift as edits change line counts — re-sweep after each batch;
+      the total-mismatch delta is the progress metric, not fixed line numbers.
 - [~] Gate: `bug387-gate.sh … full` byte-identical on all five targets per file/group; the
       audit's Family-1a count drops by that group's contribution. (owned_cleanup gated PASS.)
 - [ ] Tick each work-list entry as its file lands.
