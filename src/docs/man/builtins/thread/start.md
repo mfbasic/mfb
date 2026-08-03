@@ -62,11 +62,17 @@ because musl's 128 KiB default is far below what the main thread receives.
 handed to `thread::start` is consumed by it; the value must be thread-sendable.
 [[src/syntaxcheck/types.rs:thread_argument_mode]] [[src/syntaxcheck/resources.rs:is_thread_sendable_type]]
 
-`f` must be an exported `ISOLATED FUNC` from an imported package whose first
-parameter is a `ThreadWorker` and whose declared output equals that worker's
-output type. Current-package functions, `SUB`s, lambdas, closures, non-isolated
-functions, and entry points without the leading `ThreadWorker` parameter are
-rejected at compile time and never reach this call.
+`f` must be an exported `ISOLATED FUNC` reached through an import — an
+`EXPORT ISOLATED FUNC` of an imported package, or, in a `kind: "package"`
+project, one of the current package's own `EXPORT ISOLATED FUNC`s named through
+the reserved `IMPORT self` specifier (`thread::start(self::worker, …)`) — whose
+first parameter is a `ThreadWorker` and whose declared output equals that
+worker's output type. A **bare** current-package function reference, `SUB`s,
+lambdas, closures, non-isolated functions, and entry points without the leading
+`ThreadWorker` parameter are rejected at compile time and never reach this call;
+only the `self::`-qualified path lifts the current-package restriction, and only
+in a package project (an executable's `IMPORT self` is `IMPORT_SELF_IN_EXECUTABLE`).
+See `./mfb spec language modules-and-packages` for the `self` specifier.
 [[src/builtins/thread.rs:matches_start]] [[src/builtins/thread.rs:THREAD]]
 
 The returned `Thread` is a non-copyable owned handle closed by lexical drop.

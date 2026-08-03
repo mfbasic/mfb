@@ -105,6 +105,21 @@ compiler resolves the first identifier in the import using this order: [[src/res
    import is a compile-time error (`IMPORT_PACKAGE_NOT_INSTALLED`).
 [[src/resolver/packages.rs:resolve_imported_package]]
 
+The reserved specifier `self` is recognized before this resolution order: it is
+not probed against the package store. `IMPORT self` (or `IMPORT self AS alias`)
+binds a name to the **current** package's own exported interface — exactly the
+`EXPORT` API an external importer would see, and nothing more: `self::name`
+resolves only to `EXPORT` declarations, never to `PUBLIC` (the default) or
+`PRIVATE` ones. Its purpose is intra-package thread fan-out: `self` lets a package
+name its own exported `ISOLATED FUNC` as a `thread::start` entry point
+(`thread::start(self::worker, …)`) without splitting cohesive logic across two
+packages (see `./mfb spec language threads`). `self` is special only in the
+import-root position; it is not a general reserved identifier. Because an
+executable has no exported interface, `IMPORT self` in a `kind: "executable"`
+project is a compile-time error (`IMPORT_SELF_IN_EXECUTABLE`); aliasing another
+import onto the reserved binding (`IMPORT other AS self`) is a
+`SYMBOL_DUPLICATE_IMPORT`. [[src/resolver/packages.rs:resolve_imported_package]]
+
 `<project_root>/packages` is the resolved dependency store, similar in role to
 `node_modules` in Node projects. It is managed by the package manager. The
 compiler does not implicitly import undeclared packages from this directory.

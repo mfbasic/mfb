@@ -25,7 +25,7 @@ io::print("Parsed " & toString(count) & " records")
 Rules:
 
 - A thread entry point must have type `ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out`. The worker handle is passed as the first argument by the runtime when the worker starts.
-- A thread entry point must be an exported `ISOLATED FUNC` from an imported package. Starting a function from the current package is a compile error.
+- A thread entry point must be an exported `ISOLATED FUNC` reached through an import: either an `EXPORT ISOLATED FUNC` of an imported package, or — inside a `kind: "package"` project — one of the current package's own `EXPORT ISOLATED FUNC`s named through the reserved `IMPORT self` specifier (`thread::start(self::worker, …)`). A bare, unqualified reference to a current-package function is still a compile error; only the `self::`-qualified path is accepted, and only in a package project (an executable has no exported interface, so `IMPORT self` there is `IMPORT_SELF_IN_EXECUTABLE`). See `./mfb spec language modules-and-packages` for the `self` specifier.
 - A thread entry point must not be a `SUB`.
 - A thread entry point must not be a closure or lambda. It must be a named package function.
 - Each started thread receives its own fresh instance of the entry function's package, including a distinct worker arena. Starting isolated functions from the same package more than once creates independent package state for each thread.

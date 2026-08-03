@@ -422,20 +422,29 @@ Make a self-spawned worker actually run as an isolated instance.
 Acceptance: the runtime test passes showing correct parallel results **and**
 isolated top-level `MUT` (`a=107 b=207 parent=7`); `cargo test --bin mfb` +
 artifact-gate green (verified at finalization, Phase 5). MET.
-Commit: —
+Commit: eef4d4cbe
 
 ### Phase 5 — Spec, man, goldens, gate
 
-- [ ] Update `./mfb spec language modules-and-packages` (import section) and
-      `./mfb spec language threads` / `./mfb spec threading` (entry-point rule:
-      "exported ISOLATED FUNC from an imported package **or via `IMPORT self`**")
-      per `.ai/specifications.md`. Note the executable exclusion explicitly.
-- [ ] Update `./mfb man thread` (`start` description + the entry-point sentence)
-      per the man templates in `.ai/`.
-- [ ] Add the new rule row for `IMPORT_SELF_IN_EXECUTABLE` to the diagnostics
-      spec/rule table.
-- [ ] Regenerate affected goldens; confirm the 7 existing rejection-message
-      goldens are unchanged (the bare-worker rejection message is untouched).
+- [x] Updated `./mfb spec language modules-and-packages` (added the reserved
+      `self` specifier + executable exclusion after the import resolution order),
+      `./mfb spec language threads` (entry-point rule now "…or via `IMPORT self`"),
+      and `./mfb spec threading` source-model *Entry-point enforcement* (a new
+      paragraph: `IMPORT self` synthesizes `imported_package_export` sigs, so the
+      contract is not weakened — the checker stays `self`-unaware). Citations
+      resolve (`spec_citations_resolve` green).
+- [x] Updated `./mfb man thread start` (the entry-point sentence: exported
+      ISOLATED FUNC reached through an import — imported package **or `self::` in a
+      package project**; bare current-package still rejected). `man_citations_resolve`
+      green.
+- [x] Added the rule row `2-201-0019 IMPORT_SELF_IN_EXECUTABLE` to
+      `src/docs/spec/diagnostics/01_rule-codes.md`; the enforced
+      `every_rule_is_documented_in_the_spec` test is green.
+- [x] No existing golden modified (`git status` shows only new fixtures + doc
+      edits). The bare-worker rejection message is byte-identical: the 7 existing
+      `thread.start entry point must be…` occurrences (6 in `func_thread_start_invalid`,
+      1 in `lambda-mut-capture-invalid`) are untouched; the new
+      `func_thread_start_self_invalid` legitimately adds 2 more.
 - [ ] Run the full gate: `cargo test --bin mfb`, acceptance/test-accept for the
       new fixtures, and one artifact-gate at finalization.
 
