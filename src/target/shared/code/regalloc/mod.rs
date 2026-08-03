@@ -24,6 +24,7 @@ use std::sync::OnceLock;
 use crate::target::shared::regmodel::{RegClass, RegisterModel};
 
 use super::types::CodeInstruction;
+use super::Operand;
 use analysis::ClassModel;
 
 /// The sentinel prefix an integer virtual register carries in an instruction
@@ -191,6 +192,9 @@ pub(crate) fn find_physical_operand(instructions: &[CodeInstruction]) -> Option<
             if matches!(*name, "target" | "name") {
                 continue;
             }
+            // plan-78-B: render the typed operand to its string for the
+            // physical-name sniff (unchanged classification).
+            let value = value.render();
             if value.starts_with('%') || value == "sp" {
                 continue;
             }
@@ -202,8 +206,8 @@ pub(crate) fn find_physical_operand(instructions: &[CodeInstruction]) -> Option<
                 .and_then(|rest| rest.parse::<u32>().ok())
                 .is_some_and(|n| n <= 31);
             if extra_view
-                || analysis::int_physical_index(value).is_some()
-                || analysis::fp_physical_index(value).is_some()
+                || analysis::int_physical_index(&value).is_some()
+                || analysis::fp_physical_index(&value).is_some()
             {
                 return Some(format!(
                     "instruction {index} `{}` field `{name}` names physical register `{value}`",
@@ -243,9 +247,10 @@ pub(crate) fn allocate(
         let mut fp_vregs = std::collections::HashSet::new();
         for instruction in instructions.iter() {
             for (_name, value) in &instruction.fields {
-                if let Some(id) = parse_vreg(value) {
+                let value = value.render();
+                if let Some(id) = parse_vreg(&value) {
                     int_vregs.insert(id);
-                } else if let Some(id) = parse_fp_vreg(value) {
+                } else if let Some(id) = parse_fp_vreg(&value) {
                     fp_vregs.insert(id);
                 }
             }
@@ -352,15 +357,13 @@ pub(crate) fn allocate(
             // field fails loudly here in debug builds instead of silently emitting a
             // bogus operand.
             debug_assert!(
-                !instructions
+                !instructions.iter().any(|instruction| instruction
+                    .fields
                     .iter()
-                    .any(
-                        |instruction| instruction
-                            .fields
-                            .iter()
-                            .any(|(_, value)| parse_vreg(value).is_some()
-                                || parse_fp_vreg(value).is_some())
-                    ),
+                    .any(|(_, value)| {
+                        let value = value.render();
+                        parse_vreg(&value).is_some() || parse_fp_vreg(&value).is_some()
+                    })),
                 "regalloc left an uncolored vreg/fp-vreg sentinel in an operand field \
                  (a register-valued field not covered by DEF_FIELDS/USE_FIELDS?)"
             );
@@ -392,11 +395,14 @@ fn rewrite(
 ) {
     for instruction in instructions.iter_mut() {
         for (_name, value) in instruction.fields.iter_mut() {
-            if let Some(index) = parse(value) {
+            if let Some(index) = parse(&value.render()) {
                 let assigned = physical.get(index as usize).unwrap_or_else(|| {
                     panic!("register allocator: virtual register {index} has no assignment")
                 });
-                *value = assigned.clone();
+                // plan-78-B: the physical name is stored as `Raw` (byte-identical
+                // render). plan-78-C makes the vreg→physical rewrite write a typed
+                // `Operand::Phys` here.
+                *value = Operand::from(assigned.as_str());
             }
         }
     }

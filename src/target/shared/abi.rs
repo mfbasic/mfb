@@ -1183,11 +1183,11 @@ pub(crate) fn float_negate_multiply_sub_d(
 mod tests {
     use super::*;
 
-    fn get<'a>(inst: &'a CodeInstruction, key: &str) -> Option<&'a str> {
+    fn get(inst: &CodeInstruction, key: &str) -> Option<String> {
         inst.fields
             .iter()
             .find(|(k, _)| *k == key)
-            .map(|(_, v)| v.as_str())
+            .map(|(_, v)| v.render())
     }
 
     #[test]
@@ -1204,14 +1204,14 @@ mod tests {
         assert_eq!(REGISTER_ARGUMENT_COUNT, 8);
         let incoming = incoming_stack_arg_load("x9", 2);
         assert_eq!(incoming.op.mnemonic(), "ldr_u64");
-        assert_eq!(get(&incoming, "base"), Some(INCOMING_ARGS_BASE));
-        assert_eq!(get(&incoming, "offset"), Some("16"));
-        assert_eq!(get(&incoming, "dst"), Some("x9"));
+        assert_eq!(get(&incoming, "base").as_deref(), Some(INCOMING_ARGS_BASE));
+        assert_eq!(get(&incoming, "offset").as_deref(), Some("16"));
+        assert_eq!(get(&incoming, "dst").as_deref(), Some("x9"));
         let outgoing = outgoing_stack_arg_store("x9", 0);
         assert_eq!(outgoing.op.mnemonic(), "str_u64");
-        assert_eq!(get(&outgoing, "base"), Some(OUTGOING_ARGS_BASE));
-        assert_eq!(get(&outgoing, "offset"), Some("0"));
-        assert_eq!(get(&outgoing, "src"), Some("x9"));
+        assert_eq!(get(&outgoing, "base").as_deref(), Some(OUTGOING_ARGS_BASE));
+        assert_eq!(get(&outgoing, "offset").as_deref(), Some("0"));
+        assert_eq!(get(&outgoing, "src").as_deref(), Some("x9"));
         // Temporary allocations cover the caller-saved run and the callee-saved
         // remap, skipping the pinned x19/x20/x28 (bug-176 A).
         assert_eq!(temporary_register(8).unwrap(), "x8");
@@ -1257,7 +1257,7 @@ mod tests {
     fn instruction_constructors_carry_op_and_fields() {
         // Each constructor names its op and lays out the expected fields.
         assert_eq!(label("L").op.mnemonic(), "label");
-        assert_eq!(get(&label("L"), "name"), Some("L"));
+        assert_eq!(get(&label("L"), "name").as_deref(), Some("L"));
 
         let cases: Vec<(CodeInstruction, &str)> = vec![
             (move_register("x0", "x1"), "mov"),
@@ -1362,9 +1362,9 @@ mod tests {
         assert_eq!(vector_ushr("v0", "v1", 3).op.mnemonic(), "ushr_v");
         let dup = vector_dup_from_x("v0", "x1");
         assert_eq!(dup.op.mnemonic(), "dup_v_from_x");
-        assert_eq!(get(&dup, "src"), Some("x1"));
+        assert_eq!(get(&dup, "src").as_deref(), Some("x1"));
         let ext = vector_extract_to_x("x0", "v1", 1);
         assert_eq!(ext.op.mnemonic(), "umov_x_from_v");
-        assert_eq!(get(&ext, "index"), Some("1"));
+        assert_eq!(get(&ext, "index").as_deref(), Some("1"));
     }
 }

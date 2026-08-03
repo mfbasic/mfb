@@ -8,9 +8,11 @@
 
 use crate::arch::ops::CodeOp;
 use crate::target::shared::code::mir::{
-    fused_setter_codeop, MirInstruction, MirOp, ARENA_BASE, FUSED_COND_FIELD, FUSED_SHARE_FIELD,
+    code_fields_from_mir, fused_setter_codeop, MirInstruction, MirOp, ARENA_BASE, FUSED_COND_FIELD,
+    FUSED_SHARE_FIELD,
 };
 use crate::target::shared::code::CodeInstruction;
+use crate::target::shared::code::Operand;
 
 /// A call/return boundary that fixes the SysV ABI role of an `x0`–`x8` operand.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -262,7 +264,7 @@ fn remap_x86_abi_inner(
         std::collections::HashMap::new();
     let mut role_site: Vec<Option<String>> = vec![None; instructions.len()];
     for (i, inst) in instructions.iter_mut().enumerate() {
-        if !inst.fields.iter().any(|(_, v)| is_abi_role_token(v)) {
+        if !inst.fields.iter().any(|(_, v)| is_abi_role_token(&v.render())) {
             continue;
         }
         if audit {
@@ -275,10 +277,11 @@ fn remap_x86_abi_inner(
             role_site[i] = Some(format!("{} [{fields}]", inst.op.mnemonic()));
         }
         for (p, (_, value)) in inst.fields.iter_mut().enumerate() {
-            if is_abi_role_token(value) {
-                role_token.insert((i, p), value.clone());
-                if let Some(reg) = crate::target::shared::abi::realize_abi_token(value) {
-                    *value = reg.to_string();
+            let rendered = value.render();
+            if is_abi_role_token(&rendered) {
+                role_token.insert((i, p), rendered.clone());
+                if let Some(reg) = crate::target::shared::abi::realize_abi_token(&rendered) {
+                    *value = Operand::from(reg);
                 }
             }
         }
@@ -293,7 +296,7 @@ fn remap_x86_abi_inner(
     // whatever call happens to sit linearly after the branch (e.g. the grow
     // block after `arena_alloc_done`), sending the status/pointer to `rdi`/`rsi`
     // instead of `rax`/`rdx`.
-    let label_index: std::collections::HashMap<&str, usize> = instructions
+    let label_index: std::collections::HashMap<String, usize> = instructions
         .iter()
         .enumerate()
         .filter(|(_, inst)| inst.op == CodeOp::Label)
@@ -301,7 +304,7 @@ fn remap_x86_abi_inner(
             inst.fields
                 .iter()
                 .find(|(key, _)| *key == "name")
-                .map(|(_, name)| (name.as_str(), i))
+                .map(|(_, name)| (name.render(), i))
         })
         .collect();
     let branch_target = |i: usize| -> Option<usize> {
@@ -309,7 +312,7 @@ fn remap_x86_abi_inner(
             .fields
             .iter()
             .find(|(key, _)| *key == "target")
-            .and_then(|(_, name)| label_index.get(name.as_str()).copied())
+            .and_then(|(_, name)| label_index.get(&name.render()).copied())
     };
     // First boundary reached when execution begins at index `start`, following
     // fall-through and unconditional branches (a cycle with no boundary → None).
@@ -467,7 +470,7 @@ fn remap_x86_abi_inner(
                 let mut reads = false;
                 let mut redefines = false;
                 for (k, v) in &instructions[j].fields {
-                    if v == &target {
+                    if v == target.as_str() {
                         if X86_DEF_FIELDS.contains(k) {
                             redefines = true;
                         } else {
@@ -513,7 +516,8 @@ fn remap_x86_abi_inner(
         .map(|i| {
             let def_n = instructions[i].fields.iter().find_map(|(k, v)| {
                 if X86_DEF_FIELDS.contains(k) {
-                    v.strip_prefix('x')
+                    v.render()
+                        .strip_prefix('x')
                         .and_then(|rest| rest.parse::<usize>().ok())
                         .filter(|n| *n < rets.len())
                 } else {
@@ -554,6 +558,7 @@ fn remap_x86_abi_inner(
             .filter(|(key, _)| X86_DEF_FIELDS.contains(key))
             .filter_map(|(_, value)| {
                 value
+                    .render()
                     .strip_prefix('x')
                     .and_then(|rest| rest.parse::<u32>().ok())
             })
@@ -640,16 +645,18 @@ fn remap_x86_abi_inner(
         }
         let mut new_defs: Vec<String> = Vec::new();
         for (p, (key, value)) in instructions[i].fields.iter_mut().enumerate() {
-            if value == "sp" {
-                *value = "rsp".to_string();
+            let value_str = value.render();
+            let value_str = value_str.as_str();
+            if value_str == "sp" {
+                *value = Operand::from("rsp");
                 continue;
             }
-            if value == "x31" {
+            if value_str == "x31" {
                 // The legacy zero spelling → the neutral zero token, which the
                 // encoder emits as an immediate zero (`store xzr` → `mov r/m, 0`).
                 // r14 is no longer pinned at 0 (plan-34-C freed it for allocation),
                 // so x31 must NOT map to r14 — that now holds an allocated value.
-                *value = crate::target::shared::abi::ZERO.to_string();
+                *value = Operand::from(crate::target::shared::abi::ZERO);
                 continue;
             }
             // Physical FP registers `dN` (the AArch64 double bank, used by the
@@ -660,15 +667,15 @@ fn remap_x86_abi_inner(
             // `abi::FP_SCRATCH` tokens (plan-34-D) never reach this arm: the
             // Phase-3b seam in `select_x86` realizes every token to its AArch64
             // spelling (`%fscratch0` → `d0`) before `remap_x86_abi` runs.
-            if let Some(fp) = value
+            if let Some(fp) = value_str
                 .strip_prefix(['d', 'v', 'q'])
                 .and_then(|rest| rest.parse::<usize>().ok())
                 .filter(|n| *n < 16)
             {
-                *value = format!("xmm{fp}");
+                *value = Operand::from(format!("xmm{fp}"));
                 continue;
             }
-            let Some(n) = value
+            let Some(n) = value_str
                 .strip_prefix('x')
                 .and_then(|rest| rest.parse::<usize>().ok())
                 .filter(|n| *n <= 30)
@@ -683,7 +690,7 @@ fn remap_x86_abi_inner(
                 // GPR so it ENCODES; such helpers may not be correct on x86 yet
                 // (Phase 1 runs integer programs that don't call them), tracked
                 // as the helper-purity follow-up.
-                *value = map_scratch_register(n).to_string();
+                *value = Operand::from(map_scratch_register(n));
                 continue;
             }
             let is_def = X86_DEF_FIELDS.contains(key);
@@ -693,7 +700,7 @@ fn remap_x86_abi_inner(
             // return x0/x1, so this only fires for a propagated error).
             let is_result = !is_def
                 && n < rets.len()
-                && !defined_since_boundary.contains(value)
+                && !defined_since_boundary.contains(value_str)
                 && matches!(
                     boundary_before[i],
                     Some(AbiBoundary::Call) | Some(AbiBoundary::Syscall)
@@ -734,7 +741,7 @@ fn remap_x86_abi_inner(
                 param_home.entry(n).or_insert_with(|| mapped.clone());
             }
             if is_def {
-                new_defs.push(value.clone());
+                new_defs.push(value_str.to_string());
             }
             // plan-71-A cross-check: if this operand was a deferred role token,
             // compare the context-free `map_token_direct` against the register the
@@ -757,7 +764,7 @@ fn remap_x86_abi_inner(
                     }
                 }
             }
-            *value = mapped;
+            *value = Operand::from(mapped);
         }
         match abi_boundary_of(&instructions[i]) {
             // Only a call/syscall produces an x0/x1 result and opens a new result
@@ -792,7 +799,10 @@ fn remap_x86_abi_inner(
         }
         prologue.push(CodeInstruction {
             op: CodeOp::from_mnemonic("mov").expect("x86 has a register-move op"),
-            fields: vec![("dst", home.clone()), ("src", (*arg).to_string())],
+            fields: vec![
+                ("dst", Operand::from(home.clone())),
+                ("src", Operand::from(*arg)),
+            ],
         });
     }
     if !prologue.is_empty() {
@@ -886,7 +896,7 @@ pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<Co
             // encoder turns `adrp{dst,symbol}` into `lea dst,[rip+disp32]`.
             out.push(CodeInstruction {
                 op: CodeOp::Adrp,
-                fields: instruction.fields.clone(),
+                fields: code_fields_from_mir(&instruction.fields),
             });
             continue;
         }
@@ -896,7 +906,7 @@ pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<Co
                 .iter()
                 .position(|(key, _)| *key == FUSED_COND_FIELD)
                 .expect("fused MIR op carries a cond field");
-            let setter_fields = instruction.fields[..split].to_vec();
+            let setter_fields = code_fields_from_mir(&instruction.fields[..split]);
             let branch_op = CodeOp::from_mnemonic(&instruction.fields[split].1)
                 .expect("fused MIR op carries a valid branch mnemonic");
             let mut branch_fields = Vec::new();
@@ -905,7 +915,7 @@ pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<Co
                 if *key == FUSED_SHARE_FIELD {
                     shared = true;
                 } else {
-                    branch_fields.push((*key, value.clone()));
+                    branch_fields.push((*key, Operand::from(value.as_str())));
                 }
             }
             if !shared {
@@ -923,7 +933,7 @@ pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<Co
                 let target = branch_fields
                     .iter()
                     .find(|(k, _)| *k == "target")
-                    .map(|(_, v)| v.clone())
+                    .map(|(_, v)| v.render())
                     .expect("float compare branch carries a target");
                 for inst in
                     x86_float_branch(&instruction.fields[split].1, &target, float_branch_site)
@@ -946,12 +956,12 @@ pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<Co
                     .op
                     .to_code()
                     .expect("non-fused MIR op maps to a single CodeOp"),
-                fields: instruction.fields.clone(),
+                fields: code_fields_from_mir(&instruction.fields),
             });
         }
     }
     for instruction in &mut out {
-        crate::target::shared::code::mir::rename_field_values(
+        crate::target::shared::code::mir::rename_operand_field_values(
             &mut instruction.fields,
             ARENA_BASE,
             "r15",
@@ -964,11 +974,12 @@ pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<Co
         // them against `map_token_direct`; every other token (`%scratchN`,
         // `%localN`, `%mathpool`, `%sysnr_darwin`, …) is realized here as before.
         for (_, value) in instruction.fields.iter_mut() {
-            if is_abi_role_token(value) {
+            let rendered = value.render();
+            if is_abi_role_token(&rendered) {
                 continue;
             }
-            if let Some(reg) = crate::target::shared::abi::realize_abi_token(value) {
-                *value = reg.to_string();
+            if let Some(reg) = crate::target::shared::abi::realize_abi_token(&rendered) {
+                *value = Operand::from(reg);
             }
         }
     }
@@ -998,7 +1009,7 @@ mod tests {
     /// Every field value in the selected stream, flattened.
     fn values(out: &[CodeInstruction]) -> Vec<String> {
         out.iter()
-            .flat_map(|inst| inst.fields.iter().map(|(_, v)| v.clone()))
+            .flat_map(|inst| inst.fields.iter().map(|(_, v)| v.render()))
             .collect()
     }
 
@@ -1266,21 +1277,25 @@ mod tests {
         let labels: Vec<String> = out
             .iter()
             .filter(|i| i.op == CodeOp::Label)
-            .map(|i| i.fields[0].1.clone())
+            .map(|i| i.fields[0].1.render())
             .collect();
         assert_eq!(
             labels.len(),
             3,
             "two skip labels + the shared target: {labels:?}"
         );
-        let skips: Vec<&String> = labels.iter().filter(|n| n.contains("__x86ford")).collect();
+        let skips: Vec<String> = labels
+            .iter()
+            .filter(|n| n.contains("__x86ford"))
+            .cloned()
+            .collect();
         assert_eq!(skips.len(), 2);
         assert_ne!(skips[0], skips[1], "skip labels collide: {skips:?}");
         // Each `jp` targets its own skip label, which sits right after its `jb`.
-        let jps: Vec<&String> = out
+        let jps: Vec<String> = out
             .iter()
             .filter(|i| i.op.mnemonic() == "x86.jp")
-            .map(|i| &i.fields[0].1)
+            .map(|i| i.fields[0].1.render())
             .collect();
         assert_eq!(jps, skips);
     }

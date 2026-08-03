@@ -52,23 +52,21 @@ use super::regalloc::{fp_vreg_name, parse_fp_vreg, parse_vreg, vreg_name};
 /// A typed operand value. See the module docs for the arm set and why physical
 /// registers stay `Raw` until plan-78-C.
 ///
-/// The `VReg` and `Imm` arms carry a targeted `#[allow(dead_code)]`: in plan-78-A
-/// they are constructed only by [`Operand::parse`]/[`Operand::vreg`]/
-/// [`Operand::imm`], which the render-fidelity corpus test in this module
-/// exercises. That test is load-bearing *now* — it is A's entire deliverable and
-/// the proof that flipping storage to `Operand` (plan-78-B) and reading it on the
-/// allocator hot path (plan-78-C) is byte-safe. The `field`/`From` production
-/// path uses only `Raw` + `render` until that flip, so without the allow the
-/// arms read as unconstructed in a non-test build. The allow is removed the
-/// moment B/C construct them in production.
+/// The `VReg` arm carries a targeted `#[allow(dead_code)]`: plan-78-B stores
+/// register operands as `Raw` (the vreg→`VReg` write migration is coupled to
+/// plan-78-C's typed reads and lands there), so until C constructs it the arm is
+/// exercised only by the render-fidelity corpus test in this module. That test is
+/// load-bearing *now* — it proves flipping storage to `Operand` (B) and reading
+/// it on the allocator hot path (C) is byte-safe. `Imm` is constructed in
+/// production (the `finalize_frame` offset rewrite, plan-78-B), so it needs no
+/// allow.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Operand {
     /// A virtual-register sentinel: `%vN` for the integer class, `%fN` for the
     /// floating-point class. `id` is the register number the allocator interns.
-    #[allow(dead_code)] // load-bearing typed surface proven by the corpus test; see the enum doc
+    #[allow(dead_code)] // constructed by plan-78-C's typed reads; proven live by the corpus test
     VReg { class: RegClass, id: u32 },
     /// A decimal integer immediate.
-    #[allow(dead_code)] // load-bearing typed surface proven by the corpus test; see the enum doc
     Imm(i64),
     /// Any operand string not lifted to a typed arm — rendered verbatim.
     Raw(Box<str>),
@@ -82,7 +80,6 @@ impl Operand {
     }
 
     /// A decimal integer immediate.
-    #[allow(dead_code)] // proven by the corpus test; production writers land in plan-78-B/C
     pub(crate) fn imm(value: i64) -> Self {
         Operand::Imm(value)
     }
@@ -130,6 +127,33 @@ impl Operand {
             }
         }
         Operand::Raw(value.into())
+    }
+}
+
+/// Render an operand to its string form. Lets the many string-shaped codegen
+/// readers (arch token realization, `format!` diagnostics) keep spelling
+/// `format!("{value}")` / `value.to_string()` through the plan-78-B flip; the
+/// value they see is exactly the string that used to be stored. plan-78-C
+/// replaces the string comparisons on the hot path with typed `Operand` matches.
+impl std::fmt::Display for Operand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.render())
+    }
+}
+
+/// Compare an operand to a string by its rendered spelling, so a reader that used
+/// to test `value == "x30"` against the stored `String` keeps working verbatim
+/// after the flip. (`&Operand == &str` follows from the std blanket
+/// `impl PartialEq<&B> for &A where A: PartialEq<B>`.)
+impl PartialEq<str> for Operand {
+    fn eq(&self, other: &str) -> bool {
+        self.render() == other
+    }
+}
+
+impl PartialEq<&str> for Operand {
+    fn eq(&self, other: &&str) -> bool {
+        self.render() == *other
     }
 }
 
@@ -317,6 +341,23 @@ mod tests {
                 id: 3
             }
         );
+    }
+
+    #[test]
+    fn code_instruction_stores_typed_operands() {
+        // plan-78-B: `CodeInstruction.fields` stores a typed `Operand`, not a
+        // rendered `String`. A `&str` producer yields `Raw`; a typed immediate
+        // yields `Imm`; `operand()` returns the typed value and `get()` renders
+        // both back to the identical string (byte-identity).
+        use crate::target::shared::code::CodeInstruction;
+        let inst = CodeInstruction::new("mov")
+            .field("dst", "x0")
+            .field("value", Operand::imm(42));
+        assert_eq!(inst.operand("dst"), Some(&Operand::Raw("x0".into())));
+        assert_eq!(inst.operand("value"), Some(&Operand::Imm(42)));
+        assert_eq!(inst.operand("missing"), None);
+        assert_eq!(inst.get("dst").as_deref(), Some("x0"));
+        assert_eq!(inst.get("value").as_deref(), Some("42"));
     }
 
     #[test]

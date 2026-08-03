@@ -1,6 +1,6 @@
 use super::*;
 use crate::arch::ops::CodeOp;
-use crate::target::shared::code::CodeInstruction;
+use crate::target::shared::code::{CodeInstruction, Operand};
 
 #[test]
 fn instruction_size_expands_large_stack_and_memory_immediates() {
@@ -470,9 +470,9 @@ fn codeop_sizes_cover_large_add_imm() {
     let add = CodeInstruction {
         op: CodeOp::AddImm,
         fields: vec![
-            ("dst", "x0".to_string()),
-            ("src", "sp".to_string()),
-            ("imm", "6400".to_string()),
+            ("dst", Operand::from("x0")),
+            ("src", Operand::from("sp")),
+            ("imm", Operand::from("6400")),
         ],
     };
 

@@ -17,7 +17,7 @@ pub(crate) fn field(instruction: &CodeInstruction, name: &str) -> Result<String,
         .fields
         .iter()
         .find(|(field, _)| *field == name)
-        .map(|(_, value)| value.clone())
+        .map(|(_, value)| value.render())
         .ok_or_else(|| {
             format!(
                 "instruction '{}' missing field '{name}'",

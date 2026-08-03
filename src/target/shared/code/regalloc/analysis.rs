@@ -316,13 +316,17 @@ pub(super) struct Effect {
 pub(super) fn effect(instruction: &CodeInstruction, model: &ClassModel) -> Effect {
     let mut defs = Vec::new();
     let mut uses = Vec::new();
+    // plan-78-B: `fields` now stores typed `Operand`s; render each to its string
+    // and keep the existing string-classification path. plan-78-C replaces this
+    // with a direct match on the `Operand` arm (no render, no re-parse).
     for (name, value) in &instruction.fields {
+        let value = value.render();
         if DEF_FIELDS.contains(name) {
-            if model.is_tracked(value) {
-                defs.push(value.clone());
+            if model.is_tracked(&value) {
+                defs.push(value);
             }
-        } else if USE_FIELDS.contains(name) && model.is_tracked(value) {
-            uses.push(value.clone());
+        } else if USE_FIELDS.contains(name) && model.is_tracked(&value) {
+            uses.push(value);
         }
     }
     // Read-modify-write ops accumulate into / select through `dst`, so `dst` is
@@ -339,8 +343,9 @@ pub(super) fn effect(instruction: &CodeInstruction, model: &ClassModel) -> Effec
         CodeOp::FMlaV | CodeOp::FMlsV | CodeOp::BslV | CodeOp::BitV
     ) {
         if let Some((_, dst)) = instruction.fields.iter().find(|(name, _)| *name == "dst") {
-            if model.is_tracked(dst) {
-                uses.push(dst.clone());
+            let dst = dst.render();
+            if model.is_tracked(&dst) {
+                uses.push(dst);
             }
         }
     }

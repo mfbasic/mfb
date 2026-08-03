@@ -27,10 +27,10 @@
 
 use crate::arch::ops::CodeOp;
 use crate::target::shared::code::mir::{
-    fused_setter_codeop, rename_field_values, MirInstruction, MirOp, ARENA_BASE, FUSED_COND_FIELD,
-    FUSED_SHARE_FIELD,
+    code_fields_from_mir, fused_setter_codeop, rename_operand_field_values, MirInstruction, MirOp,
+    ARENA_BASE, FUSED_COND_FIELD, FUSED_SHARE_FIELD,
 };
-use crate::target::shared::code::CodeInstruction;
+use crate::target::shared::code::{CodeInstruction, Operand};
 
 use super::regmodel::ARENA_BASE_REGISTER;
 
@@ -626,7 +626,7 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                 .op
                 .to_code()
                 .expect("non-fused MIR op maps to a single CodeOp"),
-            fields: instruction.fields.clone(),
+            fields: code_fields_from_mir(&instruction.fields),
         });
     }
     // plan-32-D: flush a v128 run that ends the function (no trailing non-v128 op).
@@ -642,7 +642,7 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
     }
     // Realize the neutral arena base as the pinned `s11`.
     for instruction in &mut out {
-        rename_field_values(&mut instruction.fields, ARENA_BASE, ARENA_BASE_REGISTER);
+        rename_operand_field_values(&mut instruction.fields, ARENA_BASE, ARENA_BASE_REGISTER);
     }
     remap_riscv_abi(&mut out);
     out
@@ -711,11 +711,11 @@ fn remap_riscv_abi(instructions: &mut [CodeInstruction]) {
             // plan-34-B Phase-3b seam: realize a role token to its AArch64
             // spelling first (`%arg3` → `x3`), then the positional remap maps that
             // to the RISC-V home (`x3` → `a3`) exactly as today — byte-identical.
-            if let Some(reg) = crate::target::shared::abi::realize_abi_token(value) {
-                *value = reg.to_string();
+            if let Some(reg) = crate::target::shared::abi::realize_abi_token(&value.render()) {
+                *value = Operand::from(reg);
             }
-            if let Some(mapped) = remap_register(value) {
-                *value = mapped;
+            if let Some(mapped) = remap_register(&value.render()) {
+                *value = Operand::from(mapped);
             }
         }
     }
@@ -782,7 +782,7 @@ mod tests {
 
     fn values(out: &[CodeInstruction]) -> Vec<String> {
         out.iter()
-            .flat_map(|inst| inst.fields.iter().map(|(_, v)| v.clone()))
+            .flat_map(|inst| inst.fields.iter().map(|(_, v)| v.render()))
             .collect()
     }
 

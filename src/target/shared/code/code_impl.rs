@@ -9,11 +9,11 @@ impl CodeInstruction {
     }
 
     /// Append a named operand field. Accepts any `impl Into<Operand>` (a typed
-    /// `Operand`, or a `&str`/`&String`/`String` that becomes `Operand::Raw`);
-    /// storage stays `String` in plan-78-A, so the field stores the operand's
-    /// rendered spelling — byte-identical to the old `value.to_string()`.
+    /// `Operand`, or a `&str`/`&String`/`String` that becomes `Operand::Raw`).
+    /// plan-78-B stores the typed `Operand` directly; the rendered spelling is
+    /// produced on demand by [`Self::get`] / the dump formatters.
     pub(crate) fn field(mut self, name: &'static str, value: impl Into<Operand>) -> Self {
-        self.fields.push((name, value.into().render()));
+        self.fields.push((name, value.into()));
         self
     }
 
@@ -33,7 +33,21 @@ impl CodeInstruction {
         self.fields
             .iter()
             .find(|(key, _)| *key == name)
-            .map(|(_, value)| value.clone())
+            .map(|(_, value)| value.render())
+    }
+
+    /// The typed operand of a named field, if present. plan-78-C reads register
+    /// identity (class + id/index) off this without the string re-parse `get()`
+    /// + the analysis sniffs would otherwise do. The typed-storage accessor is the
+    /// reason plan-78-B flipped `fields` to `Operand`; the hot-path consumer lands
+    /// in plan-78-C, so it carries a targeted allow until then (a Phase-2 codegen
+    /// test already exercises it, proving the flip stores a real typed value).
+    #[allow(dead_code)] // consumed by plan-78-C's typed regalloc; proven live by the Phase-2 test
+    pub(crate) fn operand(&self, name: &str) -> Option<&Operand> {
+        self.fields
+            .iter()
+            .find(|(key, _)| *key == name)
+            .map(|(_, value)| value)
     }
 
     pub(super) fn validate(&self) -> Result<(), String> {
@@ -276,7 +290,7 @@ impl ToCodeJson for CodeInstruction {
         fields.extend(
             self.fields
                 .iter()
-                .map(|(name, value)| format!("\"{name}\": {}", json_string(value))),
+                .map(|(name, value)| format!("\"{name}\": {}", json_string(&value.render()))),
         );
         format!("\n{}{{ {} }}", pad, fields.join(", "))
     }

@@ -1191,7 +1191,7 @@ mod tests {
             let mut saw_stack_access = false;
             for instruction in &instructions {
                 let stack_relative = instruction.fields.iter().any(|(name, value)| {
-                    matches!(*name, "base" | "src") && abi::is_stack_pointer(value)
+                    matches!(*name, "base" | "src") && abi::is_stack_pointer(&value.render())
                 });
                 if !stack_relative {
                     continue;
@@ -1200,7 +1200,7 @@ mod tests {
                     if !matches!(*name, "offset" | "imm") {
                         continue;
                     }
-                    let offset: usize = value.parse().expect("numeric sp offset");
+                    let offset: usize = value.render().parse().expect("numeric sp offset");
                     saw_stack_access = true;
                     assert!(
                         offset + 8 <= TEMP_DIRECTORY_SCRATCH_BYTES,

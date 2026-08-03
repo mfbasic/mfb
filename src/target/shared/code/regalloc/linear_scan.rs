@@ -23,6 +23,7 @@ use std::collections::HashMap;
 use crate::target::shared::regmodel::{RegClass, RegisterModel};
 
 use super::super::types::CodeInstruction;
+use super::super::Operand;
 use super::analysis::{self, physical_busy, ClassModel};
 
 pub(super) struct RunResult {
@@ -369,7 +370,7 @@ fn occupied_at(
 ) -> u64 {
     let mut mask = colored_mask_at.get(i).copied().unwrap_or(0);
     for (_field, value) in &instruction.fields {
-        if let Some(p) = (class_model.physical_index)(value) {
+        if let Some(p) = (class_model.physical_index)(&value.render()) {
             mask |= 1u64 << p;
         }
     }
@@ -390,11 +391,11 @@ fn substitute(
         fields: instruction.fields.clone(),
     };
     for (_field, value) in copy.fields.iter_mut() {
-        if let Some(v) = (class_model.parse_vreg)(value) {
+        if let Some(v) = (class_model.parse_vreg)(&value.render()) {
             if let Some(phys) = assignment.get(&v) {
-                *value = phys.clone();
+                *value = Operand::from(phys.as_str());
             } else if let Some(scratch) = scratch_for.get(&v) {
-                *value = scratch.clone();
+                *value = Operand::from(scratch.as_str());
             }
         }
     }

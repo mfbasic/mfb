@@ -12,7 +12,7 @@ use crate::arch::encode_plan::InstructionEncoder;
 pub(super) fn instruction_size(instruction: &CodeInstruction) -> Result<usize, String> {
     let mut probe = Encoder::new(Vec::new(), HashMap::new());
     for (_, value) in &instruction.fields {
-        probe.imports.insert(value.clone(), String::new());
+        probe.imports.insert(value.render(), String::new());
     }
     probe.emit_instruction(instruction)?;
     Ok(probe.text.len())

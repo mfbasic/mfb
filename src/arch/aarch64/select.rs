@@ -12,10 +12,10 @@ use crate::arch::aarch64::abi;
 use crate::arch::aarch64::regmodel::ARENA_BASE_REGISTER;
 use crate::arch::ops::CodeOp;
 use crate::target::shared::code::mir::{
-    fused_setter_codeop, rename_field_values, MirInstruction, MirOp, ARENA_BASE, FUSED_COND_FIELD,
-    FUSED_SHARE_FIELD,
+    code_fields_from_mir, fused_setter_codeop, rename_operand_field_values, MirInstruction, MirOp,
+    ARENA_BASE, FUSED_COND_FIELD, FUSED_SHARE_FIELD,
 };
-use crate::target::shared::code::CodeInstruction;
+use crate::target::shared::code::{CodeInstruction, Operand};
 
 pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruction> {
     let mut out = Vec::with_capacity(instructions.len());
@@ -50,7 +50,7 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                 .iter()
                 .position(|(key, _)| *key == FUSED_COND_FIELD)
                 .expect("fused MIR op carries a cond field");
-            let setter_fields = instruction.fields[..split].to_vec();
+            let setter_fields = code_fields_from_mir(&instruction.fields[..split]);
             let branch_op = CodeOp::from_mnemonic(&instruction.fields[split].1)
                 .expect("fused MIR op carries a valid branch mnemonic");
             let mut branch_fields = Vec::new();
@@ -59,7 +59,7 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                 if *key == FUSED_SHARE_FIELD {
                     shared = true;
                 } else {
-                    branch_fields.push((*key, value.clone()));
+                    branch_fields.push((*key, Operand::from(value.as_str())));
                 }
             }
             // A shared branch reuses the comparison the previous fused op already
@@ -80,7 +80,7 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                     .op
                     .to_code()
                     .expect("non-fused MIR op maps to a single CodeOp"),
-                fields: instruction.fields.clone(),
+                fields: code_fields_from_mir(&instruction.fields),
             });
         }
     }
@@ -96,11 +96,11 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
     // (plan-00-D §2, plan-34-A).
     for instruction in &mut out {
         for (_, value) in instruction.fields.iter_mut() {
-            if let Some(reg) = abi::realize_abi_token(value) {
-                *value = reg.to_string();
+            if let Some(reg) = abi::realize_abi_token(&value.render()) {
+                *value = Operand::from(reg);
             }
         }
-        rename_field_values(&mut instruction.fields, ARENA_BASE, ARENA_BASE_REGISTER);
+        rename_operand_field_values(&mut instruction.fields, ARENA_BASE, ARENA_BASE_REGISTER);
     }
     out
 }

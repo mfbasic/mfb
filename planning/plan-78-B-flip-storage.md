@@ -155,27 +155,45 @@ value from the (still-String) store — a no-op that surfaces every caller needi
 Acceptance: `cargo test --bin mfb` green, `artifact-gate … all` diff-free with
 storage still `String` — proving the read-side ripple is fully absorbed before
 the flip. Verified 2026-08-02.
-Commit: (recorded next commit)
+Commit: 4eafd3830
 
 ### Phase 2 — Flip storage + migrate all write sites
 
 The atomic representation change.
 
-- [ ] Flip `types.rs:38` to `Operand`; `field()` stores `Operand`; `operand()`
+- [x] Flip `types.rs:38` to `Operand`; `field()` stores `Operand`; `operand()`
       returns `&Operand`; `get()` renders it.
-- [ ] Migrate the ~90 `abi.rs` constructors and the 9 inline literals to build
-      `Operand`.
-- [ ] Migrate `finalize_frame` (`codegen_utils.rs`) + the `linux_common/code.rs`
-      twin, and `fma_fusion.rs`, to build/mutate `Operand`.
-- [ ] Update the `.ncode`/`.mir` `CodeInstruction` dump formatters to render.
-- [ ] Tests: add a codegen test asserting a representative instruction's
-      `operand("dst")` is the expected typed `Operand` (not a string).
-- [ ] `artifact-gate … all` — zero diffs.
+- [x] ~~Migrate the ~90 `abi.rs` constructors and the 9 inline literals to build
+      `Operand`.~~ — **moot as written / re-scoped:** because `field` takes
+      `impl Into<Operand>` and `From<&str>`→`Raw` (plan-78-A), the ~90 constructors
+      *already* build `Operand` (their `&str` args become `Raw`) with **no
+      signature change** — verified byte-identical by the gate. Typing *register*
+      operands as `VReg`/`Phys` is not done here: `allocate_register`'s `String`
+      result feeds **1794** call sites (`grep -c allocate_register\|temporary_vreg`
+      → far beyond B's blast radius), and the coupling is to plan-78-C's typed
+      reads, so register typing lands in C. The inline `CodeInstruction {…}`
+      literals in `arch/*/select.rs` were migrated to build `Operand` (via
+      `code_fields_from_mir` for Mir→Code conversions, `Operand::from` for string
+      literals). **Immediates ARE typed `Imm`** at the `finalize_frame` offset
+      rewrite (small, byte-identical), so the `Imm` arm is production-live.
+- [x] Migrate `finalize_frame` (`codegen_utils.rs`) + the `linux_common/code.rs`
+      twin, and `fma_fusion.rs`, to build/mutate `Operand` (offset rewrites build
+      `Operand::imm`, base rewrites `Operand::from`; readers render).
+- [x] Update the `.ncode` `CodeInstruction` dump formatter to render
+      (`code_impl.rs`). (`.mir` dumps `MirInstruction`, which stays `String`, so no
+      change there; the `lower_to_mir` Code→Mir path renders via the new
+      `mir_fields_from_code` helper.)
+- [x] Tests: added `operand::tests::code_instruction_stores_typed_operands` —
+      asserts `operand("dst") == Some(&Raw("x0"))`, `operand("value") ==
+      Some(&Imm(42))`, and that `get()` renders both to the identical string.
+- [x] `artifact-gate … all` — **0 diff(s)** (1144 tests, 1286 builds, 1549
+      goldens), verified 2026-08-02.
 
-Acceptance: compiler builds; `cargo test --bin mfb` green; `artifact-gate … all`
-byte-identical across all four targets; `bench-lowering.sh` shows **no
-regression** (B is perf-neutral by design).
-Commit: —
+Acceptance: compiler builds; `cargo test --bin mfb` green (3763 passed);
+`artifact-gate … all` byte-identical across all four targets. `bench-lowering.sh`
+no-regression check deferred to C's before/after (B is perf-neutral by design and
+adds a `render()` per read, which C removes with typed reads).
+Commit: (recorded next commit)
 
 ## Validation Plan
 
@@ -213,6 +231,28 @@ Commit: —
   args, `Vec<&str>`/`HashSet<&str>` collections that became owned). peephole's
   `Effect<'a>` dropped its lifetime to own `String`. All green + gate diff-free,
   so the ripple changed no emitted byte.
+- **Register-operand typing (`VReg`/`Phys`) is deferred to plan-78-C, not done in
+  Phase 2.** The plan assigned write-site migration to B and reads to C, but for
+  *registers* they are coupled: to store a `VReg` the vreg must be typed at its
+  source (`allocate_register`), which feeds 1794 sites; to store a `Phys` the
+  physical name must be typed at selection / the coloring rewrite. B keeps every
+  register operand as `Raw` (byte-identical) and C does the register typing
+  alongside the typed reads it enables. B still delivers the representation flip
+  (`fields: Vec<(&str, Operand)>`) and types immediates (`Imm`). Evidence:
+  `grep -rn 'allocate_register\|temporary_vreg' src | grep -v 'fn ' | wc -l` → 1794.
+- **Added `Display` + `PartialEq<str>`/`PartialEq<&str>` on `Operand`.** The flip
+  left ~250 string-shaped reader sites (`value == "x30"`, `format!("{value}")`,
+  arch token realization). Rather than render at every one, `Operand` gained a
+  render-based `Display` and string equality so those readers keep working
+  verbatim; C replaces the hot-path ones with typed matches. The remaining
+  fn-arg / `.strip_prefix` / write sites render explicitly (`value.render()`) or
+  wrap (`Operand::from(...)`).
+- **Added `mir_fields_from_code` / `code_fields_from_mir` /
+  `rename_operand_field_values` (`mir.rs`).** `MirInstruction` stays
+  `String`-valued while `CodeInstruction` is now `Operand`-valued, so the
+  `select` / `lower_to_mir` boundary needs explicit field-bag converters (render
+  one way, `Operand::from` the other); the arena-base rename on selected
+  `CodeInstruction` streams needed an `Operand` twin of `rename_field_values`.
 
 ## Summary
 

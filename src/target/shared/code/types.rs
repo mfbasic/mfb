@@ -37,7 +37,12 @@ pub(crate) struct CodeParam {
 
 pub(crate) struct CodeInstruction {
     pub(crate) op: CodeOp,
-    pub(crate) fields: Vec<(&'static str, String)>,
+    /// Operand fields, keyed by role name. plan-78-B flipped the value from a
+    /// rendered `String` to a typed [`Operand`]: an unmigrated producer's `&str`
+    /// becomes `Operand::Raw` (byte-identical render), while immediate producers
+    /// build `Operand::Imm`. Read the rendered string via [`CodeInstruction::get`]
+    /// or the typed value via [`CodeInstruction::operand`].
+    pub(crate) fields: Vec<(&'static str, Operand)>,
 }
 
 pub(crate) struct CodeRelocation {

@@ -1340,7 +1340,7 @@ mod tests {
             ins.fields
                 .iter()
                 .find(|(k, _)| *k == key)
-                .map(|(_, v)| v.clone())
+                .map(|(_, v)| v.render())
         };
         // A `mov_imm <r>, 255` immediately followed by `and x9, x9, <r>` masks
         // the code copied into x9 before any digit is extracted.

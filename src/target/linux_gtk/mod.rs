@@ -34,7 +34,7 @@ use std::collections::HashMap;
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
     self, AppEntrySpec, AppHookBody, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction,
-    CodeRelocation, PresentationMode, RelocIntent,
+    CodeRelocation, Operand, PresentationMode, RelocIntent,
 };
 
 // --- Emitted symbols -------------------------------------------------------
@@ -595,8 +595,9 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
     let mut order: Vec<String> = Vec::new();
     for instruction in instructions.iter() {
         for (_, value) in &instruction.fields {
-            if is_scratch(value) && !order.contains(value) {
-                order.push(value.clone());
+            let rendered = value.render();
+            if is_scratch(&rendered) && !order.contains(&rendered) {
+                order.push(rendered);
             }
         }
     }
@@ -607,8 +608,8 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
         .collect();
     for instruction in instructions.iter_mut() {
         for (_, value) in instruction.fields.iter_mut() {
-            if let Some(vreg) = rename.get(value) {
-                *value = vreg.clone();
+            if let Some(vreg) = rename.get(&value.render()) {
+                *value = Operand::from(vreg.as_str());
             }
         }
     }
@@ -680,8 +681,8 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
         for instruction in instructions.iter_mut() {
             if matches!(instruction.op, CodeOp::SubSp | CodeOp::AddSp) {
                 for (key, value) in instruction.fields.iter_mut() {
-                    if *key == "imm" && *value == sentinel {
-                        *value = bumped.clone();
+                    if *key == "imm" && *value == sentinel.as_str() {
+                        *value = Operand::from(bumped.as_str());
                     }
                 }
             }

@@ -685,8 +685,9 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
         // and the owned-value zero-inits landed save_size bytes away from the
         // slots the scope-drops actually read.
         let stack_relative = instruction.fields.iter().any(|(name, value)| {
+            let value = value.render();
             matches!(*name, "base" | "src")
-                && (abi::is_stack_pointer(value)
+                && (abi::is_stack_pointer(&value)
                     || value == crate::arch::x86_64::regmodel::STACK_POINTER)
         });
         if !stack_relative {
@@ -694,8 +695,8 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
         }
         for (name, value) in &mut instruction.fields {
             if matches!(*name, "offset" | "imm") {
-                if let Ok(offset) = value.parse::<usize>() {
-                    *value = (offset + offset_delta).to_string();
+                if let Ok(offset) = value.render().parse::<usize>() {
+                    *value = Operand::imm((offset + offset_delta) as i64);
                 }
             }
         }
@@ -744,8 +745,9 @@ fn assert_stack_accesses_fit_frame(instructions: &[CodeInstruction], total_stack
             continue;
         }
         let stack_relative = instruction.fields.iter().any(|(name, value)| {
+            let value = value.render();
             matches!(*name, "base" | "src")
-                && (abi::is_stack_pointer(value)
+                && (abi::is_stack_pointer(&value)
                     || value == crate::arch::x86_64::regmodel::STACK_POINTER)
         });
         if !stack_relative {
@@ -755,7 +757,7 @@ fn assert_stack_accesses_fit_frame(instructions: &[CodeInstruction], total_stack
             if !matches!(*name, "offset" | "imm") {
                 continue;
             }
-            let Ok(offset) = value.parse::<usize>() else {
+            let Ok(offset) = value.render().parse::<usize>() else {
                 continue;
             };
             // A load/store consumes 8 bytes at `offset`; an address computation
@@ -775,12 +777,12 @@ fn assert_stack_accesses_fit_frame(instructions: &[CodeInstruction], total_stack
 }
 
 /// Read the `base`/`offset` of a stack-argument sentinel load/store (bug-08).
-fn base_of(instruction: &CodeInstruction) -> Option<&str> {
+fn base_of(instruction: &CodeInstruction) -> Option<String> {
     instruction
         .fields
         .iter()
         .find(|(name, _)| *name == "base")
-        .map(|(_, value)| value.as_str())
+        .map(|(_, value)| value.render())
 }
 
 fn offset_of(instruction: &CodeInstruction) -> usize {
@@ -788,7 +790,7 @@ fn offset_of(instruction: &CodeInstruction) -> usize {
         .fields
         .iter()
         .find(|(name, _)| *name == "offset")
-        .and_then(|(_, value)| value.parse::<usize>().ok())
+        .and_then(|(_, value)| value.render().parse::<usize>().ok())
         .unwrap_or(0)
 }
 
@@ -798,7 +800,7 @@ fn offset_of(instruction: &CodeInstruction) -> usize {
 fn max_outgoing_arg_offset(instructions: &[CodeInstruction]) -> Option<usize> {
     instructions
         .iter()
-        .filter(|instruction| base_of(instruction) == Some(abi::OUTGOING_ARGS_BASE))
+        .filter(|instruction| base_of(instruction).as_deref() == Some(abi::OUTGOING_ARGS_BASE))
         .map(offset_of)
         .max()
 }
@@ -807,7 +809,7 @@ fn max_outgoing_arg_offset(instructions: &[CodeInstruction]) -> Option<usize> {
 fn has_incoming_stack_args(instructions: &[CodeInstruction]) -> bool {
     instructions
         .iter()
-        .any(|instruction| base_of(instruction) == Some(abi::INCOMING_ARGS_BASE))
+        .any(|instruction| base_of(instruction).as_deref() == Some(abi::INCOMING_ARGS_BASE))
 }
 
 /// Rewrite the stack-argument sentinel bases (`incoming_args`/`outgoing_args`)
@@ -844,8 +846,8 @@ fn resolve_stack_arg_sentinels(
         };
         for (name, value) in &mut instruction.fields {
             match *name {
-                "base" => *value = abi::stack_pointer().to_string(),
-                "offset" => *value = resolved_offset.to_string(),
+                "base" => *value = Operand::from(abi::stack_pointer()),
+                "offset" => *value = Operand::imm(resolved_offset as i64),
                 _ => {}
             }
         }
@@ -889,6 +891,7 @@ mod tests {
                 .filter(|ins| ins.op == CodeOp::Label)
                 .filter_map(|ins| ins.fields.iter().find(|(n, _)| *n == "name"))
                 .filter(|(_, v)| {
+                    let v = v.render();
                     v.ends_with("_utf8_two")
                         || v.ends_with("_utf8_three")
                         || v.ends_with("_utf8_four")

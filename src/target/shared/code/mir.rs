@@ -324,6 +324,38 @@ pub(crate) fn rename_field_values(fields: &mut [(&'static str, String)], from: &
     }
 }
 
+/// The [`Operand`]-valued twin of [`rename_field_values`] for the arch backends'
+/// selected [`CodeInstruction`] streams (plan-78-B flipped `CodeInstruction`'s
+/// value type to `Operand`; `MirInstruction` stays `String`). Replaces any
+/// operand rendering to `from` with `Operand::from(to)`.
+pub(crate) fn rename_operand_field_values(
+    fields: &mut [(&'static str, Operand)],
+    from: &str,
+    to: &str,
+) {
+    for (_, value) in fields.iter_mut() {
+        if value.render() == from {
+            *value = Operand::from(to);
+        }
+    }
+}
+
+/// Render a `CodeInstruction`'s typed operand fields (plan-78-B) into the
+/// `String`-valued field bag `MirInstruction` still uses. Byte-identical: the
+/// rendered string is exactly what was stored before the flip.
+pub(crate) fn mir_fields_from_code(fields: &[(&'static str, Operand)]) -> Vec<(&'static str, String)> {
+    fields.iter().map(|(key, value)| (*key, value.render())).collect()
+}
+
+/// Wrap a `MirInstruction`'s `String` field bag into the `Operand`-valued bag a
+/// `CodeInstruction` now carries — each value as a verbatim `Operand::Raw`.
+pub(crate) fn code_fields_from_mir(fields: &[(&'static str, String)]) -> Vec<(&'static str, Operand)> {
+    fields
+        .iter()
+        .map(|(key, value)| (*key, Operand::from(value.as_str())))
+        .collect()
+}
+
 /// The fused (flagless) MIR op a given AArch64 flag-setter folds *into* when it
 /// is immediately followed by a flag-reading branch, or `None` if the op never
 /// fuses. The setter's flags are otherwise invisible in the MIR.
@@ -415,13 +447,13 @@ pub(crate) fn lower_to_mir(instructions: &[CodeInstruction]) -> Vec<MirInstructi
     // a branch that reuses the preceding comparison (see [`FUSED_SHARE_FIELD`]).
     fn fuse(
         op: MirOp,
-        setter_fields: &[(&'static str, String)],
+        setter_fields: &[(&'static str, Operand)],
         branch: &CodeInstruction,
         shared: bool,
     ) -> MirInstruction {
-        let mut fields = setter_fields.to_vec();
+        let mut fields = mir_fields_from_code(setter_fields);
         fields.push((FUSED_COND_FIELD, branch.op.mnemonic().to_string()));
-        fields.extend(branch.fields.iter().cloned());
+        fields.extend(mir_fields_from_code(&branch.fields));
         if shared {
             fields.push((FUSED_SHARE_FIELD, "true".to_string()));
         }
@@ -444,7 +476,7 @@ pub(crate) fn lower_to_mir(instructions: &[CodeInstruction]) -> Vec<MirInstructi
             // reconstructs `add_pageoff`'s `src == dst` from it.
             Some(MirInstruction {
                 op: MirOp::AddrOf,
-                fields: adrp.fields.clone(),
+                fields: mir_fields_from_code(&adrp.fields),
             })
         } else {
             None
@@ -493,7 +525,7 @@ pub(crate) fn lower_to_mir(instructions: &[CodeInstruction]) -> Vec<MirInstructi
         }
         out.push(MirInstruction {
             op: MirOp::from_code(setter.op),
-            fields: setter.fields.clone(),
+            fields: mir_fields_from_code(&setter.fields),
         });
         i += 1;
     }

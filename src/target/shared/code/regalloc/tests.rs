@@ -89,8 +89,9 @@ fn linear_scan_keeps_value_across_call_in_callee_saved() {
     // No sentinel survives anywhere in the rewritten stream.
     for instruction in &instructions {
         for (_field, value) in &instruction.fields {
+            let value = value.render();
             assert!(
-                parse_vreg(value).is_none(),
+                parse_vreg(&value).is_none(),
                 "virtual register {value} survived coloring"
             );
         }
@@ -128,8 +129,9 @@ fn linear_scan_spills_integer_across_arena_alloc() {
     // No sentinel survives anywhere in the rewritten stream.
     for instruction in &instructions {
         for (_field, value) in &instruction.fields {
+            let value = value.render();
             assert!(
-                parse_vreg(value).is_none(),
+                parse_vreg(&value).is_none(),
                 "virtual register {value} survived coloring"
             );
         }
@@ -564,8 +566,9 @@ fn x86_fp_values_live_across_a_call_avoid_the_volatile_high_xmm() {
     let volatile_high: Vec<String> = (8..=14).map(|n| format!("xmm{n}")).collect();
     for (index, instruction) in instructions.iter().enumerate() {
         for (field, value) in &instruction.fields {
+            let value = value.render();
             assert!(
-                !volatile_high.contains(value),
+                !volatile_high.contains(&value),
                 "instruction {index} field `{field}` colored a call-spanning value \
                  onto `{value}`, which a SysV `call` destroys",
             );

@@ -50,7 +50,7 @@ fn use_counts(instructions: &[CodeInstruction]) -> std::collections::HashMap<Str
     for inst in instructions {
         for (name, value) in &inst.fields {
             if !is_def_field(name) {
-                *counts.entry(value.clone()).or_insert(0) += 1;
+                *counts.entry(value.render()).or_insert(0) += 1;
             }
         }
     }
@@ -92,7 +92,7 @@ pub(crate) fn fuse_scalar_fma(instructions: &mut Vec<CodeInstruction>) {
             instructions[k]
                 .fields
                 .iter()
-                .any(|(name, v)| !is_def_field(name) && v == &product)
+                .any(|(name, v)| !is_def_field(name) && v == product.as_str())
         }) else {
             continue;
         };
@@ -115,7 +115,10 @@ pub(crate) fn fuse_scalar_fma(instructions: &mut Vec<CodeInstruction>) {
         let redefined_between = instructions[i + 1..j].iter().any(|inst| {
             inst.fields
                 .iter()
-                .any(|(name, v)| is_def_field(name) && (v == &a || v == &b || v == &product))
+                .any(|(name, v)| {
+                    is_def_field(name)
+                        && (v == a.as_str() || v == b.as_str() || v == product.as_str())
+                })
         });
         if redefined_between {
             continue;
