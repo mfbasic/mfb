@@ -28,8 +28,8 @@ See plan-78-A's Prerequisites table (stated once for the feature). Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-78-A complete (Operand + render + corpus test landed) | `ls planning/completed/plan-78-A-* 2>/dev/null` OR A's phases all ticked | NOT MET until A lands |
-| A's round-trip corpus test green | `cargo test --bin mfb operand_round_trip` (or A's test name) → ok | NOT MET until A lands |
+| plan-78-A complete (Operand + render + corpus test landed) | A's phases all ticked (commits c4156d5b4, 23248a016) | MET (2026-08-02) |
+| A's round-trip corpus test green | `cargo test --bin mfb operand::tests::parse_render_round_trips_over_the_corpus` → ok | MET (2026-08-02: 1 passed) |
 
 > If A is not complete, B cannot start — full stop. B does not re-derive or
 > partially build `Operand`; it consumes A's proven type.

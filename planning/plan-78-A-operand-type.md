@@ -231,7 +231,7 @@ coverage asserted). `cargo test --bin mfb` green (3761 passed). Per-file coverag
 of `operand.rs` is satisfied by construction — every non-test line (render's 4
 arms, parse's branches, vreg/imm, all four `From`s) is exercised by the 5 unit
 tests; confirmed at finalization rather than a per-phase instrumented run.
-Commit: (recorded next commit)
+Commit: 23248a016
 
 ## Validation Plan
 
