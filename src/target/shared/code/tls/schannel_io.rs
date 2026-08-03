@@ -217,8 +217,8 @@ mod verify_hostname_tests {
             .iter()
             .position(|i| {
                 i.op == CodeOp::LdrU64
-                    && i.get("base") == Some(abi::stack_pointer())
-                    && i.get("offset") == Some(SNAMEW_OFF.to_string().as_str())
+                    && i.get("base").as_deref() == Some(abi::stack_pointer())
+                    && i.get("offset").as_deref() == Some(SNAMEW_OFF.to_string().as_str())
             })
             .expect("emit_verify_hostname must load the wide server-name pointer");
         let name_reg = ins[load_idx]
@@ -230,10 +230,10 @@ mod verify_hostname_tests {
         // pwszServerName write; it must target SSLPARA + 16, never SSLPARA + 8.
         let store = ins[load_idx + 1..]
             .iter()
-            .find(|i| i.op == CodeOp::StrU64 && i.get("src") == Some(name_reg.as_str()))
+            .find(|i| i.op == CodeOp::StrU64 && i.get("src").as_deref() == Some(name_reg.as_str()))
             .expect("the loaded server-name pointer must be stored into the policy para");
         assert_eq!(
-            store.get("offset"),
+            store.get("offset").as_deref(),
             Some((SSLPARA + 16).to_string().as_str()),
             "pwszServerName must be written at SSLPARA + 16 (offset {}); \
              storing it at SSLPARA + 8 (offset {}) leaves pwszServerName NULL and \

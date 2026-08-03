@@ -2411,7 +2411,7 @@ mod open_error_cleanup_tests {
     fn calls_between(ins: &[CodeInstruction], start: &str, end: &str, name: &str) -> bool {
         let at = |label: &str| {
             ins.iter()
-                .position(|i| i.op == CodeOp::Label && i.get("name") == Some(label))
+                .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(label))
                 .unwrap_or_else(|| panic!("missing label {label}"))
         };
         let (from, to) = (at(start), at(end));
@@ -2420,7 +2420,7 @@ mod open_error_cleanup_tests {
         let libc = format!("_{name}");
         ins[from..to]
             .iter()
-            .any(|i| i.get("symbol") == Some(&dl) || i.get("target") == Some(&libc))
+            .any(|i| i.get("symbol").as_deref() == Some(&dl) || i.get("target").as_deref() == Some(&libc))
     }
 
     // The `unavailable` exit is reached from the dlopen and from every dlsym

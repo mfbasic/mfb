@@ -106,5 +106,5 @@ impl CodegenPlatform for TestPlatform {
 pub(crate) fn has_label(ins: &[CodeInstruction], name: &str) -> bool {
     use super::CodeOp;
     ins.iter()
-        .any(|i| i.op == CodeOp::Label && i.get("name") == Some(name))
+        .any(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(name))
 }

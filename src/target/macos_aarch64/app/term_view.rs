@@ -3730,7 +3730,7 @@ mod tests {
     /// Index of the first `label` instruction with the given name.
     fn label_index(ins: &[CodeInstruction], name: &str) -> usize {
         ins.iter()
-            .position(|i| i.op == CodeOp::Label && i.get("name") == Some(name))
+            .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(name))
             .unwrap_or_else(|| panic!("label {name:?} not found"))
     }
 
@@ -3757,7 +3757,7 @@ mod tests {
             last.op
         );
         assert_eq!(
-            last.get("target"),
+            last.get("target").as_deref(),
             Some("kd_done"),
             "the terminating branch must target kd_done"
         );
@@ -3773,6 +3773,6 @@ mod tests {
         let raw = label_index(ins, "tkd_raw");
         let last = &ins[raw - 1];
         assert_eq!(last.op, CodeOp::Branch);
-        assert_eq!(last.get("target"), Some("tkd_done"));
+        assert_eq!(last.get("target").as_deref(), Some("tkd_done"));
     }
 }

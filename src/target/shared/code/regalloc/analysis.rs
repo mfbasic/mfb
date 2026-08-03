@@ -131,7 +131,7 @@ pub(super) fn call_clobber_mask(instruction: &CodeInstruction, model: &ClassMode
         }
         CodeOp::BranchLinkRegister => caller_saved,
         CodeOp::BranchLink => {
-            let target = instruction.get("target").unwrap_or("");
+            let target = instruction.get("target").unwrap_or_default();
             let is_runtime_helper = target.starts_with("_mfb_")
                 && !target.starts_with("_mfb_fn_")
                 && !target.starts_with("_mfb_ifn_");
@@ -445,7 +445,7 @@ fn build_cfg(instructions: &[CodeInstruction]) -> Vec<Block> {
         let mut succ = Vec::new();
         if is_block_terminator(last.op) {
             if let Some(target) = last.get("target") {
-                if let Some(&tb) = label_block.get(target) {
+                if let Some(&tb) = label_block.get(&target) {
                     succ.push(tb);
                 }
             }

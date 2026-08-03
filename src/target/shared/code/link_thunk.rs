@@ -2598,7 +2598,7 @@ mod tests {
             }
             if let Some(target) = instruction.get("target") {
                 assert!(
-                    defined.contains(target),
+                    defined.contains(target.as_str()),
                     "thunk '{}' branches to undefined label '{target}'",
                     function.symbol
                 );

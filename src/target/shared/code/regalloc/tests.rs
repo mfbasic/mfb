@@ -40,12 +40,12 @@ fn bump_rewrite_substitutes_eager_physicals() {
         0,
         &[],
     );
-    assert_eq!(instructions[0].get("dst"), Some("x8"));
-    assert_eq!(instructions[0].get("lhs"), Some("x10"));
-    assert_eq!(instructions[0].get("rhs"), Some("x9"));
-    assert_eq!(instructions[1].get("dst"), Some("x10"));
-    assert_eq!(instructions[1].get("base"), Some("sp"));
-    assert_eq!(instructions[1].get("offset"), Some("16"));
+    assert_eq!(instructions[0].get("dst").as_deref(), Some("x8"));
+    assert_eq!(instructions[0].get("lhs").as_deref(), Some("x10"));
+    assert_eq!(instructions[0].get("rhs").as_deref(), Some("x9"));
+    assert_eq!(instructions[1].get("dst").as_deref(), Some("x10"));
+    assert_eq!(instructions[1].get("base").as_deref(), Some("sp"));
+    assert_eq!(instructions[1].get("offset").as_deref(), Some("16"));
     assert!(outcome.spill_slots.is_empty());
     assert!(outcome.extra_callee_saved.is_empty());
 }
@@ -312,7 +312,7 @@ fn linear_scan_colors_short_range_in_register() {
     // v0 colored to some allocatable physical; both operands match.
     let colored = instructions[1].get("dst").unwrap().to_string();
     assert!(colored.starts_with('x'));
-    assert_eq!(instructions[2].get("lhs"), Some(colored.as_str()));
+    assert_eq!(instructions[2].get("lhs").as_deref(), Some(colored.as_str()));
 }
 
 /// plan-34-D hazard regression: an `abi::FP_SCRATCH` token occupies its
@@ -361,7 +361,7 @@ fn linear_scan_avoids_live_fp_scratch_token_realization() {
     );
     assert_ne!(colored, "d0", "%f0 is live across %fscratch0 (realizes d0)");
     // The token itself is never rewritten by coloring.
-    assert_eq!(instructions[2].get("dst"), Some(abi::FP_SCRATCH[0]));
+    assert_eq!(instructions[2].get("dst").as_deref(), Some(abi::FP_SCRATCH[0]));
     // And the analysis sees the token at its realization's index.
     assert_eq!(analysis::fp_physical_index(abi::FP_SCRATCH[0]), Some(0));
     assert_eq!(analysis::fp_physical_index("%fscratch7"), Some(7));

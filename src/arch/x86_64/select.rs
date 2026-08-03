@@ -1438,10 +1438,10 @@ mod tests {
         ]);
         let store = out
             .iter()
-            .find(|inst| inst.get("offset") == Some("40"))
+            .find(|inst| inst.get("offset").as_deref() == Some("40"))
             .expect("the enable arm's flag store survives selection");
         assert_eq!(
-            store.get("base"),
+            store.get("base").as_deref(),
             Some("rdi"),
             "the enable arm must address the File* through SysV argument 0, not \
              a result register; got {:?}",
@@ -1452,7 +1452,7 @@ mod tests {
             .iter()
             .find(|inst| inst.op == CodeOp::CmpImm)
             .expect("the entry compare survives selection");
-        assert_eq!(cmp.get("lhs"), Some("rsi"));
+        assert_eq!(cmp.get("lhs").as_deref(), Some("rsi"));
     }
 
     // ---- plan-71-A: the context-free cross-check gate ----

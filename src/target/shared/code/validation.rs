@@ -186,7 +186,7 @@ impl CodeFunction {
                 continue;
             }
             if let Some(target) = instruction.get("target") {
-                if !defined_labels.contains(target) {
+                if !defined_labels.contains(&target) {
                     return Err(format!(
                         "native code function '{}' branches to label '{target}', which it \
                          does not define",

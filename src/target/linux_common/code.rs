@@ -1299,16 +1299,16 @@ mod tests {
         let done_index = rv
             .instructions
             .iter()
-            .position(|i| i.op.mnemonic() == "label" && i.get("name") == Some("entry_hwcap_done"))
+            .position(|i| i.op.mnemonic() == "label" && i.get("name").as_deref() == Some("entry_hwcap_done"))
             .expect("scan must emit the entry_hwcap_done label");
         assert!(rv.instructions.iter().any(|i| {
-            i.op.mnemonic() == "label" && i.get("name") == Some("entry_hwcap_auxv_loop")
+            i.op.mnemonic() == "label" && i.get("name").as_deref() == Some("entry_hwcap_auxv_loop")
         }));
         // It extracts bit 21 (V) and stores the flag byte to the global.
         assert!(
             rv.instructions
                 .iter()
-                .any(|i| i.op.mnemonic() == "lsr_imm" && i.get("shift") == Some("21")),
+                .any(|i| i.op.mnemonic() == "lsr_imm" && i.get("shift").as_deref() == Some("21")),
             "scan must shift the HWCAP value right by 21 to reach the V bit"
         );
         assert!(

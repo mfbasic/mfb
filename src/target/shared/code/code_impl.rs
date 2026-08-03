@@ -17,13 +17,23 @@ impl CodeInstruction {
         self
     }
 
-    /// Value of a named field, if present. Used by the peephole pass to read
-    /// register/offset operands without re-deriving them from the encoder.
-    pub(crate) fn get(&self, name: &str) -> Option<&str> {
+    /// Rendered value of a named field, if present. Used by the peephole pass,
+    /// `finalize_frame`, and the CFG builder to read register/offset/label
+    /// operands without re-deriving them from the encoder.
+    ///
+    /// plan-78-B Phase 1: this returns an owned `String` (not the old borrowed
+    /// `&str`) ahead of the storage flip. Once `fields` stores `Operand`
+    /// (Phase 2) a rendered value cannot be borrowed from the store — it is
+    /// produced on demand — so the owned return is forced; doing it now, while
+    /// storage is still `String`, isolates the caller ripple (`… == Some("x0")`
+    /// becomes `….as_deref() == Some("x0")`) from the flip itself. Callers that
+    /// want the typed operand use [`Self::operand`] (added with the flip); this
+    /// stays the string-comparison / re-parse convenience.
+    pub(crate) fn get(&self, name: &str) -> Option<String> {
         self.fields
             .iter()
             .find(|(key, _)| *key == name)
-            .map(|(_, value)| value.as_str())
+            .map(|(_, value)| value.clone())
     }
 
     pub(super) fn validate(&self) -> Result<(), String> {

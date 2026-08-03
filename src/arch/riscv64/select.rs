@@ -822,8 +822,8 @@ mod tests {
         ]);
         assert!(out.iter().any(|i| i.op == CodeOp::RvBr));
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("cond"), Some("lt"));
-        assert_eq!(br.get("target"), Some("L"));
+        assert_eq!(br.get("cond").as_deref(), Some("lt"));
+        assert_eq!(br.get("target").as_deref(), Some("L"));
     }
 
     #[test]
@@ -835,7 +835,7 @@ mod tests {
             build("ret", &[]),
         ]);
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("cond"), Some("lt"));
+        assert_eq!(br.get("cond").as_deref(), Some("lt"));
         // Operands swapped: lhs is the original rhs.
         assert_eq!(br.get("lhs"), br.get("lhs")); // (mapped, both scratch)
     }
@@ -850,7 +850,7 @@ mod tests {
         // A non-zero immediate is materialized into t0.
         assert!(out
             .iter()
-            .any(|i| i.op == CodeOp::MovImm && i.get("dst") == Some("t0")));
+            .any(|i| i.op == CodeOp::MovImm && i.get("dst").as_deref() == Some("t0")));
         assert!(out.iter().any(|i| i.op == CodeOp::RvBr));
     }
 
@@ -863,7 +863,7 @@ mod tests {
         ]);
         assert!(!out.iter().any(|i| i.op == CodeOp::MovImm));
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("rhs"), Some("zero"));
+        assert_eq!(br.get("rhs").as_deref(), Some("zero"));
     }
 
     #[test]
@@ -893,7 +893,7 @@ mod tests {
         assert!(out.iter().any(|i| i.op == CodeOp::Eor));
         assert!(out.iter().any(|i| i.op == CodeOp::Mvn));
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("cond"), Some("ge")); // b.vc = no overflow = word >= 0
+        assert_eq!(br.get("cond").as_deref(), Some("ge")); // b.vc = no overflow = word >= 0
     }
 
     #[test]
@@ -971,21 +971,21 @@ mod tests {
             let out = float_branch(cond, "fa0", "fa1", "L");
             assert_eq!(out.len(), 2, "{cond}");
             assert_eq!(out[0].op.mnemonic(), "rv.fcmp");
-            assert_eq!(out[1].get("cond"), Some("ne"));
+            assert_eq!(out[1].get("cond").as_deref(), Some("ne"));
         }
         // Unordered-including relations branch when the ordered complement is false.
         for cond in ["b.ne", "b.hi", "b.lt", "b.le"] {
             let out = float_branch(cond, "fa0", "fa1", "L");
             assert_eq!(out.len(), 2, "{cond}");
-            assert_eq!(out[1].get("cond"), Some("eq"));
+            assert_eq!(out[1].get("cond").as_deref(), Some("eq"));
         }
         // Finiteness checks compare each operand with itself (NaN detection).
         let vs = float_branch("b.vs", "fa0", "fa1", "L");
         assert_eq!(vs.len(), 4);
-        assert_eq!(vs[3].get("cond"), Some("eq"));
+        assert_eq!(vs[3].get("cond").as_deref(), Some("eq"));
         let vc = float_branch("b.vc", "fa0", "fa1", "L");
         assert_eq!(vc.len(), 4);
-        assert_eq!(vc[3].get("cond"), Some("ne"));
+        assert_eq!(vc[3].get("cond").as_deref(), Some("ne"));
     }
 
     #[test]
@@ -1005,7 +1005,7 @@ mod tests {
         );
         // First materialize +0.0 into ft1, then a float compare-and-branch.
         assert_eq!(out[0].op.mnemonic(), "fmov_d_from_x");
-        assert_eq!(out[0].get("dst"), Some("ft1"));
+        assert_eq!(out[0].get("dst").as_deref(), Some("ft1"));
         assert!(out.iter().any(|i| i.op.mnemonic() == "rv.fcmp"));
     }
 
@@ -1026,9 +1026,9 @@ mod tests {
         // dst is written before the branch (see the Adds/Subs comments).
         assert!(out
             .iter()
-            .any(|i| i.op.mnemonic() == "mov" && i.get("dst") == Some("x9")));
+            .any(|i| i.op.mnemonic() == "mov" && i.get("dst").as_deref() == Some("x9")));
         let br = out.iter().find(|i| i.op.mnemonic() == "rv.br").unwrap();
-        assert_eq!(br.get("cond"), Some("lt")); // b.vs = overflow = word < 0
+        assert_eq!(br.get("cond").as_deref(), Some("lt")); // b.vs = overflow = word < 0
     }
 
     #[test]
@@ -1080,23 +1080,23 @@ mod tests {
         // lhs saved into the flag register gp.
         assert!(out
             .iter()
-            .any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
+            .any(|i| i.op == CodeOp::Mov && i.get("dst").as_deref() == Some("gp")));
         // rhs value spilled to and reloaded from the snapshot word: the address is
         // built off the arena base (s11) into t0, then the value is stored/loaded
         // through it.
         assert!(out
             .iter()
-            .any(|i| i.op.mnemonic() == "add" && i.get("lhs") == Some("s11")));
+            .any(|i| i.op.mnemonic() == "add" && i.get("lhs").as_deref() == Some("s11")));
         assert!(out
             .iter()
-            .any(|i| i.op.mnemonic() == "str_u64" && i.get("base") == Some("t0")));
+            .any(|i| i.op.mnemonic() == "str_u64" && i.get("base").as_deref() == Some("t0")));
         assert!(out
             .iter()
-            .any(|i| i.op.mnemonic() == "ldr_u64" && i.get("dst") == Some("t0")));
+            .any(|i| i.op.mnemonic() == "ldr_u64" && i.get("dst").as_deref() == Some("t0")));
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("lhs"), Some("gp"));
-        assert_eq!(br.get("rhs"), Some("t0")); // reloaded rhs value
-        assert_eq!(br.get("cond"), Some("lt"));
+        assert_eq!(br.get("lhs").as_deref(), Some("gp"));
+        assert_eq!(br.get("rhs").as_deref(), Some("t0")); // reloaded rhs value
+        assert_eq!(br.get("cond").as_deref(), Some("lt"));
     }
 
     #[test]
@@ -1108,8 +1108,8 @@ mod tests {
             build("ret", &[]),
         ]);
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("lhs"), Some("gp"));
-        assert_eq!(br.get("rhs"), Some("zero"));
+        assert_eq!(br.get("lhs").as_deref(), Some("gp"));
+        assert_eq!(br.get("rhs").as_deref(), Some("zero"));
         assert!(!out.iter().any(|i| i.op == CodeOp::MovImm));
     }
 
@@ -1124,7 +1124,7 @@ mod tests {
         // The immediate is re-materialized into t0 at the branch.
         assert!(out
             .iter()
-            .any(|i| i.op == CodeOp::MovImm && i.get("dst") == Some("t0")));
+            .any(|i| i.op == CodeOp::MovImm && i.get("dst").as_deref() == Some("t0")));
         assert!(out.iter().any(|i| i.op == CodeOp::RvBr));
     }
 
@@ -1141,7 +1141,7 @@ mod tests {
         ]);
         assert!(out
             .iter()
-            .any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
+            .any(|i| i.op == CodeOp::Mov && i.get("dst").as_deref() == Some("gp")));
     }
 
     /// bug-381: the compare snapshots BOTH operands by value (lhs → gp, rhs → the
@@ -1169,9 +1169,9 @@ mod tests {
         // The branch reads gp and the reloaded snapshot (t0), not x10 (whose home
         // the carry_out redefined), so it is correct.
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("lhs"), Some("gp"));
-        assert_eq!(br.get("rhs"), Some("t0"));
-        assert_eq!(br.get("cond"), Some("lt"));
+        assert_eq!(br.get("lhs").as_deref(), Some("gp"));
+        assert_eq!(br.get("rhs").as_deref(), Some("t0"));
+        assert_eq!(br.get("cond").as_deref(), Some("lt"));
     }
 
     #[test]
@@ -1191,9 +1191,9 @@ mod tests {
             build("ret", &[]),
         ]);
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("lhs"), Some("gp"));
-        assert_eq!(br.get("rhs"), Some("t0"));
-        assert_eq!(br.get("cond"), Some("lt"));
+        assert_eq!(br.get("lhs").as_deref(), Some("gp"));
+        assert_eq!(br.get("rhs").as_deref(), Some("t0"));
+        assert_eq!(br.get("cond").as_deref(), Some("lt"));
     }
 
     /// bug-381, the observed failure shape: under register pressure the allocator
@@ -1213,9 +1213,9 @@ mod tests {
             build("ret", &[]),
         ]);
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("lhs"), Some("gp"));
-        assert_eq!(br.get("rhs"), Some("t0"));
-        assert_eq!(br.get("cond"), Some("ltu")); // b.lo → unsigned lhs < rhs
+        assert_eq!(br.get("lhs").as_deref(), Some("gp"));
+        assert_eq!(br.get("rhs").as_deref(), Some("t0"));
+        assert_eq!(br.get("cond").as_deref(), Some("ltu")); // b.lo → unsigned lhs < rhs
     }
 
     /// bug-284 C3 / bug-381: a call still invalidates the pending compare. The

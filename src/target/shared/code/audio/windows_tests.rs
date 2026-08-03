@@ -36,7 +36,7 @@ fn available_returns_frames_not_bytes() {
             .expect("lower audio::available");
     let scales_result = ins
         .iter()
-        .any(|i| i.op == CodeOp::Mul && i.get("dst") == Some(RESULT_VALUE_REGISTER));
+        .any(|i| i.op == CodeOp::Mul && i.get("dst").as_deref() == Some(RESULT_VALUE_REGISTER));
     assert!(
         !scales_result,
         "bug-416 (1): audio::available must return frames, not frames*bpf \
@@ -99,7 +99,7 @@ fn shared_open_guards_mix_channel_underflow() {
     let mix_ch = W_MIX_CH.to_string();
     let loads_mix_ch = ins.iter().any(|i| {
         matches!(i.op, CodeOp::LdrU64 | CodeOp::LdrU32 | CodeOp::LdrU16)
-            && i.get("offset") == Some(mix_ch.as_str())
+            && i.get("offset").as_deref() == Some(mix_ch.as_str())
     });
     assert!(
         loads_mix_ch,

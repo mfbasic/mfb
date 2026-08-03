@@ -2110,7 +2110,7 @@ mod lookup_release_tests {
             lower_net_lookup_helper("lk", &imports, &TestPlatform).expect("lower lookup");
         let freeaddrinfo_calls = ins
             .iter()
-            .filter(|i| i.op == CodeOp::BranchLink && i.get("target") == Some("_freeaddrinfo"))
+            .filter(|i| i.op == CodeOp::BranchLink && i.get("target").as_deref() == Some("_freeaddrinfo"))
             .count();
         assert!(
             freeaddrinfo_calls >= 2,

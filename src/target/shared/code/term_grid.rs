@@ -1733,9 +1733,9 @@ mod tests {
         // fell straight through to `write_done`.
         let retries_eintr = instrs.windows(2).any(|w| {
             w[0].op.mnemonic() == "cmp_imm"
-                && w[0].get("rhs") == Some(EINTR_ERRNO)
+                && w[0].get("rhs").as_deref() == Some(EINTR_ERRNO)
                 && w[1].op.mnemonic() == "b.eq"
-                && w[1].get("target") == Some(write_loop.as_str())
+                && w[1].get("target").as_deref() == Some(write_loop.as_str())
         });
         assert!(
             retries_eintr,

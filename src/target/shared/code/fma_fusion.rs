@@ -198,10 +198,10 @@ mod tests {
         fuse_scalar_fma(&mut ins);
         assert_eq!(ins.len(), 1);
         assert_eq!(ins[0].op, CodeOp::FMaddD);
-        assert_eq!(ins[0].get("dst"), Some("%f3"));
-        assert_eq!(ins[0].get("addend"), Some("%f9"));
-        assert_eq!(ins[0].get("lhs"), Some("%f0"));
-        assert_eq!(ins[0].get("rhs"), Some("%f1"));
+        assert_eq!(ins[0].get("dst").as_deref(), Some("%f3"));
+        assert_eq!(ins[0].get("addend").as_deref(), Some("%f9"));
+        assert_eq!(ins[0].get("lhs").as_deref(), Some("%f0"));
+        assert_eq!(ins[0].get("rhs").as_deref(), Some("%f1"));
     }
 
     /// The product in the right operand still fuses to `fmadd_d` (commuted add).
@@ -214,7 +214,7 @@ mod tests {
         fuse_scalar_fma(&mut ins);
         assert_eq!(ins.len(), 1);
         assert_eq!(ins[0].op, CodeOp::FMaddD);
-        assert_eq!(ins[0].get("addend"), Some("%f9"));
+        assert_eq!(ins[0].get("addend").as_deref(), Some("%f9"));
     }
 
     /// `a*b - c` → `fmsub_d`; `c - a*b` → `fnmsub_d`.
@@ -226,7 +226,7 @@ mod tests {
         ];
         fuse_scalar_fma(&mut ins);
         assert_eq!(ins[0].op, CodeOp::FMsubD);
-        assert_eq!(ins[0].get("addend"), Some("%f9"));
+        assert_eq!(ins[0].get("addend").as_deref(), Some("%f9"));
 
         let mut ins = vec![
             ci("fmul_d", &[("dst", "%f2"), ("lhs", "%f0"), ("rhs", "%f1")]),
@@ -234,7 +234,7 @@ mod tests {
         ];
         fuse_scalar_fma(&mut ins);
         assert_eq!(ins[0].op, CodeOp::FNmsubD);
-        assert_eq!(ins[0].get("addend"), Some("%f9"));
+        assert_eq!(ins[0].get("addend").as_deref(), Some("%f9"));
     }
 
     /// A product used twice (also stored) is NOT fused — the un-rounded value is

@@ -1411,7 +1411,7 @@ mod error_path_release_tests {
                 // Register names are physical by this point (the body has been
                 // through allocation), so the immediate is the stable signal.
                 ins.iter()
-                    .any(|i| i.op == CodeOp::CmpImm && i.get("rhs") == Some(point_len)),
+                    .any(|i| i.op == CodeOp::CmpImm && i.get("rhs").as_deref() == Some(point_len)),
                 "verify must compare the public-key length against {point_len}"
             );
         }

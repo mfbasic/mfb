@@ -1341,15 +1341,15 @@ fn drop_redundant_reloads(body: Vec<CodeInstruction>) -> Vec<CodeInstruction> {
         // A slot access is `add_imm t0,t2,off` immediately followed by a
         // vle64/vse64 through t0.
         let is_slot_addr = inst.op.mnemonic() == "add_imm"
-            && inst.get("dst") == Some(T0)
-            && inst.get("src") == Some(T2);
+            && inst.get("dst").as_deref() == Some(T0)
+            && inst.get("src").as_deref() == Some(T2);
         if is_slot_addr && i + 1 < body.len() {
-            let off = inst.get("imm").unwrap_or_default().to_string();
+            let off = inst.get("imm").unwrap_or_default();
             let next = &body[i + 1];
-            if next.op.mnemonic() == "rv.vop" && next.get("base") == Some(T0) {
-                match next.get("vop") {
+            if next.op.mnemonic() == "rv.vop" && next.get("base").as_deref() == Some(T0) {
+                match next.get("vop").as_deref() {
                     Some("vle64.v") => {
-                        let reg = next.get("dst").unwrap_or_default().to_string();
+                        let reg = next.get("dst").unwrap_or_default();
                         if holds.get(&reg) == Some(&off) {
                             // Register already holds this slot → drop the reload.
                             keep[i] = false;
@@ -1361,7 +1361,7 @@ fn drop_redundant_reloads(body: Vec<CodeInstruction>) -> Vec<CodeInstruction> {
                         continue;
                     }
                     Some("vse64.v") => {
-                        let reg = next.get("src").unwrap_or_default().to_string();
+                        let reg = next.get("src").unwrap_or_default();
                         holds.insert(reg, off);
                         i += 2;
                         continue;
@@ -1373,10 +1373,10 @@ fn drop_redundant_reloads(body: Vec<CodeInstruction>) -> Vec<CodeInstruction> {
         // Any rv.vop that writes a vector register invalidates that register's
         // known slot value (it now holds a computed result). `vmv.x.s` writes a
         // GPR, not a vector reg, so it does not invalidate.
-        if inst.op.mnemonic() == "rv.vop" && inst.get("vop") != Some("vmv.x.s") {
+        if inst.op.mnemonic() == "rv.vop" && inst.get("vop").as_deref() != Some("vmv.x.s") {
             if let Some(dst) = inst.get("dst") {
                 if dst.starts_with('v') {
-                    holds.remove(dst);
+                    holds.remove(&dst);
                 }
             }
         }
@@ -1465,15 +1465,15 @@ mod tests {
         // (bug-122), then 2 lanes × (ldr,ldr,fadd,str) = 1 + 8.
         assert_eq!(out.len(), 9);
         assert_eq!(out[0].op.mnemonic(), "add_imm");
-        assert_eq!(out[0].get("src"), Some("s11"));
+        assert_eq!(out[0].get("src").as_deref(), Some("s11"));
         let expected_offset = crate::target::shared::code::ARENA_V128_SLOTS_OFFSET.to_string();
-        assert_eq!(out[0].get("imm"), Some(expected_offset.as_str()));
+        assert_eq!(out[0].get("imm").as_deref(), Some(expected_offset.as_str()));
         assert_eq!(
             out.iter().filter(|i| i.op.mnemonic() == "fadd_d").count(),
             2
         );
         // %f7 (slot 1) low lane reads offset 16.
-        assert!(out.iter().any(|i| i.get("offset") == Some("16")));
+        assert!(out.iter().any(|i| i.get("offset").as_deref() == Some("16")));
     }
 
     /// bug-284 C4: the lane index was parsed with `unwrap_or(0)`, which mapped a
@@ -1513,7 +1513,7 @@ mod tests {
             ];
             let out = scalarize_v128(CodeOp::UmovXFromV, &fields, &map(&[("v1", 0)]));
             assert!(
-                out.iter().any(|i| i.get("offset") == Some(offset)),
+                out.iter().any(|i| i.get("offset").as_deref() == Some(offset)),
                 "lane {index} should read offset {offset}"
             );
         }
@@ -1555,8 +1555,8 @@ mod tests {
             ("offset", "32".to_string()),
         ];
         let out = scalarize_v128(CodeOp::LdrQ, &fields, &map(&[("v0", 0)]));
-        assert!(out.iter().any(|i| i.get("offset") == Some("32")));
-        assert!(out.iter().any(|i| i.get("offset") == Some("40")));
+        assert!(out.iter().any(|i| i.get("offset").as_deref() == Some("32")));
+        assert!(out.iter().any(|i| i.get("offset").as_deref() == Some("40")));
     }
 
     #[test]
@@ -1575,21 +1575,21 @@ mod tests {
         // Both lanes sign-fill with `srai t0, t0, 63` — never a shift of 64.
         assert_eq!(
             sshr.iter()
-                .filter(|i| i.op.mnemonic() == "asr_imm" && i.get("shift") == Some("63"))
+                .filter(|i| i.op.mnemonic() == "asr_imm" && i.get("shift").as_deref() == Some("63"))
                 .count(),
             2
         );
-        assert!(sshr.iter().all(|i| i.get("shift") != Some("64")));
+        assert!(sshr.iter().all(|i| i.get("shift").as_deref() != Some("64")));
 
         // Logical/left shift out every bit: store the `zero` register per lane.
         for op in [CodeOp::UshrV, CodeOp::ShlV] {
             let out = scalarize_v128(op, &fields, &slots);
             let zeroed = out
                 .iter()
-                .filter(|i| i.op.mnemonic() == "str_u64" && i.get("src") == Some("zero"))
+                .filter(|i| i.op.mnemonic() == "str_u64" && i.get("src").as_deref() == Some("zero"))
                 .count();
             assert_eq!(zeroed, 2, "{} lanes must be zeroed", op.mnemonic());
-            assert!(out.iter().all(|i| i.get("shift") != Some("64")));
+            assert!(out.iter().all(|i| i.get("shift").as_deref() != Some("64")));
         }
 
         // In-range shifts are untouched.
@@ -1601,7 +1601,7 @@ mod tests {
         let out = scalarize_v128(CodeOp::UshrV, &three, &slots);
         assert_eq!(
             out.iter()
-                .filter(|i| i.op.mnemonic() == "lsr_imm" && i.get("shift") == Some("3"))
+                .filter(|i| i.op.mnemonic() == "lsr_imm" && i.get("shift").as_deref() == Some("3"))
                 .count(),
             2
         );
@@ -1785,27 +1785,27 @@ mod tests {
             .collect();
 
         let out = lower_v128_run(&[(CodeOp::FAddV, fields.clone())], &slots, &vregs, 0);
-        let vop = |i: &CodeInstruction| i.get("vop").map(str::to_string);
+        let vop = |i: &CodeInstruction| i.get("vop");
         // Guard: load the flag and branch to the scalar label when it is clear.
         assert!(out.iter().any(|i| i.op.mnemonic() == "adrp"
-            && i.get("symbol") == Some(crate::target::shared::code::HAS_RVV_GLOBAL_SYMBOL)));
+            && i.get("symbol").as_deref() == Some(crate::target::shared::code::HAS_RVV_GLOBAL_SYMBOL)));
         assert!(out.iter().any(|i| i.op.mnemonic() == "rv.br"
-            && i.get("target") == Some("v128_scalar_0")
-            && i.get("cond") == Some("eq")));
+            && i.get("target").as_deref() == Some("v128_scalar_0")
+            && i.get("cond").as_deref() == Some("eq")));
         // RVV arm: vsetivli then vfadd.vv on the assigned registers.
         assert!(out.iter().any(|i| vop(i).as_deref() == Some("vsetivli")));
         assert!(out.iter().any(|i| vop(i).as_deref() == Some("vfadd.vv")
-            && i.get("dst") == Some("v1")
-            && i.get("lhs") == Some("v2")
-            && i.get("rhs") == Some("v3")));
+            && i.get("dst").as_deref() == Some("v1")
+            && i.get("lhs").as_deref() == Some("v2")
+            && i.get("rhs").as_deref() == Some("v3")));
         // Scalar arm (unchanged) is present behind the label, and both arms converge.
         assert!(out
             .iter()
-            .any(|i| i.op.mnemonic() == "label" && i.get("name") == Some("v128_scalar_0")));
+            .any(|i| i.op.mnemonic() == "label" && i.get("name").as_deref() == Some("v128_scalar_0")));
         assert!(out.iter().any(|i| i.op.mnemonic() == "fadd_d"));
         assert!(out
             .iter()
-            .any(|i| i.op.mnemonic() == "label" && i.get("name") == Some("v128_done_0")));
+            .any(|i| i.op.mnemonic() == "label" && i.get("name").as_deref() == Some("v128_done_0")));
 
         // A non-lowerable op (or overflow) is never accumulated into a run —
         // `rvv_lowerable` rejects it, so `select_riscv64` scalarizes it directly,
@@ -1832,7 +1832,7 @@ mod tests {
         let slots = map(&[("%f0", 0), ("%f1", 1), ("%f2", 2)]);
         let vop_seq = |out: &[CodeInstruction]| -> Vec<String> {
             out.iter()
-                .filter_map(|i| i.get("vop").map(str::to_string))
+                .filter_map(|i| i.get("vop"))
                 .collect()
         };
 
@@ -1850,7 +1850,7 @@ mod tests {
         .expect("FCmGtV is vector-lowered");
         assert!(cmp
             .iter()
-            .any(|i| i.get("vop") == Some("vmflt.vv") && i.get("dst") == Some("v0")));
+            .any(|i| i.get("vop").as_deref() == Some("vmflt.vv") && i.get("dst").as_deref() == Some("v0")));
         let seq = vop_seq(&cmp);
         let merge = seq
             .iter()
@@ -1895,7 +1895,7 @@ mod tests {
                 &vregs,
             )
             .expect("min/max is vector-lowered");
-            assert!(out.iter().any(|i| i.get("vop") == Some(mn)));
+            assert!(out.iter().any(|i| i.get("vop").as_deref() == Some(mn)));
         }
 
         // A deferred op (FRint*) still returns None → scalar-only.
@@ -1943,14 +1943,14 @@ mod tests {
         // One guard, one config for the whole run.
         assert_eq!(
             out.iter()
-                .filter(|i| i.op.mnemonic() == "label" && i.get("name") == Some("v128_scalar_0"))
+                .filter(|i| i.op.mnemonic() == "label" && i.get("name").as_deref() == Some("v128_scalar_0"))
                 .count(),
             1,
             "one guard per run"
         );
         assert_eq!(
             out.iter()
-                .filter(|i| i.get("vop") == Some("vsetivli"))
+                .filter(|i| i.get("vop").as_deref() == Some("vsetivli"))
                 .count(),
             1,
             "one vsetivli per run"
@@ -1958,13 +1958,13 @@ mod tests {
         // Residency: %f3 lives in v4; op2 must NOT reload it (no vle64 into v4).
         assert!(
             !out.iter()
-                .any(|i| i.get("vop") == Some("vle64.v") && i.get("dst") == Some("v4")),
+                .any(|i| i.get("vop").as_deref() == Some("vle64.v") && i.get("dst").as_deref() == Some("v4")),
             "the mid-run value stays resident — its reload is elided"
         );
         // The multiply still reads it from its register.
-        assert!(out.iter().any(|i| i.get("vop") == Some("vfmul.vv")
-            && i.get("lhs") == Some("v4")
-            && i.get("rhs") == Some("v3")));
+        assert!(out.iter().any(|i| i.get("vop").as_deref() == Some("vfmul.vv")
+            && i.get("lhs").as_deref() == Some("v4")
+            && i.get("rhs").as_deref() == Some("v3")));
     }
 
     #[test]
@@ -1977,7 +1977,7 @@ mod tests {
             2
         );
         // src (a0, a GPR) passes through unslotted.
-        assert!(out.iter().any(|i| i.get("src") == Some("a0")));
+        assert!(out.iter().any(|i| i.get("src").as_deref() == Some("a0")));
     }
 
     // ---------- extended op-lowering coverage ----------
@@ -2214,7 +2214,7 @@ mod tests {
         assert_eq!(count(&ld, "ldr_u64"), 2);
         assert_eq!(count(&ld, "str_u64"), 2);
         // High lane reads source offset 8.
-        assert!(ld.iter().any(|i| i.get("offset") == Some("8")));
+        assert!(ld.iter().any(|i| i.get("offset").as_deref() == Some("8")));
 
         let st = scalarize_v128(
             CodeOp::StrQ,
@@ -2234,9 +2234,9 @@ mod tests {
             &big(),
         );
         assert_eq!(count(&out, "ldr_u64"), 1);
-        assert_eq!(out.last().unwrap().get("dst"), Some("a0"));
+        assert_eq!(out.last().unwrap().get("dst").as_deref(), Some("a0"));
         // Slot 1, high half → offset 1*16 + 8 = 24.
-        assert_eq!(out.last().unwrap().get("offset"), Some("24"));
+        assert_eq!(out.last().unwrap().get("offset").as_deref(), Some("24"));
     }
 
     #[test]
@@ -2273,7 +2273,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("{} must be vector-lowered", op.mnemonic()))
         };
         let has =
-            |out: &[CodeInstruction], vop: &str| out.iter().any(|i| i.get("vop") == Some(vop));
+            |out: &[CodeInstruction], vop: &str| out.iter().any(|i| i.get("vop").as_deref() == Some(vop));
 
         let ss = &[("dst", "v0"), ("src", "v1")]; // two-reg-misc
         let abc = &[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]; // three-same
@@ -2426,7 +2426,7 @@ mod tests {
             let out = arm(op, abc);
             assert_eq!(
                 out.iter()
-                    .filter(|i| i.get("vop") == Some("vxor.vv"))
+                    .filter(|i| i.get("vop").as_deref() == Some("vxor.vv"))
                     .count(),
                 2,
                 "{} is two xors around one and",
@@ -2507,7 +2507,7 @@ mod tests {
         // v2 lives in v3; its slot (offset 32) is loaded once, not twice.
         let v2_loads = out
             .iter()
-            .filter(|i| i.get("vop") == Some("vle64.v") && i.get("dst") == Some("v3"))
+            .filter(|i| i.get("vop").as_deref() == Some("vle64.v") && i.get("dst").as_deref() == Some("v3"))
             .count();
         assert_eq!(
             v2_loads, 1,
@@ -2516,6 +2516,6 @@ mod tests {
         // Unique labels per run.
         assert!(out
             .iter()
-            .any(|i| i.op.mnemonic() == "label" && i.get("name") == Some("v128_scalar_7")));
+            .any(|i| i.op.mnemonic() == "label" && i.get("name").as_deref() == Some("v128_scalar_7")));
     }
 }

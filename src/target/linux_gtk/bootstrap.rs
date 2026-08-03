@@ -958,7 +958,7 @@ mod tests {
         let utf8_call = ins
             .iter()
             .position(|i| {
-                i.op == CodeOp::BranchLink && i.get("target") == Some("g_unichar_to_utf8")
+                i.op == CodeOp::BranchLink && i.get("target").as_deref() == Some("g_unichar_to_utf8")
             })
             .expect("printable branch must call g_unichar_to_utf8");
 
@@ -971,10 +971,10 @@ mod tests {
                 let cmp = &pair[0];
                 let br = &pair[1];
                 cmp.op == CodeOp::CmpImm
-                    && cmp.get("lhs") == Some("x9")
-                    && cmp.get("rhs") == Some(expected_bound.as_str())
+                    && cmp.get("lhs").as_deref() == Some("x9")
+                    && cmp.get("rhs").as_deref() == Some(expected_bound.as_str())
                     && br.op == CodeOp::BranchHi
-                    && br.get("target") == Some("ignore")
+                    && br.get("target").as_deref() == Some("ignore")
             })
             .expect(
                 "printable branch must bound ST_LINE_LEN against LINE_BUF_CAP - 6 and \
@@ -991,8 +991,8 @@ mod tests {
             CodeOp::LdrU64,
             "guard must follow the ST_LINE_LEN load"
         );
-        assert_eq!(ldr.get("dst"), Some("x9"));
-        assert_eq!(ldr.get("offset"), Some(ST_LINE_LEN.to_string().as_str()));
+        assert_eq!(ldr.get("dst").as_deref(), Some("x9"));
+        assert_eq!(ldr.get("offset").as_deref(), Some(ST_LINE_LEN.to_string().as_str()));
 
         // And the guard must sit before the destination-pointer arithmetic that the
         // encode writes through, so a dropped key never computes an out-of-range dst.
@@ -1019,7 +1019,7 @@ mod tests {
         let dup2_calls: Vec<usize> = ins
             .iter()
             .enumerate()
-            .filter(|(_, i)| i.op == CodeOp::BranchLink && i.get("target") == Some("dup2"))
+            .filter(|(_, i)| i.op == CodeOp::BranchLink && i.get("target").as_deref() == Some("dup2"))
             .map(|(idx, _)| idx)
             .collect();
         assert_eq!(dup2_calls.len(), 1, "activate must call dup2 exactly once");
@@ -1028,7 +1028,7 @@ mod tests {
         let close_calls: Vec<usize> = ins
             .iter()
             .enumerate()
-            .filter(|(_, i)| i.op == CodeOp::BranchLink && i.get("target") == Some("close"))
+            .filter(|(_, i)| i.op == CodeOp::BranchLink && i.get("target").as_deref() == Some("close"))
             .map(|(idx, _)| idx)
             .collect();
         assert_eq!(
@@ -1047,10 +1047,10 @@ mod tests {
             CodeOp::LdrU32,
             "close's fd must be a fresh stack load"
         );
-        assert_eq!(load.get("dst"), Some("x0"));
-        assert_eq!(load.get("base"), Some("sp"));
+        assert_eq!(load.get("dst").as_deref(), Some("x0"));
+        assert_eq!(load.get("base").as_deref(), Some("sp"));
         assert_eq!(
-            load.get("offset"),
+            load.get("offset").as_deref(),
             Some("16"),
             "must close the READ end (offset 16), not the write end (offset 20)"
         );
@@ -1060,10 +1060,10 @@ mod tests {
         let dup2_load = ins[..dup2]
             .iter()
             .rev()
-            .find(|i| i.op == CodeOp::LdrU32 && i.get("dst") == Some("x0"))
+            .find(|i| i.op == CodeOp::LdrU32 && i.get("dst").as_deref() == Some("x0"))
             .expect("dup2 must load the read fd into x0");
-        assert_eq!(dup2_load.get("base"), Some("sp"));
-        assert_eq!(dup2_load.get("offset"), Some("16"));
+        assert_eq!(dup2_load.get("base").as_deref(), Some("sp"));
+        assert_eq!(dup2_load.get("offset").as_deref(), Some("16"));
     }
 
     /// The commit path streams `ST_LINE_LEN` bytes from `ST_LINE_BUF` to the pipe.
@@ -1089,11 +1089,11 @@ mod tests {
         let start = func
             .instructions
             .iter()
-            .position(|i| i.op == CodeOp::Label && i.get("name") == Some("backspace"))
+            .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some("backspace"))
             .expect("key handler must have a `backspace` label");
         let end = func.instructions[start + 1..]
             .iter()
-            .position(|i| i.op == CodeOp::Label && i.get("name") == Some("raw"))
+            .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some("raw"))
             .map(|p| start + 1 + p)
             .expect("`raw` label must follow the backspace handler");
         (func, start, end)
@@ -1123,7 +1123,7 @@ mod tests {
         assert!(
             region
                 .iter()
-                .any(|i| i.op == CodeOp::CmpImm && i.get("rhs") == Some("128")),
+                .any(|i| i.op == CodeOp::CmpImm && i.get("rhs").as_deref() == Some("128")),
             "backspace must compare the masked byte against 0x80 (128) to detect a \
              continuation byte and keep scanning back to the lead byte — bug-421"
         );
@@ -1141,14 +1141,14 @@ mod tests {
         assert!(
             region
                 .iter()
-                .any(|i| i.op == CodeOp::CmpImm && i.get("rhs") == Some(MODE_LINE_ECHO)),
+                .any(|i| i.op == CodeOp::CmpImm && i.get("rhs").as_deref() == Some(MODE_LINE_ECHO)),
             "backspace must gate the transcript erase on LINE_ECHO mode — bug-421"
         );
         assert!(
             region
                 .iter()
                 .any(|i| i.op == CodeOp::BranchLink
-                    && i.get("target") == Some(DELETE_LAST_CHAR_SYMBOL)),
+                    && i.get("target").as_deref() == Some(DELETE_LAST_CHAR_SYMBOL)),
             "LINE_ECHO backspace must call the transcript delete-last-char helper so \
              the echo tracks the code-point-aware line buffer — bug-421"
         );
@@ -1162,21 +1162,21 @@ mod tests {
     fn delete_last_char_helper_is_codepoint_granular() {
         let func = emit_delete_last_char_helper().unwrap();
         let ins = &func.instructions;
-        let targets: Vec<&str> = ins
+        let targets: Vec<String> = ins
             .iter()
             .filter(|i| i.op == CodeOp::BranchLink)
             .filter_map(|i| i.get("target"))
             .collect();
         assert!(
-            targets.contains(&"gtk_text_buffer_get_end_iter"),
+            targets.iter().any(|t| t == "gtk_text_buffer_get_end_iter"),
             "delete helper must fetch the buffer end iterator"
         );
         assert!(
-            targets.contains(&"gtk_text_iter_backward_char"),
+            targets.iter().any(|t| t == "gtk_text_iter_backward_char"),
             "delete helper must move back one whole character (code-point granular)"
         );
         assert!(
-            targets.contains(&"gtk_text_buffer_delete"),
+            targets.iter().any(|t| t == "gtk_text_buffer_delete"),
             "delete helper must delete the trailing character range"
         );
     }

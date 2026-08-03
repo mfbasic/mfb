@@ -137,15 +137,25 @@ De-risk the read ripple before the flip: change `get()` to return the rendered
 value from the (still-String) store — a no-op that surfaces every caller needing
 `&str → String`/`.as_deref()`.
 
-- [ ] Change `get()` to `Option<String>` (render/clone from the current String
-      store) and add `operand()` stub; update all `get()` callers mechanically.
-- [ ] Tests: existing suite must stay green; no golden change.
-- [ ] `artifact-gate … all` — zero diffs.
+- [x] Change `get()` to `Option<String>` (clones from the still-`String` store);
+      update all `get()` callers mechanically (~200 sites: a field-name-restricted
+      `.as_deref()` transform for the `== Some("lit")`/`!= Some`/`, Some` shapes,
+      plus hand fixes for tuple-match scrutinees, fn-arg passes, `Vec<&str>`
+      collects, and `HashSet<&str>`→`HashSet<String>` lookups). peephole's
+      `Effect<'a>` became an owned `Effect` (nothing to borrow from a rendered
+      value). **Correction — no `operand()` stub in Phase 1.** `operand()` must
+      return `&Operand`, which cannot be produced from a `String` store (a rendered
+      `&Operand` would borrow a temporary); it is real only after the flip, so it
+      lands in Phase 2 with `fields: …Operand`. The Phase-1 "stub" is moot.
+- [x] Tests: full `cargo test --bin mfb` green (3762 passed, 0 failed); no golden
+      change.
+- [x] `artifact-gate … all` — **0 diff(s)** (1144 tests, 1286 builds, 1549
+      goldens), verified 2026-08-02 with storage still `String`.
 
 Acceptance: `cargo test --bin mfb` green, `artifact-gate … all` diff-free with
 storage still `String` — proving the read-side ripple is fully absorbed before
-the flip.
-Commit: —
+the flip. Verified 2026-08-02.
+Commit: (recorded next commit)
 
 ### Phase 2 — Flip storage + migrate all write sites
 
@@ -190,7 +200,19 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Phase 1 has no `operand()` stub; `operand()` lands in Phase 2.** A stub can
+  only be meaningful once `fields` stores `Operand` — over the still-`String`
+  Phase-1 store, `operand()` would have to return `&Operand` borrowed from a
+  temporary rendered value, which does not compile. So the accessor is added with
+  the flip (Phase 2). No behavior lost; the Phase-1 read-ripple de-risk (get() →
+  `Option<String>` + caller churn) stands on its own and is proven diff-free.
+- **`get()`-caller ripple was ~200 sites, absorbed mechanically.** Most were
+  `inst.get("field") == Some("lit")` needing `.as_deref()`; applied as a
+  field-name-restricted, compile-verified transform, with hand fixes for the
+  residual shapes (tuple-match scrutinees in `peephole`/`fma_fusion`, `fold_pair`
+  args, `Vec<&str>`/`HashSet<&str>` collections that became owned). peephole's
+  `Effect<'a>` dropped its lifetime to own `String`. All green + gate diff-free,
+  so the ripple changed no emitted byte.
 
 ## Summary
 

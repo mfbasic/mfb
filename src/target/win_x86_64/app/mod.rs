@@ -2759,11 +2759,11 @@ mod tests {
         let (_frame, ins, _rel) = emit_app_io_write_helper("_test_io", false, false, None);
         let nul_idx = ins
             .iter()
-            .position(|i| i.op == CodeOp::StrU16 && i.get("src") == Some(abi::ZERO))
+            .position(|i| i.op == CodeOp::StrU16 && i.get("src").as_deref() == Some(abi::ZERO))
             .expect("transcript path NUL-terminates wbuf via a str_u16 of the zero register");
         let clamped = ins[..nul_idx]
             .iter()
-            .any(|i| i.op == CodeOp::CmpImm && i.get("rhs") == Some("32767"));
+            .any(|i| i.op == CodeOp::CmpImm && i.get("rhs").as_deref() == Some("32767"));
         assert!(
             clamped,
             "the wbuf NUL offset must be clamped to ≤ 32767 wchars so it stays within \

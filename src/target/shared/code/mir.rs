@@ -436,9 +436,9 @@ pub(crate) fn lower_to_mir(instructions: &[CodeInstruction]) -> Vec<MirInstructi
         }
         let dst = adrp.get("dst")?;
         let symbol = adrp.get("symbol")?;
-        if add.get("dst") == Some(dst)
-            && add.get("src") == Some(dst)
-            && add.get("symbol") == Some(symbol)
+        if add.get("dst").as_deref() == Some(dst.as_str())
+            && add.get("src").as_deref() == Some(dst.as_str())
+            && add.get("symbol").as_deref() == Some(symbol.as_str())
         {
             // Carry the `adrp` field bag (`[dst, symbol]`); the expansion
             // reconstructs `add_pageoff`'s `src == dst` from it.
