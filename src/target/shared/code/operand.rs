@@ -80,9 +80,6 @@ pub(crate) enum Operand {
     /// the render source of truth. Constructed by the allocation rewrite
     /// (plan-82-B) and by the encoder read (plan-82-D reads `index` directly). No
     /// heap allocation — `name` is a static pointer.
-    #[allow(dead_code)]
-    // constructed by plan-82-B's typed write-back; proven live by the round-trip
-    // test in `regalloc::analysis`
     Phys {
         class: RegClass,
         index: u32,
@@ -103,7 +100,7 @@ impl Operand {
 
     /// A colored physical register of `class` at register-table `index`, spelled
     /// `name` (a `&'static str` from the target's register model). See the arm doc.
-    #[allow(dead_code)] // production writer lands in plan-82-B; proven by the analysis round-trip test
+    /// Constructed by the allocation rewrite (plan-82-B `substitute`).
     pub(crate) fn phys(class: RegClass, index: u32, name: &'static str) -> Self {
         Operand::Phys { class, index, name }
     }

@@ -88,6 +88,13 @@ const USE_FIELDS: &[&str] = &[
 /// each pass seeing only its own operands.
 #[derive(Clone, Copy)]
 pub(super) struct ClassModel {
+    /// This pass's register class. Lets [`effect`]/`occupied_at`/`substitute`
+    /// read a typed `Operand::VReg`/`Operand::Phys` of the matching class
+    /// directly (its `id`/`index` is already the value they need), skipping the
+    /// `rendered()` + `parse_vreg`/`physical_index` string round-trip that a
+    /// `Raw` operand still needs (plan-82-B). `is_fp` is derivable from this, but
+    /// both are kept: `is_fp` selects clobber sets, `class` constructs `Phys`.
+    pub(super) class: RegClass,
     pub(super) parse_vreg: fn(&str) -> Option<u32>,
     pub(super) physical_index: fn(&str) -> Option<u32>,
     /// Whether this is the FP class (selects the FP vs integer clobber sets).
@@ -388,18 +395,29 @@ pub(super) struct Effect {
 }
 
 pub(super) fn effect(instruction: &CodeInstruction, model: &ClassModel) -> Effect {
-    // Classify one operand to this class's numbering, once. Reads the operand
-    // spelling by borrow (`rendered()` lends a `Raw`'s `&str` — every register
-    // operand in the pre-allocation stream is `Raw`), then a vreg-prefix test
-    // (cheap) before the physical-index lookup. `parse_vreg` first matches the
-    // string-classification order the previous `is_tracked` used, so the def/use
-    // sets are identical (byte-identical liveness).
+    // Classify one operand to this class's numbering, once. A typed operand of
+    // this pass's class carries its id/index inline, so read it directly with no
+    // string work (plan-82-B): a `VReg`/`Phys` of the *other* class is definitively
+    // not this class's register, matching today's outcome where the other class's
+    // spelling failed both `parse_vreg` and `physical_index`. Only a `Raw`/`Imm`
+    // operand takes the `rendered()` + `parse_vreg`/`physical_index` string path —
+    // the same classification order the previous `is_tracked` used, so the def/use
+    // sets are byte-identical. Pre-plan-82-C every register operand is still `Raw`
+    // and takes the fallback; post-C the typed fast path carries the hot load.
     let classify = |value: &Operand| -> Option<RegRef> {
-        let spelling = value.rendered();
-        if let Some(id) = (model.parse_vreg)(&spelling) {
-            Some(RegRef::VReg(id))
-        } else {
-            (model.physical_index)(&spelling).map(RegRef::Phys)
+        match value {
+            Operand::VReg { class, id } => (*class == model.class).then_some(RegRef::VReg(*id)),
+            Operand::Phys { class, index, .. } => {
+                (*class == model.class).then_some(RegRef::Phys(*index))
+            }
+            _ => {
+                let spelling = value.rendered();
+                if let Some(id) = (model.parse_vreg)(&spelling) {
+                    Some(RegRef::VReg(id))
+                } else {
+                    (model.physical_index)(&spelling).map(RegRef::Phys)
+                }
+            }
         }
     };
     let mut defs = Vec::new();
@@ -595,6 +613,7 @@ pub(super) fn integer_live_out(
     model: &dyn RegisterModel,
 ) -> Vec<PhysMask> {
     let model = ClassModel {
+        class: RegClass::Int,
         parse_vreg: |_| None,
         physical_index: int_physical_index,
         is_fp: false,
@@ -945,5 +964,54 @@ mod tests {
                 "reading Phys.index for `{name}` must equal physical_index(rendered())"
             );
         }
+    }
+
+    /// plan-82-B: `effect` must classify a register operand to the *same*
+    /// `RegRef` whether it arrives typed (`VReg`/`Phys`) or as the equivalent
+    /// `Raw` string. This is the invariant that makes the typed fast path in
+    /// `classify` byte-identical to the pre-typing string path (the whole stream
+    /// is `Raw` until plan-82-C, then typed after — both must color identically).
+    #[test]
+    fn effect_classifies_typed_and_raw_operands_identically() {
+        use crate::target::shared::code::{CodeInstruction, Operand};
+
+        let model = ClassModel {
+            class: RegClass::Int,
+            parse_vreg: super::super::parse_vreg,
+            physical_index: int_physical_index,
+            is_fp: false,
+            caller_saved: 0,
+        };
+        let key = |r: &RegRef| match r {
+            RegRef::Phys(p) => (0u8, *p),
+            RegRef::VReg(v) => (1u8, *v),
+        };
+        // dst = %v5 (def), lhs = x9 (physical use), rhs = %v5 (use), plus an
+        // fp register the Int pass must ignore in both forms.
+        let raw = CodeInstruction::new("add")
+            .field("dst", "%v5")
+            .field("lhs", "x9")
+            .field("rhs", "%v5")
+            .field("src", "d3");
+        let typed = CodeInstruction::new("add")
+            .field("dst", Operand::vreg(RegClass::Int, 5))
+            .field("lhs", Operand::phys(RegClass::Int, 9, "x9"))
+            .field("rhs", Operand::vreg(RegClass::Int, 5))
+            .field("src", Operand::phys(RegClass::Fp, 3, "d3"));
+        let er = effect(&raw, &model);
+        let et = effect(&typed, &model);
+        assert_eq!(
+            er.defs.iter().map(key).collect::<Vec<_>>(),
+            et.defs.iter().map(key).collect::<Vec<_>>(),
+            "typed vs raw def sets diverge"
+        );
+        assert_eq!(
+            er.uses.iter().map(key).collect::<Vec<_>>(),
+            et.uses.iter().map(key).collect::<Vec<_>>(),
+            "typed vs raw use sets diverge"
+        );
+        assert_eq!(er.is_call, et.is_call);
+        // Sanity: the fp `d3` operand contributed no Int-class RegRef either way.
+        assert!(!er.uses.iter().any(|r| matches!(r, RegRef::Phys(3))));
     }
 }

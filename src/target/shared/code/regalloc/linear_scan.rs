@@ -100,7 +100,7 @@ pub(super) fn run(
     // home nor as spill scratch / eviction victim), so a physical the codegen
     // pins for a fixed role (e.g. the arena-state register, the syscall
     // number/argument registers) is never handed to the allocator to color.
-    let allocatable: Vec<(&str, u32)> = model
+    let allocatable: Vec<(&'static str, u32)> = model
         .allocatable(class)
         .iter()
         .filter(|&&name| !reserved.contains(&name))
@@ -128,7 +128,11 @@ pub(super) fn run(
     // hold. Expired by start order.
     let mut active: Vec<(usize, u32, u32)> = Vec::new();
     let mut active_mask: u64 = 0;
-    let mut assignment: analysis::U32Map<String> = analysis::U32Map::default();
+    // plan-82-B: a colored vreg records its physical `(name, index)` — the static
+    // name (no heap box) that the rewrite writes into `Operand::Phys`, and the
+    // class index. `assigned_index` keeps the bare `u32` for `colored_mask_sweep`
+    // and the operand-mask (both purely numeric).
+    let mut assignment: analysis::U32Map<(&'static str, u32)> = analysis::U32Map::default();
     let mut assigned_index: analysis::U32Map<u32> = analysis::U32Map::default();
     let mut spilled: Vec<u32> = Vec::new();
 
@@ -153,7 +157,7 @@ pub(super) fn run(
         });
         match choice {
             Some(&(name, pi)) => {
-                assignment.insert(v, name.to_string());
+                assignment.insert(v, (name, pi));
                 assigned_index.insert(v, pi);
                 active.push((e, v, pi));
                 active_mask |= 1u64 << pi;
@@ -208,7 +212,10 @@ pub(super) fn run(
         let used_spilled: Vec<u32> = eff.uses.iter().filter_map(spilled_vreg).collect();
         let def_spilled: Vec<u32> = eff.defs.iter().filter_map(spilled_vreg).collect();
 
-        let mut scratch_for: analysis::U32Map<String> = analysis::U32Map::default();
+        // plan-82-B: a spilled vreg's per-instruction scratch physical, as
+        // `(name, index)` — the static name for `emit_spill`/`emit_reload` and the
+        // `Operand::Phys` the rewrite writes, plus the class index.
+        let mut scratch_for: analysis::U32Map<(&'static str, u32)> = analysis::U32Map::default();
         // Registers this instruction actually reads or writes (after coloring) —
         // a spill scratch may never reuse one of these, even by eviction.
         let mut operand_mask = 0u64;
@@ -251,7 +258,7 @@ pub(super) fn run(
                     {
                         scratch_callee_saved.push(name.to_string());
                     }
-                    scratch_for.insert(v, name.to_string());
+                    scratch_for.insert(v, (name, pi));
                 } else {
                     // Every register is live, so commandeer one that this instruction
                     // does not itself use, saving and restoring it around the use.
@@ -279,7 +286,7 @@ pub(super) fn run(
                     reserved |= 1u64 << pi;
                     let slot_index = evictions.len();
                     evictions.push((name.to_string(), slot_index));
-                    scratch_for.insert(v, name.to_string());
+                    scratch_for.insert(v, (name, pi));
                 }
             }
         }
@@ -291,16 +298,17 @@ pub(super) fn run(
             out.push(model.emit_spill(class, victim, evict_base + slot * slot_bytes));
         }
         for &v in &used_spilled {
-            out.push(model.emit_reload(class, &scratch_for[&v], spill_slot[&v]));
+            out.push(model.emit_reload(class, scratch_for[&v].0, spill_slot[&v]));
         }
         out.push(substitute(
             instruction,
+            class,
             &assignment,
             &scratch_for,
             class_model,
         ));
         for &v in &def_spilled {
-            out.push(model.emit_spill(class, &scratch_for[&v], spill_slot[&v]));
+            out.push(model.emit_spill(class, scratch_for[&v].0, spill_slot[&v]));
         }
         for (victim, slot) in evictions.iter().rev() {
             out.push(model.emit_reload(class, victim, evict_base + slot * slot_bytes));
@@ -309,9 +317,9 @@ pub(super) fn run(
     let total_slot_count = spill_slot_count + max_evictions;
 
     let mut extra_callee_saved: Vec<String> = Vec::new();
-    for phys in assignment.values() {
+    for &(phys, _index) in assignment.values() {
         if model.is_callee_saved(phys) && !extra_callee_saved.iter().any(|s| s == phys) {
-            extra_callee_saved.push(phys.clone());
+            extra_callee_saved.push(phys.to_string());
         }
     }
     // Callee-saved registers commandeered only as genuinely-free reload scratch are
@@ -335,8 +343,9 @@ pub(super) fn run(
     {
         for phys in assignment
             .values()
-            .filter(|p| model.is_callee_saved(p))
-            .chain(scratch_callee_saved.iter())
+            .map(|(name, _index)| *name)
+            .filter(|name| model.is_callee_saved(name))
+            .chain(scratch_callee_saved.iter().map(String::as_str))
         {
             debug_assert!(
                 extra_callee_saved.iter().any(|s| s == phys),
@@ -419,7 +428,14 @@ fn occupied_at(
 ) -> u64 {
     let mut mask = colored_mask_at.get(i).copied().unwrap_or(0);
     for (_field, value) in &instruction.fields {
-        if let Some(p) = (class_model.physical_index)(&value.rendered()) {
+        // A typed physical of this class carries its index inline (plan-82-B); any
+        // other operand (including a `Phys` of the other class) takes the `Raw`
+        // string path, byte-identical to the pre-typing behavior.
+        let p = match value {
+            Operand::Phys { class, index, .. } if *class == class_model.class => Some(*index),
+            _ => (class_model.physical_index)(&value.rendered()),
+        };
+        if let Some(p) = p {
             mask |= 1u64 << p;
         }
     }
@@ -431,8 +447,9 @@ fn occupied_at(
 /// per-instruction scratch.
 fn substitute(
     instruction: &CodeInstruction,
-    assignment: &analysis::U32Map<String>,
-    scratch_for: &analysis::U32Map<String>,
+    class: RegClass,
+    assignment: &analysis::U32Map<(&'static str, u32)>,
+    scratch_for: &analysis::U32Map<(&'static str, u32)>,
     class_model: &ClassModel,
 ) -> CodeInstruction {
     let mut copy = CodeInstruction {
@@ -440,11 +457,24 @@ fn substitute(
         fields: instruction.fields.clone(),
     };
     for (_field, value) in copy.fields.iter_mut() {
-        if let Some(v) = (class_model.parse_vreg)(&value.rendered()) {
-            if let Some(phys) = assignment.get(&v) {
-                *value = Operand::from(phys.as_str());
-            } else if let Some(scratch) = scratch_for.get(&v) {
-                *value = Operand::from(scratch.as_str());
+        // Detect this class's virtual register: a typed `VReg` of the matching
+        // class yields its id with no string work (plan-82-B); a `Raw("%vN")`
+        // (pre-plan-82-C stream) takes the parse fallback. A `VReg`/`Phys` of the
+        // other class is not this class's vreg — skip it, as the old parse did.
+        let vreg = match value {
+            Operand::VReg { class: c, id } if *c == class => Some(*id),
+            Operand::VReg { .. } | Operand::Phys { .. } => None,
+            _ => (class_model.parse_vreg)(&value.rendered()),
+        };
+        if let Some(v) = vreg {
+            // Write a typed `Operand::Phys` carrying the static name (no heap box)
+            // and the class index the encoder reads directly (plan-82-D). Its
+            // `rendered()` equals the old physical-name string, so downstream
+            // consumers and every dump are byte-identical (plan-82-A round trip).
+            if let Some(&(name, index)) = assignment.get(&v) {
+                *value = Operand::phys(class, index, name);
+            } else if let Some(&(name, index)) = scratch_for.get(&v) {
+                *value = Operand::phys(class, index, name);
             }
         }
     }

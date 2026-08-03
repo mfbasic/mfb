@@ -581,3 +581,61 @@ fn x86_fp_values_live_across_a_call_avoid_the_volatile_high_xmm() {
         }
     }
 }
+
+/// plan-82-B: a colored virtual register is rewritten to a typed
+/// `Operand::Phys { class, index, name }` — carrying the class index the encoder
+/// reads directly (plan-82-D) and the `&'static str` physical name (no heap box)
+/// — NOT a `Raw` string. `Phys.index` equals `int_physical_index(name)` and
+/// `rendered()` equals the physical-name string the pre-typing rewrite wrote, so
+/// every downstream reader and dump stays byte-identical (proven end-to-end by
+/// artifact-gate).
+#[test]
+fn linear_scan_writes_typed_phys_operands() {
+    let mut instructions = vec![
+        CodeInstruction::new("label").field("name", "entry"),
+        CodeInstruction::new("mov_imm")
+            .field("dst", &vreg_name(0))
+            .field("type", "Integer")
+            .field("value", "7"),
+        CodeInstruction::new("add")
+            .field("dst", "x0")
+            .field("lhs", &vreg_name(0))
+            .field("rhs", &vreg_name(0)),
+        CodeInstruction::new("ret"),
+    ];
+    allocate(
+        RegallocKind::LinearScan,
+        &mut instructions,
+        &[String::new()],
+        &[],
+        &Aarch64RegisterModel,
+        0,
+        &[],
+    );
+    // v0's def is now a typed Phys of the Int class.
+    let dst = instructions[1].operand("dst").expect("dst operand");
+    match dst {
+        Operand::Phys { class, index, name } => {
+            assert_eq!(*class, RegClass::Int);
+            assert!(name.starts_with('x'), "physical name should be x*: {name}");
+            assert_eq!(
+                analysis::int_physical_index(name),
+                Some(*index),
+                "Phys.index must equal int_physical_index(name)"
+            );
+            assert_eq!(
+                dst.rendered(),
+                *name,
+                "rendered() must equal the static physical name"
+            );
+        }
+        other => panic!("expected Operand::Phys, got {other:?}"),
+    }
+    // The use sites carry the same typed physical.
+    assert_eq!(instructions[2].operand("lhs"), Some(dst));
+    // A hardcoded physical (x0) stays a Raw operand — not touched by coloring.
+    assert!(matches!(
+        instructions[2].operand("dst"),
+        Some(Operand::Raw(_))
+    ));
+}

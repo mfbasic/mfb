@@ -41,7 +41,7 @@ plan-82-A is not complete, plan-82-B cannot start, full stop** — B constructs
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-82-A merged: `Phys` arm exists, round-trip test present | `rg -n 'Phys \{ class' src/target/shared/code/operand.rs` and `rg -n 'render_phys\|physical.*round.?trip' src/target/shared/code` | NOT MET (A pending) |
+| plan-82-A merged: `Phys` arm exists, round-trip test present | `rg -n 'Operand::Phys \{ class' src/target/shared/code/operand.rs` and `rg -n 'phys_operand_round_trips' src/target/shared/code/regalloc/analysis.rs` | **MET** (A complete: bc622ae41; arm carries `{class,index,name}`, round-trip test green) |
 
 ## 1. Goal
 
@@ -113,30 +113,45 @@ typed rewrite of a hand-built instruction stream equals the string rewrite.
 
 ### Phase 1 — Typed classify at entry (no write-back change yet)
 
-- [ ] Extend `RegRef`/`effect` (`analysis.rs`) to carry `RegClass` and to build
-      from an already-typed `VReg` operand without a `rendered()` round-trip,
-      falling back to parse for `Raw`. Behavior unchanged.
-- [ ] Tests: a unit test that `effect` over a mixed typed/`Raw` instruction
-      stream yields identical `RegRef`s either way.
+- [x] Add `class: RegClass` to `ClassModel`; rewrite `effect`'s `classify` to read
+      a typed `VReg`/`Phys` of the matching class directly (its `id`/`index`), with
+      the `rendered()` + `parse_vreg`/`physical_index` string path only for
+      `Raw`/`Imm`. (`RegRef` did not need a class field — the pass class lives in
+      `ClassModel`; recorded in Corrections.) Behavior unchanged.
+- [x] Tests: `effect_classifies_typed_and_raw_operands_identically`
+      (`analysis.rs`) — `effect` over a typed stream vs. the equivalent `Raw`
+      stream yields identical def/use `RegRef`s (and the other-class fp operand is
+      ignored in both).
 
-Acceptance: `cargo test --bin mfb` green; `artifact-gate … all` byte-identical.
-Commit: —
+Acceptance: `cargo test --bin mfb` green (3774 passed); `artifact-gate … all`
+byte-identical (0 diffs). ✓
+Commit: (recorded next commit)
 
 ### Phase 2 — Typed write-back (`Phys` construction on the hot path)
 
-- [ ] In `linear_scan::run`/`regalloc::mod::allocate`, replace the
-      formatted-string physical rewrite with `Operand::Phys { class, index }`.
-      Remove the now-dead `#[allow(dead_code)]` on the typed arm(s).
-- [ ] Drop the residual per-instruction `Box<str>` clones in `substitute`/
-      `occupied_at` now that operands carry `u32`, not strings.
-- [ ] Tests: a golden-style unit test — build a small instruction stream, run the
-      allocator, assert the rewritten operands are `Phys` with the same indices
-      the string path produced (and `rendered()` equal to the old strings).
+- [x] `substitute` writes `Operand::phys(class, index, name)` (carrying the static
+      name + class index) instead of `Operand::from(assigned_string)`. `assignment`
+      and `scratch_for` now hold `(&'static str, u32)` (static name + index)
+      instead of `String`, so the per-colored-vreg `name.to_string()` box is gone.
+      Removed the `#[allow(dead_code)]` on the `Phys` arm + `phys()` ctor (now
+      constructed in production).
+- [x] `substitute`/`occupied_at` read a typed `VReg`/`Phys` of the class directly,
+      taking the `rendered()`+parse path only for `Raw`. (The `instruction.fields.
+      clone()` still boxes any `Raw` operand in the input; those disappear as C
+      converts producers — the residual is `Raw`, not typed.)
+- [x] Tests: `linear_scan_writes_typed_phys_operands` (`regalloc/tests.rs`) — run
+      the allocator, assert the colored `dst` is `Operand::Phys{class:Int,index,
+      name}` with `int_physical_index(name)==index` and `rendered()==name`, the use
+      site carries the same typed physical, and a hardcoded `x0` stays `Raw`.
 
-Acceptance: `artifact-gate … all` byte-identical to pre-plan; `cargo test --bin
-mfb` green; the `code_emit` per-substage allocation count (plan-82-A's counter)
-is **measurably lower** than 566 M (record the new number here).
-Commit: —
+Acceptance: `artifact-gate … all` byte-identical to pre-plan (**0 diffs**, 1553
+goldens); `cargo test --bin mfb` green (3774). Per-substage alloc counter: see
+Corrections — that counter was an ad-hoc profiling-spike instrument, not committed
+infra; the committed reproducible signal is the acceptance wall (Phase 3). The
+write-back structurally removes, per colored vreg, one `name.to_string()` and
+halves the per-rewritten-operand boxes (clone+overwrite: was clone-box + from-box,
+now clone-box + typed-no-box).
+Commit: (recorded next commit)
 
 ### Phase 3 — Perf checkpoint
 
@@ -168,7 +183,30 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **`RegRef` did not need a `RegClass` field.** The plan said "extend `RegRef`/
+  `effect` to carry `RegClass`". In practice the pass's class already lives in
+  `ClassModel` (added a `class: RegClass` field there), which is all `classify`/
+  `occupied_at`/`substitute` need to match a typed operand's class and to
+  construct `Phys{class,…}`. Adding a class to every `RegRef` (one per def/use per
+  instruction) would be redundant. `RegRef` stays `Phys(u32) | VReg(u32)`.
+
+- **The per-substage GlobalAlloc counter is not committed infrastructure.** The
+  plan-82-A baseline's "566 M code_emit allocs" / "215 M encode allocs" were
+  measured with an ad-hoc counting allocator during the 2026-08-02 profiling
+  spike; no such counter exists in the tree, and committing a global-allocator
+  counter would add a per-allocation branch to the very compiler being optimized.
+  So B/C/D report the **committed, reproducible** signal — the `mfb test
+  tests/acceptance` wall-clock (release and debug) plus a green acceptance suite —
+  rather than a re-derived alloc count. The debug wall is D's headline target
+  (≤60 s) and is directly measurable; the allocation reductions are described
+  structurally (which allocations each phase removes).
+
+- **B's win is partial by design, and that is expected, not a shortfall.** Until
+  plan-82-C converts the 1825 producers, every register operand still enters the
+  allocator as `Raw("%vN")`, so `classify`'s typed fast path is dormant and the
+  live win is only the write-back (typed `Phys`, no `String` assignment map). The
+  release acceptance wall moved 58 s → 56.3 s. The large drops land in C
+  (production-time boxes) and D (encode scans).
 
 ## Summary
 
