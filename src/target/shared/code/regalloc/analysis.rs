@@ -801,3 +801,41 @@ pub(super) fn analyze(
         call_clobber,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::hash::Hash;
+
+    /// The fast `U32Hasher` must behave as a real `Hasher`: a `U32Map` keyed by
+    /// `u32` round-trips (exercises `write_u32` + `finish`), and the generic
+    /// `write` byte path (used for any non-integer key) also produces a stable,
+    /// key-sensitive hash. This is the allocator's hot-path hasher, so a silent
+    /// break here would corrupt liveness/coloring.
+    #[test]
+    fn u32_hasher_backs_a_working_map_and_hashes_bytes() {
+        let mut map: U32Map<&str> = U32Map::default();
+        for id in [0u32, 1, 7, 42, 135_293, u32::MAX] {
+            map.insert(id, "v");
+        }
+        assert_eq!(map.len(), 6);
+        assert_eq!(map.get(&42), Some(&"v"));
+        assert_eq!(map.get(&99), None);
+
+        let mut set: U32Set = U32Set::default();
+        set.insert(3);
+        assert!(set.insert(4));
+        assert!(!set.insert(3));
+        assert_eq!(set.len(), 2);
+
+        // The generic `write` fallback (never taken for `u32` keys, but required by
+        // the `Hasher` contract) is order- and content-sensitive.
+        let hash_of = |value: &str| {
+            let mut hasher = U32Hasher::default();
+            value.hash(&mut hasher);
+            hasher.finish()
+        };
+        assert_ne!(hash_of("x0"), hash_of("x1"));
+        assert_eq!(hash_of("rax"), hash_of("rax"));
+    }
+}
