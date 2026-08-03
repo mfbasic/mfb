@@ -37,8 +37,8 @@ These are preconditions on the whole feature, not dependencies to negotiate.
 
 | Must be true | Command | Status |
 |---|---|---|
-| Working tree clean / on a work branch | `git status --porcelain` | MET (snapshot) |
-| No other plan is mid-flight on the thread checker or import resolver | `ls planning/plan-*import* planning/plan-*thread* 2>/dev/null` | MET (snapshot) |
+| Working tree clean / on a work branch | `git status --porcelain` | MET (2026-08-03: empty output) |
+| No other plan is mid-flight on the thread checker or import resolver | `ls planning/plan-*import* planning/plan-*thread* 2>/dev/null` | MET (2026-08-03: only plan-81 itself matches import; no thread plans) |
 
 This plan depends on **no other plan**. Everything below is written against the
 current `main`.
