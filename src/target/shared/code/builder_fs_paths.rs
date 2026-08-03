@@ -7,22 +7,25 @@ impl CodeBuilder<'_> {
     /// path op keeps its own `fs_path_*_trim_{loop,done}` names in the goldens.
     fn emit_trailing_slash_trim(
         &mut self,
-        length: &str,
-        bytes: &str,
-        cursor: &str,
-        byte: &str,
+        length: impl Into<Operand>,
+        bytes: impl Into<Operand>,
+        cursor: impl Into<Operand>,
+        byte: impl Into<Operand>,
         trim_loop: &str,
         trim_done: &str,
     ) {
+        let length = length.into();
+        let cursor = cursor.into();
+        let byte = byte.into();
         self.emit(abi::label(trim_loop));
-        self.emit(abi::compare_immediate(length, "1"));
+        self.emit(abi::compare_immediate(length.clone(), "1"));
         self.emit(abi::branch_le(trim_done));
-        self.emit(abi::add_registers(cursor, bytes, length));
-        self.emit(abi::subtract_immediate(cursor, cursor, 1));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::compare_immediate(byte, "47"));
+        self.emit(abi::add_registers(cursor.clone(), bytes, length.clone()));
+        self.emit(abi::subtract_immediate(cursor.clone(), cursor.clone(), 1));
+        self.emit(abi::load_u8(byte.clone(), cursor.clone(), 0));
+        self.emit(abi::compare_immediate(byte.clone(), "47"));
         self.emit(abi::branch_ne(trim_done));
-        self.emit(abi::subtract_immediate(length, length, 1));
+        self.emit(abi::subtract_immediate(length.clone(), length.clone(), 1));
         self.emit(abi::branch(trim_loop));
         self.emit(abi::label(trim_done));
     }
@@ -82,7 +85,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: result.render(),
             text: "fs.pathJoin".to_string(),
         })
     }
@@ -146,7 +149,7 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&start, &span)?;
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: result.render(),
             text: "fs.pathBaseName".to_string(),
         })
     }
@@ -229,7 +232,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&out, abi::stack_pointer(), final_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: out,
+            location: out.render(),
             text: "fs.pathDirName".to_string(),
         })
     }
@@ -292,7 +295,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: result.render(),
             text: "fs.pathExtension".to_string(),
         })
     }
@@ -691,7 +694,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: result.render(),
             text: "fs.pathNormalize".to_string(),
         })
     }

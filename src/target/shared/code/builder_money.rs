@@ -58,7 +58,7 @@ impl CodeBuilder<'_> {
         ));
         Ok(ValueResult {
             type_: "Rounding".to_string(),
-            location: result,
+            location: result.render(),
             text: "money.getRounding()".to_string(),
         })
     }
@@ -141,7 +141,7 @@ impl CodeBuilder<'_> {
         self.emit_checked_integer_multiply(&result, &rounded, &divisor)?;
         Ok(ValueResult {
             type_: "Money".to_string(),
-            location: result,
+            location: result.render(),
             text,
         })
     }

@@ -41,14 +41,9 @@ impl CodeBuilder<'_> {
         let layout = CollectionTypeLayout::from_type(map_type)
             .ok_or_else(|| format!("native code collection type '{map_type}' is not supported"))?;
         for register in [
-            scratch20.as_str(),
-            scratch21.as_str(),
-            scratch22.as_str(),
-            scratch23.as_str(),
-            scratch24.as_str(),
-            scratch25.as_str(),
+            scratch20, scratch21, scratch22, scratch23, scratch24, scratch25,
         ] {
-            self.mark_register_used(register);
+            self.mark_register_used(&register.render());
         }
         let key_align = self.collection_payload_alignment(key_type);
         let value_align = self.collection_payload_alignment(value_type);
@@ -913,7 +908,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), map_slot));
         Ok(ValueResult {
             type_: map_type.to_string(),
-            location: result,
+            location: result.render(),
             text: format!("map set in place {map_type}"),
         })
     }
@@ -946,14 +941,9 @@ impl CodeBuilder<'_> {
         let value_payload_align = collection_payload_alignment_for_code(layout.value_type_code);
         let map_max_align = key_payload_align.max(value_payload_align);
         for register in [
-            scratch20.as_str(),
-            scratch21.as_str(),
-            scratch22.as_str(),
-            scratch23.as_str(),
-            scratch24.as_str(),
-            scratch25.as_str(),
+            scratch20, scratch21, scratch22, scratch23, scratch24, scratch25,
         ] {
-            self.mark_register_used(register);
+            self.mark_register_used(&register.render());
         }
         let result_slot = self.allocate_stack_object("map_concat_result", 8);
         let alloc_ok = self.label("map_concat_alloc_ok");
@@ -1221,7 +1211,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: map_type.to_string(),
-            location: result,
+            location: result.render(),
             text: format!("map concat {map_type}"),
         })
     }
@@ -1254,14 +1244,9 @@ impl CodeBuilder<'_> {
         let key_payload_align = collection_payload_alignment_for_code(layout.key_type_code);
         let value_payload_align = collection_payload_alignment_for_code(layout.value_type_code);
         for register in [
-            scratch20.as_str(),
-            scratch21.as_str(),
-            scratch22.as_str(),
-            scratch23.as_str(),
-            scratch24.as_str(),
-            scratch25.as_str(),
+            scratch20, scratch21, scratch22, scratch23, scratch24, scratch25,
         ] {
-            self.mark_register_used(register);
+            self.mark_register_used(&register.render());
         }
         let result_slot = self.allocate_stack_object("map_remove_result", 8);
         let count_slot = self.allocate_stack_object("map_remove_count", 8);
@@ -1446,7 +1431,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: map_type.to_string(),
-            location: result,
+            location: result.render(),
             text: format!("removeKey({map_type}, {key_type})"),
         })
     }
@@ -1454,14 +1439,19 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_copy_one_map_entry(
         &mut self,
-        source_entry: &str,
-        source_data: &str,
-        dest_entry: &str,
-        dest_data: &str,
-        dest_data_offset: &str,
+        source_entry: impl Into<Operand>,
+        source_data: impl Into<Operand>,
+        dest_entry: impl Into<Operand>,
+        dest_data: impl Into<Operand>,
+        dest_data_offset: impl Into<Operand>,
         key_align: usize,
         value_align: usize,
     ) {
+        let source_entry = source_entry.into();
+        let source_data = source_data.into();
+        let dest_entry = dest_entry.into();
+        let dest_data = dest_data.into();
+        let dest_data_offset = dest_data_offset.into();
         let scratch22 = self.temporary_vreg();
         let scratch23 = self.temporary_vreg();
         let scratch24 = self.temporary_vreg();
@@ -1473,35 +1463,43 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch22,
-            dest_entry,
+            dest_entry.clone(),
             COLLECTION_ENTRY_OFFSET_FLAGS,
         ));
         // Align the destination cursor to the key payload alignment before
         // recording its offset, matching the packing used when the map was
         // first built. Idempotent when the cursor is already aligned.
-        self.emit_align_offset_register(dest_data_offset, key_align, &scratch22);
+        self.emit_align_offset_register(dest_data_offset.clone(), key_align, &scratch22);
         self.emit(abi::load_u64(
             &scratch22,
-            source_entry,
+            source_entry.clone(),
             COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
         ));
         self.emit(abi::load_u64(
             &scratch23,
-            source_entry,
+            source_entry.clone(),
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
         self.emit(abi::store_u64(
-            dest_data_offset,
-            dest_entry,
+            dest_data_offset.clone(),
+            dest_entry.clone(),
             COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
         ));
         self.emit(abi::store_u64(
             &scratch23,
-            dest_entry,
+            dest_entry.clone(),
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
-        self.emit(abi::add_registers(&scratch24, source_data, &scratch22));
-        self.emit(abi::add_registers(&scratch25, dest_data, dest_data_offset));
+        self.emit(abi::add_registers(
+            &scratch24,
+            source_data.clone(),
+            &scratch22,
+        ));
+        self.emit(abi::add_registers(
+            &scratch25,
+            dest_data.clone(),
+            dest_data_offset.clone(),
+        ));
         self.emit_block_copy_advance(
             &scratch25,
             &scratch24,
@@ -1511,21 +1509,21 @@ impl CodeBuilder<'_> {
         );
         self.emit(abi::load_u64(
             &scratch23,
-            dest_entry,
+            dest_entry.clone(),
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
         self.emit(abi::add_registers(
-            dest_data_offset,
-            dest_data_offset,
+            dest_data_offset.clone(),
+            dest_data_offset.clone(),
             &scratch23,
         ));
 
         // Align the destination cursor to the value payload alignment before
         // recording its offset.
-        self.emit_align_offset_register(dest_data_offset, value_align, &scratch22);
+        self.emit_align_offset_register(dest_data_offset.clone(), value_align, &scratch22);
         self.emit(abi::load_u64(
             &scratch22,
-            source_entry,
+            source_entry.clone(),
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         self.emit(abi::load_u64(
@@ -1534,17 +1532,21 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         self.emit(abi::store_u64(
-            dest_data_offset,
-            dest_entry,
+            dest_data_offset.clone(),
+            dest_entry.clone(),
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         self.emit(abi::store_u64(
             &scratch23,
-            dest_entry,
+            dest_entry.clone(),
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         self.emit(abi::add_registers(&scratch24, source_data, &scratch22));
-        self.emit(abi::add_registers(&scratch25, dest_data, dest_data_offset));
+        self.emit(abi::add_registers(
+            &scratch25,
+            dest_data,
+            dest_data_offset.clone(),
+        ));
         self.emit_block_copy_advance(
             &scratch25,
             &scratch24,
@@ -1554,16 +1556,16 @@ impl CodeBuilder<'_> {
         );
         self.emit(abi::load_u64(
             &scratch23,
-            dest_entry,
+            dest_entry.clone(),
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         self.emit(abi::add_registers(
-            dest_data_offset,
+            dest_data_offset.clone(),
             dest_data_offset,
             &scratch23,
         ));
         self.emit(abi::add_immediate(
-            dest_entry,
+            dest_entry.clone(),
             dest_entry,
             COLLECTION_ENTRY_SIZE,
         ));

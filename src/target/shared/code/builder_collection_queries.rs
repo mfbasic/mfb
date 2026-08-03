@@ -15,7 +15,7 @@ impl CodeBuilder<'_> {
             let copied = self.copy_flat_block(&result.type_, &result.location)?;
             return Ok(ValueResult {
                 type_: result.type_,
-                location: copied,
+                location: copied.render(),
                 text: result.text,
             });
         }
@@ -217,7 +217,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result,
+            location: result.render(),
             text: format!("contains({}, {})", collection.type_, element_type),
         })
     }
@@ -374,7 +374,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done));
             return Ok(ValueResult {
                 type_: "Boolean".to_string(),
-                location: result,
+                location: result.render(),
                 text: format!("{label_prefix}({collection_type}) [hash]"),
             });
         }
@@ -418,7 +418,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result,
+            location: result.render(),
             text: format!("{label_prefix}({collection_type}, {key_type})"),
         })
     }
@@ -758,7 +758,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: format!("List OF {element_type}"),
-            location: result,
+            location: result.render(),
             text: if project_key {
                 format!("keys({})", collection.type_)
             } else {
@@ -817,11 +817,12 @@ impl CodeBuilder<'_> {
     /// `Scalar` 4, instead of 8 — which for those types would pull in the
     /// following elements' packed payload bytes as high-order garbage. `None` is
     /// the kind-0 shape, kept byte-identical.
-    fn emit_zip_payload_load(&mut self, addr: &str, payload: Option<usize>) {
+    fn emit_zip_payload_load(&mut self, addr: impl Into<Operand>, payload: Option<usize>) {
+        let addr = addr.into();
         match payload {
-            Some(1) => self.emit(abi::load_u8(addr, addr, 0)),
-            Some(4) => self.emit(abi::load_u32(addr, addr, 0)),
-            _ => self.emit(abi::load_u64(addr, addr, 0)),
+            Some(1) => self.emit(abi::load_u8(addr.clone(), addr.clone(), 0)),
+            Some(4) => self.emit(abi::load_u32(addr.clone(), addr.clone(), 0)),
+            _ => self.emit(abi::load_u64(addr.clone(), addr.clone(), 0)),
         }
     }
 
@@ -1095,7 +1096,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result,
+            location: result.render(),
             text: format!("zip({list_type})"),
         })
     }
@@ -1468,7 +1469,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: format!("List OF {element_type}"),
-            location: result,
+            location: result.render(),
             text: format!("slice(List OF {element_type})"),
         })
     }
@@ -1569,7 +1570,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, &scratch14));
         Ok(ValueResult {
             type_: element_type,
-            location: result,
+            location: result.render(),
             text: format!("sum({})", collection.type_),
         })
     }
@@ -1833,7 +1834,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), output_slot));
         Ok(ValueResult {
             type_: output_list_type,
-            location: result,
+            location: result.render(),
             text: format!("transform({}, {})", collection.type_, action.text),
         })
     }
@@ -1940,7 +1941,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), output_slot));
         Ok(ValueResult {
             type_: collection.type_.clone(),
-            location: result,
+            location: result.render(),
             text: format!("filter({}, {})", collection.type_, action.text),
         })
     }
@@ -2106,7 +2107,7 @@ impl CodeBuilder<'_> {
             self.emit_build_inlined_record(&record_type, &[matched_slot, unmatched_slot])?;
         let record = ValueResult {
             type_: record_type.clone(),
-            location: record_reg,
+            location: record_reg.render(),
             text: format!("partition({}, {})", collection.type_, action.text),
         };
         let record = self.free_intermediate_collection(matched_slot, &collection.type_, record)?;
@@ -2436,7 +2437,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result_reg, abi::stack_pointer(), items_slot));
         let threaded = ValueResult {
             type_: list_type.clone(),
-            location: result_reg,
+            location: result_reg.render(),
             text: String::new(),
         };
         let threaded = self.free_intermediate_collection(itemsb_slot, &list_type, threaded)?;
@@ -2571,7 +2572,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: map_type.clone(),
-            location: result,
+            location: result.render(),
             text: format!("mapValues({map_type})"),
         })
     }
@@ -2773,7 +2774,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: outer_type,
-            location: result,
+            location: result.render(),
             text: format!("window({})", source.type_),
         })
     }
@@ -2973,7 +2974,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: outer_type,
-            location: result,
+            location: result.render(),
             text: format!("chunks({})", source.type_),
         })
     }
@@ -3280,7 +3281,7 @@ impl CodeBuilder<'_> {
             location: {
                 let z = self.allocate_register()?;
                 self.emit(abi::load_u64(&z, abi::stack_pointer(), result_slot));
-                z
+                z.render()
             },
             text: String::new(),
         };
@@ -3296,7 +3297,7 @@ impl CodeBuilder<'_> {
             location: {
                 let z = self.allocate_register()?;
                 self.emit(abi::load_u64(&z, abi::stack_pointer(), result_slot));
-                z
+                z.render()
             },
             text: String::new(),
         };
@@ -3423,7 +3424,7 @@ impl CodeBuilder<'_> {
         ));
         Ok(ValueResult {
             type_: initial.type_,
-            location: result,
+            location: result.render(),
             text: format!(
                 "reduce({}, {}, {})",
                 collection.type_, initial.text, action.text
@@ -3506,21 +3507,30 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(super) fn emit_direct_callable_branch(&mut self, location: &str) {
+    pub(super) fn emit_direct_callable_branch(&mut self, location: impl Into<Operand>) {
         let saved_env_slot = self.allocate_stack_object("closure_saved_env", 8);
         // Infallible vreg minters: an exhaustion under `-regalloc bump` is recorded
         // and surfaced by `run_register_allocation` instead of panicking (bug-70).
         let code_register = self.temporary_vreg();
         let env_register = self.temporary_vreg();
+        let location = location.into();
         self.emit(abi::store_u64(
             CLOSURE_ENV_REGISTER,
             abi::stack_pointer(),
             saved_env_slot,
         ));
-        self.emit(abi::load_u64(&code_register, location, CLOSURE_OFFSET_CODE));
-        self.emit(abi::load_u64(&env_register, location, CLOSURE_OFFSET_ENV));
+        self.emit(abi::load_u64(
+            &code_register,
+            location.clone(),
+            CLOSURE_OFFSET_CODE,
+        ));
+        self.emit(abi::load_u64(
+            &env_register,
+            location.clone(),
+            CLOSURE_OFFSET_ENV,
+        ));
         self.emit(abi::move_register(CLOSURE_ENV_REGISTER, &env_register));
-        self.emit_callable_branch(&code_register);
+        self.emit_callable_branch(&code_register.render());
         self.emit(abi::load_u64(
             CLOSURE_ENV_REGISTER,
             abi::stack_pointer(),
@@ -3599,7 +3609,7 @@ impl CodeBuilder<'_> {
         collection_slot: usize,
         cursor_slot: usize,
         element_type: &str,
-    ) -> Result<String, String> {
+    ) -> Result<VirtualRegister, String> {
         let scratch8 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
         let scratch11 = self.temporary_vreg();

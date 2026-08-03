@@ -13,43 +13,57 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_entry_scan_setup(
         &mut self,
-        collection: &str,
-        count: &str,
-        index: &str,
-        entry: &str,
-        offset: &str,
-        length: &str,
+        collection: impl Into<Operand>,
+        count: impl Into<Operand>,
+        index: impl Into<Operand>,
+        entry: impl Into<Operand>,
+        offset: impl Into<Operand>,
+        length: impl Into<Operand>,
         entry_offset_field: usize,
         entry_length_field: usize,
         loop_label: &str,
         not_found: &str,
     ) {
-        self.emit(abi::load_u64(count, collection, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::move_immediate(index, "Integer", "0"));
+        let collection = collection.into();
+        let count = count.into();
+        let index = index.into();
+        let entry = entry.into();
+        self.emit(abi::load_u64(
+            count.clone(),
+            collection.clone(),
+            COLLECTION_OFFSET_COUNT,
+        ));
+        self.emit(abi::move_immediate(index.clone(), "Integer", "0"));
         self.emit(abi::add_immediate(
-            entry,
-            collection,
+            entry.clone(),
+            collection.clone(),
             COLLECTION_HEADER_SIZE,
         ));
         self.emit(abi::label(loop_label));
-        self.emit(abi::compare_registers(index, count));
+        self.emit(abi::compare_registers(index.clone(), count.clone()));
         self.emit(abi::branch_ge(not_found));
-        self.emit(abi::load_u64(offset, entry, entry_offset_field));
-        self.emit(abi::load_u64(length, entry, entry_length_field));
+        self.emit(abi::load_u64(offset, entry.clone(), entry_offset_field));
+        self.emit(abi::load_u64(length, entry.clone(), entry_length_field));
     }
 
     /// Close the [`Self::emit_entry_scan_setup`] loop: bump `entry` by one entry
     /// stride and `index` by one, then branch back. Emit-only, byte-identical.
     pub(super) fn emit_entry_scan_advance(
         &mut self,
-        entry: &str,
-        index: &str,
+        entry: impl Into<Operand>,
+        index: impl Into<Operand>,
         next_label: &str,
         loop_label: &str,
     ) {
+        let entry = entry.into();
+        let index = index.into();
         self.emit(abi::label(next_label));
-        self.emit(abi::add_immediate(entry, entry, COLLECTION_ENTRY_SIZE));
-        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(
+            entry.clone(),
+            entry.clone(),
+            COLLECTION_ENTRY_SIZE,
+        ));
+        self.emit(abi::add_immediate(index.clone(), index.clone(), 1));
         self.emit(abi::branch(loop_label));
     }
 
@@ -154,7 +168,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: element_type.to_string(),
-            location: result,
+            location: result.render(),
             text,
         })
     }
@@ -461,7 +475,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done));
             return Ok(ValueResult {
                 type_: value_type.to_string(),
-                location: result,
+                location: result.render(),
                 text: format!("get({collection_type}, {key_type}) [hash]"),
             });
         }
@@ -533,7 +547,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: value_type.to_string(),
-            location: result,
+            location: result.render(),
             text: format!("get({collection_type}, {key_type})"),
         })
     }
@@ -613,7 +627,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done));
             return Ok(ValueResult {
                 type_: value_type.to_string(),
-                location: result,
+                location: result.render(),
                 text: format!("getOr({collection_type}, {key_type}, {value_type}) [hash]"),
             });
         }
@@ -700,7 +714,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: value_type.to_string(),
-            location: result,
+            location: result.render(),
             text: format!("getOr({collection_type}, {key_type}, {value_type})"),
         })
     }

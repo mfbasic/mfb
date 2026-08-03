@@ -172,6 +172,65 @@ impl Operand {
     }
 }
 
+/// A minted virtual-register handle (plan-82-C). The register producers on
+/// `CodeBuilder` (`allocate_register`/`allocate_fp_register`/`temporary_vreg`/
+/// `temporary_fp_vreg`) return this instead of a `String`, so a bare-register
+/// `.field(name, handle)` stores an inline [`Operand::VReg`] — **no `Box<str>`
+/// allocated at production**. It carries only `{class, id}` (a `Copy` value, no
+/// heap), and renders to the `%vN`/`%fN` sentinel for the rare site that still
+/// needs the string form (a `format!`, a `&str` API, a `String` collection).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct VirtualRegister {
+    class: RegClass,
+    id: u32,
+}
+
+impl VirtualRegister {
+    /// A virtual register of `class` numbered `id`.
+    pub(crate) fn new(class: RegClass, id: u32) -> Self {
+        Self { class, id }
+    }
+
+    /// The `%vN` (integer) / `%fN` (floating-point) sentinel spelling. Allocates
+    /// a `String` — used only by the string-shaped sites the typed `.field` funnel
+    /// does not cover; a bare `.field(handle)` never renders (it stores `VReg`).
+    pub(crate) fn render(self) -> String {
+        match self.class {
+            RegClass::Int => vreg_name(self.id),
+            RegClass::Fp => fp_vreg_name(self.id),
+        }
+    }
+}
+
+/// A minted handle stores as an inline `VReg` — the plan-82-C allocation-free
+/// production path. Both by-value and by-reference (`.field(name, &handle)`, the
+/// common call shape) convert, mirroring the old `&String`/`String` funnel.
+impl From<VirtualRegister> for Operand {
+    fn from(reg: VirtualRegister) -> Self {
+        Operand::VReg {
+            class: reg.class,
+            id: reg.id,
+        }
+    }
+}
+
+impl From<&VirtualRegister> for Operand {
+    fn from(reg: &VirtualRegister) -> Self {
+        Operand::VReg {
+            class: reg.class,
+            id: reg.id,
+        }
+    }
+}
+
+/// The sentinel spelling, so a string-shaped site (`format!("{reg}")`, an
+/// `== "%v3"` comparison) keeps working after the producers return a handle.
+impl std::fmt::Display for VirtualRegister {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.render())
+    }
+}
+
 /// Render an operand to its string form. Lets the many string-shaped codegen
 /// readers (arch token realization, `format!` diagnostics) keep spelling
 /// `format!("{value}")` / `value.to_string()` through the plan-78-B flip; the

@@ -1,4 +1,5 @@
 use super::*;
+use crate::target::shared::regmodel::RegClass;
 
 impl CodeBuilder<'_> {
     /// Mint an integer virtual register. The physical register is assigned after
@@ -11,7 +12,7 @@ impl CodeBuilder<'_> {
     /// that build an instruction list and have no `Result` to bubble through
     /// (bug-70). Neither is more correct — pick by whether the call site can
     /// propagate an error. Under linear-scan (the default) both are infallible.
-    pub(super) fn allocate_register(&mut self) -> Result<String, String> {
+    pub(super) fn allocate_register(&mut self) -> Result<VirtualRegister, String> {
         let vreg = self.next_vreg;
         self.next_vreg += 1;
         debug_assert_eq!(self.vreg_eager.len(), vreg as usize);
@@ -55,14 +56,14 @@ impl CodeBuilder<'_> {
                 self.vreg_eager.push(String::new());
             }
         }
-        Ok(regalloc::vreg_name(vreg))
+        Ok(VirtualRegister::new(RegClass::Int, vreg))
     }
 
     /// Mint a floating-point (`d`-class) virtual register (plan-03 Stage C). The
     /// physical `d`-register is assigned after the whole function is lowered;
     /// chained float arithmetic stays resident in `d`-registers instead of
     /// round-tripping its bit pattern through a GPR.
-    pub(super) fn allocate_fp_register(&mut self) -> Result<String, String> {
+    pub(super) fn allocate_fp_register(&mut self) -> Result<VirtualRegister, String> {
         let vreg = self.next_fp_vreg;
         self.next_fp_vreg += 1;
         debug_assert_eq!(self.fp_vreg_eager.len(), vreg as usize);
@@ -91,7 +92,7 @@ impl CodeBuilder<'_> {
                 self.fp_vreg_eager.push(String::new());
             }
         }
-        Ok(regalloc::fp_vreg_name(vreg))
+        Ok(VirtualRegister::new(RegClass::Fp, vreg))
     }
 
     /// Color the fully-lowered instruction stream: rewrite every virtual
@@ -179,7 +180,7 @@ impl CodeBuilder<'_> {
     /// build error by `run_register_allocation`; a placeholder vreg is returned so
     /// lowering can proceed to that checkpoint, where the build aborts before this
     /// vreg is colored (bug-70).
-    pub(super) fn temporary_vreg(&mut self) -> String {
+    pub(super) fn temporary_vreg(&mut self) -> VirtualRegister {
         match self.allocate_register() {
             Ok(vreg) => vreg,
             Err(err) => {
@@ -188,7 +189,7 @@ impl CodeBuilder<'_> {
                 }
                 // `allocate_register` already advanced `next_vreg` and pushed the
                 // matching `vreg_eager` placeholder, so this names that vreg.
-                regalloc::vreg_name(self.next_vreg - 1)
+                VirtualRegister::new(RegClass::Int, self.next_vreg - 1)
             }
         }
     }
@@ -198,14 +199,14 @@ impl CodeBuilder<'_> {
     /// under linear-scan; the FP sibling of [`Self::temporary_vreg`] for the SIMD
     /// kernels that used fixed FP homes and cannot bubble a `Result`. Records an
     /// exhaustion under `-regalloc bump` like [`Self::temporary_vreg`] (bug-70).
-    pub(super) fn temporary_fp_vreg(&mut self) -> String {
+    pub(super) fn temporary_fp_vreg(&mut self) -> VirtualRegister {
         match self.allocate_fp_register() {
             Ok(vreg) => vreg,
             Err(err) => {
                 if self.regalloc_error.is_none() {
                     self.regalloc_error = Some(err);
                 }
-                regalloc::fp_vreg_name(self.next_fp_vreg - 1)
+                VirtualRegister::new(RegClass::Fp, self.next_fp_vreg - 1)
             }
         }
     }

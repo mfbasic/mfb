@@ -33,7 +33,7 @@ delete.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-82-B merged: allocator carries/writes typed operands | `rg -n 'Operand::Phys \{' src/target/shared/code/regalloc/` | NOT MET (B pending) |
+| plan-82-B merged: allocator carries/writes typed operands | `rg -n 'Operand::phys\(' src/target/shared/code/regalloc/` | **MET** (B complete: 3c4ee9b5d; `substitute` writes `Operand::phys`) |
 
 ## 1. Goal
 
@@ -100,15 +100,23 @@ and artifact-gate byte-identity after each file/cluster.
 
 ### Phase 1 — Census by compiler + return-type switch
 
-- [ ] Change the three producers to return the typed handle. Do NOT yet fix call
-      sites. Capture the full compiler error list; record the exact site count
-      and the bare-vs-compound split in this file's Measured populations table.
-- [ ] Add `impl From<handle> for Operand` (→ `VReg`) and `Display`/`rendered`
-      parity for the handle so both site classes have a mechanical target.
+- [x] All FOUR producers (`allocate_register`, `allocate_fp_register`,
+      `temporary_vreg`, `temporary_fp_vreg`) now return `VirtualRegister` /
+      `Result<VirtualRegister, String>`. Census captured (see Corrections): **1861**
+      producer sites / **38** files; and the real funnel is the helper tier (~100
+      `abi::*` builders + ~375 helper-method param sites + ~39 vreg-returning helper
+      signatures), NOT direct `.field` sites. No compound-operand class exists
+      (plan-82-A Phase 1: 0), so there is no bare-vs-compound split — every site is
+      "bare register through a helper".
+- [x] Added `VirtualRegister` handle (`operand.rs`) with `From<VirtualRegister>` /
+      `From<&VirtualRegister> for Operand` (→ inline `VReg`), `Display`, and
+      `render()`. `abi::*` register params converted to `impl Into<Operand>` (the
+      mechanical target for both handle and `&str` sites).
 
-Acceptance: the producers' new signature compiles in isolation; the error census
-is recorded with its true count (replacing UNMEASURED).
-Commit: —
+Acceptance: producers' new signatures + `From`/`Display`/`render()` land; the
+census is recorded with its true count (1861/38) and the corrected helper-tier
+model. (Whole-crate compile is Phase 2, after the helper tier is threaded.)
+Commit: (recorded with Phase 2)
 
 ### Phase 2 — Migrate the bare-register sites
 
@@ -160,7 +168,43 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **The scope is much larger than "1825 mechanical `.field` sites", and it is a
+  viral `String`→`VirtualRegister` dataflow conversion, not a `.field` funnel
+  change.** The plan modeled producers feeding `.field` directly; in reality a
+  minted register flows through a deep tree of helper layers before it reaches
+  `.field`: (a) the `abi::*` instruction-builders (`add_registers`, `load_u64`,
+  …) take register `&str`; (b) many `CodeBuilder` helper *methods*
+  (`emit_thread_copy_real`, `copy_value_to_current_arena`, `emit_money_binary`, …)
+  take register `&str` **and return a minted register as `String`/
+  `Result<String,String>`**. So typing the producers cascades through ~100 abi
+  builders + ~375 helper-method param sites + ~39 vreg-returning helper signatures
+  across ~35 files. True census: **1861** producer call sites / **38** files
+  (`rg '\.(allocate_register|allocate_fp_register|temporary_vreg|
+  temporary_fp_vreg)\(' src/ | wc -l`; the plan's 1825/44 omitted
+  `temporary_fp_vreg` and mis-counted files). Bigger scope is more effort, not a
+  deferral (skill §"Do the work").
+
+- **Design: `impl Into<Operand>` at the helper boundary; `VirtualRegister` handle
+  from producers.** `VirtualRegister { class, id }` (a `Copy`, heap-free handle) is
+  returned by the four producers. Every register-role helper param (abi + builder
+  methods) becomes `impl Into<Operand>`, which accepts BOTH a `&VirtualRegister`
+  (→ inline `VReg`, the win) and a hardcoded `&str` physical/immediate (→ `Raw`,
+  unchanged) — so hardcoded physicals stay `Raw` and only vregs become typed. A
+  helper that *returns* a minted vreg returns `VirtualRegister`. Struct fields /
+  `Vec<String>` element types are NOT changed — a vreg that must land in an
+  existing `String` slot is `.render()`ed (a bounded, rare `Raw` residue), which
+  caps the virality to signatures + locals.
+
+- **Byte-identity is guaranteed by construction.** The transform compiles-or-fails
+  (a mis-typed register→String is a compile error, never a silent byte change),
+  `VirtualRegister::render()` / `VReg.rendered()` == the old `%vN` string, and the
+  `next_vreg` sequence (hence every id) is unchanged (`vreg-alloc-order-load-
+  bearing`). Gated by `artifact-gate … all`.
+
+- **`impl Into<Operand>` fn-pointer break.** `abi::load_double`/`store_double` were
+  passed as `fn(&str,&str,usize)` pointers to `peephole::fold_pair`; a generic
+  param cannot coerce to a plain fn pointer, so `fold_pair` now takes an
+  `impl Fn(&str,&str,usize)` and the two call sites pass closures.
 
 ## Summary
 

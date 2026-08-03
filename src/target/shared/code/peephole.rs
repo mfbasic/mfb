@@ -301,7 +301,7 @@ pub(super) fn remove_fp_shuttles(
                 second.get("src").as_deref(),
                 second.get("base").as_deref(),
                 second.get("offset").as_deref(),
-                abi::store_double,
+                |src, base, off| abi::store_double(src, base, off),
             ),
             // Operand reload: ldr xN, [base,#off] ; fmov dM, xN  ->  ldr d dM, [base,#off].
             (CodeOp::LdrU64, CodeOp::FMovDFromX) => fold_pair(
@@ -310,7 +310,7 @@ pub(super) fn remove_fp_shuttles(
                 second.get("src").as_deref(),
                 first.get("base").as_deref(),
                 first.get("offset").as_deref(),
-                abi::load_double,
+                |src, base, off| abi::load_double(src, base, off),
             ),
             _ => None,
         };
@@ -354,7 +354,7 @@ fn fold_pair(
     linked: Option<&str>,
     base: Option<&str>,
     offset: Option<&str>,
-    build: fn(&str, &str, usize) -> CodeInstruction,
+    build: impl Fn(&str, &str, usize) -> CodeInstruction,
 ) -> Option<(u32, CodeInstruction)> {
     let (gpr, fpr, linked, base, offset) = (gpr?, fpr?, linked?, base?, offset?);
     if gpr != linked || gpr == base {

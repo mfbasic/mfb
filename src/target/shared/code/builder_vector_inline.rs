@@ -198,7 +198,7 @@ impl CodeBuilder<'_> {
         let register = self.emit_build_inlined_record(&value.type_, &slots)?;
         let block = ValueResult {
             type_: value.type_,
-            location: register,
+            location: register.render(),
             text: value.text,
         };
         // The materialized block is a fresh, freeable-flat arena block — register
