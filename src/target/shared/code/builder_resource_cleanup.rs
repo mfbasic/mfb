@@ -420,7 +420,7 @@ impl CodeBuilder<'_> {
 
     /// `arena_free` the `STATE` payload and null its pointer word. Unlike the two
     /// buffers this block has no fixed size — a `STATE` record inlines its `String`
-    /// fields — so it is sized from the type at `FILE_OFFSET_STATE`.
+    /// fields — so it is sized from the type at `RESOURCE_OFFSET_STATE`.
     pub(super) fn emit_free_resource_state_block(
         &mut self,
         resource_slot: usize,
@@ -432,7 +432,7 @@ impl CodeBuilder<'_> {
         let ptr = self.allocate_register()?;
         self.emit(abi::load_u64(&ptr, abi::stack_pointer(), resource_slot));
         let block = self.allocate_register()?;
-        self.emit(abi::load_u64(&block, &ptr, FILE_OFFSET_STATE));
+        self.emit(abi::load_u64(&block, &ptr, RESOURCE_OFFSET_STATE));
         self.emit(abi::store_u64(&block, abi::stack_pointer(), state_slot));
         self.emit(abi::compare_immediate(&block, "0"));
         self.emit(abi::branch_eq(&skip));
@@ -450,7 +450,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             resource_slot,
         ));
-        self.emit(abi::store_u64(abi::ZERO, &ptr_after, FILE_OFFSET_STATE));
+        self.emit(abi::store_u64(abi::ZERO, &ptr_after, RESOURCE_OFFSET_STATE));
         self.emit(abi::label(&skip));
         Ok(())
     }
