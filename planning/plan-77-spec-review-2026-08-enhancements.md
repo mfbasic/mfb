@@ -356,10 +356,10 @@ Address-taken-local hazard flagged at `builder_exits.rs:231`.
 
 # Finalization
 
-- [ ] Merge current `main` if it advanced; re-run acceptance.
-- [ ] `cargo fmt --all` + second pass `--manifest-path repository/Cargo.toml`; commit churn.
-- [ ] ONE full `artifact-gate.sh` run (execution-free codegen gate) — green.
-- [ ] Full acceptance/CI green in the worktree.
+- [x] Merged current `main` (had advanced **21 commits**) into `worktree-P-77`. Only conflicts were 10 http/net `.ncodesum` goldens (both sides regenerated them) — resolved by regenerating from the merged binary. Source auto-merged cleanly (incl. my `csv` entry in `mod.rs::qualified_builtin_type` alongside main's). `cargo test --bin mfb` **3762 green** on the merged code; host-detection shows every byte-identity fixture's ncode matches its golden on the merged binary.
+- [x] `cargo fmt --all` + second pass `--manifest-path repository/Cargo.toml`; committed the churn (3 files, my additions only).
+- [x] Ran the full `scripts/artifact-gate.sh target/release/mfb all` on the merged binary (all 5 targets, cross-compiled) — green (no DIFF/MISSING).
+- [x] Full acceptance: `cargo test --bin mfb` 3762 ok; artifact-gate green; per-phase rt-behavior/runtime verification recorded above.
 
 # Corrections
 
