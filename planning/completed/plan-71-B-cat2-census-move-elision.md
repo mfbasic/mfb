@@ -315,7 +315,7 @@ entries); re-recorded serially and re-gated green. **Phase 1 COMPLETE.**
 Acceptance: `plan-71-census.md` states, with commands, that **no value is Category 2**
 (param-bridge=0 ⇒ pure-rename ⇒ single register per value); the Category-1 partition is
 marked proven-at-the-value-level — the precondition plan-71-C depends on. **MET.**
-Commit: — (with Phase 3 skip, below)
+Commit: `e2fe3e5a1`
 
 ### Phase 3 — AArch64/RISC-V self-move elision pass (iff Phase 2 finds a Category-2 value)
 
@@ -344,7 +344,7 @@ the elision pass is unnecessary AND would be byte-incompatible. plan-71-E will k
 live cross-check assert as the regression net; if a future param layout ever makes
 `param_home != arg` (param-bridge > 0) or introduces a genuine Category-2 value, the
 elision can be pulled forward then.
-Commit: — (Phase 2 + Phase 3-skip land together)
+Commit: `e2fe3e5a1`
 
 ## Validation Plan
 
@@ -428,6 +428,11 @@ Commit: — (Phase 2 + Phase 3-skip land together)
 - **Phase 3 SKIPPED (not run).** No Category-2 value ⇒ no new asymmetric staging from E ⇒
   no elision pass needed; and a blanket elision would break byte-identity by deleting the
   486/234/486 baseline Result-return self-moves.
+
+- **B final validation:** `bug387-gate.sh … full` **PASS (byte-identical, all five
+  targets)** on the committed tree with BOTH probes in (self-move + param-bridge), audit
+  env unset (`/tmp/bug387/gate-B-final.log`); `cargo test --bin mfb` → `test result: ok`
+  (3773 passed). plan-71-B COMPLETE.
 
 ## Summary
 
