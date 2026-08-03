@@ -261,7 +261,7 @@ Commit: cf792e1b3
 
 Acceptance: artifact-gate reports byte-identity across all four codegen targets;
 `.ncodesum` goldens unchanged. ✓ 0 diffs.
-Commit: (recorded next commit)
+Commit: bc622ae41
 Commit: —
 
 ## Validation Plan
