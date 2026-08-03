@@ -352,7 +352,7 @@ Address-taken-local hazard flagged at `builder_exits.rs:231`.
 - [x] Gated on the escape verdict (`is_non_escaping_closure` at the bind) and integrated by extending `OwnedValueCleanup` with `closure_captures: Option<Vec<String>>` — reusing the existing OwnedValue scope-drop path (all exit/loop/error/trap routes already handle it; slot zeroed for the trap-before-store guard) rather than a new `ActiveCleanup` variant across 25 sites.
 - [x] Tests: 4 deterministic escape-analysis unit tests (`m6_escape_tests`: invoke-only → non-escaping; returned/passed/aliased/address-taken → escaping) + a `closure-scope-drop-rt` rt-behavior fixture.
 - **Acceptance:** ✅ escape unit tests pin the (UAF-critical) analysis; ✅ runtime: a non-escaping String-capturing closure produces correct output (freed cleanly), an **escaping closure returned from a function / stored in a list is invoked correctly AFTER its defining scope exits (no UAF)**, and a 1000-iteration loop of non-escaping String-capturing closures runs to a correct sum with exit 0 (arena stays bounded — the free works); ✅ existing closure fixtures (collection-of-function-rt, closure-call-register-pressure-rt) **identical**; `cargo test --bin mfb` 3762 green. M6 is native codegen only (`.ir` unchanged) and no existing byte-identity fixture has a non-escaping closure, so zero golden churn.
-- **Commit:** _(next commit)_
+- **Commit:** `fe38ab5a2`
 
 # Finalization
 
