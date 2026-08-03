@@ -18,6 +18,12 @@ pub struct AstFile {
     pub internal: bool,
 }
 
+/// The reserved import specifier that binds the current package's own exported
+/// interface, so `thread::start(self::worker, …)` can spawn a same-package
+/// exported ISOLATED FUNC (plan-81-import-self.md). `self` is special only in the
+/// import-root position; it is not a general reserved identifier.
+pub const SELF_IMPORT: &str = "self";
+
 #[derive(Clone, Debug)]
 pub struct Import {
     pub module: String,

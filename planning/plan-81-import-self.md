@@ -314,34 +314,42 @@ package can be spawned as a worker with isolated top-level `MUT`.
 Acceptance: §2 contains a cited verified statement that a self-spawned worker gets
 isolated top-level `MUT` (arena-based, package-agnostic), and the plan's
 effort/split is re-confirmed (large, no split). MET.
-Commit: —
+Commit: 7a3b5663a
 
 ### Phase 2 — Parse & resolve `IMPORT self`
 
 Front-end recognition of the reserved specifier, with no thread involvement yet.
 
-- [ ] Recognize `self` as a reserved import specifier in the import-resolution
-      entry (`src/resolver/resolution.rs:resolve_file` /
-      `src/resolver/packages.rs:resolve_imported_package`), short-circuiting
-      before builtin/dependency probing. Support `IMPORT self` and `IMPORT self AS x`.
-- [ ] Bind `self` (or alias) to the current package in the import bindings
-      (`src/ast/types.rs` / resolver import-binding map) so
-      `resolve_package_qualified_name` treats `self::name` as a known qualified
-      reference (no `SYMBOL_UNKNOWN_IMPORT`).
-- [ ] Emit `IMPORT_SELF_IN_EXECUTABLE` (new rule in `src/rules/table.rs`) when
-      the project is not `kind: "package"`, gated on the existing `is_package`
-      boolean (threaded from `src/cli/build/mod.rs` /
-      `src/manifest/mod.rs:project_kind`, mirroring
-      `export_in_executable_diagnostics`).
-- [ ] Preserve existing alias-conflict diagnostics (a user aliasing another
-      import to `self`, or `IMPORT self AS <existing>`, must still be caught).
-- [ ] Tests: `tests/syntax/project/import-self-*` fixtures — (i) `IMPORT self` in
-      a package resolves with no error; (ii) `IMPORT self` in an executable emits
-      `IMPORT_SELF_IN_EXECUTABLE`; (iii) alias form. Inline unit tests in
-      `src/resolver/*` mirroring `undeclared_package_is_reported`.
+- [x] Recognize `self` as a reserved import specifier in the import-resolution
+      entry (`src/resolver/packages.rs:resolve_imported_package`), short-circuiting
+      before builtin/dependency probing. Support `IMPORT self` and `IMPORT self AS x`
+      (both route through `resolve_imported_package(name="self")` since
+      `import.package_name()` is the module). Reserved const `SELF_IMPORT`
+      (`src/ast/types.rs`).
+- [x] Bind `self` (or alias) to the current package in the import bindings — falls
+      out for free: `resolve_file` already inserts `binding_name() → package_name()`
+      into the `imports` map (`imports["self"] = "self"`, or `imports["x"] = "self"`
+      for the alias), so `resolve_package_qualified_name` finds the root and never
+      emits `SYMBOL_UNKNOWN_IMPORT`. No AST change needed.
+- [x] Emit `IMPORT_SELF_IN_EXECUTABLE` (new rule `2-201-0019` in
+      `src/rules/table.rs`) when the project is not `kind: "package"`, gated on a
+      new `Resolver.is_package` field (non-panicking kind read in `Resolver::new`,
+      since that ctor also runs from manifest-less doc/test paths).
+- [x] Preserve existing alias-conflict diagnostics: `IMPORT self AS <builtin>` and
+      `IMPORT self AS <top-level>` are still caught by the existing checks; added a
+      reserved-binding guard in `resolve_file` so `IMPORT other AS self` (aliasing
+      another import onto the reserved `self` binding) reports `SYMBOL_DUPLICATE_IMPORT`.
+- [x] Tests: `tests/syntax/project/import-self-*` fixtures — (i)
+      `import-self-package-valid` resolves clean; (ii) `import-self-in-executable`
+      emits `IMPORT_SELF_IN_EXECUTABLE` (not `SYMBOL_UNKNOWN_IMPORT`); (iii)
+      `import-self-alias` (`IMPORT self AS me`) resolves clean; plus (iv)
+      `import-self-alias-conflict` (`IMPORT io AS self`) rejected. Inline unit
+      tests `self_import_in_package_is_ok` / `self_import_in_executable_is_reported`
+      in `src/resolver/packages.rs` mirroring `undeclared_package_is_reported`.
 
-Acceptance: the three fixtures produce the expected `golden/build.log`; the
-executable case shows the dedicated diagnostic (not `SYMBOL_UNKNOWN_IMPORT`).
+Acceptance: the four fixtures produce the expected `golden/build.log` (test-accept
+green); the executable case shows the dedicated diagnostic (not
+`SYMBOL_UNKNOWN_IMPORT`). MET.
 Commit: —
 
 ### Phase 3 — Self-import signatures carry `imported_package_export`
@@ -447,7 +455,27 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Phase 1 open decision resolved / no re-split.** The "Runtime instance
+  mechanism" open decision resolved to the Recommended option (reuse existing
+  per-instance state); §4.4 is wiring-only. Effort (large) unchanged. Evidence in
+  §2 Verified properties and the Phase 1 boxes.
+- **`is_package` source (Phase 2).** §4.3/Phase 2 said to thread `is_package` from
+  `src/cli/build/mod.rs` into the resolver. Instead it is computed inside
+  `Resolver::new` from the manifest it already receives (a **non-panicking** kind
+  read, because `Resolver::new` also runs from doc-validation/unit-test paths with
+  an empty manifest, where `manifest::project_kind`'s `expect` would panic). Same
+  gate, fewer plumbing edits; no behavior change on the real build path (validated
+  manifest always carries `kind`).
+- **`self::name` binding falls out for free (Phase 2).** The plan anticipated a
+  possible AST/import-binding-map change so `resolve_package_qualified_name` sees
+  `self`. None was needed: `resolve_file` already populates the per-file `imports`
+  map from `binding_name() → package_name()`, so `self`/its alias is a known root
+  with no new code.
+- **Added reserved-`self`-binding guard + a 4th fixture (Phase 2).** To satisfy
+  "aliasing another import to `self` must still be caught," `resolve_file` now
+  rejects `IMPORT other AS self` (there was no pre-existing diagnostic for it,
+  since `self` was not previously a reserved binding). Locked by the added
+  `import-self-alias-conflict` fixture (beyond the plan's three).
 
 ## Summary
 

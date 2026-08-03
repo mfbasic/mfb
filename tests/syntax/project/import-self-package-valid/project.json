@@ -1,0 +1,8 @@
+{
+  "name": "import_self_package_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "IMPORT self binds the current package's exported interface (plan-81-import-self.md).",
+  "sources": [{ "root": "src", "role": "package", "include": ["**/*.mfb"] }]
+}

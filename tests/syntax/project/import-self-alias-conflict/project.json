@@ -1,0 +1,8 @@
+{
+  "name": "import_self_alias_conflict",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "Aliasing another import onto the reserved `self` binding is rejected (plan-81-import-self.md).",
+  "sources": [{ "root": "src", "role": "package", "include": ["**/*.mfb"] }]
+}

@@ -2,6 +2,22 @@ use super::*;
 
 impl Resolver<'_> {
     pub(super) fn resolve_imported_package(&mut self, file: &AstFile, name: &str, line: usize) {
+        // The reserved specifier `self` binds the current package's own exported
+        // interface (plan-81-import-self.md §4.1). It is not probed against the
+        // package store: in a package project it resolves with no diagnostic; in
+        // an executable there is no exported interface to import.
+        if name == SELF_IMPORT {
+            if !self.is_package {
+                self.report(
+                    "IMPORT_SELF_IN_EXECUTABLE",
+                    "`IMPORT self` is only valid in a `kind: \"package\"` project; an executable has no exported interface to import. Self-referencing threads require a package project.",
+                    file,
+                    line,
+                );
+            }
+            return;
+        }
+
         if is_builtin_import(name) {
             return;
         }
@@ -339,6 +355,43 @@ mod tests {
         let dir = tempdir().unwrap();
         // `io` is built in: no error even with an empty manifest.
         assert!(!resolve_import(dir.path(), &HashMap::new(), "io"));
+    }
+
+    /// A manifest declaring only `kind`, for the `IMPORT self` package/executable
+    /// gate (plan-81-import-self.md §4.3).
+    fn manifest_with_kind(kind: &str) -> HashMap<String, JsonValue> {
+        let mut root: HashMap<String, JsonValue> = HashMap::new();
+        root.insert("kind".to_string(), JsonValue::String(kind.to_string()));
+        root
+    }
+
+    #[test]
+    fn self_import_in_package_is_ok() {
+        let dir = tempdir().unwrap();
+        // `self` in a package resolves with no diagnostic and is never probed
+        // against the package store.
+        assert!(!resolve_import(
+            dir.path(),
+            &manifest_with_kind("package"),
+            "self"
+        ));
+    }
+
+    #[test]
+    fn self_import_in_executable_is_reported() {
+        let dir = tempdir().unwrap();
+        // An executable has no exported interface to import.
+        assert!(resolve_import(
+            dir.path(),
+            &manifest_with_kind("executable"),
+            "self"
+        ));
+        // The emitted identity is defined and non-sentinel (mirrors
+        // `present_mfp_that_is_garbage_is_reported`).
+        assert_eq!(
+            crate::rules::code_and_name("IMPORT_SELF_IN_EXECUTABLE"),
+            ("2-201-0019", "IMPORT_SELF_IN_EXECUTABLE")
+        );
     }
 
     #[test]

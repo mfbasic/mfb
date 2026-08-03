@@ -1,0 +1,5 @@
+IMPORT self
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

@@ -1,0 +1,26 @@
+{
+  "project": "import_self_alias",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    { "module": "self", "alias": "me", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "export",
+      "isolated": false,
+      "name": "greeting",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "string", "value": "hi" }, "line": 4 }
+      ]
+    }
+    ]
+  }
+  ]
+}

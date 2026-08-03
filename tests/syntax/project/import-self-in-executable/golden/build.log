@@ -1,0 +1,6 @@
+$ mfb build -ast -ir tests/syntax/project/import-self-in-executable
+   1 | IMPORT self
+     | ^
+tests/syntax/project/import-self-in-executable/src/main.mfb:1 error[2-201-0019 IMPORT_SELF_IN_EXECUTABLE]: IMPORT self is only valid in a package project
+               `IMPORT self` is only valid in a `kind: "package"` project; an executable has no exported interface to import. Self-referencing threads require a package project.
+[exit 1]

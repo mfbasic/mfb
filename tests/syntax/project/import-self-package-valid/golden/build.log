@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/project/import-self-package-valid
+Wrote AST to tests/syntax/project/import-self-package-valid/import_self_package_valid.ast
+Wrote IR to tests/syntax/project/import-self-package-valid/import_self_package_valid.ir
+[exit 0]
