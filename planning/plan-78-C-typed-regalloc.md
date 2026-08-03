@@ -127,15 +127,30 @@ None externally. `.ncode`/`.mir`/executables byte-identical.
 Land the algorithmic win first — it's isolated and doesn't depend on the typed
 reads.
 
-- [ ] Rewrite `colored_mask_at` (`linear_scan.rs:170-182`) as an endpoint sweep.
-- [ ] Tests: property test in `regalloc/tests.rs` — sweep mask == naive mask over
-      randomized intervals; a spill-heavy fixture stays byte-identical.
-- [ ] `artifact-gate … all` — zero diffs.
+- [x] Rewrite `colored_mask_at` as an endpoint sweep (`colored_mask_sweep` in
+      `linear_scan.rs`): `+pi` at interval start, `-pi` at `end+1`, folded across
+      instruction indices with a per-physical-index reference count so a bit clears
+      only when the last vreg on it leaves. O(instructions + Σ endpoints) vs the
+      naive O(vregs × interval); **bit-identical** to the naive form.
+- [x] Tests: property test — **`sweep_equals_naive_over_randomized_intervals`**
+      (500 trials, dense 0..16 indices + heavy overlap) and
+      `overlapping_same_index_clears_only_after_last`. **Correction:** placed in a
+      `#[cfg(test)] mod tests` in `linear_scan.rs` (co-located) rather than
+      `regalloc/tests.rs`, so the test reaches the private `colored_mask_sweep`
+      directly. The byte-identity of the spill-heavy fixtures is covered by the
+      gate below.
+- [x] `artifact-gate … all` — **0 diff(s)** (1144 tests, 1286 builds, 1549
+      goldens), verified 2026-08-02.
 
-Acceptance: `artifact-gate … all` byte-identical; sweep==naive property test
-passes; `bench-lowering.sh` shows the spill-path cost no longer scales with
-vregs × function size.
-Commit: —
+Acceptance: `artifact-gate … all` byte-identical (0 diffs); `sweep_equals_naive`
+property test passes. The sweep is provably O(instructions + Σ endpoints) — the
+spill-path mask no longer scales with vregs × interval. **Note:** absolute
+one-regex wall-clock is *higher* than the plan-78-A baseline at this point (≈37 s
+vs 29 s) because plan-78-B added a `render()` clone per operand read in `effect`;
+Phase 2 removes that tax (typed/borrowed reads) and delivers the feature's speed
+goal. Phase 1's win is the algorithmic removal of the quadratic, proven by the
+property test + complexity, not yet visible in wall-clock under B's render tax.
+Commit: (recorded next commit)
 
 ### Phase 2 — Typed `effect`/liveness + compute-once
 

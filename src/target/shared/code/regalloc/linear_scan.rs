@@ -171,15 +171,7 @@ pub(super) fn run(
     let colored_mask_at = if spilled.is_empty() {
         Vec::new()
     } else {
-        let mut masks = live.phys_busy_at.clone();
-        for (&v, &(s, e)) in &live.vreg_interval {
-            if let Some(&pi) = assigned_index.get(&v) {
-                for m in masks.iter_mut().take(e + 1).skip(s) {
-                    *m |= 1u64 << pi;
-                }
-            }
-        }
-        masks
+        colored_mask_sweep(&live.phys_busy_at, &live.vreg_interval, &assigned_index)
     };
 
     // Rewrite the stream. Evict-slot base sits just past the per-value spill
@@ -359,6 +351,60 @@ pub(super) fn run(
     }
 }
 
+/// Per-instruction physical-occupancy mask over the colored virtual registers,
+/// built by an endpoint sweep (plan-78-C Phase 1).
+///
+/// A colored vreg with physical index `pi` and (over-approximated) live interval
+/// `[s, e]` contributes bit `pi` to every instruction in `s..=e`. The naive
+/// construction ORs that bit across the whole interval for every vreg, which is
+/// O(vregs × interval) — on the ~135k-vreg inlined regex body with wide
+/// intervals that is the spill-path quadratic. Instead, emit `+pi` at `s` and
+/// `-pi` at `e + 1`, then fold across instruction indices maintaining a running
+/// mask; the result is **bit-identical** to the naive double loop (the
+/// `sweep_equals_naive` property test proves it) but runs in
+/// O(instructions + Σ interval endpoints).
+///
+/// Bits overlap — several vregs can share one physical index across nested
+/// intervals — so a per-index reference count is kept, and bit `pi` clears only
+/// when the *last* vreg occupying it leaves. Starts from `phys_busy_at` (the
+/// hardcoded-physical occupancy), exactly like the naive form.
+fn colored_mask_sweep(
+    phys_busy_at: &[u64],
+    vreg_interval: &HashMap<u32, (usize, usize)>,
+    assigned_index: &HashMap<u32, u32>,
+) -> Vec<u64> {
+    let n = phys_busy_at.len();
+    let mut masks = phys_busy_at.to_vec();
+    // `deltas[i]` = list of (physical index, +1 start / -1 end) events at `i`.
+    // Sized `n + 1` so an interval ending at the last instruction can post its
+    // `-1` at `e + 1 == n` without bounds trouble (that slot is never masked).
+    let mut deltas: Vec<Vec<(u32, i32)>> = vec![Vec::new(); n + 1];
+    for (v, &(s, e)) in vreg_interval {
+        if let Some(&pi) = assigned_index.get(v) {
+            deltas[s].push((pi, 1));
+            deltas[e + 1].push((pi, -1));
+        }
+    }
+    // Reference count per physical index; a bit is live in `running` while its
+    // count is > 0. Physical indices span 0..=63 (one machine word).
+    let mut count = [0i32; 64];
+    let mut running = 0u64;
+    for i in 0..n {
+        for &(pi, delta) in &deltas[i] {
+            let slot = &mut count[pi as usize];
+            let was_zero = *slot == 0;
+            *slot += delta;
+            if was_zero && *slot > 0 {
+                running |= 1u64 << pi;
+            } else if !was_zero && *slot == 0 {
+                running &= !(1u64 << pi);
+            }
+        }
+        masks[i] |= running;
+    }
+    masks
+}
+
 /// The physical-occupancy mask at instruction `i` (colored occupancy plus the
 /// instruction's own literal physical operands of this class), for spill-scratch
 /// selection.
@@ -400,4 +446,84 @@ fn substitute(
         }
     }
     copy
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The naive O(vregs × interval) construction the sweep replaces — the oracle
+    /// for the property test: for each colored vreg, OR its physical-index bit
+    /// across every instruction in its live interval, starting from the
+    /// hardcoded-physical occupancy.
+    fn colored_mask_naive(
+        phys_busy_at: &[u64],
+        vreg_interval: &HashMap<u32, (usize, usize)>,
+        assigned_index: &HashMap<u32, u32>,
+    ) -> Vec<u64> {
+        let mut masks = phys_busy_at.to_vec();
+        for (v, &(s, e)) in vreg_interval {
+            if let Some(&pi) = assigned_index.get(v) {
+                for m in masks.iter_mut().take(e + 1).skip(s) {
+                    *m |= 1u64 << pi;
+                }
+            }
+        }
+        masks
+    }
+
+    /// The endpoint sweep must produce a bit-identical mask to the naive double
+    /// loop over randomized intervals — dense physical indices (0..16) and many
+    /// vregs over a short instruction range force heavy interval overlap, which
+    /// exercises the per-index reference count (a bit stays set while any vreg
+    /// still occupies it). Deterministic: a fixed-seed LCG, since `rand`/`Date`
+    /// are unavailable and non-deterministic here.
+    #[test]
+    fn sweep_equals_naive_over_randomized_intervals() {
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = || {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (state >> 33) as u32
+        };
+        for trial in 0..500 {
+            let n = 1 + next() as usize % 40;
+            let phys_busy_at: Vec<u64> = (0..n).map(|_| (next() as u64) & 0xFF).collect();
+            let mut vreg_interval: HashMap<u32, (usize, usize)> = HashMap::new();
+            let mut assigned_index: HashMap<u32, u32> = HashMap::new();
+            let vcount = next() as usize % 30;
+            for v in 0..vcount as u32 {
+                let a = next() as usize % n;
+                let b = next() as usize % n;
+                let (s, e) = if a <= b { (a, b) } else { (b, a) };
+                vreg_interval.insert(v, (s, e));
+                // A few vregs are left uncolored (absent from assigned_index), like
+                // spilled ones; the rest share a dense 0..16 physical-index space.
+                if next() % 8 != 0 {
+                    assigned_index.insert(v, next() % 16);
+                }
+            }
+            let expected = colored_mask_naive(&phys_busy_at, &vreg_interval, &assigned_index);
+            let got = colored_mask_sweep(&phys_busy_at, &vreg_interval, &assigned_index);
+            assert_eq!(got, expected, "trial {trial}: sweep mask != naive mask");
+        }
+    }
+
+    /// A hand-built case that pins the overlap semantics: two vregs on the same
+    /// physical index with nested intervals — the bit must stay set across the
+    /// whole union and clear only after the outer one ends.
+    #[test]
+    fn overlapping_same_index_clears_only_after_last() {
+        let phys_busy_at = vec![0u64; 6];
+        let mut vreg_interval = HashMap::new();
+        vreg_interval.insert(1u32, (0usize, 4usize)); // outer
+        vreg_interval.insert(2u32, (1usize, 2usize)); // nested, same index
+        let mut assigned_index = HashMap::new();
+        assigned_index.insert(1u32, 3u32);
+        assigned_index.insert(2u32, 3u32);
+        let masks = colored_mask_sweep(&phys_busy_at, &vreg_interval, &assigned_index);
+        let bit = 1u64 << 3;
+        assert_eq!(masks, vec![bit, bit, bit, bit, bit, 0]);
+    }
 }
