@@ -116,28 +116,34 @@ and artifact-gate byte-identity after each file/cluster.
 Acceptance: producers' new signatures + `From`/`Display`/`render()` land; the
 census is recorded with its true count (1861/38) and the corrected helper-tier
 model. (Whole-crate compile is Phase 2, after the helper tier is threaded.)
-Commit: (recorded with Phase 2)
+Commit: ffea88cb6
 
 ### Phase 2 — Migrate the bare-register sites
 
-- [ ] Fix every class-1 (bare) site so the handle flows into `.field` as an inline
-      `VReg`. Land in file clusters; run `artifact-gate … all` per cluster.
+- [x] Every register-carrying site migrated (producers + `abi::*` + ~375 helper
+      params + ~50 vreg-returning helpers across ~35 files; parallelized across
+      sub-agents, integrated + compiler-driven residual fixes on the main thread).
+      Bare-register operands store inline `VReg` end to end (the residue is a vreg
+      landing in a `String`-typed `ValueResult.location`, `.render()`'d — bounded).
+      `artifact-gate … all` byte-identical (**0 diffs**); `cargo test --bin mfb`
+      3774; acceptance 362/362.
 
-Acceptance: all class-1 sites compile; `artifact-gate … all` byte-identical after
-each cluster and at the end.
-Commit: —
+Acceptance: all sites compile; `artifact-gate … all` byte-identical. ✓
+Commit: ffea88cb6
 
 ### Phase 3 — Migrate the compound/addressing-mode sites
 
-- [ ] Fix every class-2 site: render the handle into the compound `Raw` string
-      exactly as the old `String` did (per plan-82-A Phase 1 decision).
-- [ ] Tests: extend/keep the code-builder tests; add one asserting a
-      representative addressing-mode operand renders byte-identically from the
-      typed handle.
+- [x] ~~Fix every class-2 (compound) site~~ — **moot: zero compound-register
+      operands exist** (plan-82-A Phase 1 census = 0; addressing uses separate
+      `base`/`offset` fields). No `Raw` register-in-string survivor to migrate.
+- [x] ~~add a representative addressing-mode render test~~ — **moot/covered:** no
+      compound operand exists; a bare `base`-field register's byte-identity is
+      proven by the `regalloc::analysis` full-table round-trip test + the
+      `artifact-gate … all` 0-diff gate over every fixture.
 
-Acceptance: whole crate compiles; `cargo test --bin mfb` green; `artifact-gate …
-all` byte-identical.
-Commit: —
+Acceptance: whole crate compiles; `cargo test --bin mfb` green (3774);
+`artifact-gate … all` byte-identical (0 diffs). ✓
+Commit: ffea88cb6
 
 ### Phase 4 — Perf checkpoint
 

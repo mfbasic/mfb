@@ -119,38 +119,39 @@ Windows/aarch64 emit-inspection tests where they exist.
 
 ### Phase 1 — Typed read in the aarch64 encoder
 
-- [ ] `instruction_size` + `emit_instruction` (and per-form helpers) read
-      `Phys.index` directly; measure the encode-substage allocation drop.
-- [ ] Tests: keep the aarch64 encode tests green; add one asserting a typed
-      `Phys` operand sizes/encodes to the same bytes as the `Raw` string did.
+- [x] ~~`instruction_size`/`emit_instruction` read `Phys.index` directly~~ —
+      **NOT STARTED, moot: plan-82 halted at end of C (premise falsified, see
+      plan-82-A §CORE-PREMISE FALSIFICATION).** The encode-side scans are a
+      compute-mostly cost; deleting them cannot move the ≤60 s headline while the
+      MIR/select String round-trip + per-instruction fields-`Vec` churn dominate.
+- [x] ~~typed-vs-`Raw` encode-equivalence test~~ — moot (D not started).
 
-Acceptance: `artifact-gate … aarch64` byte-identical; encode-substage alloc count
-(plan-82-A counter) sharply lower than 215 M (record it).
+Acceptance: unstarted; deferred to a re-scoped design. Not weakened.
 Commit: —
 
 ### Phase 2 — Typed read in x86-64 and riscv64 encoders; delete the scans
 
-- [ ] Apply the same typed read to the x86-64 and riscv64 encode paths.
-- [ ] Delete `int_concrete_physical_index`/`fp_physical_index` `REG_ARRAY.position`
-      scans (or reduce to the compound-operand fallback if one survives), with a
-      comment citing plan-82-A's round-trip guarantee.
+- [x] ~~typed read on x86-64/riscv64~~ — NOT STARTED, moot (plan-82 halted at C).
+- [x] ~~delete the `*_physical_index` `REG_ARRAY.position` scans~~ — NOT STARTED,
+      moot (plan-82 halted at C).
 
-Acceptance: `artifact-gate … all` byte-identical (all four targets);
-`cargo test --bin mfb` green.
+Acceptance: unstarted; deferred. Not weakened.
 Commit: —
 
 ### Phase 3 — Headline perf target (plan-82 capstone)
 
-- [ ] Re-measure the plan-82-A baseline table in full (debug + release acceptance
-      wall, total allocation count, per-substage counts) and record final numbers
-      here and in plan-82-A's Corrections/Summary.
-- [ ] Confirm **debug `mfb test tests/acceptance` ≤ 60 s** (stretch ≤ 30 s). If
-      the target is not met, the remaining allocation hotspots are named here with
-      their `sample`/counter evidence and become a follow-on letter (E) — the
-      alphabet is append-only; do not weaken this criterion.
+- [x] Re-measured the baseline (counting-allocator probe + debug/release walls) —
+      **this measurement is what falsified the premise**: base 808,803,959 →
+      post-A/B/C 789,917,084 allocs (2.3%); release wall 58→56 s, debug 284→275 s.
+      Recorded in plan-82-A's CORE-PREMISE FALSIFICATION section.
+- [x] ~~Confirm debug acceptance ≤ 60 s~~ — **NOT MET and unreachable by this
+      design.** Per this phase's own escape clause, the residual hotspots are named
+      (MIR/select String round-trip; multi-pass fields-`Vec` churn — profile
+      evidence in plan-82-A) and become a re-scoped follow-on effort. The ≤60 s
+      criterion is **NOT weakened**; it simply cannot be met by typing the operand
+      representation, which is what the measurement proved.
 
-Acceptance: debug acceptance wall ≤ 60 s, measured with the command in the
-baseline; acceptance suite exits 0; `artifact-gate … all` byte-identical.
+Acceptance: ≤60 s NOT met; premise falsified — plan-82 halts (sanctioned stop).
 Commit: —
 
 ## Validation Plan
