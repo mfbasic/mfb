@@ -226,10 +226,10 @@ FUNC __regex_toScalars(s AS String) AS List OF String
 END FUNC
 
 FUNC __regex_makeCtx(value AS String) AS __regex_Ctx
-  LET chars AS List OF String = __regex_toScalars(value)
-  MUT cps AS List OF Integer = []
-  FOR EACH ch IN chars
-    cps = collections::append(cps, __regex_scalarToCp(ch))
+  LET cps AS List OF Integer = encoding::utf32Encode(value)
+  MUT chars AS List OF String = []
+  FOR EACH cp IN cps
+    chars = collections::append(chars, encoding::utf32Decode([cp]))
   NEXT
   RETURN __regex_Ctx[chars, cps, len(chars)]
 END FUNC

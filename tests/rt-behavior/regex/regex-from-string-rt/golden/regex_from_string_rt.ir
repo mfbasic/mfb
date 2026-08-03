@@ -647,16 +647,16 @@
     ],
     "returns": "#regex_Ctx",
     "body": [
-    { "op": "bind", "line": 229, "mutable": false, "name": "chars", "type": "List OF String", "value": { "kind": "call", "type": "List OF String", "target": "#regex_toScalars", "args": [{ "kind": "local", "name": "value" }] } },
-    { "op": "bind", "line": 230, "mutable": true, "name": "cps", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "bind", "line": 229, "mutable": false, "name": "cps", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#encoding_utf32Encode", "args": [{ "kind": "local", "name": "value" }] } },
+    { "op": "bind", "line": 230, "mutable": true, "name": "chars", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [] } },
     {
       "op": "forEach",
       "line": 231,
-      "name": "ch",
-      "type": "String",
-      "iterable": { "kind": "local", "name": "chars" },
+      "name": "cp",
+      "type": "Integer",
+      "iterable": { "kind": "local", "name": "cps" },
       "body": [
-      { "op": "assign", "line": 232, "name": "cps", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "cps" }, { "kind": "call", "type": "Integer", "target": "#regex_scalarToCp", "args": [{ "kind": "local", "name": "ch" }] }] } }
+      { "op": "assign", "line": 232, "name": "chars", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "chars" }, { "kind": "call", "type": "String", "target": "#encoding_utf32Decode", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "local", "name": "cp" }] }] }] } }
       ]
     },
     { "op": "return", "line": 234, "value": { "kind": "constructor", "type": "#regex_Ctx", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "cps" }, { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "chars" }] }] } }
