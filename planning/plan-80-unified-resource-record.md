@@ -351,7 +351,7 @@ Commit: cf8ad7018 (Phase 3 decisions) + e38bbb748
 - Acceptance: full gate green; D4 rt fixture passes (`rt_macos_d4_union_state_tls`);
   `.run`/rt-behavior goldens unchanged (offsets internal; 15/15 lifecycle rt tests +
   the D4 test pass). **MET.**
-Commit: —
+Commit: cf8ad7018 (STATE writer + D4 proof) + 9eb22f1f3 + 8dbf79dfa (golden regen) + 855640220 (ledger)
 
 ## Validation Plan
 
