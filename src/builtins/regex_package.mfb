@@ -977,8 +977,16 @@ FUNC __regex_searchFrom(prog AS __regex_Program, ctx AS __regex_Ctx, from AS Int
   ' bug-315: one budget per search, not per start offset -- the scan over start
   ' positions is itself part of the work an adversarial pattern multiplies.
   __regex_steps = 0
+  ' plan-77 R5: if the pattern must begin with a fixed literal code point, skip
+  ' start offsets that cannot match it instead of running the full engine at each.
+  LET firstCp AS Integer = __regex_requiredFirstCp(prog.root)
   MUT s AS Integer = from
   WHILE s <= ctx.n
+    IF firstCp >= 0 THEN
+      WHILE s < ctx.n AND collections::get(ctx.cps, s) <> firstCp
+        s = s + 1
+      END WHILE
+    END IF
     LET r AS __regex_Result = __regex_tryAt(prog, ctx, s)
     IF r.ok THEN
       RETURN r
@@ -2022,4 +2030,28 @@ END FUNC
 
 FUNC __regex_makeClass(neg AS Boolean, fold AS Boolean, items AS List OF __regex_ClassItem) AS __regex_Class
   RETURN __regex_Class[neg, fold, items, __regex_asciiClassBitset(items, fold)]
+END FUNC
+
+' plan-77 R5: the code point a match MUST begin with, or -1 when the pattern has
+' no fixed first literal (so __regex_searchFrom can fast-skip start offsets). Only
+' a non-folding literal yields a fixed cp; Concat/Group are transparent to their
+' first child. Everything else (Any, Class, Anchor, Alt, Repeat — which may be
+' optional or multi-valued) is conservatively "unknown" (-1).
+FUNC __regex_requiredFirstCp(node AS __regex_Node) AS Integer
+  MATCH node
+    CASE __regex_Lit(lit)
+      IF lit.fold THEN
+        RETURN -1
+      END IF
+      RETURN __regex_scalarToCp(lit.ch)
+    CASE __regex_Concat(cat)
+      IF len(cat.parts) = 0 THEN
+        RETURN -1
+      END IF
+      RETURN __regex_requiredFirstCp(collections::get(cat.parts, 0))
+    CASE __regex_Group(grp)
+      RETURN __regex_requiredFirstCp(grp.child)
+    CASE ELSE
+      RETURN -1
+  END MATCH
 END FUNC

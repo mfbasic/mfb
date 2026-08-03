@@ -203,7 +203,7 @@ union, re-run per position); types `__regex_Range/Single/Short/Prop` `:29-48`,
 - [x] `__regex_classMatch`: for `0 <= cp <= 127`, `hit = collections::get(cls.ascii, cp)` (O(1)); else the existing linear+fold path; then apply `neg`.
 - [x] Regenerated the 3 regex `.ir` (full line-shift churn — a type field cannot be line-neutral) and the 5 byte-identity/regex `.ncodesum`.
 - **Acceptance:** ✅ regex-posix-classes-rt (all 6 POSIX classes + `[[:^alnum:]]`) & regex-from-string-rt produce **identical** output; ✅ a 12-case edge test (ranges, `[^…]`, `(?i)` fold, POSIX, `\w`, `[A-Fa-f0-9]`, and `[a-zé]` mixing an ASCII-bitset hit with a non-ASCII linear hit) all correct; ✅ `__regex_classMatch` reads `cls.ascii[cp]` for ASCII (no per-position item scan). `cargo test --bin mfb` green.
-- **Commit:** _(next commit)_
+- **Commit:** `e2253ef9e`
 
 ## Phase 6 — Regex/R5: literal-prefix fast-skip in `searchFrom`
 
@@ -212,12 +212,12 @@ Anchors: `__regex_searchFrom` `:968-981` (resets `__regex_steps`, then
 `:51-54`; `prog.root` `TYPE __regex_Program` `:132-136`, root union `:83-92`,
 `__regex_Concat` `:67-69`.
 
-- [ ] Derive a required first scalar/cp from `prog.root` when it is a leading `__regex_Lit` (or the first part of a `__regex_Concat` that is a `Lit`); compute once per search.
-- [ ] In the `WHILE` at `:973`, when a required first cp exists, advance `s` to the next `ctx.cps` position equal to it before calling `__regex_tryAt` (respect the step budget / bug-315 semantics).
-- [ ] Fall back to the current every-offset behavior when no literal prefix exists.
-- [ ] Regenerate regex goldens.
-- **Acceptance:** all regex rt-behavior fixtures identical; a literal-prefixed pattern over a long non-matching string skips offsets (verify match count/behavior unchanged; step budget still catches pathological patterns).
-- **Commit:** _(fill on land)_
+- [x] Added `__regex_requiredFirstCp(node)` (at EOF): returns the mandatory first cp for a non-folding `__regex_Lit`, transparently recursing through `__regex_Concat` (first part) and `__regex_Group`; `-1` for everything else (`CASE ELSE`) — folding literals, `Any`, `Class`, `Anchor`, `Alt`, `Repeat`. Computed once per search.
+- [x] In `__regex_searchFrom`, when `firstCp >= 0`, an inner `WHILE s < ctx.n AND ctx.cps[s] <> firstCp` advances `s` past starts that can't match before calling `__regex_tryAt`. The skip only skips positions guaranteed to fail `tryAt`, so results are unchanged; the step budget (bug-315) is untouched (the skip does no `tryAt` work and `s` only increases, so no quadratic blowup).
+- [x] Falls back to every-offset when `firstCp = -1`.
+- [x] Regenerated 3 regex `.ir` + 5 byte-identity/regex `.ncodesum`.
+- **Acceptance:** ✅ regex-posix-classes-rt/regex-from-string-rt **identical**; ✅ 11-case test incl. mid-string prefix (`foo`~`xxxfoo`), non-matching skip (`zzz`), anchored (`^foo`→no skip), **fold literal `(?i)hello`~`HELLO`→no skip still matches**, alternation (`x|abc`→no skip), findAll (3 across `from` advances), replace — all correct. `cargo test --bin mfb` green.
+- **Commit:** _(next commit)_
 
 ## Phase 7 — csv/C5: single pre-sized builder in `stringify`
 
