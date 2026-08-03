@@ -184,12 +184,18 @@ impl CodeBuilder<'_> {
         // garbage — a wild free — on x86-64).
         self.owned_value_slots.push(cleanup.stack_offset);
         let skip = self.label("owned_value_free_skip");
+        // plan-71-C Family-1a: this pointer is consumed as arg 0 of the arena-free
+        // call below, so emit it into the argument-role token (`%arg0`) rather than
+        // `return_register()` (`%ret0`). Byte-identical — `%arg0`/`%ret0` both realize
+        // to x0/a0 on AArch64/RISC-V and `map_token_direct(%arg0)=rdi` equals the
+        // register the x86 fixpoint already inferred here — and it removes the
+        // divergence (`builder_owned_cleanup.rs:187/193` in the C work-list).
         self.emit(abi::load_u64(
-            abi::return_register(),
+            abi::ARG[0],
             abi::stack_pointer(),
             cleanup.stack_offset,
         ));
-        self.emit(abi::compare_immediate(abi::return_register(), "0"));
+        self.emit(abi::compare_immediate(abi::ARG[0], "0"));
         self.emit(abi::branch_eq(&skip));
         let size_slot = self.allocate_stack_object("owned_value_free_size", 8);
         // The slot already holds the block pointer; size it from the type.
@@ -198,8 +204,11 @@ impl CodeBuilder<'_> {
             cleanup.stack_offset,
             size_slot,
         )?;
+        // plan-71-C Family-1a: reload the pointer directly into arg 0 (was
+        // `return_register()`); the arena-free call consumes it as arg 0. Byte-identical;
+        // clears `builder_owned_cleanup.rs:201`.
         self.emit(abi::load_u64(
-            abi::return_register(),
+            abi::ARG[0],
             abi::stack_pointer(),
             cleanup.stack_offset,
         ));
