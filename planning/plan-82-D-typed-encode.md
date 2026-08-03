@@ -59,7 +59,8 @@ plan exists to remove).
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-82-C merged: producers return typed handles; operands typed end to end | `rg -n 'fn allocate_register.*-> .*VReg\|fn allocate_register.*Register' src/target/shared/code/builder_registers.rs` | NOT MET (C pending) |
+| plan-82-C merged: producers return typed handles; operands typed end to end | `rg -n 'fn allocate_register.*-> Result<VirtualRegister' src/target/shared/code/builder_registers.rs` | **MET** (ffea88cb6) |
+| plan-79 merged: `MirInstruction.fields` typed, so typed operands survive to the encoder | `rg -n 'fields: Vec<\(&.static str, Operand\)>' src/target/shared/code/mir.rs` | **MET** (58be85f65) — the true prerequisite that was missing at the end-of-C halt |
 
 ## 1. Goal
 
@@ -135,7 +136,7 @@ Windows/aarch64 emit-inspection tests where they exist.
 
 Acceptance: `artifact-gate … all` byte-identical (0 diffs); allocations fell (see
 Phase 3 table). ✓
-Commit: (recorded with Phase 3)
+Commit: 6b2681c7d
 
 ### Phase 2 — Same borrowed read in x86-64 and riscv64 encoders
 
@@ -148,7 +149,7 @@ Commit: (recorded with Phase 3)
       --bin mfb` green (3774).
 
 Acceptance: `artifact-gate … all` 0 diffs; `cargo test` green. ✓
-Commit: (recorded with Phase 3)
+Commit: 6b2681c7d
 
 ### Phase 3 — Full measurement + headline
 
@@ -158,7 +159,7 @@ Commit: (recorded with Phase 3)
 |---|---|---|---|---|
 | Total allocations | 808,803,959 | 789,917,084 | 640,307,625 | **577,486,533** (**−28.6%** vs base) |
 | Release acceptance wall | 58 s | 56 s | 52.2 s | **47.9 s** (−17%) |
-| Debug acceptance wall | 284 s | 275 s | 254 s | **≈246 s** (−13%) |
+| Debug acceptance wall | 284 s | 275 s | 254 s | **246 s** (−13.5%) |
 | Acceptance | 362/362 | 362/362 | 362/362 | **362/362** |
 
 - [x] **Confirm debug acceptance ≤ 60 s — NOT MET (≈246 s), and it is unreachable
@@ -180,7 +181,7 @@ Commit: (recorded with Phase 3)
 Acceptance: allocations **−28.6%** and both walls fell, byte-identical (0 diffs),
 acceptance 362/362; the ≤60 s debug figure is not met and is documented as a
 mis-calibrated (compute-bound) criterion with measured evidence — not weakened.
-Commit: (recorded next commit)
+Commit: 6b2681c7d
 
 ## Validation Plan
 
