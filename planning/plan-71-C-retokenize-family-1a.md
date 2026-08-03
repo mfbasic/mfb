@@ -225,15 +225,27 @@ Commit: `bac02f1c6` (Phase-0 tool) + this doc.
 
 Each file (or small related group) is one landable, byte-identical commit.
 
-- [ ] Swap Family-1a emissions `abi::RET[K]`/`return_register()` → `abi::ARG[K]` in the
-      file; leave genuine-result emissions untouched.
-- [ ] Gate: `bug387-gate.sh … full` byte-identical on all five targets; the audit's
-      Family-1a mismatch count drops by this file's contribution.
-- [ ] Tick the work-list entry in the same commit.
+- [~] Swap Family-1a emissions `return_register()`/`RET[K]` → `abi::ARG[K]` per work-list
+      site; leave genuine-result emissions untouched. **IN PROGRESS.** The dominant transform
+      is the **arena-call arg producer**: `load_u64(return_register(), sp, size_slot)` (or a
+      ptr) immediately before `emit_arena_alloc_call`/`emit_arena_free_call` — the value is
+      arg 0, so emit `ARG[0]`. Only re-tokenize sites the audit `@src` flagged (NOT every
+      `return_register()`-before-arena-call — many are genuine). Progress (linux-x86_64
+      total mismatches):
+      - `builder_owned_cleanup.rs` (187/193/201, arena-free ptr) — DONE, gated PASS, commit
+        `3b29873c5`. 1,082,777 → 635,000 (−448K).
+      - `builder_error_emission.rs:278` (error-block alloc size) + `builder_collection_layout.rs:332`
+        (flat-copy alloc size) — edited, gating.
+      - ~90 work-list sites remain (see census §"C work-list"). **NOTE:** `@src` line numbers
+        drift as edits add/remove lines — re-sweep after each batch; the total-mismatch delta
+        is the progress metric, not fixed line numbers.
+- [~] Gate: `bug387-gate.sh … full` byte-identical on all five targets per file/group; the
+      audit's Family-1a count drops by that group's contribution. (owned_cleanup gated PASS.)
+- [ ] Tick each work-list entry as its file lands.
 
 Acceptance (per commit): `bug387-gate.sh … full` PASS (byte-identical); audit Family-1a
 count strictly decreased; `cargo test --bin mfb` green.
-Commit: — (one per file/group; list them here as they land)
+Commit: `3b29873c5` (owned_cleanup) — more per file/group as they land.
 
 ### Phase 3 — convergence: Family 1a at zero
 

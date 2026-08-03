@@ -329,11 +329,10 @@ impl CodeBuilder<'_> {
         // (`size@8`) — so `copy_flat_block` is a sound deep copy for any
         // `type_is_flat` value (plan-02 §4.1).
         self.emit_inlined_block_size_from_ptr_slot(type_, source_slot, size_slot)?;
-        self.emit(abi::load_u64(
-            abi::return_register(),
-            abi::stack_pointer(),
-            size_slot,
-        ));
+        // plan-71-C Family-1a: the size is arg 0 of the arena-alloc call — emit it into
+        // `%arg0`, not `return_register()` (`%ret0`). Byte-identical; clears
+        // `builder_collection_layout.rs:332`.
+        self.emit(abi::load_u64(abi::ARG[0], abi::stack_pointer(), size_slot));
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));

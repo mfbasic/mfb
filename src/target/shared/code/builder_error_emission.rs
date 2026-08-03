@@ -274,12 +274,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         self.emit(abi::label(&src_size_done));
 
-        // Allocate the Error block.
-        self.emit(abi::load_u64(
-            abi::return_register(),
-            abi::stack_pointer(),
-            size_slot,
-        ));
+        // Allocate the Error block. plan-71-C Family-1a: the size is consumed as
+        // arg 0 of the arena-alloc call, so emit it into `%arg0` rather than
+        // `return_register()` (`%ret0`). Byte-identical (both realize to x0/a0 on
+        // AArch64/RISC-V; `map_token_direct(%arg0)=rdi` = the x86 fixpoint's inferred
+        // register), and it clears the `builder_error_emission.rs:278` divergence.
+        self.emit(abi::load_u64(abi::ARG[0], abi::stack_pointer(), size_slot));
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
