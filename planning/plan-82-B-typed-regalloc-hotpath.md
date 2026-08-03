@@ -125,7 +125,7 @@ typed rewrite of a hand-built instruction stream equals the string rewrite.
 
 Acceptance: `cargo test --bin mfb` green (3774 passed); `artifact-gate … all`
 byte-identical (0 diffs). ✓
-Commit: (recorded next commit)
+Commit: 9cddb6e8f
 
 ### Phase 2 — Typed write-back (`Phys` construction on the hot path)
 
@@ -151,17 +151,27 @@ infra; the committed reproducible signal is the acceptance wall (Phase 3). The
 write-back structurally removes, per colored vreg, one `name.to_string()` and
 halves the per-rewritten-operand boxes (clone+overwrite: was clone-box + from-box,
 now clone-box + typed-no-box).
-Commit: (recorded next commit)
+Commit: 9cddb6e8f
 
 ### Phase 3 — Perf checkpoint
 
-- [ ] Re-run the plan-82-A baseline measurements (debug + release acceptance
-      wall + per-substage alloc counts) and record the new numbers in this file.
-      This is a checkpoint, not the final target (C and D remove more).
+- [x] Re-run the acceptance-wall measurements (debug + release; the per-substage
+      alloc counter is not committed infra — see Corrections). Recorded below. This
+      is a checkpoint, not the final target (C and D remove more).
 
-Acceptance: recorded numbers show the code_emit allocation count and the release
-acceptance wall both fell; no regression in front-end/runtime.
-Commit: —
+| Metric | Pre-plan baseline (82-A) | Post-B | Command |
+|---|---|---|---|
+| Release acceptance wall | 58 s | **56.3 s** | `time target/release/mfb test tests/acceptance` |
+| Debug acceptance wall | 284 s | **274.9 s** | `time target/debug/mfb test tests/acceptance` |
+| Acceptance tests | 362/362 | **362/362 pass** | (both binaries, Fail: 0) |
+
+Acceptance: the release AND debug acceptance walls both fell (58→56.3 s,
+284→274.9 s), acceptance suite green on both binaries (362/362), and
+`artifact-gate … all` byte-identical (0 diffs) — the assignment did not move. No
+front-end/runtime regression (only the codegen carrier type changed). The modest
+size of the drop is expected (Corrections: B's classify fast path is dormant until
+C converts producers).
+Commit: (recorded next commit)
 
 ## Validation Plan
 
