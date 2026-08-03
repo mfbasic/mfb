@@ -1,11 +1,14 @@
 # HTTP Client
 
-A blocking HTTP/1.1 client implemented entirely as injected MFBASIC source plus
-two thin transport branches. There is no socket state, connection pool, or
-asynchronous machinery in the package itself: each request opens a connection,
-sends one request with `Connection: close`, reads until end-of-stream, parses,
-and returns. All protocol work is string manipulation; only the transport
-branches reach native code (`net::` for cleartext, `tls::` for TLS).
+An HTTP/1.1 client implemented entirely as injected MFBASIC source plus two thin
+transport branches. It offers both a blocking form (`read`/`write`) and a
+non-blocking, cooperatively-drivable form (`startRead`/`ready`/`pump`/`done`/
+`finish`) over a `Stream` resource union — the blocking calls are thin wrappers
+over the same non-blocking core. There is no connection pool: each request opens a
+connection, sends one request with `Connection: close`, reads until end-of-stream,
+parses, and returns; the socket is a scoped resource. All protocol work is string
+manipulation; only the transport branches reach native code (`net::` for
+cleartext, `tls::` for TLS).
 
 `IMPORT http` does not leak `net`/`tls`/`strings`/`collections` into the
 importing program — the package's own imports are file-scoped.
@@ -167,41 +170,67 @@ exchange(url, request) =
   TCP  branch   otherwise
 ```
 
-Both branches are structurally identical aside from the native calls:
+Both branches connect and write identically aside from the native calls:
 
-- TCP: `net::connectTcp(host, port)`, then `net::writeText`, then a read loop of
-  `net::readText(sock, 65536)`.
-- TLS: `tls::connect(host, port, 0, host)` — timeout 0, SNI server-name = host —
-  then `tls::writeText`, then `tls::readText(sock, 65536)`.
+- TCP: `net::connectTcp(host, port, 30_000)`, then `net::writeText`.
+- TLS: `tls::connect(host, port, 30_000, host)` — 30 s connect deadline, SNI
+  server-name = host — then `tls::writeText`.
 
-Each loop reads 64 KiB at a time and concatenates. A read that returns `""` ends
-the loop (end of stream). A read that fails with `errorCode::ErrConnectionClosed`
-is recovered as `""` (treated as a clean close, ending the loop); any other
-transport error propagates. The size cap is enforced inside the loop. The socket
-is a scoped resource (`RES`), closed when the exchange function returns.
+The transport is carried as a `Stream` resource union over `net::Socket` /
+`net::TlsSocket`; the reader `MATCH`es the active variant and reads 64 KiB at a
+time (`net::read` / `tls::read`). A read that returns `[]` marks the stream closed
+(end of stream). A read that fails with `errorCode::ErrConnectionClosed` is
+recovered as a close; any other transport error is captured in the stream's STATE.
+The size cap is enforced as bytes accumulate. The socket is a scoped resource
+(`RES`), closed once when the `Stream` leaves scope.
 
-[[src/builtins/http_package.mfb:__http_pump]] [[src/builtins/http_package.mfb:__http_readNet]] [[src/builtins/http_package.mfb:__http_readTls]]
+[[src/builtins/http_package.mfb:__http_startExchange]] [[src/builtins/http_package.mfb:__http_readNet]] [[src/builtins/http_package.mfb:__http_readTls]]
+
+## Non-Blocking Client
+
+The client is a non-blocking core with a thin blocking veneer. The core is a
+`Stream` resource union (`net::Socket | net::TlsSocket`) carrying a `PendingState`
+as plan-74 union STATE; five entry points drive an exchange without blocking the
+calling thread:
+
+```text
+startRead(url, headers, method) -> RES Stream STATE PendingState
+  connect per url.scheme, write the whole request, STATE = {sentAll:TRUE, closed:FALSE, raw:[], err:0}
+ready(stream)  -> Boolean   ' non-blocking poll(0): would a read return bytes/EOF now?
+pump(stream)               ' one readiness-gated 64 KiB read; grows STATE.raw; sets closed/err
+done(stream)   -> Boolean   ' STATE.err<>0  OR  STATE.closed  OR  frameComplete(STATE.raw)
+finish(stream) -> Response   ' FAIL on STATE.err; else parseResponse(STATE.raw)
+```
+
+A program binds the stream, loops `IF ready(s) THEN pump(s)` until `done(s)` —
+interleaving its own work between pumps — then calls `finish(s)`. Because plan-80
+relocated the union STATE slot to a record offset free in every transport layout,
+the STATE works over the `TlsSocket` variant as well as `Socket`.
 
 ## Request Flow
 
+`read`/`write` are thin blocking wrappers over the same core: they `startExchange`,
+then loop a blocking readiness wait (`net::poll`/`tls::poll` with the 30 s read
+deadline — a stalled peer sets `ErrTimeout`) plus `pump` until `done`, then
+`finish`.
+
 ```text
 read(url, headers, method):
-  verb    = normalizeMethod(method)
-  request = buildRequest(verb, url, "", hasBody=FALSE, headers)
-  raw     = exchange(url, request)
-  return    parseResponse(raw)
+  s = startExchange(url, "", hasBody=FALSE, headers, method)
+  WHILE done(s)=FALSE: waitReadable(s); pump(s)
+  return finish(s)
 
 write(url, body, headers, method):
-  verb    = normalizeMethod(method)
-  request = buildRequest(verb, url, body, hasBody=TRUE, headers)
-  raw     = exchange(url, request)
-  return    parseResponse(raw)
+  s = startExchange(url, body, hasBody=TRUE, headers, method)
+  WHILE done(s)=FALSE: waitReadable(s); pump(s)
+  return finish(s)
 ```
 
-`read` sends no body and no `Content-Length`; `write` always sends both. Neither
-entry point follows redirects or retries.
+`read` sends no body and no `Content-Length`; `write` always sends both. Both
+produce the same `Response` a direct read loop would, byte for byte. Neither entry
+point follows redirects or retries.
 
-[[src/builtins/http_package.mfb:__http_read]] [[src/builtins/http_package.mfb:__http_write]]
+[[src/builtins/http_package.mfb:__http_read]] [[src/builtins/http_package.mfb:__http_write]] [[src/builtins/http_package.mfb:__http_waitReadable]]
 
 ## Server
 

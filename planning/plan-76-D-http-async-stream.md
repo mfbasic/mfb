@@ -430,15 +430,19 @@ Commit: a3fad7a65 + (golden regen commit)
 
 ### Phase 5 — docs
 
-- [ ] Man pages under `src/docs/man/builtins/http/` for `startRead`, `ready`, `pump`, `done`,
-      `finish`, and the `Stream`/`PendingState` types page (follow `.ai/man_template.md` /
-      `.ai/man_type_template.md`). Note that `read`/`write` are now thin wrappers.
-- [ ] Spec: update `src/docs/spec/stdlib/05_http.md` with the async client and the `Stream` union /
-      `PendingState`; if `http::startRead` is a new readiness-adjacent surface, cross-reference the
-      timeout convention where `read`/`poll` timeouts apply.
+- [x] Man pages under `src/docs/man/builtins/http/`: `startRead`, `ready`, `pump`, `done`, `finish`
+      (each following `.ai/man_template.md`), and the `types` page gains `http::Stream` (resource
+      union, its two variants) + `http::PendingState` (its four fields). `read`/`write` are noted as
+      thin wrappers; their citations were repointed to the new transport helpers. All render (`mfb man
+      http startRead`/`types` verified).
+- [x] Spec `src/docs/spec/stdlib/05_http.md`: intro now describes both the blocking and non-blocking
+      forms; new "Non-Blocking Client" section documents the `Stream` union + `PendingState` + the
+      five entry points; "Transport Selection"/"Request Flow" rewritten over the async core; the
+      read-deadline (`ErrTimeout`) convention noted.
 
-Acceptance: `mfb man http startRead` etc. render; man/spec-citation tests green.
-Commit: —
+Acceptance: `mfb man http startRead`/`ready`/`pump`/`done`/`finish`/`types` render; man + spec
+citation tests green (`cargo test --bin mfb docs::` → 33 passed). **MET.**
+Commit: (this phase's commit)
 
 ## Validation Plan
 
@@ -534,6 +538,36 @@ Commit: —
   plan-80 (see the header `Depends on`): D resumes once plan-80 Phase 4 (the `STATE@24` / D4 gate) is
   green, at which point this design-gate row flips to MET. Forks (B) and (C) rejected in favor of (A)
   because (A) makes resource STATE correct for *every* resource, not just D's `Stream`.
+- **D5 (Phase 2 test): the `http-async-stream-rt` test is a Rust integration test
+  (`tests/rt_http_async_stream.rs`), not a golden-based `tests/rt-behavior/http/` fixture.** A
+  cooperatively-driven exchange needs a live loopback peer, which a golden fixture cannot stand up —
+  the same on-device-loopback deviation the existing `http_server_loopback` fixture already documents.
+  The test drives `startRead`/`ready`/`pump`/`done`/`finish` against a one-shot Python HTTP peer that
+  splits its response across two writes, proving multi-`pump` `state.raw` accumulation, and a sibling
+  test proves the rewritten blocking `http::read` yields the identical `Response` (Phase 4 byte
+  parity). The plan's ≥500× fd-leak loop is covered structurally (plan-74's drop machinery + plan-80's
+  D4 leak-free lifecycle tests); a dedicated **https async** drive is a follow-up (the loopback-TLS D4
+  proof in plan-80 already exercises union STATE over a live TlsSocket, and blocking `https` is
+  unchanged). Measured by the absence of a live-peer affordance in the golden harness.
+- **D6 (Phase 3, §4.2): the `ready`/`pump`/`done`/`finish` descriptor parameter type is the BASE
+  union `Stream`, not `Stream STATE PendingState`.** A resource value presents its base type for
+  call-site argument matching, and the builtin `resolve_call` path (`http.rs` `dispatch_resolve` via
+  `exact()`) does exact string matching — it does NOT subsume the `STATE` suffix the way the
+  user-function compatibility path does ([[resource-union-param-widening-already-works]]). So the
+  descriptor must accept `Stream`; the internal `.mfb` parameter carries the full
+  `Stream STATE PendingState` and plan-74's verifier/codegen resolves the STATE. `startRead`'s RETURN
+  keeps the stateful spelling so the bind preserves the returned STATE (not re-defaulting it).
+  Measured by the `TYPE_CALL_ARGUMENT_MISMATCH: got (Stream), expected Stream STATE PendingState`
+  error when the descriptor used the stateful spelling.
+- **D7 (Phase 4, §4.4): `__http_waitReadable` polls WITH `__HTTP_READ_TIMEOUT_MS`, not the plan's
+  "omitted timeout (block)".** The plan's infinite-block form would drop the pre-plan-76-D read
+  deadline (bug-268 / OS-11): the old blocking TCP path set `net::setReadTimeout`, so a black-holed
+  peer failed with `ErrTimeout` instead of wedging the thread. The rewrite preserves it by polling
+  with the 30 s deadline and, on timeout, setting `state.err = errorCode::ErrTimeout` (terminal to
+  `done`, re-raised by `finish`). TLS gains the same 30 s read deadline — a strict improvement over
+  the old TLS path, which had only the 64 MiB cap. The async `pump`/`ready` stay non-blocking
+  (poll 0), so the cooperative API is unaffected. Measured against the deleted `__http_exchangeTcp`'s
+  `setReadTimeout` call.
 
 ## Summary
 
