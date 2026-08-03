@@ -12,7 +12,7 @@ impl CodeBuilder<'_> {
         tag_slot: usize,
         payload_type: &str,
         payload_slot: usize,
-    ) -> Result<String, String> {
+    ) -> Result<VirtualRegister, String> {
         let is_block = self.result_payload_is_block(payload_type);
         let size_slot = self.allocate_stack_object("result_size", 8);
         let block_slot = self.allocate_stack_object("result_block", 8);
@@ -180,7 +180,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: format!("Result OF {success_type}"),
-            location: register,
+            location: register.render(),
             text,
         })
     }
@@ -197,7 +197,7 @@ impl CodeBuilder<'_> {
         // Reuse `materialize_current_result`'s scratch vreg (rather than
         // allocating a fresh one) so this extraction leaves the non-discard
         // emitted code byte-identical to the pre-plan-64-I inline version.
-        scratch9: &str,
+        scratch9: impl Into<Operand>,
         tag_slot: usize,
         value_slot: usize,
         message_slot: usize,
@@ -206,6 +206,7 @@ impl CodeBuilder<'_> {
         result_slot: usize,
         worker_error_source: bool,
     ) -> Result<(), String> {
+        let scratch9 = scratch9.into();
         let source_slot = self.allocate_stack_object("raw_result_source", 8);
         // Design "b": an `ERR_BLOCK` error already carries its single owned flat
         // Error block, parked in the current-error slot. ADOPT it as the payload
@@ -215,8 +216,15 @@ impl CodeBuilder<'_> {
         // error, never block-carried) falls through to the rebuild below.
         let rebuild_label = self.label("raw_result_rebuild");
         let err_built_label = self.label("raw_result_err_built");
-        self.emit(abi::load_u64(scratch9, abi::stack_pointer(), tag_slot));
-        self.emit(abi::compare_immediate(scratch9, RESULT_ERR_BLOCK_TAG));
+        self.emit(abi::load_u64(
+            scratch9.clone(),
+            abi::stack_pointer(),
+            tag_slot,
+        ));
+        self.emit(abi::compare_immediate(
+            scratch9.clone(),
+            RESULT_ERR_BLOCK_TAG,
+        ));
         self.emit(abi::branch_ne(&rebuild_label));
         let adopted = self.emit_adopt_current_error_block();
         self.emit(abi::store_u64(&adopted, abi::stack_pointer(), payload_slot));
@@ -239,8 +247,12 @@ impl CodeBuilder<'_> {
             // A propagated worker error: deep-copy its message and origin out of
             // the (still-alive) worker arena into the caller arena. If the helper
             // raised its own error (source == 0), stamp this inline expression.
-            self.emit(abi::load_u64(scratch9, abi::stack_pointer(), message_slot));
-            let copied_message = self.copy_value_to_current_arena("String", scratch9)?;
+            self.emit(abi::load_u64(
+                scratch9.clone(),
+                abi::stack_pointer(),
+                message_slot,
+            ));
+            let copied_message = self.copy_value_to_current_arena("String", scratch9.clone())?;
             self.emit(abi::store_u64(
                 &copied_message,
                 abi::stack_pointer(),
@@ -249,13 +261,13 @@ impl CodeBuilder<'_> {
             let own = self.label("raw_worker_error_own");
             let done = self.label("raw_worker_error_done");
             self.emit(abi::load_u64(
-                scratch9,
+                scratch9.clone(),
                 abi::stack_pointer(),
                 source_raw_slot,
             ));
-            self.emit(abi::compare_immediate(scratch9, "0"));
+            self.emit(abi::compare_immediate(scratch9.clone(), "0"));
             self.emit(abi::branch_eq(&own));
-            let copied_source = self.copy_value_to_current_arena("ErrorLoc", scratch9)?;
+            let copied_source = self.copy_value_to_current_arena("ErrorLoc", scratch9.clone())?;
             self.emit(abi::store_u64(
                 &copied_source,
                 abi::stack_pointer(),
@@ -294,8 +306,8 @@ impl CodeBuilder<'_> {
     pub(super) fn copy_value_to_current_arena(
         &mut self,
         type_: &str,
-        source: &str,
-    ) -> Result<String, String> {
+        source: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
         // A recursive value (e.g. `dom::Node`, whose `ElementNode.children` is
         // `List OF Node`) is a pointer-linked graph; copying it inline would make
         // the code generator recurse over the *type* without bound (bug-391).
@@ -312,7 +324,11 @@ impl CodeBuilder<'_> {
 
     /// Call the per-type deep-copy function (`thread_copy_symbol`), passing
     /// `source` in the first argument register and returning the copied pointer.
-    fn emit_thread_copy_call(&mut self, type_: &str, source: &str) -> Result<String, String> {
+    fn emit_thread_copy_call(
+        &mut self,
+        type_: &str,
+        source: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
         let symbol = thread_copy_symbol(type_);
         self.emit(abi::move_register(abi::ARG[0], source));
         self.emit_symbol_call(&symbol);
@@ -326,8 +342,8 @@ impl CodeBuilder<'_> {
     pub(super) fn emit_thread_copy_real(
         &mut self,
         type_: &str,
-        source: &str,
-    ) -> Result<String, String> {
+        source: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
         match type_ {
             "Nothing" | "Boolean" | "Byte" | "Integer" | "Float" | "Fixed" | "Money" | "Scalar" => {
                 let result = self.allocate_register()?;
@@ -396,8 +412,8 @@ impl CodeBuilder<'_> {
     fn copy_record_to_current_arena(
         &mut self,
         type_: &str,
-        source: &str,
-    ) -> Result<String, String> {
+        source: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
         let source_slot = self.allocate_stack_object("thread_copy_record_source", 8);
         let size_slot = self.allocate_stack_object("thread_copy_record_size", 8);
         let result_slot = self.allocate_stack_object("thread_copy_record_result", 8);
@@ -457,8 +473,8 @@ impl CodeBuilder<'_> {
     fn copy_resource_to_current_arena(
         &mut self,
         type_: &str,
-        source: &str,
-    ) -> Result<String, String> {
+        source: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
         let source_slot = self.allocate_stack_object("thread_copy_resource_source", 8);
         let result_slot = self.allocate_stack_object("thread_copy_resource_result", 8);
         let alloc_ok = self.label("thread_copy_resource_alloc_ok");
@@ -630,7 +646,11 @@ impl CodeBuilder<'_> {
             .unwrap_or(false)
     }
 
-    fn copy_union_to_current_arena(&mut self, type_: &str, source: &str) -> Result<String, String> {
+    fn copy_union_to_current_arena(
+        &mut self,
+        type_: &str,
+        source: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
         let source_slot = self.allocate_stack_object("thread_copy_union_source", 8);
         let size_slot = self.allocate_stack_object("thread_copy_union_size", 8);
         let result_slot = self.allocate_stack_object("thread_copy_union_result", 8);
@@ -708,8 +728,9 @@ impl CodeBuilder<'_> {
     fn copy_collection_to_current_arena(
         &mut self,
         type_: &str,
-        source: &str,
-    ) -> Result<String, String> {
+        source: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
+        let source = source.into();
         // A collection with only inline payloads is a flat, pointer-free block:
         // copy it with the generic flat copy (plan-02 §4.1, Phase 1). Only
         // collections embedding pointer payloads keep the per-payload fix below.
@@ -722,7 +743,11 @@ impl CodeBuilder<'_> {
         let alloc_ok = self.label("thread_copy_collection_alloc_ok");
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
-        self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
+        self.emit(abi::store_u64(
+            source.clone(),
+            abi::stack_pointer(),
+            source_slot,
+        ));
         self.emit(abi::load_u64(&scratch9, source, COLLECTION_OFFSET_CAPACITY));
         self.emit(abi::move_immediate(
             &scratch10,
@@ -1001,8 +1026,8 @@ impl CodeBuilder<'_> {
     fn copy_record_fields_into_existing(
         &mut self,
         type_: &str,
-        source: &str,
-        destination: &str,
+        source: impl Into<Operand>,
+        destination: impl Into<Operand>,
     ) -> Result<(), String> {
         let fields = self
             .type_model
@@ -1050,8 +1075,8 @@ impl CodeBuilder<'_> {
     fn copy_union_fields_into_existing(
         &mut self,
         type_: &str,
-        source: &str,
-        destination: &str,
+        source: impl Into<Operand>,
+        destination: impl Into<Operand>,
     ) -> Result<(), String> {
         // A transferred stateful union is spelled `Stream STATE Cursor`; the union
         // set and variant map key on the bare name (plan-75 gap 3). Its `STATE T`

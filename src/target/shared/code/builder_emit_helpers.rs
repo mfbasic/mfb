@@ -111,13 +111,13 @@ impl CodeBuilder<'_> {
         Ok(arg_values)
     }
 
-    pub(super) fn load_empty_string_constant(&mut self) -> Result<String, String> {
+    pub(super) fn load_empty_string_constant(&mut self) -> Result<VirtualRegister, String> {
         let register = self.allocate_register()?;
         self.emit_load_static_string_symbol(&register, EMPTY_STRING_SYMBOL);
         Ok(register)
     }
 
-    pub(super) fn load_string_constant(&mut self, value: &str) -> Result<String, String> {
+    pub(super) fn load_string_constant(&mut self, value: &str) -> Result<VirtualRegister, String> {
         let register = self.allocate_register()?;
         self.emit_load_string_constant(&register, value)?;
         Ok(register)
@@ -125,15 +125,16 @@ impl CodeBuilder<'_> {
 
     pub(super) fn emit_load_string_constant(
         &mut self,
-        register: &str,
+        register: impl Into<Operand>,
         value: &str,
     ) -> Result<(), String> {
+        let register = register.into();
         let symbol = self
             .string_symbols
             .get(value)
             .ok_or_else(|| format!("native code string literal '{value}' has no data object"))?
             .clone();
-        self.emit(abi::load_page_address(register, &symbol));
+        self.emit(abi::load_page_address(register.clone(), &symbol));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
             to: symbol.clone(),
@@ -141,7 +142,7 @@ impl CodeBuilder<'_> {
             binding: "data".to_string(),
             library: None,
         });
-        self.emit(abi::add_page_offset(register, register, &symbol));
+        self.emit(abi::add_page_offset(register.clone(), register, &symbol));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
             to: symbol,
@@ -152,8 +153,13 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(super) fn emit_load_static_string_symbol(&mut self, register: &str, symbol: &str) {
-        self.emit(abi::load_page_address(register, symbol));
+    pub(super) fn emit_load_static_string_symbol(
+        &mut self,
+        register: impl Into<Operand>,
+        symbol: &str,
+    ) {
+        let register = register.into();
+        self.emit(abi::load_page_address(register.clone(), symbol));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
             to: symbol.to_string(),
@@ -161,7 +167,7 @@ impl CodeBuilder<'_> {
             binding: "data".to_string(),
             library: None,
         });
-        self.emit(abi::add_page_offset(register, register, symbol));
+        self.emit(abi::add_page_offset(register.clone(), register, symbol));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
             to: symbol.to_string(),
@@ -217,7 +223,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
             type_: result_type,
-            location: register,
+            location: register.render(),
             text: format!("call {target}({})", join_texts(&arg_values)),
         })
     }
@@ -291,7 +297,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
             type_: result_type,
-            location: register,
+            location: register.render(),
             text: format!("call {target}({})", join_texts(&arg_values)),
         })
     }
@@ -380,7 +386,7 @@ impl CodeBuilder<'_> {
         };
         Ok(ValueResult {
             type_: result_type.to_string(),
-            location: register,
+            location: register.render(),
             text: format!("call {target}({})", join_texts(&arg_values)),
         })
     }
@@ -389,7 +395,7 @@ impl CodeBuilder<'_> {
     /// allocating from the temporary-register pool.
     pub(super) fn emit_load_string_address_into(
         &mut self,
-        register: &str,
+        register: impl Into<Operand>,
         value: &str,
     ) -> Result<(), String> {
         let symbol = self

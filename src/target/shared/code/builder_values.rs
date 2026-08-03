@@ -129,7 +129,7 @@ impl CodeBuilder<'_> {
             let copied = self.copy_flat_block(&result.type_, &result.location)?;
             return Ok(ValueResult {
                 type_: result.type_,
-                location: copied,
+                location: copied.render(),
                 text: result.text,
             });
         }
@@ -267,13 +267,13 @@ impl CodeBuilder<'_> {
         // so `next_vreg` — and therefore the byte-identical codegen it drives —
         // is unchanged.
         let _ = self.temporary_vreg();
-        let scratch9 = scratch9_reg.as_str();
-        let scratch10 = scratch10_reg.as_str();
+        let scratch9 = &scratch9_reg;
+        let scratch10 = &scratch10_reg;
         if let Some(string_value) = self.static_string_value(value) {
             let register = self.load_string_constant(&string_value)?;
             return Ok(ValueResult {
                 type_: "String".to_string(),
-                location: register,
+                location: register.render(),
                 text: format!("String({string_value})"),
             });
         }
@@ -288,7 +288,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, type_, &immediate));
                 Ok(ValueResult {
                     type_: type_.clone(),
-                    location: register,
+                    location: register.render(),
                     text: format!("{type_}({value})"),
                 })
             }
@@ -323,10 +323,10 @@ impl CodeBuilder<'_> {
                     }
                     let register = self.allocate_register()?;
                     self.emit(abi::float_move_x_from_d(&register, &d));
-                    self.float_residents.insert(register.clone(), d);
+                    self.float_residents.insert(register.render(), d);
                     return Ok(ValueResult {
                         type_: "Float".to_string(),
-                        location: register,
+                        location: register.render(),
                         text: name.clone(),
                     });
                 }
@@ -347,7 +347,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_double(&d, abi::stack_pointer(), stack_offset));
                     return Ok(ValueResult {
                         type_,
-                        location: d,
+                        location: d.render(),
                         text: name.clone(),
                     });
                 }
@@ -362,7 +362,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     type_,
-                    location: register,
+                    location: register.render(),
                     text: name.clone(),
                 })
             }
@@ -387,7 +387,7 @@ impl CodeBuilder<'_> {
                 ));
                 Ok(ValueResult {
                     type_: type_.clone(),
-                    location: register,
+                    location: register.render(),
                     text: format!("&{name}"),
                 })
             }
@@ -407,7 +407,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_double(&d, &address, 0));
                     return Ok(ValueResult {
                         type_: value_type,
-                        location: d,
+                        location: d.render(),
                         text: name.clone(),
                     });
                 }
@@ -415,7 +415,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, &address, 0));
                 Ok(ValueResult {
                     type_: value_type,
-                    location: register,
+                    location: register.render(),
                     text: name.clone(),
                 })
             }
@@ -454,7 +454,7 @@ impl CodeBuilder<'_> {
                 });
                 Ok(ValueResult {
                     type_: type_.clone(),
-                    location: closure_register,
+                    location: closure_register.render(),
                     text: name.clone(),
                 })
             }
@@ -574,7 +574,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&closure_register, abi::RET[1]));
                 Ok(ValueResult {
                     type_: type_.clone(),
-                    location: closure_register,
+                    location: closure_register.render(),
                     text: name.clone(),
                 })
             }
@@ -587,7 +587,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, CLOSURE_ENV_REGISTER, index * 8));
                 Ok(ValueResult {
                     type_: type_.clone(),
-                    location: register,
+                    location: register.render(),
                     text: format!("capture[{index}]"),
                 })
             }
@@ -630,7 +630,7 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     local.stack_offset,
                                 ));
-                                register
+                                register.render()
                             },
                             text: target.clone(),
                         };
@@ -658,7 +658,7 @@ impl CodeBuilder<'_> {
                         self.emit(abi::load_u64(&register, &address, 0));
                         let callable = ValueResult {
                             type_: global.type_,
-                            location: register,
+                            location: register.render(),
                             text: target.clone(),
                         };
                         return self.emit_function_value_call(
@@ -879,7 +879,7 @@ impl CodeBuilder<'_> {
                     let register = self.load_string_constant(&type_name)?;
                     return Ok(ValueResult {
                         type_: "String".to_string(),
-                        location: register,
+                        location: register.render(),
                         text: format!("typeName({type_name})"),
                     });
                 }
@@ -952,7 +952,7 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     local.stack_offset,
                                 ));
-                                register
+                                register.render()
                             },
                             text: target.clone(),
                         };
@@ -1091,7 +1091,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     type_: format!("Result OF {success_type}"),
-                    location: register,
+                    location: register.render(),
                     text: format!("callResult {target}"),
                 })
             }
@@ -1128,7 +1128,7 @@ impl CodeBuilder<'_> {
                     let register = self.load_string_constant(&type_name)?;
                     return Ok(ValueResult {
                         type_: "String".to_string(),
-                        location: register,
+                        location: register.render(),
                         text: format!("typeName({type_name})"),
                     });
                 }
@@ -1194,7 +1194,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
                     return Ok(ValueResult {
                         type_: type_.clone(),
-                        location: result,
+                        location: result.render(),
                         text: format!("construct {type_}({})", join_texts(&arg_values)),
                     });
                 }
@@ -1270,7 +1270,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     type_: union_name,
-                    location: register,
+                    location: register.render(),
                     text: format!("construct {type_}({})", join_texts(&arg_values)),
                 })
             }
@@ -1319,7 +1319,7 @@ impl CodeBuilder<'_> {
                         self.emit_wrap_record_in_union(member_type, tag, wrapped_slot)?;
                     return Ok(ValueResult {
                         type_: union_type.clone(),
-                        location: register,
+                        location: register.render(),
                         text: format!("wrap {member_type} as {union_type}"),
                     });
                 }
@@ -1382,7 +1382,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     type_: union_type.clone(),
-                    location: register,
+                    location: register.render(),
                     text: format!("wrap {member_type} as {union_type}"),
                 })
             }
@@ -1395,7 +1395,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_u64(&register, &source.location, 8));
                     return Ok(ValueResult {
                         type_: type_.clone(),
-                        location: register,
+                        location: register.render(),
                         text: format!("extract {type_} from {}", source.text),
                     });
                 }
@@ -1407,7 +1407,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::add_immediate(&register, &source.location, 16));
                 Ok(ValueResult {
                     type_: type_.clone(),
-                    location: register,
+                    location: register.render(),
                     text: format!("extract {type_} from {}", source.text),
                 })
             }
@@ -1426,7 +1426,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&end_label));
                 Ok(ValueResult {
                     type_: "Boolean".to_string(),
-                    location: register,
+                    location: register.render(),
                     text: "resultIsOk".to_string(),
                 })
             }
@@ -1453,7 +1453,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     type_,
-                    location: register,
+                    location: register.render(),
                     text: "resultValue".to_string(),
                 })
             }
@@ -1464,7 +1464,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::add_immediate(&register, &result.location, 16));
                 Ok(ValueResult {
                     type_: "Error".to_string(),
-                    location: register,
+                    location: register.render(),
                     text: "resultError".to_string(),
                 })
             }
@@ -1509,7 +1509,7 @@ impl CodeBuilder<'_> {
                         ));
                         return Ok(ValueResult {
                             type_: type_name.clone(),
-                            location: register,
+                            location: register.render(),
                             text: format!("{type_name}.{member}"),
                         });
                     }
@@ -1546,7 +1546,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::label(&done_label));
                     return Ok(ValueResult {
                         type_: "Boolean".to_string(),
-                        location: register,
+                        location: register.render(),
                         text: format!("(NOT {})", operand.text),
                     });
                 }
@@ -1721,7 +1721,7 @@ impl CodeBuilder<'_> {
             let register = self.load_string_constant(&type_name)?;
             return Ok(ValueResult {
                 type_: "String".to_string(),
-                location: register,
+                location: register.render(),
                 text: format!("typeName({type_name})"),
             });
         }

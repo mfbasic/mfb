@@ -701,7 +701,7 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         "x86.je" => jmp_label(instruction, JccKind::Je),
         "x86.jne" => jmp_label(instruction, JccKind::Jne),
         "bl" => {
-            let target = field(instruction, "target")?;
+            let target = field(instruction, "target")?.into_owned();
             // For an external (libc) call: `mov eax, 8` (al = 8) then `E8 rel32`
             // (call). The SysV variadic ABI requires al = number of vector
             // registers used for the variadic args before calling a variadic
@@ -744,7 +744,7 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         "adrp" => {
             // lea dst, [rip+disp32] ; disp32 patched by a data/GOT relocation.
             let dst = reg(field(instruction, "dst")?)?;
-            let symbol = field(instruction, "symbol")?;
+            let symbol = field(instruction, "symbol")?.into_owned();
             // REX.W + 0x8D /r, ModRM rip-relative. disp32 starts after REX(1)+
             // opcode(1)+modrm(1) = 3 bytes in.
             let mut bytes = vec![rex(true, dst >= 8, false, false), 0x8D];
@@ -1914,7 +1914,7 @@ enum JccKind {
 }
 
 fn jmp_label(instruction: &CodeInstruction, kind: JccKind) -> Result<Encoded, String> {
-    let target = field(instruction, "target")?;
+    let target = field(instruction, "target")?.into_owned();
     let (bytes, disp_field_offset) = match kind {
         // jmp rel32 : E9 cd  (5 bytes, disp at 1)
         JccKind::Jmp => (vec![0xE9, 0, 0, 0, 0], 1),
@@ -2360,7 +2360,7 @@ impl crate::arch::encode_plan::InstructionEncoder for Encoder {
     }
 
     fn label_name(instruction: &CodeInstruction) -> Result<String, String> {
-        super::operand::field(instruction, "name")
+        super::operand::field(instruction, "name").map(|c| c.into_owned())
     }
 
     fn emit_one(&mut self, instruction: &CodeInstruction) -> Result<(), String> {

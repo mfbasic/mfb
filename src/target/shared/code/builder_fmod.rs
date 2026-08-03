@@ -13,7 +13,11 @@ impl CodeBuilder<'_> {
     /// calling — and MFBASIC has no inf/NaN Float values, so libm's exception
     /// prologue is omitted. The result is exactly representable (bit-identical to
     /// libm `fmod`), so no accuracy tolerance applies.
-    pub(super) fn emit_float_fmod(&mut self, a_loc: &str, b_loc: &str) -> Result<String, String> {
+    pub(super) fn emit_float_fmod(
+        &mut self,
+        a_loc: impl Into<Operand>,
+        b_loc: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
         // Spill the operands and reset the register file: the kernel needs ~12
         // live registers and would otherwise exhaust the file in a busy
         // expression. The caller consumes `result` immediately after the return.

@@ -19,21 +19,28 @@
 //!
 //! - [`Operand::VReg`] — a virtual-register sentinel (`%vN` integer / `%fN`
 //!   floating-point), the allocator's interning key.
+//! - [`Operand::Phys`] — a *colored* physical register: `{class, index, name}`.
+//!   The allocation rewrite (plan-82-B) writes this at the one site where the
+//!   physical name *and* its class+index are both in hand.
 //! - [`Operand::Imm`] — a decimal integer immediate.
-//! - [`Operand::Raw`] — the long tail, rendered verbatim: physical register
-//!   names, labels, symbols, type names, stack-offset sentinels, booleans, and
-//!   the `%scratch`/`%sysnr`/`%local` occupancy tokens.
+//! - [`Operand::Raw`] — the long tail, rendered verbatim: labels, symbols, type
+//!   names, stack-offset sentinels, booleans, and the `%scratch`/`%sysnr`/`%local`
+//!   occupancy tokens. (Physical registers reaching the code layer as a bare
+//!   `&str` before B still funnel through `Raw`; B/C construct `Phys` directly.)
 //!
-//! **No `Phys { class, index }` arm yet, on purpose.** A physical register's
-//! spelling is *not* recoverable from `(class, index)` alone: `x0` / `rax` /
-//! `zero` all sit at integer index 0 on their respective ISAs, and `d3` / `v3`
-//! alias the same floating-point index 3 *within* AArch64. So a `Phys` arm that
-//! rendered from an index could not reproduce the exact source string, which is
-//! the one property A must guarantee. Physical registers therefore stay `Raw`
-//! (their name is the render source of truth) through A and B; plan-78-C, which
-//! writes physical names at the allocation rewrite site where the name *and*
-//! class+index are both in hand, is where a `Phys { class, index, name }` arm is
-//! introduced and read on the hot path.
+//! **The `Phys` arm carries the static name (plan-82-A design correction).** The
+//! plan-78-A note claimed a physical register "cannot render faithfully from
+//! `(class, index)`" because `x0` / `rax` / `zero` all sit at integer index 0 and
+//! `d3` / `v3` alias floating-point index 3 within AArch64 — true if `render()`
+//! had only `{class, index}` and no arch. But `render()` / `Display` /
+//! `rendered()` carry no arch parameter, and every `RegisterModel` already exposes
+//! its physical names as `&'static str` (`allocatable`/`caller_saved` →
+//! `&'static [&'static str]`). So [`Operand::Phys`] stores
+//! `{class, index, name: &'static str }`: `name` (a static pointer — **no heap
+//! allocation**) is the render source of truth, giving byte-identity with no arch
+//! context, while `index` is plan-82-D's direct encode read (== the register
+//! table position, proven by the round-trip test in `regalloc::analysis`). This
+//! is the `Phys { class, index, name }` arm plan-78-A anticipated.
 //!
 //! ## Render fidelity
 //!
@@ -65,8 +72,19 @@ pub(crate) enum Operand {
     /// A virtual-register sentinel: `%vN` for the integer class, `%fN` for the
     /// floating-point class. `id` is the register number the allocator interns.
     #[allow(dead_code)]
-    // constructed by plan-78-C's typed reads; proven live by the corpus test
+    // constructed by plan-82-C's typed producers; proven live by the corpus test
     VReg { class: RegClass, id: u32 },
+    /// A *colored* physical register. `index` is this class's register-table
+    /// position (AArch64 `x0`–`x30` → `0..=30`, x86-64 GPRs → encoding number,
+    /// etc.); `name` is the exact `&'static str` spelling the codegen emits and
+    /// the render source of truth. Constructed by the allocation rewrite
+    /// (plan-82-B) and by the encoder read (plan-82-D reads `index` directly). No
+    /// heap allocation — `name` is a static pointer.
+    Phys {
+        class: RegClass,
+        index: u32,
+        name: &'static str,
+    },
     /// A decimal integer immediate.
     Imm(i64),
     /// Any operand string not lifted to a typed arm — rendered verbatim.
@@ -75,9 +93,16 @@ pub(crate) enum Operand {
 
 impl Operand {
     /// A virtual register of `class` numbered `id`.
-    #[allow(dead_code)] // proven by the corpus test; production writers land in plan-78-B/C
+    #[allow(dead_code)] // proven by the corpus test; production writers land in plan-82-B/C
     pub(crate) fn vreg(class: RegClass, id: u32) -> Self {
         Operand::VReg { class, id }
+    }
+
+    /// A colored physical register of `class` at register-table `index`, spelled
+    /// `name` (a `&'static str` from the target's register model). See the arm doc.
+    /// Constructed by the allocation rewrite (plan-82-B `substitute`).
+    pub(crate) fn phys(class: RegClass, index: u32, name: &'static str) -> Self {
+        Operand::Phys { class, index, name }
     }
 
     /// A decimal integer immediate.
@@ -93,6 +118,9 @@ impl Operand {
     pub(crate) fn rendered(&self) -> std::borrow::Cow<'_, str> {
         match self {
             Operand::Raw(text) => std::borrow::Cow::Borrowed(text),
+            // A colored physical register lends its static name with no allocation
+            // — the whole point of the typed arm (plan-82-B/D).
+            Operand::Phys { name, .. } => std::borrow::Cow::Borrowed(name),
             _ => std::borrow::Cow::Owned(self.render()),
         }
     }
@@ -110,6 +138,7 @@ impl Operand {
                 class: RegClass::Fp,
                 id,
             } => fp_vreg_name(*id),
+            Operand::Phys { name, .. } => name.to_string(),
             Operand::Imm(value) => value.to_string(),
             Operand::Raw(text) => text.to_string(),
         }
@@ -140,6 +169,65 @@ impl Operand {
             }
         }
         Operand::Raw(value.into())
+    }
+}
+
+/// A minted virtual-register handle (plan-82-C). The register producers on
+/// `CodeBuilder` (`allocate_register`/`allocate_fp_register`/`temporary_vreg`/
+/// `temporary_fp_vreg`) return this instead of a `String`, so a bare-register
+/// `.field(name, handle)` stores an inline [`Operand::VReg`] — **no `Box<str>`
+/// allocated at production**. It carries only `{class, id}` (a `Copy` value, no
+/// heap), and renders to the `%vN`/`%fN` sentinel for the rare site that still
+/// needs the string form (a `format!`, a `&str` API, a `String` collection).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct VirtualRegister {
+    class: RegClass,
+    id: u32,
+}
+
+impl VirtualRegister {
+    /// A virtual register of `class` numbered `id`.
+    pub(crate) fn new(class: RegClass, id: u32) -> Self {
+        Self { class, id }
+    }
+
+    /// The `%vN` (integer) / `%fN` (floating-point) sentinel spelling. Allocates
+    /// a `String` — used only by the string-shaped sites the typed `.field` funnel
+    /// does not cover; a bare `.field(handle)` never renders (it stores `VReg`).
+    pub(crate) fn render(self) -> String {
+        match self.class {
+            RegClass::Int => vreg_name(self.id),
+            RegClass::Fp => fp_vreg_name(self.id),
+        }
+    }
+}
+
+/// A minted handle stores as an inline `VReg` — the plan-82-C allocation-free
+/// production path. Both by-value and by-reference (`.field(name, &handle)`, the
+/// common call shape) convert, mirroring the old `&String`/`String` funnel.
+impl From<VirtualRegister> for Operand {
+    fn from(reg: VirtualRegister) -> Self {
+        Operand::VReg {
+            class: reg.class,
+            id: reg.id,
+        }
+    }
+}
+
+impl From<&VirtualRegister> for Operand {
+    fn from(reg: &VirtualRegister) -> Self {
+        Operand::VReg {
+            class: reg.class,
+            id: reg.id,
+        }
+    }
+}
+
+/// The sentinel spelling, so a string-shaped site (`format!("{reg}")`, an
+/// `== "%v3"` comparison) keeps working after the producers return a handle.
+impl std::fmt::Display for VirtualRegister {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.render())
     }
 }
 
@@ -192,6 +280,16 @@ impl From<&String> for Operand {
 impl From<String> for Operand {
     fn from(value: String) -> Self {
         Operand::Raw(value.into_boxed_str())
+    }
+}
+
+/// A borrowed `Operand` clones into an owned one, so a stored/threaded operand (a
+/// MIR field value, plan-79) flows into a `.field(name, &value)` / `abi::*(&value,
+/// …)` call by reference with no explicit `.clone()`. A `VReg`/`Phys`/`Imm` clone
+/// is heap-free; only `Raw` boxes, exactly as `From<&str>`/`From<&String>` did.
+impl From<&Operand> for Operand {
+    fn from(value: &Operand) -> Self {
+        value.clone()
     }
 }
 

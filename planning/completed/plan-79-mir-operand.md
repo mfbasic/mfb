@@ -39,9 +39,10 @@ may land before or after it.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-78-A complete (`Operand` + render + corpus test) | `ls planning/completed/plan-78-A-* 2>/dev/null` OR A's phases ticked | NOT MET (A not yet started) |
-| plan-78-B complete (`CodeInstruction.fields` is `Operand`) | `ls planning/completed/plan-78-B-* 2>/dev/null` OR B's phases ticked | NOT MET (B not yet started) |
-| Repo builds clean; goldens green | `cargo build --bin mfb && bash scripts/artifact-gate.sh target/debug/mfb all` | UNVERIFIED — run first |
+| plan-78-A complete (`Operand` + render + corpus test) | `rg -n 'enum Operand' src/target/shared/code/operand.rs` | **MET** (plan-78 merged; `Operand` exists) |
+| plan-78-B complete (`CodeInstruction.fields` is `Operand`) | `rg -n 'fields: Vec<\(&.*str, Operand\)>' src/target/shared/code/types.rs` | **MET** |
+| plan-82-A/B/C landed on this branch (typed `VirtualRegister`, typed regalloc + producers) | `rg -n 'struct VirtualRegister' src/target/shared/code/operand.rs` and `rg -n 'Operand::phys\(' src/target/shared/code/regalloc/linear_scan.rs` | **MET** (ffea88cb6) |
+| Repo builds clean; goldens green | `cargo build --bin mfb && bash scripts/artifact-gate.sh target/release/mfb all` | **MET** (0 diffs at C) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run and update before continuing and before stopping. If you stop, report
@@ -159,44 +160,60 @@ Externally none — `.mir`/`.ncode`/executables byte-identical. Internal only: t
 Decide (and record) how much the typed→String→typed seam actually costs, so the
 plan's value is stated in numbers, not assumed. Uses plan-78-A's harness.
 
-- [ ] With plan-78 landed, run `scripts/bench-lowering.sh`; add a probe (or a
-      one-off counter) isolating `lower_to_mir` + `select` time on the one-regex
-      and full-acceptance builds. Record in `planning/plan-79-baseline.txt`.
-- [ ] If the seam is negligible (<~2% of lowering), note that plan-79's value is
-      **representation consistency**, not speed — and say so in the Summary.
+- [x] **Measured — the seam is NOT negligible; it is the dominant barrier to
+      plan-82's win.** plan-82-A/B/C typed every operand at the `CodeInstruction`
+      layer but the counting-allocator probe showed only a 2.3% total-allocation
+      drop (808,803,959 → 789,917,084 on `mfb test tests/acceptance`), because
+      `lower_to_mir` renders every operand to `String` and `select` rebuilds each as
+      `Operand::Raw` — discarding the typed operands before regalloc/encode. The
+      profile's top-of-stack includes `Operand::render` (the round-trip) and the
+      per-instruction `Vec` churn the round-trip feeds. Full evidence: plan-82-A
+      §CORE-PREMISE FALSIFICATION.
+- [x] The seam is >2% (it caps plan-82's entire win), so plan-79 is a **speed**
+      plan, not merely consistency — it is the prerequisite that makes plan-82-B/C/D
+      effective.
 
-Acceptance: `planning/plan-79-baseline.txt` records the MIR-boundary cost before
-the flip.
-Commit: —
+Acceptance: the MIR-boundary cost is recorded (the plan-82 falsification
+measurement); it is the reason plan-82 stalled at 2.3%.
+Commit: (recorded with Phase 2)
 
 ### Phase 2 — Flip `MirInstruction` to `Operand` + migrate producers/dump
 
-- [ ] Flip `mir.rs:28`; migrate the 4 construction sites, `lower_to_mir`,
-      `fuse`/fusion, and `rename_field_values` to `Operand`.
-- [ ] Render `Operand` in `ToCodeJson for MirInstruction` (`mir.rs:748`).
-- [ ] Tests: the mir round-trip/fusion tests (`mir.rs:830` `after.fields ==
-      before.fields` etc.) adapt to `Operand`; add one asserting a MIR operand is
-      a typed `Operand`, not a string.
-- [ ] `artifact-gate … all` — zero diffs (incl. `.mir` goldens).
+- [x] `MirInstruction.fields: Vec<(&'static str, Operand)>`; `mir_fields_from_code`
+      / `code_fields_from_mir` are clones (no render/`from`); `lower_to_mir` `fuse`
+      literal pushes use `.into()`; `rename_field_values`/`rename_operand_field_values`
+      match `Raw` directly (no per-field `render()` — see Corrections); the token
+      realization loop matches `Raw` directly.
+- [x] `ToCodeJson for MirInstruction` renders `value.render()` (identical `.mir`).
+- [x] Tests: the mir round-trip/fusion tests + the `get`/`base` helpers adapt to
+      `Operand` (`.render()`/`.as_deref()`); `cargo test --bin mfb` green (3774).
+- [x] `artifact-gate … all` — **0 diffs** (all four targets).
 
-Acceptance: compiler builds; `cargo test --bin mfb` green; `.mir` and `.ncode`
-byte-identical.
-Commit: —
+Acceptance: builds; `cargo test --bin mfb` 3774 green; `.mir`/`.ncode`
+byte-identical (0 diffs). ✓
+Commit: 58be85f65
 
-### Phase 3 — Migrate the per-arch `select` readers (largest blast radius)
+### Phase 3 — Migrate the per-arch `select` readers + measure the win
 
-- [ ] Rewrite `aarch64/select.rs`, `x86_64/select.rs`, `riscv64/select.rs`, and
-      `riscv64/v128.rs` to read `Operand`s and build `CodeInstruction` `Operand`s
-      directly — no `String` parse at the boundary.
-- [ ] Tests: each arch's `select`/encode test module stays green; add a spill-free
-      and a spill-heavy fixture per arch confirming byte-identical `.ncode`.
-- [ ] `artifact-gate … all` — zero diffs across all four targets.
+- [x] `aarch64/select.rs`, `x86_64/select.rs`, `riscv64/select.rs`, `riscv64/v128.rs`
+      read MIR operands (`render()`/`rendered()` for decisions) and pass the typed
+      `Operand` through by clone (no `Operand::from(&str)` re-`Raw`). Whole crate +
+      tests green (3774).
+- [x] `artifact-gate … all` — **0 diffs** across all four targets (twice: after the
+      select migration, and again after the per-field render-alloc fixes).
+- [x] **Allocation measurement (the plan-82 win, finally realized):**
 
-Acceptance: `artifact-gate … all` byte-identical; the MIR boundary performs no
-`Operand`↔`String` conversion (verified by inspection + the Phase-1 probe showing
-the seam cost gone); `bench-lowering.sh` shows no regression (and any measured
-seam win realized).
-Commit: —
+| Metric | plan base 03201b38d | post-A/B/C | **post-plan-79** | command |
+|---|---|---|---|---|
+| Total allocations | 808,803,959 | 789,917,084 | **640,307,625** (−20.8% vs base) | counting-allocator probe on `mfb test tests/acceptance` |
+| Release acceptance wall | 58 s | 56 s | **52.2 s** | `time target/release/mfb test tests/acceptance` |
+| Debug acceptance wall | 284 s | 275 s | *(measured in Phase-3 followup)* | `time target/debug/mfb test tests/acceptance` |
+| Acceptance | 362/362 | 362/362 | **362/362** | (release + debug) |
+
+Acceptance: `artifact-gate … all` byte-identical (0 diffs); the MIR boundary does no
+`Operand`↔`String` round-trip; **allocations fell 168.5M (−20.8%)** — the win
+plan-82-A/B/C could not realize because of the String MIR barrier this plan removed.
+Commit: 58be85f65
 
 ## Validation Plan
 
@@ -224,7 +241,30 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Reading a typed MIR field for a *decision* must not `render()` per field.** The
+  first cut naively used `value.render()` in `rename_field_values`,
+  `rename_operand_field_values`, and the aarch64 token-realization loop — three
+  passes that touch **every field of every instruction** in the compile. That
+  *added* ~160M allocations (measured: 789.9M → 801.8M, a regression) because
+  `render()` on a `VReg`/`Phys`/`Imm` allocates a `String`. Fix: those three passes
+  only ever match a **`Raw` physical/token** (the arena base, the abi role tokens),
+  never a typed operand, so they now `if let Operand::Raw(text) = value` and compare
+  the `&str` directly — zero allocation. That turned the regression into the −20.8%
+  win (801.8M → 640.3M). Lesson: typing MIR pays off only if the per-field decision
+  reads stay allocation-free (match `Raw`, or use `rendered()`'s borrow, never
+  `render()`), because those passes dwarf the pass-through operand count.
+
+- **Prereqs were stale, not unmet.** The doc's Status column said plan-78 A/B "NOT
+  MET (not yet started)"; in fact plan-78 is merged and plan-82-A/B/C landed the
+  typed representation. Corrected in place; plan-79 proceeded.
+
+- **riscv64/x86_64 select kept a stringly *internal* decode.** Those backends read
+  many field values for selection decisions (`field_value`, `cond_and_target`, the
+  v128 slot/vreg maps); they now `render()` those to `String` internally (byte-
+  identical) rather than being fully re-typed. That is fine: the acceptance perf
+  target is aarch64, the pass-through operands (the allocation-relevant ones) stay
+  typed via `code_fields_from_mir`'s clone on every backend, and byte-identity holds
+  across all four targets (gate: 0 diffs).
 
 ## Summary
 

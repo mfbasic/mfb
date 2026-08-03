@@ -53,22 +53,29 @@ impl CodeBuilder<'_> {
     /// four hand-written copies in `lower_find`/`lower_mid` it replaced.
     pub(in crate::target::shared::code) fn emit_scalar_skip_continuations(
         &mut self,
-        cursor: &str,
-        remaining: &str,
-        byte: &str,
-        mask: &str,
+        cursor: impl Into<Operand>,
+        remaining: impl Into<Operand>,
+        byte: impl Into<Operand>,
+        mask: impl Into<Operand>,
         continue_label: &str,
         advanced_label: &str,
     ) {
+        let cursor: Operand = cursor.into();
+        let remaining: Operand = remaining.into();
+        let byte: Operand = byte.into();
         self.emit(abi::label(continue_label));
-        self.emit(abi::compare_immediate(remaining, "0"));
+        self.emit(abi::compare_immediate(remaining.clone(), "0"));
         self.emit(abi::branch_eq(advanced_label));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::and_registers(byte, byte, mask));
-        self.emit(abi::compare_immediate(byte, UTF8_CONTINUATION_TAG));
+        self.emit(abi::load_u8(byte.clone(), cursor.clone(), 0));
+        self.emit(abi::and_registers(byte.clone(), byte.clone(), mask));
+        self.emit(abi::compare_immediate(byte.clone(), UTF8_CONTINUATION_TAG));
         self.emit(abi::branch_ne(advanced_label));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::subtract_immediate(remaining, remaining, 1));
+        self.emit(abi::add_immediate(cursor.clone(), cursor.clone(), 1));
+        self.emit(abi::subtract_immediate(
+            remaining.clone(),
+            remaining.clone(),
+            1,
+        ));
         self.emit(abi::branch(continue_label));
     }
 
@@ -81,44 +88,54 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(in crate::target::shared::code) fn emit_scalar_count_loop(
         &mut self,
-        base: &str,
-        index: &str,
-        count: &str,
-        addr: &str,
-        byte: &str,
-        mask: &str,
-        length: &str,
+        base: impl Into<Operand>,
+        index: impl Into<Operand>,
+        count: impl Into<Operand>,
+        addr: impl Into<Operand>,
+        byte: impl Into<Operand>,
+        mask: impl Into<Operand>,
+        length: impl Into<Operand>,
         loop_label: &str,
         not_cont: &str,
         after: &str,
         done: &str,
     ) {
-        self.emit(abi::move_immediate(index, "Integer", "0"));
-        self.emit(abi::move_immediate(count, "Integer", "0"));
-        self.emit(abi::move_immediate(mask, "Integer", UTF8_CONTINUATION_MASK));
+        let index: Operand = index.into();
+        let count: Operand = count.into();
+        let addr: Operand = addr.into();
+        let byte: Operand = byte.into();
+        let mask: Operand = mask.into();
+        self.emit(abi::move_immediate(index.clone(), "Integer", "0"));
+        self.emit(abi::move_immediate(count.clone(), "Integer", "0"));
+        self.emit(abi::move_immediate(
+            mask.clone(),
+            "Integer",
+            UTF8_CONTINUATION_MASK,
+        ));
         self.emit(abi::label(loop_label));
-        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::compare_registers(index.clone(), length));
         self.emit(abi::branch_ge(done));
-        self.emit(abi::add_registers(addr, base, index));
-        self.emit(abi::load_u8(byte, addr, 0));
-        self.emit(abi::and_registers(byte, byte, mask));
-        self.emit(abi::compare_immediate(byte, UTF8_CONTINUATION_TAG));
+        self.emit(abi::add_registers(addr.clone(), base, index.clone()));
+        self.emit(abi::load_u8(byte.clone(), addr.clone(), 0));
+        self.emit(abi::and_registers(byte.clone(), byte.clone(), mask.clone()));
+        self.emit(abi::compare_immediate(byte.clone(), UTF8_CONTINUATION_TAG));
         self.emit(abi::branch_ne(not_cont));
         self.emit(abi::branch(after));
         self.emit(abi::label(not_cont));
-        self.emit(abi::add_immediate(count, count, 1));
+        self.emit(abi::add_immediate(count.clone(), count.clone(), 1));
         self.emit(abi::label(after));
-        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(index.clone(), index.clone(), 1));
         self.emit(abi::branch(loop_label));
         self.emit(abi::label(done));
     }
 
     pub(in crate::target::shared::code) fn emit_load_data_address(
         &mut self,
-        register: &str,
+        register: impl Into<Operand>,
         symbol: &str,
     ) {
-        self.emit(abi::load_page_address(register, symbol));
+        let register: Operand = register.into();
+        self.emit(abi::load_page_address(register.clone(), symbol));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
             to: symbol.to_string(),
@@ -126,7 +143,11 @@ impl CodeBuilder<'_> {
             binding: "data".to_string(),
             library: None,
         });
-        self.emit(abi::add_page_offset(register, register, symbol));
+        self.emit(abi::add_page_offset(
+            register.clone(),
+            register.clone(),
+            symbol,
+        ));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
             to: symbol.to_string(),
@@ -152,9 +173,9 @@ impl CodeBuilder<'_> {
     /// decode exactly as before.
     pub(in crate::target::shared::code) fn emit_utf8_decode_next(
         &mut self,
-        cursor: &str,
-        codepoint: &str,
-        width: &str,
+        cursor: impl Into<Operand>,
+        codepoint: impl Into<Operand>,
+        width: impl Into<Operand>,
     ) {
         let check_two = self.label("utf8_decode_check_two");
         let check_three = self.label("utf8_decode_check_three");
@@ -175,135 +196,188 @@ impl CodeBuilder<'_> {
         let byte3 = self.temporary_vreg();
         let masked = self.temporary_vreg();
         let mask = self.temporary_vreg();
-        let byte = byte.as_str();
-        let byte2 = byte2.as_str();
-        let byte3 = byte3.as_str();
-        let masked = masked.as_str();
-        let mask = mask.as_str();
+        let byte = &byte;
+        let byte2 = &byte2;
+        let byte3 = &byte3;
+        let masked = &masked;
+        let mask = &mask;
+        let cursor: Operand = cursor.into();
+        let codepoint: Operand = codepoint.into();
+        let width: Operand = width.into();
 
-        self.emit(abi::load_u8(codepoint, cursor, 0));
-        self.emit(abi::compare_immediate(codepoint, "128"));
+        self.emit(abi::load_u8(codepoint.clone(), cursor.clone(), 0));
+        self.emit(abi::compare_immediate(codepoint.clone(), "128"));
         self.emit(abi::branch_ge(&check_two));
-        self.emit(abi::move_immediate(width, "Integer", "1"));
+        self.emit(abi::move_immediate(width.clone(), "Integer", "1"));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&check_two));
         // 0x80..0xC1: stray continuation byte or overlong two-byte lead.
-        self.emit(abi::compare_immediate(codepoint, "194"));
+        self.emit(abi::compare_immediate(codepoint.clone(), "194"));
         self.emit(abi::branch_lt(&invalid));
-        self.emit(abi::compare_immediate(codepoint, "224"));
+        self.emit(abi::compare_immediate(codepoint.clone(), "224"));
         self.emit(abi::branch_ge(&check_three));
-        self.emit(abi::load_u8(byte, cursor, 1));
+        self.emit(abi::load_u8(byte, cursor.clone(), 1));
         self.emit(abi::move_immediate(mask, "Integer", "192"));
         self.emit(abi::and_registers(masked, byte, mask));
         self.emit(abi::compare_immediate(masked, "128"));
         self.emit(abi::branch_ne(&invalid));
-        self.emit(abi::move_immediate(width, "Integer", "2"));
+        self.emit(abi::move_immediate(width.clone(), "Integer", "2"));
         self.emit(abi::move_immediate(masked, "Integer", "31"));
-        self.emit(abi::and_registers(codepoint, codepoint, masked));
-        self.emit(abi::shift_left_immediate(codepoint, codepoint, 6));
+        self.emit(abi::and_registers(
+            codepoint.clone(),
+            codepoint.clone(),
+            masked,
+        ));
+        self.emit(abi::shift_left_immediate(
+            codepoint.clone(),
+            codepoint.clone(),
+            6,
+        ));
         self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(byte, byte, mask));
-        self.emit(abi::or_registers(codepoint, codepoint, byte));
+        self.emit(abi::or_registers(
+            codepoint.clone(),
+            codepoint.clone(),
+            byte,
+        ));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&check_three));
-        self.emit(abi::compare_immediate(codepoint, "240"));
+        self.emit(abi::compare_immediate(codepoint.clone(), "240"));
         self.emit(abi::branch_ge(&four));
-        self.emit(abi::load_u8(byte, cursor, 1));
+        self.emit(abi::load_u8(byte, cursor.clone(), 1));
         self.emit(abi::move_immediate(mask, "Integer", "192"));
         self.emit(abi::and_registers(masked, byte, mask));
         self.emit(abi::compare_immediate(masked, "128"));
         self.emit(abi::branch_ne(&invalid));
         // E0: second byte must be 0xA0..0xBF (reject overlongs).
-        self.emit(abi::compare_immediate(codepoint, "224"));
+        self.emit(abi::compare_immediate(codepoint.clone(), "224"));
         self.emit(abi::branch_ne(&three_not_e0));
         self.emit(abi::compare_immediate(byte, "160"));
         self.emit(abi::branch_lt(&invalid));
         self.emit(abi::label(&three_not_e0));
         // ED: second byte must be 0x80..0x9F (reject surrogates D800..DFFF).
-        self.emit(abi::compare_immediate(codepoint, "237"));
+        self.emit(abi::compare_immediate(codepoint.clone(), "237"));
         self.emit(abi::branch_ne(&three_not_ed));
         self.emit(abi::compare_immediate(byte, "160"));
         self.emit(abi::branch_ge(&invalid));
         self.emit(abi::label(&three_not_ed));
-        self.emit(abi::load_u8(byte2, cursor, 2));
+        self.emit(abi::load_u8(byte2, cursor.clone(), 2));
         self.emit(abi::and_registers(masked, byte2, mask));
         self.emit(abi::compare_immediate(masked, "128"));
         self.emit(abi::branch_ne(&invalid));
-        self.emit(abi::move_immediate(width, "Integer", "3"));
+        self.emit(abi::move_immediate(width.clone(), "Integer", "3"));
         self.emit(abi::move_immediate(masked, "Integer", "15"));
-        self.emit(abi::and_registers(codepoint, codepoint, masked));
-        self.emit(abi::shift_left_immediate(codepoint, codepoint, 12));
+        self.emit(abi::and_registers(
+            codepoint.clone(),
+            codepoint.clone(),
+            masked,
+        ));
+        self.emit(abi::shift_left_immediate(
+            codepoint.clone(),
+            codepoint.clone(),
+            12,
+        ));
         self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(byte, byte, mask));
         self.emit(abi::shift_left_immediate(byte, byte, 6));
-        self.emit(abi::or_registers(codepoint, codepoint, byte));
+        self.emit(abi::or_registers(
+            codepoint.clone(),
+            codepoint.clone(),
+            byte,
+        ));
         self.emit(abi::and_registers(byte2, byte2, mask));
-        self.emit(abi::or_registers(codepoint, codepoint, byte2));
+        self.emit(abi::or_registers(
+            codepoint.clone(),
+            codepoint.clone(),
+            byte2,
+        ));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&four));
         // 0xF5..0xFF: leads beyond U+10FFFF.
-        self.emit(abi::compare_immediate(codepoint, "245"));
+        self.emit(abi::compare_immediate(codepoint.clone(), "245"));
         self.emit(abi::branch_ge(&invalid));
-        self.emit(abi::load_u8(byte, cursor, 1));
+        self.emit(abi::load_u8(byte, cursor.clone(), 1));
         self.emit(abi::move_immediate(mask, "Integer", "192"));
         self.emit(abi::and_registers(masked, byte, mask));
         self.emit(abi::compare_immediate(masked, "128"));
         self.emit(abi::branch_ne(&invalid));
         // F0: second byte must be 0x90..0xBF (reject overlongs).
-        self.emit(abi::compare_immediate(codepoint, "240"));
+        self.emit(abi::compare_immediate(codepoint.clone(), "240"));
         self.emit(abi::branch_ne(&four_not_f0));
         self.emit(abi::compare_immediate(byte, "144"));
         self.emit(abi::branch_lt(&invalid));
         self.emit(abi::label(&four_not_f0));
         // F4: second byte must be 0x80..0x8F (reject > U+10FFFF).
-        self.emit(abi::compare_immediate(codepoint, "244"));
+        self.emit(abi::compare_immediate(codepoint.clone(), "244"));
         self.emit(abi::branch_ne(&four_not_f4));
         self.emit(abi::compare_immediate(byte, "144"));
         self.emit(abi::branch_ge(&invalid));
         self.emit(abi::label(&four_not_f4));
-        self.emit(abi::load_u8(byte2, cursor, 2));
+        self.emit(abi::load_u8(byte2, cursor.clone(), 2));
         self.emit(abi::and_registers(masked, byte2, mask));
         self.emit(abi::compare_immediate(masked, "128"));
         self.emit(abi::branch_ne(&invalid));
-        self.emit(abi::load_u8(byte3, cursor, 3));
+        self.emit(abi::load_u8(byte3, cursor.clone(), 3));
         self.emit(abi::and_registers(masked, byte3, mask));
         self.emit(abi::compare_immediate(masked, "128"));
         self.emit(abi::branch_ne(&invalid));
-        self.emit(abi::move_immediate(width, "Integer", "4"));
+        self.emit(abi::move_immediate(width.clone(), "Integer", "4"));
         self.emit(abi::move_immediate(masked, "Integer", "7"));
-        self.emit(abi::and_registers(codepoint, codepoint, masked));
-        self.emit(abi::shift_left_immediate(codepoint, codepoint, 18));
+        self.emit(abi::and_registers(
+            codepoint.clone(),
+            codepoint.clone(),
+            masked,
+        ));
+        self.emit(abi::shift_left_immediate(
+            codepoint.clone(),
+            codepoint.clone(),
+            18,
+        ));
         self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(byte, byte, mask));
         self.emit(abi::shift_left_immediate(byte, byte, 12));
-        self.emit(abi::or_registers(codepoint, codepoint, byte));
+        self.emit(abi::or_registers(
+            codepoint.clone(),
+            codepoint.clone(),
+            byte,
+        ));
         self.emit(abi::and_registers(byte2, byte2, mask));
         self.emit(abi::shift_left_immediate(byte2, byte2, 6));
-        self.emit(abi::or_registers(codepoint, codepoint, byte2));
+        self.emit(abi::or_registers(
+            codepoint.clone(),
+            codepoint.clone(),
+            byte2,
+        ));
         self.emit(abi::and_registers(byte3, byte3, mask));
-        self.emit(abi::or_registers(codepoint, codepoint, byte3));
+        self.emit(abi::or_registers(
+            codepoint.clone(),
+            codepoint.clone(),
+            byte3,
+        ));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&invalid));
         // Substitute U+FFFD and resync one byte; unreachable on a valid String.
-        self.emit(abi::move_immediate(codepoint, "Integer", "65533"));
+        self.emit(abi::move_immediate(codepoint.clone(), "Integer", "65533"));
         self.emit(abi::move_immediate(width, "Integer", "1"));
         self.emit(abi::label(&done));
     }
 
     pub(in crate::target::shared::code) fn emit_unicode_property_lookup(
         &mut self,
-        codepoint: &str,
-        property: &str,
+        codepoint: impl Into<Operand>,
+        property: impl Into<Operand>,
     ) {
         let index = self.temporary_vreg();
         let table = self.temporary_vreg();
-        let index = index.as_str();
-        let table = table.as_str();
-        self.emit(abi::shift_right_immediate(index, codepoint, 8));
+        let index = &index;
+        let table = &table;
+        let codepoint: Operand = codepoint.into();
+        let property: Operand = property.into();
+        self.emit(abi::shift_right_immediate(index, codepoint.clone(), 8));
         self.emit(abi::shift_left_immediate(index, index, 1));
         self.emit_load_data_address(table, UNICODE_STAGE1_SYMBOL);
         self.emit(abi::add_registers(table, table, index));
@@ -321,14 +395,14 @@ impl CodeBuilder<'_> {
             &UNICODE_PROPERTY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(index, index, table));
-        self.emit_load_data_address(property, UNICODE_PROPERTIES_SYMBOL);
-        self.emit(abi::add_registers(property, property, index));
+        self.emit_load_data_address(property.clone(), UNICODE_PROPERTIES_SYMBOL);
+        self.emit(abi::add_registers(property.clone(), property, index));
     }
 
     pub(in crate::target::shared::code) fn emit_unicode_property_boundclass(
         &mut self,
-        property: &str,
-        output: &str,
+        property: impl Into<Operand>,
+        output: impl Into<Operand>,
     ) {
         self.emit(abi::load_u16(
             output,
@@ -339,8 +413,8 @@ impl CodeBuilder<'_> {
 
     pub(in crate::target::shared::code) fn emit_unicode_property_u16(
         &mut self,
-        property: &str,
-        output: &str,
+        property: impl Into<Operand>,
+        output: impl Into<Operand>,
         offset: usize,
     ) {
         self.emit(abi::load_u16(output, property, offset));
@@ -348,40 +422,40 @@ impl CodeBuilder<'_> {
 
     pub(in crate::target::shared::code) fn emit_unicode_property_combining_class(
         &mut self,
-        property: &str,
-        output: &str,
+        property: impl Into<Operand>,
+        output: impl Into<Operand>,
     ) {
         self.emit_unicode_property_u16(property, output, UNICODE_PROPERTY_OFFSET_COMBINING_CLASS);
     }
 
     pub(in crate::target::shared::code) fn emit_unicode_property_comb_index(
         &mut self,
-        property: &str,
-        output: &str,
+        property: impl Into<Operand>,
+        output: impl Into<Operand>,
     ) {
         self.emit_unicode_property_u16(property, output, UNICODE_PROPERTY_OFFSET_COMB_INDEX);
     }
 
     pub(in crate::target::shared::code) fn emit_unicode_property_comb_length(
         &mut self,
-        property: &str,
-        output: &str,
+        property: impl Into<Operand>,
+        output: impl Into<Operand>,
     ) {
         self.emit_unicode_property_u16(property, output, UNICODE_PROPERTY_OFFSET_COMB_LENGTH);
     }
 
     pub(in crate::target::shared::code) fn emit_unicode_property_flags(
         &mut self,
-        property: &str,
-        output: &str,
+        property: impl Into<Operand>,
+        output: impl Into<Operand>,
     ) {
         self.emit_unicode_property_u16(property, output, UNICODE_PROPERTY_OFFSET_FLAGS);
     }
 
     pub(in crate::target::shared::code) fn emit_unicode_property_indic_conjunct_break(
         &mut self,
-        property: &str,
-        output: &str,
+        property: impl Into<Operand>,
+        output: impl Into<Operand>,
     ) {
         self.emit(abi::load_u16(
             output,
@@ -398,47 +472,54 @@ impl CodeBuilder<'_> {
     /// (plan-70-B..F) consume.
     pub(in crate::target::shared::code) fn emit_unicode_property_charwidth(
         &mut self,
-        property: &str,
-        output: &str,
+        property: impl Into<Operand>,
+        output: impl Into<Operand>,
     ) {
         let mask = self.temporary_vreg();
-        let mask = mask.as_str();
+        let mask = &mask;
+        let output: Operand = output.into();
         self.emit(abi::load_u16(
-            output,
+            output.clone(),
             property,
             UNICODE_PROPERTY_OFFSET_FLAGS,
         ));
-        self.emit(abi::shift_right_immediate(output, output, 4));
+        self.emit(abi::shift_right_immediate(
+            output.clone(),
+            output.clone(),
+            4,
+        ));
         self.emit(abi::move_immediate(mask, "Integer", "3"));
-        self.emit(abi::and_registers(output, output, mask));
+        self.emit(abi::and_registers(output.clone(), output, mask));
     }
 
     pub(in crate::target::shared::code) fn emit_utf8_encoded_width(
         &mut self,
-        codepoint: &str,
-        width: &str,
+        codepoint: impl Into<Operand>,
+        width: impl Into<Operand>,
     ) {
         let two = self.label("utf8_width_two");
         let three = self.label("utf8_width_three");
         let four = self.label("utf8_width_four");
         let done = self.label("utf8_width_done");
         let limit = self.temporary_vreg();
-        let limit = limit.as_str();
+        let limit = &limit;
+        let codepoint: Operand = codepoint.into();
+        let width: Operand = width.into();
 
-        self.emit(abi::compare_immediate(codepoint, "128"));
+        self.emit(abi::compare_immediate(codepoint.clone(), "128"));
         self.emit(abi::branch_ge(&two));
-        self.emit(abi::move_immediate(width, "Integer", "1"));
+        self.emit(abi::move_immediate(width.clone(), "Integer", "1"));
         self.emit(abi::branch(&done));
         self.emit(abi::label(&two));
-        self.emit(abi::compare_immediate(codepoint, "2048"));
+        self.emit(abi::compare_immediate(codepoint.clone(), "2048"));
         self.emit(abi::branch_ge(&three));
-        self.emit(abi::move_immediate(width, "Integer", "2"));
+        self.emit(abi::move_immediate(width.clone(), "Integer", "2"));
         self.emit(abi::branch(&done));
         self.emit(abi::label(&three));
         self.emit(abi::move_immediate(limit, "Integer", "65536"));
         self.emit(abi::compare_registers(codepoint, limit));
         self.emit(abi::branch_ge(&four));
-        self.emit(abi::move_immediate(width, "Integer", "3"));
+        self.emit(abi::move_immediate(width.clone(), "Integer", "3"));
         self.emit(abi::branch(&done));
         self.emit(abi::label(&four));
         self.emit(abi::move_immediate(width, "Integer", "4"));
@@ -447,8 +528,8 @@ impl CodeBuilder<'_> {
 
     pub(in crate::target::shared::code) fn emit_utf8_encode_next(
         &mut self,
-        cursor: &str,
-        codepoint: &str,
+        cursor: impl Into<Operand>,
+        codepoint: impl Into<Operand>,
     ) {
         let two = self.label("utf8_encode_two");
         let three = self.label("utf8_encode_three");
@@ -456,86 +537,88 @@ impl CodeBuilder<'_> {
         let done = self.label("utf8_encode_done");
         let byte = self.temporary_vreg();
         let mask = self.temporary_vreg();
-        let byte = byte.as_str();
-        let mask = mask.as_str();
+        let byte = &byte;
+        let mask = &mask;
+        let cursor: Operand = cursor.into();
+        let codepoint: Operand = codepoint.into();
 
-        self.emit(abi::compare_immediate(codepoint, "128"));
+        self.emit(abi::compare_immediate(codepoint.clone(), "128"));
         self.emit(abi::branch_ge(&two));
-        self.emit(abi::store_u8(codepoint, cursor, 0));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::store_u8(codepoint.clone(), cursor.clone(), 0));
+        self.emit(abi::add_immediate(cursor.clone(), cursor.clone(), 1));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&two));
-        self.emit(abi::compare_immediate(codepoint, "2048"));
+        self.emit(abi::compare_immediate(codepoint.clone(), "2048"));
         self.emit(abi::branch_ge(&three));
-        self.emit(abi::shift_right_immediate(byte, codepoint, 6));
+        self.emit(abi::shift_right_immediate(byte, codepoint.clone(), 6));
         self.emit(abi::move_immediate(mask, "Integer", "192"));
         self.emit(abi::or_registers(byte, byte, mask));
-        self.emit(abi::store_u8(byte, cursor, 0));
+        self.emit(abi::store_u8(byte, cursor.clone(), 0));
         self.emit(abi::move_immediate(mask, "Integer", "63"));
-        self.emit(abi::and_registers(byte, codepoint, mask));
+        self.emit(abi::and_registers(byte, codepoint.clone(), mask));
         self.emit(abi::move_immediate(mask, "Integer", "128"));
         self.emit(abi::or_registers(byte, byte, mask));
-        self.emit(abi::store_u8(byte, cursor, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 2));
+        self.emit(abi::store_u8(byte, cursor.clone(), 1));
+        self.emit(abi::add_immediate(cursor.clone(), cursor.clone(), 2));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&three));
         self.emit(abi::move_immediate(byte, "Integer", "65536"));
-        self.emit(abi::compare_registers(codepoint, byte));
+        self.emit(abi::compare_registers(codepoint.clone(), byte));
         self.emit(abi::branch_ge(&four));
-        self.emit(abi::shift_right_immediate(byte, codepoint, 12));
+        self.emit(abi::shift_right_immediate(byte, codepoint.clone(), 12));
         self.emit(abi::move_immediate(mask, "Integer", "224"));
         self.emit(abi::or_registers(byte, byte, mask));
-        self.emit(abi::store_u8(byte, cursor, 0));
-        self.emit(abi::shift_right_immediate(byte, codepoint, 6));
+        self.emit(abi::store_u8(byte, cursor.clone(), 0));
+        self.emit(abi::shift_right_immediate(byte, codepoint.clone(), 6));
         self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(byte, byte, mask));
         self.emit(abi::move_immediate(mask, "Integer", "128"));
         self.emit(abi::or_registers(byte, byte, mask));
-        self.emit(abi::store_u8(byte, cursor, 1));
+        self.emit(abi::store_u8(byte, cursor.clone(), 1));
         self.emit(abi::move_immediate(mask, "Integer", "63"));
-        self.emit(abi::and_registers(byte, codepoint, mask));
+        self.emit(abi::and_registers(byte, codepoint.clone(), mask));
         self.emit(abi::move_immediate(mask, "Integer", "128"));
         self.emit(abi::or_registers(byte, byte, mask));
-        self.emit(abi::store_u8(byte, cursor, 2));
-        self.emit(abi::add_immediate(cursor, cursor, 3));
+        self.emit(abi::store_u8(byte, cursor.clone(), 2));
+        self.emit(abi::add_immediate(cursor.clone(), cursor.clone(), 3));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&four));
-        self.emit(abi::shift_right_immediate(byte, codepoint, 18));
+        self.emit(abi::shift_right_immediate(byte, codepoint.clone(), 18));
         self.emit(abi::move_immediate(mask, "Integer", "240"));
         self.emit(abi::or_registers(byte, byte, mask));
-        self.emit(abi::store_u8(byte, cursor, 0));
-        self.emit(abi::shift_right_immediate(byte, codepoint, 12));
+        self.emit(abi::store_u8(byte, cursor.clone(), 0));
+        self.emit(abi::shift_right_immediate(byte, codepoint.clone(), 12));
         self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(byte, byte, mask));
         self.emit(abi::move_immediate(mask, "Integer", "128"));
         self.emit(abi::or_registers(byte, byte, mask));
-        self.emit(abi::store_u8(byte, cursor, 1));
-        self.emit(abi::shift_right_immediate(byte, codepoint, 6));
+        self.emit(abi::store_u8(byte, cursor.clone(), 1));
+        self.emit(abi::shift_right_immediate(byte, codepoint.clone(), 6));
         self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(byte, byte, mask));
         self.emit(abi::move_immediate(mask, "Integer", "128"));
         self.emit(abi::or_registers(byte, byte, mask));
-        self.emit(abi::store_u8(byte, cursor, 2));
+        self.emit(abi::store_u8(byte, cursor.clone(), 2));
         self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(byte, codepoint, mask));
         self.emit(abi::move_immediate(mask, "Integer", "128"));
         self.emit(abi::or_registers(byte, byte, mask));
-        self.emit(abi::store_u8(byte, cursor, 3));
-        self.emit(abi::add_immediate(cursor, cursor, 4));
+        self.emit(abi::store_u8(byte, cursor.clone(), 3));
+        self.emit(abi::add_immediate(cursor.clone(), cursor, 4));
         self.emit(abi::label(&done));
     }
 
     pub(in crate::target::shared::code) fn emit_unicode_u32_mapping_lookup(
         &mut self,
-        codepoint: &str,
+        codepoint: impl Into<Operand>,
         entries_symbol: &str,
         entry_count: usize,
         sequences_symbol: &str,
-        sequence_ptr: &str,
-        sequence_length: &str,
+        sequence_ptr: impl Into<Operand>,
+        sequence_length: impl Into<Operand>,
     ) {
         let loop_label = self.label("unicode_mapping_lookup_loop");
         let move_left = self.label("unicode_mapping_lookup_left");
@@ -544,17 +627,19 @@ impl CodeBuilder<'_> {
         let done = self.label("unicode_mapping_lookup_done");
         let lo = self.temporary_vreg();
         let hi = self.temporary_vreg();
-        let lo = lo.as_str();
-        let hi = hi.as_str();
+        let lo = &lo;
+        let hi = &hi;
         // Binary-search scratch as vregs.
         let mid_v = self.temporary_vreg();
         let offset_v = self.temporary_vreg();
         let entry_ptr_v = self.temporary_vreg();
         let field_v = self.temporary_vreg();
-        let mid = mid_v.as_str();
-        let offset = offset_v.as_str();
-        let entry_ptr = entry_ptr_v.as_str();
-        let field = field_v.as_str();
+        let mid = &mid_v;
+        let offset = &offset_v;
+        let entry_ptr = &entry_ptr_v;
+        let field = &field_v;
+        let sequence_ptr: Operand = sequence_ptr.into();
+        let sequence_length: Operand = sequence_length.into();
 
         self.emit(abi::move_immediate(lo, "Integer", "0"));
         self.emit(abi::move_immediate(hi, "Integer", &entry_count.to_string()));
@@ -598,13 +683,17 @@ impl CodeBuilder<'_> {
             UNICODE_NFD_ENTRY_OFFSET_SEQUENCE_OFFSET,
         ));
         self.emit(abi::load_u32(
-            sequence_length,
+            sequence_length.clone(),
             entry_ptr,
             UNICODE_NFD_ENTRY_OFFSET_SEQUENCE_LENGTH,
         ));
         self.emit(abi::shift_left_immediate(field, field, 2));
-        self.emit_load_data_address(sequence_ptr, sequences_symbol);
-        self.emit(abi::add_registers(sequence_ptr, sequence_ptr, field));
+        self.emit_load_data_address(sequence_ptr.clone(), sequences_symbol);
+        self.emit(abi::add_registers(
+            sequence_ptr.clone(),
+            sequence_ptr,
+            field,
+        ));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&not_found));
@@ -614,50 +703,57 @@ impl CodeBuilder<'_> {
 
     pub(in crate::target::shared::code) fn emit_hangul_composition_attempt(
         &mut self,
-        starter: &str,
-        current: &str,
-        output: &str,
+        starter: impl Into<Operand>,
+        current: impl Into<Operand>,
+        output: impl Into<Operand>,
         found_label: &str,
         fallback_label: &str,
     ) {
         let check_lv_t = self.label("hangul_compose_check_lv_t");
         let base = self.temporary_vreg();
         let l_index = self.temporary_vreg();
-        let base = base.as_str();
-        let l_index = l_index.as_str();
+        let base = &base;
+        let l_index = &l_index;
         // Scratch as a vreg. A raw physical-register write here is invisible to
         // the register allocator, so a caller value it had placed in that
         // register is silently clobbered — a layout-sensitive miscompile.
         let v_index = self.temporary_vreg();
-        let v_index = v_index.as_str();
+        let v_index = &v_index;
+        let starter: Operand = starter.into();
+        let current: Operand = current.into();
+        let output: Operand = output.into();
 
         self.emit(abi::move_immediate(base, "Integer", "4352"));
-        self.emit(abi::compare_registers(starter, base));
+        self.emit(abi::compare_registers(starter.clone(), base));
         self.emit(abi::branch_lo(&check_lv_t));
-        self.emit(abi::subtract_registers(l_index, starter, base));
+        self.emit(abi::subtract_registers(l_index, starter.clone(), base));
         self.emit(abi::compare_immediate(l_index, "19"));
         self.emit(abi::branch_ge(&check_lv_t));
 
         self.emit(abi::move_immediate(base, "Integer", "4449"));
-        self.emit(abi::compare_registers(current, base));
+        self.emit(abi::compare_registers(current.clone(), base));
         self.emit(abi::branch_lo(&check_lv_t));
-        self.emit(abi::subtract_registers(v_index, current, base));
+        self.emit(abi::subtract_registers(v_index, current.clone(), base));
         self.emit(abi::compare_immediate(v_index, "21"));
         self.emit(abi::branch_ge(&check_lv_t));
         self.emit(abi::move_immediate(base, "Integer", "21"));
-        self.emit(abi::multiply_registers(output, l_index, base));
-        self.emit(abi::add_registers(output, output, v_index));
+        self.emit(abi::multiply_registers(output.clone(), l_index, base));
+        self.emit(abi::add_registers(output.clone(), output.clone(), v_index));
         self.emit(abi::move_immediate(base, "Integer", "28"));
-        self.emit(abi::multiply_registers(output, output, base));
+        self.emit(abi::multiply_registers(
+            output.clone(),
+            output.clone(),
+            base,
+        ));
         self.emit(abi::move_immediate(base, "Integer", "44032"));
-        self.emit(abi::add_registers(output, output, base));
+        self.emit(abi::add_registers(output.clone(), output.clone(), base));
         self.emit(abi::branch(found_label));
 
         self.emit(abi::label(&check_lv_t));
         self.emit(abi::move_immediate(base, "Integer", "44032"));
-        self.emit(abi::compare_registers(starter, base));
+        self.emit(abi::compare_registers(starter.clone(), base));
         self.emit(abi::branch_lo(fallback_label));
-        self.emit(abi::subtract_registers(l_index, starter, base));
+        self.emit(abi::subtract_registers(l_index, starter.clone(), base));
         self.emit(abi::move_immediate(base, "Integer", "11172"));
         self.emit(abi::compare_registers(l_index, base));
         self.emit(abi::branch_ge(fallback_label));
@@ -669,7 +765,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(v_index, "0"));
         self.emit(abi::branch_ne(fallback_label));
         self.emit(abi::move_immediate(base, "Integer", "4519"));
-        self.emit(abi::compare_registers(current, base));
+        self.emit(abi::compare_registers(current.clone(), base));
         self.emit(abi::branch_lo(fallback_label));
         self.emit(abi::subtract_registers(v_index, current, base));
         self.emit(abi::compare_immediate(v_index, "0"));
@@ -682,10 +778,10 @@ impl CodeBuilder<'_> {
 
     pub(in crate::target::shared::code) fn emit_grapheme_break_branch(
         &mut self,
-        state_bc: &str,
-        state_icb: &str,
-        current_bc: &str,
-        current_icb: &str,
+        state_bc: impl Into<Operand>,
+        state_icb: impl Into<Operand>,
+        current_bc: impl Into<Operand>,
+        current_icb: impl Into<Operand>,
         break_label: &str,
         no_break_label: &str,
     ) {
@@ -703,87 +799,143 @@ impl CodeBuilder<'_> {
         let gb11_check = self.label("grapheme_gb11_check");
         let gb1213_check = self.label("grapheme_gb1213_check");
         let gb9c_break = self.label("grapheme_gb9c_break");
+        let state_bc: Operand = state_bc.into();
+        let current_bc: Operand = current_bc.into();
 
-        self.emit(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_CR));
+        self.emit(abi::compare_immediate(
+            state_bc.clone(),
+            GRAPHEME_BOUNDCLASS_CR,
+        ));
         self.emit(abi::branch_ne(&gb3_not_cr));
-        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_LF));
+        self.emit(abi::compare_immediate(
+            current_bc.clone(),
+            GRAPHEME_BOUNDCLASS_LF,
+        ));
         self.emit(abi::branch_eq(&no_break));
         self.emit(abi::label(&gb3_not_cr));
 
-        self.emit(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_CR));
+        self.emit(abi::compare_immediate(
+            state_bc.clone(),
+            GRAPHEME_BOUNDCLASS_CR,
+        ));
         self.emit(abi::branch_lo(&gb4_not_control));
         self.emit(abi::compare_immediate(
-            state_bc,
+            state_bc.clone(),
             GRAPHEME_BOUNDCLASS_CONTROL,
         ));
         self.emit(abi::branch_le(&maybe_break));
         self.emit(abi::label(&gb4_not_control));
 
-        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_CR));
+        self.emit(abi::compare_immediate(
+            current_bc.clone(),
+            GRAPHEME_BOUNDCLASS_CR,
+        ));
         self.emit(abi::branch_lo(&gb5_not_control));
         self.emit(abi::compare_immediate(
-            current_bc,
+            current_bc.clone(),
             GRAPHEME_BOUNDCLASS_CONTROL,
         ));
         self.emit(abi::branch_le(&maybe_break));
         self.emit(abi::label(&gb5_not_control));
 
-        self.emit(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_L));
+        self.emit(abi::compare_immediate(
+            state_bc.clone(),
+            GRAPHEME_BOUNDCLASS_L,
+        ));
         self.emit(abi::branch_ne(&gb6_check));
-        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_L));
+        self.emit(abi::compare_immediate(
+            current_bc.clone(),
+            GRAPHEME_BOUNDCLASS_L,
+        ));
         self.emit(abi::branch_eq(&no_break));
-        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_V));
+        self.emit(abi::compare_immediate(
+            current_bc.clone(),
+            GRAPHEME_BOUNDCLASS_V,
+        ));
         self.emit(abi::branch_eq(&no_break));
-        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_LV));
+        self.emit(abi::compare_immediate(
+            current_bc.clone(),
+            GRAPHEME_BOUNDCLASS_LV,
+        ));
         self.emit(abi::branch_eq(&no_break));
-        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_LVT));
+        self.emit(abi::compare_immediate(
+            current_bc.clone(),
+            GRAPHEME_BOUNDCLASS_LVT,
+        ));
         self.emit(abi::branch_eq(&no_break));
         self.emit(abi::label(&gb6_check));
 
-        self.emit(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_LV));
+        self.emit(abi::compare_immediate(
+            state_bc.clone(),
+            GRAPHEME_BOUNDCLASS_LV,
+        ));
         self.emit(abi::branch_eq(&gb7_check));
-        self.emit(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_V));
+        self.emit(abi::compare_immediate(
+            state_bc.clone(),
+            GRAPHEME_BOUNDCLASS_V,
+        ));
         self.emit(abi::branch_ne(&gb7_no));
         self.emit(abi::label(&gb7_check));
-        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_V));
+        self.emit(abi::compare_immediate(
+            current_bc.clone(),
+            GRAPHEME_BOUNDCLASS_V,
+        ));
         self.emit(abi::branch_eq(&no_break));
-        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_T));
+        self.emit(abi::compare_immediate(
+            current_bc.clone(),
+            GRAPHEME_BOUNDCLASS_T,
+        ));
         self.emit(abi::branch_eq(&no_break));
         self.emit(abi::label(&gb7_no));
 
-        self.emit(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_LVT));
+        self.emit(abi::compare_immediate(
+            state_bc.clone(),
+            GRAPHEME_BOUNDCLASS_LVT,
+        ));
         self.emit(abi::branch_eq(&gb8_check));
-        self.emit(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_T));
+        self.emit(abi::compare_immediate(
+            state_bc.clone(),
+            GRAPHEME_BOUNDCLASS_T,
+        ));
         self.emit(abi::branch_ne(&gb8_no));
         self.emit(abi::label(&gb8_check));
-        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_T));
+        self.emit(abi::compare_immediate(
+            current_bc.clone(),
+            GRAPHEME_BOUNDCLASS_T,
+        ));
         self.emit(abi::branch_eq(&no_break));
         self.emit(abi::label(&gb8_no));
 
         self.emit(abi::label(&gb9_check));
         self.emit(abi::compare_immediate(
-            current_bc,
+            current_bc.clone(),
             GRAPHEME_BOUNDCLASS_EXTEND,
         ));
         self.emit(abi::branch_eq(&no_break));
-        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_ZWJ));
+        self.emit(abi::compare_immediate(
+            current_bc.clone(),
+            GRAPHEME_BOUNDCLASS_ZWJ,
+        ));
         self.emit(abi::branch_eq(&no_break));
         self.emit(abi::compare_immediate(
-            current_bc,
+            current_bc.clone(),
             GRAPHEME_BOUNDCLASS_SPACINGMARK,
         ));
         self.emit(abi::branch_eq(&no_break));
         self.emit(abi::compare_immediate(
-            state_bc,
+            state_bc.clone(),
             GRAPHEME_BOUNDCLASS_PREPEND,
         ));
         self.emit(abi::branch_eq(&no_break));
 
         self.emit(abi::label(&gb11_check));
-        self.emit(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_E_ZWG));
+        self.emit(abi::compare_immediate(
+            state_bc.clone(),
+            GRAPHEME_BOUNDCLASS_E_ZWG,
+        ));
         self.emit(abi::branch_ne(&gb1213_check));
         self.emit(abi::compare_immediate(
-            current_bc,
+            current_bc.clone(),
             GRAPHEME_BOUNDCLASS_EXTENDED_PICTOGRAPHIC,
         ));
         self.emit(abi::branch_eq(&no_break));
@@ -820,10 +972,10 @@ impl CodeBuilder<'_> {
 
     pub(in crate::target::shared::code) fn emit_grapheme_state_update(
         &mut self,
-        state_bc: &str,
-        state_icb: &str,
-        current_bc: &str,
-        current_icb: &str,
+        state_bc: impl Into<Operand>,
+        state_icb: impl Into<Operand>,
+        current_bc: impl Into<Operand>,
+        current_icb: impl Into<Operand>,
     ) {
         let icb_consonant = self.label("grapheme_icb_consonant");
         let icb_existing_consonant = self.label("grapheme_icb_existing_consonant");
@@ -837,44 +989,48 @@ impl CodeBuilder<'_> {
         let bc_extpic_zwj = self.label("grapheme_bc_extpic_zwj");
         let bc_set_current = self.label("grapheme_bc_set_current");
         let bc_done = self.label("grapheme_bc_done");
+        let state_bc: Operand = state_bc.into();
+        let state_icb: Operand = state_icb.into();
+        let current_bc: Operand = current_bc.into();
+        let current_icb: Operand = current_icb.into();
 
         self.emit(abi::compare_immediate(
-            current_icb,
+            current_icb.clone(),
             INDIC_CONJUNCT_BREAK_CONSONANT,
         ));
         self.emit(abi::branch_eq(&icb_consonant));
         self.emit(abi::compare_immediate(
-            state_icb,
+            state_icb.clone(),
             INDIC_CONJUNCT_BREAK_CONSONANT,
         ));
         self.emit(abi::branch_eq(&icb_existing_consonant));
         self.emit(abi::compare_immediate(
-            state_icb,
+            state_icb.clone(),
             INDIC_CONJUNCT_BREAK_EXTEND,
         ));
         self.emit(abi::branch_eq(&icb_existing_extend));
         self.emit(abi::compare_immediate(
-            state_icb,
+            state_icb.clone(),
             INDIC_CONJUNCT_BREAK_LINKER,
         ));
         self.emit(abi::branch_eq(&icb_linker));
         self.emit(abi::branch(&icb_done));
         self.emit(abi::label(&icb_consonant));
-        self.emit(abi::move_register(state_icb, current_icb));
+        self.emit(abi::move_register(state_icb.clone(), current_icb.clone()));
         self.emit(abi::branch(&icb_done));
         self.emit(abi::label(&icb_existing_consonant));
-        self.emit(abi::move_register(state_icb, current_icb));
+        self.emit(abi::move_register(state_icb.clone(), current_icb.clone()));
         self.emit(abi::branch(&icb_done));
         self.emit(abi::label(&icb_existing_extend));
-        self.emit(abi::move_register(state_icb, current_icb));
+        self.emit(abi::move_register(state_icb.clone(), current_icb.clone()));
         self.emit(abi::branch(&icb_done));
         self.emit(abi::label(&icb_linker));
         self.emit(abi::compare_immediate(
-            current_icb,
+            current_icb.clone(),
             INDIC_CONJUNCT_BREAK_EXTEND,
         ));
         self.emit(abi::branch_eq(&icb_linker_extend));
-        self.emit(abi::move_register(state_icb, current_icb));
+        self.emit(abi::move_register(state_icb.clone(), current_icb));
         self.emit(abi::branch(&icb_done));
         self.emit(abi::label(&icb_linker_extend));
         self.emit(abi::move_immediate(
@@ -884,40 +1040,43 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::label(&icb_done));
 
-        self.emit(abi::compare_registers(state_bc, current_bc));
+        self.emit(abi::compare_registers(state_bc.clone(), current_bc.clone()));
         self.emit(abi::branch_ne(&bc_extpic_check));
         self.emit(abi::compare_immediate(
-            current_bc,
+            current_bc.clone(),
             GRAPHEME_BOUNDCLASS_REGIONAL_INDICATOR,
         ));
         self.emit(abi::branch_eq(&bc_ri_check));
         self.emit(abi::label(&bc_extpic_check));
         self.emit(abi::compare_immediate(
-            state_bc,
+            state_bc.clone(),
             GRAPHEME_BOUNDCLASS_EXTENDED_PICTOGRAPHIC,
         ));
         self.emit(abi::branch_ne(&bc_set_current));
         self.emit(abi::compare_immediate(
-            current_bc,
+            current_bc.clone(),
             GRAPHEME_BOUNDCLASS_EXTEND,
         ));
         self.emit(abi::branch_eq(&bc_extpic_extend));
-        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_ZWJ));
+        self.emit(abi::compare_immediate(
+            current_bc.clone(),
+            GRAPHEME_BOUNDCLASS_ZWJ,
+        ));
         self.emit(abi::branch_eq(&bc_extpic_zwj));
         self.emit(abi::branch(&bc_set_current));
         self.emit(abi::label(&bc_ri_check));
-        self.emit(abi::move_immediate(state_bc, "Integer", "1"));
+        self.emit(abi::move_immediate(state_bc.clone(), "Integer", "1"));
         self.emit(abi::branch(&bc_done));
         self.emit(abi::label(&bc_extpic_extend));
         self.emit(abi::move_immediate(
-            state_bc,
+            state_bc.clone(),
             "Integer",
             GRAPHEME_BOUNDCLASS_EXTENDED_PICTOGRAPHIC,
         ));
         self.emit(abi::branch(&bc_done));
         self.emit(abi::label(&bc_extpic_zwj));
         self.emit(abi::move_immediate(
-            state_bc,
+            state_bc.clone(),
             "Integer",
             GRAPHEME_BOUNDCLASS_E_ZWG,
         ));
@@ -929,9 +1088,9 @@ impl CodeBuilder<'_> {
 
     pub(in crate::target::shared::code) fn emit_string_byte_range_equal_branch(
         &mut self,
-        left_data: &str,
-        right_data: &str,
-        length: &str,
+        left_data: impl Into<Operand>,
+        right_data: impl Into<Operand>,
+        length: impl Into<Operand>,
         equal_label: &str,
         not_equal_label: &str,
     ) {
@@ -940,17 +1099,17 @@ impl CodeBuilder<'_> {
         let rptr = self.temporary_vreg();
         let remaining = self.temporary_vreg();
         let lbyte = self.temporary_vreg();
-        let lptr = lptr.as_str();
-        let rptr = rptr.as_str();
-        let remaining = remaining.as_str();
-        let lbyte = lbyte.as_str();
+        let lptr = &lptr;
+        let rptr = &rptr;
+        let remaining = &remaining;
+        let lbyte = &lbyte;
         // Byte-compare scratch as a vreg. This helper backs `String` equality
         // and every substring predicate, so a raw physical-register write here
         // clobbers a caller value the allocator had placed there under register
         // pressure — a layout-sensitive miscompile that corrupted adjacent
         // string comparisons.
         let rbyte = self.temporary_vreg();
-        let rbyte = rbyte.as_str();
+        let rbyte = &rbyte;
         self.emit(abi::move_register(lptr, left_data));
         self.emit(abi::move_register(rptr, right_data));
         self.emit(abi::move_register(remaining, length));
@@ -969,19 +1128,22 @@ impl CodeBuilder<'_> {
 
     pub(in crate::target::shared::code) fn emit_unicode_whitespace_branch(
         &mut self,
-        cursor: &str,
-        remaining: &str,
-        width: &str,
+        cursor: impl Into<Operand>,
+        remaining: impl Into<Operand>,
+        width: impl Into<Operand>,
         whitespace_label: &str,
         not_whitespace_label: &str,
     ) {
         let lead = self.temporary_vreg();
-        let lead = lead.as_str();
+        let lead = &lead;
         // Continuation-byte scratch as a vreg. A raw physical-register write is
         // invisible to the register allocator and clobbers a caller value under
         // register pressure — a layout-sensitive miscompile.
         let cont = self.temporary_vreg();
-        let cont = cont.as_str();
+        let cont = &cont;
+        let cursor: Operand = cursor.into();
+        let remaining: Operand = remaining.into();
+        let width: Operand = width.into();
         let check_c2 = self.label("unicode_ws_check_c2");
         let check_e1 = self.label("unicode_ws_check_e1");
         let check_e2 = self.label("unicode_ws_check_e2");
@@ -996,9 +1158,9 @@ impl CodeBuilder<'_> {
         let e2_80_check_a9 = self.label("unicode_ws_e2_80_check_a9");
         let e2_80_check_af = self.label("unicode_ws_e2_80_check_af");
 
-        self.emit(abi::compare_immediate(remaining, "0"));
+        self.emit(abi::compare_immediate(remaining.clone(), "0"));
         self.emit(abi::branch_eq(not_whitespace_label));
-        self.emit(abi::load_u8(lead, cursor, 0));
+        self.emit(abi::load_u8(lead, cursor.clone(), 0));
         self.emit(abi::compare_immediate(lead, "9"));
         self.emit(abi::branch_lo(&check_c2));
         self.emit(abi::compare_immediate(lead, "13"));
@@ -1009,9 +1171,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&check_c2));
         self.emit(abi::compare_immediate(lead, "194"));
         self.emit(abi::branch_ne(&check_e1));
-        self.emit(abi::compare_immediate(remaining, "2"));
+        self.emit(abi::compare_immediate(remaining.clone(), "2"));
         self.emit(abi::branch_lo(not_whitespace_label));
-        self.emit(abi::load_u8(cont, cursor, 1));
+        self.emit(abi::load_u8(cont, cursor.clone(), 1));
         self.emit(abi::compare_immediate(cont, "133"));
         self.emit(abi::branch_eq(&two));
         self.emit(abi::compare_immediate(cont, "160"));
@@ -1021,12 +1183,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&check_e1));
         self.emit(abi::compare_immediate(lead, "225"));
         self.emit(abi::branch_ne(&check_e2));
-        self.emit(abi::compare_immediate(remaining, "3"));
+        self.emit(abi::compare_immediate(remaining.clone(), "3"));
         self.emit(abi::branch_lo(not_whitespace_label));
-        self.emit(abi::load_u8(cont, cursor, 1));
+        self.emit(abi::load_u8(cont, cursor.clone(), 1));
         self.emit(abi::compare_immediate(cont, "154"));
         self.emit(abi::branch_ne(not_whitespace_label));
-        self.emit(abi::load_u8(cont, cursor, 2));
+        self.emit(abi::load_u8(cont, cursor.clone(), 2));
         self.emit(abi::compare_immediate(cont, "128"));
         self.emit(abi::branch_eq(&three));
         self.emit(abi::branch(not_whitespace_label));
@@ -1034,9 +1196,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&check_e2));
         self.emit(abi::compare_immediate(lead, "226"));
         self.emit(abi::branch_ne(&check_e3));
-        self.emit(abi::compare_immediate(remaining, "3"));
+        self.emit(abi::compare_immediate(remaining.clone(), "3"));
         self.emit(abi::branch_lo(not_whitespace_label));
-        self.emit(abi::load_u8(cont, cursor, 1));
+        self.emit(abi::load_u8(cont, cursor.clone(), 1));
         self.emit(abi::compare_immediate(cont, "128"));
         self.emit(abi::branch_eq(&e2_80));
         self.emit(abi::compare_immediate(cont, "129"));
@@ -1044,7 +1206,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(not_whitespace_label));
 
         self.emit(abi::label(&e2_80));
-        self.emit(abi::load_u8(cont, cursor, 2));
+        self.emit(abi::load_u8(cont, cursor.clone(), 2));
         self.emit(abi::compare_immediate(cont, "128"));
         self.emit(abi::branch_lo(&e2_80_check_a8));
         self.emit(abi::compare_immediate(cont, "138"));
@@ -1064,7 +1226,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(not_whitespace_label));
 
         self.emit(abi::label(&e2_81));
-        self.emit(abi::load_u8(cont, cursor, 2));
+        self.emit(abi::load_u8(cont, cursor.clone(), 2));
         self.emit(abi::compare_immediate(cont, "159"));
         self.emit(abi::branch_eq(&three));
         self.emit(abi::branch(not_whitespace_label));
@@ -1074,7 +1236,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(not_whitespace_label));
         self.emit(abi::compare_immediate(remaining, "3"));
         self.emit(abi::branch_lo(not_whitespace_label));
-        self.emit(abi::load_u8(cont, cursor, 1));
+        self.emit(abi::load_u8(cont, cursor.clone(), 1));
         self.emit(abi::compare_immediate(cont, "128"));
         self.emit(abi::branch_ne(not_whitespace_label));
         self.emit(abi::load_u8(cont, cursor, 2));
@@ -1083,10 +1245,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(not_whitespace_label));
 
         self.emit(abi::label(&one));
-        self.emit(abi::move_immediate(width, "Integer", "1"));
+        self.emit(abi::move_immediate(width.clone(), "Integer", "1"));
         self.emit(abi::branch(whitespace_label));
         self.emit(abi::label(&two));
-        self.emit(abi::move_immediate(width, "Integer", "2"));
+        self.emit(abi::move_immediate(width.clone(), "Integer", "2"));
         self.emit(abi::branch(whitespace_label));
         self.emit(abi::label(&three));
         self.emit(abi::move_immediate(width, "Integer", "3"));

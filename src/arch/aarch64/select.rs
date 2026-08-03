@@ -36,8 +36,8 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                 .find(|(key, _)| *key == "symbol")
                 .map(|(_, value)| value.clone())
                 .expect("addr_of carries a symbol field");
-            out.push(abi::load_page_address(&dst, &symbol));
-            out.push(abi::add_page_offset(&dst, &dst, &symbol));
+            out.push(abi::load_page_address(&dst, &symbol.render()));
+            out.push(abi::add_page_offset(&dst, &dst, &symbol.render()));
             continue;
         }
         if let Some(setter_op) = fused_setter_codeop(instruction.op) {
@@ -51,7 +51,7 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                 .position(|(key, _)| *key == FUSED_COND_FIELD)
                 .expect("fused MIR op carries a cond field");
             let setter_fields = code_fields_from_mir(&instruction.fields[..split]);
-            let branch_op = CodeOp::from_mnemonic(&instruction.fields[split].1)
+            let branch_op = CodeOp::from_mnemonic(&instruction.fields[split].1.render())
                 .expect("fused MIR op carries a valid branch mnemonic");
             let mut branch_fields = Vec::new();
             let mut shared = false;
@@ -59,7 +59,7 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                 if *key == FUSED_SHARE_FIELD {
                     shared = true;
                 } else {
-                    branch_fields.push((*key, Operand::from(value.as_str())));
+                    branch_fields.push((*key, value.clone()));
                 }
             }
             // A shared branch reuses the comparison the previous fused op already
@@ -96,8 +96,13 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
     // (plan-00-D §2, plan-34-A).
     for instruction in &mut out {
         for (_, value) in instruction.fields.iter_mut() {
-            if let Some(reg) = abi::realize_abi_token(&value.render()) {
-                *value = Operand::from(reg);
+            // Only a `Raw` `%`-token can realize to a register; a `VReg`/`Phys`/
+            // `Imm` never does. Match `Raw` directly to skip the per-field
+            // `render()` alloc over the whole selected stream (plan-79).
+            if let Operand::Raw(text) = value {
+                if let Some(reg) = abi::realize_abi_token(text) {
+                    *value = Operand::from(reg);
+                }
             }
         }
         rename_operand_field_values(&mut instruction.fields, ARENA_BASE, ARENA_BASE_REGISTER);

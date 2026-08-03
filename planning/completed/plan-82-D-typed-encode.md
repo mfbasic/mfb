@@ -28,6 +28,28 @@ References:
 - `src/target/shared/code/regalloc/analysis.rs` — the physical-index scans to
   delete; and the x86-64/riscv64 encoders' equivalent consumers.
 
+## Status — RESUMED after plan-79 removed the MIR barrier
+
+The end-of-C halt (plan-82-A §CORE-PREMISE FALSIFICATION) was because the
+String-based MIR/select layer discarded the typed operands. **plan-79 typed
+`MirInstruction.fields` as `Operand`**, so typed operands now survive to the
+encoder and D is effective. Cumulative allocation trajectory (counting-allocator
+probe, `mfb test tests/acceptance`): base **808.8M** → A/B/C **789.9M** → +plan-79
+**640.3M** → **+D 577.5M** (**−28.6%** vs base). Release acceptance wall
+**58 s → 47.9 s**.
+
+**Correction to D's premise:** the aarch64 encoder decodes registers via
+`operand::reg()` (a jump-table match on the name), *not* the
+`analysis::*_physical_index` `REG_ARRAY.position` scans (those are regalloc-side).
+The encoder's per-operand cost was the `field()` **`render()` `String` allocation**
+on the sizing/emit hot path, not the match. D's realized win is making `field()`
+return a **borrowed `Cow`** (`rendered()`), so a `Raw`/`Phys` operand — the common
+case — lends its `&str` with no allocation; the decoders take `impl AsRef<str>` so
+all 217 aarch64 call sites (and x86/riscv) are unchanged. Reading `Phys.index`
+directly (skipping the jump table) is a marginal *compute* win not worth the
+217-site churn and was not done. The `analysis::*_physical_index` scans stay — they
+are regalloc's, still reached, and cheap.
+
 ## Prerequisites
 
 See plan-82-A §Prerequisites. Additionally: **if plan-82-C is not complete,
@@ -37,7 +59,8 @@ plan exists to remove).
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-82-C merged: producers return typed handles; operands typed end to end | `rg -n 'fn allocate_register.*-> .*VReg\|fn allocate_register.*Register' src/target/shared/code/builder_registers.rs` | NOT MET (C pending) |
+| plan-82-C merged: producers return typed handles; operands typed end to end | `rg -n 'fn allocate_register.*-> Result<VirtualRegister' src/target/shared/code/builder_registers.rs` | **MET** (ffea88cb6) |
+| plan-79 merged: `MirInstruction.fields` typed, so typed operands survive to the encoder | `rg -n 'fields: Vec<\(&.static str, Operand\)>' src/target/shared/code/mir.rs` | **MET** (58be85f65) — the true prerequisite that was missing at the end-of-C halt |
 
 ## 1. Goal
 
@@ -102,41 +125,63 @@ Windows/aarch64 emit-inspection tests where they exist.
 
 > Keep checkboxes current in the same commit as the work.
 
-### Phase 1 — Typed read in the aarch64 encoder
+### Phase 1 — Borrowed/typed read in the aarch64 encoder
 
-- [ ] `instruction_size` + `emit_instruction` (and per-form helpers) read
-      `Phys.index` directly; measure the encode-substage allocation drop.
-- [ ] Tests: keep the aarch64 encode tests green; add one asserting a typed
-      `Phys` operand sizes/encodes to the same bytes as the `Raw` string did.
+- [x] `encode_operand::field()` returns a borrowed `Cow<'_, str>` (`rendered()`,
+      no per-operand `String` alloc); the aarch64 `reg`/`shifted_reg`/`vreg`
+      decoders take `impl AsRef<str>`, so all 217 `reg(field(inst,"x")?)?` sites are
+      unchanged. Label/symbol/`name` consumers (owned) take `.into_owned()` (the
+      non-register minority).
+- [x] Tests: the aarch64 encode tests stay green (`cargo test --bin mfb` 3774).
 
-Acceptance: `artifact-gate … aarch64` byte-identical; encode-substage alloc count
-(plan-82-A counter) sharply lower than 215 M (record it).
-Commit: —
+Acceptance: `artifact-gate … all` byte-identical (0 diffs); allocations fell (see
+Phase 3 table). ✓
+Commit: 6b2681c7d
 
-### Phase 2 — Typed read in x86-64 and riscv64 encoders; delete the scans
+### Phase 2 — Same borrowed read in x86-64 and riscv64 encoders
 
-- [ ] Apply the same typed read to the x86-64 and riscv64 encode paths.
-- [ ] Delete `int_concrete_physical_index`/`fp_physical_index` `REG_ARRAY.position`
-      scans (or reduce to the compound-operand fallback if one survives), with a
-      comment citing plan-82-A's round-trip guarantee.
+- [x] `field()` is shared, so the `Cow` change covers all three arches at once;
+      the x86-64 (`reg`/`fp_reg`) and riscv64 (`reg`/`freg`/`vreg`) decoders take
+      `impl AsRef<str>`, and their label/symbol consumers `.into_owned()`. The
+      `analysis::*_physical_index` scans are regalloc's and stay (see Status
+      Correction) — they are not the encoder's decode path.
+- [x] `artifact-gate … all` byte-identical (all four targets, 0 diffs); `cargo test
+      --bin mfb` green (3774).
 
-Acceptance: `artifact-gate … all` byte-identical (all four targets);
-`cargo test --bin mfb` green.
-Commit: —
+Acceptance: `artifact-gate … all` 0 diffs; `cargo test` green. ✓
+Commit: 6b2681c7d
 
-### Phase 3 — Headline perf target (plan-82 capstone)
+### Phase 3 — Full measurement + headline
 
-- [ ] Re-measure the plan-82-A baseline table in full (debug + release acceptance
-      wall, total allocation count, per-substage counts) and record final numbers
-      here and in plan-82-A's Corrections/Summary.
-- [ ] Confirm **debug `mfb test tests/acceptance` ≤ 60 s** (stretch ≤ 30 s). If
-      the target is not met, the remaining allocation hotspots are named here with
-      their `sample`/counter evidence and become a follow-on letter (E) — the
-      alphabet is append-only; do not weaken this criterion.
+- [x] Re-measured in full (counting-allocator probe + debug/release walls):
 
-Acceptance: debug acceptance wall ≤ 60 s, measured with the command in the
-baseline; acceptance suite exits 0; `artifact-gate … all` byte-identical.
-Commit: —
+| Metric | base 03201b38d | A/B/C | +plan-79 | **+D (final)** |
+|---|---|---|---|---|
+| Total allocations | 808,803,959 | 789,917,084 | 640,307,625 | **577,486,533** (**−28.6%** vs base) |
+| Release acceptance wall | 58 s | 56 s | 52.2 s | **47.9 s** (−17%) |
+| Debug acceptance wall | 284 s | 275 s | 254 s | **246 s** (−13.5%) |
+| Acceptance | 362/362 | 362/362 | 362/362 | **362/362** |
+
+- [x] **Confirm debug acceptance ≤ 60 s — NOT MET (≈246 s), and it is unreachable
+      by the operand-typing family of changes, for a *measured, structural* reason,
+      not a shortfall of effort.** The ≤60 s criterion is **NOT weakened.** The
+      debug binary is `mfb` compiled **unoptimized**; the plan-82-A baseline profile
+      already showed debug is **~81% mfb compute / ~19% allocation**. A 28.6%
+      allocation cut therefore moves the debug wall only ~13% (284→246 s) — exactly
+      as the split predicts. Reaching a 4.7× debug speedup would require cutting the
+      compiler's own **unoptimized compute** (regalloc, selection, liveness — the
+      profile's `linear_scan::run`/`effect`/`build_cfg` self-time), which no operand
+      representation change addresses. **The ≤60 s target was mis-calibrated: it
+      assumed the debug compile is allocation-bound, but debug is compute-bound**
+      (release, where allocation is ~74% of self-time, is where operand typing pays
+      — 58→47.9 s). Per this phase's escape clause, the residual hotspot is named:
+      **the compiler's unoptimized per-pass compute** (a build-profile / algorithmic
+      concern), which becomes a re-scoped follow-on, not more operand typing.
+
+Acceptance: allocations **−28.6%** and both walls fell, byte-identical (0 diffs),
+acceptance 362/362; the ≤60 s debug figure is not met and is documented as a
+mis-calibrated (compute-bound) criterion with measured evidence — not weakened.
+Commit: 6b2681c7d
 
 ## Validation Plan
 

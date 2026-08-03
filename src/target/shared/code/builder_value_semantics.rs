@@ -9,15 +9,15 @@ impl CodeBuilder<'_> {
     /// single indirection that makes every STATE path work for a union.
     pub(super) fn emit_resource_record_ptr(
         &mut self,
-        value_ptr: &str,
+        value_ptr: impl Into<Operand>,
         type_: &str,
     ) -> Result<String, String> {
         if self.is_resource_union_type(type_) {
             let record = self.allocate_register()?;
             self.emit(abi::load_u64(&record, value_ptr, 8));
-            Ok(record)
+            Ok(record.render())
         } else {
-            Ok(value_ptr.to_string())
+            Ok(value_ptr.into().render())
         }
     }
 
@@ -66,7 +66,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, "Integer", "0"));
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register,
+                    location: register.render(),
                     text: "default Nothing".to_string(),
                 })
             }
@@ -75,7 +75,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, "Boolean", "0"));
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register,
+                    location: register.render(),
                     text: "default Boolean".to_string(),
                 })
             }
@@ -84,7 +84,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, type_, "0"));
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register,
+                    location: register.render(),
                     text: format!("default {type_}"),
                 })
             }
@@ -92,7 +92,7 @@ impl CodeBuilder<'_> {
                 let register = self.load_empty_string_constant()?;
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register,
+                    location: register.render(),
                     text: "default String".to_string(),
                 })
             }
@@ -164,7 +164,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: record,
+                    location: record.render(),
                     text: format!("closed {type_}"),
                 })
             }
@@ -186,7 +186,7 @@ impl CodeBuilder<'_> {
                 let register = self.emit_build_inlined_record(type_, &field_slots)?;
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register,
+                    location: register.render(),
                     text: format!("default {type_}"),
                 })
             }
@@ -221,7 +221,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, &record, FILE_OFFSET_STATE));
                 return Ok(ValueResult {
                     type_: state_type,
-                    location: register,
+                    location: register.render(),
                     text: "state".to_string(),
                 });
             }
@@ -315,7 +315,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: field_type,
-            location: register,
+            location: register.render(),
             text: format!("{}.{}", target_value.text, member),
         })
     }
@@ -334,8 +334,8 @@ impl CodeBuilder<'_> {
             .ok_or_else(|| format!("native code WITH target '{type_}' is not a record"))?;
         let base_reg = self.temporary_vreg();
         let field_reg = self.temporary_vreg();
-        let base = base_reg.as_str();
-        let field = field_reg.as_str();
+        let base = &base_reg;
+        let field = &field_reg;
         let target_value = self.lower_value(target)?;
         let target_slot = self.allocate_stack_object("with_target", 8);
         self.emit(abi::store_u64(
@@ -395,7 +395,7 @@ impl CodeBuilder<'_> {
         let register = self.emit_build_inlined_record(type_, &field_slots)?;
         Ok(ValueResult {
             type_: type_.to_string(),
-            location: register,
+            location: register.render(),
             text: format!("with {}", target_value.text),
         })
     }
@@ -451,15 +451,15 @@ impl CodeBuilder<'_> {
         let remaining_v = self.temporary_vreg();
         let right_cur_v = self.temporary_vreg();
         let byte_v = self.temporary_vreg();
-        let left_len = left_len_v.as_str();
-        let right_len = right_len_v.as_str();
-        let total_len = total_len_v.as_str();
-        let left_cur = left_cur_v.as_str();
-        let write_cur = write_cur_v.as_str();
-        let l8 = l8_v.as_str();
-        let remaining = remaining_v.as_str();
-        let right_cur = right_cur_v.as_str();
-        let byte = byte_v.as_str();
+        let left_len = &left_len_v;
+        let right_len = &right_len_v;
+        let total_len = &total_len_v;
+        let left_cur = &left_cur_v;
+        let write_cur = &write_cur_v;
+        let l8 = &l8_v;
+        let remaining = &remaining_v;
+        let right_cur = &right_cur_v;
+        let byte = &byte_v;
 
         self.emit(abi::load_u64(left_cur, abi::stack_pointer(), left_slot));
         self.emit(abi::load_u64(write_cur, abi::stack_pointer(), right_slot));
@@ -520,7 +520,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result_ptr,
+            location: result_ptr.render(),
             text: format!("({} & {})", left.text, right.text),
         })
     }
@@ -540,7 +540,7 @@ impl CodeBuilder<'_> {
             ARENA_STATE_REGISTER,
             global.offset,
         ));
-        Ok(register)
+        Ok(register.render())
     }
 
     pub(super) fn local_constant_value(&self, value: &NirValue) -> Option<NirValue> {

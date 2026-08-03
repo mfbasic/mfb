@@ -301,22 +301,22 @@ impl CodeBuilder<'_> {
     /// Mint the float kernels' working register file (see [`KernelRegs`]).
     fn float_kernel_regs(&mut self) -> KernelRegs {
         KernelRegs {
-            v16: self.temporary_fp_vreg(),
-            v17: self.temporary_fp_vreg(),
-            v18: self.temporary_fp_vreg(),
-            v19: self.temporary_fp_vreg(),
-            v20: self.temporary_fp_vreg(),
-            v21: self.temporary_fp_vreg(),
-            v22: self.temporary_fp_vreg(),
-            v23: self.temporary_fp_vreg(),
-            v24: self.temporary_fp_vreg(),
-            v25: self.temporary_fp_vreg(),
-            v26: self.temporary_fp_vreg(),
-            v27: self.temporary_fp_vreg(),
-            v28: self.temporary_fp_vreg(),
-            v29: self.temporary_fp_vreg(),
-            v30: self.temporary_fp_vreg(),
-            v31: self.temporary_fp_vreg(),
+            v16: self.temporary_fp_vreg().render(),
+            v17: self.temporary_fp_vreg().render(),
+            v18: self.temporary_fp_vreg().render(),
+            v19: self.temporary_fp_vreg().render(),
+            v20: self.temporary_fp_vreg().render(),
+            v21: self.temporary_fp_vreg().render(),
+            v22: self.temporary_fp_vreg().render(),
+            v23: self.temporary_fp_vreg().render(),
+            v24: self.temporary_fp_vreg().render(),
+            v25: self.temporary_fp_vreg().render(),
+            v26: self.temporary_fp_vreg().render(),
+            v27: self.temporary_fp_vreg().render(),
+            v28: self.temporary_fp_vreg().render(),
+            v29: self.temporary_fp_vreg().render(),
+            v30: self.temporary_fp_vreg().render(),
+            v31: self.temporary_fp_vreg().render(),
         }
     }
 
@@ -395,7 +395,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "List OF Float".to_string(),
-            location: result_base,
+            location: result_base.render(),
             text,
         })
     }
@@ -497,7 +497,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_extract_to_x(&dst, abi::VEC_SCRATCH[0], 0));
         Ok(ValueResult {
             type_: "Float".to_string(),
-            location: dst,
+            location: dst.render(),
             text,
         })
     }
@@ -1922,7 +1922,7 @@ impl CodeBuilder<'_> {
         // LinearScan's `allocate_register` is infallible (it never overflows a
         // pool — it spills); an exhaustion under `-regalloc bump` is recorded and
         // surfaced by `run_register_allocation` rather than panicking (bug-70).
-        let reg = self.temporary_vreg();
+        let reg = self.temporary_vreg().render();
         self.math_pool_base_vreg = Some((self.current_symbol.clone(), reg.clone()));
         reg
     }
@@ -2099,7 +2099,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "List OF Float".to_string(),
-            location: result_base,
+            location: result_base.render(),
             text,
         })
     }
@@ -2112,8 +2112,8 @@ impl CodeBuilder<'_> {
     pub(super) fn lower_simd_float_binary_scalar(
         &mut self,
         kernel: FloatBinaryKernel,
-        left_loc: &str,
-        right_loc: &str,
+        left_loc: impl Into<Operand>,
+        right_loc: impl Into<Operand>,
         text: String,
     ) -> Result<ValueResult, String> {
         self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[0], left_loc));
@@ -2130,7 +2130,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_extract_to_x(&dst, abi::VEC_SCRATCH[0], 0));
         Ok(ValueResult {
             type_: "Float".to_string(),
-            location: dst,
+            location: dst.render(),
             text,
         })
     }

@@ -38,14 +38,9 @@ impl CodeBuilder<'_> {
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
         for register in [
-            scratch20.as_str(),
-            scratch21.as_str(),
-            scratch22.as_str(),
-            scratch23.as_str(),
-            scratch24.as_str(),
-            scratch25.as_str(),
+            scratch20, scratch21, scratch22, scratch23, scratch24, scratch25,
         ] {
-            self.mark_register_used(register);
+            self.mark_register_used(&register.render());
         }
         // bug-175 E: a variable-length element payload (a record with an inline
         // String, a data union, or a flat nested collection) must start on an
@@ -443,7 +438,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result,
+            location: result.render(),
             text: format!("list update {list_type} over {element_type}"),
         })
     }
@@ -487,14 +482,9 @@ impl CodeBuilder<'_> {
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
         for register in [
-            scratch20.as_str(),
-            scratch21.as_str(),
-            scratch22.as_str(),
-            scratch23.as_str(),
-            scratch24.as_str(),
-            scratch25.as_str(),
+            scratch20, scratch21, scratch22, scratch23, scratch24, scratch25,
         ] {
-            self.mark_register_used(register);
+            self.mark_register_used(&register.render());
         }
         let item = PayloadSlot {
             slot: item_slot,
@@ -872,7 +862,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result,
+            location: result.render(),
             text: format!("append in place {list_type} over {element_type}"),
         })
     }
@@ -1305,7 +1295,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result,
+            location: result.render(),
             text: format!("bulk append in place {list_type} over {element_type}"),
         })
     }
@@ -1348,14 +1338,9 @@ impl CodeBuilder<'_> {
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
         for register in [
-            scratch20.as_str(),
-            scratch21.as_str(),
-            scratch22.as_str(),
-            scratch23.as_str(),
-            scratch24.as_str(),
-            scratch25.as_str(),
+            scratch20, scratch21, scratch22, scratch23, scratch24, scratch25,
         ] {
-            self.mark_register_used(register);
+            self.mark_register_used(&register.render());
         }
         let item = PayloadSlot {
             slot: item_slot,
@@ -1854,7 +1839,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result,
+            location: result.render(),
             text: format!("prepend in place {list_type} over {element_type}"),
         })
     }
@@ -1902,14 +1887,9 @@ impl CodeBuilder<'_> {
             ));
         }
         for register in [
-            scratch20.as_str(),
-            scratch21.as_str(),
-            scratch22.as_str(),
-            scratch23.as_str(),
-            scratch24.as_str(),
-            scratch25.as_str(),
+            scratch20, scratch21, scratch22, scratch23, scratch24, scratch25,
         ] {
-            self.mark_register_used(register);
+            self.mark_register_used(&register.render());
         }
         let item = PayloadSlot {
             slot: item_slot,
@@ -2088,7 +2068,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&keep, abi::stack_pointer(), buffer_slot));
         let threaded = ValueResult {
             type_: list_type.to_string(),
-            location: keep,
+            location: keep.render(),
             text: String::new(),
         };
         let threaded = self.free_intermediate_collection(singleton_slot, list_type, threaded)?;
@@ -2104,7 +2084,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result,
+            location: result.render(),
             text: format!("set in place {list_type} over {element_type}"),
         })
     }
@@ -2137,14 +2117,9 @@ impl CodeBuilder<'_> {
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
         for register in [
-            scratch20.as_str(),
-            scratch21.as_str(),
-            scratch22.as_str(),
-            scratch23.as_str(),
-            scratch24.as_str(),
-            scratch25.as_str(),
+            scratch20, scratch21, scratch22, scratch23, scratch24, scratch25,
         ] {
-            self.mark_register_used(register);
+            self.mark_register_used(&register.render());
         }
         let result_slot = self.allocate_stack_object("list_remove_result", 8);
         let data_len_slot = self.allocate_stack_object("list_remove_data_len", 8);
@@ -2403,7 +2378,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result,
+            location: result.render(),
             text: format!("removeAt({list_type}, Integer) over {element_type}"),
         })
     }
@@ -2503,7 +2478,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: output_type.to_string(),
-            location: result,
+            location: result.render(),
             text: format!("reserved list {output_type}"),
         })
     }

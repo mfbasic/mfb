@@ -233,7 +233,7 @@ impl CodeBuilder<'_> {
                             // scope-drop free can reclaim (collections/records
                             // default to arena allocations already).
                             let location = if result.type_ == "String" {
-                                self.copy_flat_block("String", &result.location)?
+                                self.copy_flat_block("String", &result.location)?.render()
                             } else {
                                 result.location
                             };
@@ -427,7 +427,7 @@ impl CodeBuilder<'_> {
                             self.emit(abi::load_u64(&new_ptr, abi::stack_pointer(), new_slot));
                             let stored = ValueResult {
                                 type_: result.type_.clone(),
-                                location: new_ptr,
+                                location: new_ptr.render(),
                                 text: String::new(),
                             };
                             let address = self.load_global_address(name)?;
@@ -562,7 +562,7 @@ impl CodeBuilder<'_> {
                                 self.emit(abi::load_u64(&register, abi::stack_pointer(), slot));
                                 ValueResult {
                                     type_: result.type_.clone(),
-                                    location: register,
+                                    location: register.render(),
                                     text: String::new(),
                                 }
                             } else {
@@ -578,7 +578,7 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     stack_offset,
                                 ));
-                                self.store_value_at(&store_value, &slot_pointer, 0);
+                                self.store_value_at(&store_value, &slot_pointer.render(), 0);
                             } else {
                                 self.store_value_at(
                                     &store_value,
@@ -731,7 +731,7 @@ impl CodeBuilder<'_> {
                             ));
                             let case_matched = ValueResult {
                                 type_: matched.type_.clone(),
-                                location: matched_register,
+                                location: matched_register.render(),
                                 text: matched.text.clone(),
                             };
                             let next_label = self.label("match_next");
@@ -1227,7 +1227,7 @@ impl CodeBuilder<'_> {
             if let Some(local) = self.locals.get_mut(&name) {
                 local.constant = None;
             }
-            self.promoted_float_locals.insert(name.clone(), d);
+            self.promoted_float_locals.insert(name.clone(), d.render());
             promoted.push(name);
         }
         Ok(promoted)
