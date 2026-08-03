@@ -256,13 +256,13 @@ Mirror the resource-handle pattern (`resource.rs` `ResourceRegistry`/`ResourceIn
 precedents `fs.rs` File, `net.rs` Socket/Listener) — a `csv.Reader` open/next/close
 triad registered through the resource table, additive (leaves `csv.parse` intact).
 
-- [ ] Define a `csv.Reader` resource type + `RESOURCE_TABLE`/`LINK … CLOSE BY …` wiring, modeled on `fs.rs`/`net.rs`, registered in `resource.rs`.
-- [ ] Add `csv::parseStream(String) AS csv.Reader` (or a reader-from-source ctor) and a `readRow(reader) AS List OF String` / iteration surface that yields one row at a time; close reclaims the reader.
-- [ ] Ensure the reader carries the parse cursor/state incrementally (reuse `__csv_*` field/record decode helpers without materializing the full grid).
-- [ ] man/spec entries for the streaming API.
-- [ ] rt-behavior fixture: stream a multi-row csv, assert row-by-row equality with `csv.parse`; resource close verified (no leak).
-- **Acceptance:** streaming a csv yields the same rows as `csv.parse` in order; the `csv.Reader` resource opens/closes with no leak (resource-state verify); suites green.
-- **Commit:** _(fill on land)_
+- [x] **Re-scoped from a native resource to a pure-`.mfb` functional reader** (Correction). The research confirmed a builtin `.mfb` can't use `RESOURCE … CLOSE BY`, and a Rust-backed resource would duplicate the `.mfb` parse logic. Instead defined two `EXPORT TYPE` records in `csv_package.mfb`: `CsvReader { chars, count, index, delimCode, quoteCode }` and `CsvRow { fields, reader, done }` — value types, so there is no resource and nothing to leak (scope-drop reclaims them).
+- [x] Added `csv::parseStream(String [, delimiter, quote]) AS CsvReader` and `csv::readRow(reader AS CsvReader) AS CsvRow`. Registered both functions + both types in `csv.rs` (`CSV_TYPES`, `csv::is_builtin_type`, wired into `qualified_builtin_type` in `mod.rs`); `parseStream` shares parse's dialect padding. **Named `readRow`, not `next` — `next` collides with the `NEXT` loop keyword** (Correction).
+- [x] `__csv_next` parses exactly one record from the cursor with the identical state machine `__csv_parse` uses (quote/delimiter/separator/CRLF/trailing-empty-row handling), returning the row + advanced reader. `__csv_parse` is left UNTOUCHED (no regression risk to the widely-used core parser); an equivalence test pins `parseStream`+`readRow` to `parse`.
+- [x] man: new `parseStream.md`/`readRow.md` + updated `package.md` (also fixed its stale "no new types"/"delimiter is always a comma" claims). spec: streaming section in `stdlib/03_csv.md`.
+- [x] rt-behavior: extended `csv/csv-dialect` with a streaming round trip; regenerated its goldens + the 2 byte-identity/behavior csv `.ir` + 5 ncodesum.
+- **Acceptance:** ✅ equivalence test — `parseStream`+`readRow` yields **identical** rows to `csv::parse` across 10 edge cases (trailing seps, empty middle rows, quoted newlines, CRLF, escapes, empty input); ✅ value-type reader = no leak; ✅ csv-behavior output unchanged; ✅ man examples compile (no csv failures); `cargo test --bin mfb` 3758 green.
+- **Commit:** _(next commit)_
 
 ## Phase 10 — Unicode perf/U4: SWAR/NEON lead-byte counting in find/mid
 
@@ -333,7 +333,7 @@ by `scripts/check-generated.sh` (Unicode 16.0.0 pin).
 - [x] Wired `check scripts/gen_regex_scripts.py src/builtins/unicode_scripts.mfb` into `check-generated.sh`; verified the committed artifact matches the generator (and is reproducible twice).
 - [x] Regenerated the 3 regex `.ir` + 5 byte-identity/regex `.ncodesum`. **Size note:** scriptOf is inlined into every regex binary (patterns are runtime-dynamic, so the engine can't be feature-DCE'd) — the cost of full script support, consistent with the already-embedded 4109-line gencat table.
 - **Acceptance:** ✅ `\p{Script=Armenian/Thai/Devanagari}` (beyond the original 10) match; ✅ the original Latin/Greek/Cyrillic/Han still match (now via authoritative UCD ranges, not the old hand approximations); ✅ `\p{Script=Bogus}` is rejected (invalid regex); ✅ `check-generated.sh` artifact matches; `cargo test --bin mfb` green. man/spec updated below.
-- **Commit:** _(next commit)_
+- **Commit:** `baff6a864`
 
 ## Phase 15 — Memory/M6: closure escape analysis + recursive scope-drop (HIGHEST RISK)
 
@@ -404,6 +404,18 @@ Address-taken-local hazard flagged at `builder_exits.rs:231`.
   tables, so a `caseFold`-only program drops even the base trie (the case path
   never indexes it). No rewrite of the 28-site NIR walk was needed. Verified all
   affected fixtures still link (no dropped-but-referenced table).
+- **C4 re-scoped to a pure-`.mfb` functional reader (not a native resource).** A
+  builtin `.mfb` cannot declare `RESOURCE … CLOSE BY`, and a Rust-backed resource
+  (fs-File style) would duplicate the whole `.mfb` parse logic. A pair of value-type
+  `EXPORT TYPE` records (`CsvReader`/`CsvRow`) threaded functionally is simpler,
+  leak-free, and reuses the exact parse state machine. Three builtin-authoring
+  gotchas surfaced: (1) a public function named `next` fails to parse (collides with
+  the `NEXT` loop keyword) — used `readRow`; likewise `step`/`STEP` for variables;
+  (2) a builtin record type needs `csv::is_builtin_type` wired into
+  `mod.rs::qualified_builtin_type` for the `csv.CsvReader` qualified form (bare
+  works via the global `is_builtin_type`); (3) builtin record *fields* are
+  user-accessible when declared in the `.mfb` `EXPORT TYPE` (like datetime's
+  `Instant.seconds`), even with an empty descriptor `fields: &[]`.
 - **Phase 11 (U3/U6/U7) is entirely moot after investigation.** The three items
   the ledger already rated "marginal / low priority" turned out to have safe-
   implementation costs that exceed their benefit: U7 can't skip segmentation

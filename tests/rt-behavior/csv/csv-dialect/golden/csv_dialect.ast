@@ -28,7 +28,21 @@
       { "kind": "binding", "mutable": false, "name": "tsv", "type": "List OF List OF String", "value": { "kind": "call", "callee": "csv.parse", "arguments": [{ "kind": "string", "value": "x\ty\tz" }, { "kind": "string", "value": "\t" }, { "kind": "string", "value": "\"" }] }, "line": 19 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tsvcols=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "tsv" }, { "kind": "number", "value": "0" }] }] }] } }] }, "line": 20 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "default=" }, "right": { "kind": "call", "callee": "csv.stringify", "arguments": [{ "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "string", "value": "p,q" }, { "kind": "string", "value": "r" }] }] }] } }] }, "line": 23 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 24 }
+      { "kind": "binding", "mutable": true, "name": "streamed", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 26 },
+      { "kind": "binding", "mutable": true, "name": "row", "type": "CsvRow", "value": { "kind": "call", "callee": "csv.readRow", "arguments": [{ "kind": "call", "callee": "csv.parseStream", "arguments": [{ "kind": "string", "value": "x;'y;z';w" }, { "kind": "string", "value": ";" }, { "kind": "string", "value": "'" }] }] }, "line": 27 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "row" }, "member": "done" }, "right": { "kind": "boolean", "value": false } },
+        "line": 28,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "stream row " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "streamed" }] } }, "right": { "kind": "string", "value": " ncols=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "row" }, "member": "fields" }] }] } }, "right": { "kind": "string", "value": " f1=" } }, "right": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "row" }, "member": "fields" }, { "kind": "number", "value": "1" }] } }] }, "line": 29 },
+        { "kind": "assignment", "name": "streamed", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "streamed" }, "right": { "kind": "number", "value": "1" } }, "line": 30 },
+        { "kind": "assignment", "name": "row", "value": { "kind": "call", "callee": "csv.readRow", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "row" }, "member": "reader" }] }, "line": 31 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "streamed=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "streamed" }] } }] }, "line": 33 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 34 }
       ]
     }
     ]

@@ -244,3 +244,92 @@ FUNC __csv_quoteField(field AS String, quote AS String) AS String
   ' works on the raw string, avoiding a grapheme list + per-grapheme concat.
   RETURN quote & strings::replace(field, quote, quote & quote) & quote
 END FUNC
+
+' ---------------------------------------------------------------------------
+' plan-77 C4: streaming parse. `csv::parseStream` returns a CsvReader that holds
+' the decoded input and a scan cursor; each `csv::next` parses exactly ONE record
+' and returns it together with the advanced reader, so a caller processes a
+' document row by row without ever materializing the whole `List OF List OF
+' String`. The per-record scan mirrors `__csv_parse`'s state machine exactly
+' (same quote/delimiter/separator handling), and an equivalence test pins
+' `parseStream`+`next` to yield the identical rows `parse` does.
+' ---------------------------------------------------------------------------
+
+EXPORT TYPE CsvReader
+  chars AS List OF Integer
+  count AS Integer
+  index AS Integer
+  delimCode AS Integer
+  quoteCode AS Integer
+END TYPE
+
+EXPORT TYPE CsvRow
+  fields AS List OF String
+  reader AS CsvReader
+  done AS Boolean
+END TYPE
+
+FUNC __csv_parseStream(value AS String, delimiter AS String, quote AS String) AS CsvReader
+  LET chars AS List OF Integer = encoding::utf32Encode(value)
+  RETURN CsvReader[chars, len(chars), 0, __csv_firstCode(delimiter), __csv_firstCode(quote)]
+END FUNC
+
+FUNC __csv_next(reader AS CsvReader) AS CsvRow
+  LET chars AS List OF Integer = reader.chars
+  LET count AS Integer = reader.count
+  LET delimCode AS Integer = reader.delimCode
+  LET quoteCode AS Integer = reader.quoteCode
+  MUT index AS Integer = reader.index
+  IF index >= count THEN
+    RETURN CsvRow[[], reader, TRUE]
+  END IF
+  MUT row AS List OF String = []
+  MUT fieldBuf AS List OF Integer = []
+  MUT fieldStart AS Integer = index
+  MUT inQuotes AS Boolean = FALSE
+  MUT fieldStarted AS Boolean = FALSE
+  MUT wasQuoted AS Boolean = FALSE
+  WHILE index < count
+    LET ch AS Integer = collections::get(chars, index)
+    IF inQuotes THEN
+      IF ch = quoteCode THEN
+        IF __csv_isDoubledQuote(chars, count, index, quoteCode) THEN
+          fieldBuf = collections::append(fieldBuf, quoteCode)
+          index = index + 2
+        ELSE
+          inQuotes = FALSE
+          wasQuoted = TRUE
+          index = index + 1
+        END IF
+      ELSE
+        fieldBuf = collections::append(fieldBuf, ch)
+        index = index + 1
+      END IF
+    ELSEIF __csv_separatorLength(chars, count, index) > 0 THEN
+      row = collections::append(row, __csv_fieldValue(chars, fieldBuf, wasQuoted, fieldStart, index))
+      index = index + __csv_separatorLength(chars, count, index)
+      RETURN CsvRow[row, CsvReader[chars, count, index, delimCode, quoteCode], FALSE]
+    ELSEIF ch = delimCode THEN
+      row = collections::append(row, __csv_fieldValue(chars, fieldBuf, wasQuoted, fieldStart, index))
+      fieldBuf = []
+      fieldStarted = FALSE
+      wasQuoted = FALSE
+      index = index + 1
+      fieldStart = index
+    ELSEIF wasQuoted THEN
+      FAIL error(77050003, "invalid CSV format")
+    ELSEIF ch = quoteCode AND fieldStarted = FALSE THEN
+      inQuotes = TRUE
+      fieldStarted = TRUE
+      index = index + 1
+    ELSE
+      fieldStarted = TRUE
+      index = index + 1
+    END IF
+  END WHILE
+  IF inQuotes THEN
+    FAIL error(77050003, "invalid CSV format")
+  END IF
+  row = collections::append(row, __csv_fieldValue(chars, fieldBuf, wasQuoted, fieldStart, index))
+  RETURN CsvRow[row, CsvReader[chars, count, index, delimCode, quoteCode], FALSE]
+END FUNC

@@ -1,14 +1,24 @@
 use super::descriptor::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, DefaultResolver,
-    DefaultValue, Implementation, InjectionRule, Parameter, ParameterType, ReturnType,
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, BuiltinType,
+    DefaultResolver, DefaultValue, Implementation, InjectionRule, Parameter, ParameterType,
+    ReturnType, TypeKind,
 };
 
 const PARSE: &str = "csv.parse";
 const STRINGIFY: &str = "csv.stringify";
+const PARSE_STREAM: &str = "csv.parseStream";
+// Named `readRow`, not `next` — `next` collides with the `NEXT` loop keyword.
+const NEXT: &str = "csv.readRow";
 const INTERNAL_PARSE: &str = "__csv_parse";
 const INTERNAL_STRINGIFY: &str = "__csv_stringify";
+const INTERNAL_PARSE_STREAM: &str = "__csv_parseStream";
+const INTERNAL_NEXT: &str = "__csv_next";
 
 const GRID_TYPE: &str = "List OF List OF String";
+// plan-77 C4: streaming reader/row record types (declared in csv_package.mfb as
+// `EXPORT TYPE`). Referenced bare, like datetime's `Instant`.
+const READER_TYPE: &str = "CsvReader";
+const ROW_TYPE: &str = "CsvRow";
 
 // plan-77 C3: optional trailing dialect parameters, default-PADDED at IR lowering
 // (like datetime's `time`), so `csv::parse(s)` / `csv::stringify(g)` keep their
@@ -51,6 +61,23 @@ const P_STRINGIFY: &[Parameter] = &[
     csv_opt("newline", DEFAULT_NEWLINE),
 ];
 
+// parseStream takes the same input + optional dialect as parse.
+const P_PARSE_STREAM: &[Parameter] = P_PARSE;
+const P_NEXT: &[Parameter] = &[Parameter::required("reader", READER_TYPE)];
+
+const CSV_TYPES: &[BuiltinType] = &[
+    BuiltinType {
+        name: READER_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: ROW_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+];
+
 // plan-72-G: `CSV` is the descriptor authority. Both functions are data-shaped
 // with a fixed implementation rewrite (`__csv_*`), so no resolver is needed — the
 // plan's "1 custom-resolver helper" is really a fixed `Implementation::Rewrite`
@@ -84,12 +111,40 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
             return_type_overloaded: false,
         },
     },
+    BuiltinFunction {
+        name: PARSE_STREAM,
+        doc_slug: "parseStream",
+        overloads: &[BuiltinOverload {
+            params: P_PARSE_STREAM,
+            return_type: ReturnType::Fixed(READER_TYPE),
+        }],
+        implementation: Implementation::Rewrite(INTERNAL_PARSE_STREAM),
+        lowering: super::descriptor::Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    },
+    BuiltinFunction {
+        name: NEXT,
+        doc_slug: "readRow",
+        overloads: &[BuiltinOverload {
+            params: P_NEXT,
+            return_type: ReturnType::Fixed(ROW_TYPE),
+        }],
+        implementation: Implementation::Rewrite(INTERNAL_NEXT),
+        lowering: super::descriptor::Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    },
 ];
 
 pub(crate) static CSV: BuiltinModule = BuiltinModule {
     name: "csv",
     functions: CSV_FUNCTIONS,
-    types: &[],
+    types: CSV_TYPES,
     source: Some(BuiltinSource {
         rule: InjectionRule::WhenImported,
         loader: source_file,
@@ -101,6 +156,12 @@ pub(crate) fn is_csv_call(name: &str) -> bool {
     DefaultResolver::contains(&CSV, name)
 }
 
+// plan-77 C4: the streaming reader/row record types (referenced bare, or
+// qualified as `csv.CsvReader`/`csv.CsvRow` via `qualified_builtin_type`).
+pub(crate) fn is_builtin_type(name: &str) -> bool {
+    CSV.types.iter().any(|ty| ty.name == name)
+}
+
 // `call_param_names` and `expected_arguments` return `&'static` borrowed shapes
 // the owned `DefaultResolver` cannot produce, so they stay static, PINNED equal
 // to `CSV` by the parity test until plan-72-BB.
@@ -108,6 +169,8 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     match name {
         PARSE => Some(&[&["value", "text"], &["delimiter"], &["quote"]]),
         STRINGIFY => Some(&[&["value"], &["delimiter"], &["quote"], &["newline"]]),
+        PARSE_STREAM => Some(&[&["value", "text"], &["delimiter"], &["quote"]]),
+        NEXT => Some(&[&["reader"]]),
         _ => None,
     }
 }
@@ -116,6 +179,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         PARSE => Some("String"),
         STRINGIFY => Some(GRID_TYPE),
+        PARSE_STREAM => Some("String"),
+        NEXT => Some(READER_TYPE),
         _ => None,
     }
 }
@@ -140,7 +205,9 @@ pub(crate) fn default_argument_padding(
         ("String", DEFAULT_NEWLINE),
     ];
     match name {
-        PARSE => &PARSE_DEFAULTS[provided.saturating_sub(1).min(PARSE_DEFAULTS.len())..],
+        PARSE | PARSE_STREAM => {
+            &PARSE_DEFAULTS[provided.saturating_sub(1).min(PARSE_DEFAULTS.len())..]
+        }
         STRINGIFY => {
             &STRINGIFY_DEFAULTS[provided.saturating_sub(1).min(STRINGIFY_DEFAULTS.len())..]
         }
@@ -192,7 +259,19 @@ mod tests {
                 ][..]
             )
         );
+        assert_eq!(
+            call_param_names(PARSE_STREAM),
+            Some(&[&["value", "text"][..], &["delimiter"][..], &["quote"][..]][..])
+        );
+        assert_eq!(call_param_names(NEXT), Some(&[&["reader"][..]][..]));
         assert_eq!(call_param_names("csv.other"), None);
+    }
+
+    #[test]
+    fn streaming_types_are_registered() {
+        assert!(is_builtin_type(READER_TYPE));
+        assert!(is_builtin_type(ROW_TYPE));
+        assert!(!is_builtin_type("Nope"));
     }
 
     #[test]

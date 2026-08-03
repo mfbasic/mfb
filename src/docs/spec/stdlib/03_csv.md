@@ -144,6 +144,26 @@ line1\nline2 ' contains LF        → "line1\nline2"  (quoted, LF kept verbatim)
 A field containing only a bare CR is still quoted (CR triggers `needsQuote`), but
 note that bare CR is *data* on the parse side, so stringify→parse preserves it.
 
+## Streaming parse
+
+`csv::parseStream(value [, delimiter, quote])` returns a `CsvReader` value holding
+the decoded input scalars, a scan cursor, and the dialect codes, without parsing
+any rows. `csv::readRow(reader)` parses exactly one record from the cursor and
+returns a `CsvRow { fields AS List OF String, reader AS CsvReader, done AS Boolean }`
+— the record's cells, a reader advanced past it, and `done = TRUE` when the reader
+was already at end of input. Reading is functional: the passed reader is never
+mutated; each call threads the returned reader into the next.
+[[src/builtins/csv_package.mfb:__csv_next]]
+
+The per-record scan is the identical state machine `__csv_parse` runs, so a
+`WHILE row.done = FALSE` loop over `readRow` yields exactly the rows `parse`
+produces for the same input and dialect — including quoted fields, doubled quotes,
+CR/LF and CRLF separators, and the trailing-empty-row suppression (a reader whose
+cursor sits just past the final separator returns `done` rather than an empty
+row). An equivalence test pins this over a corpus. The benefit is memory: a caller
+processes arbitrarily large input one row at a time without ever building the
+whole `List OF List OF String`. [[src/builtins/csv_package.mfb:__csv_parseStream]]
+
 ## Round-trip notes
 
 - Cell **values** round-trip (quoting is added/removed transparently).

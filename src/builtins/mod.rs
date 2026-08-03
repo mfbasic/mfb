@@ -165,6 +165,7 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         "app" => app::is_builtin_type(member),
         "audio" => audio::is_builtin_type(member),
         "crypto" => crypto::is_builtin_type(member),
+        "csv" => csv::is_builtin_type(member),
         "datetime" => datetime::is_builtin_type(member),
         "fs" => fs::is_builtin_type(member),
         "http" => http::is_builtin_type(member),
