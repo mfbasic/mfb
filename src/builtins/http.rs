@@ -14,6 +14,14 @@ use super::descriptor::{
 
 const READ: &str = "http.read";
 const WRITE: &str = "http.write";
+// plan-76-D: the non-blocking client. Five functions drive an HTTP exchange
+// without blocking the calling thread, over a `Stream` resource union carrying a
+// plan-74 `PendingState`. `read`/`write` are re-implemented over them (Phase 4).
+const START_READ: &str = "http.startRead";
+const READY: &str = "http.ready";
+const PUMP: &str = "http.pump";
+const DONE: &str = "http.done";
+const FINISH: &str = "http.finish";
 // Server surface (plan-05 §F.5): lifecycle, routing, response constructors,
 // static-file helpers. The transport is the existing native `net`/`tls`
 // packages; every function below is source logic in `http_package.mfb`.
@@ -32,6 +40,11 @@ const RESPOND_PATH: &str = "http.respondPath";
 
 const INTERNAL_READ: &str = "__http_read";
 const INTERNAL_WRITE: &str = "__http_write";
+const INTERNAL_START_READ: &str = "__http_startRead";
+const INTERNAL_READY: &str = "__http_ready";
+const INTERNAL_PUMP: &str = "__http_pump";
+const INTERNAL_DONE: &str = "__http_done";
+const INTERNAL_FINISH: &str = "__http_finish";
 const INTERNAL_SERVER: &str = "__http_server";
 const INTERNAL_SERVER_SSL: &str = "__http_serverSSL";
 // `handleRequest` is overloaded by listener type (§F.5.1): the two transport
@@ -54,6 +67,15 @@ const INTERNAL_RESPOND_PATH: &str = "__http_respondPath";
 // accessors; there is no dedicated header function. The client parser and the
 // server response constructors build the same `Response` (§F.2.3).
 pub(crate) const RESPONSE_TYPE: &str = "Response";
+// plan-76-D: the non-blocking client's resource union + its plan-74 STATE record.
+// `STREAM_STATE` is the full stateful-resource type string (`{type} STATE {state}`,
+// bare ids) — the return of `startRead` and the parameter of `ready`/`pump`/`done`/
+// `finish`. `Stream` is a RESOURCE union over `net::Socket`/`net::TlsSocket`
+// (declared in `http_package.mfb`); plan-80 relocated the STATE slot so it works
+// over the TlsSocket variant.
+const STREAM_TYPE: &str = "Stream";
+const PENDING_STATE_TYPE: &str = "PendingState";
+const STREAM_STATE: &str = "Stream STATE PendingState";
 // The server value records (§F.2). All flat, copyable, no resource fields.
 pub(crate) const REQUEST_TYPE: &str = "Request";
 pub(crate) const REQUEST_PART_TYPE: &str = "RequestPart";
@@ -149,6 +171,20 @@ const P_READ: &[Parameter] = &[
     fill("headers", HEADER_MAP, "{}"),
     fill("method", "String", "GET"),
 ];
+// startRead mirrors read's arg contract (url, headers = {}, method = "GET").
+const P_START_READ: &[Parameter] = &[
+    req("url", URL_TYPE),
+    fill("headers", HEADER_MAP, "{}"),
+    fill("method", "String", "GET"),
+];
+// ready/pump/done/finish each take the bound stream by reference (the caller
+// still owns it and drops it). The parameter type for CALL-SITE matching is the
+// BASE union `Stream` — a resource value presents its base type for arg checks;
+// the `STATE PendingState` suffix is carried on the internal `.mfb` parameter and
+// resolved by plan-74's verifier/codegen (the builtin `resolve_call` path does
+// exact string matching and does not subsume the STATE suffix). `RES`-ness is
+// inferred from `Stream` being a resource union.
+const P_STREAM: &[Parameter] = &[req("stream", STREAM_TYPE)];
 const P_WRITE: &[Parameter] = &[
     req("url", URL_TYPE),
     req("body", "String"),
@@ -198,6 +234,37 @@ const HTTP_FUNCTIONS: &[BuiltinFunction] = &[
         "write",
         &[ov(P_WRITE, RESPONSE_TYPE)],
         Implementation::Rewrite(INTERNAL_WRITE),
+    ),
+    // plan-76-D: the five non-blocking client entry points.
+    hfn(
+        START_READ,
+        "startRead",
+        &[ov(P_START_READ, STREAM_STATE)],
+        Implementation::Rewrite(INTERNAL_START_READ),
+    ),
+    hfn(
+        READY,
+        "ready",
+        &[ov(P_STREAM, "Boolean")],
+        Implementation::Rewrite(INTERNAL_READY),
+    ),
+    hfn(
+        PUMP,
+        "pump",
+        &[ov(P_STREAM, "Nothing")],
+        Implementation::Rewrite(INTERNAL_PUMP),
+    ),
+    hfn(
+        DONE,
+        "done",
+        &[ov(P_STREAM, "Boolean")],
+        Implementation::Rewrite(INTERNAL_DONE),
+    ),
+    hfn(
+        FINISH,
+        "finish",
+        &[ov(P_STREAM, RESPONSE_TYPE)],
+        Implementation::Rewrite(INTERNAL_FINISH),
     ),
     hfn(
         SERVER,
@@ -295,6 +362,19 @@ const HTTP_TYPES: &[BuiltinType] = &[
         kind: TypeKind::Record,
         fields: &[],
     },
+    // plan-76-D: the non-blocking client's types (variants/fields live in the
+    // `.mfb`). `Stream` is a resource union (registered Opaque, like `json::Json`);
+    // `PendingState` is its plan-74 STATE record.
+    BuiltinType {
+        name: STREAM_TYPE,
+        kind: TypeKind::Opaque,
+        fields: &[],
+    },
+    BuiltinType {
+        name: PENDING_STATE_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
 ];
 
 /// The internal `__http_handleRequest{,SSL}` target: `handleRequest` is overloaded
@@ -360,6 +440,8 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     match name {
         READ => Some(&[&["url"], &["headers"], &["method"]]),
         WRITE => Some(&[&["url"], &["body"], &["headers"], &["method"]]),
+        START_READ => Some(&[&["url"], &["headers"], &["method"]]),
+        READY | PUMP | DONE | FINISH => Some(&[&["stream"]]),
         SERVER => Some(&[&["port"], &["host"], &["backlog"]]),
         SERVER_SSL => Some(&[
             &["port"],
@@ -399,6 +481,21 @@ fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedC
         {
             Cow::Borrowed(RESPONSE_TYPE)
         }
+        // plan-76-D non-blocking client. startRead mirrors read's arg forms and
+        // returns the stateful `Stream` union; ready/done -> Boolean, pump ->
+        // Nothing, finish -> Response. Each of the latter four takes the bound
+        // stream (`Stream STATE PendingState`).
+        START_READ
+            if exact(arg_types, &[URL_TYPE])
+                || exact(arg_types, &[URL_TYPE, HEADER_MAP])
+                || exact(arg_types, &[URL_TYPE, HEADER_MAP, "String"]) =>
+        {
+            Cow::Borrowed(STREAM_STATE)
+        }
+        READY if exact(arg_types, &[STREAM_TYPE]) => Cow::Borrowed("Boolean"),
+        PUMP if exact(arg_types, &[STREAM_TYPE]) => Cow::Borrowed("Nothing"),
+        DONE if exact(arg_types, &[STREAM_TYPE]) => Cow::Borrowed("Boolean"),
+        FINISH if exact(arg_types, &[STREAM_TYPE]) => Cow::Borrowed(RESPONSE_TYPE),
         // server(port, host = "0.0.0.0", backlog = 128) -> net::Listener
         SERVER
             if exact(arg_types, &["Integer"])
@@ -448,6 +545,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         READ => Some("Url, Map OF String TO String, String"),
         WRITE => Some("Url, String, Map OF String TO String, String"),
+        START_READ => Some("Url, Map OF String TO String, String"),
+        READY | PUMP | DONE | FINISH => Some("Stream STATE PendingState"),
         // Bracketed/`or` forms are informational only — they are skipped for
         // literal coercion (the lowerer treats them as non-concrete).
         SERVER => Some("Integer[, String[, Integer]]"),
@@ -482,6 +581,7 @@ pub(crate) fn default_argument_padding(
     const RESPOND_FILE_DEFAULTS: &[(&str, &str)] = &[("String", "")];
     match name {
         READ => &READ_DEFAULTS[provided.saturating_sub(1).min(READ_DEFAULTS.len())..],
+        START_READ => &READ_DEFAULTS[provided.saturating_sub(1).min(READ_DEFAULTS.len())..],
         WRITE => &WRITE_DEFAULTS[provided.saturating_sub(2).min(WRITE_DEFAULTS.len())..],
         SERVER => &SERVER_DEFAULTS[provided.saturating_sub(1).min(SERVER_DEFAULTS.len())..],
         SERVER_SSL => {
