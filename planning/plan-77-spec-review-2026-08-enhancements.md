@@ -189,7 +189,7 @@ Anchors: `__regex_scalarToCp` `regex_package.mfb:205-211`; `__regex_toScalars`
 - [x] Kept the edit **line-neutral** (8 lines → 8 lines): editing an embedded `.mfb` shifts every `"line": N` in importer `.ir` goldens (a +7-line first draft churned 15,455 lines × 3 files); the neutral version yields a 12-line `.ir` diff per file — the makeCtx lowering only.
 - [x] Regenerated the 3 affected `.ir` goldens (byte-identity/regex + the 2 rt-behavior regex fixtures) and the 5 byte-identity/regex `.ncodesum`. thread-regex-rt/syntax-regex have no regex-inlined `.ir` or `.ncodesum`.
 - **Acceptance:** ✅ regex-posix-classes-rt & regex-from-string-rt produce **identical** runtime output (diffed vs golden build.log run section); ✅ the lowered `.ir` shows `makeCtx` binding `cps = #encoding_utf32Encode(value)` and NO `#regex_scalarToCp`/`#regex_toScalars` in the ctx loop (N per-scalar encodes eliminated).
-- **Commit:** _(next commit)_
+- **Commit:** `e542158f4`
 
 ## Phase 5 — Regex/R4: ASCII bitset for char classes
 
@@ -198,12 +198,12 @@ union, re-run per position); types `__regex_Range/Single/Short/Prop` `:29-48`,
 `TYPE __regex_Class` `:58-62`; caller `__regex_classMatch` `:620-639` (handles
 `neg`/`fold`); class construction site `:1286+`.
 
-- [ ] Add a precomputed `0..127` membership representation to `TYPE __regex_Class` (`:58-62`) — e.g. `ascii AS List OF Boolean` (128 entries) or a bitmask list.
-- [ ] Populate it once at class construction (`:1286+`) by evaluating the items for cp 0..127 (bake in `fold`; leave `neg` to the matcher).
-- [ ] In `__regex_classMatch` (`:620`), for `cp <= 127` index the bitset directly; fall back to `__regex_classMatchOne` only for cp > 127.
-- [ ] Regenerate regex goldens.
-- **Acceptance:** all regex rt-behavior fixtures (esp. `regex-posix-classes-rt`, which pins all 6 POSIX classes) produce identical results; class matches for ASCII inputs no longer walk the item list (verify via lowered `.ir`).
-- **Commit:** _(fill on land)_
+- [x] Added `ascii AS List OF Boolean` (128 entries) to `TYPE __regex_Class`; `neg` is NOT baked in (the matcher negates the looked-up bit so one table serves `[…]` and `[^…]`), `fold` IS baked in.
+- [x] Populate once at construction via a new `__regex_makeClass(neg, fold, items)` maker (replaces the 3 `__regex_Class[…]` literal sites) calling `__regex_asciiClassBitset(items, fold)` — which runs the exact `__regex_classMatchOne`+fold logic for cp 0..127. New functions placed at EOF (they don't add further line shift beyond the unavoidable +1 from the type field).
+- [x] `__regex_classMatch`: for `0 <= cp <= 127`, `hit = collections::get(cls.ascii, cp)` (O(1)); else the existing linear+fold path; then apply `neg`.
+- [x] Regenerated the 3 regex `.ir` (full line-shift churn — a type field cannot be line-neutral) and the 5 byte-identity/regex `.ncodesum`.
+- **Acceptance:** ✅ regex-posix-classes-rt (all 6 POSIX classes + `[[:^alnum:]]`) & regex-from-string-rt produce **identical** output; ✅ a 12-case edge test (ranges, `[^…]`, `(?i)` fold, POSIX, `\w`, `[A-Fa-f0-9]`, and `[a-zé]` mixing an ASCII-bitset hit with a non-ASCII linear hit) all correct; ✅ `__regex_classMatch` reads `cls.ascii[cp]` for ASCII (no per-position item scan). `cargo test --bin mfb` green.
+- **Commit:** _(next commit)_
 
 ## Phase 6 — Regex/R5: literal-prefix fast-skip in `searchFrom`
 

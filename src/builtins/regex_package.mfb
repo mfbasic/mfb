@@ -59,6 +59,7 @@ TYPE __regex_Class
   neg AS Boolean
   fold AS Boolean
   items AS List OF __regex_ClassItem
+  ascii AS List OF Boolean
 END TYPE
 TYPE __regex_Anchor
   kind AS Integer
@@ -618,22 +619,29 @@ FUNC __regex_propMatchItem(name AS String, neg AS Boolean, cp AS Integer) AS Boo
 END FUNC
 
 FUNC __regex_classMatch(cls AS __regex_Class, pos AS Integer, ctx AS __regex_Ctx) AS Boolean
-  LET ch AS String = collections::get(ctx.text, pos)
   LET cp AS Integer = collections::get(ctx.cps, pos)
-  MUT hit AS Boolean = __regex_classMatchOne(cls.items, ch, cp)
-  IF cls.fold AND hit = FALSE THEN
-    LET lc AS String = strings::lower(ch)
-    IF lc <> ch AND len(lc) = 1 THEN
-      IF __regex_classMatchOne(cls.items, lc, __regex_scalarToCp(lc)) THEN
-        hit = TRUE
+  MUT hit AS Boolean = FALSE
+  IF cp >= 0 AND cp <= 127 THEN
+    ' plan-77 R4: O(1) precomputed ASCII membership (fold already baked in by
+    ' __regex_asciiClassBitset; `neg` is applied below, not in the bitset).
+    hit = collections::get(cls.ascii, cp)
+  ELSE
+    LET ch AS String = collections::get(ctx.text, pos)
+    hit = __regex_classMatchOne(cls.items, ch, cp)
+    IF cls.fold AND hit = FALSE THEN
+      LET lc AS String = strings::lower(ch)
+      IF lc <> ch AND len(lc) = 1 THEN
+        IF __regex_classMatchOne(cls.items, lc, __regex_scalarToCp(lc)) THEN
+          hit = TRUE
+        END IF
       END IF
     END IF
-  END IF
-  IF cls.fold AND hit = FALSE THEN
-    LET uc AS String = strings::upper(ch)
-    IF uc <> ch AND len(uc) = 1 THEN
-      IF __regex_classMatchOne(cls.items, uc, __regex_scalarToCp(uc)) THEN
-        hit = TRUE
+    IF cls.fold AND hit = FALSE THEN
+      LET uc AS String = strings::upper(ch)
+      IF uc <> ch AND len(uc) = 1 THEN
+        IF __regex_classMatchOne(cls.items, uc, __regex_scalarToCp(uc)) THEN
+          hit = TRUE
+        END IF
       END IF
     END IF
   END IF
@@ -1333,7 +1341,7 @@ FUNC __regex_parseClass(pat AS List OF String, n AS Integer, i AS Integer, flags
     items = collections::append(items, sng)
     count = count + 1
   LOOP
-  LET node AS __regex_Node = __regex_Class[neg, flags.ci, items]
+  LET node AS __regex_Node = __regex_makeClass(neg, flags.ci, items)
   RETURN __regex_Parse[node, idx, g, names]
 END FUNC
 
@@ -1588,14 +1596,14 @@ FUNC __regex_parseEscapeAtom(pat AS List OF String, n AS Integer, i AS Integer, 
   IF sk <> 0 THEN
     LET item AS __regex_ClassItem = __regex_Short[sk]
     LET items AS List OF __regex_ClassItem = [item]
-    LET node AS __regex_Node = __regex_Class[FALSE, flags.ci, items]
+    LET node AS __regex_Node = __regex_makeClass(FALSE, flags.ci, items)
     RETURN __regex_Parse[node, i + 2, g, names]
   END IF
   IF e = "p" OR e = "P" THEN
     LET pp AS __regex_PropParse = __regex_parseProp(pat, n, i + 2, (e = "P"))
     LET item AS __regex_ClassItem = __regex_Prop[pp.name, pp.neg]
     LET items AS List OF __regex_ClassItem = [item]
-    LET node AS __regex_Node = __regex_Class[FALSE, flags.ci, items]
+    LET node AS __regex_Node = __regex_makeClass(FALSE, flags.ci, items)
     RETURN __regex_Parse[node, pp.nxt, g, names]
   END IF
   LET lit AS __regex_LitScalar = __regex_parseLiteralEscape(pat, n, i, flags.verbose)
@@ -1975,4 +1983,43 @@ FUNC __regex_replace(value AS String, pattern AS String, replacement AS String) 
   NEXT
   out = out & strings::mid(value, cursor, ctx.n - cursor)
   RETURN out
+END FUNC
+
+' plan-77 R4: precompute a 0..127 ASCII membership table for a character class so
+' __regex_classMatch does an O(1) lookup per input position instead of an
+' O(items) scan (plus its string comparisons). Built ONCE when the class node is
+' constructed, using the exact same logic __regex_classMatch would run for a
+' non-ASCII scalar — __regex_classMatchOne with case folding applied when the
+' class is case-insensitive. `neg` is NOT baked in here; __regex_classMatch
+' negates the looked-up bit so a single table serves both `[…]` and `[^…]`.
+FUNC __regex_asciiClassBitset(items AS List OF __regex_ClassItem, fold AS Boolean) AS List OF Boolean
+  MUT bits AS List OF Boolean = []
+  MUT cp AS Integer = 0
+  WHILE cp <= 127
+    LET ch AS String = encoding::utf32Decode([cp])
+    MUT hit AS Boolean = __regex_classMatchOne(items, ch, cp)
+    IF fold AND hit = FALSE THEN
+      LET lc AS String = strings::lower(ch)
+      IF lc <> ch AND len(lc) = 1 THEN
+        IF __regex_classMatchOne(items, lc, __regex_scalarToCp(lc)) THEN
+          hit = TRUE
+        END IF
+      END IF
+    END IF
+    IF fold AND hit = FALSE THEN
+      LET uc AS String = strings::upper(ch)
+      IF uc <> ch AND len(uc) = 1 THEN
+        IF __regex_classMatchOne(items, uc, __regex_scalarToCp(uc)) THEN
+          hit = TRUE
+        END IF
+      END IF
+    END IF
+    bits = collections::append(bits, hit)
+    cp = cp + 1
+  END WHILE
+  RETURN bits
+END FUNC
+
+FUNC __regex_makeClass(neg AS Boolean, fold AS Boolean, items AS List OF __regex_ClassItem) AS __regex_Class
+  RETURN __regex_Class[neg, fold, items, __regex_asciiClassBitset(items, fold)]
 END FUNC
