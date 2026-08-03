@@ -318,6 +318,37 @@ Commit: —
   is byte-identical (metadata only, never emitted). Until it lands, Phase 1's work-list
   cannot be produced without unsafe guessing. **This is the next task.**
 
+- **Phase 2 progress + the two-tier structure of the work-list (measured).** Tool + abi
+  refinement landed (`bac02f1c6`, plus 95 `abi::` helpers `#[track_caller]`); work-list is
+  fully precise. Re-tokenized the **uniform arena-call arg** tier — `load/compute a
+  pointer/size into `return_register()` immediately before `emit_arena_{alloc,free}_call`
+  (or a `branch_link`), where the value is arg 0 → emit `ARG[0]`. Landed across
+  builder_owned_cleanup, builder_error_emission:278, builder_collection_layout (×4),
+  list_mutate, builder_strings, builder_search, builder_arena_transfer, builder_values,
+  builder_fs_paths (commits `3b29873c5`, `749593d66`, `8c40700af`, `f5bfbeb97`,
+  `66679ded1`), each `bug387-gate full` PASS. **Total: 1,082,777 → ~291,606 (−73%).**
+- **The remaining ~292K is the DELICATE tier — the error-Result construction** (almost all
+  `builder_error_emission.rs`: 80, 94/96, 463–479, 718–755, 740–755, 981–996, …). This is
+  NOT the uniform arena pattern and must NOT be batched blindly:
+  - The 4-register error-Result convention is `RESULT_TAG_REGISTER=RET[0]`,
+    `RESULT_VALUE_REGISTER=RET[1]`, `RESULT_ERROR_MESSAGE_REGISTER=RET[2]`,
+    `RESULT_ERROR_SOURCE_REGISTER=RET[3]` (`error_constants.rs:25-31`). These are **genuine
+    results** at a function's return (the `Result {tag,value,message,source}` is returned in
+    `%ret0..3`) — so the constants themselves must NOT be re-tokenized.
+  - But at the *transient* build/park sites (e.g. `emit_park_error_block_from_registers`:
+    spill `RESULT_*_REGISTER` to slots around the clobbering `arena_alloc`, then reload) and
+    where the code/message/source flow into the error-block *builder call*, the fixpoint
+    colors `%ret1/%ret2/%ret3` as **arg registers** (`rsi/rdx/rcx` — the census `%retK`→arg
+    transitions). Re-tokenizing MUST be **per-site**: change a transient/arg-flowing emission
+    to `ARG[K]` while leaving the genuine-return emission as `RET[K]`. The spill/reload
+    through a stack slot separates the two logical values (so this is NOT a Category-2
+    conflict — consistent with plan-71-B's proof), but the classification is per-emission and
+    error-prone. `emit_checked_size_add*` (line 80) is a builder-level helper whose divergent
+    `dst` is a *parameter* — fix at its callers (or give it `#[track_caller]` too), not in the
+    helper. **Recommendation:** do this tier one small gated group at a time (the byte-identity
+    gate over all 1162 fixtures catches any mis-classification), with fresh focus; it is the
+    "silent wrong register — worst class" surface.
+
 ## Summary
 
 C is the high-volume, low-novelty heart of the fixpoint-removal prep: re-tokenize every
