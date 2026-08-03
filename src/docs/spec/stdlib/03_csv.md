@@ -2,9 +2,14 @@
 
 The `csv` package is a pure-MFBASIC source package that converts between CSV
 text and a grid of cells (`List OF List OF String`). The dialect is
-RFC-4180-aligned: comma is the only delimiter, fields may be double-quoted, and
-the doubled quote `""` is the in-field escape for a literal `"`. There is no
-configurable dialect — no alternate delimiter, quote char, or comment syntax.
+RFC-4180-aligned by default: comma is the delimiter, fields may be double-quoted,
+and the doubled quote character is the in-field escape for a literal quote. The
+delimiter and quote character are configurable per call (plan-77 C3): `csv::parse`
+takes optional `delimiter`/`quote` arguments and `csv::stringify` takes optional
+`delimiter`/`quote`/`newline` arguments, each defaulting to the RFC-4180 value
+(`,`, `"`, and LF). `delimiter` and `quote` must each be a non-empty single
+character; only the first Unicode scalar is used. Record separators on the parse
+side (LF / CRLF) are not configurable. There is no comment syntax.
 [[src/builtins/csv_package.mfb:__csv_parse]] [[src/builtins/csv_package.mfb:__csv_stringify]]
 
 This topic owns the parse/stringify *model* (grammar, separator handling, escape
@@ -27,17 +32,19 @@ empty fields (`""`) and numeric-looking fields.
 
 ```text
 document   := row ( separator row )* separator?
-row        := field ( "," field )*
+row        := field ( delimiter field )*
 field      := quoted | bare
-quoted     := '"' ( char-except-quote | '""' )* '"'
-bare       := char-except-comma-and-separator*
+quoted     := quote ( char-except-quote | quote quote )* quote
+bare       := char-except-delimiter-and-separator*
 separator  := LF | CRLF
 ```
 
+`delimiter` and `quote` are the dialect characters (default `,` and `"`).
+
 Key dialect points: [[src/builtins/csv_package.mfb:__csv_parse]]
 
-- **Comma only.** `,` (U+002C) is the sole field delimiter. No tab/semicolon
-  variants.
+- **Configurable delimiter.** The field delimiter defaults to `,` (U+002C) but is
+  overridable per call with `delimiter` (e.g. a tab or semicolon).
 - **LF or CRLF record separators.** A record ends at `\n` or `\r\n`. A **bare CR**
   (`\r` not followed by `\n`) is **ordinary data**, copied into the field.
   [[src/builtins/csv_package.mfb:__csv_separatorLength]]
@@ -49,11 +56,13 @@ Key dialect points: [[src/builtins/csv_package.mfb:__csv_parse]]
 
 ## Parse algorithm
 
-`__csv_parse` first splits the input into graphemes (`strings::graphemes`) and
-then runs a single forward scan over the grapheme list with a small state set:
-`inQuotes`, `fieldStarted`, `wasQuoted`, and `recordPending`. It accumulates the
-current `field`, the current `row`, and the completed `rows`.
-[[src/builtins/csv_package.mfb:__csv_parse]]
+`__csv_parse` decodes the input to its Unicode scalars in one pass
+(`encoding::utf32Encode`) and then runs a single forward scan over the scalar-code
+list with a small state set: `inQuotes`, `fieldStarted`, `wasQuoted`, and
+`recordPending`. The configured `delimiter`/`quote` are each converted to their
+first scalar code once (`__csv_firstCode`). It accumulates the current field's
+scalars, the current `row`, and the completed `rows`.
+[[src/builtins/csv_package.mfb:__csv_parse]] [[src/builtins/csv_package.mfb:__csv_firstCode]]
 
 | State at cursor | Grapheme | Action |
 |-----------------|----------|--------|
@@ -117,10 +126,12 @@ round-trip of separators: rows are joined with a single **LF**, with **no
 trailing newline**, regardless of how the input was separated.
 [[src/builtins/csv_package.mfb:__csv_stringify]] [[src/builtins/csv_package.mfb:__csv_stringifyRow]]
 
-Fields are joined with `,`. A field is quoted **only when it must be** —
-`__csv_needsQuote` returns true when the field contains a comma, a `"`, a CR, or
-an LF. When quoted, the field is wrapped in `"` and every interior `"` is doubled
-(`__csv_quoteField`). [[src/builtins/csv_package.mfb:__csv_needsQuote]]
+Fields are joined with the `delimiter` (default `,`) and rows with the `newline`
+(default LF). A field is quoted **only when it must be** — `__csv_needsQuote`
+returns true when the field contains the delimiter, the quote character, a CR, or
+an LF. When quoted, the field is wrapped in the quote character and every interior
+occurrence of it is doubled (`__csv_quoteField`, via `strings::replace`).
+[[src/builtins/csv_package.mfb:__csv_needsQuote]]
 [[src/builtins/csv_package.mfb:__csv_quoteField]]
 
 ```text

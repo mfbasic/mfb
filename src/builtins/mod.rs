@@ -526,6 +526,7 @@ pub(crate) fn default_argument_padding(
         datetime::default_argument_padding(callee, provided),
         crypto::default_argument_padding(callee, provided),
         http::default_argument_padding(callee, provided),
+        csv::default_argument_padding(callee, provided),
     ] {
         if !pad.is_empty() {
             return pad;

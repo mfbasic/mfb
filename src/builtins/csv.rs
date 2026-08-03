@@ -1,6 +1,6 @@
 use super::descriptor::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, DefaultResolver,
-    Implementation, InjectionRule, Parameter, ParameterType, ReturnType,
+    DefaultValue, Implementation, InjectionRule, Parameter, ParameterType, ReturnType,
 };
 
 const PARSE: &str = "csv.parse";
@@ -9,6 +9,47 @@ const INTERNAL_PARSE: &str = "__csv_parse";
 const INTERNAL_STRINGIFY: &str = "__csv_stringify";
 
 const GRID_TYPE: &str = "List OF List OF String";
+
+// plan-77 C3: optional trailing dialect parameters, default-PADDED at IR lowering
+// (like datetime's `time`), so `csv::parse(s)` / `csv::stringify(g)` keep their
+// one-argument shape while `csv::parse(s, ";", "'")` overrides the dialect. Each
+// `expr` is the RFC-4180 default as a source String literal.
+const fn csv_opt(name: &'static str, default_expr: &'static str) -> Parameter {
+    Parameter {
+        name,
+        aliases: &[],
+        ty: ParameterType::Named("String"),
+        default: DefaultValue::Fill {
+            type_name: "String",
+            expr: default_expr,
+        },
+    }
+}
+
+// The `expr` of a String `Fill` is injected as the const's RAW value (ir/lower.rs
+// builds `IrValue::Const { type_: "String", value: expr }`), so these are the
+// literal characters, not quoted source tokens.
+const DEFAULT_DELIMITER: &str = ",";
+const DEFAULT_QUOTE: &str = "\"";
+const DEFAULT_NEWLINE: &str = "\n";
+
+const P_PARSE: &[Parameter] = &[
+    Parameter {
+        name: "value",
+        aliases: &["text"],
+        ty: ParameterType::Named("String"),
+        default: DefaultValue::None,
+    },
+    csv_opt("delimiter", DEFAULT_DELIMITER),
+    csv_opt("quote", DEFAULT_QUOTE),
+];
+
+const P_STRINGIFY: &[Parameter] = &[
+    Parameter::required("value", GRID_TYPE),
+    csv_opt("delimiter", DEFAULT_DELIMITER),
+    csv_opt("quote", DEFAULT_QUOTE),
+    csv_opt("newline", DEFAULT_NEWLINE),
+];
 
 // plan-72-G: `CSV` is the descriptor authority. Both functions are data-shaped
 // with a fixed implementation rewrite (`__csv_*`), so no resolver is needed — the
@@ -19,12 +60,7 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
         name: PARSE,
         doc_slug: "parse",
         overloads: &[BuiltinOverload {
-            params: &[Parameter {
-                name: "value",
-                aliases: &["text"],
-                ty: ParameterType::Named("String"),
-                default: super::descriptor::DefaultValue::None,
-            }],
+            params: P_PARSE,
             return_type: ReturnType::Fixed(GRID_TYPE),
         }],
         implementation: Implementation::Rewrite(INTERNAL_PARSE),
@@ -38,7 +74,7 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
         name: STRINGIFY,
         doc_slug: "stringify",
         overloads: &[BuiltinOverload {
-            params: &[Parameter::required("value", GRID_TYPE)],
+            params: P_STRINGIFY,
             return_type: ReturnType::Fixed("String"),
         }],
         implementation: Implementation::Rewrite(INTERNAL_STRINGIFY),
@@ -70,8 +106,8 @@ pub(crate) fn is_csv_call(name: &str) -> bool {
 // to `CSV` by the parity test until plan-72-BB.
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
-        PARSE => Some(&[&["value", "text"]]),
-        STRINGIFY => Some(&[&["value"]]),
+        PARSE => Some(&[&["value", "text"], &["delimiter"], &["quote"]]),
+        STRINGIFY => Some(&[&["value"], &["delimiter"], &["quote"], &["newline"]]),
         _ => None,
     }
 }
@@ -86,6 +122,30 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 
 pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
     DefaultResolver::implementation_name(&CSV, name)
+}
+
+// plan-77 C3: pad the omitted trailing dialect arguments with the RFC-4180
+// defaults, so `#csv_parse`/`#csv_stringify` always receive their full arity.
+// The order/exprs mirror `P_PARSE`/`P_STRINGIFY`'s `Fill` params (both begin with
+// the one required `value`, hence `provided - 1` optionals already supplied).
+pub(crate) fn default_argument_padding(
+    name: &str,
+    provided: usize,
+) -> &'static [(&'static str, &'static str)] {
+    const PARSE_DEFAULTS: &[(&str, &str)] =
+        &[("String", DEFAULT_DELIMITER), ("String", DEFAULT_QUOTE)];
+    const STRINGIFY_DEFAULTS: &[(&str, &str)] = &[
+        ("String", DEFAULT_DELIMITER),
+        ("String", DEFAULT_QUOTE),
+        ("String", DEFAULT_NEWLINE),
+    ];
+    match name {
+        PARSE => &PARSE_DEFAULTS[provided.saturating_sub(1).min(PARSE_DEFAULTS.len())..],
+        STRINGIFY => {
+            &STRINGIFY_DEFAULTS[provided.saturating_sub(1).min(STRINGIFY_DEFAULTS.len())..]
+        }
+        _ => &[],
+    }
 }
 
 super::package_source_glue!(
@@ -117,8 +177,21 @@ mod tests {
 
     #[test]
     fn param_names_cover_all_calls() {
-        assert_eq!(call_param_names(PARSE), Some(&[&["value", "text"][..]][..]));
-        assert_eq!(call_param_names(STRINGIFY), Some(&[&["value"][..]][..]));
+        assert_eq!(
+            call_param_names(PARSE),
+            Some(&[&["value", "text"][..], &["delimiter"][..], &["quote"][..]][..])
+        );
+        assert_eq!(
+            call_param_names(STRINGIFY),
+            Some(
+                &[
+                    &["value"][..],
+                    &["delimiter"][..],
+                    &["quote"][..],
+                    &["newline"][..]
+                ][..]
+            )
+        );
         assert_eq!(call_param_names("csv.other"), None);
     }
 

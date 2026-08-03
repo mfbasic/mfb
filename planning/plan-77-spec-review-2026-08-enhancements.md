@@ -240,13 +240,13 @@ single overload each, `DefaultValue::None`; hard-coded delimiter 44, quote 34,
 CR/LF 13/10, output `"\n"` in `csv_package.mfb` (parse :47/:70/:80/:145/:155-168;
 stringify :181/:195/:209-223/:226-234). Static parity tables `csv.rs:71-85`.
 
-- [ ] Design a dialect record (delimiter / quote char / output EOL) and add it as an **optional trailing parameter or a second overload** on `csv.parse` and `csv.stringify` (`csv.rs`), keeping the 1-arg overloads resolving unchanged.
-- [ ] Update the mirrored static tables `call_param_names`/`expected_arguments` (`csv.rs:71-85`) and the parity test.
-- [ ] Thread the dialect scalars into `__csv_parse`/`__csv_stringify` (`csv_package.mfb`), replacing the hard-coded 44/34/`"\n"` with the passed values (default to RFC-4180 when absent).
-- [ ] Add man/spec entries for the new option surface (per `.ai/man_template.md` / `.ai/specifications.md`).
-- [ ] Add rt-behavior fixtures: TSV (delimiter 9), single-quote, `\r\n` output; regenerate csv goldens.
-- **Acceptance:** new fixtures round-trip a non-comma dialect correctly; existing 1-arg csv fixtures unchanged (byte-identical); man/spec updated; suites green.
-- **Commit:** _(fill on land)_
+- [x] Added optional trailing `delimiter`/`quote` (parse) and `delimiter`/`quote`/`newline` (stringify) params via `DefaultValue::Fill` (RFC-4180 defaults), keeping the 1-arg overloads. **Discovered:** Fill padding is not automatic for a `Rewrite` builtin — it is driven by `builtins::default_argument_padding` (`mod.rs`), so I added `csv::default_argument_padding` and wired it into that dispatcher. **Also discovered:** a String `Fill.expr` is injected as the const's RAW value (`ir/lower.rs` builds `Const{value: expr}`), NOT parsed source — so defaults are the literal chars `,`/`"`/`\n`, not quoted tokens.
+- [x] Updated `call_param_names` and the `param_names_cover_all_calls` parity test.
+- [x] Threaded the dialect through `csv_package.mfb`: parse converts delimiter/quote to scalar codes once (new `__csv_firstCode`, rejects empty) and compares against them (was 44/34); `__csv_isDoubledQuote` takes the quote code; stringify/stringifyRow/encodeField/needsQuote/quoteField take delimiter/quote/newline (was `,`/`"`/`\n`).
+- [x] man: `parse.md`/`stringify.md` synopsis + params + errors. spec: `stdlib/03_csv.md` intro/grammar/parse-algo/stringify (also fixed a **pre-existing** stale "splits into graphemes" claim — parse is a scalar scan).
+- [x] Added rt-behavior fixture `csv/csv-dialect` (semicolon+single-quote round trip, tab parse, default unchanged) with hand-built goldens; regenerated 2 csv `.ir` + 5 ncodesum.
+- **Acceptance:** ✅ dialect round-trip correct (`;`/`'`/`|`, tab, `|`); ✅ default 1-arg RFC-4180 unchanged (`a,"b,c","d""e"`), csv-behavior fixture identical; ✅ man/spec updated; `cargo test --bin mfb` green. (csv-dialect goldens to be authoritatively re-synced at finalization once the foreign test-accept clears.)
+- **Commit:** _(next commit)_
 
 ## Phase 9 — csv/C4: streaming `csv.Reader` resource
 
@@ -301,7 +301,7 @@ char-by-char pattern interpreter. Golden ripple: `.ir`/`.ast` + `.ncodesum` acro
 - [x] Replaced `__datetime_toIso`'s `__datetime_format(dt, "yyyy-MM-dd'T'HH:mm:ss.fffZ")` with direct field access: `padN(year,4) & "-" & pad2(month) & "-" & pad2(day) & "T" & pad2(hour) & ":" & pad2(minute) & ":" & pad2(second) & "." & left(padN(nanos,9),3) & isoZone(offset)`. Uses the SAME helpers `formatToken` uses (padN/pad2/left/offsetLabel), so it is byte-identical by construction — no pattern scan, no per-letter run counting, no `formatToken` dispatch. `.fff` = `left(padN(nanos,9),3)` truncates (matches D3). Added `__datetime_isoZone` at EOF; kept `toIso` line-neutral (3→3 lines) so the churn is minimal.
 - [x] Regenerated 13 datetime-importing `.ir`/`.ast` goldens + the 5 byte-identity/datetime `.ncodesum`.
 - **Acceptance:** ✅ direct byte-match test: `toIso(dt) == format(dt, "yyyy-MM-dd'T'HH:mm:ss.fffZ")` for UTC/`+05:30`/`-08:00`/epoch/others; ✅ datetime-format-valid, datetime-instant-valid, datetime-civil-valid rt fixtures **identical** output. `cargo test --bin mfb` green.
-- **Commit:** _(next commit)_
+- **Commit:** `50e62b56e`
 
 ## Phase 13 — Memory/M4: optional threshold compaction on in-place value-grow
 

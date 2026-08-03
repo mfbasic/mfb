@@ -1,7 +1,7 @@
 {
   "format": "mfb-ir",
   "version": 1,
-  "project": "csv_codegen_cover_rt",
+  "project": "csv_dialect",
   "entry": {
     "name": "main",
     "returns": "Integer",
@@ -12,23 +12,23 @@
   "functions": [
   {
     "name": "main",
-    "line": 9,
+    "line": 6,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 12, "mutable": false, "name": "gridA", "type": "List OF List OF String", "value": { "kind": "call", "type": "List OF List OF String", "target": "#csv_parse", "args": [{ "kind": "const", "type": "String", "value": "name,age\nAda,36" }, { "kind": "const", "type": "String", "value": "," }, { "kind": "const", "type": "String", "value": "\"" }] } },
-    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "gridA" }] }] }] } },
-    { "op": "bind", "line": 16, "mutable": false, "name": "gridB", "type": "List OF List OF String", "value": { "kind": "call", "type": "List OF List OF String", "target": "#csv_parse", "args": [{ "kind": "const", "type": "String", "value": "a,b,c" }, { "kind": "const", "type": "String", "value": "," }, { "kind": "const", "type": "String", "value": "\"" }] } },
-    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "gridB" }] }] }] } },
-    { "op": "bind", "line": 21, "mutable": false, "name": "grid", "type": "List OF List OF String", "value": { "kind": "list", "type": "List OF List OF String", "values": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "name" }, { "kind": "const", "type": "String", "value": "age" }] }, { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "Grace" }, { "kind": "const", "type": "String", "value": "Hop,per" }] }] } },
-    { "op": "bind", "line": 22, "mutable": false, "name": "textA", "type": "String", "value": { "kind": "call", "type": "String", "target": "#csv_stringify", "args": [{ "kind": "local", "name": "grid" }, { "kind": "const", "type": "String", "value": "," }, { "kind": "const", "type": "String", "value": "\"" }, { "kind": "const", "type": "String", "value": "\n" }] } },
-    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "textA" }] } },
-    { "op": "bind", "line": 26, "mutable": false, "name": "textB", "type": "String", "value": { "kind": "call", "type": "String", "target": "#csv_stringify", "args": [{ "kind": "local", "name": "gridA" }, { "kind": "const", "type": "String", "value": "," }, { "kind": "const", "type": "String", "value": "\"" }, { "kind": "const", "type": "String", "value": "\n" }] } },
-    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "textB" }] } },
-    { "op": "return", "line": 29, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 9, "mutable": false, "name": "grid", "type": "List OF List OF String", "value": { "kind": "list", "type": "List OF List OF String", "values": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "String", "value": "b;c" }, { "kind": "const", "type": "String", "value": "d'e" }] }, { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "1" }, { "kind": "const", "type": "String", "value": "2" }, { "kind": "const", "type": "String", "value": "3" }] }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "semi=" }, "right": { "kind": "call", "type": "String", "target": "#csv_stringify", "args": [{ "kind": "local", "name": "grid" }, { "kind": "const", "type": "String", "value": ";" }, { "kind": "const", "type": "String", "value": "'" }, { "kind": "const", "type": "String", "value": "|" }] } }] } },
+    { "op": "bind", "line": 13, "mutable": false, "name": "back", "type": "List OF List OF String", "value": { "kind": "call", "type": "List OF List OF String", "target": "#csv_parse", "args": [{ "kind": "call", "type": "String", "target": "#csv_stringify", "args": [{ "kind": "local", "name": "grid" }, { "kind": "const", "type": "String", "value": ";" }, { "kind": "const", "type": "String", "value": "'" }, { "kind": "const", "type": "String", "value": "\n" }] }, { "kind": "const", "type": "String", "value": ";" }, { "kind": "const", "type": "String", "value": "'" }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "rows=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "back" }] }] } }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "r0f1=" }, "right": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "call", "type": "List OF String", "target": "collections.get", "args": [{ "kind": "local", "name": "back" }, { "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "const", "type": "Integer", "value": "1" }] } }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "r0f2=" }, "right": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "call", "type": "List OF String", "target": "collections.get", "args": [{ "kind": "local", "name": "back" }, { "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "const", "type": "Integer", "value": "2" }] } }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "tsv", "type": "List OF List OF String", "value": { "kind": "call", "type": "List OF List OF String", "target": "#csv_parse", "args": [{ "kind": "const", "type": "String", "value": "x\ty\tz" }, { "kind": "const", "type": "String", "value": "\t" }, { "kind": "const", "type": "String", "value": "\"" }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "tsvcols=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF String", "target": "collections.get", "args": [{ "kind": "local", "name": "tsv" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "default=" }, "right": { "kind": "call", "type": "String", "target": "#csv_stringify", "args": [{ "kind": "list", "type": "List OF List OF String", "values": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "p,q" }, { "kind": "const", "type": "String", "value": "r" }] }] }, { "kind": "const", "type": "String", "value": "," }, { "kind": "const", "type": "String", "value": "\"" }, { "kind": "const", "type": "String", "value": "\n" }] } }] } },
+    { "op": "return", "line": 24, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {

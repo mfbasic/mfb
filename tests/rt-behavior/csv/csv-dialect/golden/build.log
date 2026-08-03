@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/rt-behavior/csv/csv-dialect
+Wrote AST to tests/rt-behavior/csv/csv-dialect/csv_dialect.ast
+Wrote IR to tests/rt-behavior/csv/csv-dialect/csv_dialect.ir
+[exit 0]
+$ mfb build tests/rt-behavior/csv/csv-dialect
+Wrote executable to tests/rt-behavior/csv/csv-dialect/build/csv_dialect.out
+[exit 0]
+$ tests/rt-behavior/csv/csv-dialect/build/csv_dialect.out
+semi=a;'b;c';'d''e'|1;2;3
+rows=2
+r0f1=b;c
+r0f2=d'e
+tsvcols=3
+default="p,q",r
+[exit 0]

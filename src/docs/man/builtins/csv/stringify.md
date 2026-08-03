@@ -6,6 +6,7 @@ Encode a grid of String cells as RFC-4180-aligned CSV text.
 
 ```
 csv::stringify(value AS List OF List OF String) AS String
+csv::stringify(value AS List OF List OF String, delimiter AS String, quote AS String, newline AS String) AS String
 ```
 
 ## Package
@@ -28,12 +29,19 @@ trailing newline, and the fields within a row are joined with a comma. Rows and
 fields are emitted in list order, and the grid is not required to be rectangular:
 each row keeps whatever field count it had. [[src/builtins/csv_package.mfb:__csv_stringify]]
 
-A field is emitted quoted if and only if it contains a comma, a double quote, a
-carriage return (CR), or a line feed (LF); otherwise it is emitted bare.
-Whitespace is significant and never trimmed. Inside a quoted field every double
-quote is doubled (`""`), and commas, CR, and LF are carried through as ordinary
-data. Fields are processed grapheme by grapheme as UTF-8, so a multi-byte scalar
-is never split. [[src/builtins/csv_package.mfb:__csv_encodeField]] [[src/builtins/csv_package.mfb:__csv_quoteField]]
+A field is emitted quoted if and only if it contains the delimiter, the quote
+character, a carriage return (CR), or a line feed (LF); otherwise it is emitted
+bare. Whitespace is significant and never trimmed. Inside a quoted field every
+quote character is doubled, and delimiters, CR, and LF are carried through as
+ordinary data. The whole String is preserved verbatim, so a multi-byte scalar is
+never split. [[src/builtins/csv_package.mfb:__csv_encodeField]] [[src/builtins/csv_package.mfb:__csv_quoteField]]
+
+The optional `delimiter`, `quote`, and `newline` arguments select a dialect:
+`delimiter` replaces the comma between fields, `quote` replaces the double quote
+used to wrap and escape, and `newline` replaces the LF written between rows. Each
+defaults to the RFC-4180 value (`,`, `"`, and LF) when omitted, so the
+one-argument form is unchanged. `delimiter` and `quote` must each be a non-empty
+single character. [[src/builtins/csv.rs:default_argument_padding]]
 
 An empty outer list stringifies to the empty String. An empty row stringifies to
 an empty line, so a two-element outer list containing two empty rows produces a
@@ -54,6 +62,9 @@ side effects. [[src/builtins/csv.rs:call_param_names]]
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `value` | `List OF List OF String` | The grid of rows of String cells to serialize. It is never modified. [[src/builtins/csv.rs:call_param_names]] |
+| `delimiter` | `String` | Optional. The single character written between fields. Defaults to `,`. [[src/builtins/csv.rs:default_argument_padding]] |
+| `quote` | `String` | Optional. The single character used to wrap a field and, doubled, to escape itself. Defaults to `"`. [[src/builtins/csv.rs:default_argument_padding]] |
+| `newline` | `String` | Optional. The text written between rows. Defaults to a line feed. [[src/builtins/csv.rs:default_argument_padding]] |
 
 ## Return value
 
