@@ -42,6 +42,7 @@ pub(crate) const OUTGOING_ARGS_BASE: &str = "outgoing_args";
 /// Load the `k`-th incoming stack argument (0-based beyond the 8 register
 /// arguments) into `dst`. Resolved to a concrete `sp`-relative load in
 /// `finalize_frame` (bug-08).
+#[track_caller]
 pub(crate) fn incoming_stack_arg_load(dst: &str, k: usize) -> CodeInstruction {
     load_u64(dst, INCOMING_ARGS_BASE, k * 8)
 }
@@ -49,6 +50,7 @@ pub(crate) fn incoming_stack_arg_load(dst: &str, k: usize) -> CodeInstruction {
 /// Store `src` as the `k`-th outgoing stack argument (0-based beyond the 8
 /// register arguments) into the caller's reserved outgoing area. Resolved to a
 /// concrete `sp`-relative store in `finalize_frame` (bug-08).
+#[track_caller]
 pub(crate) fn outgoing_stack_arg_store(src: &str, k: usize) -> CodeInstruction {
     store_u64(src, OUTGOING_ARGS_BASE, k * 8)
 }
@@ -436,16 +438,19 @@ pub(crate) fn is_stack_pointer(register: &str) -> bool {
     register == stack_pointer()
 }
 
+#[track_caller]
 pub(crate) fn label(name: &str) -> CodeInstruction {
     CodeInstruction::new("label").field("name", name)
 }
 
+#[track_caller]
 pub(crate) fn move_register(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("mov")
         .field("dst", dst)
         .field("src", src)
 }
 
+#[track_caller]
 pub(crate) fn move_immediate(dst: &str, type_: &str, value: &str) -> CodeInstruction {
     CodeInstruction::new("mov_imm")
         .field("dst", dst)
@@ -453,6 +458,7 @@ pub(crate) fn move_immediate(dst: &str, type_: &str, value: &str) -> CodeInstruc
         .field("value", value)
 }
 
+#[track_caller]
 pub(crate) fn add_immediate(dst: &str, src: &str, imm: usize) -> CodeInstruction {
     CodeInstruction::new("add_imm")
         .field("dst", dst)
@@ -460,6 +466,7 @@ pub(crate) fn add_immediate(dst: &str, src: &str, imm: usize) -> CodeInstruction
         .field("imm", &imm.to_string())
 }
 
+#[track_caller]
 pub(crate) fn subtract_immediate(dst: &str, src: &str, imm: usize) -> CodeInstruction {
     CodeInstruction::new("sub_imm")
         .field("dst", dst)
@@ -467,6 +474,7 @@ pub(crate) fn subtract_immediate(dst: &str, src: &str, imm: usize) -> CodeInstru
         .field("imm", &imm.to_string())
 }
 
+#[track_caller]
 pub(crate) fn add_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("add")
         .field("dst", dst)
@@ -474,6 +482,7 @@ pub(crate) fn add_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction 
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn add_registers_set_flags(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("adds")
         .field("dst", dst)
@@ -481,6 +490,7 @@ pub(crate) fn add_registers_set_flags(dst: &str, lhs: &str, rhs: &str) -> CodeIn
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn subtract_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("sub")
         .field("dst", dst)
@@ -488,6 +498,7 @@ pub(crate) fn subtract_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruc
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn subtract_registers_set_flags(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("subs")
         .field("dst", dst)
@@ -495,6 +506,7 @@ pub(crate) fn subtract_registers_set_flags(dst: &str, lhs: &str, rhs: &str) -> C
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn and_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("and")
         .field("dst", dst)
@@ -502,6 +514,7 @@ pub(crate) fn and_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction 
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn or_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("orr")
         .field("dst", dst)
@@ -509,6 +522,7 @@ pub(crate) fn or_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn exclusive_or_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("eor")
         .field("dst", dst)
@@ -516,12 +530,14 @@ pub(crate) fn exclusive_or_registers(dst: &str, lhs: &str, rhs: &str) -> CodeIns
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn bitwise_not(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("mvn")
         .field("dst", dst)
         .field("src", src)
 }
 
+#[track_caller]
 pub(crate) fn multiply_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("mul")
         .field("dst", dst)
@@ -529,6 +545,7 @@ pub(crate) fn multiply_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruc
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn signed_multiply_high_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("smulh")
         .field("dst", dst)
@@ -536,6 +553,7 @@ pub(crate) fn signed_multiply_high_registers(dst: &str, lhs: &str, rhs: &str) ->
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn unsigned_multiply_high_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("umulh")
         .field("dst", dst)
@@ -548,6 +566,7 @@ pub(crate) fn unsigned_multiply_high_registers(dst: &str, lhs: &str, rhs: &str) 
 /// The carry is a register, not the flags, so a multi-limb add survives register
 /// allocation. Pass `xzr` for `carry_in` on the first limb and for `carry_out`
 /// on the last limb.
+#[track_caller]
 pub(crate) fn add_carry(
     dst: &str,
     carry_out: &str,
@@ -564,6 +583,7 @@ pub(crate) fn add_carry(
 }
 
 /// `rorv dst, src, amount` — rotate `src` right by the low 6 bits of `amount`.
+#[track_caller]
 pub(crate) fn rotate_right_registers(dst: &str, src: &str, amount: &str) -> CodeInstruction {
     CodeInstruction::new("rorv")
         .field("dst", dst)
@@ -573,6 +593,7 @@ pub(crate) fn rotate_right_registers(dst: &str, src: &str, amount: &str) -> Code
 
 /// `rorv Wd, Wn, Wm` — 32-bit rotate right by the low 5 bits of `amount`; the
 /// 32-bit result is zero-extended into the upper half of the destination.
+#[track_caller]
 pub(crate) fn rotate_right_word_registers(dst: &str, src: &str, amount: &str) -> CodeInstruction {
     CodeInstruction::new("rorv_w")
         .field("dst", dst)
@@ -581,6 +602,7 @@ pub(crate) fn rotate_right_word_registers(dst: &str, src: &str, amount: &str) ->
 }
 
 /// `lslv dst, src, amount` — logical shift `src` left by the low 6 bits of `amount`.
+#[track_caller]
 pub(crate) fn shift_left_variable(dst: &str, src: &str, amount: &str) -> CodeInstruction {
     CodeInstruction::new("lslv")
         .field("dst", dst)
@@ -589,6 +611,7 @@ pub(crate) fn shift_left_variable(dst: &str, src: &str, amount: &str) -> CodeIns
 }
 
 /// `lsrv dst, src, amount` — logical shift `src` right by the low 6 bits of `amount`.
+#[track_caller]
 pub(crate) fn shift_right_variable(dst: &str, src: &str, amount: &str) -> CodeInstruction {
     CodeInstruction::new("lsrv")
         .field("dst", dst)
@@ -598,6 +621,7 @@ pub(crate) fn shift_right_variable(dst: &str, src: &str, amount: &str) -> CodeIn
 
 /// `asrv dst, src, amount` — arithmetic (sign-filling) shift `src` right by the
 /// low 6 bits of `amount`.
+#[track_caller]
 pub(crate) fn arithmetic_shift_right_variable(
     dst: &str,
     src: &str,
@@ -610,6 +634,7 @@ pub(crate) fn arithmetic_shift_right_variable(
 }
 
 /// `clz dst, src` — count the leading zero bits of the 64-bit `src`.
+#[track_caller]
 pub(crate) fn count_leading_zeros(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("clz")
         .field("dst", dst)
@@ -617,6 +642,7 @@ pub(crate) fn count_leading_zeros(dst: &str, src: &str) -> CodeInstruction {
 }
 
 /// `rbit dst, src` — reverse the bit order of the 64-bit `src`.
+#[track_caller]
 pub(crate) fn reverse_bits(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("rbit")
         .field("dst", dst)
@@ -625,6 +651,7 @@ pub(crate) fn reverse_bits(dst: &str, src: &str) -> CodeInstruction {
 
 /// `rev Wd, Wn` — reverse the four bytes of the low 32 bits of `src`; the result
 /// is zero-extended into the upper half of the destination.
+#[track_caller]
 pub(crate) fn reverse_bytes_word(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("rev_w")
         .field("dst", dst)
@@ -632,6 +659,7 @@ pub(crate) fn reverse_bytes_word(dst: &str, src: &str) -> CodeInstruction {
 }
 
 /// `rev Xd, Xn` — reverse all eight bytes of the 64-bit `src`.
+#[track_caller]
 pub(crate) fn reverse_bytes(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("rev_x")
         .field("dst", dst)
@@ -641,12 +669,14 @@ pub(crate) fn reverse_bytes(dst: &str, src: &str) -> CodeInstruction {
 /// `sxtw Xd, Wn` — sign-extend the low 32 bits of `src` into the 64-bit `dst`.
 /// Narrows a C `int` return (AAPCS64 leaves x-bits[63:32] unspecified) so a
 /// subsequent 64-bit `cmp`/`b.lt` sign-check is correct (bug-04).
+#[track_caller]
 pub(crate) fn sign_extend_word(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("sxtw")
         .field("dst", dst)
         .field("src", src)
 }
 
+#[track_caller]
 pub(crate) fn signed_divide_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("sdiv")
         .field("dst", dst)
@@ -654,6 +684,7 @@ pub(crate) fn signed_divide_registers(dst: &str, lhs: &str, rhs: &str) -> CodeIn
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn unsigned_divide_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("udiv")
         .field("dst", dst)
@@ -661,6 +692,7 @@ pub(crate) fn unsigned_divide_registers(dst: &str, lhs: &str, rhs: &str) -> Code
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn multiply_subtract_registers(
     dst: &str,
     lhs: &str,
@@ -674,6 +706,7 @@ pub(crate) fn multiply_subtract_registers(
         .field("minuend", minuend)
 }
 
+#[track_caller]
 pub(crate) fn shift_left_immediate(dst: &str, src: &str, shift: u8) -> CodeInstruction {
     CodeInstruction::new("lsl_imm")
         .field("dst", dst)
@@ -681,6 +714,7 @@ pub(crate) fn shift_left_immediate(dst: &str, src: &str, shift: u8) -> CodeInstr
         .field("shift", &shift.to_string())
 }
 
+#[track_caller]
 pub(crate) fn shift_right_immediate(dst: &str, src: &str, shift: u8) -> CodeInstruction {
     CodeInstruction::new("lsr_imm")
         .field("dst", dst)
@@ -688,6 +722,7 @@ pub(crate) fn shift_right_immediate(dst: &str, src: &str, shift: u8) -> CodeInst
         .field("shift", &shift.to_string())
 }
 
+#[track_caller]
 pub(crate) fn arithmetic_shift_right_immediate(dst: &str, src: &str, shift: u8) -> CodeInstruction {
     CodeInstruction::new("asr_imm")
         .field("dst", dst)
@@ -695,68 +730,83 @@ pub(crate) fn arithmetic_shift_right_immediate(dst: &str, src: &str, shift: u8) 
         .field("shift", &shift.to_string())
 }
 
+#[track_caller]
 pub(crate) fn subtract_stack(imm: usize) -> CodeInstruction {
     CodeInstruction::new("sub_sp").field("imm", &imm.to_string())
 }
 
+#[track_caller]
 pub(crate) fn add_stack(imm: usize) -> CodeInstruction {
     CodeInstruction::new("add_sp").field("imm", &imm.to_string())
 }
 
+#[track_caller]
 pub(crate) fn compare_immediate(lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("cmp_imm")
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn compare_registers(lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("cmp")
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn branch_eq(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.eq").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_ne(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.ne").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_ge(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.ge").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_lt(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.lt").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_gt(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.gt").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_le(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.le").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_vc(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.vc").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_vs(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.vs").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_hi(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.hi").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_lo(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.lo").field("target", target)
 }
 
 /// `b.mi` — branch if N set. After `fcmp` this is the IEEE float `<` (an
 /// unordered NaN clears N, so it falls through to the `false` side; plan-17).
+#[track_caller]
 pub(crate) fn branch_mi(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.mi").field("target", target)
 }
@@ -764,34 +814,42 @@ pub(crate) fn branch_mi(target: &str) -> CodeInstruction {
 /// `b.ls` — branch if C clear or Z set. After `fcmp` this is the IEEE float
 /// `<=` (an unordered NaN has C set and Z clear, so it falls through to the
 /// `false` side; plan-17).
+#[track_caller]
 pub(crate) fn branch_ls(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.ls").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch(target: &str) -> CodeInstruction {
     CodeInstruction::new("b").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_link(target: &str) -> CodeInstruction {
     CodeInstruction::new("bl").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_link_register(register: &str) -> CodeInstruction {
     CodeInstruction::new("blr").field("register", register)
 }
 
+#[track_caller]
 pub(crate) fn branch_self() -> CodeInstruction {
     CodeInstruction::new("branch_self")
 }
 
+#[track_caller]
 pub(crate) fn syscall() -> CodeInstruction {
     CodeInstruction::new("svc")
 }
 
+#[track_caller]
 pub(crate) fn return_() -> CodeInstruction {
     CodeInstruction::new("ret")
 }
 
+#[track_caller]
 pub(crate) fn load_u64(dst: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("ldr_u64")
         .field("dst", dst)
@@ -799,6 +857,7 @@ pub(crate) fn load_u64(dst: &str, base: &str, offset: usize) -> CodeInstruction 
         .field("offset", &offset.to_string())
 }
 
+#[track_caller]
 pub(crate) fn load_u32(dst: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("ldr_u32")
         .field("dst", dst)
@@ -806,6 +865,7 @@ pub(crate) fn load_u32(dst: &str, base: &str, offset: usize) -> CodeInstruction 
         .field("offset", &offset.to_string())
 }
 
+#[track_caller]
 pub(crate) fn load_u16(dst: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("ldr_u16")
         .field("dst", dst)
@@ -813,6 +873,7 @@ pub(crate) fn load_u16(dst: &str, base: &str, offset: usize) -> CodeInstruction 
         .field("offset", &offset.to_string())
 }
 
+#[track_caller]
 pub(crate) fn load_u8(dst: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("ldr_u8")
         .field("dst", dst)
@@ -820,6 +881,7 @@ pub(crate) fn load_u8(dst: &str, base: &str, offset: usize) -> CodeInstruction {
         .field("offset", &offset.to_string())
 }
 
+#[track_caller]
 pub(crate) fn store_u64(src: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("str_u64")
         .field("src", src)
@@ -827,6 +889,7 @@ pub(crate) fn store_u64(src: &str, base: &str, offset: usize) -> CodeInstruction
         .field("offset", &offset.to_string())
 }
 
+#[track_caller]
 pub(crate) fn store_u32(src: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("str_u32")
         .field("src", src)
@@ -837,6 +900,7 @@ pub(crate) fn store_u32(src: &str, base: &str, offset: usize) -> CodeInstruction
 /// 16-bit store (plan-50-D). Needed by struct-field marshaling for a
 /// `CInt16`/`CUInt16` member; `ldr_u16` has always been encodable, this is its
 /// missing counterpart.
+#[track_caller]
 pub(crate) fn store_u16(src: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("str_u16")
         .field("src", src)
@@ -844,6 +908,7 @@ pub(crate) fn store_u16(src: &str, base: &str, offset: usize) -> CodeInstruction
         .field("offset", &offset.to_string())
 }
 
+#[track_caller]
 pub(crate) fn store_u8(src: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("str_u8")
         .field("src", src)
@@ -852,6 +917,7 @@ pub(crate) fn store_u8(src: &str, base: &str, offset: usize) -> CodeInstruction 
 }
 
 /// `ldr d<dst>, [<base>, #offset]` — load a 64-bit FP scalar (spill reload).
+#[track_caller]
 pub(crate) fn load_double(dst: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("ldr_d")
         .field("dst", dst)
@@ -860,6 +926,7 @@ pub(crate) fn load_double(dst: &str, base: &str, offset: usize) -> CodeInstructi
 }
 
 /// `str d<src>, [<base>, #offset]` — store a 64-bit FP scalar (spill).
+#[track_caller]
 pub(crate) fn store_double(src: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("str_d")
         .field("src", src)
@@ -867,12 +934,14 @@ pub(crate) fn store_double(src: &str, base: &str, offset: usize) -> CodeInstruct
         .field("offset", &offset.to_string())
 }
 
+#[track_caller]
 pub(crate) fn load_page_address(dst: &str, symbol: &str) -> CodeInstruction {
     CodeInstruction::new("adrp")
         .field("dst", dst)
         .field("symbol", symbol)
 }
 
+#[track_caller]
 pub(crate) fn add_page_offset(dst: &str, src: &str, symbol: &str) -> CodeInstruction {
     CodeInstruction::new("add_pageoff")
         .field("dst", dst)
@@ -880,12 +949,14 @@ pub(crate) fn add_page_offset(dst: &str, src: &str, symbol: &str) -> CodeInstruc
         .field("symbol", symbol)
 }
 
+#[track_caller]
 pub(crate) fn float_move_x_from_d(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("fmov_x_from_d")
         .field("dst", dst)
         .field("src", src)
 }
 
+#[track_caller]
 pub(crate) fn float_move_d_from_x(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("fmov_d_from_x")
         .field("dst", dst)
@@ -893,12 +964,14 @@ pub(crate) fn float_move_d_from_x(dst: &str, src: &str) -> CodeInstruction {
 }
 
 /// `fmov Dd, Dn` — copy one scalar `d`-register into another.
+#[track_caller]
 pub(crate) fn float_move_d_from_d(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("fmov_d_from_d")
         .field("dst", dst)
         .field("src", src)
 }
 
+#[track_caller]
 pub(crate) fn float_add_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("fadd_d")
         .field("dst", dst)
@@ -906,6 +979,7 @@ pub(crate) fn float_add_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn float_subtract_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("fsub_d")
         .field("dst", dst)
@@ -913,6 +987,7 @@ pub(crate) fn float_subtract_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstructi
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn float_multiply_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("fmul_d")
         .field("dst", dst)
@@ -920,6 +995,7 @@ pub(crate) fn float_multiply_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstructi
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn float_divide_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("fdiv_d")
         .field("dst", dst)
@@ -929,6 +1005,7 @@ pub(crate) fn float_divide_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction
 
 /// `fminnm Dd, Dn, Dm` — scalar double minimum with IEEE number semantics (a
 /// finite operand wins over a NaN). Selected for `math::min(Float)` (plan-02 §4).
+#[track_caller]
 pub(crate) fn float_min_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("fminnm_d")
         .field("dst", dst)
@@ -938,6 +1015,7 @@ pub(crate) fn float_min_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
 
 /// `fmaxnm Dd, Dn, Dm` — scalar double maximum, IEEE number semantics.
 /// Selected for `math::max(Float)` (plan-02 §4).
+#[track_caller]
 pub(crate) fn float_max_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("fmaxnm_d")
         .field("dst", dst)
@@ -945,12 +1023,14 @@ pub(crate) fn float_max_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn float_negate_d(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("fneg_d")
         .field("dst", dst)
         .field("src", src)
 }
 
+#[track_caller]
 pub(crate) fn float_sqrt_d(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("fsqrt_d")
         .field("dst", dst)
@@ -959,46 +1039,54 @@ pub(crate) fn float_sqrt_d(dst: &str, src: &str) -> CodeInstruction {
 
 /// `fabs Dd, Dn` — scalar double absolute value (clears the sign bit), so the
 /// FP-domain finiteness check can fold ±Inf onto a single `fcmp` against +Inf.
+#[track_caller]
 pub(crate) fn float_abs_d(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("fabs_d")
         .field("dst", dst)
         .field("src", src)
 }
 
+#[track_caller]
 pub(crate) fn float_compare_d(lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("fcmp_d")
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn float_compare_zero_d(src: &str) -> CodeInstruction {
     CodeInstruction::new("fcmp_zero_d").field("src", src)
 }
 
+#[track_caller]
 pub(crate) fn signed_convert_to_float_d(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("scvtf_d_from_x")
         .field("dst", dst)
         .field("src", src)
 }
 
+#[track_caller]
 pub(crate) fn float_convert_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("fcvtzs_x_from_d")
         .field("dst", dst)
         .field("src", src)
 }
 
+#[track_caller]
 pub(crate) fn float_floor_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("fcvtms_x_from_d")
         .field("dst", dst)
         .field("src", src)
 }
 
+#[track_caller]
 pub(crate) fn float_ceil_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("fcvtps_x_from_d")
         .field("dst", dst)
         .field("src", src)
 }
 
+#[track_caller]
 pub(crate) fn float_round_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("fcvtas_x_from_d")
         .field("dst", dst)
@@ -1013,6 +1101,7 @@ pub(crate) fn float_round_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
 // `x*` names.
 
 /// `ldr q<dst>, [<base>, #offset]` — load 128 bits (two i64/f64 lanes).
+#[track_caller]
 pub(crate) fn vector_load(dst: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("ldr_q")
         .field("dst", dst)
@@ -1021,6 +1110,7 @@ pub(crate) fn vector_load(dst: &str, base: &str, offset: usize) -> CodeInstructi
 }
 
 /// `str q<src>, [<base>, #offset]` — store 128 bits (two i64/f64 lanes).
+#[track_caller]
 pub(crate) fn vector_store(src: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("str_q")
         .field("src", src)
@@ -1113,6 +1203,7 @@ vector_shift_imm!(vector_sshr, "sshr_v");
 vector_shift_imm!(vector_ushr, "ushr_v");
 
 /// `dup v<dst>.2d, x<src>` — broadcast a 64-bit GPR into both lanes.
+#[track_caller]
 pub(crate) fn vector_dup_from_x(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("dup_v_from_x")
         .field("dst", dst)
@@ -1120,6 +1211,7 @@ pub(crate) fn vector_dup_from_x(dst: &str, src: &str) -> CodeInstruction {
 }
 
 /// `umov x<dst>, v<src>.d[index]` — extract lane `index` (0 or 1) into a GPR.
+#[track_caller]
 pub(crate) fn vector_extract_to_x(dst: &str, src: &str, index: u8) -> CodeInstruction {
     CodeInstruction::new("umov_x_from_v")
         .field("dst", dst)
@@ -1145,6 +1237,7 @@ fn float_fma_op(mnemonic: &str, dst: &str, addend: &str, lhs: &str, rhs: &str) -
 }
 
 /// `dst = addend + lhs*rhs`, rounded once.
+#[track_caller]
 pub(crate) fn float_multiply_add_d(
     dst: &str,
     addend: &str,
@@ -1155,6 +1248,7 @@ pub(crate) fn float_multiply_add_d(
 }
 
 /// `dst = lhs*rhs - addend`, rounded once.
+#[track_caller]
 pub(crate) fn float_multiply_sub_d(
     dst: &str,
     addend: &str,
@@ -1165,6 +1259,7 @@ pub(crate) fn float_multiply_sub_d(
 }
 
 /// `dst = addend - lhs*rhs`, rounded once.
+#[track_caller]
 pub(crate) fn float_negate_multiply_sub_d(
     dst: &str,
     addend: &str,
