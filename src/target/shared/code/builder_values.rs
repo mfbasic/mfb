@@ -89,6 +89,7 @@ impl CodeBuilder<'_> {
             self.emit_owned_value_drop(&OwnedValueCleanup {
                 type_: temp.type_,
                 stack_offset: temp.slot,
+                closure_captures: None,
             })?;
         }
         Ok(())
@@ -229,6 +230,25 @@ impl CodeBuilder<'_> {
                 || type_.starts_with("Result OF ")
                 || self.type_model.record_fields.contains_key(type_)
                 || self.union_is_data(type_))
+    }
+
+    /// plan-77 M6: the static type of a closure capture, used by the closure
+    /// scope-drop to decide whether the env slot holds a freeable owned block.
+    /// ONLY a `Local` capture qualifies: it is deep-copied (`lower_value_owned`)
+    /// into its own arena block, so freeing it is sound. Everything else returns
+    /// `""` so the drop LEAVES the slot — a by-ref capture (`LocalRef` / a
+    /// `by_ref` `Capture`) holds a pointer to another binding's slot, NOT an owned
+    /// block, and a by-value scalar/float is stored inline; freeing either would
+    /// be a wild free. Leaving them is a safe (bounded, arena-reclaimed) leak.
+    pub(super) fn capture_free_type(&self, capture: &NirValue) -> String {
+        match capture {
+            NirValue::Local(name) => self
+                .locals
+                .get(name)
+                .map(|local| local.type_.clone())
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
     }
 
     fn lower_value_inner(&mut self, value: &NirValue) -> Result<ValueResult, String> {

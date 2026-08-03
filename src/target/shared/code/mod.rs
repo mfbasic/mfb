@@ -240,6 +240,11 @@ struct CodeBuilder<'a> {
     /// Such a local may be observed or mutated through the slot reference, so it is never
     /// loop-promoted (its slot must stay authoritative).
     address_taken_locals: HashSet<String>,
+    /// plan-77 M6: locals used as a *value* (read `Local` or address-taken
+    /// `LocalRef`) anywhere in the function. A closure binding whose name is NOT
+    /// here is only ever a direct invoke target and never escapes, so it is freed
+    /// at scope end.
+    value_used_locals: HashSet<String>,
     /// The register-allocation strategy selected for this build (`-regalloc`).
     regalloc_kind: regalloc::RegallocKind,
     /// First scratch-register-exhaustion error recorded by an infallible vreg
@@ -524,6 +529,12 @@ struct OwnedValueCleanup {
     type_: String,
     /// Stack offset of the binding's slot (holds the block pointer).
     stack_offset: usize,
+    /// plan-77 M6: when `Some`, this is a non-escaping closure binding rather than
+    /// a flat value; the slot holds the closure object pointer and the vec is the
+    /// static types of its captures. The drop frees the object, its env block, and
+    /// each freeable-flat capture (skipping by-value scalars/floats) instead of a
+    /// single flat `arena_free`.
+    closure_captures: Option<Vec<String>>,
 }
 
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free

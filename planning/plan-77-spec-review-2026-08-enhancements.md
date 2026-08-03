@@ -275,7 +275,7 @@ each `add cursor,1; sub remaining,1; skip; label(advanced); add scalar_index,1`.
 - [x] Slotted the fast-forward before the 3 walk-to-target loops (find locate, mid locate_start, mid locate_end). `advance_candidate` (a single-scalar step) gets no block and is unchanged.
 - [x] Regenerated the affected `.ncodesum` (native codegen change → `.ir` UNCHANGED). Detection sweep: **11 fixtures** shift (crypto, crypto-ec-valid, strings, net, datetime, encoding, regex, **audio**, json, http, csv — the find/mid-using set, note `term` out / `audio` in vs the unicode phases).
 - **Acceptance:** ✅ **exhaustive** correctness: reconstructing each of an ASCII/2-byte/3-byte/4-byte/mixed string one scalar at a time via `mid(s,i,1)` for every `i` equals the original, and the split-invariant `mid(s,0,k) & mid(s,k,n-k) == s` holds for all `k` (bad=0); ✅ `find`/`mid` indices/substrings correct across all cases incl. block boundaries; `cargo test --bin mfb` 3758 green.
-- **Commit:** _(next commit)_
+- **Commit:** `ca266aa06`
 
 ## Phase 11 — Unicode perf/U3+U6+U7: marginal normalization/grapheme fast-paths
 
@@ -347,12 +347,12 @@ value, **must not** be freed), object `514-547` (`CLOSURE_OBJECT_SIZE`=16,
 closures). A closure = **N+2 arena blocks** (object + env + one per flat capture).
 Address-taken-local hazard flagged at `builder_exits.rs:231`.
 
-- [ ] Build a closure escape analysis: a closure is non-escaping iff it is not returned, not stored in a binding/global/collection/record, and not passed to an escaping call. Be conservative — default to "escapes" on any doubt (a false non-escape → UAF).
-- [ ] Add a recursive closure free path: load env ptr (offset 8), walk N slots, free each *freeable-flat* capture (recurse into nested composites), free env, free the 16-byte object — in that order; skip native by-value slots (the `d` float at :507).
-- [ ] Gate the free on the escape verdict; integrate with the existing owned-value scope-drop (extend beyond `is_freeable_flat_value`, or a dedicated closure drop).
-- [ ] RED tests first (per `.ai/compiler.md`): (a) a non-escaping closure with String/record captures frees all N+2 blocks (no leak); (b) an escaping closure (returned/stored) is NOT freed (no UAF); (c) the address-taken-local hazard case.
-- **Acceptance:** the RED tests pass; a leak-check fixture shows a non-escaping capturing closure's env + captures reclaimed; no escaping-closure UAF; full `cargo test --bin mfb` + strings/closure rt-behavior green.
-- **Commit:** _(fill on land)_
+- [x] Built the escape analysis as a **conservative whitelist reusing the proven-exhaustive `NirVisitor` seam** (`collect_value_used_locals`): a closure binding is non-escaping iff its name NEVER appears as a `Local` (read) or `LocalRef` (address-taken) value anywhere in the function. An invoke lowers `Call { target: name }` whose `target` is a String (not a visited `NirValue`), so an invoke-only closure is not "value-used"; any escape route (return/store/pass/alias/capture/address-take) surfaces as a `Local`/`LocalRef`. Reusing the exhaustive visitor (a new variant is a compile error in `walk_value`) means no escape route can be silently missed — the difference between a reclaim and a UAF. Populated per function alongside `address_taken_locals`.
+- [x] Added `emit_closure_drop`: at scope-drop, free each **freeable-flat `Local` capture** (env slot i, gated by `is_freeable_flat_value`), then the env block (`captures.len()*8`), then the 16-byte object — reloading pointers from spill slots between `arena_free`s (which clobber caller-saved). **Only `Local` captures are freed** (deep-copied → owned); by-ref (`LocalRef`/`by_ref Capture`) slots hold a pointer to another binding's slot and by-value scalars/floats are inline, so both are left (`capture_free_type` returns `""`) — a safe bounded leak, never a wild free.
+- [x] Gated on the escape verdict (`is_non_escaping_closure` at the bind) and integrated by extending `OwnedValueCleanup` with `closure_captures: Option<Vec<String>>` — reusing the existing OwnedValue scope-drop path (all exit/loop/error/trap routes already handle it; slot zeroed for the trap-before-store guard) rather than a new `ActiveCleanup` variant across 25 sites.
+- [x] Tests: 4 deterministic escape-analysis unit tests (`m6_escape_tests`: invoke-only → non-escaping; returned/passed/aliased/address-taken → escaping) + a `closure-scope-drop-rt` rt-behavior fixture.
+- **Acceptance:** ✅ escape unit tests pin the (UAF-critical) analysis; ✅ runtime: a non-escaping String-capturing closure produces correct output (freed cleanly), an **escaping closure returned from a function / stored in a list is invoked correctly AFTER its defining scope exits (no UAF)**, and a 1000-iteration loop of non-escaping String-capturing closures runs to a correct sum with exit 0 (arena stays bounded — the free works); ✅ existing closure fixtures (collection-of-function-rt, closure-call-register-pressure-rt) **identical**; `cargo test --bin mfb` 3762 green. M6 is native codegen only (`.ir` unchanged) and no existing byte-identity fixture has a non-escaping closure, so zero golden churn.
+- **Commit:** _(next commit)_
 
 # Finalization
 

@@ -166,6 +166,11 @@ impl CodeBuilder<'_> {
         &mut self,
         cleanup: &OwnedValueCleanup,
     ) -> Result<(), String> {
+        // plan-77 M6: a non-escaping closure binding is dropped by the recursive
+        // closure free, not a single flat `arena_free`.
+        if let Some(captures) = cleanup.closure_captures.clone() {
+            return self.emit_closure_drop(cleanup.stack_offset, &captures);
+        }
         // The slot is null when the binding's initializer trapped before it was
         // stored (the slot is zero-initialized at bind, see `lower_ops`), or for
         // a moved-out value; a null free would fault scrubbing address 0, so skip.
@@ -199,6 +204,86 @@ impl CodeBuilder<'_> {
             cleanup.stack_offset,
         ));
         self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), size_slot));
+        self.emit_arena_free_call();
+        self.emit(abi::label(&skip));
+        Ok(())
+    }
+
+    /// plan-77 M6: free a non-escaping closure at scope-drop — its freeable-flat
+    /// captures, then its env block, then the 16-byte object. All are the
+    /// closure's own arena blocks (captures deep-copied, env/object allocated at
+    /// construction), so the frees are unaliased and once-only. `object_slot` holds
+    /// the object pointer, or 0 when the initializer trapped before the store — in
+    /// which case everything is skipped. Pointers are reloaded from spill slots
+    /// between `arena_free` calls, which clobber caller-saved registers.
+    fn emit_closure_drop(
+        &mut self,
+        object_slot: usize,
+        capture_types: &[String],
+    ) -> Result<(), String> {
+        self.owned_value_slots.push(object_slot);
+        let skip = self.label("closure_free_skip");
+        let obj = self.allocate_register()?;
+        self.emit(abi::load_u64(&obj, abi::stack_pointer(), object_slot));
+        self.emit(abi::compare_immediate(&obj, "0"));
+        self.emit(abi::branch_eq(&skip));
+        // env = *(obj + 8). Spill it — arena_free below clobbers caller-saved regs.
+        let env = self.allocate_register()?;
+        self.emit(abi::load_u64(&env, &obj, CLOSURE_OFFSET_ENV));
+        let env_slot = self.allocate_stack_object("closure_free_env", 8);
+        self.emit(abi::store_u64(&env, abi::stack_pointer(), env_slot));
+        // A capture-less closure has a null env: free only the object.
+        let env_done = self.label("closure_free_env_done");
+        self.emit(abi::compare_immediate(&env, "0"));
+        self.emit(abi::branch_eq(&env_done));
+        for (index, capture_type) in capture_types.iter().enumerate() {
+            if !self.is_freeable_flat_value(capture_type) {
+                continue;
+            }
+            let env_reg = self.allocate_register()?;
+            let cap = self.allocate_register()?;
+            self.emit(abi::load_u64(&env_reg, abi::stack_pointer(), env_slot));
+            self.emit(abi::load_u64(&cap, &env_reg, index * 8));
+            let cap_skip = self.label("closure_free_cap_skip");
+            self.emit(abi::compare_immediate(&cap, "0"));
+            self.emit(abi::branch_eq(&cap_skip));
+            let cap_slot = self.allocate_stack_object("closure_free_cap", 8);
+            self.emit(abi::store_u64(&cap, abi::stack_pointer(), cap_slot));
+            let size_slot = self.allocate_stack_object("closure_free_cap_size", 8);
+            self.emit_inlined_block_size_from_ptr_slot(capture_type, cap_slot, size_slot)?;
+            self.emit(abi::load_u64(
+                abi::return_register(),
+                abi::stack_pointer(),
+                cap_slot,
+            ));
+            self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), size_slot));
+            self.emit_arena_free_call();
+            self.emit(abi::label(&cap_skip));
+        }
+        // Free the env block: captures.len() * 8 bytes.
+        self.emit(abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            env_slot,
+        ));
+        self.emit(abi::move_immediate(
+            abi::ARG[1],
+            "Integer",
+            &(capture_types.len() * 8).to_string(),
+        ));
+        self.emit_arena_free_call();
+        self.emit(abi::label(&env_done));
+        // Free the 16-byte object.
+        self.emit(abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            object_slot,
+        ));
+        self.emit(abi::move_immediate(
+            abi::ARG[1],
+            "Integer",
+            &CLOSURE_OBJECT_SIZE.to_string(),
+        ));
         self.emit_arena_free_call();
         self.emit(abi::label(&skip));
         Ok(())
