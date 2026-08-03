@@ -751,7 +751,8 @@ impl CodeBuilder<'_> {
             COLLECTION_OFFSET_DATA_CAPACITY,
         ));
         self.emit(abi::add_registers(abi::ARG[1], &scratch10, &scratch11));
-        self.emit(abi::move_register(abi::return_register(), &scratch8));
+        // plan-71-C Family-1a: the pointer is arg 0 of the arena-free call → `%arg0`.
+        self.emit(abi::move_register(abi::ARG[0], &scratch8));
         self.emit_arena_free_call();
         // Install the grown buffer; fall through to write the new element.
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
@@ -1189,7 +1190,8 @@ impl CodeBuilder<'_> {
             COLLECTION_OFFSET_DATA_CAPACITY,
         ));
         self.emit(abi::add_registers(abi::ARG[1], &scratch10, &scratch11));
-        self.emit(abi::move_register(abi::return_register(), &scratch8));
+        // plan-71-C Family-1a: the pointer is arg 0 of the arena-free call → `%arg0`.
+        self.emit(abi::move_register(abi::ARG[0], &scratch8));
         self.emit_arena_free_call();
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64(&nb, abi::stack_pointer(), buffer_slot));

@@ -863,7 +863,8 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             byte_len_slot,
         ));
-        self.emit(abi::add_immediate(abi::return_register(), byte_len, 9));
+        // plan-71-C Family-1a: alloc size is arg 0 of the arena-alloc call → `%arg0`.
+        self.emit(abi::add_immediate(abi::ARG[0], byte_len, 9));
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
