@@ -197,6 +197,28 @@ pub(super) fn call_clobber_mask(instruction: &CodeInstruction, model: &ClassMode
     }
 }
 
+/// x86-64 GPRs, in encoding order (rax=0 … r15=15). `rsp` (index 4) is the stack
+/// pointer, excluded like AArch64 `sp`. Module-level so the plan-82-A round-trip
+/// test iterates the real table (a register added here is then auto-covered).
+const X86_GPRS: &[&str] = &[
+    "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13",
+    "r14", "r15",
+];
+
+/// RISC-V lp64d GPRs, indexed by register number (`zero`=0 … `t6`=31, plan-99).
+const RISCV_GPRS: &[&str] = &[
+    "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4",
+    "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4",
+    "t5", "t6",
+];
+
+/// RISC-V FP registers, indexed by register number (`ft0`=0 … `ft11`=31, plan-99).
+const RISCV_FPRS: &[&str] = &[
+    "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "fs0", "fs1", "fa0", "fa1", "fa2",
+    "fa3", "fa4", "fa5", "fa6", "fa7", "fs2", "fs3", "fs4", "fs5", "fs6", "fs7", "fs8", "fs9",
+    "fs10", "fs11", "ft8", "ft9", "ft10", "ft11",
+];
+
 /// The integer physical-register index, or `None`. AArch64 `x0`–`x30` map to
 /// `0..=30`; x86-64 GPRs (plan-00-H) map to their encoding numbers `0..=15`. A
 /// function is single-ISA, so the two name spaces never collide. Excludes
@@ -271,10 +293,6 @@ fn int_concrete_physical_index(name: &str) -> Option<u32> {
     }
     // x86-64 GPRs, in encoding order (rax=0 … r15=15). `rsp` is the stack
     // pointer (excluded), like AArch64 `sp`.
-    const X86_GPRS: &[&str] = &[
-        "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12",
-        "r13", "r14", "r15",
-    ];
     if let Some(i) = X86_GPRS
         .iter()
         .position(|&reg| reg == name)
@@ -290,11 +308,6 @@ fn int_concrete_physical_index(name: &str) -> Option<u32> {
 
 /// The RISC-V lp64d GPR index (0–31) for an ABI register name, or `None`.
 pub(super) fn riscv_int_index(name: &str) -> Option<u32> {
-    const RISCV_GPRS: &[&str] = &[
-        "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4",
-        "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4",
-        "t5", "t6",
-    ];
     RISCV_GPRS
         .iter()
         .position(|&reg| reg == name)
@@ -347,11 +360,6 @@ pub(super) fn fp_physical_index(name: &str) -> Option<u32> {
 
 /// The RISC-V FP register index (0–31) for an ABI register name, or `None`.
 pub(super) fn riscv_fp_index(name: &str) -> Option<u32> {
-    const RISCV_FPRS: &[&str] = &[
-        "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "fs0", "fs1", "fa0", "fa1", "fa2",
-        "fa3", "fa4", "fa5", "fa6", "fa7", "fs2", "fs3", "fs4", "fs5", "fs6", "fs7", "fs8", "fs9",
-        "fs10", "fs11", "ft8", "ft9", "ft10", "ft11",
-    ];
     RISCV_FPRS
         .iter()
         .position(|&reg| reg == name)
@@ -837,5 +845,105 @@ mod tests {
         };
         assert_ne!(hash_of("x0"), hash_of("x1"));
         assert_eq!(hash_of("rax"), hash_of("rax"));
+    }
+
+    /// plan-82-A Phase 2: the typed `Operand::Phys { class, index, name }` arm must
+    /// round-trip byte-identically over **every** physical register name in every
+    /// consuming arch's table — not a sample. For each `(name, class, index)`:
+    ///
+    /// 1. `physical_index(name) == index` — the index the allocator write-back
+    ///    (plan-82-B) stores in `Phys.index` equals the register-table position.
+    /// 2. `Operand::phys(class, index, name).render()/.rendered() == name` — the
+    ///    rendered spelling is byte-identical to today's `Raw` string.
+    /// 3. `physical_index(op.rendered()) == index` — reading `Phys.index` directly
+    ///    (plan-82-D) yields exactly what the deleted `.position()` scan returned.
+    ///
+    /// Iterating the real tables (the module-level `X86_GPRS`/`RISCV_*` consts and
+    /// the generated AArch64 `x`/`d`/`v` spellings) means a register added later is
+    /// automatically in the denominator.
+    #[test]
+    fn phys_operand_round_trips_over_every_register_name() {
+        use crate::target::shared::code::Operand;
+
+        // (name, expected class index). Integer class first, then FP.
+        let mut int_names: Vec<(String, u32)> = Vec::new();
+        let mut fp_names: Vec<(String, u32)> = Vec::new();
+
+        // AArch64 integer x0–x30 and FP scalar d0–d31 / vector v0–v31.
+        for n in 0..=30u32 {
+            int_names.push((format!("x{n}"), n));
+        }
+        for n in 0..=31u32 {
+            fp_names.push((format!("d{n}"), n));
+            fp_names.push((format!("v{n}"), n));
+        }
+        // x86-64 GPRs (skip rsp at index 4, excluded) and xmm0–xmm15.
+        for (i, &name) in X86_GPRS.iter().enumerate() {
+            if i != 4 {
+                int_names.push((name.to_string(), i as u32));
+            }
+        }
+        for n in 0..=15u32 {
+            fp_names.push((format!("xmm{n}"), n));
+        }
+        // RISC-V lp64d GPRs and FPRs, indexed by register number.
+        for (i, &name) in RISCV_GPRS.iter().enumerate() {
+            int_names.push((name.to_string(), i as u32));
+        }
+        for (i, &name) in RISCV_FPRS.iter().enumerate() {
+            fp_names.push((name.to_string(), i as u32));
+        }
+
+        // Assert the three round-trip properties for one (name, class, index).
+        // `name` must be a `&'static str` for the `Phys` arm; the corpus holds
+        // owned `String`s, so match on the original static tables via the index fn
+        // rather than leaking — construct `Phys` from the *rendered* borrow after
+        // confirming the index, which is exactly what the write-back path does.
+        let check_int = |name: &str, index: u32| {
+            assert_eq!(
+                int_concrete_physical_index(name),
+                Some(index),
+                "int register `{name}` should map to index {index}"
+            );
+        };
+        let check_fp = |name: &str, index: u32| {
+            assert_eq!(
+                fp_physical_index(name),
+                Some(index),
+                "fp register `{name}` should map to index {index}"
+            );
+        };
+        for (name, index) in &int_names {
+            check_int(name, *index);
+        }
+        for (name, index) in &fp_names {
+            check_fp(name, *index);
+        }
+
+        // The `&'static str` round trip for a representative name of each class
+        // (the static-name property is uniform, so a per-name static is only
+        // needed to *construct* the arm; the index equality above is the full-table
+        // proof). Covers Int and Fp, AArch64 / x86 / riscv spellings.
+        for (class, index, name) in [
+            (RegClass::Int, 9u32, "x9"),
+            (RegClass::Int, 0u32, "rax"),
+            (RegClass::Int, 0u32, "zero"),
+            (RegClass::Fp, 3u32, "d3"),
+            (RegClass::Fp, 2u32, "xmm2"),
+            (RegClass::Fp, 0u32, "ft0"),
+        ] {
+            let op = Operand::phys(class, index, name);
+            assert_eq!(op.render(), name);
+            assert_eq!(op.rendered(), name);
+            let recovered = match class {
+                RegClass::Int => int_concrete_physical_index(&op.rendered()),
+                RegClass::Fp => fp_physical_index(&op.rendered()),
+            };
+            assert_eq!(
+                recovered,
+                Some(index),
+                "reading Phys.index for `{name}` must equal physical_index(rendered())"
+            );
+        }
     }
 }

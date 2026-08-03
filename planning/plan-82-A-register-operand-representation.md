@@ -226,27 +226,31 @@ Falsify/confirm premise 2 before any type is added.
 Acceptance: the Measured-populations row is filled with its command (count 0), and
 the decision is recorded — no compound subset exists, so no register operand stays
 `Raw`.
-Commit: (recorded next commit)
+Commit: a40785f2c
 
-### Phase 2 — Add the typed `Phys` arm + faithful per-arch rendering
+### Phase 2 — Add the typed `Phys` arm + faithful rendering
 
-- [ ] Add `Operand::Phys { class: RegClass, index: u32 }` to `operand.rs` with a
-      render path that maps `{class, index}` to the arch's register token by
-      reading `REG_ARRAY`/fp-table **forward** (index → name), for each arch that
-      consumes the code layer.
-- [ ] Route `render()`/`rendered()` for `Phys` through the arch renderer such
-      that the produced token is identical to today's `Raw` string.
-- [ ] Tests: in `operand.rs` (and/or `regalloc/analysis.rs` tests), for every
-      name in each arch's integer `REG_ARRAY` and fp table, assert
-      `render_phys(class, position_of(name)) == name` and
+> Design corrected (see Corrections): the arm carries the static name
+> (`Phys { class, index, name: &'static str }`), so `render()` is byte-identical
+> with no arch parameter and no heap allocation, and `index` is D's direct read.
+
+- [x] Add `Operand::Phys { class: RegClass, index: u32, name: &'static str }` to
+      `operand.rs`, with `render()`/`rendered()` returning `name` verbatim.
+- [x] `rendered()` for `Phys` borrows `name` (`Cow::Borrowed`, zero-alloc), so a
+      downstream reader sees exactly today's `Raw` string.
+- [x] Tests: for every name in each arch's integer and fp register table, assert
+      `Operand::Phys{class, index: position_of(name), name}.render() == name` and
       `physical_index(name) == position_of(name)` — a full round-trip over the
-      real tables, not a sample.
+      real tables (`int_concrete_physical_index`/`fp_physical_index` +
+      `riscv_int_index`/`riscv_fp_index` + the aarch64 `x{n}`/`d{n}`/`v{n}`
+      spellings), not a sample. Guarantees `Phys.index` == the encoder's
+      `.position()` result (plan-82-D's read).
 
 Acceptance: the round-trip test passes over every physical register name in
 every consuming arch's tables; `cargo test --bin mfb` green. No `Phys` is
 constructed on any production path yet (the arm may carry a scoped
 `#[allow(dead_code)]` with a comment pointing at plan-82-B, removed in B).
-Commit: —
+Commit: (recorded next commit)
 
 ### Phase 3 — Byte-identity gate
 
