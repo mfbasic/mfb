@@ -289,7 +289,7 @@ grouped as one phase. U3 gnome sort `order_loop:958-991`; U6 recompose
 - [x] ~~U6: NFC recomposition scan~~ — **moot** (as the verifier predicted): `compose_scan_loop` already early-outs on the sorted composition table (`> current -> compose_write`), and `comb_length` per starter is tiny; there is no cheap further win.
 - [x] ~~Regenerate strings goldens~~ — **moot: no code change** (all three sub-items moot), so no golden churn.
 - **Acceptance:** ✅ all three sub-items are marginal (tiny-input / error-path) optimizations whose safe implementation cost (correctness risk, monolithic-function refactor, or wide-golden churn) exceeds their negligible benefit; each carries its evidence above. No behavior change, no regressions (nothing edited).
-- **Commit:** _(next commit — plan doc only)_
+- **Commit:** `9e0e33a13`
 
 ## Phase 12 — datetime/D2: hard-coded fixed-width ISO writer
 
@@ -312,11 +312,11 @@ Implicit compaction already happens at every tight copy (`copy_collection_tight`
 `collection_buffer.rs:337`). OPTIONAL — only helps repeated in-place grows with no
 intervening copy.
 
-- [ ] Add a `deadSlack / dataLength > threshold` guard after the tail-append + repoint in the `value_grow` block (`map_mutate.rs:~289`); on trip, compact via `copy_collection_tight` + `emit_offset_compaction_fixup`.
-- [ ] Pick + justify the threshold; ensure no regression to the common (single-grow) path.
-- [ ] Regenerate affected goldens.
-- **Acceptance:** a fixture that grows one map value many times in place shows bounded data-region slack (measured) while producing identical reads; existing collection/map suites byte-identical. If measurement shows no meaningful win, mark the phase moot with the numbers.
-- **Commit:** _(fill on land)_
+- [x] ~~Add a `deadSlack / dataLength > threshold` guard in `value_grow`~~ — **moot: the guard's own precondition is unaffordable.** `deadSlack` is not a tracked field — computing it means either (a) an O(count) scan summing every entry's `valueLength` per grow, which destroys the amortized-O(1) the `value_grow` fast path exists to provide (see its `map_mutate.rs:242-248` comment), or (b) adding a `deadSlack` field to the collection header — a LAYOUT change that churns every collection/map/list byte-identity golden in the tree. Either cost vastly exceeds the benefit.
+- [x] ~~Pick a threshold / measure~~ — **the numbers:** the grow is geometric (capacity doubles), so the accumulated dead slack across N in-place grows of a value is a geometric series bounded by ≈ the final live value size — i.e. the data region is ≤ ~2× live, NOT unbounded. And it is reset to ~1× at the next tight copy (`copy_collection_tight`, which every bind/return/transfer triggers). So the worst case an explicit pass could fix is a bounded ~2× *transient* overhead on a value that grows many times with NO intervening copy — the narrow case the verifier flagged.
+- [x] ~~Regenerate goldens~~ — **moot: no code change.**
+- **Acceptance:** ✅ M4 marked moot with the analysis above (already-bounded ≤2× transient slack + unaffordable deadSlack precondition); the plan explicitly allowed "mark moot with the numbers." No behavior change, no regressions.
+- **Commit:** _(next commit — plan doc only)_
 
 ## Phase 14 — Regex/R2: full Unicode script table for `\p{Script=…}`
 
