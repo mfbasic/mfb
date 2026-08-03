@@ -370,6 +370,29 @@ Commit: —
   fixpoint-equivalent). This is a design-level task requiring fresh, careful analysis — do
   NOT batch-swap them. The arena tier (−73%, all gated + divergence-verified) stands.
 
+- **Merged current `main` (16 commits, plan-79 + plan-82) into the worktree.** These
+  retyped `MirInstruction.fields`/helper params to `Operand`/`impl Into<Operand>` — the
+  exact code the Phase-0 source tool instruments. Resolved 4 conflicts (mir.rs struct: keep
+  main's `Operand` fields + my `source`; abi.rs: take main + re-apply the 95 `#[track_caller]`;
+  mod.rs: main's `VirtualRegister` export + my `selfmove_probe`; v128.rs: main's `.into()` +
+  my `source: None`). `cargo test` 3776 passed; `@src` tool still works. Merge commit on
+  `worktree-P-71`. **NOTE:** the byte-identity baselines are now stale — must be re-recorded
+  from merged `main` (fb0d36477) before the next gate.
+
+- **The error-Result spill/restore convention is a CONFIRMED RESIDUAL (2 failed attempts).**
+  `emit_park_error_block_from_registers` AND `store_pending_current_result` both spike
+  divergences by ~84K–1.3M when their `RESULT_*_REGISTER` spill sites are re-tokenized to
+  `ARG[K]` — byte-identical locally but the fixpoint's *context-sensitive* inference for a
+  spilled result is not a stable target (unlike the arena args). This is **~192K of the
+  remaining ~292K** (66%). It resists C's `%retK→%argK` swap and needs a **plan-71-E design
+  decision**: either the fixpoint deletion keeps a targeted rule for the 4-register error
+  convention, or these divergent bytes genuinely differ under the direct map and plan-71-E's
+  "pure byte-identical deletion" premise does not hold for them. **This is the biggest open
+  risk to plan-71's feasibility and must be resolved before plan-71-E.** The remaining
+  **~100K non-error divergences ARE still the safe arena-call-arg pattern** (builder_collection_layout,
+  builder_inplace_assign, builder_value_semantics, io_stdout, entry.rs, resource_cleanup, …)
+  and can be cleared normally (audit-drop + gate).
+
 ## Summary
 
 C is the high-volume, low-novelty heart of the fixpoint-removal prep: re-tokenize every
