@@ -426,7 +426,7 @@ Commit: 4afcd4007
 Acceptance: every existing http test passes with identical `Response` output; the async and blocking
 paths agree; `cargo test --bin mfb`, `scripts/test-accept.sh`, and `scripts/artifact-gate.sh` green.
 **MET.**
-Commit: a3fad7a65 + (golden regen commit)
+Commit: a3fad7a65 (rewrite) + 939532c2e (syntax fixtures + golden regen)
 
 ### Phase 5 — docs
 
@@ -442,7 +442,7 @@ Commit: a3fad7a65 + (golden regen commit)
 
 Acceptance: `mfb man http startRead`/`ready`/`pump`/`done`/`finish`/`types` render; man + spec
 citation tests green (`cargo test --bin mfb docs::` → 33 passed). **MET.**
-Commit: (this phase's commit)
+Commit: 0b11ae286
 
 ## Validation Plan
 
