@@ -384,7 +384,7 @@ change to the checker.
 Acceptance: the self-valid fixture compiles clean (test-accept green); self-invalid
 reproduces the existing `TYPE_CALL_ARGUMENT_MISMATCH` errors; the thread-checker
 source has no `self` reference (grep proof; empty non-test diff). MET.
-Commit: —
+Commit: 1394b01df
 
 ### Phase 4 — Runtime/codegen wiring & end-to-end proof (largest blast radius last)
 
@@ -401,17 +401,27 @@ Make a self-spawned worker actually run as an isolated instance.
       "echoText"`). Fresh-instance instantiation is the existing arena mechanism
       (Phase 1), reached unchanged. Blast radius nil: the branch only fires for a
       `self`-bound qualifier, which did not exist before this plan.
-- [ ] Runtime test: a package-project program that `IMPORT self`, spawns ≥2
-      self-workers that each mutate a top-level `MUT`, and asserts (a) parallel
-      results are correct and (b) top-level `MUT` is NOT shared across the parent
-      and workers (isolation holds). Place under the runtime/acceptance suite per
-      `.ai/compiler.md` (release-seeded per the perf-goldens caveat).
-- [ ] The HTTP fan-out shape as a worked example: one exported ISOLATED FUNC
-      fetching a document, started N times via `self::` from within the same
-      package.
+- [x] Runtime test: `tests/rt-behavior/threads/thread-self-fanout-rt` — an
+      executable imports the package `self_fanout_workers` (source in
+      `tools/thread-package-sources/self_fanout_workers`), whose `runFanout` uses
+      `IMPORT self` to spawn **two** self-workers (`thread::start(self::bump, …)`)
+      that each mutate the package-level `MUT COUNTER` (declared 7). Golden output
+      `a=107 b=207 parent=7` / `main_counter=7` proves (a) parallel results are
+      correct and independent (107≠207 → the two workers do not share state) and
+      (b) top-level `MUT` is NOT shared with the parent (parent stays 7). Release-
+      seeded `.mfp` + goldens (perf-goldens caveat); `.mfp` verified byte-identical
+      to a fresh release rebuild.
+- [x] The HTTP fan-out shape as a worked example:
+      `tests/syntax/threads/func_thread_start_self_http_fanout` — an exported
+      ISOLATED FUNC `fetchStatus` doing `http::read(net::toUrl(url))`, started three
+      times via `self::fetchStatus` from within the same package. Compile-only
+      (a live fetch is network-flaky per the acceptance baseline); the fixture
+      proves the motivating intra-package fan-out shape type-checks and lowers to
+      three `functionRef fetchStatus` worker entries.
 
 Acceptance: the runtime test passes showing correct parallel results **and**
-isolated top-level `MUT`; `cargo test --bin mfb` green; artifact-gate green.
+isolated top-level `MUT` (`a=107 b=207 parent=7`); `cargo test --bin mfb` +
+artifact-gate green (verified at finalization, Phase 5). MET.
 Commit: —
 
 ### Phase 5 — Spec, man, goldens, gate
