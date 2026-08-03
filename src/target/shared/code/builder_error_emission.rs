@@ -715,21 +715,16 @@ impl CodeBuilder<'_> {
         let code_slot = self.allocate_stack_object("park_error_code", 8);
         let message_slot = self.allocate_stack_object("park_error_message", 8);
         let source_slot = self.allocate_stack_object("park_error_source", 8);
-        self.emit(abi::store_u64(
-            RESULT_VALUE_REGISTER,
-            abi::stack_pointer(),
-            code_slot,
-        ));
-        self.emit(abi::store_u64(
-            RESULT_ERROR_MESSAGE_REGISTER,
-            abi::stack_pointer(),
-            message_slot,
-        ));
-        self.emit(abi::store_u64(
-            RESULT_ERROR_SOURCE_REGISTER,
-            abi::stack_pointer(),
-            source_slot,
-        ));
+        // plan-71-C Family-1a: at these transient spill/reload sites the loose error
+        // code/message/source flow into the error-block build as args, so the fixpoint
+        // colors them arg1/2/3 (rsi/rdx/rcx) — NOT their `%ret1/2/3` direct homes. Emit
+        // the matching argument tokens (`ARG[1..3]`) so `map_token_direct` agrees; this
+        // is byte-identical (both realize to the same xN/aN on AArch64/RISC-V and to the
+        // fixpoint's inferred reg on x86) and clears the divergence. The genuine-return
+        // uses of `RESULT_*_REGISTER` are non-divergent and stay `%retK`.
+        self.emit(abi::store_u64(abi::ARG[1], abi::stack_pointer(), code_slot));
+        self.emit(abi::store_u64(abi::ARG[2], abi::stack_pointer(), message_slot));
+        self.emit(abi::store_u64(abi::ARG[3], abi::stack_pointer(), source_slot));
         let previous = self.building_error_block;
         self.building_error_block = true;
         let base = self.emit_build_error_inline(code_slot, message_slot, source_slot)?;
@@ -737,21 +732,11 @@ impl CodeBuilder<'_> {
         self.emit_store_current_error(&base);
         // Restore the loose registers (the build's `arena_alloc` clobbered them) and
         // stamp the ERR_BLOCK tag.
-        self.emit(abi::load_u64(
-            RESULT_VALUE_REGISTER,
-            abi::stack_pointer(),
-            code_slot,
-        ));
-        self.emit(abi::load_u64(
-            RESULT_ERROR_MESSAGE_REGISTER,
-            abi::stack_pointer(),
-            message_slot,
-        ));
-        self.emit(abi::load_u64(
-            RESULT_ERROR_SOURCE_REGISTER,
-            abi::stack_pointer(),
-            source_slot,
-        ));
+        // plan-71-C Family-1a: reload into the argument tokens (matching the stores
+        // above and the fixpoint's inferred arg1/2/3 coloring). Byte-identical.
+        self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), code_slot));
+        self.emit(abi::load_u64(abi::ARG[2], abi::stack_pointer(), message_slot));
+        self.emit(abi::load_u64(abi::ARG[3], abi::stack_pointer(), source_slot));
         self.emit(abi::move_immediate(
             RESULT_TAG_REGISTER,
             "Integer",
