@@ -267,7 +267,32 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Prereqs MET (2026-08-02):** plan-71-B archived (`planning/completed/plan-71-B-*.md`,
+  commit `3c6e4fc3a`); value-level partition proven (`grep 'proven-at-the-value-level'
+  plan-71-census.md` = 1); clean serial baselines present (linux-x86_64 1320, windows 630,
+  riscv 1318, aarch64 1320 in `/tmp/bug387/oracle-*.txt`). Fresh audit re-captured on
+  current `main` (post-plan-78): linux-x86_64 1,096,094 mismatches / 79 distinct shapes,
+  windows-x86_64 513,699 (`/tmp/bug387/audit2-*.txt`) — same 7 Category-1 families as the
+  plan-71-A census, so C's scope is unchanged.
+
+- **Phase 1 METHOD DEFECT — the work-list is not mechanically derivable as written.**
+  Phase 1 says "cross-reference the `@fixture` + `site:` fields against
+  `src/target/shared/code/`" to get each Family-1a `file:line`. That is **not achievable**:
+  the `BUG387-MISMATCH` line carries only the op + *post-realization* operands (e.g.
+  `add_imm [dst=%ret0, src=r10, imm=33]` — `src` is a realized scratch reg, not a source
+  variable), NOT a source location. Grep-mapping a shape back to source is **ambiguous** —
+  there are **659** `return_register()`/`RET[K]` producer emissions across 72 files but only
+  **~79** divergent shapes, and multiple sources share an op+imm (e.g. `imm=9` matches 5+
+  distinct builder lines in `builder_strings_builtins.rs`/`builder_search.rs`/`float_format.rs`).
+  Blindly re-tokenizing all 659 would corrupt genuine *result* producers (a value truly
+  returned to the caller must stay `%retK`). **Required prerequisite tool (Phase 0, added):**
+  instrument the audit to emit the SOURCE `file:line` of each divergent CodeInstruction —
+  add a metadata `source: Option<&'static Location>` to `CodeInstruction`, capture
+  `Location::caller()` at construction with `#[track_caller]` propagating through the
+  `abi::` emit helpers, and print it in the `BUG387-MISMATCH` line. That turns the work-list
+  into a deterministic `grep 'file:line' | sort | uniq -c` over one audit sweep. This tool
+  is byte-identical (metadata only, never emitted). Until it lands, Phase 1's work-list
+  cannot be produced without unsafe guessing. **This is the next task.**
 
 ## Summary
 
