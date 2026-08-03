@@ -40,6 +40,16 @@ pub(crate) const NET_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     abi: RuntimeHelperAbi { returns: "Boolean" },
 };
 
+// plan-76-A: the readiness-multiplex overload, synthesized by the code layer
+// (`net.poll` with a `List OF RES Socket` first arg is rewritten to `net.pollList`
+// in `builder_values`), so it is code-layer-only like `net.connectTcpAddr`. Returns
+// a borrowed `Socket` — a pointer to the first ready list element; the list owns it.
+pub(crate) const NET_POLL_LIST_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.pollList",
+    abi: RuntimeHelperAbi { returns: "Socket" },
+};
+
 pub(crate) const NET_READ_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.read",

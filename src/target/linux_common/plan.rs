@@ -545,6 +545,11 @@ impl LinuxPlan<'_> {
                         imports.push(self.libc_import(base, required_by));
                     }
                 }
+                if call == "tls.poll" {
+                    // plan-76-B: SSL_pending fast-path (dlsym, above) + poll(fd) for
+                    // the raw-readable fallback and its EINTR retry.
+                    imports.push(self.libc_import("poll", required_by));
+                }
                 imports
             }
             _ => Vec::new(),

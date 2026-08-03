@@ -2,10 +2,18 @@
 
 Last updated: 2026-08-02
 Effort: large (3h–1d)
-Depends on: plan-76-B (scalar `tls::poll` — `http::ready`/`pump` gate TLS reads on it) and
-plan-74 (uniform STATE on a resource union — landed). NOT dependent on plan-76-A or plan-76-C (this
-single-stream client uses only *scalar* readiness), and NOT on plan-75 (the stream is never
-transferred across threads).
+Depends on: **plan-80 (unified resource-record header — HARD PRECONDITION; fixes the D4
+core-premise defect below)**, plan-76-B (scalar `tls::poll` — `http::ready`/`pump` gate TLS reads on
+it), and plan-74 (uniform STATE on a resource union — landed). NOT dependent on plan-76-A or
+plan-76-C (this single-stream client uses only *scalar* readiness), and NOT on plan-75 (the stream is
+never transferred across threads).
+
+> **BLOCKED on plan-80.** D's design carries plan-74 `STATE` on a `Stream = {Socket | TlsSocket}`
+> union. That is unimplementable until `STATE` lives at a record offset free in the `TlsSocket`
+> layout — see Corrections **D4**. plan-80 relocates `STATE` to offset 24 and adds the per-backend
+> `STATE`-slot assert whose absence D4 identified. D must NOT start until plan-80's Phase 4 (the
+> `STATE@24` / D4 gate) is green: `ls planning/completed/plan-80-* 2>/dev/null` OR plan-80 Phase 4
+> ticked, then re-run D's own design-gate row (Prerequisites line 68).
 
 This sub-plan turns the `http` client from blocking-only into a cooperatively-drivable one, and is
 the motivating consumer of plan-74's resource-union STATE. It introduces a `Stream` resource union
@@ -62,9 +70,10 @@ References (read first):
 | Must be true | Command | Status |
 |---|---|---|
 | plan-74 landed (union STATE: bind/param/return/`.state`/drop) | `ls planning/completed/plan-74-*` | MET |
-| plan-76-B landed (scalar `tls::poll` on all backends) | `rg -n 'POLL' src/builtins/tls.rs`; `ls tests/rt-behavior/tls/tls-poll-rt` | NOT MET until B lands |
+| plan-76-B landed (scalar `tls::poll` on all backends) | `rg -n 'POLL' src/builtins/tls.rs`; `ls tests/rt-behavior/tls/tls-poll-rt` | MET (B complete) |
 | `net::poll(sock[, timeoutMs]) AS Boolean` scalar exists | `rg -n 'POLL' src/builtins/net.rs` → :163 | MET |
-| Feature-wide gate (tree green, gate clean) | see plan-76-A Prerequisites | UNMEASURED |
+| Feature-wide gate (tree green, gate clean) | see plan-76-A Prerequisites | MET (tests 3757/0; net+tls gates PASSED) |
+| **plan-74 union STATE works over a `TlsSocket` variant** (the DESIGN GATE this plan should have tested) | bind `RES s AS Stream STATE PendingState = tls::connect(...)`; run — must not SIGSEGV | **NOT MET → resolved by plan-80 (Corrections D4):** the STATE ptr at record+16 = `SSL*` in the 32-byte TLS record → https SIGSEGV. This is the falsifiable premise the entry gate missed. **plan-80** (unified resource-record header) relocates STATE to offset 24 (free in every layout) + adds the per-backend STATE-slot assert. This row becomes MET when plan-80 Phase 4 is green (`ls planning/completed/plan-80-* 2>/dev/null` OR plan-80 Phase 4 ticked; then re-run this bind). |
 
 **Explicitly NOT prerequisites (do not braid):**
 
@@ -326,22 +335,35 @@ async public API keeps its cooperative semantics.
 
 > Tick `- [x]` in the same commit as the work. An unticked box means NOT DONE.
 
+> **DEFERRED (user decision).** Phase 1 (the go/no-go) uncovered a core-premise defect: plan-74
+> union STATE is layout-incompatible with a `TlsSocket` variant (Corrections **D4** — `Stream STATE
+> PendingState` over `{Socket, TlsSocket}` SIGSEGVs on https because the STATE ptr at record+16
+> collides with `SSL*`). The three viable fixes (grow all TLS records to the 80-byte STATE layout;
+> redesign plan-74 union STATE; or redesign D to a stateless union + threaded `PendingState`) are each
+> a substantial architecture decision. Surfaced to the user, who chose to **land A+B+C and defer D**.
+> Phases 2–5 are NOT attempted. The full engineering work below is fully specified for a future
+> effort; the WIP that proved the defect (declarations + the five functions) is reverted from the tree
+> and preserved only in this document + the conversation record.
+
 ### Phase 1 — falsify the resource-union-over-imported-variants (design uncertainty first)
 
-- [ ] Declare `UNION Stream { net::Socket net::TlsSocket }` and `TYPE PendingState { sentAll, closed,
-      raw, err }` in `http_package.mfb`; register `Stream`/`PendingState` in `HTTP_TYPES` (`http.rs`).
-- [ ] Add a throwaway internal `__http_streamProbe(host, port)` that binds `RES s AS http::Stream
-      STATE PendingState = net::connectTcp(host, port)`, sets `s.state.sentAll`, appends a byte to
-      `s.state.raw`, MATCHes `s` reading the concrete variant, and returns — proving bind + `.state`
-      (incl. a `List OF Byte` STATE field) + MATCH + drop all work for a union over imported
-      variants. Drive it from a temporary rt fixture in a ≥500× connect/drop loop (no fd leak).
-- [ ] If it fails to compile or leaks/double-frees, STOP: fix the imported-variant close-op wiring
-      (per [[imported-package-resource-two-spellings]] and plan-74's 3-site close-symbol wiring)
-      before writing the five functions. Remove `__http_streamProbe` once Phase 2 lands.
+- [x] Declared `UNION Stream { Socket TlsSocket }` (BARE ids — Correction D1) + `TYPE PendingState
+      { sentAll, closed, raw, err }`; registered in `HTTP_TYPES`. **Compiles/resolves/checks** (the
+      union over imported variants is valid). (Reverted after the go/no-go — D is deferred.)
+- [x] ~~throwaway `__http_streamProbe`~~ — moot: proved the union directly. **Bind + MATCH + drop of
+      the union work for BOTH variants** (a stateless `UNION { Socket TlsSocket }` bound to
+      `tls::connect` MATCHes/writes/drops cleanly, exit 0). **But `.state` on the union — the whole
+      point — FAILS for the TlsSocket variant**: `Stream STATE PendingState` over a TlsSocket writes
+      the STATE ptr at record+16 (= `SSL*` in the 32-byte TLS record) → SIGSEGV on https. Proven:
+      `http::read("http://…")`=200, `http::read("https://…")`=SIGSEGV. (Also found D3: a `TRAP` inside
+      a `MATCH CASE` mis-types its temp as `Unknown`.)
+- [x] **STOP per the go/no-go** — the `.state`-on-union path is NOT expressible for a TlsSocket
+      variant with the existing machinery. Recorded as core-premise defect **D4**; the fix is
+      unscoped architecture work. Surfaced → user chose to **defer D**.
 
-Acceptance: the probe fixture compiles, runs clean, and survives ≥500× with no fd leak / double-free.
-This is the go/no-go for the whole sub-plan.
-Commit: —
+Acceptance: the go/no-go ran and returned **NO-GO** for the plan's STATE-on-union design (D4);
+deferred by user decision. ✅ (go/no-go executed; result recorded)
+Commit: 100f4ea00 (findings)
 
 ### Phase 2 — the five BASIC functions + waitReadable
 
@@ -431,7 +453,71 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **D1 (§1, §3, §4.1, Phase 1): declare the union with BARE variant ids `UNION Stream { Socket
+  TlsSocket }`, NOT the qualified `{ net::Socket net::TlsSocket }` the plan illustrates.** Union
+  variant names are the ONE type position the parser does NOT normalize a `pkg::Type` qualifier on:
+  `parse_union_variant` (`src/ast/items.rs:364-369`) calls `parse_qualified_name` (which only turns
+  `::`→`.`), skipping the `qualified_builtin_type` normalization every other type annotation gets
+  (e.g. `expr.rs:854-859`). So `net::Socket` reaches NIR as `net.Socket`, and EVERY close-wiring
+  lookup — `resource_union_cleanup` (`builder_resource_cleanup.rs:63-67`), the 3-site define/used/
+  declared (`symbols.rs:161`, `validate/capabilities.rs`, `runtime/usage.rs:121`), and
+  `is_resource_type` — keys on the bare id via `BUILTIN_RESOURCES` and silently MISSES: no cleanup
+  registered, close helpers never defined/declared → the socket LEAKS with no diagnostic. The shipped
+  plan-74 fixtures (`resource-union-state-*`) all declare `UNION Stream { File Socket }` with bare ids
+  over cross-package variants (`File` from fs, `Socket` from net), so bare imported-builtin variants
+  are the PROVEN path. Consequently the MATCH `CASE` labels in §4.1–4.4 must also be bare (`CASE
+  Socket(p)` / `CASE TlsSocket(t)`), not `CASE net::TlsSocket(t)`. (Alternative — add
+  `qualified_builtin_type` normalization to `parse_union_variant` — is deferred; not needed if we use
+  bare names.) Measured by the D-Phase-1 research audit.
+- **D2 (§3, Verified properties): `native_resources` is irrelevant here; close resolution is
+  registry-based.** The plan's Phase-1 risk cites [[imported-package-resource-two-spellings]] (decoded
+  `.mfp` packages carry no `native_resources`). But `Socket`/`TlsSocket` are BUILTIN resources
+  resolved through the always-present `BUILTIN_RESOURCES` registry (`resource.rs:138-239`), not
+  through `native_resources` (which only carries user `RESOURCE T CLOSE BY` decls). And `http` is
+  source-injected (`augmented_project`, `mod.rs:67`), not `.mfp`-decoded. So the imported-variant
+  close-op wiring resolves through the same registry the plan-74 fixtures already exercise — no
+  `native_resources` involvement. The real (and only) hazard is D1's qualified-name spelling.
+- **D3 (Phase 2, §4.2): a trap-bound producer INSIDE a `MATCH CASE` body lowers its temp as
+  `Unknown` — a pre-existing MATCH×TRAP codegen bug.** The plan's `pump` (§4.2) puts
+  `MUT chunk = net::read(p, 65536) TRAP(e) … END TRAP` directly inside `CASE Socket(p)`. That fails
+  native codegen with `native plan has no storage class for type 'Unknown'` (the TRAP desugars to a
+  temp local whose type isn't registered in the MATCH-CASE scope). The SAME `net::read … TRAP …
+  RECOVER []` works fine at a function's top level (e.g. the pre-existing `__http_exchangeTcp`).
+  **Workaround (shipped):** factor each transport's read+TRAP into a top-level helper
+  (`__http_readNet`/`__http_readTls` returning a `__http_PumpRead` record), and have `pump`'s MATCH
+  CASE only CALL the helper — no TRAP in the CASE. This is cleaner anyway. The underlying compiler bug
+  (TRAP inside MATCH CASE) is tangential to plan-76 and is left as a documented follow-up (repro:
+  a `MATCH` CASE containing `MUT x AS T = <call> TRAP(e) … END TRAP`). Measured by bisecting the
+  Phase-2 `__http_pump` body.
+- **D4 (§1, §3, Phase 1 — CORE-PREMISE DEFECT): plan-74 union STATE is layout-incompatible with a
+  `TlsSocket` variant, so `Stream STATE PendingState` over `{Socket, TlsSocket}` SIGSEGVs on the
+  https path.** plan-74 stores the STATE-block pointer in the ACTIVE variant's record at
+  `FILE_OFFSET_STATE = 16`, and its 80-byte File-layout record (used by `File`/`Socket`) has a free
+  slot there. But the `TlsSocket` record is only 32 bytes with `TLS_OFFSET_SSL = 16` (`SSL*`) — so
+  binding the union to a TlsSocket and writing STATE clobbers `SSL*`; the next `tls::*` dereferences
+  garbage → SIGSEGV (exit 139). **Proven:** `http::read("http://…")` (Socket variant) returns 200;
+  `http::read("https://…")` SIGSEGVs; and a STATELESS `UNION Strm { Socket TlsSocket }` bound to a
+  `tls::connect` MATCHes + writes + drops cleanly (exit 0) — isolating the fault to the STATE
+  mechanism, not the union itself. (macOS `REC_QUEUE`@16 and schannel's STATE-ptr@16 collide the same
+  way.) plan-74's fixtures only ever exercised File-layout variants (`File`/`Socket`), so this was
+  never caught. The design in §1/§3 (STATE carried ON the union) rests on this false premise.
+  **Resolution is an architectural fork — surfaced to the user** (see the plan-76 status): (A) make
+  all three TLS record layouts STATE-compatible (grow to the 80-byte File layout, STATE@16, relocate
+  SSL/CTX/queue) — a large cross-backend change touching every tls record access + all tls goldens;
+  (B) redesign plan-74 union STATE to live outside the variant record; or (C) redesign D to a
+  STATELESS `Stream` union with `PendingState` threaded as an explicit `MUT` param through
+  ready/pump/done/finish (works with existing machinery today; keeps URL-transparency; changes the
+  public signatures from `RES … STATE PendingState` to `RES Stream` + `MUT PendingState`, overriding
+  the plan §3 rejection of "state outside the resource", which was made on the now-false assumption
+  that STATE-on-union works for a TlsSocket). Measured via the http:// vs https runtime split + the
+  stateless-union probe; layout via `FILE_OFFSET_STATE=16` vs `TLS_OFFSET_SSL=16`,
+  `RESOURCE_RECORD_SIZE=80` vs `TLS_RECORD_SIZE=32`.
+  **CHOSEN (user, 2026-08-02): fork (A), landed as its own plan — `planning/plan-80-unified-resource-record.md`.**
+  plan-80 gives every resource one canonical header with `STATE` at offset 24 (free in every layout)
+  and adds the per-backend `STATE`-slot assert whose absence caused D4. D is now a HARD dependent of
+  plan-80 (see the header `Depends on`): D resumes once plan-80 Phase 4 (the `STATE@24` / D4 gate) is
+  green, at which point this design-gate row flips to MET. Forks (B) and (C) rejected in favor of (A)
+  because (A) makes resource STATE correct for *every* resource, not just D's `Stream`.
 
 ## Summary
 

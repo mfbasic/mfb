@@ -43,9 +43,9 @@ References (read first):
 
 | Must be true | Command | Status |
 |---|---|---|
-| Working tree builds & tests green at HEAD | `cargo test --bin mfb` (full suite) | UNMEASURED — re-run at start |
-| Codegen artifact baseline clean | `scripts/artifact-gate.sh target/debug/mfb` → diffs=0 | UNMEASURED — re-run at start |
-| No competing in-flight edits to `src/builtins/{net,tls,http}.rs`, `src/builtins/{net,http}_package.mfb`, `src/target/shared/code/{net,tls}/**` | `git status` on those paths | UNMEASURED — re-run at start |
+| Working tree builds & tests green at HEAD | `cargo test --bin mfb` (full suite) | MET — 3750 passed; 0 failed (2026-08-02, worktree P-76) |
+| Codegen artifact baseline clean | `scripts/artifact-gate.sh target/debug/mfb all` → diffs=0 | MET — `FINAL_GATE_EXIT=0`, 679 PASSED, 0 DIFF at `606d3df2f` (Corrections C1: needs the `all` selector; C4: gate result + docs-only main merge) |
+| No competing in-flight edits to `src/builtins/{net,tls,http}.rs`, `src/builtins/{net,http}_package.mfb`, `src/target/shared/code/{net,tls}/**` | `git status` on those paths | MET — fresh worktree forked from main; tree clean |
 | `List OF RES <resource>` compiles and runs (resources-in-collections landed) | fixtures exist: `ls tests/rt-behavior/resources/resource-collection-floats-runtime` | MET (verified — see Verified properties) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run every
@@ -217,61 +217,106 @@ proven poll/EINTR/sentinel block verbatim; only the array build + result selecti
 
 ### Phase 1 — falsify the borrowed-resource return (design uncertainty first)
 
-- [ ] Write the smallest experiment that a builtin (or `collections::get`) returning `RES Socket`
-      aliasing a `List OF RES Socket` element is expressible: a fixture binding
-      `RES ready AS Socket = <borrowed-return>` inside a scope that owns the list, then closing the
-      list's scope, under a repeat loop; observe no double-free/leak (mirror
-      `tests/rt-behavior/resources/resource-collection-not-owner-valid`).
-- [ ] If it is NOT expressible with the existing escape/`.mfp` machinery, STOP and switch to Open
-      Decision 1 (Integer-index return) before Phase 2/3 — do not half-build the resource return.
+- [x] ~~Write the smallest experiment that a builtin (or `collections::get`) returning `RES Socket`
+      aliasing a `List OF RES Socket` element is expressible…~~ — moot: **already proven** by an
+      existing precedent, so no throwaway experiment is needed. `RES g AS File =
+      collections::get(xs, 0)` on a `List OF RES File` binds a NON-owning alias (bug-375 fix), proven
+      at runtime by `tests/rt-behavior/resources/res-rebind-alias-runtime` (peekViaGet / peekViaForEach
+      then a post-call use of the still-open handle) and legalised at compile time by
+      `tests/syntax/resources/resource-collection-not-owner-valid` (`RES elem AS File =
+      collections::get(handles, 0)`, build.log `[exit 0]`). `net::poll(List OF RES Socket) AS RES
+      Socket` is structurally identical (returns a pointer to an element the list still owns).
+- [x] ~~If it is NOT expressible … STOP and switch to Open Decision 1.~~ — moot: it **is**
+      expressible; no fallback needed.
 
-Acceptance: a documented yes/no with a runtime fixture. Yes → proceed with `AS RES Socket`. No →
-adopt the index form and adjust Phases 2–3 (return `Integer`, `-1` when none for the `0`/expiry
-case, or keep `ErrTimeout`).
-Commit: —
+**Decision (YES → `AS RES Socket`):** proceed with the borrowed `RES Socket` return. The single
+wiring hook is `value_aliases_live_resource` (`src/target/shared/code/builder_values.rs:192-201`),
+which today hardcodes the borrowed-return recognition to the `collections::get`/`getOr` targets. The
+list-poll overload is remapped to a distinct NIR target `net.pollList` (mirroring how
+`net.connectTcp(Address)` remaps to `net.connectTcpAddr`, `builder_values.rs:1925-1931`); Phase 2/3
+teach `value_aliases_live_resource` that `net.pollList` returns a borrowed pointer (generalised via a
+`builtins::returns_borrowed_resource(target)` predicate rather than another hardcoded name), so the
+`RES ready = net::poll(socks)` bind registers NO close obligation and the list stays the sole owner.
+No escape-analysis change and no `.mfp` format change are required (borrow is a pure
+lowering-site property; the return serialises as the bare type `Socket`). The ≥1000× leak-loop that
+proves no double-close of the borrowed return is folded into the Phase 3 runtime fixture.
+Commit: b1fd467c6
 
 ### Phase 2 — resolver + descriptor surface
 
-- [ ] Add the list overload to `net.rs` (descriptor `OV`/`P_POLL_LIST`, `resolve_call` arms,
-      `call_param_names`, `expected_arguments`, `argument_types`); delete the stale comment.
-- [ ] Tests: a `tests/syntax/net` accept fixture binding `RES s AS Socket = net::poll(socks)` and
-      `net::poll(socks, 100)`; a reject fixture for a bare `List OF Socket` (no `RES`) and for a
-      non-list/non-socket arg. Confirm the scalar overload still resolves (`net::poll(sock)` →
-      `Boolean`) — no overload ambiguity.
+- [x] Added the list overload to `net.rs`: `P_POLL_LIST` (`socks AS List OF RES Socket`,
+      `opt timeoutMs`); a second `ov(P_POLL_LIST, SOCKET_TYPE)` on the `POLL` descriptor;
+      `resolve_call` arm `exact(["List OF RES Socket"]) || exact(["List OF RES Socket","Integer"])
+      => SOCKET_TYPE`; moved `POLL` from `call_param_names` to `call_param_name_overloads`
+      (two overloads → `param_names` yields `None`, per the descriptor rule); widened
+      `expected_arguments(POLL)`; deleted the stale "overload is unreachable" comment. **Return type
+      is `Socket` (bare), not `RES Socket`** — matching `collections::get`, whose resolver strips the
+      `RES` axis (`general::list_element` → `"Socket"`); the borrow is a lowering-site property, not a
+      return-type spelling (Corrections C2). Updated the two net.rs unit tests
+      (`call_param_names_present_and_absent`, `expected_arguments_remaining_arms`).
+- [x] Tests: `tests/syntax/net/func_net_poll_list_valid` (accept — both overloads: scalar
+      `net::poll(conn)`/`net::poll(conn,100)` → `Boolean`, list `net::poll(socks)`/`net::poll(socks,100)`
+      → `Socket`) and `tests/syntax/net/func_net_poll_list_invalid` (reject — bare `List OF Socket`
+      → `TYPE_RESOURCE_REQUIRES_RES`; a `String` arg → `TYPE_CALL_ARGUMENT_MISMATCH`; a `String`
+      timeout → `TYPE_CALL_ARGUMENT_MISMATCH`). Scalar overload still resolves to `Boolean`.
 
-Acceptance: at `-ast -ir`, the list overload resolves to `RES Socket`, the scalar to `Boolean`,
-bad forms rejected; `cargo test --bin mfb` green (no runtime yet).
-Commit: —
+Acceptance: at `-ast -ir`, the list overload resolves to `Socket`, the scalar to `Boolean`, bad
+forms rejected; `cargo test --bin mfb` green (3750 passed, 0 failed). ✅
+Commit: 70167a08b
 
 ### Phase 3 — native multi-fd lowering (largest blast radius)
 
-- [ ] `lower_net_poll_list_helper` in `net/poll.rs` + dispatch in `net/mod.rs`; empty-list →
-      `ErrInvalidArgument`; `pollfd[n]` build; shared sentinel/clamp/EINTR block; `revents` scan;
-      first-ready record-ptr return; expiry → `ErrTimeout`.
-- [ ] Tests: `tests/rt-behavior/net/net-poll-list-rt` — connect two loopback sockets (server
-      accepts, writes to exactly one), `net::poll([a,b])` returns the written-to socket; then read
-      it. Add a timeout-convention case (`net::poll(socks, 0)` on two idle sockets → `ErrTimeout`;
-      `net::poll(socks, -1_via_omit)` blocks then returns when data arrives; `< 0` explicit →
-      `ErrInvalidArgument`). Loop the connect/poll/close ≥1000× to prove no fd leak / no
-      double-close of the borrowed return.
-- [ ] Goldens: regenerate `byte-identity/net` `.ncodesum` for all five targets if net codegen
-      shifts; prove determinism.
+- [x] `lower_net_poll_list_helper` in `net/poll.rs` + dispatch in `mod.rs` (`net.pollList`). The
+      overload is remapped `net.poll → net.pollList` in `builder_values.rs` by receiver shape
+      (`net_poll_is_list_form`), gets a runtime spec (`NET_POLL_LIST_SPEC`, returns `Socket`) in
+      `net_specs.rs`, is registered in `catalog.rs` (+ `CODE_LAYER_ONLY_CALLS`), and its helper body
+      is force-emitted whenever `net.poll` is present (mirroring `connectTcpAddr`, `mod.rs`). The
+      return-type resolution for the overloaded `net.poll` is selected by arg shape in
+      `builder_values.rs`. Borrow classification wired via `net::returns_borrowed_resource` →
+      `value_aliases_live_resource` (no close obligation on the returned binding). The helper:
+      normalizes the timeout (scalar-helper policy verbatim), rejects the empty list
+      (`ErrInvalidArgument`), builds a transient `pollfd[n]` in the arena (per-platform stride 8/16
+      and events POLLIN/POLLRDNORM), issues one `poll(2)`/`WSAPoll` with EINTR retry, scans `revents`
+      for the first ready slot, returns that element's record pointer (borrowed), and `arena_free`s
+      the array on every allocated exit path (expiry → `ErrTimeout`).
+- [x] Tests: `tests/rt-behavior/net/net-poll-list-rt` — two loopback conns, write to exactly one;
+      `net::poll(socks)` returns the readable one (proven both index directions: write-A → "A",
+      write-B → "B"); `net::poll(socks, 0)` on two idle → `ErrTimeout`; `net::poll(socks, -1)` →
+      `ErrInvalidArgument`; `net::poll([])` → `ErrInvalidArgument`; a **1200× connect/poll/close
+      loop** proving no fd leak and no double-close of the borrowed return. Runs clean on
+      macos-aarch64 (output `first A / second B / timeout TRUE / negative TRUE / empty TRUE /
+      leak-loop survived`, exit 0); passes `test-accept.sh`.
+- [x] Goldens: regenerated `byte-identity/net` `.ncodesum` for all five targets. **Proved the delta
+      is purely additive** — a detached base (`b1fd467c6`) `.ncode` dump diffed against the current
+      one shows ONLY the new `runtime.net.pollList` function inserted (276 lines added, 0 deleted;
+      every existing net helper byte-identical). Confirmed debug-gen == release-gen shas for all 5
+      targets (`.ncode` is compiler-optimization-independent), so the goldens match the release gate.
 
 Acceptance: the multiplex fixture runs clean and picks the correct ready socket; the timeout cases
-match the plan-73 table; ≥1000× loop leaks no fd; `cargo test --bin mfb` + `artifact-gate.sh`
-(debug, diffs=0) green.
-Commit: —
+match the plan-73 table; 1200× loop leaks no fd; `cargo test --bin mfb` (3750/0) + `net` byte-identity
+delta proven additive + release-parity confirmed. (Full `artifact-gate all` deferred to finalization —
+a concurrent gate from another session held the global lock; net goldens independently verified.)
+Commit: f37003c4c
 
 ### Phase 4 — docs
 
-- [ ] Man page: add the list overload to `src/docs/man/builtins/net/poll.md` (both overloads,
-      timeout-convention row, "returns a borrowed pointer; the list still owns and closes it").
-- [ ] Spec: ensure `mfb spec` net section's `poll(List OF Socket)` wording matches the shipped
-      return type and ownership note (it already documents the overload — reconcile, don't
-      re-invent). Cite `mfb spec language builtin-functions` §18.4 for the timeout meaning.
+- [x] Man page `src/docs/man/builtins/net/poll.md`: added both list overloads to the Synopsis,
+      Overloads, Parameters (`socks`), Return value (borrowed `Socket`), and Errors (`ErrTimeout`
+      77050008 for the list expiry; empty-list `ErrInvalidArgument`); replaced the stale "deliberately
+      not implemented / unreachable" paragraph with the readiness-multiplex description (borrowed
+      pointer, list owns/closes, empty→ErrInvalidArgument, producing-call ErrTimeout); added a
+      multiplex example. Fixed a stale `net_connect_is_address_form` citation → `net_poll_is_list_form`.
+- [x] Spec `src/docs/spec/language/18_builtin-functions.md`: reconciled the timeout-convention
+      classification — the scalar `net::poll` stays a readiness query; the list `net::poll` is now
+      listed as a **producing call** (yields the first ready socket, `ErrTimeout` on expiry). The net
+      function list already names `net::poll` (one name, two overloads). The plan's claim that the
+      spec "already documents the `poll(List OF Socket)` overload" was imprecise — the spec lists the
+      function name, not per-overload signatures (those live in the man page); reconciled the
+      convention classification instead (Corrections C3).
 
-Acceptance: `mfb man net poll` shows both overloads; man/spec-citation tests green.
-Commit: —
+Acceptance: `mfb man net poll` renders all four overloads; `cargo test --bin mfb` green (3750/0),
+man/spec-citation tests pass (5/0). ✅
+Commit: 9b6e533e5
 
 ## Validation Plan
 
@@ -297,7 +342,41 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **C1 (Prerequisites): the artifact-gate command is stale.** The plan (and B/C/D
+  which point back here) wrote `scripts/artifact-gate.sh target/debug/mfb`, but the
+  gate now *requires* a `<builtin|all>` selector — a bare invocation prints usage and
+  runs nothing. Baseline command corrected to `scripts/artifact-gate.sh
+  target/debug/mfb all`. Measured via `head -40 scripts/artifact-gate.sh` (the usage
+  block). Matches memory note *fast-codegen-gate*.
+- **C2 (Current State / Verified properties): the borrowed-resource return is
+  EXPRESSIBLE — falsified NO already.** The plan's Phase-1 UNVERIFIED risk ("a builtin
+  can return a pointer to a list-argument element as a borrow") is answered YES by an
+  existing precedent: `RES g AS File = collections::get(xs, 0)` on a `List OF RES File`
+  binds a non-owning ALIAS (bug-375 fix), proven at runtime by
+  `tests/rt-behavior/resources/res-rebind-alias-runtime` and legalised by
+  `tests/syntax/resources/resource-collection-not-owner-valid`. The plan's cited
+  `resource-collection-not-owner-valid` lives under `tests/syntax/resources/`, not
+  `tests/rt-behavior/resources/`. Remaining Phase-1 work is narrowed to WIRING
+  `net.poll(List)` into the same non-owning-return classification `collections::get`
+  uses (so the returned binding registers no close obligation), not proving feasibility.
+- **C3 (Phase 4): the spec carries no per-overload `poll` signature to "reconcile".**
+  The plan (Phase 4) said `mfb spec` "already documents the `poll(List OF Socket)`
+  overload." In fact the net spec (`18_builtin-functions.md`) lists only the function
+  *name* `net::poll`; per-overload signatures live in the man page. What needed
+  reconciling was the timeout-convention classification: the scalar form is a readiness
+  query (`Boolean`/`FALSE`), the new list form is a **producing** call (yields the first
+  ready `Socket`, `ErrTimeout` on expiry) — both bullets updated accordingly.
+- **C4 (Finalization): the full artifact-gate ran green at `606d3df2f`; the later
+  `git merge main` into `worktree-P-76` added ZERO code.** Finalization ran
+  `scripts/artifact-gate.sh target/debug/mfb all` → `FINAL_GATE_EXIT=0`, 679 PASSED,
+  0 FAILED/0 DIFF (4 benign `SKIP … no matching goldens` on invalid-syntax fixtures)
+  at commit `606d3df2f`. main then advanced (plan-78 A/B/C + plan-79), so per follow-plan
+  §5 main was merged into the worktree; `git show --stat` of that merge shows **only 4
+  `planning/*.md` files** (plan-78-A/B/C + plan-79 are documentation-only commits — e.g.
+  `65b6b0478` "flip MirInstruction operands…" touches solely `plan-79-mir-operand.md`).
+  No `.rs`/golden/fixture changed, so the `606d3df2f` gate result stands for the merged
+  tree; a `cargo build --bin mfb` on the merge tip re-confirmed it compiles. Measured via
+  the merge diffstat + `git show --stat 65b6b0478`.
 
 ## Summary
 

@@ -1,0 +1,44 @@
+$ mfb build -ast -ir tests/syntax/net/func_net_poll_list_invalid
+  10 |   ' Resource element without the RES marker — rejected at the declaration.
+  11 |   MUT bare AS List OF Socket = []
+  12 |   RES pickBare AS Socket = net::poll(bare)
+     | ^
+tests/syntax/net/func_net_poll_list_invalid/src/main.mfb:12 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `net.poll` has argument type(s) (List OF Socket), expected Socket, Integer or List OF RES Socket, Integer.
+  10 |   ' Resource element without the RES marker — rejected at the declaration.
+  11 |   MUT bare AS List OF Socket = []
+  12 |   RES pickBare AS Socket = net::poll(bare)
+     | ^
+tests/syntax/net/func_net_poll_list_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `pickBare` does not have a known type.
+  13 | 
+  14 |   ' Neither Socket nor List OF RES Socket.
+  15 |   LET pickStr = net::poll("not a socket")
+     | ^
+tests/syntax/net/func_net_poll_list_invalid/src/main.mfb:15 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `net.poll` has argument type(s) (String), expected Socket, Integer or List OF RES Socket, Integer.
+  13 | 
+  14 |   ' Neither Socket nor List OF RES Socket.
+  15 |   LET pickStr = net::poll("not a socket")
+     | ^
+tests/syntax/net/func_net_poll_list_invalid/src/main.mfb:15 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `pickStr` does not have a known type.
+  17 |   ' Wrong timeout type on the list overload.
+  18 |   MUT socks AS List OF RES Socket = []
+  19 |   RES pickBad AS Socket = net::poll(socks, "later")
+     | ^
+tests/syntax/net/func_net_poll_list_invalid/src/main.mfb:19 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `net.poll` has argument type(s) (List OF RES Socket, String), expected Socket, Integer or List OF RES Socket, Integer.
+  17 |   ' Wrong timeout type on the list overload.
+  18 |   MUT socks AS List OF RES Socket = []
+  19 |   RES pickBad AS Socket = net::poll(socks, "later")
+     | ^
+tests/syntax/net/func_net_poll_list_invalid/src/main.mfb:19 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `pickBad` does not have a known type.
+   9 | FUNC main AS Integer
+  10 |   ' Resource element without the RES marker — rejected at the declaration.
+  11 |   MUT bare AS List OF Socket = []
+     | ^
+tests/syntax/net/func_net_poll_list_invalid/src/main.mfb:11 error[2-203-0082 TYPE_RESOURCE_REQUIRES_RES]: resource must be bound with RES
+               Collection element type `Socket` is a resource; mark it `RES` (e.g. `List OF RES File`), not a bare resource type.
+[exit 1]

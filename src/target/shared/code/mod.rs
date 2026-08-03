@@ -1501,6 +1501,30 @@ pub(crate) fn lower_module_for_platform(
     {
         runtime_symbols.push("_mfb_rt_net_net_connectTcpAddr".to_string());
     }
+    // plan-76-A: the `poll(List OF RES Socket)` overload routes to `net.pollList`,
+    // a synthesized target the NIR never names (it carries only `net.poll`), so
+    // emit its helper body whenever `poll` is present — mirroring `connectTcpAddr`.
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_net_net_poll")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_net_net_pollList")
+    {
+        runtime_symbols.push("_mfb_rt_net_net_pollList".to_string());
+    }
+    // plan-76-C: `tls.pollList` is the synthesized list-multiplex target (the NIR
+    // names only `tls.poll`), and its portable driver calls the scalar
+    // `_mfb_rt_tls_tls_poll` — so emit both whenever `tls.poll` is present.
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_tls_tls_poll")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_tls_tls_pollList")
+    {
+        runtime_symbols.push("_mfb_rt_tls_tls_pollList".to_string());
+    }
     // App-mode io.input composes io.write (prompt -> transcript) + io.readLine
     // (read the window input pipe), so ensure both helpers are emitted
     // (plan-04-macos-app.md §5.4).
@@ -2128,6 +2152,9 @@ fn lower_runtime_helper(
                         net::lower_net_accept_helper(symbol, platform_imports, platform)?
                     }
                     "net.poll" => net::lower_net_poll_helper(symbol, platform_imports, platform)?,
+                    "net.pollList" => {
+                        net::lower_net_poll_list_helper(symbol, platform_imports, platform)?
+                    }
                     "net.read" => {
                         net::lower_net_read_helper(symbol, platform_imports, platform, false)?
                     }
@@ -2214,6 +2241,10 @@ fn lower_runtime_helper(
                     "tls.writeText" => {
                         tls::lower_tls_write_helper(symbol, platform_imports, platform, true)?
                     }
+                    "tls.poll" => tls::lower_tls_poll_helper(symbol, platform_imports, platform)?,
+                    "tls.pollList" => {
+                        tls::lower_tls_poll_list_helper(symbol, platform_imports, platform)?
+                    }
                     "tls.close" => tls::lower_tls_close_helper(symbol, platform_imports, platform)?,
                     "tls.closeListener" => {
                         tls::lower_tls_close_listener_helper(symbol, platform_imports, platform)?
@@ -2292,6 +2323,18 @@ pub(super) fn emit_alloc(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(fail),
     ]);
+}
+
+/// `arena_free(x0 = ptr, x1 = size)` — return a compiler-sized allocation to the
+/// arena. The caller preloads `x0`/`x1`; one internal-call relocation per (from,to)
+/// covers all sites in `symbol`. Companion of [`emit_alloc`].
+pub(super) fn emit_arena_free(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::branch_link(ARENA_FREE_SYMBOL));
+    relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
 }
 
 fn internal_branch(from: &str, to: &str) -> CodeRelocation {

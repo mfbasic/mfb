@@ -1,0 +1,35 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_tls_poll_list_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 8, "mutable": false, "name": "conn", "type": "TlsSocket", "value": { "kind": "call", "type": "TlsSocket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "443" }, { "kind": "const", "type": "Integer", "value": "9223372036854775808" }, { "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "line": 10, "mutable": false, "name": "ready", "type": "Boolean", "value": { "kind": "call", "type": "Boolean", "target": "tls.poll", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "Integer", "value": "9223372036854775808" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "ready" }] }] } },
+    { "op": "bind", "line": 13, "mutable": true, "name": "socks", "type": "List OF RES TlsSocket", "value": { "kind": "list", "type": "List OF RES TlsSocket", "values": [] } },
+    { "op": "assign", "line": 14, "name": "socks", "value": { "kind": "call", "type": "List OF RES TlsSocket", "target": "collections.append", "args": [{ "kind": "local", "name": "socks" }, { "kind": "local", "name": "conn" }] } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "first", "type": "TlsSocket", "value": { "kind": "call", "type": "TlsSocket", "target": "tls.poll", "args": [{ "kind": "local", "name": "socks" }, { "kind": "const", "type": "Integer", "value": "9223372036854775808" }] } },
+    { "op": "bind", "line": 16, "mutable": false, "name": "firstT", "type": "TlsSocket", "value": { "kind": "call", "type": "TlsSocket", "target": "tls.poll", "args": [{ "kind": "local", "name": "socks" }, { "kind": "const", "type": "Integer", "value": "100" }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "tls.writeText", "args": [{ "kind": "local", "name": "first" }, { "kind": "const", "type": "String", "value": "a" }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "tls.writeText", "args": [{ "kind": "local", "name": "firstT" }, { "kind": "const", "type": "String", "value": "b" }] } },
+    { "op": "return", "line": 19, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

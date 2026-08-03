@@ -190,13 +190,20 @@ impl CodeBuilder<'_> {
     ///   never a transfer: the collection's owning scope closes it. Every other
     ///   call — `fs::openFile`, a user `FUNC … AS RES File` — *does* transfer
     ///   ownership to this binding and must keep its cleanup.
+    /// * `net.poll(List OF RES Socket)` (plan-76-A) — the readiness multiplex
+    ///   returns a pointer to the first ready list element, the exact
+    ///   borrowed-element shape as `collections::get`: the list still owns and
+    ///   closes it. Classified via `net::returns_borrowed_resource`.
     pub(super) fn value_aliases_live_resource(value: &NirValue) -> bool {
         match value {
             NirValue::Local(_) => true,
-            NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => matches!(
-                crate::builtins::collections::native_member_bare(target),
-                Some("get" | "getOr")
-            ),
+            NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => {
+                matches!(
+                    crate::builtins::collections::native_member_bare(target),
+                    Some("get" | "getOr")
+                ) || crate::builtins::net::returns_borrowed_resource(target)
+                    || crate::builtins::tls::returns_borrowed_resource(target)
+            }
             _ => false,
         }
     }
@@ -1763,6 +1770,16 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// plan-76-A: `net::poll`'s first argument is a `List OF RES Socket` (the
+    /// multiplex overload) rather than a scalar `Socket` (the readiness query). The
+    /// two overloads share the `net.poll` NIR name; this selects the `net.pollList`
+    /// helper by the receiver's static type.
+    fn net_poll_is_list_form(&self, args: &[NirValue]) -> bool {
+        args.first()
+            .and_then(|arg| self.static_type_name(arg))
+            .is_some_and(|ty| ty.starts_with("List OF "))
+    }
+
     pub(super) fn lower_runtime_helper_call(
         &mut self,
         helper: runtime::RuntimeHelper,
@@ -1876,6 +1893,29 @@ impl CodeBuilder<'_> {
         }
         let result_type = self
             .thread_runtime_return_type(target, &helper_args)
+            // plan-76-A: `net.poll` is return-type-overloaded (scalar `Socket →
+            // Boolean` vs list `List OF RES Socket → Socket`), so the fixed
+            // `call_return_type_name` yields `None`; select by argument shape here.
+            .or_else(|| {
+                (target == "net.poll").then(|| {
+                    if self.net_poll_is_list_form(&helper_args) {
+                        builtins::net::SOCKET_TYPE.to_string()
+                    } else {
+                        "Boolean".to_string()
+                    }
+                })
+            })
+            // plan-76-C: `tls.poll` is likewise return-type-overloaded — the list
+            // form yields a borrowed `TlsSocket`, the scalar a `Boolean`.
+            .or_else(|| {
+                (target == "tls.poll").then(|| {
+                    if self.net_poll_is_list_form(&helper_args) {
+                        builtins::tls::TLS_SOCKET_TYPE.to_string()
+                    } else {
+                        "Boolean".to_string()
+                    }
+                })
+            })
             .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
             .ok_or_else(|| format!("native runtime call '{target}' has no return type"))?;
         let runtime_target = match target {
@@ -1947,6 +1987,27 @@ impl CodeBuilder<'_> {
                     "net.connectTcpAddr"
                 } else {
                     "net.connectTcp"
+                }
+            }
+            // plan-76-A: the readiness-multiplex overload `poll(List OF RES Socket)`
+            // lowers through a distinct helper (`net.pollList`) that builds a
+            // `pollfd[n]` over the list's fds and returns the first ready element's
+            // record ptr, vs the scalar `poll(Socket) → Boolean`.
+            "net.poll" => {
+                if self.net_poll_is_list_form(args) {
+                    "net.pollList"
+                } else {
+                    "net.poll"
+                }
+            }
+            // plan-76-C: `tls::poll(List OF RES TlsSocket)` lowers through the portable
+            // `tls.pollList` driver (scans the list via the scalar readiness helper),
+            // vs the scalar `tls::poll(TlsSocket) → Boolean`.
+            "tls.poll" => {
+                if self.net_poll_is_list_form(args) {
+                    "tls.pollList"
+                } else {
+                    "tls.poll"
                 }
             }
             _ => target,

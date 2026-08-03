@@ -1,0 +1,99 @@
+' plan-76-A: net::poll(List OF RES Socket) AS Socket — the readiness multiplex.
+'
+'  - Connect two loopback clients, accept two server-side conns, write to exactly
+'    one, and prove net::poll(socks) blocks until one is readable then returns a
+'    BORROWED pointer to it (the list keeps ownership and closes each socket once).
+'  - First-ready lowest-index selection: writing to A (index 0) or B (index 1)
+'    returns that socket's bytes.
+'  - Timeout convention (producing call): poll(idle, 0) with none ready raises
+'    ErrTimeout; poll(idle, -1) raises ErrInvalidArgument; poll([]) (empty list)
+'    raises ErrInvalidArgument.
+'  - A 1200x connect/poll/close loop proves the borrowed return is NOT double-closed
+'    (the list is the sole owner) and no fd leaks — a double-close or leak would
+'    exhaust the fd table well before 1200.
+IMPORT net
+IMPORT io
+IMPORT collections
+IMPORT errorCode
+
+' Write to exactly one client, then return the bytes net::poll selects. `writeSecond`
+' picks which client writes, proving lowest-index-first selection both ways.
+FUNC pollPick(writeSecond AS Boolean) AS String
+  RES server = net::listenTcp("127.0.0.1", 0)
+  LET bound = net::localAddress(server)
+  RES clientA = net::connectTcp("127.0.0.1", bound.port)
+  RES connA = net::accept(server)
+  RES clientB = net::connectTcp("127.0.0.1", bound.port)
+  RES connB = net::accept(server)
+  MUT socks AS List OF RES Socket = []
+  socks = collections::append(socks, connA)
+  socks = collections::append(socks, connB)
+  IF writeSecond THEN
+    net::writeText(clientB, "B")
+  ELSE
+    net::writeText(clientA, "A")
+  END IF
+  ' Borrowed pointer to the first ready element; the list still owns/closes it.
+  RES ready AS Socket = net::poll(socks)
+  RETURN net::readText(ready, 8)
+END FUNC
+
+' poll(idle, 0) on two not-yet-readable sockets raises ErrTimeout immediately.
+FUNC pollTimesOut AS Boolean
+  RES server = net::listenTcp("127.0.0.1", 0)
+  LET bound = net::localAddress(server)
+  RES clientA = net::connectTcp("127.0.0.1", bound.port)
+  RES connA = net::accept(server)
+  RES clientB = net::connectTcp("127.0.0.1", bound.port)
+  RES connB = net::accept(server)
+  MUT socks AS List OF RES Socket = []
+  socks = collections::append(socks, connA)
+  socks = collections::append(socks, connB)
+  RES ready AS Socket = net::poll(socks, 0)
+  RETURN FALSE
+  TRAP(err)
+    RETURN err.code = errorCode::ErrTimeout
+  END TRAP
+END FUNC
+
+' poll(socks, -1) — a genuine negative timeout — raises ErrInvalidArgument.
+FUNC pollNegative AS Boolean
+  RES server = net::listenTcp("127.0.0.1", 0)
+  LET bound = net::localAddress(server)
+  RES clientA = net::connectTcp("127.0.0.1", bound.port)
+  RES connA = net::accept(server)
+  MUT socks AS List OF RES Socket = []
+  socks = collections::append(socks, connA)
+  RES ready AS Socket = net::poll(socks, -1)
+  RETURN FALSE
+  TRAP(err)
+    RETURN err.code = errorCode::ErrInvalidArgument
+  END TRAP
+END FUNC
+
+' poll([]) on an empty list raises ErrInvalidArgument (nothing to wait on).
+FUNC pollEmpty AS Boolean
+  MUT socks AS List OF RES Socket = []
+  RES ready AS Socket = net::poll(socks)
+  RETURN FALSE
+  TRAP(err)
+    RETURN err.code = errorCode::ErrInvalidArgument
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  io::print("first " & pollPick(FALSE))
+  io::print("second " & pollPick(TRUE))
+  io::print("timeout " & toString(pollTimesOut()))
+  io::print("negative " & toString(pollNegative()))
+  io::print("empty " & toString(pollEmpty()))
+  FOR i = 1 TO 1200
+    LET got = pollPick(FALSE)
+    IF got <> "A" THEN
+      io::print("leak-loop mismatch at " & toString(i) & " got " & got)
+      RETURN 1
+    END IF
+  NEXT
+  io::print("leak-loop survived")
+  RETURN 0
+END FUNC

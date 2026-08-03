@@ -19,6 +19,11 @@ FUNC main() AS Integer
   io::print(toString(len(txt)))
   tls::writeText(sock3, "GET / HTTP/1.0")
 
+  ' poll: both overloads (plan-76-B readiness query)
+  LET ready1 = tls::poll(sock)
+  LET ready2 = tls::poll(sock2, 1000)
+  io::print(toString(ready1) & toString(ready2))
+
   ' close: TlsSocket overload
   tls::close(sock)
   tls::close(sock2)

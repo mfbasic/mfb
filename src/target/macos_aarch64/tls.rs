@@ -13,8 +13,9 @@
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::tls::macos::{
     BLK_CAP, CFG_CAP_COPYFN, CFG_CAP_RELEASEFN, CFG_CAP_SETFN, CFG_CAP_SNAME, CFG_INVOKE,
-    CTX_CONTENT, CTX_ERROR, CTX_RETAIN, CTX_SEM, CTX_SIGNAL, CTX_STATE, LCONN_INVOKE, LCTX_HEAD,
-    LCTX_RING, LCTX_RING_CAP, LCTX_TAIL, RECV_INVOKE, SEND_INVOKE, STATE_INVOKE,
+    CTX_CONTENT, CTX_ERROR, CTX_PCONTENT, CTX_PERROR, CTX_PSEM, CTX_RETAIN, CTX_SEM, CTX_SIGNAL,
+    CTX_STATE, LCONN_INVOKE, LCTX_HEAD, LCTX_RING, LCTX_RING_CAP, LCTX_TAIL, RECV_INVOKE,
+    RECV_POLL_INVOKE, SEND_INVOKE, STATE_INVOKE,
 };
 use crate::target::shared::code::{CodeFrame, CodeFunction};
 
@@ -63,8 +64,17 @@ fn invoke_function(symbol: &str, stores: &[(&str, usize)]) -> CodeFunction {
 /// The receive completion `(content @x1, context @x2, is_complete @x3,
 /// error @x4)`. The `content` dispatch_data is only valid for the block's
 /// duration, so it is retained before being stashed for the helper to map.
-fn recv_invoke_function() -> CodeFunction {
-    let sig = format!("{RECV_INVOKE}_sig");
+///
+/// Parameterized over the ctx slots it writes/signals so the poll readiness
+/// receive (plan-76-B Phase 4) gets an isolated block over `CTX_P*` — identical
+/// body, different offsets — that never touches the read/write `CTX_SEM`.
+fn recv_invoke_impl(
+    symbol: &str,
+    content_off: usize,
+    error_off: usize,
+    sem_off: usize,
+) -> CodeFunction {
+    let sig = format!("{symbol}_sig");
     let instructions = vec![
         abi::label("entry"),
         abi::subtract_stack(32),
@@ -72,17 +82,17 @@ fn recv_invoke_function() -> CodeFunction {
         abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8),
         abi::move_register(abi::LOCAL[0], "x0"), // x19 = block; reload ctx below
         abi::load_u64(abi::LOCAL[0], abi::LOCAL[0], BLK_CAP), // x19 = ctx (callee-saved across calls)
-        abi::store_u64("x4", abi::LOCAL[0], CTX_ERROR),
+        abi::store_u64("x4", abi::LOCAL[0], error_off),
         abi::compare_immediate("x1", "0"),
         abi::branch_eq(&sig),
-        abi::store_u64("x1", abi::LOCAL[0], CTX_CONTENT),
+        abi::store_u64("x1", abi::LOCAL[0], content_off),
         // dispatch_retain(content) so it survives past this block.
         abi::load_u64(abi::SCRATCH[3], abi::LOCAL[0], CTX_RETAIN),
         abi::move_register("x0", "x1"),
         abi::branch_link_register(abi::SCRATCH[3]),
         abi::label(&sig),
         abi::load_u64(abi::SCRATCH[1], abi::LOCAL[0], CTX_SIGNAL),
-        abi::load_u64("x0", abi::LOCAL[0], CTX_SEM),
+        abi::load_u64("x0", abi::LOCAL[0], sem_off),
         abi::branch_link_register(abi::SCRATCH[1]),
         abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8),
         abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
@@ -90,8 +100,8 @@ fn recv_invoke_function() -> CodeFunction {
         abi::return_(),
     ];
     CodeFunction {
-        name: format!("runtime.{RECV_INVOKE}"),
-        symbol: RECV_INVOKE.to_string(),
+        name: format!("runtime.{symbol}"),
+        symbol: symbol.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
         frame: frame(32),
@@ -99,6 +109,14 @@ fn recv_invoke_function() -> CodeFunction {
         instructions,
         relocations: Vec::new(),
     }
+}
+
+fn recv_invoke_function() -> CodeFunction {
+    recv_invoke_impl(RECV_INVOKE, CTX_CONTENT, CTX_ERROR, CTX_SEM)
+}
+
+fn recv_poll_invoke_function() -> CodeFunction {
+    recv_invoke_impl(RECV_POLL_INVOKE, CTX_PCONTENT, CTX_PERROR, CTX_PSEM)
 }
 
 /// The configure-TLS block `void(block @x0, nw_protocol_options_t tls @x1)`.
@@ -221,6 +239,7 @@ pub(crate) fn block_trampolines(server: bool) -> Vec<CodeFunction> {
         // send_completion(error @x1)
         invoke_function(SEND_INVOKE, &[("x1", CTX_ERROR)]),
         recv_invoke_function(),
+        recv_poll_invoke_function(),
         cfg_invoke_function(),
     ];
     if server {

@@ -1,0 +1,31 @@
+{
+  "project": "func_tls_poll_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "tls", "line": 3 },
+    { "module": "io", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "conn", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "443" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "ready", "type": "Boolean", "value": { "kind": "call", "callee": "tls.poll", "arguments": [{ "kind": "identifier", "value": "conn" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "readyT", "type": "Boolean", "value": { "kind": "call", "callee": "tls.poll", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "number", "value": "100" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ready" }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "readyT" }] } }] }, "line": 10 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 11 }
+      ]
+    }
+    ]
+  }
+  ]
+}

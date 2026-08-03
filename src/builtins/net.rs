@@ -127,6 +127,14 @@ const P_ACCEPT: &[Parameter] = &[
     opt("timeoutMs", "Integer"),
 ];
 const P_POLL: &[Parameter] = &[req("sock", &[], SOCKET_TYPE), opt("timeoutMs", "Integer")];
+// plan-76-A: the readiness-multiplex overload. `socks` is a `List OF RES Socket`
+// (the `RES` marker is mandatory for a resource element, §15.6); the returned
+// `Socket` is a BORROWED pointer to the first ready element — the list keeps
+// ownership and closes each socket exactly once on scope exit.
+const P_POLL_LIST: &[Parameter] = &[
+    req("socks", &[], "List OF RES Socket"),
+    opt("timeoutMs", "Integer"),
+];
 const P_READ: &[Parameter] = &[
     req("sock", &[], SOCKET_TYPE),
     req("maxBytes", &[], "Integer"),
@@ -192,7 +200,16 @@ const NET_FUNCTIONS: &[BuiltinFunction] = &[
         &[ov(P_ACCEPT, SOCKET_TYPE)],
         Implementation::Same,
     ),
-    nf(POLL, "poll", &[ov(P_POLL, "Boolean")], Implementation::Same),
+    nf(
+        POLL,
+        "poll",
+        // Two overloads: the scalar readiness query (`Socket → Boolean`) and the
+        // readiness multiplex (`List OF RES Socket → Socket`, borrowed). The return
+        // types disagree, so `DefaultResolver::return_type_name` yields `None` and
+        // `NetResolver`/`resolve_call` selects the type by argument shape (plan-76-A).
+        &[ov(P_POLL, "Boolean"), ov(P_POLL_LIST, SOCKET_TYPE)],
+        Implementation::Same,
+    ),
     nf(
         READ,
         "read",
@@ -390,6 +407,18 @@ pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
     }
 }
 
+/// plan-76-A: whether a `net` call returns a **borrowed** (non-owning) resource
+/// pointer — one that aliases an element of a resource collection argument, like
+/// `collections::get`. `net::poll(List OF RES Socket) AS Socket` returns a pointer
+/// to the first ready list element; the list retains ownership and closes it, so the
+/// caller's `RES` binding must register NO close obligation. Consulted by
+/// `value_aliases_live_resource` in the code layer. The scalar `net::poll(Socket)`
+/// overload returns `Boolean` and never binds a resource, so keying on the call name
+/// alone is safe (a non-resource bind never reaches the resource-cleanup decision).
+pub(crate) fn returns_borrowed_resource(name: &str) -> bool {
+    name == POLL
+}
+
 // `call_param_names` returns a `&'static` borrowed shape the owned
 // `DefaultResolver` (which yields `Vec`) cannot produce, so it stays a static
 // literal PINNED equal to `NET` by `parity_matches_descriptor`. `connectTcp`'s
@@ -400,7 +429,9 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         LOOKUP => Some(&[&["host"], &["port"]]),
         LISTEN_TCP => Some(&[&["host"], &["port"], &["backlog"]]),
         ACCEPT => Some(&[&["listener"], &["timeoutMs"]]),
-        POLL => Some(&[&["sock"], &["timeoutMs"]]),
+        // POLL is now overloaded (scalar `sock` vs list `socks`); its per-overload
+        // names live in `call_param_name_overloads` and `call_param_names` returns
+        // `None` (mirroring `connectTcp`).
         READ | READ_TEXT => Some(&[&["sock"], &["maxBytes"]]),
         WRITE => Some(&[&["sock"], &["bytes"]]),
         WRITE_TEXT => Some(&[&["sock"], &["value"]]),
@@ -433,6 +464,10 @@ pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static
             &["address"],
             &["address", "timeoutMs"],
         ]),
+        // plan-76-A: the two poll overloads name their receiver differently
+        // (`sock` scalar, `socks` list), so the descriptor renders per-overload
+        // names here and `call_param_names` yields `None`.
+        POLL => Some(&[&["sock", "timeoutMs"], &["socks", "timeoutMs"]]),
         _ => None,
     }
 }
@@ -462,12 +497,21 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         {
             Cow::Borrowed(SOCKET_TYPE)
         }
-        // The `poll(List OF Socket)` overload in the specification is omitted: the
-        // ownership model forbids resource handles as collection elements, so a
-        // `List OF Socket` value cannot be constructed and the overload is
-        // unreachable. Single-socket readiness polling is provided here.
+        // Scalar readiness query: `poll(Socket[, timeoutMs]) → Boolean`.
         POLL if exact(arg_types, &[SOCKET_TYPE]) || exact(arg_types, &[SOCKET_TYPE, "Integer"]) => {
             Cow::Borrowed("Boolean")
+        }
+        // plan-76-A: readiness multiplex `poll(List OF RES Socket[, timeoutMs]) →
+        // Socket`. Resources in collections landed (`List OF RES Socket` is
+        // constructible), so the spec-documented list overload is now reachable. The
+        // returned `Socket` is BORROWED (an alias of a list element, like
+        // `collections::get`); the list still owns and closes it — see the
+        // `net.pollList` remap in `builder_values.rs` and the borrow classification in
+        // `value_aliases_live_resource`.
+        POLL if exact(arg_types, &["List OF RES Socket"])
+            || exact(arg_types, &["List OF RES Socket", "Integer"]) =>
+        {
+            Cow::Borrowed(SOCKET_TYPE)
         }
         READ if exact(arg_types, &[SOCKET_TYPE, "Integer"]) => Cow::Borrowed("List OF Byte"),
         READ_TEXT if exact(arg_types, &[SOCKET_TYPE, "Integer"]) => Cow::Borrowed("String"),
@@ -520,7 +564,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         CONNECT_TCP => Some("String, Integer, Integer or Address, Integer"),
         LISTEN_TCP => Some("String, Integer, Integer"),
         ACCEPT => Some("Listener, Integer"),
-        POLL => Some("Socket, Integer"),
+        POLL => Some("Socket, Integer or List OF RES Socket, Integer"),
         READ => Some("Socket, Integer"),
         READ_TEXT => Some("Socket, Integer"),
         WRITE => Some("Socket, List OF Byte"),
@@ -662,7 +706,9 @@ mod tests {
         assert!(call_param_name_overloads(LOOKUP).is_none());
         assert!(call_param_names(LISTEN_TCP).is_some());
         assert!(call_param_names(ACCEPT).is_some());
-        assert!(call_param_names(POLL).is_some());
+        // POLL is overloaded (plan-76-A): names live in call_param_name_overloads.
+        assert!(call_param_names(POLL).is_none());
+        assert!(call_param_name_overloads(POLL).is_some());
         assert!(call_param_names(READ).is_some());
         assert!(call_param_names(WRITE).is_some());
         assert!(call_param_names(WRITE_TEXT).is_some());
@@ -959,7 +1005,10 @@ mod tests {
     #[test]
     fn expected_arguments_remaining_arms() {
         assert_eq!(expected_arguments(ACCEPT), Some("Listener, Integer"));
-        assert_eq!(expected_arguments(POLL), Some("Socket, Integer"));
+        assert_eq!(
+            expected_arguments(POLL),
+            Some("Socket, Integer or List OF RES Socket, Integer")
+        );
         assert_eq!(expected_arguments(READ), Some("Socket, Integer"));
         assert_eq!(expected_arguments(READ_TEXT), Some("Socket, Integer"));
         assert_eq!(expected_arguments(WRITE), Some("Socket, List OF Byte"));

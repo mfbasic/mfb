@@ -54,6 +54,24 @@ pub(crate) const TLS_WRITE_TEXT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     abi: RuntimeHelperAbi { returns: "Nothing" },
 };
 
+// plan-76-B: the TLS readiness query.
+pub(crate) const TLS_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Tls,
+    call: "tls.poll",
+    abi: RuntimeHelperAbi { returns: "Boolean" },
+};
+
+// plan-76-C: the TLS readiness multiplex, synthesized by the code layer (`tls.poll`
+// with a `List OF RES TlsSocket` first arg → `tls.pollList`), so code-layer-only
+// like `net.pollList`. Returns a borrowed `TlsSocket` (first ready list element).
+pub(crate) const TLS_POLL_LIST_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Tls,
+    call: "tls.pollList",
+    abi: RuntimeHelperAbi {
+        returns: "TlsSocket",
+    },
+};
+
 pub(crate) const TLS_CLOSE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Tls,
     call: "tls.close",
