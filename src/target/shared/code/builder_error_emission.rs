@@ -978,26 +978,14 @@ impl CodeBuilder<'_> {
 
     pub(super) fn store_pending_current_result(&mut self) {
         let slots = self.ensure_pending_result_slots();
-        self.emit(abi::store_u64(
-            RESULT_VALUE_REGISTER,
-            abi::stack_pointer(),
-            slots.value,
-        ));
-        self.emit(abi::store_u64(
-            RESULT_TAG_REGISTER,
-            abi::stack_pointer(),
-            slots.tag,
-        ));
-        self.emit(abi::store_u64(
-            RESULT_ERROR_MESSAGE_REGISTER,
-            abi::stack_pointer(),
-            slots.message,
-        ));
-        self.emit(abi::store_u64(
-            RESULT_ERROR_SOURCE_REGISTER,
-            abi::stack_pointer(),
-            slots.source,
-        ));
+        // plan-71-C Family-1a: at this spill the loose result registers flow onward
+        // as args (the fixpoint colors them arg0..3 = rdi/rsi/rdx/rcx), so emit the
+        // matching ARG tokens. The restore in `load_pending_result_registers` keeps
+        // `RESULT_*_REGISTER` (%retK) — the stack slot decouples spill from restore.
+        self.emit(abi::store_u64(abi::ARG[1], abi::stack_pointer(), slots.value));
+        self.emit(abi::store_u64(abi::ARG[0], abi::stack_pointer(), slots.tag));
+        self.emit(abi::store_u64(abi::ARG[2], abi::stack_pointer(), slots.message));
+        self.emit(abi::store_u64(abi::ARG[3], abi::stack_pointer(), slots.source));
     }
 
     pub(super) fn load_pending_result_registers(&mut self) {
