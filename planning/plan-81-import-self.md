@@ -154,18 +154,39 @@ where correctness risk concentrates — see Phase 1.
 ### Verified properties
 
 - **The thread checker is gated on `imported_package_export`, not on a distinct
-  compiled artifact.** Verified by reading `check_thread_builtin_call` — it only
-  consults the `FunctionSig` flags, so producing a self-import signature with the
-  flag set is sufficient at the syntaxcheck layer. (Read: `src/syntaxcheck/builtins.rs`.)
-- **UNVERIFIED — runtime per-instance state for the current package.** Whether a
-  fresh instance of the *current* package can be spawned as a worker (isolated
-  top-level `MUT`) is not yet confirmed. Phase 1 turns this into a verified
-  property or a scoped work item. Do not assume it is free.
-- **UNVERIFIED — worker function-id / package-call lowering.** The threading
-  spec's *function-ids-and-package-calls* contract assigns worker/package call
-  targets at link time; whether the current package's functions are already
-  addressable as worker entry points (vs only merged-imported-package functions)
-  is confirmed in Phase 1.
+  compiled artifact.** Verified by reading `check_thread_builtin_call`
+  (`src/syntaxcheck/builtins.rs:425-448`) — it only consults the `FunctionSig`
+  flags (`sig.imported_package_export && Func && sig.isolated`), so producing a
+  self-import signature with the flag set is sufficient at the syntaxcheck layer.
+- **VERIFIED (Phase 1) — the current package rides the existing per-instance
+  mechanism; §4.4 is wiring-only, no net-new runtime work.** Worker isolation is
+  arena-based and package-agnostic: `lower_thread_start_helper`
+  (`src/target/shared/code/runtime_helpers.rs:562`) arena-allocates a fresh,
+  zeroed worker arena sized `ENTRY_GLOBALS_OFFSET + arena_global_slots * 8`
+  covering the *entire* merged program's writable-globals region, and the worker
+  trampoline (`runtime_helpers.rs:1023-1064`, bug-369) re-runs the program's
+  single `global_init` initializer in that fresh arena "so a worker sees the
+  region the main thread sees instead of a region of zeros." That one initializer
+  and one globals region hold the current package's own top-level `MUT` too (a
+  package project's own globals are ordinary program globals), so a self-worker
+  gets a fresh, declared-value-initialized, isolated copy — its `MUT` writes never
+  touch the parent's. The mechanism does not key on which package the worker came
+  from. (Spec: `./mfb spec threading isolation` — "the writable globals region
+  lives in that arena, so each worker gets its own copy.")
+- **VERIFIED (Phase 1) — the current package's functions are already addressable
+  as worker entry points.** `thread.start`'s first argument lowers via
+  `Expression::Identifier` → `IrValue::FunctionRef { name: canonical_value, .. }`
+  (`src/ir/lower.rs:2543-2551`) whenever the name is in `context.function_types`,
+  producing an ordinary `_mfb_fn_<name>` code address (the trampoline loads it at
+  `THREAD_OFFSET_ENTRY`, `runtime_helpers.rs:1066-1071`). A package project's own
+  exported ISOLATED FUNC is already in `function_types` and already emitted as
+  such a symbol (per `./mfb spec threading worker-and-package-functions`: every
+  own/merged function routes through the single `_mfb_fn_` namespace), so a
+  self-worker entry is the same code-address relocation used for imported workers.
+  The only work is front-end wiring: make `self`/its alias a recognized import
+  binding so `canonical_import_name` maps `self.worker` to the current package's
+  real function key and a self-import sig with `imported_package_export = true` is
+  registered (Phases 2–4). Effort estimate holds; no re-split.
 
 ## 3. Design Overview
 
@@ -270,23 +291,29 @@ last, behind runtime tests.
 Determine, before touching the parser, whether a fresh instance of the **current**
 package can be spawned as a worker with isolated top-level `MUT`.
 
-- [ ] Read the threading runtime/codegen path (`./mfb spec threading`
+- [x] Read the threading runtime/codegen path (`./mfb spec threading`
       source-model → *worker-and-package-functions*, *function-ids-and-package-calls*,
-      *control-block*; and the corresponding `src/` codegen/runtime for
-      thread-start worker entry) and determine how per-package instance state is
-      allocated, and whether the current package participates in the same scheme
-      as a multiply-started imported package.
-- [ ] Record the answer as a **Verified property** in §2 (replace the two
-      UNVERIFIED entries): either "current package rides the existing
-      per-instance mechanism → §4.4 is wiring only" **or** "current package state
-      is process-global → net-new per-instance work required," with the
-      file:symbol evidence.
-- [ ] If net-new runtime work is required, re-estimate the plan and split per the
-      write-plan rule (record in Corrections + Open Decisions) before proceeding.
+      *isolation*; and the corresponding `src/` codegen/runtime for thread-start
+      worker entry) and determine how per-package instance state is allocated, and
+      whether the current package participates in the same scheme as a
+      multiply-started imported package. **Finding: isolation is arena-based
+      (`lower_thread_start_helper` fresh per-worker globals region +
+      trampoline-re-run `global_init`, `runtime_helpers.rs:562,1023-1064`) and
+      package-agnostic; the worker entry is an ordinary `FunctionRef` `_mfb_fn_`
+      code address (`ir/lower.rs:2543-2551`). The current package participates by
+      construction.**
+- [x] Record the answer as a **Verified property** in §2 (replaced the two
+      UNVERIFIED entries): "current package rides the existing per-instance
+      mechanism → §4.4 is wiring only," with file:symbol evidence.
+- [x] ~~If net-new runtime work is required, re-estimate the plan and split~~ —
+      moot: net-new runtime work is NOT required (finding above). Effort estimate
+      (large) holds; no split. No Corrections/Open-Decisions change needed beyond
+      resolving the "Runtime instance mechanism" open decision to the Recommended
+      option (reuse existing per-instance state), recorded below.
 
-Acceptance: §2 contains a cited verified-or-refuted statement of whether a
-self-spawned worker gets isolated top-level `MUT`, and the plan's effort/split is
-re-confirmed against that finding.
+Acceptance: §2 contains a cited verified statement that a self-spawned worker gets
+isolated top-level `MUT` (arena-based, package-agnostic), and the plan's
+effort/split is re-confirmed (large, no split). MET.
 Commit: —
 
 ### Phase 2 — Parse & resolve `IMPORT self`
@@ -403,11 +430,13 @@ Commit: —
 
 ## Open Decisions
 
-- **Runtime instance mechanism** — *Recommended:* reuse the existing multiply-
-  started-package per-instance state for the current package (Phase 1 confirms).
-  *Alternative:* net-new per-instance setup for the current package, which would
-  raise effort to x-large and force a split. Resolve in Phase 1 before any
-  parser work. (§4.4, Phase 1)
+- **Runtime instance mechanism** — **RESOLVED (Phase 1): reuse the existing
+  multiply-started-package per-instance state for the current package.** Isolation
+  is arena-based and package-agnostic (`lower_thread_start_helper` fresh worker
+  arena/globals region + trampoline-re-run `global_init`,
+  `src/target/shared/code/runtime_helpers.rs:562,1023-1064`); the worker entry is
+  an ordinary `FunctionRef` `_mfb_fn_` code address (`src/ir/lower.rs:2543-2551`).
+  §4.4 is wiring-only; the x-large/split alternative does not apply. (§4.4, Phase 1)
 - **Alias support** — *Recommended:* allow `IMPORT self AS x`. *Alternative:*
   bare `self` only. Allowing the alias costs nothing (it rides the existing
   alias machinery) and is consistent with every other import. (§4.1)
