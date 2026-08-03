@@ -544,8 +544,8 @@ pub(super) fn unicode_runtime_data_objects() -> Vec<CodeDataObject> {
         ),
         raw_data_object(
             UNICODE_PROPERTIES_SYMBOL,
-            "mfb.unicode.property.v1 records, 24 bytes each",
-            tables.properties.len() * 24,
+            "mfb.unicode.property.v1 records, 12 bytes each",
+            tables.properties.len() * 12,
             crate::unicode::runtime_tables::properties_hex(),
             2,
         ),

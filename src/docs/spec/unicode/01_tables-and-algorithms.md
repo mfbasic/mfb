@@ -61,54 +61,46 @@ cp ──▶ stage1[cp >> 8] ─────────────▶ base
                                        │
        (cp & 0xFF) ───────────────────┼──▶ stage2[base + low] ─▶ prop_index
                                             │
-                                            ▶ properties[prop_index]  (24-byte record)
+                                            ▶ properties[prop_index]  (12-byte record)
 ```
 
 Both stage tables are `Vec<u16>`. The runtime emitter `emit_unicode_property_lookup`
 reproduces this exactly in AArch64: shift `cp` right 8, scale by 2 (u16 stride),
 load the stage-1 entry, add `cp & 0xFF`, scale by 2, load the stage-2 entry,
-multiply by the 24-byte record size, and add to the base of the properties
+multiply by the 12-byte record size, and add to the base of the properties
 table. The result register holds a pointer to the live `PackedProperty` record;
 individual fields are then read with `load_u16` at fixed offsets.
 [[src/target/shared/code/private/unicode.rs:emit_unicode_property_lookup]]
 [[src/target/shared/code/private/unicode.rs:emit_unicode_property_u16]]
 
 Reference table sizes (asserted by tests): stage1 = 4352 u16, stage2 = 46336
-u16, properties = 8385 records, sequences = 12961 u16, combinations = 961
-entries each. [[src/unicode/runtime_tables.rs:parses_utf8proc_runtime_tables]]
+u16, properties = 8385 records, combinations = 961 entries each.
+[[src/unicode/runtime_tables.rs:parses_utf8proc_runtime_tables]]
 
 ## PackedProperty record
 
-`PackedProperty` is the Rust-side representation; it carries eleven `u16` fields.
-On emission each record is serialized little-endian, in field order, followed by
-one `u16` of zero padding, producing a **24-byte** on-disk record (11 × 2 + 2).
-[[src/unicode/runtime_tables.rs:PackedProperty]]
+`PackedProperty` is the Rust-side representation; it carries six `u16` fields.
+On emission each record is serialized little-endian, in field order, producing a
+**12-byte** on-disk record (6 × 2). [[src/unicode/runtime_tables.rs:PackedProperty]]
 [[src/unicode/runtime_tables.rs:encode_le]]
 
 | Off | Field                  | Source (utf8proc field idx) | Runtime offset const                            |
 |-----|------------------------|-----------------------------|-------------------------------------------------|
 | 0   | `combining_class`      | 1                           | `UNICODE_PROPERTY_OFFSET_COMBINING_CLASS` = 0   |
-| 2   | `decomp_type`          | 3                           | (emitted; not read by runtime helpers)          |
-| 4   | `decomp_seqindex`      | 4                           | (emitted; not read by runtime helpers)          |
-| 6   | `casefold_seqindex`    | 5                           | (emitted; not read by runtime helpers)          |
-| 8   | `uppercase_seqindex`   | 6                           | (emitted; not read by runtime helpers)          |
-| 10  | `lowercase_seqindex`   | 7                           | (emitted; not read by runtime helpers)          |
-| 12  | `comb_index`           | 9                           | `UNICODE_PROPERTY_OFFSET_COMB_INDEX` = 12       |
-| 14  | `comb_length`          | 10                          | `UNICODE_PROPERTY_OFFSET_COMB_LENGTH` = 14      |
-| 16  | `flags`                | 11/13/14/15/16/17 (packed)  | `UNICODE_PROPERTY_OFFSET_FLAGS` = 16            |
-| 18  | `boundclass`           | 19                          | `UNICODE_PROPERTY_OFFSET_BOUNDCLASS` = 18       |
-| 20  | `indic_conjunct_break` | 20                          | `UNICODE_PROPERTY_OFFSET_INDIC_CONJUNCT_BREAK`=20|
-| 22  | (zero pad)             | —                           | —                                               |
+| 2   | `comb_index`           | 9                           | `UNICODE_PROPERTY_OFFSET_COMB_INDEX` = 2        |
+| 4   | `comb_length`          | 10                          | `UNICODE_PROPERTY_OFFSET_COMB_LENGTH` = 4       |
+| 6   | `flags`                | 11/13/14/15/16/17 (packed)  | `UNICODE_PROPERTY_OFFSET_FLAGS` = 6             |
+| 8   | `boundclass`           | 19                          | `UNICODE_PROPERTY_OFFSET_BOUNDCLASS` = 8        |
+| 10  | `indic_conjunct_break` | 20                          | `UNICODE_PROPERTY_OFFSET_INDIC_CONJUNCT_BREAK`=10|
 
-One field-set nuance is worth noting: the `casefold`/`upper`/`lower` *seqindex*
-fields and the `decomp`
-fields are **present in `PackedProperty` and embedded**, but the runtime case
-and decomposition algorithms do **not** read them. Case mapping and NFD use the
-separate flattened mapping tables (below) instead; the seqindex fields are
-carried for parity with utf8proc and are dead at runtime — no runtime offset
-constant nor emit helper exists for them. The compiler-side offset constants for
-the fields that *are* read are a parallel definition of
-the same layout and must stay in sync with how `PackedProperty` is encoded.
+The record was repacked (plan-77 U1): the five never-read utf8proc columns —
+`decomp_type` and the `decomp`/`casefold`/`uppercase`/`lowercase` *seqindexes* —
+were dropped, since the runtime case and decomposition algorithms read the
+separate flattened u32 mapping tables (below), never these fields. Removing them
+shrank the record from 24 to 12 bytes (~82 KB off the 8385-record table in every
+unicode-using binary) and eliminated the trailing zero-pad `u16`. The
+compiler-side offset constants are a parallel definition of the same layout and
+must stay in sync with how `PackedProperty` is encoded.
 [[src/target/shared/code/private/unicode.rs:UNICODE_PROPERTY_SIZE]]
 
 `flags` is a bitfield packed from four utf8proc booleans plus the display-width
@@ -197,8 +189,7 @@ alignments are fixed per table (u16 tables align 2, u32 / record tables align
 |----------------------------------|------------------------|-------|
 | `stage1`                         | u16                    | 2     |
 | `stage2`                         | u16                    | 2     |
-| `properties`                     | 24-byte record         | 2     |
-| `sequences`                      | u16                    | 2     |
+| `properties`                     | 12-byte record         | 2     |
 | `combinations_second`            | u32                    | 4     |
 | `combinations_combined`          | u32                    | 4     |
 | `nfd_entries`                    | 16-byte record         | 4     |

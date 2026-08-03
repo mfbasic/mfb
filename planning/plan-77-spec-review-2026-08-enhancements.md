@@ -145,7 +145,7 @@ the live `nfd_/uppercase_/lowercase_/casefold_sequences`.
 - [x] Update the spec: removed the obsolete "utf8proc sequences table" section (`01_tables-and-algorithms.md`), clearing the two now-dangling `[[…UNICODE_SEQUENCES_SYMBOL]]` citations.
 - [x] Regenerated the affected `.ncodesum` goldens via `-ncode` + `shasum` per target. Blast measured empirically (host-detection sweep): exactly **11 unicode-table-emitting fixtures** changed (crypto, csv, datetime, encoding, http, json, net, regex, strings, term + crypto-ec-valid + macos-app-mode-term), 55 golden files across 5 targets. `.ir`/`.ast` byte-identical → runtime behavior unchanged. 13 non-unicode fixtures unaffected.
 - **Acceptance:** ✅ `_mfb_unicode_sequences` absent from a fixture's emitted `-nobj`; byte-identity strings macos-aarch64 MATCHES regenerated golden; `.ir`/`.ast` unchanged; `cargo test --bin mfb unicode::runtime_tables` 14/14 green. **Size drop: 25,922 B/binary** (12961 u16 records, the asserted table dimension) off every unicode-emitting executable.
-- **Commit:** _(next commit)_
+- **Commit:** `03859f3e8`
 
 ## Phase 2 — Size/U1: repack `PackedProperty`, strip 5 unread fields (~82 KB)
 
@@ -156,14 +156,14 @@ constants; read sites 335/353/361/369/377/388/408/1270/1275/1280). Dead: offsets
 `uppercase_seqindex`, `lowercase_seqindex`. NB the in-file comment `unicode.rs:5-8`
 only names 6/8/10 — it undercounts; the real dead set is 5.
 
-- [ ] Remove the 5 dead fields from `struct PackedProperty` (`runtime_tables.rs:26-38`) and their writes in the table builder.
-- [ ] Recompute the packed byte layout in `encode_le` (`runtime_tables.rs:~84`): new stride, new offsets for the 6 live fields, trailing pad if alignment needs it.
-- [ ] Update `UNICODE_PROPERTY_SIZE` and all `UNICODE_PROPERTY_OFFSET_*` constants (`private/unicode.rs:3-13`) to the new offsets; all 10 read sites recompute automatically via the constants.
-- [ ] Update the fixed-size assertion `runtime_tables.rs:499` (`properties.len() * <newstride> * 2`).
-- [ ] Correct the undercounting comment at `unicode.rs:5-8` to name all 5 dead fields.
-- [ ] Regenerate the wide `.ncodesum`/byte-identity golden blast.
-- **Acceptance:** every `strings::upper/lower/caseFold/normalizeNfc/graphemes/displayWidth` rt-behavior fixture still produces identical *runtime output* (correctness of the surviving offsets); `cargo test --bin mfb` green; measured stride 24→~14 and ~82 KB binary drop reported.
-- **Commit:** _(fill on land)_
+- [x] Removed the 5 dead fields from `struct PackedProperty` and their `parse_properties` writes; also removed the now-dead `decomp_type_value` helper + its `parse_value` arm + 2 tests (mirrors the bug-343 A4 category-lookup removal).
+- [x] Recomputed `encode_le`: 6 live fields, **no trailing pad**, 12-byte stride (offsets 0/2/4/6/8/10).
+- [x] Updated `UNICODE_PROPERTY_SIZE` 24→12 and all `UNICODE_PROPERTY_OFFSET_*` (`private/unicode.rs`) to 0/2/4/6/8/10; verified all read sites go through the constants (no hardcoded 24) and the writer/reader offsets match.
+- [x] Updated the fixed-size assertion (`* 12 * 2`) and the `data_objects.rs` "12 bytes each" / `* 12`.
+- [x] Rewrote the spec `PackedProperty` section (record diagram, offset table, prose) to the 12-byte/6-field layout; also fixed two **Phase-1 leftover** stale `sequences`/24-byte references in the same doc (recorded in Corrections).
+- [x] Regenerated the `.ncodesum` golden blast (same 11 fixtures, 55 files). `.ir`/`.ast` byte-identical.
+- **Acceptance:** ✅ Runtime smoke test executed `strings::upper/lower/caseFold/normalizeNfc/displayWidth/graphemes/graphemeAt` — all correct output (NFC composition, width=5, graphemes=3 all read the repacked records at the new offsets); host byte-identity MATCH for all 10 affected byte-identity fixtures; `cargo test --bin mfb unicode::runtime_tables` 13/13 green. **Stride 24→12 B/record: saved 12 B × 8385 records = 100,620 B ≈ 98 KB/binary** (properties table was 201,240 B, now 100,620 B). Exceeds the ledger's ~82 KB estimate because I dropped all 5 dead fields + the pad (to 12 B) rather than the estimated ~14 B.
+- **Commit:** _(next commit)_
 
 ## Phase 3 — Size/U5: feature-flag the 14-table emission
 
@@ -389,3 +389,12 @@ Address-taken-local hazard flagged at `builder_exits.rs:231`.
   comment `private/unicode.rs:5-8` names only offsets 6/8/10; the actual unread set
   is 2/4/6/8/10 (`decomp_type`, `decomp_seqindex`, + the 3 case seqindexes). Phase 2
   fixes the comment too.
+- **Phase 1 left two stale spec references (caught + fixed in Phase 2).** Removing
+  the `sequences` table (Phase 1) left `01_tables-and-algorithms.md` still listing
+  `sequences = 12961 u16` in the reference-sizes line and a `sequences` row in the
+  emitted-symbols table. Both are now removed. Lesson: a table removal must sweep
+  the spec's *size list* and *symbol table*, not only the prose section.
+- **U1 also removed dead Rust code the ledger didn't mention.** Dropping the
+  `decomp_type` field made `decomp_type_value` (a 16-arm helper), its `parse_value`
+  match arm, and 2 unit tests dead; removed per AGENTS.md "no dead code" (same
+  pattern as the bug-343 A4 category-lookup removal noted in the source).

@@ -1,16 +1,17 @@
 use super::super::*;
 
-const UNICODE_PROPERTY_SIZE: usize = 24;
+// The utf8proc property record was repacked to 6 live u16 fields (plan-77 U1):
+// the 5 never-read fields (decomp_type + the casefold/uppercase/lowercase and
+// decomp seqindexes — case mapping and NFD use the flattened u32 tables) were
+// dropped, shrinking the record from 24 to 12 bytes. Offsets here must match
+// the packing order in `unicode/runtime_tables.rs::encode_le`.
+const UNICODE_PROPERTY_SIZE: usize = 12;
 const UNICODE_PROPERTY_OFFSET_COMBINING_CLASS: usize = 0;
-// Offsets 6/8/10 (casefold/uppercase/lowercase seqindex) exist in the on-disk
-// record but are never read: case mapping uses the flattened u32 tables. The
-// former `UNICODE_PROPERTY_OFFSET_*_SEQINDEX` constants and their emit helpers
-// were dead and were removed (bug-70).
-const UNICODE_PROPERTY_OFFSET_COMB_INDEX: usize = 12;
-const UNICODE_PROPERTY_OFFSET_COMB_LENGTH: usize = 14;
-const UNICODE_PROPERTY_OFFSET_FLAGS: usize = 16;
-const UNICODE_PROPERTY_OFFSET_BOUNDCLASS: usize = 18;
-const UNICODE_PROPERTY_OFFSET_INDIC_CONJUNCT_BREAK: usize = 20;
+const UNICODE_PROPERTY_OFFSET_COMB_INDEX: usize = 2;
+const UNICODE_PROPERTY_OFFSET_COMB_LENGTH: usize = 4;
+const UNICODE_PROPERTY_OFFSET_FLAGS: usize = 6;
+const UNICODE_PROPERTY_OFFSET_BOUNDCLASS: usize = 8;
+const UNICODE_PROPERTY_OFFSET_INDIC_CONJUNCT_BREAK: usize = 10;
 const UNICODE_NFD_ENTRY_SIZE: usize = 16;
 const UNICODE_NFD_ENTRY_OFFSET_CODEPOINT: usize = 0;
 const UNICODE_NFD_ENTRY_OFFSET_SEQUENCE_OFFSET: usize = 4;
