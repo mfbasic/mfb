@@ -171,7 +171,7 @@ Acceptance: the release AND debug acceptance walls both fell (58→56.3 s,
 front-end/runtime regression (only the codegen carrier type changed). The modest
 size of the drop is expected (Corrections: B's classify fast path is dormant until
 C converts producers).
-Commit: (recorded next commit)
+Commit: d875f46ce
 
 ## Validation Plan
 
