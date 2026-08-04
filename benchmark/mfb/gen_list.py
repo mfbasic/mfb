@@ -279,8 +279,10 @@ def _(c, E):
 
 @op('any')
 def _(c, E):
+    # NOT any(...) matches the original list.mfb (Integer: neg list has no positive,
+    # so the true branch fires — checksum 200 rather than a trivial 0).
     return ro(c, E, E['any_build'], 200,
-              lambda L: [f'IF collections::any({L}, {E["any_pred"]}) THEN', '  acc = acc + 1', 'END IF'])
+              lambda L: [f'IF NOT collections::any({L}, {E["any_pred"]}) THEN', '  acc = acc + 1', 'END IF'])
 
 
 @op('chunks')
