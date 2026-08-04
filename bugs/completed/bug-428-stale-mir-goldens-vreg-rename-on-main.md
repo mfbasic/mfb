@@ -5,8 +5,18 @@ Effort: small (<1h)
 Severity: LOW
 Class: Test hygiene / stale golden
 
-Status: Open
+Status: FIXED (regenerated in plan-83 commit `a8e4bd1a9`; merged to main with plan-83)
 Regression Test: the two `.mir` goldens below (regenerate + verify)
+
+## Resolution
+
+Fixed independently while landing **plan-83**: its `artifact-gate … all` run
+surfaced the same 2 diffs, they were verified pre-existing at the base tip
+(`171fc43cf`, a detached rebuild emits the identical `%arg0`), and the two `.mir`
+goldens were regenerated in commit `a8e4bd1a9` — the diff is nothing but the
+`%ret0`→`%arg0` rename (a pure x0 label change; `.ncode`/`.nobj`/`.run` all match),
+exactly the fix prescribed below. No other goldens were touched. Confirmed by the
+post-merge `artifact-gate … all` = 0 diffs.
 
 The artifact gate (`bash scripts/artifact-gate.sh <exe> all`) reports exactly two
 diffs on a clean `main` (tip `300b2a2f8` at time of writing), both in the
