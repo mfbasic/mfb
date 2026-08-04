@@ -319,6 +319,17 @@ Commit: — (Phase 5 is measurement over the Phase 3 tree; no new code)
   clone lives in `code_fields_from_mir(&…)`, but only the owning `select_<isa>`
   loop can *move* the field bag, so `Backend::select` + all three `select_<isa>`
   became by-value (Phase 2). All four backends share the same non-fused move path.
+- **Finalization / main drift.** During execution `main` advanced `99b778ffa →
+  6aff06f8d` (bug-425: deferred thread::transfer move-flag + regenerated thread
+  codegen-cover goldens + 2 new rt-behavior fixtures). Merged main into
+  `worktree-P-84` (clean — bug-425's `.rs` files don't overlap plan-84's) and
+  re-validated: `cargo test --bin mfb` **3783 passed**; final `artifact-gate … all`
+  = **1161 tests, 1303 builds, 1573 goldens, 0 diffs** — plan-84's byte-identical
+  transforms reproduce bug-425's *newly regenerated* thread goldens exactly. Two
+  unrelated files rustfmt flagged (`builder_collection_layout.rs`,
+  `builder_error_emission.rs`, pre-existing drift on main, untouched by this plan)
+  were reverted per "touch only files you changed"; plan-84's own files are
+  fmt-clean.
 
 ## Summary
 
