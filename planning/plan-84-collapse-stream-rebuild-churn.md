@@ -245,15 +245,39 @@ Commit: — (no code; reverted to HEAD; see Corrections)
 
 ### Phase 5 — Measure the realized win
 
-- [ ] Re-run the attribution + total-allocation counter + release/debug acceptance
+- [x] Re-run the attribution + total-allocation counter + release/debug acceptance
       wall on `mfb test tests/acceptance`. Record total allocations before → after,
       and the summed stream-rebuild/clone class (was ≈28–33%) → after. This is the
       headline: a large total-allocation drop, verified against the counted cause.
 
-Acceptance: total allocations fell substantially; the stream-rebuild/clone class is
-materially reduced; both acceptance walls re-measured; byte-identical (0 diffs);
-acceptance 362/362 on release and debug.
-Commit: —
+**Headline — the realized win** (all `mfb test tests/acceptance`, 362/362):
+
+| Metric | before (merge-base) | after (plan-84) | Δ |
+|---|---|---|---|
+| **total allocations** | ≈479.6M | ≈328.5M | **−151M (−31.5%)** |
+| targeted stream-rebuild/clone class¹ | 62.47M clones | ≈4.44M clones | **−92.9%** |
+| — `mir_fields_from_code` (lower_to_mir) | 21.36M | 3.05M | −85.7% |
+| — `code_fields_from_mir` (select) | 19.69M | 1.39M | −93.0% |
+| — `substitute` (regalloc ×2) | 21.42M | **0** | −100% |
+| **release acceptance wall²** | 45.3s | **34.1s** | **−24.7%** |
+| debug acceptance wall | — | 214.7s | 362/362 |
+
+¹ The residual ≈4.44M is the irreducible fused/`addr_of`/shared-branch minority the
+design intentionally keeps (multi-use / slice-borrow); `substitute` is eliminated
+outright. ² Two *clean* (uninstrumented) release binaries — the merge-base
+`99b778ffa` and the plan-84 tip — each timed 3× from the same worktree
+(before 45.46/45.22/45.27; after 34.32/34.08/33.96). The ≈25% wall drop tracks the
+allocation cut because the acceptance compile is allocation-bound
+(`codeinstruction-operand-typing-and-regalloc-perf`: ~74% release self-time in
+malloc). Allocation counts were measured with the uncommitted `MFB_ALLOC_STATS`
+counting allocator (counts allocations, does not add any), so the before/after
+comparison is exact.
+
+Acceptance: total allocations fell substantially (−31.5%); the stream-rebuild/clone
+class is materially reduced (−92.9%, `substitute` to zero); both acceptance walls
+re-measured (release −24.7%, debug run); byte-identical (`artifact-gate … all`
+**0 diffs**); acceptance **362/362 on release and debug**. — MET.
+Commit: — (Phase 5 is measurement over the Phase 3 tree; no new code)
 
 ## Validation Plan
 
