@@ -1005,8 +1005,16 @@ impl CodeBuilder<'_> {
 
     pub(super) fn store_pending_current_result(&mut self) {
         let slots = self.ensure_pending_result_slots();
-        self.emit(abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), slots.value));
-        self.emit(abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), slots.tag));
+        self.emit(abi::store_u64(
+            RESULT_VALUE_REGISTER,
+            abi::stack_pointer(),
+            slots.value,
+        ));
+        self.emit(abi::store_u64(
+            RESULT_TAG_REGISTER,
+            abi::stack_pointer(),
+            slots.tag,
+        ));
         self.emit(abi::store_u64(
             RESULT_ERROR_MESSAGE_REGISTER,
             abi::stack_pointer(),

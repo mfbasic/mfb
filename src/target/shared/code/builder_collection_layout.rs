@@ -1128,7 +1128,11 @@ impl CodeBuilder<'_> {
         let alloc_ok = self.label("inline_value_alloc_ok");
         self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
         // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
-        self.emit(abi::move_immediate(abi::ARG[0], "Integer", &size.to_string()));
+        self.emit(abi::move_immediate(
+            abi::ARG[0],
+            "Integer",
+            &size.to_string(),
+        ));
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
