@@ -34,6 +34,7 @@ import re
 import regexbench
 import scalarbench
 import serializebench
+import setmatrix
 import setopsbench
 import stringbench
 import strbuildbench
@@ -801,6 +802,9 @@ def main():
 
     # set group (Set OF T build/contains + full set-algebra surface)
     setopsbench.run_all(RUN, now_ns, record)
+
+    # set matrix — Fixed/Dynamic element (peers mfb setops.mfb plain groups)
+    setmatrix.run_all(RUN, now_ns, record)
 
     # string group (concat/case/search/slice/unicode)
     stringbench.run_all(RUN, now_ns, record)
