@@ -1,12 +1,28 @@
 # bug-424: mutating a resource STATE field rebuilds the whole STATE record (O(n²) accumulation, no in-place mutation)
 
-Last updated: 2026-08-01
+Last updated: 2026-08-03
 Effort: x-large (1d–3d)
 Severity: MEDIUM
 Class: Footgun (silent super-linear performance; no wrong result, no crash — but effectively a hang / potential OOM at scale)
 
-Status: Open
-Regression Test: tests/rt-behavior/resources/resource-state-accum-perf (to be added; plus a `.ncode` close/copy-count assertion — see Phases)
+Status: FIXED (Layer 1 — scalar STATE field in-place store) — collection half split to bug-430
+Regression Test: `tests/rt_res_state_inplace_mutation.rs` (`scalar_state_field_assign_stores_in_place` + two non-goal guards, green) and `tests/rt-behavior/resources/bug424_state_accum_inplace` (§15 visibility, green)
+
+## STATUS: FIXED (204e4c481)
+
+Layer 1 (scalar STATE field stored in place) landed in `204e4c481`: a scalar
+`s.state.field = v` now mutates the existing STATE block at the field's offset
+instead of rebuilding the whole record, so a scalar bump on a STATE record that
+also holds a large buffer no longer re-copies that buffer (scalar STATE mutation
+is O(1) regardless of buffer size — scalar-only repro 0.23s → 0.01s at N=16000).
+`cargo test --bin mfb`: 3783 passed.
+
+Layer 2 (out-of-line growable representation for STATE **collection** fields, so
+collection accumulation stops being O(n²)) is a genuine multi-day record-layout
+migration with high memory-corruption risk and was **split out to
+`bug-430-state-collection-field-accumulation-quadratic.md`** at the user's
+direction. The `collection_state_field_grows_in_place` regression test is present
+and `#[ignore]`d, tracked by bug-430.
 
 Every mutation of a resource's `STATE` — including a single scalar field assignment `s.state.pos = 10` and a collection append `s.state.raw = collections::append(s.state.raw, chunk)` — is lowered as a **whole-record `WITH` rebuild** that reconstructs the entire STATE record and re-copies every inlined field. Because a flat collection field (e.g. `List OF Byte`) is *inlined* in the record block, each mutation deep-copies the entire accumulated payload. Accumulating into a STATE buffer chunk-by-chunk is therefore **O(n²)** in total bytes, and even a cheap scalar bump on a STATE record that also holds a large buffer re-copies that buffer.
 
@@ -130,20 +146,26 @@ Expected generated-output shift: STATE-carrying fixtures' `.ncode` / IR goldens 
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/rt-behavior/resources/resource-state-accum-perf` (or a `tests/native_resource_*` `.ncode` count test): a STATE `List OF Byte` accumulation whose per-mutation copy count is asserted, so the quadratic is caught deterministically without wall-clock timing. Confirm it fails (super-linear copy/`memcpy` count) against current behavior.
-- [ ] Add a scalar-only sibling proving `s.state.pos = v` on a STATE record with a large field does not re-copy the large field (fails today).
-- [ ] Record the runtime timing table above from `mfb build` + `/usr/bin/time` as the human-facing proof.
-- [ ] Confirm the blast-radius verdicts by reading each cited site.
+- [x] Deterministic, host-independent structural tests instead of a wall-clock or runtime copy-count assertion: `tests/rt_res_state_inplace_mutation.rs` builds the STATE-mutation functions cross-target (`linux-x86_64`, build-only `--ncode`) and counts (a) `state_assign_value` stack slots — one per whole-record STATE replace; an in-place mutation allocates none — and (b) `append_inplace_realloc` labels, present only when a list grows in place. `scalar_state_field_assign_stores_in_place` and `collection_state_field_grows_in_place` both failed (`state_assign_value == 1`, want `0`) for the documented reason; two non-goal guards (`whole_state_replace_still_rebuilds`, `string_state_field_still_rebuilds`) stay on the rebuild path.
+- [x] Runtime correctness guard `tests/rt-behavior/resources/bug424_state_accum_inplace`: a helper mutates a scalar AND a collection STATE field through a `RES` parameter; the owner observes the accumulation (`len=20 n=5`), proving the §15 aliasing/visibility contract the fix must preserve.
+- [x] Runtime timing reproduced (debug `mfb`, macOS-aarch64, `/usr/bin/time -p`, user CPU s): STATE N=8000 → 9.05s, N=16000 → 39.40s (4.35× for 2× N — O(n²)); MUT-local N=16000 → 0.01s. Isolated: collection-only N=16000 → 23.81s; scalar-bump-on-32KB-buffer N=16000 → 0.23s (grows with buffer size — the scalar bump re-copies the inlined buffer). Both halves contribute.
+- [x] Blast-radius verdicts confirmed by reading each cited site; the `state.field = v` desugar to a single-field `WITH` update over `resource.state` (IR `"kind":"with"`) confirmed in the IR dump.
 
-Acceptance: the new test(s) fail for the documented reason; audit complete.
-Commit: —
+Acceptance: the new test(s) failed for the documented reason; audit complete.
+Commit: 204e4c481 (tests + fixture landed with Layer 1).
 
 ### Phase 2 — the fix
 
-- [ ] Layer 1: single-field in-place scalar store (`src/ast/stmt.rs` desugar + `builder_control.rs` `StateAssign`).
-- [ ] Layer 2: out-of-line growable representation for STATE collection fields + in-place append; update build/copy/thread-transfer/free (`builder_collection_layout.rs`, `builder_arena_transfer.rs:460`, `builder_resource_cleanup.rs:400`).
+- [x] **Layer 1: single-field in-place scalar store.** `NirOp::StateAssign` codegen (`builder_control.rs::try_inplace_state_scalar_assign`) recognizes a single-field `WITH` update over *this* resource's own `state` whose updated fields are all fixed-width inline scalars, and stores each new value in place at its field offset in the existing STATE block — no rebuild, no re-copy of any inlined field. Inlined (`String`/collection/nested) and pointer fields fall through to the whole-record replace. Pure native-codegen change (AST/IR goldens unchanged; the in-place path only triggers for scalar STATE assigns, so no unrelated codegen shifts). Scalar STATE mutation is now O(1) regardless of buffer size (scalar-only repro 0.23s → 0.01s). `cargo test --bin mfb`: 3783 passed. Commit: 204e4c481.
+- [ ] **Layer 2: out-of-line growable representation for STATE collection fields** + in-place append; update build/copy/thread-transfer/free (`builder_collection_layout.rs`, `builder_arena_transfer.rs:460`, `builder_resource_cleanup.rs:400`).
 
-Acceptance: Phase 1 tests pass; STATE accumulation is linear and within a small constant factor of the MUT-local baseline; scalar-only STATE fixtures unchanged in observable output; aliasing/visibility fixtures still green.
+  Refined scope from the audit — this is a genuine multi-day layout change in the compiler's most memory-corruption-sensitive region, and every required change is invisible to output goldens if wrong (a leak/double-free/UAF, per the bug-374/375 lessons):
+  * A collection field of a STATE record must become a **pointer slot to a separately-allocated growable buffer** (with capacity headroom), so `f.state.coll = append(f.state.coll, x)` reuses `lower_list_append_in_place`. Inlined + growable are mutually exclusive.
+  * `record_field_is_inlined` is keyed on the record **type**, so the layout cannot diverge only "when used as STATE" without a whole-program STATE-only-type analysis; the alternative is a STATE-specific representation with **boundary conversions** at whole-state read (`LET a = f.state`) and whole-state write (`f.state = <ordinary record>`). In-tree, whole-state read only appears in an `-invalid` fixture (never runs) and whole-state write is scalar-`WITH` (Layer 1) or a scalar state — so the collection-bearing boundary is currently unexercised, but the language allows it and a correct fix must handle it, not error.
+  * `emit_free_resource_state_block` frees the STATE payload as **one** arena block sized by `emit_inlined_block_size_from_ptr_slot` (assumes inlined). Out-of-line buffers must be freed **separately** (this same size helper feeds the thread-transfer copy at `builder_arena_transfer.rs:460`, so both diverge together).
+  * The uniform alternative (make collection-in-record fields out-of-line for **all** records) removes the divergence but makes every record-with-a-collection non-flat — wide behavior/golden churn against the plan-02 inlining direction.
+
+Acceptance: Phase 1 tests pass; STATE accumulation is linear and within a small constant factor of the MUT-local baseline; scalar-only STATE fixtures unchanged in observable output; aliasing/visibility fixtures still green; **no leak / double-free / UAF** (measure RSS on the repro + thread-transfer of a collection STATE + full acceptance).
 Commit: —
 
 ### Phase 3 — regenerate expected outputs + full validation
