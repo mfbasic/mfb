@@ -5,7 +5,7 @@ impl CodeBuilder<'_> {
     /// (§15.6): a head-pointer stack slot (initialized empty) plus an
     /// [`ActiveCleanup::OwnedList`] obligation drained on every exit path.
     pub(super) fn setup_owned_list(&mut self, name: &str, type_: &str) -> Result<(), String> {
-        let close_symbol = self.collection_resource_close_symbol(type_)?;
+        let drop = self.collection_resource_drop(type_)?;
         let head_slot = self.allocate_stack_object(&format!("owned_list_{name}"), 8);
         let scratch9 = self.temporary_vreg();
         self.emit(abi::move_immediate(&scratch9, "Integer", "0"));
@@ -15,7 +15,7 @@ impl CodeBuilder<'_> {
             .push(ActiveCleanup::OwnedList(OwnedListCleanup {
                 name: name.to_string(),
                 head_slot,
-                close_symbol,
+                drop,
             }));
         Ok(())
     }
@@ -120,7 +120,11 @@ impl CodeBuilder<'_> {
 
     /// Drain an owned-list: walk it head-first, closing each record once. The
     /// close is closed-flag idempotent, so a record reachable through more than
-    /// one path closes exactly once (§15.6).
+    /// one path closes exactly once (§15.6). A concrete-resource element closes
+    /// via its single registered close op; a resource-union element (bug-429) is
+    /// tag-dispatched to the active variant's close op and its uniform STATE
+    /// block freed — the same drop a lone `RES u AS Union STATE S` binding runs,
+    /// via the shared `emit_union_tag_dispatch_drop`.
     pub(super) fn emit_owned_list_drain(
         &mut self,
         cleanup: &OwnedListCleanup,
@@ -138,20 +142,52 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&done_label));
-        // Advance the head past this node before the call, which clobbers
-        // caller-saved registers; the loop reloads the head from memory.
-        self.emit(abi::load_u64(abi::return_register(), &scratch9, 0));
-        self.emit(abi::load_u64(&scratch10, &scratch9, 8));
-        self.emit(abi::store_u64(
-            &scratch10,
-            abi::stack_pointer(),
-            cleanup.head_slot,
-        ));
-        self.emit_symbol_call(&cleanup.close_symbol);
-        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-        self.emit(abi::branch_eq(&close_ok));
-        self.record_secondary_cleanup_failure();
-        self.emit(abi::label(&close_ok));
+        // Advance the head past this node before the call(s) below, which clobber
+        // caller-saved registers; the loop reloads the head from memory. Node
+        // field 0 is the value to close — the record pointer for a concrete
+        // element, the union block pointer (`{tag@0, record-ptr@8}`) for a union.
+        match &cleanup.drop {
+            OwnedListDrop::Concrete(close_symbol) => {
+                self.emit(abi::load_u64(abi::return_register(), &scratch9, 0));
+                self.emit(abi::load_u64(&scratch10, &scratch9, 8));
+                self.emit(abi::store_u64(
+                    &scratch10,
+                    abi::stack_pointer(),
+                    cleanup.head_slot,
+                ));
+                self.emit_symbol_call(close_symbol);
+                self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+                self.emit(abi::branch_eq(&close_ok));
+                self.record_secondary_cleanup_failure();
+                self.emit(abi::label(&close_ok));
+            }
+            OwnedListDrop::Union {
+                variants,
+                state_type,
+            } => {
+                let union_ptr = self.allocate_register()?;
+                self.emit(abi::load_u64(&union_ptr, &scratch9, 0));
+                self.emit(abi::load_u64(&scratch10, &scratch9, 8));
+                self.emit(abi::store_u64(
+                    &scratch10,
+                    abi::stack_pointer(),
+                    cleanup.head_slot,
+                ));
+                // Defensive null-skip: a well-formed floated union node is
+                // non-null, but guard like the single-binding path so a null can
+                // never fault the tag load at `union_ptr+0` (bug-246).
+                let node_done = self.label("owned_list_union_node_done");
+                self.emit(abi::compare_immediate(&union_ptr, "0"));
+                self.emit(abi::branch_eq(&node_done));
+                self.emit_union_tag_dispatch_drop(
+                    &union_ptr,
+                    variants,
+                    state_type.as_deref(),
+                    &node_done,
+                )?;
+                self.emit(abi::label(&node_done));
+            }
+        }
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&done_label));
         Ok(())

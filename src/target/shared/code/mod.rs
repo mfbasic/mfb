@@ -523,14 +523,30 @@ struct ResourceUnionCleanup {
 /// nul-terminated singly linked list of `{record_ptr, next}` nodes, with its
 /// head in `head_slot`; draining walks it head-first (most-recent first) and
 /// closes each record once (the close is closed-flag idempotent).
+/// How each node of an owned-list is closed at drain: a concrete resource
+/// element has one registered close op; a resource-union element (bug-429) is
+/// tag-dispatched to its active variant's close op, then its uniform STATE block
+/// is freed — the same drop a lone `RES u AS Union STATE S` binding runs.
+#[derive(Clone)]
+enum OwnedListDrop {
+    /// A single registered close op applied to each node's record pointer.
+    Concrete(String),
+    /// A resource-union element: `(tag, close_symbol)` per variant, plus the
+    /// union's uniform `STATE` type (when it has one) to free after the close.
+    Union {
+        variants: Vec<(usize, String)>,
+        state_type: Option<String>,
+    },
+}
+
 #[derive(Clone)]
 struct OwnedListCleanup {
     /// The owning collection binding's name (for transfer-on-return lookup).
     name: String,
     /// Stack offset of the list head pointer (0 when empty).
     head_slot: usize,
-    /// Close op symbol for the collection's resource element type.
-    close_symbol: String,
+    /// How each node's resource is closed (concrete close op vs union dispatch).
+    drop: OwnedListDrop,
 }
 
 /// An owned, non-escaping flat value freed at scope-drop (plan-01 Phase 5 /
