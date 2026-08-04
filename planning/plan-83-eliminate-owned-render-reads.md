@@ -193,7 +193,7 @@ of all allocations, deterministic on the probe); byte-identical at every phase
 (`artifact-gate … all`: 0 diffs ×3); `cargo test --bin mfb` 3780 passed. Runtime
 proof: `target/release/mfb test tests/acceptance` → `Tests: 362 Pass: 362 Fail: 0`,
 exit 0.
-Commit: —
+Commit: 879dc0ad6
 
 ## Validation Plan
 
