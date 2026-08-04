@@ -158,12 +158,14 @@ impl CodeFunction {
         // `plan.validate()` and was caught only much later by the encoder ("branch
         // target label does not resolve"). Resolving it here fails at the layer
         // that owns the invariant, with the function named.
+        // Borrow each label name (a `Raw` string lends its `&str`); a `Raw` label
+        // never allocates for the set, and the membership test below borrows too.
         let defined_labels = self
             .instructions
             .iter()
             .filter(|instruction| instruction.op == CodeOp::Label)
-            .filter_map(|instruction| instruction.get("name"))
-            .collect::<std::collections::HashSet<_>>();
+            .filter_map(|instruction| instruction.operand("name").map(|n| n.rendered()))
+            .collect::<std::collections::HashSet<std::borrow::Cow<'_, str>>>();
         for instruction in &self.instructions {
             // Only label-targeting branches: `bl`/`blr` target a symbol (covered by
             // the relocation checks above) and `branch_self` takes no target.
@@ -185,8 +187,9 @@ impl CodeFunction {
             ) {
                 continue;
             }
-            if let Some(target) = instruction.get("target") {
-                if !defined_labels.contains(&target) {
+            if let Some(target) = instruction.operand("target") {
+                let target = target.rendered();
+                if !defined_labels.contains(target.as_ref()) {
                     return Err(format!(
                         "native code function '{}' branches to label '{target}', which it \
                          does not define",

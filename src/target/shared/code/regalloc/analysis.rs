@@ -182,7 +182,11 @@ pub(super) fn call_clobber_mask(instruction: &CodeInstruction, model: &ClassMode
         }
         CodeOp::BranchLinkRegister => caller_saved,
         CodeOp::BranchLink => {
-            let target = instruction.get("target").unwrap_or_default();
+            // Read-only prefix sniff of the call target (a `Raw` symbol → borrow).
+            let target = instruction
+                .operand("target")
+                .map(|t| t.rendered())
+                .unwrap_or_default();
             let is_runtime_helper = target.starts_with("_mfb_")
                 && !target.starts_with("_mfb_fn_")
                 && !target.starts_with("_mfb_ifn_");
@@ -541,8 +545,10 @@ fn build_cfg(instructions: &[CodeInstruction]) -> Vec<Block> {
     let mut label_block = HashMap::new();
     for (i, instruction) in instructions.iter().enumerate() {
         if instruction.op == CodeOp::Label {
-            if let Some(name) = instruction.get("name") {
-                label_block.insert(name.to_string(), block_of[i]);
+            // The label name (a `Raw` string) is the map key; borrow it and own
+            // once on insert (the former `get()` + `.to_string()` allocated twice).
+            if let Some(name) = instruction.operand("name") {
+                label_block.insert(name.rendered().into_owned(), block_of[i]);
             }
         }
     }
@@ -552,8 +558,9 @@ fn build_cfg(instructions: &[CodeInstruction]) -> Vec<Block> {
         let last = &instructions[end - 1];
         let mut succ = Vec::new();
         if is_block_terminator(last.op) {
-            if let Some(target) = last.get("target") {
-                if let Some(&tb) = label_block.get(&target) {
+            if let Some(target) = last.operand("target") {
+                // Borrow the target spelling to key the lookup — no owned String.
+                if let Some(&tb) = label_block.get(target.rendered().as_ref()) {
                     succ.push(tb);
                 }
             }

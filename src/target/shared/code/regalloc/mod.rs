@@ -192,8 +192,17 @@ pub(crate) fn find_physical_operand(instructions: &[CodeInstruction]) -> Option<
             if matches!(*name, "target" | "name") {
                 continue;
             }
+            // A virtual-register sentinel (`%vN`/`%fN`) can never name a physical
+            // register, so match it directly and skip — the pre-allocation stream
+            // this scans is dominated by vregs, and `rendered()` would otherwise
+            // format each one to a `%`-string only to discard it at the
+            // `starts_with('%')` check below (byte-identical: a vreg renders to
+            // `%…` and would take that same skip).
+            if matches!(value, Operand::VReg { .. }) {
+                continue;
+            }
             // plan-78-B: render the typed operand to its string for the
-            // physical-name sniff (unchanged classification).
+            // physical-name sniff (unchanged classification). `Raw`/`Phys` borrow.
             let value = value.rendered();
             if value.starts_with('%') || value == "sp" {
                 continue;

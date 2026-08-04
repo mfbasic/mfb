@@ -138,17 +138,28 @@ Acceptance: `artifact-gate … all` 0 diffs (confirmed, after reverting the
 `Operand`-key attempt). `cargo test --bin mfb` green (3780). Render-bucket
 reduction consolidated into the Phase 4 measurement (peephole's `dst` existence
 checks; fma's residual render is intentionally retained for correctness).
-Commit: (recorded next commit)
+Commit: 2c7974c94
 
 ### Phase 3 — pre-regalloc reads (typed-match where `VReg` appears)
 
-- [ ] `regalloc::find_physical_operand` (1.5%), `regalloc::analysis` label reads
-      (0.9%), `validation` (0.6%): where the operand is `VReg`, match the typed
-      arm instead of rendering; where it is `Raw`, use `rendered()`. Note any
-      `VReg`-string residue that must stay.
+- [x] `regalloc::find_physical_operand` (1.5%): added a `matches!(value,
+      Operand::VReg { .. })` fast-path skip before `rendered()`. The pre-allocation
+      stream this scans (run on every function) is vreg-dominated, and a `VReg`
+      would otherwise render to a `%vN`/`%fN` String only to take the
+      `starts_with('%')` skip — byte-identical, the big Phase-3 win. `Raw`/`Phys`
+      still borrow via `rendered()`.
+- [x] `regalloc::analysis` (0.9%): the `BranchLink` call-target prefix sniff and
+      `build_cfg`'s label-name insert + terminator-target lookup now read via
+      `operand()`+`rendered()` (borrow the `Raw` symbol/label); the label insert
+      also dropped a redundant `.to_string()`.
+- [x] `validation` (0.6%): `defined_labels` is now a `HashSet<Cow<str>>` that
+      borrows each `Raw` label name (no per-label `String`), and the branch-target
+      membership test borrows too. No `VReg`-string residue needed (labels/targets
+      are `Raw`).
 
-Acceptance: `artifact-gate … all` 0 diffs; `cargo test`; attribution numbers
-recorded.
+Acceptance: `artifact-gate … all` 0 diffs (confirmed). `cargo test --bin mfb` green
+(3780). Measured (`render_calls`, one-regex probe): after Phase 2 → after Phase 3
+(see Phase 4 table); the `find_physical_operand` vreg-skip is the dominant reducer.
 Commit: —
 
 ### Phase 4 — Measure the realized win
