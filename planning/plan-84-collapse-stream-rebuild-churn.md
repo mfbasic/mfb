@@ -37,9 +37,9 @@ fields-Vec clones per instruction. Combined ≈28–33% of all compile allocatio
 
 | Must be true | Command | Status |
 |---|---|---|
-| Byte-identity oracle + acceptance harness | `ls scripts/artifact-gate.sh tests/acceptance/project.json` | MET |
-| The pipeline seams are as described (lower_to_mir → select → regalloc×2) | `rg -n 'fields.to_vec\(\)' src/target/shared/code/mir.rs` and `rg -n 'instruction.fields.clone\(\)' src/target/shared/code/regalloc/linear_scan.rs` | MET |
-| The `-mir` capture / round-trip identity paths that reuse the pre-select stream | `rg -n 'route_function_through_mir\|capture_function\|lower_to_mir' src/target/shared/code/mir.rs` | verify first (governs move-vs-clone) |
+| Byte-identity oracle + acceptance harness | `ls scripts/artifact-gate.sh tests/acceptance/project.json` | MET (both present, 2026-08-03) |
+| The pipeline seams are as described (lower_to_mir → select → regalloc×2) | `rg -n 'fields.to_vec\(\)' src/target/shared/code/mir.rs` and `rg -n 'instruction.fields.clone\(\)' src/target/shared/code/regalloc/linear_scan.rs` | MET (mir.rs:370,380; linear_scan.rs:457) |
+| The `-mir` capture / round-trip identity paths that reuse the pre-select stream | `rg -n 'route_function_through_mir\|capture_function\|lower_to_mir' src/target/shared/code/mir.rs` | MET (lower_to_mir@469, route_function_through_mir@585, capture_function@686; analysed in Phase 1) |
 
 ## Non-goals
 
@@ -86,17 +86,52 @@ cloning**, but each has a correctness constraint that must be checked first.
 
 ### Phase 1 — Attribute each clone precisely, and confirm the move-safety constraints
 
-- [ ] Re-run the attribution probe; record the exact est-alloc for `lower_to_mir`,
+- [x] Re-run the attribution probe; record the exact est-alloc for `lower_to_mir`,
       `select`, `linear_scan::run` (and split `substitute`'s clone from the `out`
       Vec if possible with a targeted counter). This ranks the targets.
-- [ ] Determine whether `lower_to_mir`'s input can be consumed by value: who reads
+- [x] Determine whether `lower_to_mir`'s input can be consumed by value: who reads
       `self.instructions` after lowering, and whether the `-mir` capture /
       `route_function_through_mir` identity pass needs the pre-select stream.
       Record the constraint and the chosen move/clone-in-capture-only design.
 
+**Measured target ranking** (deterministic per-site counters, uncommitted
+`MFB_ALLOC_STATS` counting allocator + `fetch_add` at each clone site, over
+`mfb test tests/acceptance`, 362/362; two runs, per-site counts identical):
+
+| Clone site | fields-Vec clones | Phase |
+|---|---|---|
+| `substitute` (`linear_scan.rs:457`, run ×2 Int+Fp) | **21,420,760** | 3 |
+| `mir_fields_from_code` (`lower_to_mir`) | **21,355,962** | 2 |
+| `code_fields_from_mir` (`select`, host = aarch64) | **19,694,107** | 2 |
+
+Combined **62.47M** fields-Vec clones; `total_allocs ≈ 479.6M` (the acceptance
+run includes the test harness's in-process compiles; per-site counters are the
+deterministic anti-guess signal). Ranking matches the plan's ≈13/10/10% estimate;
+`substitute` leads because it clones **every** instruction in **both** regalloc
+passes.
+
+**Move-safety decision (recorded):**
+- `lower_to_mir`'s input **can be consumed by value.** Every hot caller drops the
+  input right after: `builder_registers.rs:141-142` (`self.instructions = select(...)`),
+  `route_function_through_mir` (`function.instructions = select(...)`),
+  `linux_gtk/mod.rs:662-664` (`*instructions = select(...)`). The **only** double
+  read is the `-mir` capture at `builder_registers.rs:137-139`, which lowers a
+  second time *before* the real lowering — and capture is rare (`-mir` dump only).
+- **Chosen design:** add a by-value `lower_to_mir_owned(Vec<CodeInstruction>)` that
+  **moves** each instruction's `fields` into the produced `MirInstruction` in the
+  common (non-fused) case; keep the borrowing `lower_to_mir(&[…])` as a
+  `.to_vec()` → owned wrapper for the rare capture path and the ~20 test callers
+  (clone acceptable there). Fused/`addr_of`/shared-branch cases keep cloning:
+  they need `setter.fields` for multiple outputs or slice-borrow it (minority).
+- **`select` likewise:** all three backends funnel their common case through the
+  shared `code_fields_from_mir(&…)`. To move, the owning loop must own the Vec →
+  change `Backend::select` and each `select_<isa>` to take `Vec<MirInstruction>`
+  by value; `neutral` is a dropped-after local at every call site, so it moves.
+  Non-fused case moves `instruction.fields`; fused case still slices+clones.
+
 Acceptance: a written, measured target ranking + the move-safety decision, in this
-file. No code yet.
-Commit: —
+file. No code yet. — MET (above). Instrumentation is uncommitted (never staged).
+Commit: — (plan doc only; production code unchanged this phase; hash recorded next commit)
 
 ### Phase 2 — Move `fields` through the MIR/select boundary instead of `to_vec`
 
