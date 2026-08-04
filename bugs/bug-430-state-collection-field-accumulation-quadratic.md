@@ -97,17 +97,19 @@ a `List OF Byte` **STATE field**, the other into a `MUT` local. Debug `mfb`,
 macOS-aarch64, timed with `/usr/bin/time -p` (user CPU seconds), measured against
 `204e4c481` (Layer 1 already landed, so the scalar half is O(1)):
 
-STATE version (`raw AS List OF Byte` STATE field, append per iteration):
+STATE version (`raw AS List OF Byte` STATE field, appended per iteration, no
+scalar field touched so Layer 1 does not apply):
 
 | N | payload | STATE collection append | MUT local append |
 | --- | --- | --- | --- |
-| 4000  | 256 KB | ~1.5s (quadratic) | ~0.00s |
-| 8000  | 512 KB | ~6s   (quadratic) | ~0.00s |
-| 16000 | 1.0 MB | 23.8s (quadratic) | 0.01s  |
+| 16000 | 1.0 MB | 23.81s (measured) | 0.01s (measured) |
 
-(collection-only figure isolated in the bug-424 audit: 23.81s at N=16000, and
-the quadratic quadruples when N doubles). Expected after this fix: STATE within a
-small constant factor of the MUT-local baseline, and linear in N.
+Measured with debug `mfb` at the bug-424 audit (collection-only isolation, macOS-
+aarch64, `/usr/bin/time -p`, user CPU s). Quadratic scaling is inferred from the
+full bug-424 measurements (STATE 9.05s @ N=8000 → 39.40s @ N=16000, 4.35× for 2×
+N); a fresh N=4000/8000/16000 sweep to confirm STATE-collection linearity is part
+of this bug's validation. Expected after the fix: STATE within a small constant
+factor of the MUT-local baseline, and linear in N.
 
 ## Deterministic regression signal
 
