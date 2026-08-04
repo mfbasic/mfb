@@ -168,22 +168,52 @@ Acceptance: `artifact-gate … all` 0 diffs (**1159 tests, 1301 builds, 1569
 goldens, 0 diffs** — byte-identical across all 4 targets); `cargo test --bin mfb`
 green (**3783 passed; 0 failed**); the `lower_to_mir`+`select` buckets fell (above).
 — MET.
-Commit: — (hash recorded next commit)
+Commit: 732bebec0
 
 ### Phase 3 — Regalloc: rewrite vreg operands in place, don't clone the whole stream
 
-- [ ] In `linear_scan::run`/`substitute`, rewrite the vreg operands of a moved-in
+- [x] In `linear_scan::run`/`substitute`, rewrite the vreg operands of a moved-in
       instruction **in place** (only the colored operands change) instead of
       `instruction.fields.clone()`; move unchanged instructions through. Keep the
       assignment bit-identical (the coloring, order, and spill/reload insertion are
       unchanged — this is a carrier/ownership change, not a decision change).
-- [ ] Investigate collapsing the Int+Fp double rebuild (Phase 1's finding);
+- [x] Investigate collapsing the Int+Fp double rebuild (Phase 1's finding);
       implement only if byte-identical.
 
-Acceptance: `artifact-gate … all` 0 diffs (the assignment must not move —
-`vreg-alloc-order-load-bearing`); `cargo test`; the `linear_scan::run` bucket falls
-(record); the regalloc unit tests (`sweep_equals_naive…`, spill tests) stay green.
-Commit: —
+Implemented: `run` now consumes `Vec<CodeInstruction>` by value; the rewrite loop
+uses `into_iter()`, so `substitute(mut instruction, …)` rewrites only the
+this-class vreg operands **in place** on the moved-in instruction and returns it
+(no `fields.clone()`). Liveness/effects still borrow `&instructions` before the
+move. `allocate` feeds each pass via `std::mem::take(instructions)`. The coloring,
+scan order, spill/reload insertion, and eviction logic are untouched — a pure
+carrier/ownership change.
+
+**Int+Fp double-rebuild collapse — investigated, NOT collapsed (evidence):** the
+two passes are inherently sequential, not merely repeated. The Fp pass's
+spill-slot base is `fp_base = spill_base_offset + int.spill_slot_count * slot_bytes`
+(`regalloc/mod.rs`), a function of the Int pass's *realized* spill count, and the
+Fp pass computes liveness over the Int pass's **output** (which already carries the
+Int spill/reload instructions inserted at Int-determined indices). A single merged
+rebuild cannot reproduce byte-identical Fp spill offsets without first completing
+Int allocation, so collapsing to one rebuild would have to replicate the sequential
+dependency — defeating the goal while risking the assignment
+(`vreg-alloc-order-load-bearing`, `bug387`). Per the plan's own Open Decision, left
+as two passes with the per-pass `fields.clone` removed (the realized win). The
+second `out` Vec per pass is inherent to spill insertion (length changes) and is
+cheap relative to the eliminated per-instruction clones.
+
+**Measured (total-allocation counter, `mfb test tests/acceptance`, 362/362):**
+`total_allocs` ≈387.4M (after Phase 2) → **≈328.4M** — a further ≈59M drop (≈12%
+of the original 479.6M), matching Phase 1's ~13% estimate for `substitute` (it
+cloned every instruction in **both** passes). Cumulative Phases 2+3:
+**479.6M → 328.4M ≈ −31.5%** — squarely in the plan's ≈28–33% stream-rebuild/clone
+class.
+
+Acceptance: `artifact-gate … all` 0 diffs (**1159 tests, 1301 builds, 1569
+goldens, 0 diffs** — the assignment did not move); `cargo test --bin mfb` **3783
+passed; 0 failed**; regalloc units green (`sweep_equals_naive_over_randomized_intervals`,
+`linear_scan_spills_integer_across_arena_alloc`, all 19 regalloc tests). — MET.
+Commit: — (hash recorded next commit)
 
 ### Phase 4 — (Opportunistic) typed immediates at the producer
 
