@@ -30,7 +30,7 @@
 #include "datetimebench.h"
 #include "dispatchbench.h"
 #include "encodingbench.h"
-#include "list.h"
+#include "listmatrix.h"
 #include "mapbench.h"
 #include "mapmatrix.h"
 #include "mathbench.h"
@@ -278,7 +278,7 @@ static void test_mandelbrot(void) {
 }
 
 /* GROUP: math lives in mathbench.c (see run_math_group). */
-/* GROUP: list lives in list.c (see run_list_group / run_liststr_group). */
+/* GROUP: list matrix lives in listmatrix.c (see run_listmatrix_group). */
 /* GROUP: map lives in mapbench.c (see run_map_group). */
 /* GROUP: string lives in stringbench.c (see run_string_group). */
 /* GROUP: bits lives in bitsbench.c (see run_bits_group). */
@@ -691,8 +691,7 @@ int main(int argc, char **argv) {
 
   run_math_group();
 
-  run_list_group();
-  run_liststr_group();
+  run_listmatrix_group();
 
   run_listchurn_group();
 

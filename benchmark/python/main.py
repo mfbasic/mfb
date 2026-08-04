@@ -23,7 +23,7 @@ import dispatchbench
 import encodingbench
 import io
 import json
-import list as listbench
+import listmatrix
 import mapbench
 import mapmatrix
 import math
@@ -785,8 +785,9 @@ def main():
     # math coverage rows (float/int/simd)
     mathbench.run_all(RUN, now_ns, record)
 
-    # list group + liststr rows
-    listbench.run_all(RUN, now_ns, record)
+    # list matrix — Fixed/Dynamic element (peers mfb list.mfb plain groups;
+    # replaces the old list + liststr groups)
+    listmatrix.run_all(RUN, now_ns, record)
 
     # listchurn group (append/prepend/nested)
     churnbench.run_listchurn(RUN, now_ns, record)
