@@ -90,8 +90,9 @@ FUNC fmtMs(v AS Float) AS String
   RETURN padLeft(toString(v, toByte(3)), 10)
 END FUNC
 
-SUB printResults(tests AS List OF BenchResult)
+SUB printResults(tests AS List OF BenchResult, run AS Integer)
   io::print("# Lang: MFBasic")
+  io::print("# runs: " & toString(run))
   io::print("# columns: median, average, min, max (milliseconds)")
   MUT lastGroup AS String = ""
   FOR i = 0 TO len(tests) - 1
@@ -1569,6 +1570,6 @@ FUNC main(args AS List OF String) AS Integer
 
   tests = test_thread_sum(run, tests)
 
-  printResults(tests)
+  printResults(tests, run)
   RETURN 0
 END FUNC

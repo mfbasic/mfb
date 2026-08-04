@@ -108,6 +108,7 @@ static void print_results(void) {
 #else
   printf("# Lang: C O0\n");
 #endif
+  printf("# runs: %d\n", RUN);
   printf("# columns: median, average, min, max (milliseconds)\n");
   const char *last = "";
   for (int i = 0; i < nresults; i++) {
