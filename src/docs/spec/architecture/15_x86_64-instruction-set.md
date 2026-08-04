@@ -30,8 +30,10 @@ entry, thread trampoline, arena mmap/munmap, and app-mode hooks. [[src/arch/x86_
 
 ## Instruction selection
 
-`select_x86(&[MirInstruction]) -> Vec<CodeInstruction>` mirrors `select_aarch64`'s
-structural conversion, reached through `Backend::select`. [[src/arch/x86_64/select.rs:select_x86]] [[src/arch/x86_64/backend.rs:select]]
+`select_x86(Vec<MirInstruction>) -> Vec<CodeInstruction>` mirrors `select_aarch64`'s
+structural conversion, reached through `Backend::select`. It consumes the MIR
+stream by value so each non-fused instruction's field bag is moved (not cloned)
+into the produced machine instruction. [[src/arch/x86_64/select.rs:select_x86]] [[src/arch/x86_64/backend.rs:select]]
 
 - `MirOp::AddrOf` → a single `Adrp` (the x86 encoder turns it into a RIP-relative
   `lea`; AArch64's page-offset second instruction becomes zero bytes here).

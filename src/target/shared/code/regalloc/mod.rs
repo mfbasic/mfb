@@ -326,7 +326,7 @@ pub(crate) fn allocate(
             // spill; AArch64 8 — a no-op, byte-identical).
             let slot_bytes = model.spill_slot_bytes();
             let int = linear_scan::run(
-                instructions,
+                std::mem::take(instructions),
                 model,
                 RegClass::Int,
                 &int_model,
@@ -348,7 +348,7 @@ pub(crate) fn allocate(
             *instructions = int.instructions;
             let fp_base = spill_base_offset + int.spill_slot_count * slot_bytes;
             let fp = linear_scan::run(
-                instructions,
+                std::mem::take(instructions),
                 model,
                 RegClass::Fp,
                 &fp_model,

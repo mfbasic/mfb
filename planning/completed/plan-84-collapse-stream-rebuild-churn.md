@@ -1,0 +1,345 @@
+# plan-84: Collapse the multi-pass instruction-stream rebuild + `fields`-Vec re-clone churn
+
+Last updated: 2026-08-03
+Effort: large (3h–1d) — structural, correctness-sensitive
+Depends on: nothing representational (builds on merged plan-79/82). Independently
+landable, but best sequenced **after plan-83** (so the attribution is clean and the
+two efforts don't fight over the same measurement).
+
+Stop rebuilding every function's instruction stream — and re-cloning every
+instruction's `fields` Vec — five to six times across the codegen pipeline. The
+operand *values* are now cheap to clone (plan-79/82: `VReg`/`Phys`/`Imm` are
+heap-free), but the **`Vec<(&'static str, Operand)>` container itself allocates on
+every clone**, and each pass allocates a **fresh `Vec<Instruction>`** for the whole
+stream. That container/stream churn — not operand boxes — is a top allocation
+class.
+
+## Why this plan exists — the *counted* cause
+
+Grounded in the same **measured allocation-cause attribution** as plan-83 (sampling
+backtrace allocator, 1-in-2048, over `mfb test tests/acceptance`; it counts the
+call sites that *cause* allocations). Result (total ≈595M):
+
+| Est. share | Call site | What allocates |
+|---|---|---|
+| ~13% | `regalloc::linear_scan::run` | the rebuilt `out: Vec<CodeInstruction>` + per-instruction `scratch_for`/`evictions` maps/vecs + `substitute`'s `instruction.fields.clone()` — **run twice** (Int then Fp class) |
+| ~10% | `mir::lower_to_mir` | fresh `Vec<MirInstruction>` + `mir_fields_from_code` = `fields.to_vec()` (clones every instruction's fields Vec) |
+| ~10% | `arch::*::select` | fresh `Vec<CodeInstruction>` + `code_fields_from_mir` = `fields.to_vec()` (clones every instruction's fields Vec) |
+| ~5% | `code_impl` ← `abi::load_/store_/move_` | building each instruction: the `fields` Vec growth in `.field()` + `&imm.to_string()` immediates |
+
+Each function's stream is: **built** (production) → **lower_to_mir** (new Vec +
+to_vec each fields) → **select** (new Vec + to_vec each fields) → **regalloc Int**
+(new out Vec + fields.clone each) → **regalloc Fp** (new out Vec + fields.clone
+each) → peephole → finalize. That is ~5–6 full-stream allocations and ~5–6
+fields-Vec clones per instruction. Combined ≈28–33% of all compile allocations.
+
+## Prerequisites
+
+| Must be true | Command | Status |
+|---|---|---|
+| Byte-identity oracle + acceptance harness | `ls scripts/artifact-gate.sh tests/acceptance/project.json` | MET (both present, 2026-08-03) |
+| The pipeline seams are as described (lower_to_mir → select → regalloc×2) | `rg -n 'fields.to_vec\(\)' src/target/shared/code/mir.rs` and `rg -n 'instruction.fields.clone\(\)' src/target/shared/code/regalloc/linear_scan.rs` | MET (mir.rs:370,380; linear_scan.rs:457) |
+| The `-mir` capture / round-trip identity paths that reuse the pre-select stream | `rg -n 'route_function_through_mir\|capture_function\|lower_to_mir' src/target/shared/code/mir.rs` | MET (lower_to_mir@469, route_function_through_mir@585, capture_function@686; analysed in Phase 1) |
+
+## Non-goals
+
+- **Byte-identity absolute** across all four targets. The stream *contents* and
+  emitted bytes must not change — only how the containers are allocated/reused.
+- Do not change the MIR op set, fusion, selection, or the two-pass (Int/Fp)
+  regalloc *decisions* (`vreg-alloc-order-load-bearing`, `bug387`).
+- Do not regress the `-mir` dump or the `route_function_through_mir` identity pass.
+
+## Design — measure first, then move/mutate instead of clone
+
+The churn has two shapes; both are addressable by **moving or mutating instead of
+cloning**, but each has a correctness constraint that must be checked first.
+
+1. **`to_vec` clones at the MIR/select boundary (≈20%).** `lower_to_mir` borrows
+   `&[CodeInstruction]` and `mir_fields_from_code` clones each fields Vec; `select`
+   likewise clones out of `&[MirInstruction]`. If these boundaries **consumed their
+   input by value** (`Vec<CodeInstruction>` / `Vec<MirInstruction>`), each fields
+   Vec could be **moved** into the next instruction, not cloned. Constraint: the
+   `-mir` dump (`capture_function`) and `route_function_through_mir` may need the
+   pre-select stream after lowering — resolve by capturing/round-tripping from the
+   moved-through value, or cloning only in the (rare, dump-enabled) capture path.
+
+2. **The regalloc stream rebuild + `substitute` clone (≈13%, ×2 passes).**
+   `linear_scan::run` builds a fresh `out` Vec and `substitute` clones each
+   instruction's fields to rewrite the vreg operands. Two levers: (a) rewrite the
+   vreg operands **in place** on a moved-in instruction (only those operands
+   change; the rest of the fields Vec is untouched) rather than cloning the whole
+   Vec; (b) the second (Fp) pass re-does the whole rebuild over the Int-colored
+   stream — see whether the two passes can share one rebuild (one pass that colors
+   both classes, or an in-place Fp rewrite) without changing the assignment.
+   Constraint: spills/reloads insert instructions, so the stream length changes —
+   the pass still produces a new stream, but the *unchanged* instructions can be
+   moved through and only the vreg-bearing ones mutated in place.
+
+3. **Immediate/field building (≈5%).** `.field("imm", &n.to_string())` allocates a
+   `String` per immediate. A typed `Operand::Imm(n)` at the producer (`plan-78-B`
+   started this) avoids it. Opportunistic; smaller.
+
+## Phases
+
+> Uncertainty first (measure each clone's real share), blast radius last. Keep
+> boxes current; `artifact-gate … all` after each.
+
+### Phase 1 — Attribute each clone precisely, and confirm the move-safety constraints
+
+- [x] Re-run the attribution probe; record the exact est-alloc for `lower_to_mir`,
+      `select`, `linear_scan::run` (and split `substitute`'s clone from the `out`
+      Vec if possible with a targeted counter). This ranks the targets.
+- [x] Determine whether `lower_to_mir`'s input can be consumed by value: who reads
+      `self.instructions` after lowering, and whether the `-mir` capture /
+      `route_function_through_mir` identity pass needs the pre-select stream.
+      Record the constraint and the chosen move/clone-in-capture-only design.
+
+**Measured target ranking** (deterministic per-site counters, uncommitted
+`MFB_ALLOC_STATS` counting allocator + `fetch_add` at each clone site, over
+`mfb test tests/acceptance`, 362/362; two runs, per-site counts identical):
+
+| Clone site | fields-Vec clones | Phase |
+|---|---|---|
+| `substitute` (`linear_scan.rs:457`, run ×2 Int+Fp) | **21,420,760** | 3 |
+| `mir_fields_from_code` (`lower_to_mir`) | **21,355,962** | 2 |
+| `code_fields_from_mir` (`select`, host = aarch64) | **19,694,107** | 2 |
+
+Combined **62.47M** fields-Vec clones; `total_allocs ≈ 479.6M` (the acceptance
+run includes the test harness's in-process compiles; per-site counters are the
+deterministic anti-guess signal). Ranking matches the plan's ≈13/10/10% estimate;
+`substitute` leads because it clones **every** instruction in **both** regalloc
+passes.
+
+**Move-safety decision (recorded):**
+- `lower_to_mir`'s input **can be consumed by value.** Every hot caller drops the
+  input right after: `builder_registers.rs:141-142` (`self.instructions = select(...)`),
+  `route_function_through_mir` (`function.instructions = select(...)`),
+  `linux_gtk/mod.rs:662-664` (`*instructions = select(...)`). The **only** double
+  read is the `-mir` capture at `builder_registers.rs:137-139`, which lowers a
+  second time *before* the real lowering — and capture is rare (`-mir` dump only).
+- **Chosen design:** add a by-value `lower_to_mir_owned(Vec<CodeInstruction>)` that
+  **moves** each instruction's `fields` into the produced `MirInstruction` in the
+  common (non-fused) case; keep the borrowing `lower_to_mir(&[…])` as a
+  `.to_vec()` → owned wrapper for the rare capture path and the ~20 test callers
+  (clone acceptable there). Fused/`addr_of`/shared-branch cases keep cloning:
+  they need `setter.fields` for multiple outputs or slice-borrow it (minority).
+- **`select` likewise:** all three backends funnel their common case through the
+  shared `code_fields_from_mir(&…)`. To move, the owning loop must own the Vec →
+  change `Backend::select` and each `select_<isa>` to take `Vec<MirInstruction>`
+  by value; `neutral` is a dropped-after local at every call site, so it moves.
+  Non-fused case moves `instruction.fields`; fused case still slices+clones.
+
+Acceptance: a written, measured target ranking + the move-safety decision, in this
+file. No code yet. — MET (above). Instrumentation is uncommitted (never staged).
+Commit: 836bc00d1 (plan doc only; production code unchanged this phase)
+
+### Phase 2 — Move `fields` through the MIR/select boundary instead of `to_vec`
+
+- [x] Make `lower_to_mir`/`select` consume their input by value (or otherwise move
+      each `fields` Vec into the produced instruction), so `mir_fields_from_code`/
+      `code_fields_from_mir` move rather than `to_vec`-clone. Preserve the `-mir`
+      capture and the round-trip identity (clone only where genuinely reused).
+
+Implemented: added `lower_to_mir_owned(Vec<CodeInstruction>)` that moves each
+non-fused instruction's `fields` Vec into the produced `MirInstruction`; the
+borrowing `lower_to_mir(&[…])` now rebuilds an owned copy for the rare `-mir`
+capture path and the ~20 unit-test callers (`CodeInstruction` is not `Clone`, so
+it maps element-by-element). Changed `Backend::select` + `select_aarch64`/
+`select_x86`/`select_riscv64` to consume `Vec<MirInstruction>` by value, moving
+each non-fused field bag into the `CodeInstruction`. Hot callers move via
+`std::mem::take`: `builder_registers.rs`, `route_function_through_mir`,
+`linux_gtk/mod.rs`. Fused / `addr_of` / shared-branch / v128 cases keep cloning
+(minority; slice-borrow or multi-use). Spec `15_x86_64-instruction-set.md`
+signature updated.
+
+**Measured (uncommitted per-site counters, `mfb test tests/acceptance`, 362/362):**
+
+| Bucket | before | after | Δ |
+|---|---|---|---|
+| `mir_fields_from_code` clones | 21,355,962 | 3,049,653 | −85.7% |
+| `code_fields_from_mir` clones | 19,694,107 | 1,387,798 | −93.0% |
+| `substitute_fields_clone` (Phase 3) | 21,420,760 | 21,420,760 | unchanged |
+| `total_allocs` | ≈479.6M | ≈387.4M | ≈−92M (−19%) |
+
+The two boundary buckets fell from 41.05M → 4.44M combined fields-Vec clones
+(the residue is exactly the fused/addr_of minority the design keeps).
+
+Acceptance: `artifact-gate … all` 0 diffs (**1159 tests, 1301 builds, 1569
+goldens, 0 diffs** — byte-identical across all 4 targets); `cargo test --bin mfb`
+green (**3783 passed; 0 failed**); the `lower_to_mir`+`select` buckets fell (above).
+— MET.
+Commit: 732bebec0
+
+### Phase 3 — Regalloc: rewrite vreg operands in place, don't clone the whole stream
+
+- [x] In `linear_scan::run`/`substitute`, rewrite the vreg operands of a moved-in
+      instruction **in place** (only the colored operands change) instead of
+      `instruction.fields.clone()`; move unchanged instructions through. Keep the
+      assignment bit-identical (the coloring, order, and spill/reload insertion are
+      unchanged — this is a carrier/ownership change, not a decision change).
+- [x] Investigate collapsing the Int+Fp double rebuild (Phase 1's finding);
+      implement only if byte-identical.
+
+Implemented: `run` now consumes `Vec<CodeInstruction>` by value; the rewrite loop
+uses `into_iter()`, so `substitute(mut instruction, …)` rewrites only the
+this-class vreg operands **in place** on the moved-in instruction and returns it
+(no `fields.clone()`). Liveness/effects still borrow `&instructions` before the
+move. `allocate` feeds each pass via `std::mem::take(instructions)`. The coloring,
+scan order, spill/reload insertion, and eviction logic are untouched — a pure
+carrier/ownership change.
+
+**Int+Fp double-rebuild collapse — investigated, NOT collapsed (evidence):** the
+two passes are inherently sequential, not merely repeated. The Fp pass's
+spill-slot base is `fp_base = spill_base_offset + int.spill_slot_count * slot_bytes`
+(`regalloc/mod.rs`), a function of the Int pass's *realized* spill count, and the
+Fp pass computes liveness over the Int pass's **output** (which already carries the
+Int spill/reload instructions inserted at Int-determined indices). A single merged
+rebuild cannot reproduce byte-identical Fp spill offsets without first completing
+Int allocation, so collapsing to one rebuild would have to replicate the sequential
+dependency — defeating the goal while risking the assignment
+(`vreg-alloc-order-load-bearing`, `bug387`). Per the plan's own Open Decision, left
+as two passes with the per-pass `fields.clone` removed (the realized win). The
+second `out` Vec per pass is inherent to spill insertion (length changes) and is
+cheap relative to the eliminated per-instruction clones.
+
+**Measured (total-allocation counter, `mfb test tests/acceptance`, 362/362):**
+`total_allocs` ≈387.4M (after Phase 2) → **≈328.4M** — a further ≈59M drop (≈12%
+of the original 479.6M), matching Phase 1's ~13% estimate for `substitute` (it
+cloned every instruction in **both** passes). Cumulative Phases 2+3:
+**479.6M → 328.4M ≈ −31.5%** — squarely in the plan's ≈28–33% stream-rebuild/clone
+class.
+
+Acceptance: `artifact-gate … all` 0 diffs (**1159 tests, 1301 builds, 1569
+goldens, 0 diffs** — the assignment did not move); `cargo test --bin mfb` **3783
+passed; 0 failed**; regalloc units green (`sweep_equals_naive_over_randomized_intervals`,
+`linear_scan_spills_integer_across_arena_alloc`, all 19 regalloc tests). — MET.
+Commit: a1b12e091
+
+### Phase 4 — (Opportunistic) typed immediates at the producer
+
+- [x] ~~Where a producer builds `.field("imm", &n.to_string())`, emit
+      `Operand::Imm(n)` instead (no `String`). Bounded; land only the clean sites.~~
+      — **moot: measured net *increase*, premise falsified.** The premise —
+      "`Operand::Imm(n)` avoids the String" — holds only at *construction*; it
+      ignores that `Imm::rendered()` returns `Cow::Owned(render())` (**allocates a
+      `String` per call**, operand.rs:118/131) whereas `Raw::rendered()` borrows
+      (0 alloc). Every one of the ~20 `imm`/`offset` sites (all of abi.rs +
+      x86/riscv `regmodel` spill/reload) feeds `finalize_frame`, which `rendered()`s
+      the field **multiple times** (codegen_utils.rs:703, 767, 803) and then
+      **overwrites** it with `Operand::imm(resolved_offset)` anyway (:860). So the
+      producer's value only serves transient reads; making it `Imm` converts those
+      cheap borrows into repeated allocations. **Measured:** converting all 20 sites
+      moved `total_allocs` 328.5M → **335.9M (+7.5M, deterministic across 2 runs)** —
+      the *opposite* of Phase 4's goal. Reverting restored 328.5M, proving the delta
+      was entirely Phase 4. There is **no** clean production site: every `imm`/`offset`
+      producer is re-rendered by frame finalization. A real win here would require
+      `finalize_frame` to read the typed `Imm` directly (via `operand()`) instead of
+      `rendered().parse()` — a read-side change out of scope for an "opportunistic"
+      producer-only phase (plan-83 territory). Left unimplemented; the Phases 2+3 win
+      stands unaffected.
+
+Acceptance: N/A — the task is moot (proven counterproductive by measurement +
+mechanism above); landing it would violate the plan's own perf goal and the
+"never regress for a speed change" rule.
+Commit: — (no code; reverted to HEAD; see Corrections)
+
+### Phase 5 — Measure the realized win
+
+- [x] Re-run the attribution + total-allocation counter + release/debug acceptance
+      wall on `mfb test tests/acceptance`. Record total allocations before → after,
+      and the summed stream-rebuild/clone class (was ≈28–33%) → after. This is the
+      headline: a large total-allocation drop, verified against the counted cause.
+
+**Headline — the realized win** (all `mfb test tests/acceptance`, 362/362):
+
+| Metric | before (merge-base) | after (plan-84) | Δ |
+|---|---|---|---|
+| **total allocations** | ≈479.6M | ≈328.5M | **−151M (−31.5%)** |
+| targeted stream-rebuild/clone class¹ | 62.47M clones | ≈4.44M clones | **−92.9%** |
+| — `mir_fields_from_code` (lower_to_mir) | 21.36M | 3.05M | −85.7% |
+| — `code_fields_from_mir` (select) | 19.69M | 1.39M | −93.0% |
+| — `substitute` (regalloc ×2) | 21.42M | **0** | −100% |
+| **release acceptance wall²** | 45.3s | **34.1s** | **−24.7%** |
+| debug acceptance wall | — | 214.7s | 362/362 |
+
+¹ The residual ≈4.44M is the irreducible fused/`addr_of`/shared-branch minority the
+design intentionally keeps (multi-use / slice-borrow); `substitute` is eliminated
+outright. ² Two *clean* (uninstrumented) release binaries — the merge-base
+`99b778ffa` and the plan-84 tip — each timed 3× from the same worktree
+(before 45.46/45.22/45.27; after 34.32/34.08/33.96). The ≈25% wall drop tracks the
+allocation cut because the acceptance compile is allocation-bound
+(`codeinstruction-operand-typing-and-regalloc-perf`: ~74% release self-time in
+malloc). Allocation counts were measured with the uncommitted `MFB_ALLOC_STATS`
+counting allocator (counts allocations, does not add any), so the before/after
+comparison is exact.
+
+Acceptance: total allocations fell substantially (−31.5%); the stream-rebuild/clone
+class is materially reduced (−92.9%, `substitute` to zero); both acceptance walls
+re-measured (release −24.7%, debug run); byte-identical (`artifact-gate … all`
+**0 diffs**); acceptance **362/362 on release and debug**. — MET.
+Commit: — (Phase 5 is measurement over the Phase 3 tree; no new code)
+
+## Validation Plan
+
+- Tests: `cargo test --bin mfb` (esp. the regalloc + mir round-trip modules).
+- Byte-identity: `artifact-gate … all` 0 diffs after every phase — the assignment
+  and every emitted byte must not move; a diff means a move/mutate changed a value.
+- Cause verification (anti-guess guard): each phase must show its targeted
+  attribution bucket shrink; code that moves but doesn't reduce the measured bucket
+  did not fix the cause.
+- Runtime proof: `mfb test tests/acceptance` exits 0 on release **and** debug (the
+  in-place rewrite must not corrupt the stream).
+
+## Open Decisions
+
+- **Move vs clone-in-capture-only at the MIR boundary** (Phase 1) — governed by
+  whether the `-mir` dump / round-trip identity pass needs the pre-select stream.
+- **Collapsing the Int+Fp regalloc double-rebuild** (Phase 3) — only if provably
+  byte-identical; otherwise leave the two passes and just remove the per-pass
+  `fields.clone`.
+
+## Corrections
+
+- **Phase 4's core premise is false — measured, not assumed.** The plan asserted
+  `.field("imm", &n.to_string())` "allocates a String per immediate. A typed
+  `Operand::Imm(n)` … avoids it." True at construction, but every such
+  `imm`/`offset` field is re-read by `finalize_frame` through `Operand::rendered()`
+  — which **borrows for `Raw` but allocates for `Imm`** (`Cow::Owned(render())`,
+  operand.rs:118) — several times per instruction (codegen_utils.rs:703/767/803),
+  and is then overwritten with `Operand::imm(resolved_offset)` (:860). Converting
+  all 20 producer sites therefore *raised* `total_allocs` 328.5M → 335.9M (+7.5M,
+  deterministic); reverting restored 328.5M. Marked moot with that evidence and
+  reverted; Phases 2+3 (the real win, −31.5% allocations) are unaffected. A genuine
+  win would require the read side (`finalize_frame`) to consume the typed `Imm`
+  instead of `rendered().parse()` — out of scope for an "opportunistic" producer
+  phase.
+- **`CodeInstruction` is not `Clone`** (types.rs), so the borrowing `lower_to_mir`
+  wrapper (Phase 2) rebuilds each element from its parts rather than `.to_vec()`.
+- **`select` had to change signature, not just the shared helper.** The `to_vec`
+  clone lives in `code_fields_from_mir(&…)`, but only the owning `select_<isa>`
+  loop can *move* the field bag, so `Backend::select` + all three `select_<isa>`
+  became by-value (Phase 2). All four backends share the same non-fused move path.
+- **Finalization / main drift.** During finalization `main` advanced twice —
+  `99b778ffa → 6aff06f8d` (bug-425: deferred thread::transfer move-flag +
+  regenerated thread codegen-cover goldens + 2 new rt-behavior fixtures) then
+  `→ 4076f8c85` (rustfmt of `builder_collection_layout`/`builder_error_emission`;
+  bug-429 browser CSS-loader example; regenerated `regex_thread_workers.mfp`
+  fixture). Merged each into `worktree-P-84` (both clean — no `.rs` overlap with
+  plan-84's core files) and re-validated after the final merge: `cargo test --bin
+  mfb` **3783 passed**; final `artifact-gate … all` = **1161 tests, 1303 builds,
+  1573 goldens, 0 diffs** — plan-84's byte-identical transforms reproduce bug-425's
+  *newly regenerated* thread goldens exactly. (Before the 2nd merge landed rustfmt
+  for those two unrelated files, I had reverted my local rustfmt of them per "touch
+  only files you changed"; main then formatted them itself.) plan-84's own files are
+  fmt-clean.
+
+## Summary
+
+plan-84 is the structural half of the real fix, and the larger one: ≈28–33% of
+compile allocations are the pipeline rebuilding each function's instruction stream
+and re-cloning every `fields` Vec five-to-six times. Moving `fields` through the
+MIR/select boundary and rewriting vreg operands in place (instead of cloning) —
+byte-identically — removes that churn. Like plan-83, its acceptance is a
+*re-measured* drop in the exact counted buckets, and byte-identity is the guardrail
+because none of this may change a single emitted byte or a single register
+assignment.

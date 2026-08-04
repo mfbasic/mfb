@@ -17,7 +17,7 @@ use crate::target::shared::code::mir::{
 };
 use crate::target::shared::code::{CodeInstruction, Operand};
 
-pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruction> {
+pub(crate) fn select_aarch64(instructions: Vec<MirInstruction>) -> Vec<CodeInstruction> {
     let mut out = Vec::with_capacity(instructions.len());
     for instruction in instructions {
         if instruction.op == MirOp::AddrOf {
@@ -77,13 +77,17 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                 source: instruction.source,
             });
         } else {
+            // Common (non-fused) case: MOVE the field bag into the CodeInstruction
+            // instead of `code_fields_from_mir`'s `to_vec` clone (plan-84 Phase 2).
+            let op = instruction
+                .op
+                .to_code()
+                .expect("non-fused MIR op maps to a single CodeOp");
+            let source = instruction.source;
             out.push(CodeInstruction {
-                op: instruction
-                    .op
-                    .to_code()
-                    .expect("non-fused MIR op maps to a single CodeOp"),
-                fields: code_fields_from_mir(&instruction.fields),
-                source: instruction.source,
+                op,
+                fields: instruction.fields,
+                source,
             });
         }
     }

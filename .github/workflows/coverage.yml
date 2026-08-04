@@ -2,6 +2,23 @@ name: coverage
 on: [push, pull_request]
 
 jobs:
+  # Formatting gate: `cargo fmt --all -- --check` is execution-free and reformats
+  # nothing — it exits non-zero if any file differs from rustfmt output. `--all`
+  # covers every workspace member, so this single step checks BOTH the root `mfb`
+  # crate (src/) and `repository/`. No build or compiled binary needed, so it runs
+  # in parallel with `build` for fast feedback. The toolchain is pinned to 1.96.0
+  # to match the rustfmt version main was last formatted with, keeping the check
+  # deterministic across runners.
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          components: rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
   # Compile once. Publishes the mfb binary so the acceptance and artifact jobs
   # can run without recompiling. A build failure here blocks every downstream
   # job (via `needs: build`), so broken code never fans out to four runners.

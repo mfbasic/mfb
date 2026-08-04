@@ -41,7 +41,7 @@ pub(super) struct RunResult {
 /// `finalize_frame` like every other stack access). The two physical files never
 /// interfere, so the Int and Fp classes are each allocated by a separate call.
 pub(super) fn run(
-    instructions: &[CodeInstruction],
+    instructions: Vec<CodeInstruction>,
     model: &dyn RegisterModel,
     class: RegClass,
     class_model: &ClassModel,
@@ -57,7 +57,7 @@ pub(super) fn run(
         .iter()
         .map(|instruction| analysis::effect(instruction, class_model))
         .collect();
-    let live = analysis::analyze(instructions, class_model, &effects);
+    let live = analysis::analyze(&instructions, class_model, &effects);
 
     // Per-physical sorted index lists where the physical is busy, for O(log)
     // "is physical p busy anywhere in [s, e]" interference checks. 32 covers
@@ -200,7 +200,10 @@ pub(super) fn run(
     // Set if an instruction cannot be colored (more simultaneously-live registers
     // than the pool holds); surfaced by `allocate` (bug-127.2).
     let mut alloc_error: Option<String> = None;
-    'rewrite: for (i, instruction) in instructions.iter().enumerate() {
+    // Consume the input stream: each instruction is moved through `substitute`,
+    // which rewrites only its this-class vreg operands in place (plan-84 Phase 3),
+    // so the `fields` Vec is carried rather than re-cloned once per class pass.
+    'rewrite: for (i, instruction) in instructions.into_iter().enumerate() {
         // plan-78-C: reuse the effect classified once above (no re-parse).
         let eff = &effects[i];
         let spilled_vreg = |reg: &RegRef| -> Option<u32> {
@@ -235,7 +238,7 @@ pub(super) fn run(
             // `occupied` holds a live value (no free scratch there); `reserved`
             // also tracks the operands and scratches in use at this instruction
             // (an eviction victim may not be one of those).
-            let mut occupied = occupied_at(i, &colored_mask_at, instruction, class_model);
+            let mut occupied = occupied_at(i, &colored_mask_at, &instruction, class_model);
             let mut reserved = operand_mask;
             for &v in used_spilled.iter().chain(def_spilled.iter()) {
                 if scratch_for.contains_key(&v) {
@@ -306,7 +309,7 @@ pub(super) fn run(
             &assignment,
             &scratch_for,
             class_model,
-        ));
+        )); // moves `instruction` (plan-84 Phase 3)
         for &v in &def_spilled {
             out.push(model.emit_spill(class, scratch_for[&v].0, spill_slot[&v]));
         }
@@ -442,22 +445,20 @@ fn occupied_at(
     mask
 }
 
-/// Produce a copy of `instruction` with this class's virtual-register operands
-/// replaced: colored vregs by their physical, spilled vregs by their
-/// per-instruction scratch.
+/// Rewrite `instruction`'s this-class virtual-register operands **in place** —
+/// colored vregs to their physical, spilled vregs to their per-instruction
+/// scratch — and return the moved-through instruction. plan-84 Phase 3: the
+/// instruction is consumed by value and only the vreg-bearing operands are
+/// mutated, so the whole `fields` Vec is carried, not `clone`d (the two regalloc
+/// passes previously re-cloned every instruction's fields Vec).
 fn substitute(
-    instruction: &CodeInstruction,
+    mut instruction: CodeInstruction,
     class: RegClass,
     assignment: &analysis::U32Map<(&'static str, u32)>,
     scratch_for: &analysis::U32Map<(&'static str, u32)>,
     class_model: &ClassModel,
 ) -> CodeInstruction {
-    let mut copy = CodeInstruction {
-        op: instruction.op,
-        fields: instruction.fields.clone(),
-        source: instruction.source,
-    };
-    for (_field, value) in copy.fields.iter_mut() {
+    for (_field, value) in instruction.fields.iter_mut() {
         // Detect this class's virtual register: a typed `VReg` of the matching
         // class yields its id with no string work (plan-82-B); a `Raw("%vN")`
         // (pre-plan-82-C stream) takes the parse fallback. A `VReg`/`Phys` of the
@@ -479,7 +480,7 @@ fn substitute(
             }
         }
     }
-    copy
+    instruction
 }
 
 #[cfg(test)]

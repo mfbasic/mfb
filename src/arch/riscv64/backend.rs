@@ -21,7 +21,7 @@ pub(crate) struct Riscv64Backend;
 pub(crate) static RISCV64_BACKEND: Riscv64Backend = Riscv64Backend;
 
 impl Backend for Riscv64Backend {
-    fn select(&self, neutral: &[MirInstruction]) -> Vec<CodeInstruction> {
+    fn select(&self, neutral: Vec<MirInstruction>) -> Vec<CodeInstruction> {
         select_riscv64(neutral)
     }
 
@@ -46,7 +46,7 @@ mod tests {
     fn backend_selects_and_reports_model_and_padding() {
         let backend = Riscv64Backend;
         let mir = lower_to_mir(&[CodeInstruction::new("ret")]);
-        let out = backend.select(&mir);
+        let out = backend.select(mir);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].op.mnemonic(), "ret");
         assert_eq!(backend.register_model().arena_base(), "s11");
