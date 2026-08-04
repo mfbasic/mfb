@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/rt-behavior/resources/bug427_list_union_state_rt
+Wrote AST to tests/rt-behavior/resources/bug427_list_union_state_rt/bug427_list_union_state_rt.ast
+Wrote IR to tests/rt-behavior/resources/bug427_list_union_state_rt/bug427_list_union_state_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/resources/bug427_list_union_state_rt
+Wrote executable to tests/rt-behavior/resources/bug427_list_union_state_rt/build/bug427_list_union_state_rt.out
+[exit 0]
+$ tests/rt-behavior/resources/bug427_list_union_state_rt/build/bug427_list_union_state_rt.out
+total=12
+first=3
+[exit 0]

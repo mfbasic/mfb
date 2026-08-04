@@ -28,9 +28,11 @@ Args        := ListArg | MapArg | ThreadArg | TemplateArgs
 |------|------------------|
 | List | `List OF X` |
 | Resource-transfer list | `List OF RES X` |
+| Stateful resource-transfer list | `List OF RES X STATE S` |
 | Set | `Set OF X` |
 | Map | `Map OF K TO V` |
 | Resource-transfer map value | `Map OF K TO RES V` |
+| Stateful resource-transfer map value | `Map OF K TO RES V STATE S` |
 | Map entry | `MapEntry OF K TO V` |
 | Function | `FUNC(P1, P2) AS R` |
 | Isolated function | `ISOLATED FUNC(P1, P2) AS R` |
@@ -112,6 +114,28 @@ scope-ownership transfers across a function boundary.
 (`MFB_PARSE_INVALID_IDENTIFIER`), consistent with the table above. Consumers strip it with
 `strip_prefix("RES ").unwrap_or(...)` before resolving the underlying type.
 [[src/ast/expr.rs:parse_type_name]] [[src/resolver/resolution.rs:resolve_type_name]]
+
+### Trailing ` STATE T` on a `RES` collection element
+
+A `RES` collection element or map value may carry a trailing ` STATE T` clause —
+a stateful resource (typically a resource union with a uniform state type across
+its variants, [language resource-management](./mfb spec language
+resource-management) §15.6) — folded into the element type string
+(`List OF RES File STATE Cursor`, `Map OF K TO RES File STATE Cursor`). This
+mirrors the thread resource plane, whose `RES` element folds the same clause
+(`Thread OF RES File STATE Cursor TO Out`) via `parse_resource_plane_type`. The
+STATE rides the *element* (not the binding), so an extracted element reads
+`.state` against `T`. A `STATE` clause is a parse error after a **non-`RES`**
+element (a `STATE` is only meaningful on a resource).
+[[src/ast/expr.rs:parse_optional_element_state]]
+
+Consumers recover the underlying resource by first `strip_prefix("RES ")` and
+then splitting the ` STATE T` suffix with `base_resource_name` / `state_type_name`
+(composite-safe: they leave a ` STATE ` nested inside an enclosing `List`/`Map`/
+`Thread` intact). Element insertion (`append`/`insert`/`set`) compares the
+element and the item by their bare resource type, so an item passed with or
+without its STATE clause both resolve. [[src/builtins/resource.rs:base_resource_name]]
+[[src/builtins/general.rs:element_accepts_item]]
 
 The thread resource plane is structurally distinct: it is an **infix** ` RES `
 clause between message and `" TO "`, not a leading prefix — see threads below.

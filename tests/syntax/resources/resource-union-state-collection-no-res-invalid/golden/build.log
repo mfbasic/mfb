@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-union-state-collection-no-res-invalid
+  13 | 
+  14 | FUNC main AS Integer
+  15 |   MUT streams AS List OF Stream STATE PendingState = []
+     |                                 ^^^^^
+tests/syntax/resources/resource-union-state-collection-no-res-invalid/src/main.mfb:15 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               A `STATE` clause requires a `RES` collection element; a non-resource element cannot carry state.
+  13 | 
+  14 | FUNC main AS Integer
+  15 |   MUT streams AS List OF Stream STATE PendingState = []
+     |                                 ^^^^^
+tests/syntax/resources/resource-union-state-collection-no-res-invalid/src/main.mfb:15 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Expected end of statement after binding.
+  13 | 
+  14 | FUNC main AS Integer
+  15 |   MUT streams AS List OF Stream STATE PendingState = []
+     |                                       ^^^^^^^^^^^^
+tests/syntax/resources/resource-union-state-collection-no-res-invalid/src/main.mfb:15 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Expected end of statement after expression.
+[exit 1]

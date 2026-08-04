@@ -1,0 +1,29 @@
+IMPORT fs
+IMPORT net
+
+' bug-427: a `List`/`Map` element may carry a uniform `STATE T` clause when its
+' element is a resource union (`List OF RES Stream STATE PendingState`,
+' `Map OF K TO RES Stream STATE PendingState`), folded into the element type
+' string exactly as the thread resource plane does. The STATE rides the element
+' type so an extracted element can read `.state`.
+TYPE PendingState
+  bytes AS Integer
+END TYPE
+
+UNION Stream
+  File
+  Socket
+END UNION
+
+FUNC countList(streams AS List OF RES Stream STATE PendingState) AS Integer
+  RETURN len(streams)
+END FUNC
+
+FUNC countMap(byId AS Map OF String TO RES Stream STATE PendingState) AS Integer
+  RETURN len(byId)
+END FUNC
+
+FUNC main AS Integer
+  MUT streams AS List OF RES Stream STATE PendingState = []
+  RETURN countList(streams)
+END FUNC
