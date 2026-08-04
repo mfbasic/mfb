@@ -154,6 +154,13 @@ const STR_EXIT_PREFIX: (&str, &str) = ("_mfb_macapp_str_exitPrefix", "\nProgram 
 // Monospaced transcript font (plan §5.5).
 const SEL_USER_FIXED_FONT: (&str, &str) =
     ("_mfb_macapp_sel_userFixedFont", "userFixedPitchFontOfSize:");
+/// Preferred fixed-pitch font. `userFixedPitchFontOfSize:` resolves to Monaco on
+/// current macOS, whose box-drawing glyphs are drawn short (the `│` ink fills only
+/// ~11 of the 17pt cell), so bordered TUI panels render with dashed borders / gaps
+/// between rows. Menlo's box glyphs fill the cell and tile cleanly; we request it
+/// by name and fall back to `userFixedPitchFontOfSize:` if it is ever absent.
+const SEL_FONT_WITH_NAME: (&str, &str) = ("_mfb_macapp_sel_fontWithName", "fontWithName:size:");
+const STR_MENLO_FONT: (&str, &str) = ("_mfb_macapp_str_menlo", "Menlo-Regular");
 const SEL_SET_FONT: (&str, &str) = ("_mfb_macapp_sel_setFont", "setFont:");
 /// Point size for the fixed-pitch transcript font.
 const TRANSCRIPT_FONT_SIZE: u32 = 13;
@@ -790,6 +797,8 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         STR_EXIT_PREFIX,
         // Monospaced font + application menu.
         SEL_USER_FIXED_FONT,
+        SEL_FONT_WITH_NAME,
+        STR_MENLO_FONT,
         SEL_SET_FONT,
         SEL_ADD_ITEM,
         SEL_SET_ACTION,

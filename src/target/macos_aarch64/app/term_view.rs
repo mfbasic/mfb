@@ -884,13 +884,36 @@ pub(super) fn emit_term_init_helper() -> CodeFunction {
     asm.call_external("_calloc", LIB_SYSTEM);
     asm.push(abi::move_register(abi::LOCAL[1], "x0")); // state struct ptr
 
-    // font = [NSFont userFixedPitchFontOfSize:N]
+    // font = [NSFont fontWithName:@"Menlo-Regular" size:N], falling back to
+    // [NSFont userFixedPitchFontOfSize:N] (Monaco) only if Menlo is unavailable.
+    // Menlo's box-drawing glyphs fill the cell so bordered panels tile; Monaco's do
+    // not (see SEL_FONT_WITH_NAME). LOCAL[3] is throwaway scratch here (it is not
+    // reused until the cell-metric block below).
+    // name = [NSString stringWithUTF8String:"Menlo-Regular"]
+    asm.external_data(abi::LOCAL[3], CLASS_NS_STRING, LIB_FOUNDATION);
+    asm.load_selector(SEL_STRING_WITH_UTF8.0);
+    asm.local_address("x2", STR_MENLO_FONT.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[3]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[3], "x0")); // Menlo name NSString
+                                                       // font = [NSFont fontWithName:name size:N]
+    asm.external_data(abi::LOCAL[2], CLASS_NS_FONT, LIB_APPKIT);
+    asm.load_selector(SEL_FONT_WITH_NAME.0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], TRANSCRIPT_FONT_SIZE);
+    asm.push(abi::move_register("x2", abi::LOCAL[3])); // name
+    asm.push(abi::move_register("x0", abi::LOCAL[2])); // NSFont class
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], "x0")); // font (nil if Menlo absent)
+    asm.push(abi::compare_immediate(abi::LOCAL[2], "0"));
+    asm.push(abi::branch_ne("ti_font_ready"));
+    // Fallback: font = [NSFont userFixedPitchFontOfSize:N]
     asm.external_data(abi::LOCAL[2], CLASS_NS_FONT, LIB_APPKIT);
     asm.load_selector(SEL_USER_FIXED_FONT.0);
     emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], TRANSCRIPT_FONT_SIZE);
     asm.push(abi::move_register("x0", abi::LOCAL[2]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[2], "x0")); // font
+    asm.push(abi::label("ti_font_ready"));
 
     // cellW = [font maximumAdvancement].width (d0); spill bits.
     asm.load_selector(SEL_MAX_ADVANCEMENT.0);
