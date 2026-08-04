@@ -97,7 +97,8 @@ fn classify(instruction: &CodeInstruction, is_x86: bool) -> Effect {
                     (_, Some(_)) => Effect::DefDst,
                     _ => Effect::Barrier,
                 }
-            } else if instruction.operand("base").is_some() && instruction.operand("dst").is_some() {
+            } else if instruction.operand("base").is_some() && instruction.operand("dst").is_some()
+            {
                 Effect::DefDst // non-sp load: just defines dst
             } else {
                 Effect::Barrier
