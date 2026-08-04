@@ -1,6 +1,7 @@
 IMPORT term
 IMPORT io
 IMPORT strings
+IMPORT collections
 
 ' wide-demo — the plan-70 Unicode-wide-character parity proof.
 '
@@ -15,42 +16,75 @@ IMPORT strings
 '   mfb build examples/wide-demo         (console)
 '   mfb build -app examples/wide-demo    (macOS / Linux GTK / Windows GDI)
 '
-' The inner text column is 24 cells wide (columns 2..25); the right border sits at
-' column 26 on every row regardless of the script mix — that alignment IS the proof.
+' The panel is driven by a display list: index 0 is the title (yellow, centered) and
+' every later entry is a body line. The box is sized from the list — the widest entry
+' sets the inner field, the entry count sets the height — so the right border stays
+' square around the content on every row regardless of the script mix. That alignment
+' IS the proof; a byte-per-cell or width-1-per-scalar backend would misalign it.
 
 FUNC main() AS Integer
   term::on()
   term::clear()
 
-  LET right AS Integer = 26
+  ' Index 0 is the title; the rest are one body line per script class.
+  MUT display AS List OF String
+  display = collections::append(display, "wide glyphs")
+  display = collections::append(display, "CJK:   日本語 中文 한국어")
+  display = collections::append(display, "emoji: 😀 🎉 👍 astral")
+  display = collections::append(display, "NFD:   cafe\u{0301} (café)")
+  display = collections::append(display, "ZWJ:   👨‍👩‍👧‍👦 family")
 
-  ' Border box around the whole panel.
-  term::drawBox(LineStyle.Light, 0, 0, right, 8)
+  LET count AS Integer = len(display)
 
-  ' A title, then one line per script class. Each string is measured to confirm it
-  ' fits the 24-column inner field (columns 2..25).
-  term::setForeground(255, 255, 0)
-  term::drawText(2, 1, "plan-70 wide glyphs")
+  ' Widest display width across every entry (title included) sets the inner field.
+  MUT maxWidth AS Integer = 0
+  FOR EACH line IN display
+    LET w AS Integer = strings::displayWidth(line)
+    IF w > maxWidth THEN maxWidth = w
+  NEXT
 
-  term::setForeground(200, 200, 255)
-  term::drawText(2, 3, "CJK:   日本語 中文 한국어")
-  term::drawText(2, 4, "emoji: 😀 🎉 👍 astral")
-  term::drawText(2, 5, "NFD:   cafe\u{0301} (café)")
-  term::drawText(2, 6, "ZWJ:   👨‍👩‍👧‍👦 family")
+  ' Text is drawn at column 2, so the right border sits one column past the widest
+  ' line. Rows: title at 1, blank at 2, body at 3.., blank, then the bottom border.
+  LET right AS Integer = maxWidth + 2
+  LET bottom AS Integer = count + 3
+  term::drawBox(LineStyle.Light, 0, 0, right, bottom)
+
+  ' Walk the list once: index 0 is the centered yellow title, the rest are the blue
+  ' body lines, one per row starting two rows below the top border.
+  FOR i = 0 TO count - 1
+    LET line AS String = collections::get(display, i)
+    IF i = 0 THEN
+      term::setForeground(255, 255, 0)
+      term::drawText((right - strings::displayWidth(line)) / 2, 1, line)
+    ELSE
+      term::setForeground(200, 200, 255)
+      term::drawText(2, i + 2, line)
+    END IF
+  NEXT
 
   ' A vertical divider proves wide glyphs to its left never bleed past their cells.
-  term::drawVLine(LineStyle.Light, 1, 3, 6)
+  term::drawVLine(LineStyle.Light, 1, 3, count + 1)
   term::drawGlyph(1, 3, 9532)   ' ┼ where the divider meets nothing (decorative)
+
+  term::drawText(1, bottom + 2, "Press any key to continue.")
 
   term::sync()
 
-  ' Report the measured display widths so a headless/console run is self-checking:
-  ' each right-hand label must leave the right border at column 26.
-  io::print("displayWidth checks (columns):")
-  io::print("  日本語 中文 한국어 = " & toString(strings::displayWidth("日本語 中文 한국어")))
-  io::print("  cafe combining     = " & toString(strings::displayWidth("cafe\u{0301}")))
-  io::print("  ZWJ family         = " & toString(strings::displayWidth("👨‍👩‍👧‍👦")))
+  ' Hold the panel on screen until the user presses a key. term::on has already put
+  ' the tty into single-key mode, so one keypress returns without waiting for Return.
+  LET key AS String = io::readChar()
 
   term::off()
+
+  ' Report the measured display width of every list entry so a headless/console run is
+  ' self-checking: no entry may exceed the inner field the box was sized to. These run
+  ' AFTER term::off — while TUI mode is on, io::print draws into the shadow grid (and is
+  ' discarded when term::off leaves the alternate screen), so it must print to the
+  ' restored terminal to be seen.
+  io::print("displayWidth checks (columns):")
+  FOR EACH line IN display
+    io::print("  " & line & " = " & toString(strings::displayWidth(line)))
+  NEXT
+
   RETURN 0
 END FUNC
