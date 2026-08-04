@@ -2218,6 +2218,10 @@ pub(super) fn emit_term_draw_text_helper(uses_term: bool) -> CodeFunction {
         asm.push(abi::load_u64(abi::SCRATCH[2], state, TV_POOL_OFFSET));
         asm.push(abi::compare_immediate(abi::SCRATCH[2], "0"));
         asm.push(abi::branch_eq("dt_pool_done"));
+        // Resolve the selector into x1 BEFORE building the buffer pointer: load_selector
+        // calls sel_registerName, which clobbers every caller-saved scratch register.
+        // Resolving it after the arithmetic left the buffer pointer (x2) holding garbage.
+        asm.load_selector(SEL_GET_CHARACTERS.0);
         asm.push(abi::load_u64(abi::SCRATCH[0], state, TV_TEXT_Y_OFFSET));
         asm.push(abi::multiply_registers(
             abi::SCRATCH[0],
@@ -2230,13 +2234,16 @@ pub(super) fn emit_term_draw_text_helper(uses_term: bool) -> CodeFunction {
             abi::SCRATCH[0],
             6,
         ));
+        // Reload pool_base: the load_selector call above clobbered SCRATCH[2], so the
+        // pool pointer read for the guard is stale by now.
+        asm.push(abi::load_u64(abi::SCRATCH[2], state, TV_POOL_OFFSET));
         asm.push(abi::add_registers(
             abi::SCRATCH[2],
             abi::SCRATCH[2],
             abi::SCRATCH[0],
         ));
-        // [str getCharacters:buffer range:{i, clampedL}]
-        asm.load_selector(SEL_GET_CHARACTERS.0);
+        // [str getCharacters:buffer range:{i, clampedL}] — selector already resolved
+        // into x1 above (before the buffer arithmetic that lives in caller-saved scratch).
         asm.push(abi::move_register("x2", abi::SCRATCH[2]));
         asm.push(abi::move_register("x3", i));
         asm.push(abi::load_u64("x4", abi::stack_pointer(), off_clamped));
@@ -2674,6 +2681,10 @@ pub(super) fn emit_term_write_string_helper(uses_term: bool) -> CodeFunction {
         ));
         asm.push(abi::compare_immediate(abi::SCRATCH[2], "0"));
         asm.push(abi::branch_eq("w_pool_done")); // no pool -> inline base scalar
+                                                 // Resolve the selector into x1 BEFORE building the buffer pointer (mirrors
+                                                 // drawText): load_selector calls sel_registerName, which clobbers every
+                                                 // caller-saved scratch register — including the SCRATCH[2] the buffer lives in.
+        asm.load_selector(SEL_GET_CHARACTERS.0);
         asm.push(abi::load_u64(
             abi::SCRATCH[0],
             abi::LOCAL[2],
@@ -2699,13 +2710,19 @@ pub(super) fn emit_term_write_string_helper(uses_term: bool) -> CodeFunction {
             abi::SCRATCH[0],
             6,
         )); // *POOL(64)
+            // Reload pool_base: the load_selector call above clobbered SCRATCH[2], so the
+            // pool pointer read for the guard is stale by now.
+        asm.push(abi::load_u64(
+            abi::SCRATCH[2],
+            abi::LOCAL[2],
+            TV_POOL_OFFSET,
+        ));
         asm.push(abi::add_registers(
             abi::SCRATCH[2],
             abi::SCRATCH[2],
             abi::SCRATCH[0],
         )); // buffer ptr
             // [str getCharacters:buffer range:{i, clampedL}]  (NSRange in x3/x4)
-        asm.load_selector(SEL_GET_CHARACTERS.0);
         asm.push(abi::move_register("x2", abi::SCRATCH[2])); // buffer
         asm.push(abi::move_register("x3", abi::LOCAL[4])); // range.location = i
         asm.push(abi::load_u64("x4", abi::stack_pointer(), 104)); // range.length = clampedL
