@@ -213,16 +213,35 @@ Acceptance: `artifact-gate … all` 0 diffs (**1159 tests, 1301 builds, 1569
 goldens, 0 diffs** — the assignment did not move); `cargo test --bin mfb` **3783
 passed; 0 failed**; regalloc units green (`sweep_equals_naive_over_randomized_intervals`,
 `linear_scan_spills_integer_across_arena_alloc`, all 19 regalloc tests). — MET.
-Commit: — (hash recorded next commit)
+Commit: a1b12e091
 
 ### Phase 4 — (Opportunistic) typed immediates at the producer
 
-- [ ] Where a producer builds `.field("imm", &n.to_string())`, emit
-      `Operand::Imm(n)` instead (no `String`). Bounded; land only the clean sites.
+- [x] ~~Where a producer builds `.field("imm", &n.to_string())`, emit
+      `Operand::Imm(n)` instead (no `String`). Bounded; land only the clean sites.~~
+      — **moot: measured net *increase*, premise falsified.** The premise —
+      "`Operand::Imm(n)` avoids the String" — holds only at *construction*; it
+      ignores that `Imm::rendered()` returns `Cow::Owned(render())` (**allocates a
+      `String` per call**, operand.rs:118/131) whereas `Raw::rendered()` borrows
+      (0 alloc). Every one of the ~20 `imm`/`offset` sites (all of abi.rs +
+      x86/riscv `regmodel` spill/reload) feeds `finalize_frame`, which `rendered()`s
+      the field **multiple times** (codegen_utils.rs:703, 767, 803) and then
+      **overwrites** it with `Operand::imm(resolved_offset)` anyway (:860). So the
+      producer's value only serves transient reads; making it `Imm` converts those
+      cheap borrows into repeated allocations. **Measured:** converting all 20 sites
+      moved `total_allocs` 328.5M → **335.9M (+7.5M, deterministic across 2 runs)** —
+      the *opposite* of Phase 4's goal. Reverting restored 328.5M, proving the delta
+      was entirely Phase 4. There is **no** clean production site: every `imm`/`offset`
+      producer is re-rendered by frame finalization. A real win here would require
+      `finalize_frame` to read the typed `Imm` directly (via `operand()`) instead of
+      `rendered().parse()` — a read-side change out of scope for an "opportunistic"
+      producer-only phase (plan-83 territory). Left unimplemented; the Phases 2+3 win
+      stands unaffected.
 
-Acceptance: `artifact-gate … all` 0 diffs; attribution shows the immediate
-`to_string` share fall.
-Commit: —
+Acceptance: N/A — the task is moot (proven counterproductive by measurement +
+mechanism above); landing it would violate the plan's own perf goal and the
+"never regress for a speed change" rule.
+Commit: — (no code; reverted to HEAD; see Corrections)
 
 ### Phase 5 — Measure the realized win
 
@@ -257,7 +276,25 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Phase 4's core premise is false — measured, not assumed.** The plan asserted
+  `.field("imm", &n.to_string())` "allocates a String per immediate. A typed
+  `Operand::Imm(n)` … avoids it." True at construction, but every such
+  `imm`/`offset` field is re-read by `finalize_frame` through `Operand::rendered()`
+  — which **borrows for `Raw` but allocates for `Imm`** (`Cow::Owned(render())`,
+  operand.rs:118) — several times per instruction (codegen_utils.rs:703/767/803),
+  and is then overwritten with `Operand::imm(resolved_offset)` (:860). Converting
+  all 20 producer sites therefore *raised* `total_allocs` 328.5M → 335.9M (+7.5M,
+  deterministic); reverting restored 328.5M. Marked moot with that evidence and
+  reverted; Phases 2+3 (the real win, −31.5% allocations) are unaffected. A genuine
+  win would require the read side (`finalize_frame`) to consume the typed `Imm`
+  instead of `rendered().parse()` — out of scope for an "opportunistic" producer
+  phase.
+- **`CodeInstruction` is not `Clone`** (types.rs), so the borrowing `lower_to_mir`
+  wrapper (Phase 2) rebuilds each element from its parts rather than `.to_vec()`.
+- **`select` had to change signature, not just the shared helper.** The `to_vec`
+  clone lives in `code_fields_from_mir(&…)`, but only the owning `select_<isa>`
+  loop can *move* the field bag, so `Backend::select` + all three `select_<isa>`
+  became by-value (Phase 2). All four backends share the same non-fused move path.
 
 ## Summary
 
