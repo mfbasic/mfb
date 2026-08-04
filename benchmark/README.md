@@ -16,18 +16,19 @@ for each package lives on its own (the same split in all three):
 | file                | group(s)          | what it exercises |
 |---------------------|-------------------|-------------------|
 | `main.*`            | recurse, float, record, bignum, parse, io, primes, thread + driver | the cross-language reference workloads (C's `parse` lives in `parsebench.c`) |
-| `list.*`            | `list`, `liststr` | every `collections::` list op over **Integer** lists and over **String** lists |
-| `map*.* `           | `map`             | every map-shaped `collections::` op over **Integer-valued** and **String-valued** maps |
+| `list.*`            | `list (Fixed/Dynamic)`, `list (Record-Fixed/Dynamic)`, `list (State-Fixed/Dynamic)` | every `collections::` list op replicated across a 6-way matrix (bug-430): **Integer** (`Fixed`) vs **String** (`Dynamic`) element, held in a plain `MUT` local vs a record field (fields before + after the list) vs a `File STATE` field — the wrapped groups expose the whole-record-rebuild O(n²) on mutation ops. mfb-internal (no C/Python peers) |
+| `map*.* `           | `map`             | every map-shaped `collections::` op over **Integer-valued** and **String-valued** maps (String keys) |
+| `mapmatrix.*`       | `map (Fixed/Dynamic)`, `map (Record-Fixed/Dynamic)`, `map (State-Fixed/Dynamic)`, `map (key-Fixed/key-Dynamic)` | the map value-matrix (bug-430): each map op (`set`/`get`/`getOr`/`hasKey`/`removeKey`/`keys`/`values`/`mapValues`/`merge`) split one-per-function and replicated across the same 6-way container grid as `list`/`set`, varying the **value** type (Integer `Fixed` / String `Dynamic`) with the **key fixed at Integer**. Plus a **key-hash pair** — `map (key-Fixed)` (Integer key) and `map (key-Dynamic)` (String key), both Integer value, plain standalone only (the key-hash path is container-independent, so no Record/State split; `key-Fixed` is the same workload as `map (Fixed)`). `mapValues`/`merge` are map-producing (reduced size, arena caveat below). mfb-internal (no C/Python peers) |
 | `math*.*`           | `math`            | the libm-severed Float kernels + coverage of every `math::` member across Integer / Float / Fixed and the array (SIMD) overloads |
 | `vector*.*`         | `vector`          | every `vector::` member across the Float / Fixed / Integer families |
-| `bits*.*`           | `bits`            | every `bits::` bitwise / shift / rotate op |
+| `bits*.*`           | `bits`            | every `bits::` bitwise / shift / rotate op, **one row per op** (`band`/`bor`/`bxor`/`bnot`/`sl`/`sr`/`sra`/`rl32`/`rr32`/`rl64`/`rr64`/`clz`/`ctz`/`popCount`/`bswap16`/`bswap32`/`bswap64`); Integer-only, so no Fixed/Dynamic split. Checksums match mfb/C/Python bit-for-bit |
 | `string*.*`         | `string`          | `&` concat + every `strings::` member (case, search, slice, Unicode) |
 | `encoding*.*`       | `encoding`        | `encoding::` serialize/deserialize round-trips (base64 / hex / percent) over the `List OF Byte` ↔ String seam |
 | `datetimeb.* / datetimebench.*` | `datetime` | `datetime::` civil arithmetic (addDays/addMonths/daysInMonth/between) and an ISO format/parse round-trip |
 | `dispatch*.*`       | `dispatch`        | control-flow dispatch: union + `MATCH` tag-dispatch expression eval, and inline-`TRAP` error recovery |
 | `crypto*.*`         | `crypto`          | `crypto::` hashes (SHA-256/512), HMAC-SHA-256, PBKDF2, constant-time compare, a fresh-message hash churn, and deterministic Ed25519 sign+verify — the portable software core over `bits`, cross-checked against `hashlib`/`hmac`/pyca |
 | `serialize*.*`      | `serialize`       | `json::stringify` / `csv::stringify` — the encode direction (recursive tree walk + escape + number/field rendering) complementary to the `parse` group |
-| `setops*.*`         | `set`             | the `Set OF T` collection type (plan-63): grow-by-`add` hash-probe `build` + membership sweep, and an `ops` row over the full set algebra (`union`/`intersection`/`difference`/`symmetricDifference`/`isSubset`/`isSuperset`/`isDisjoint`/`toList`/`toSet`/`remove`) — cross-checked against Python `set` and a C open-addressing hash set |
+| `setops*.*`         | `set (Fixed/Dynamic)`, `set (Record-Fixed/Dynamic)`, `set (State-Fixed/Dynamic)` | the `Set OF T` collection type (plan-63), each op split one-per-function (`add`/`remove`/`contains`/`toList`/`toSet`/`union`/`intersection`/`difference`/`symmetricDifference`/`isSubset`/`isSuperset`/`isDisjoint`) and replicated across the same 6-way matrix as `list` (bug-430) — Integer/String element × plain/record/`STATE` container. Set-producing rows run at a reduced size (arena-churn caveat below). mfb-internal (no C/Python peers) |
 
 In addition to that per-member surface, a second set of **pattern-throughput**
 groups (plan-40) exercises the hot paths real programs hit — sustained churn,
@@ -76,16 +77,20 @@ the length of the emitted text (order-independent, so it matches even when json
 object members emit in a different order); the canonical inputs use only ASCII
 strings and integers so every compact serializer produces the same length.
 
-The `set` group is the first benchmark of the `Set OF T` collection type
-(plan-63): `build` grows a `Set OF Integer` by 20 000 `add`s (half of them
-duplicates, so the idempotent hash-probe hit path is exercised) then sums a
-membership sweep, and `ops` drives the entire set surface — `add`/`remove`/
-`contains`, the source-generic algebra (`union`/`intersection`/`difference`/
-`symmetricDifference`), the predicates (`isSubset`/`isSuperset`/`isDisjoint`),
-and a `toList`+`toSet` round-trip — over two moderate sets. Each row folds set
-sizes into an integer checksum (`build` 20000, `ops` 6006) that matches the mfb
-runtime, Python's built-in `set`, and the C open-addressing hash set bit-for-bit,
-so the cross-language checksum is the proof of correctness.
+The `set (*)` groups benchmark the `Set OF T` collection type (plan-63) across the
+same 6-way container matrix as `list` (bug-430). Each op of the set surface is
+split one-per-function — `add`/`remove` (mutation), `contains`/`toList`/`isSubset`/
+`isSuperset`/`isDisjoint` (bool/list read), and the source-generic algebra
+`toSet`/`union`/`intersection`/`difference`/`symmetricDifference` (set-producing) —
+run over a `Set OF Integer` (`Fixed`) and a `Set OF String` (`Dynamic`) element,
+held in a plain `MUT` local, a record field (fields before + after the set), or a
+`File STATE` field. The wrapped groups exercise the whole-record-rebuild path: a
+`Set`-in-record/`STATE` mutation rebuilds and re-inlines the whole set on every
+step, so the `add`/`remove` rows show the bug-430 O(n²) against the plain baseline.
+Each row folds set sizes into an integer checksum that matches across all three
+containers (the matrix's correctness proof); unlike the former bundled `set`
+group, these rows are mfb-internal with no C/Python peer, and the set-producing
+algebra rows run at a reduced size (arena-churn caveat below).
 
 Only two crypto rows measure at realistic sizes today — `sha256` and `cte`, whose
 transients stay in the arena quick bins and whose per-call cost is flat across the
@@ -172,8 +177,9 @@ degradation is process-global and cumulative across the `run` loop (a fresh row
 starts fast, each repeat gets dramatically slower): a few hundred such allocations
 stay linear; tens of thousands hang the suite for minutes.
 
-The pre-existing `string unicode` and `liststr reshape` rows are small coverage
-smoke-tests for this reason. The plan-40 rows carrying a `TODO(plan-39-A)` marker
+The pre-existing `string unicode` row is a small coverage smoke-test for this
+reason (the former `liststr reshape` smoke-test is superseded by the reduced-size
+rows in the collection-container matrix documented below). The plan-40 rows carrying a `TODO(plan-39-A)` marker
 — `string unibig`, `io binary`, the whole `arena` group, and `scalarbench
 roundtrip`/`transform`/`listchurn` — are authored tiny **on purpose**: they are
 the regression gate for the arena fix (plan-39-A). When that lands, each is bumped
@@ -206,3 +212,52 @@ each is authored tiny on purpose, to be bumped to a realistic `reps`/`iterations
 in the commit that lands plan-64-A and must stay linear. (Only `crypto sha256` and
 `crypto cte` are Phase 1 — their transients stay in the quick bins and their
 per-call cost is flat across the run loop — and run at realistic counts today.)
+
+The bug-430 **collection-container matrix** (`list.mfb`, `setops.mfb` — each
+collection op replicated across a `Fixed`/`Dynamic` × plain/`Record`/`State` grid)
+is arena-churn-sensitive on its **collection-producing** rows, which allocate a
+fresh `Set`/`List` per iteration. These are authored at deliberately small sizes
+as coverage smoke-tests (a `union` of two 1000-element `Set`s at 200 reps takes
+~12 s in-suite from cumulative free-list degradation, but ~0.1 s at the reduced
+size). When the arena fix lands (successor to plan-64-A), the reduced rows below
+bump to full size and must stay **linear**. Affected items:
+
+- **`set (*)` set-producing ops — every group** (`Fixed`, `Dynamic`, `Record-Fixed`,
+  `Record-Dynamic`, `State-Fixed`, `State-Dynamic`): `toSet`, `union`,
+  `intersection`, `difference`, `symmetricDifference` run at a small `alg` size
+  (Integer 300 elems × 20 reps; String 100 × 15).
+- **String set groups** (`set (Dynamic)`, `set (Record-Dynamic)`,
+  `set (State-Dynamic)`): all remaining ops also run at reduced sizes (base 200 vs
+  the Integer groups' 1000; `add`/`remove` 400 vs Integer's 300 accumulation cap)
+  because `Set OF String` churn allocates String bytes on top of the set blocks.
+- **String list reshape-family rows** (`list (Dynamic)`, `list (Record-Dynamic)`,
+  `list (State-Dynamic)`): `sort`, `window`, `zip`, `flatten`, `chunks` allocate
+  many short-lived nested `List OF String` temporaries — lower-risk than the set
+  rows (they run at full size today) but the same family, and candidates to shrink
+  if they degrade at higher `--run` counts.
+- **`map (*)` map-producing ops — every group**: `mapValues`, `merge` allocate a
+  fresh `Map` per iteration, so they run at a small `prod` size (Integer 300 × 20
+  reps; String 100 × 15). The String-valued groups (`map (Dynamic)`,
+  `map (Record-Dynamic)`, `map (State-Dynamic)`) also run their other ops smaller
+  (read base 200 vs the Integer groups' 1000; `set`/`removeKey` 400 vs 300).
+
+Not affected — realistic sizes today: the whole `list (Fixed)`/`(Record-Fixed)`/
+`(State-Fixed)` Integer matrix, and the Integer set groups' cheap ops (`add`,
+`remove`, `contains`, `toList`, `isSubset`/`isSuperset`/`isDisjoint`), whose
+transients stay in the arena quick bins.
+
+**Comparability caveat — the `Dynamic` (String) and `Fixed` (Integer) groups are
+sized differently on purpose** (for `list`, `set`, `map`, and any later matrix).
+Because the arena mixed-transient-churn ceiling binds far sooner on `String`
+elements, the `Dynamic` groups run at smaller base sizes and rep counts than their
+`Fixed` twins (e.g. set algebra Integer 300×20 vs String 100×15; set read base
+1000 vs 200; set `add`/`remove` Integer 300 vs String 400). Consequently the
+**container axis is apples-to-apples** — compare `Fixed` vs `Record-Fixed` vs
+`State-Fixed` (all one size) to read the bug-430 whole-record-rebuild cost — but
+the **element axis is not**: a `Fixed` row and the corresponding `Dynamic` row are
+running different-sized workloads, so a raw `Fixed`-vs-`Dynamic` time difference is
+mostly the size gap, not an Integer-vs-String property. (This is why, e.g.,
+`set (Fixed) union` reads ~110 ms against `set (Dynamic) union` ~7 ms — the Integer
+set is 3× larger — while `add`/`remove` run the other way because String is both
+larger there and heavier per element.) The per-element sizes live in the
+`INT`/`STR` tables of `gen_list.py` / `gen_set.py` / `gen_map.py`.
