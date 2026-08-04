@@ -69,25 +69,40 @@ enum Effect {
 /// (bug-284 C8). aarch64 and riscv64 have no such implicit clobbers.
 fn classify(instruction: &CodeInstruction, is_x86: bool) -> Effect {
     match instruction.op {
-        CodeOp::StrU64 => match (
-            instruction.get("base"),
-            instruction.get("offset"),
-            instruction.get("src"),
-        ) {
-            (Some(base), Some(offset), Some(src)) if base == "sp" => {
-                Effect::StoreSp { src, offset }
+        CodeOp::StrU64 => {
+            // Peek `base` through a borrow so a non-sp store never renders its
+            // `offset`/`src` (it flushes anyway); only an sp store owns them (they
+            // key the slot map).
+            if instruction
+                .operand("base")
+                .is_some_and(|b| b.rendered() == "sp")
+            {
+                match (instruction.get("offset"), instruction.get("src")) {
+                    (Some(offset), Some(src)) => Effect::StoreSp { src, offset },
+                    _ => Effect::Barrier,
+                }
+            } else {
+                Effect::Barrier // store to a non-sp base may alias a frame slot
             }
-            _ => Effect::Barrier, // store to a non-sp base may alias a frame slot
-        },
-        CodeOp::LdrU64 => match (
-            instruction.get("base"),
-            instruction.get("offset"),
-            instruction.get("dst"),
-        ) {
-            (Some(base), Some(offset), Some(dst)) if base == "sp" => Effect::LoadSp { dst, offset },
-            (Some(_), _, Some(_)) => Effect::DefDst, // non-sp load: just defines dst
-            _ => Effect::Barrier,
-        },
+        }
+        CodeOp::LdrU64 => {
+            if instruction
+                .operand("base")
+                .is_some_and(|b| b.rendered() == "sp")
+            {
+                match (instruction.get("offset"), instruction.get("dst")) {
+                    (Some(offset), Some(dst)) => Effect::LoadSp { dst, offset },
+                    // base==sp but a field is missing: a bare dst still just
+                    // defines dst (matches the old `(Some(_),_,Some(_))` arm).
+                    (_, Some(_)) => Effect::DefDst,
+                    _ => Effect::Barrier,
+                }
+            } else if instruction.operand("base").is_some() && instruction.operand("dst").is_some() {
+                Effect::DefDst // non-sp load: just defines dst
+            } else {
+                Effect::Barrier
+            }
+        }
         // Compares write only the flags.
         CodeOp::Cmp | CodeOp::CmpImm | CodeOp::FCmpD | CodeOp::FCmpZeroD => Effect::NoDef,
         // bug-284 C8: on x86-64 these expand to sequences that clobber rdx:rax in
@@ -107,7 +122,7 @@ fn classify(instruction: &CodeInstruction, is_x86: bool) -> Effect {
         | CodeOp::MSub => {
             if is_x86 {
                 Effect::Barrier
-            } else if instruction.get("dst").is_some() {
+            } else if instruction.operand("dst").is_some() {
                 Effect::DefDst
             } else {
                 Effect::Barrier
@@ -164,7 +179,7 @@ fn classify(instruction: &CodeInstruction, is_x86: bool) -> Effect {
         | CodeOp::FCvtmsXFromD
         | CodeOp::FCvtpsXFromD
         | CodeOp::FCvtasXFromD => {
-            if instruction.get("dst").is_some() {
+            if instruction.operand("dst").is_some() {
                 Effect::DefDst
             } else {
                 Effect::Barrier
@@ -240,7 +255,8 @@ pub(super) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
                 invalidate_reg(&mut slots, &dst);
             }
             Effect::DefDst => {
-                if let Some(dst) = instructions[index].get("dst") {
+                if let Some(dst) = instructions[index].operand("dst") {
+                    let dst = dst.rendered();
                     invalidate_reg(&mut slots, &dst);
                 } else {
                     slots.clear();

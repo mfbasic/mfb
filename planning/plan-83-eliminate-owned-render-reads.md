@@ -117,16 +117,28 @@ plan-83; regenerated as a fix, see Corrections). `cargo test --bin mfb` green
 `allocs≈126.57M` → after Phase 1 `render_calls=15,721,114`, `allocs≈120.02M`. Δ =
 **−6,558,200 render calls (−29.4%)**, ≈ **−6.55M allocations (~−5.2% of all)**,
 ≈1:1 render→alloc as expected. `sizing`+`finalize_frame` buckets eliminated.
-Commit: —
+Commit: ebb646118 (stale-golden fix: a8e4bd1a9)
 
 ### Phase 2 — peephole + fma_fusion (post-regalloc)
 
-- [ ] `peephole::forward_stores_to_loads` (4%) and `fma_fusion::fuse_scalar_fma`
-      (3%): borrowing reads / typed matches.
+- [x] `peephole::forward_stores_to_loads` (4%): the per-instruction bulk was
+      `instruction.get("dst").is_some()` (the scalar/mul arms) rendering a register
+      String only to check existence — swapped to `operand("dst").is_some()` (no
+      render). The `StrU64`/`LdrU64` arms now peek `base` through `operand()`+
+      `rendered()` so a non-sp store/load never renders its `offset`/`src`; the
+      `DefDst` handler reads `dst` via `operand()`+`rendered()`.
+- [x] `fma_fusion::fuse_scalar_fma` (3%): removed the redundant `.to_string()`
+      double-clones in the product/consumer extraction (`get()` already owns).
+      **`use_counts` kept String-keyed (render) — see Corrections:** an `Operand`
+      key split counts the String key merged (mixed `VReg`/`Raw` register spellings
+      in the float stream), changing fusion on `audio`/`vector`. The render there is
+      load-bearing; byte-identity (the gate) caught the attempt.
 
-Acceptance: `artifact-gate … all` 0 diffs; `cargo test`; attribution shows these
-buckets reduced (record numbers).
-Commit: —
+Acceptance: `artifact-gate … all` 0 diffs (confirmed, after reverting the
+`Operand`-key attempt). `cargo test --bin mfb` green (3780). Render-bucket
+reduction consolidated into the Phase 4 measurement (peephole's `dst` existence
+checks; fma's residual render is intentionally retained for correctness).
+Commit: (recorded next commit)
 
 ### Phase 3 — pre-regalloc reads (typed-match where `VReg` appears)
 
@@ -187,6 +199,21 @@ Commit: —
   cosmetic dump-label drift. Per AGENTS.md ("fix a bug you find, not excused by
   pre-existing, verify at HEAD"), regenerated the 2 `.mir` goldens (the only lines
   changed are `%ret0`→`%arg0`). This makes plan-83's gate a genuine 0 diffs.
+
+- **Phase 2 `fma_fusion::use_counts` must stay String-keyed (a byte-identity
+  correction the gate forced).** The first Phase 2 attempt keyed the use-count map
+  by the typed `Operand` (a `VReg`/`Imm` key clones heap-free, the big win). It
+  broke byte-identity on exactly the float-heavy fixtures: `artifact-gate` reported
+  10 diffs, all `audio`/`vector` `.ncode` across all 5 targets. Cause: the
+  pre-allocation float stream carries the *same logical register* under two
+  spellings — a `VReg` handle and a `Raw` `%fN` string — which `render()` to the
+  same token but are **not** `Operand`-`Eq`. The String key merges them (the count
+  the "used exactly once" fusion test needs); the `Operand` key splits them,
+  flipping fusion decisions and thus the emitted bytes. Reverted to the String key
+  (the `render()` is load-bearing) and dropped the `Operand: Hash` derive that only
+  the map needed. Only the safe redundant-`.to_string()` removals were kept. This
+  is the plan's guardrail working exactly as intended ("a diff = a read that wasn't
+  actually read-only — investigate, never re-baseline").
 
 ## Summary
 

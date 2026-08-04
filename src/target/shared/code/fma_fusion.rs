@@ -45,6 +45,13 @@ fn is_def_field(name: &str) -> bool {
 
 /// Count, per register token, how many times it appears in a *use* (read) field
 /// across the whole instruction list.
+///
+/// Keyed by the *rendered* token, not the typed [`Operand`]: the float stream can
+/// carry the same logical register under two spellings (a `VReg` handle and a
+/// `Raw` `%fN` string), which render to the same token but are not `Operand`-`Eq`.
+/// A String key merges them (correct); an `Operand` key splits them and changes
+/// the "used exactly once" decision — the artifact-gate caught this on the
+/// float-heavy `audio`/`vector` fixtures. So the render is load-bearing here.
 fn use_counts(instructions: &[CodeInstruction]) -> std::collections::HashMap<String, u32> {
     let mut counts = std::collections::HashMap::new();
     for inst in instructions {
@@ -72,7 +79,9 @@ pub(crate) fn fuse_scalar_fma(instructions: &mut Vec<CodeInstruction>) {
             instructions[i].get("lhs"),
             instructions[i].get("rhs"),
         ) {
-            (Some(d), Some(l), Some(r)) => (d.to_string(), l.to_string(), r.to_string()),
+            // `get()` already renders an owned `String`; take it directly (the
+            // former `.to_string()` re-cloned each one).
+            (Some(d), Some(l), Some(r)) => (d, l, r),
             _ => continue,
         };
         // Restrict to the d-native user path: product and both operands are FP
@@ -136,11 +145,12 @@ pub(crate) fn fuse_scalar_fma(instructions: &mut Vec<CodeInstruction>) {
         }
 
         let dst = match instructions[j].get("dst") {
-            Some(d) => d.to_string(),
+            Some(d) => d,
             None => continue,
         };
-        let lhs = instructions[j].get("lhs").unwrap_or_default().to_string();
-        let rhs = instructions[j].get("rhs").unwrap_or_default().to_string();
+        // `get()` already owns; the former `.to_string()` re-cloned.
+        let lhs = instructions[j].get("lhs").unwrap_or_default();
+        let rhs = instructions[j].get("rhs").unwrap_or_default();
 
         // Determine the fused op from which operand holds the product and whether
         // the consumer adds or subtracts. `c` is the other (addend) operand.
