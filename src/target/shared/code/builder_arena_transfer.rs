@@ -608,17 +608,41 @@ impl CodeBuilder<'_> {
         // binding, the case that matters) and `thread.acceptResource` (source = the
         // transient queue record, already garbage — flagging it is a harmless no-op
         // that keeps one uniform rule: this helper moves, and its source is dead).
+        //
+        // bug-425: on the send path the outcome of the enqueue is not yet known
+        // here — a full/closed/cancelled destination queue fails the transfer and
+        // ownership must stay with the sender. Flagging the source now tombstones a
+        // handle the sender still owns, so its `TRAP`/scope cleanup can neither use
+        // nor close it. When `suppress_resource_source_flag` is set the send helper
+        // is deferring this store to its enqueue-success branch; skip it here. The
+        // accept side and the nested union/collection copies keep flagging inline.
+        if !self.suppress_resource_source_flag {
+            self.emit_flag_resource_source_moved(source_slot);
+        }
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(result)
+    }
+
+    /// Flag the resource record at the pointer held in `source_slot` (a stack slot,
+    /// SP-relative) `moved|closed` — the post-copy tombstone from
+    /// `copy_resource_to_current_arena`, extracted (bug-425) so the thread-send
+    /// lowering can defer it from copy time to its enqueue-success branch. See the
+    /// long comment at that call site for why both bits are set.
+    pub(super) fn emit_flag_resource_source_moved(&mut self, source_slot: usize) {
+        let source_ptr = self.temporary_vreg();
         let moved_flag = self.temporary_vreg();
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64(
+            &source_ptr,
+            abi::stack_pointer(),
+            source_slot,
+        ));
         self.emit(abi::move_immediate(
             &moved_flag,
             "Integer",
             RESOURCE_MOVED_CLOSED_VALUE,
         ));
-        self.emit(abi::store_u64(&moved_flag, &scratch9, FILE_OFFSET_CLOSED));
-        let result = self.allocate_register()?;
-        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
-        Ok(result)
+        self.emit(abi::store_u64(&moved_flag, &source_ptr, FILE_OFFSET_CLOSED));
     }
 
     /// True when field `field_type` of `record_type` is a pointer to a separate

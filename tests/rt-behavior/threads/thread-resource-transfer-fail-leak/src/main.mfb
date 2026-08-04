@@ -1,0 +1,40 @@
+IMPORT io
+IMPORT thread
+IMPORT fs
+IMPORT thread_res_sink
+
+' bug-425: a failed/timed-out thread::transfer must leave the sender's resource
+' un-moved and still usable, per `mfb man thread transfer` ("On a failed transfer
+' no move happened ... a TRAP handler may still use the binding"). The worker
+' blocks and never accepts, so the parent's cap-1 inbound resource queue stays
+' full after one fill transfer. Every later transfer(t, f, 0) then fails at once
+' with ErrTimeout.
+'
+' In the TRAP handler we first READ the handle — proving it is genuinely open and
+' usable, not a tombstone — then close it. The buggy build flags the source
+' `moved|closed` at copy time (before the enqueue outcome is known), so the very
+' first fs::readAll(f) in the handler is refused with ErrResourceMoved (7-703-0009)
+' and the program aborts. This read-before-close also defeats a "swallow the close
+' no-op" wrong fix: a record still flagged moved fails readAll regardless of what
+' close does, so the loop can only complete when the source is truly un-flagged.
+FUNC main AS Integer
+  LET t AS Thread OF String RES File TO Integer = thread::start(thread_res_sink::blockNeverAccept, "seed", 1, 1)
+  RES fill AS File = fs::openFile("tests/rt-behavior/threads/thread-resource-transfer-fail-leak/data/input.txt")
+  thread::transfer(t, fill, 1000)
+
+  MUT closed AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 300
+    RES f AS File = fs::openFile("tests/rt-behavior/threads/thread-resource-transfer-fail-leak/data/input.txt")
+    thread::transfer(t, f, 0) TRAP(err)
+      LET bytes AS Integer = len(fs::readAll(f))
+      fs::close(f)
+      closed = closed + 1
+      RECOVER
+    END TRAP
+    i = i + 1
+  END WHILE
+  io::print("done")
+  io::print(toString(closed))
+  RETURN 0
+END FUNC

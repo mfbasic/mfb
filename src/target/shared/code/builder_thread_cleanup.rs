@@ -109,9 +109,24 @@ impl CodeBuilder<'_> {
         self.claim_moved_thread_arg_temp(target, &arg_values);
 
         self.reset_temporary_registers();
+        // bug-425: a thread-sendable resource (File/Socket/UdpSocket) is flagged
+        // `moved|closed` on its *source* record by `copy_resource_to_current_arena`.
+        // Defer that store from copy time to the enqueue-success branch below, so a
+        // failed transfer (`ErrTimeout`/`ErrInterrupted`/`ErrResourceClosed`) leaves
+        // the sender's handle open and closable, matching the man-page contract and
+        // the already success-gated `deactivate_moved_resource_arguments`.
+        let defer_resource_flag =
+            matches!(target, "thread.transferResource" | "thread.emitResource")
+                && crate::builtins::is_thread_sendable_resource_type(&arg_values[1].type_);
         let saved_arena_slot = self.allocate_stack_object("runtime_thread_send_saved_arena", 8);
         let copied_message_slot =
             self.allocate_stack_object("runtime_thread_send_copied_message", 8);
+        // Allocated only when deferring, so data-plane sends keep their slot layout.
+        let source_resource_slot = if defer_resource_flag {
+            Some(self.allocate_stack_object("runtime_thread_send_source_resource", 8))
+        } else {
+            None
+        };
         let arena_offset = if target == "thread.emit" {
             THREAD_OFFSET_PARENT_ARENA_STATE
         } else {
@@ -127,7 +142,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(ARENA_STATE_REGISTER, &scratch10));
         self.error_arena_restore_slot = Some(saved_arena_slot);
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), arg_slots[1]));
+        // Stash the source resource pointer before arg_slots[1] is overwritten with
+        // the destination copy below; the enqueue-success branch flags it moved.
+        if let Some(slot) = source_resource_slot {
+            self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), slot));
+        }
+        self.suppress_resource_source_flag = defer_resource_flag;
         let copied = self.copy_value_to_current_arena(&arg_values[1].type_, &scratch9)?;
+        self.suppress_resource_source_flag = false;
         self.error_arena_restore_slot = None;
         self.emit(abi::store_u64(
             &copied,
@@ -167,8 +189,21 @@ impl CodeBuilder<'_> {
                 || self.union_is_data(&msg_type)
                 || msg_type.starts_with("Result OF ")
                 || is_collection_type(&msg_type));
+        // bug-425: a bare thread-sendable resource (no STATE) copies to exactly one
+        // RESOURCE_RECORD_SIZE block, so its size IS known. Hand it to the failed-send
+        // pending-free path so a failed transfer's orphaned destination copy is
+        // reclaimed on the destination's next read rather than stranded until worker
+        // teardown. A *stateful* resource additionally deep-copies a separate STATE
+        // block that this single size cannot describe, so it keeps the pre-existing
+        // bounded leak rather than reclaim the record and strand the STATE.
+        let bare_resource_reclaimable =
+            defer_resource_flag && crate::builtins::resource::state_type_name(&msg_type).is_none();
         if size_computable {
             self.emit_inlined_block_size_from_ptr_slot(&msg_type, copied_message_slot, size_slot)?;
+        } else if bare_resource_reclaimable {
+            let size = self.temporary_vreg();
+            self.emit(abi::move_immediate(&size, "Integer", RESOURCE_RECORD_SIZE));
+            self.emit(abi::store_u64(&size, abi::stack_pointer(), size_slot));
         } else {
             self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), size_slot));
         }
@@ -190,15 +225,41 @@ impl CodeBuilder<'_> {
         // remains owned by the caller (the syntaxchecker restores the binding into
         // the handler scope); the success continuation treats it as moved.
         if raw {
+            // bug-425: stash the enqueue tag before `materialize_current_result`
+            // consumes the result registers, so the source can be flagged moved
+            // only when the enqueue actually succeeded.
+            let send_tag_slot = if defer_resource_flag {
+                let slot = self.allocate_stack_object("runtime_thread_send_raw_tag", 8);
+                self.emit(abi::store_u64(
+                    RESULT_TAG_REGISTER,
+                    abi::stack_pointer(),
+                    slot,
+                ));
+                Some(slot)
+            } else {
+                None
+            };
             self.deactivate_moved_thread_arguments(target, args);
             self.deactivate_moved_resource_arguments(target, args);
             let _ = arg_values;
             // thread.send/emit errors originate at this call site, not a worker.
-            return self.materialize_current_result(
+            let result = self.materialize_current_result(
                 result_type,
                 format!("callResult {target}"),
                 false,
-            );
+            )?;
+            if let (Some(tag_slot), Some(source_slot)) = (send_tag_slot, source_resource_slot) {
+                // Flag the source moved only on the Ok tag; a trapped failure keeps
+                // the sender's handle (the handler's restored binding closes it).
+                let flag_done = self.label("runtime_thread_send_raw_flag_done");
+                let tag = self.temporary_vreg();
+                self.emit(abi::load_u64(&tag, abi::stack_pointer(), tag_slot));
+                self.emit(abi::compare_immediate(&tag, RESULT_OK_TAG));
+                self.emit(abi::branch_ne(&flag_done));
+                self.emit_flag_resource_source_moved(source_slot);
+                self.emit(abi::label(&flag_done));
+            }
+            return Ok(result);
         }
 
         let ok_label = self.label("runtime_thread_send_ok");
@@ -209,6 +270,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&ok_label));
         self.deactivate_moved_thread_arguments(target, args);
         self.deactivate_moved_resource_arguments(target, args);
+        // bug-425: enqueue succeeded — now flag the source `moved|closed`, the store
+        // `copy_resource_to_current_arena` deferred (see `suppress_resource_source_flag`).
+        if let Some(source_slot) = source_resource_slot {
+            self.emit_flag_resource_source_moved(source_slot);
+        }
 
         if result_type != "Nothing" {
             return Err(format!(

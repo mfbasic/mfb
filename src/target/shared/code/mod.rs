@@ -298,6 +298,18 @@ struct CodeBuilder<'a> {
     /// is in [`trap_discard_error_results`]: it makes `emit_error_register_return`
     /// and `materialize_current_result` emit only a bare tag on the error path.
     raw_result_discard_error: bool,
+    /// bug-425: set transiently by the thread-send lowering while it copies a
+    /// thread-sendable resource into the destination arena. `copy_resource_to_current_arena`
+    /// otherwise flags the *source* record `moved|closed` at copy time — before the
+    /// enqueue outcome is known — which tombstones the sender's handle even when the
+    /// transfer then fails with `ErrTimeout`/`ErrInterrupted`/`ErrResourceClosed`, so
+    /// the sender's `TRAP`/scope cleanup can neither use nor close it (a leak the man
+    /// page forbids: a failed transfer keeps the resource with the sender). When set,
+    /// the copy skips the source flagging; the send helper re-emits it on the enqueue
+    /// success branch instead (mirroring `deactivate_moved_resource_arguments`). The
+    /// accept side and the nested union/collection copies leave this false and keep
+    /// flagging inline (their source is a transient queue record, already garbage).
+    suppress_resource_source_flag: bool,
     /// Re-entrancy guard for the inline-error → function-`TRAP` route (bug-03).
     /// Set while `emit_error_register_return` is routing an inline failure to the
     /// enclosing trap; the trap route itself builds an `Error` inline, whose OOM
