@@ -152,21 +152,21 @@
       "op": "while",
       "line": 11,
       "loop": "while",
-      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Unknown", "target": "#http_done", "args": [{ "kind": "local", "name": "s" }] }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Boolean", "target": "#http_done", "args": [{ "kind": "local", "name": "s" }] }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
       "body": [
       {
         "op": "if",
         "line": 12,
-        "condition": { "kind": "call", "type": "Unknown", "target": "#http_ready", "args": [{ "kind": "local", "name": "s" }] },
+        "condition": { "kind": "call", "type": "Boolean", "target": "#http_ready", "args": [{ "kind": "local", "name": "s" }] },
         "then": [
-        { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Unknown", "target": "#http_pump", "args": [{ "kind": "local", "name": "s" }] } }
+        { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "#http_pump", "args": [{ "kind": "local", "name": "s" }] } }
         ],
         "else": [
         ]
       }
       ]
     },
-    { "op": "bind", "line": 16, "mutable": false, "name": "resp", "type": "Response", "value": { "kind": "call", "type": "Unknown", "target": "#http_finish", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "bind", "line": 16, "mutable": false, "name": "resp", "type": "Response", "value": { "kind": "call", "type": "Response", "target": "#http_finish", "args": [{ "kind": "local", "name": "s" }] } },
     { "op": "return", "line": 17, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "resp" }, "member": "status" } }
     ]
   },

@@ -1,0 +1,47 @@
+IMPORT io
+IMPORT fs
+IMPORT collections
+
+' bug-429: a `List`/`Map OF RES <ResourceUnion> STATE <S>` that OWNS its
+' elements — the `RES` bindings are produced in an inner (loop) scope and
+' appended to the outer-scope collection, so ownership FLOATS up to the
+' collection (§15.6) — must drain-close each union element at scope exit by
+' dispatching on the active variant's tag, then free its uniform STATE block.
+' Before the fix this failed to compile ("owned-list element type
+' '<Union> STATE <S>' has no registered close op"): the drain only knew a
+' single concrete close op, never the union tag-dispatch a single binding uses.
+'
+' Contrast: bug427_list_union_state_rt builds the SAME list type but its
+' resources share the list's scope, so nothing floats and the drain is never
+' emitted. This fixture forces the float via the loop-scoped bindings.
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+UNION Handle
+  File
+  Socket
+END UNION
+
+' Build a list whose union elements float in from the loop body, read each
+' `.state` back, then let the list drop — running the owned-list union drain.
+FUNC buildList() AS Integer
+  MUT handles AS List OF RES Handle STATE Cursor = []
+  FOR i = 1 TO 3
+    RES h AS Handle STATE Cursor = fs::createTempFile()
+    h.state.pos = i * 4
+    handles = collections::append(handles, h)
+  NEXT
+  MUT total AS Integer = 0
+  FOR EACH h IN handles
+    total = total + h.state.pos
+  NEXT
+  RETURN total
+END FUNC
+
+FUNC main AS Integer
+  io::print("list=" & toString(buildList()))
+  ' Repeat to prove the drain is repeatable and once-only (no double-free/crash).
+  io::print("list2=" & toString(buildList()))
+  RETURN 0
+END FUNC
