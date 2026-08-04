@@ -463,6 +463,20 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     }
 }
 
+/// Whether `arg_types` is the single bound-stream argument that
+/// `ready`/`pump`/`done`/`finish` take. The parameter is the base union `Stream`,
+/// but a real argument is a `Stream` value carrying its `PendingState`
+/// (`Stream STATE PendingState`) — the only STATE a `Stream` ever has. Matching
+/// on the base name (STATE stripped) rather than an exact `Stream` string is what
+/// lets these resolve at a call site where the stream is spelled with its STATE
+/// (e.g. a `FOR EACH` element of a `List OF RES Stream STATE PendingState`, or a
+/// TRAP-desugared `$trap_res`); an exact-`Stream` match resolved those to
+/// `Unknown`, which then had no native storage class (bug-429).
+fn stream_arg(arg_types: &[String]) -> bool {
+    arg_types.len() == 1
+        && crate::builtins::resource::base_resource_name(&arg_types[0]) == STREAM_TYPE
+}
+
 /// The argument-validating return-type resolution, invoked through the descriptor
 /// resolver by `resolve_call`. `handleRequest` accepts either listener type; the
 /// server/client overloads validate their per-position argument types.
@@ -492,10 +506,10 @@ fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedC
         {
             Cow::Borrowed(STREAM_STATE)
         }
-        READY if exact(arg_types, &[STREAM_TYPE]) => Cow::Borrowed("Boolean"),
-        PUMP if exact(arg_types, &[STREAM_TYPE]) => Cow::Borrowed("Nothing"),
-        DONE if exact(arg_types, &[STREAM_TYPE]) => Cow::Borrowed("Boolean"),
-        FINISH if exact(arg_types, &[STREAM_TYPE]) => Cow::Borrowed(RESPONSE_TYPE),
+        READY if stream_arg(arg_types) => Cow::Borrowed("Boolean"),
+        PUMP if stream_arg(arg_types) => Cow::Borrowed("Nothing"),
+        DONE if stream_arg(arg_types) => Cow::Borrowed("Boolean"),
+        FINISH if stream_arg(arg_types) => Cow::Borrowed(RESPONSE_TYPE),
         // server(port, host = "0.0.0.0", backlog = 128) -> net::Listener
         SERVER
             if exact(arg_types, &["Integer"])
