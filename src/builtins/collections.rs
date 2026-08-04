@@ -571,16 +571,18 @@ fn resolve_get_or<'a>(arg_types: &'a [String]) -> Option<super::general::Resolve
         return None;
     }
     if let Some(element) = super::general::list_element(&arg_types[0]) {
-        return (arg_types[1] == "Integer" && arg_types[2] == element).then_some(
-            super::general::ResolvedCall {
-                return_type: Cow::Borrowed(element),
-            },
-        );
+        return (arg_types[1] == "Integer"
+            && super::general::element_accepts_item(element, &arg_types[2]))
+        .then_some(super::general::ResolvedCall {
+            return_type: Cow::Borrowed(element),
+        });
     }
     let (key, value) = super::general::map_parts(&arg_types[0])?;
-    (arg_types[1] == key && arg_types[2] == value).then_some(super::general::ResolvedCall {
-        return_type: Cow::Borrowed(value),
-    })
+    (arg_types[1] == key && super::general::element_accepts_item(value, &arg_types[2])).then_some(
+        super::general::ResolvedCall {
+            return_type: Cow::Borrowed(value),
+        },
+    )
 }
 
 fn resolve_set<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
@@ -588,16 +590,18 @@ fn resolve_set<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCa
         return None;
     }
     if let Some(element) = super::general::list_element(&arg_types[0]) {
-        return (arg_types[1] == "Integer" && arg_types[2] == element).then_some(
-            super::general::ResolvedCall {
-                return_type: Cow::Borrowed(&arg_types[0]),
-            },
-        );
+        return (arg_types[1] == "Integer"
+            && super::general::element_accepts_item(element, &arg_types[2]))
+        .then_some(super::general::ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        });
     }
     let (key, value) = super::general::map_parts(&arg_types[0])?;
-    (arg_types[1] == key && arg_types[2] == value).then_some(super::general::ResolvedCall {
-        return_type: Cow::Borrowed(&arg_types[0]),
-    })
+    (arg_types[1] == key && super::general::element_accepts_item(value, &arg_types[2])).then_some(
+        super::general::ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        },
+    )
 }
 
 fn resolve_append<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
@@ -605,11 +609,10 @@ fn resolve_append<'a>(arg_types: &'a [String]) -> Option<super::general::Resolve
         return None;
     }
     let element = super::general::list_element(&arg_types[0])?;
-    (arg_types[1] == element || arg_types[1] == arg_types[0]).then_some(
-        super::general::ResolvedCall {
+    (super::general::element_accepts_item(element, &arg_types[1]) || arg_types[1] == arg_types[0])
+        .then_some(super::general::ResolvedCall {
             return_type: Cow::Borrowed(&arg_types[0]),
-        },
-    )
+        })
 }
 
 fn resolve_prepend<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
@@ -617,9 +620,11 @@ fn resolve_prepend<'a>(arg_types: &'a [String]) -> Option<super::general::Resolv
         return None;
     }
     let element = super::general::list_element(&arg_types[0])?;
-    (arg_types[1] == element).then_some(super::general::ResolvedCall {
-        return_type: Cow::Borrowed(&arg_types[0]),
-    })
+    super::general::element_accepts_item(element, &arg_types[1]).then_some(
+        super::general::ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        },
+    )
 }
 
 fn resolve_insert<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
@@ -627,9 +632,10 @@ fn resolve_insert<'a>(arg_types: &'a [String]) -> Option<super::general::Resolve
         return None;
     }
     let element = super::general::list_element(&arg_types[0])?;
-    (arg_types[1] == "Integer" && arg_types[2] == element).then_some(super::general::ResolvedCall {
-        return_type: Cow::Borrowed(&arg_types[0]),
-    })
+    (arg_types[1] == "Integer" && super::general::element_accepts_item(element, &arg_types[2]))
+        .then_some(super::general::ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        })
 }
 
 fn resolve_remove_at<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
@@ -1386,6 +1392,70 @@ mod tests {
         );
         assert_eq!(rc(resolve_insert(&strings(&["Integer", "a", "b"]))), None);
         assert_eq!(rc(resolve_insert(&strings(&["List OF Integer"]))), None);
+    }
+
+    #[test]
+    fn resolve_collection_element_is_state_agnostic() {
+        // bug-427: a `List OF RES <union> STATE S` element keeps its STATE clause
+        // in the list type string (so an extracted element can read `.state`),
+        // but the two resolver callers normalize the *item* argument differently:
+        // syntaxcheck passes the item WITH its STATE clause, while `ir::verify`
+        // strips the STATE off resource arguments. Both must resolve, so element
+        // insertion compares element and item by their bare resource type.
+        let list = "List OF RES File STATE Cursor";
+
+        // Item carrying its STATE (syntaxcheck's shape) resolves.
+        assert_eq!(
+            rc(resolve_append(&strings(&[list, "File STATE Cursor"]))),
+            Some(list.to_string())
+        );
+        // Item stripped to the bare handle (`ir::verify`'s shape) also resolves.
+        assert_eq!(
+            rc(resolve_append(&strings(&[list, "File"]))),
+            Some(list.to_string())
+        );
+        // A genuinely different resource is still rejected.
+        assert_eq!(rc(resolve_append(&strings(&[list, "Socket"]))), None);
+
+        // `get` returns the element type WITH its STATE clause, so an extracted
+        // element's `.state` types against the union's uniform STATE.
+        assert_eq!(
+            rc(resolve_get(&strings(&[list, "Integer"]))),
+            Some("File STATE Cursor".to_string())
+        );
+
+        // prepend / insert / set share the same STATE-agnostic item compare.
+        assert_eq!(
+            rc(resolve_prepend(&strings(&[list, "File"]))),
+            Some(list.to_string())
+        );
+        assert_eq!(
+            rc(resolve_insert(&strings(&[
+                list,
+                "Integer",
+                "File STATE Cursor"
+            ]))),
+            Some(list.to_string())
+        );
+        assert_eq!(
+            rc(resolve_set(&strings(&[list, "Integer", "File"]))),
+            Some(list.to_string())
+        );
+
+        // Map values carry the same treatment.
+        let map = "Map OF String TO RES File STATE Cursor";
+        assert_eq!(
+            rc(resolve_set(&strings(&[map, "String", "File"]))),
+            Some(map.to_string())
+        );
+        assert_eq!(
+            rc(resolve_get_or(&strings(&[
+                map,
+                "String",
+                "File STATE Cursor"
+            ]))),
+            Some("File STATE Cursor".to_string())
+        );
     }
 
     #[test]

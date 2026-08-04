@@ -1,0 +1,77 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug427_list_union_state_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 14,
+    "visibility": "public",
+    "name": "Cursor",
+    "fields": [
+    { "visibility": null, "line": 15, "name": "pos", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "union",
+    "line": 18,
+    "visibility": "public",
+    "name": "Handle",
+    "includes": [],
+    "variants": [
+    {
+      "name": "File",
+      "line": 19,
+      "fields": [
+      ]
+    },
+    {
+      "name": "Socket",
+      "line": 20,
+      "fields": [
+      ]
+    }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 23,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 24, "mutable": true, "name": "handles", "type": "List OF RES Handle STATE Cursor", "value": { "kind": "list", "type": "List OF RES Handle STATE Cursor", "values": [] } },
+    { "op": "bind", "line": 26, "mutable": false, "name": "a", "type": "Handle STATE Cursor", "value": { "kind": "unionWrap", "union": "Handle", "member": "File", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } } },
+    { "op": "stateAssign", "line": 27, "resource": "a", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "a" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "3" } }] } },
+    { "op": "assign", "line": 28, "name": "handles", "value": { "kind": "call", "type": "List OF RES Handle STATE Cursor", "target": "collections.append", "args": [{ "kind": "local", "name": "handles" }, { "kind": "local", "name": "a" }] } },
+    { "op": "bind", "line": 30, "mutable": false, "name": "b", "type": "Handle STATE Cursor", "value": { "kind": "unionWrap", "union": "Handle", "member": "File", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } } },
+    { "op": "stateAssign", "line": 31, "resource": "b", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "b" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "9" } }] } },
+    { "op": "assign", "line": 32, "name": "handles", "value": { "kind": "call", "type": "List OF RES Handle STATE Cursor", "target": "collections.append", "args": [{ "kind": "local", "name": "handles" }, { "kind": "local", "name": "b" }] } },
+    { "op": "bind", "line": 34, "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "forEach",
+      "line": 35,
+      "name": "h",
+      "type": "Handle STATE Cursor",
+      "iterable": { "kind": "local", "name": "handles" },
+      "body": [
+      { "op": "assign", "line": 36, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "h" }, "member": "state" }, "member": "pos" } } }
+      ]
+    },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "total=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] } }] } },
+    { "op": "bind", "line": 40, "mutable": false, "name": "first", "type": "Handle STATE Cursor", "value": { "kind": "call", "type": "Handle STATE Cursor", "target": "collections.get", "args": [{ "kind": "local", "name": "handles" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "first=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "first" }, "member": "state" }, "member": "pos" }] } }] } },
+    { "op": "return", "line": 42, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

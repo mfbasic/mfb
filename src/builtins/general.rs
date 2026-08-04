@@ -493,6 +493,19 @@ pub(super) fn map_parts(type_name: &str) -> Option<(&str, &str)> {
     Some((key, value.strip_prefix("RES ").unwrap_or(value)))
 }
 
+/// Whether a collection element type accepts a candidate item type, ignoring a
+/// uniform `STATE T` clause either side may carry (bug-427). A stateful
+/// resource-union element (`Stream STATE PendingState`) keeps its STATE clause in
+/// the list's type string so an extracted element can read `.state`, but a
+/// resource item is compared by its bare handle type (the STATE is opaque at the
+/// insertion position, and `ir::verify` already strips it from arguments). For a
+/// non-resource element both sides pass through `base_resource_name` unchanged,
+/// so this is an exact-match compare there.
+pub(super) fn element_accepts_item(element: &str, item: &str) -> bool {
+    crate::builtins::resource::base_resource_name(element)
+        == crate::builtins::resource::base_resource_name(item)
+}
+
 /// The element type of a `Set OF T` (plan-63). A Set element is always
 /// comparable and never `RES`-marked, so there is no marker to strip.
 pub(super) fn set_element(type_name: &str) -> Option<&str> {

@@ -602,6 +602,30 @@ fn parses_map_type_variants() {
 }
 
 #[test]
+fn parses_res_collection_element_state_clause() {
+    // bug-427: a `RES` collection element may carry a uniform `STATE T` clause
+    // (a stateful resource union), folded into the element type string exactly
+    // as the thread resource plane does — the STATE rides the element, not the
+    // binding, so an extracted element can read `.state`.
+    assert_eq!(
+        type_of("List OF RES File STATE Cursor"),
+        "List OF RES File STATE Cursor"
+    );
+    assert_eq!(
+        type_of("Map OF String TO RES File STATE Cursor"),
+        "Map OF String TO RES File STATE Cursor"
+    );
+}
+
+#[test]
+fn state_clause_requires_res_collection_element() {
+    // A `STATE` clause is only meaningful on a `RES` element; after a bare
+    // (no-`RES`) element it is a parse error, not a dangling token (bug-427).
+    type_err("List OF File STATE Cursor");
+    type_err("Map OF String TO File STATE Cursor");
+}
+
+#[test]
 fn map_type_requires_to_keyword() {
     type_err("Map OF String Integer");
 }
