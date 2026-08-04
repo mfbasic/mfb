@@ -5,8 +5,9 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/syntax/ (new) — list-of-res-union-state parse fixture
+Status: FIXED (8a5c7bbe3)
+Regression Test: tests/syntax/resources/resource-union-state-collection-{valid,no-res-invalid},
+tests/rt-behavior/resources/bug427_list_union_state_rt (full build + run)
 
 A collection element that is a stateful resource cannot be spelled. A binding
 such as
@@ -182,50 +183,76 @@ extraction can type `.state`.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add a `tests/syntax/` parse fixture for
+- [x] Add a `tests/syntax/` parse fixture for
       `MUT streams AS List OF RES <ResourceUnion> STATE <S>` (and a `Map OF K TO
       RES V STATE S` sibling). Confirm they fail today with the dangling-`STATE`
       statement-end error.
-- [ ] Add a negative fixture asserting `List OF http::Stream STATE …` (no
-      `RES`) stays rejected.
-- [ ] Run the actual `strip_prefix("RES ")` / `List OF RES` / `TO RES` search
+- [x] Add a negative fixture asserting `List OF <union> STATE …` (no `RES`)
+      stays rejected.
+- [x] Run the actual `strip_prefix("RES ")` / `List OF RES` / `TO RES` search
       and write each site's verdict into Blast Radius above.
 
+Audit verdict (per `strip_prefix("RES ")` / `List OF RES` / `TO RES` search):
+the STATE suffix is **carried, not lost** by every consumer that strips only the
+`RES ` prefix and keeps the remainder — because the remainder handling already
+splits ` STATE T`:
+
+- `src/resolver/resolution.rs` (List/Map/literal element strip) — **unaffected**:
+  strips `RES `, then recurses through `resolve_type_name`, whose bare-resource
+  arm already splits ` STATE T` (`state_type_name`/`base_resource_name`).
+- `src/ir/lower.rs:collection_iteration_type` — **unaffected**: strips only
+  `RES `, so the `FOR EACH` loop variable keeps `Stream STATE S`.
+- `src/builtins/general.rs:list_element`/`map_parts` — **unaffected as returns**
+  (keep STATE for `get`), but the item-compare resolvers needed a fix (below).
+- `src/builtins/collections.rs` resolve_append/prepend/insert/set/getOr —
+  **FIXED**: compared the STATE-carrying element against a STATE-stripped item
+  (`ir::verify` strips resource args); now `element_accepts_item` normalizes both
+  sides by `base_resource_name`.
+- `src/ast/expr.rs` List/Map branches — **FIXED** (the parse gap itself).
+- monomorph / native codegen / target-shared strips — **unaffected**: proven by
+  the rt-behavior fixture building to a native executable and running.
+
 Acceptance: the new positive fixtures fail for the documented reason; the
-negative fixture already fails (stays rejected); the audit list is complete with
-a verdict per site.
-Commit: —
+negative fixture is rejected; the audit list is complete with a verdict per site.
+Commit: 8a5c7bbe3
 
 ### Phase 2 — the fix
 
-- [ ] `src/ast/expr.rs` List branch: fold `parse_optional_state` into the `RES`
-      element (mirror `parse_resource_plane_type`).
-- [ ] `src/ast/expr.rs` Map value branch: same fold after the value's optional
+- [x] `src/ast/expr.rs` List branch: fold optional `STATE` into the `RES`
+      element (`parse_optional_element_state`, mirror `parse_resource_plane_type`).
+- [x] `src/ast/expr.rs` Map value branch: same fold after the value's optional
       `RES`.
-- [ ] Reject `STATE` after a non-`RES` collection element with a clear
-      diagnostic.
-- [ ] Extend every in-scope consumer from the audit to strip/carry ` STATE T`
-      on a collection element (resolver, monomorphizer, source checker, IR
-      verifier).
-- [ ] Element extraction (`get` / `FOR EACH`) + `RES`-bind checks STATE
-      agreement (`TYPE_STATE_MISMATCH`).
+- [x] Reject `STATE` after a non-`RES` collection element with a clear
+      diagnostic (`A STATE clause requires a RES collection element…`).
+- [x] Extend the in-scope consumer from the audit: the collection item-compare
+      resolvers (`element_accepts_item`). The resolver / monomorphizer / source
+      checker / IR verifier already carry ` STATE T` (audit above).
+- [x] Element extraction (`get` / `FOR EACH`) + `RES`-bind checks STATE
+      agreement (`TYPE_STATE_MISMATCH`) — verified end to end.
 
 Acceptance: Phase 1 positive fixtures pass; the negative fixture still rejects;
 Non-goals unchanged.
-Commit: —
+Commit: 8a5c7bbe3
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Regenerate any `.ast` / `.ir` goldens the new fixtures produce; diff and
-      confirm the delta is only the new type string.
-- [ ] Update `mfb spec architecture type-name-encoding` (`ListArg`) and
-      `mfb spec language resource-management` §15.6 to document the
-      STATE-bearing collection element.
-- [ ] Run the full `cargo test --bin mfb` suite and the artifact gate.
+- [x] Generated `.ast`/`.ir`/`build.log` goldens for the new fixtures (and the
+      rt-behavior `.run` execution proof); confirmed via `test-accept.sh`.
+- [x] Updated `mfb spec architecture type-name-encoding` and
+      `mfb spec language resource-management` §15.6 to document the STATE-bearing
+      collection element.
+- [x] Ran the full `cargo test --bin mfb` suite (3783 passed) and the artifact
+      gate (`all`): 1159 tests, 1569 goldens checked. The only 2 diffs
+      (`control-flow-if` / `parser-hello-world` `.mir`, a `%ret0`↔`%arg0` vreg
+      rename on x0) are **pre-existing on clean main** — proven by regenerating
+      them with a detached `300b2a2f8` release binary (both differ there too),
+      and both fixtures use no collections/resources/STATE. This fix adds **zero**
+      new golden diffs.
 
-Acceptance: full suite green; golden deltas are exactly the intended change; the
-reproduction parses and type-checks.
-Commit: —
+Acceptance: full suite green; the fix's golden set is exactly the intended
+change (no unintended shifts); the reproduction parses, type-checks, builds, and
+runs.
+Commit: 8a5c7bbe3
 
 ## Validation Plan
 
@@ -254,3 +281,44 @@ place that recovers a collection element by stripping `RES ` must also split off
 ` STATE T`, or the element's state is silently lost or mis-resolved. The parser
 patch alone would be the tempting wrong fix. Left untouched: the no-`RES`
 rejection, Set elements, per-variant STATE, and the thread plane.
+
+## STATUS: FIXED (8a5c7bbe3)
+
+Reproduced exactly as documented: `MUT streams AS List OF RES Stream STATE S`
+(and the `Map` sibling) failed to parse with a dangling-`STATE`
+"Expected end of statement after binding" error at `parse_type_name_inner`
+(`src/ast/expr.rs`), which parsed the `RES` element and returned without looking
+for a trailing `STATE`.
+
+Fix:
+- **Parser** (`src/ast/expr.rs`): `parse_optional_element_state` folds an optional
+  `STATE T` into a `RES` collection element/value, mirroring the thread plane's
+  `parse_resource_plane_type`. A `STATE` after a non-`RES` element is a clear
+  parse error, not a dangling token.
+- **Resolver** (`src/builtins/collections.rs` + `general.rs`): the audit found the
+  resolver/monomorphizer/source-checker/IR-verifier already carry ` STATE T`
+  (they strip only `RES ` and the remainder handling splits STATE). The one real
+  break was the collection item-compare (`append`/`prepend`/`insert`/`set`/
+  `getOr`): it compared the STATE-carrying element against a STATE-stripped item
+  (`ir::verify` strips resource args), which only surfaced at the codegen-time
+  `TYPE_CALL_ARGUMENT_MISMATCH` — invisible to `mfb build -ast -ir`. Now
+  `element_accepts_item` normalizes both sides by `base_resource_name`, while
+  `get` still returns the STATE-carrying element so extraction types `.state`.
+
+Deviation from the doc: the no-`RES` element is rejected with a **parse**
+diagnostic ("A `STATE` clause requires a `RES` collection element…") rather than
+by reaching `TYPE_RESOURCE_REQUIRES_RES`. This is clearer and satisfies the
+requirement (stays rejected, no confusing dangling token). The bare no-`RES`
+no-`STATE` form is still rejected by `TYPE_RESOURCE_REQUIRES_RES` unchanged.
+
+Proof:
+- rt-behavior fixture `bug427_list_union_state_rt` builds a
+  `List OF RES Handle STATE Cursor`, mutates each element's `.state`, appends the
+  stateful union resources, then extracts via `FOR EACH` and `collections::get`
+  and reads `.state` back — full native build + run prints `total=12` / `first=3`.
+- Extraction STATE mismatch (`RES x AS Handle STATE WrongState = get(...)`)
+  correctly fires `TYPE_STATE_MISMATCH`.
+- Full suite `cargo test --bin mfb`: 3783 passed, 0 failed. Artifact gate (`all`)
+  has 2 diffs, both **pre-existing on clean main** (`.mir` vreg rename in
+  `control-flow-if`/`parser-hello-world`, proven via a detached `300b2a2f8`
+  build); this fix adds zero new golden diffs.
