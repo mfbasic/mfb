@@ -34,6 +34,44 @@ This blocks the `examples/browser` parallel CSS loader
 and drives them with `http::ready`/`http::pump`/`http::finish` — the intended,
 documented usage of the non-blocking HTTP streaming API.
 
+## STATUS: FIXED (29a37de80 · eea9ca56f · 8fe35b5ca · a87733ff2 · 5e98d8845)
+
+Four distinct root causes on the same `List OF RES http::Stream STATE PendingState`
+drive path, each fixed as its own commit; only A was in the original write-up —
+B/C/D surfaced once A was fixed and the browser app reached later compile stages:
+
+- **A — owned-list union drain** (the headline gap): the drain knew only a single
+  concrete close op. Extracted the union tag-dispatch core into
+  `emit_union_tag_dispatch_drop` (`builder_resource_cleanup.rs`) and dispatch per
+  owned-list node via an `OwnedListDrop::{Concrete,Union}` descriptor
+  (`builder_owned_cleanup.rs`, `mod.rs`). Concrete path byte-identical.
+  Commit 29a37de80.
+- **B — verifier asymmetric STATE normalization**: `check_result_value_type`
+  (`ir/verify/values.rs`) reduced a stateful-union annotation to its base
+  (`Stream`) but left the carried element's STATE, rejecting a correct
+  `ResultValue` across a package boundary. Strip `Result OF ` first, then
+  normalize both sides identically. Commit eea9ca56f.
+- **C — stream-resolver return type**: `http::ready/pump/done/finish`
+  (`builtins/http.rs`) required an exact `Stream` arg, so a STATE-carrying stream
+  (a `FOR EACH` element or a TRAP-desugared `$trap_res`) resolved to `Unknown` —
+  fatal when the trap desugar bound an intermediate of that type. Match the base
+  resource name. Commit 8fe35b5ca.
+- **D — default value for a resource-union TRAP binding**: only concrete
+  resources had a native default; a diverging-handler `RES x = <fallible> TRAP`
+  whose result is a resource union had none (`builder_value_semantics.rs`).
+  Materialize a closed `{tag@0, record-ptr@8}` union value. Concrete path
+  byte-identical. Commit a87733ff2.
+
+Verified: the rt fixture `bug429_owned_list_union_drain_rt` passes (`list=24`
+twice); a 200×5 = 1000-handle stress drains with no double-free (`sum=3000`,
+exit 0); the full `examples/browser` app builds end to end; `cargo test --bin
+mfb` = 3782 passed; the only acceptance golden shift is
+`http_async_stream_valid.ir` (`Unknown` → `Boolean`/`Nothing`/`Response`). The
+full codegen byte-identity gate (`artifact-gate.sh all`) reports 1162 tests /
+1575 goldens / **0 diffs**, and `rt_http_async_stream` (+ the resource
+scope-drop integration tests) pass — confirming every concrete path is
+byte-identical and no resource-cleanup regression.
+
 References:
 
 - `mfb spec language resource-management` §15.6 ("Resources in collections",
