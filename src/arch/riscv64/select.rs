@@ -27,8 +27,8 @@
 
 use crate::arch::ops::CodeOp;
 use crate::target::shared::code::mir::{
-    code_fields_from_mir, fused_setter_codeop, rename_operand_field_values, MirInstruction, MirOp,
-    ARENA_BASE, FUSED_COND_FIELD, FUSED_SHARE_FIELD,
+    fused_setter_codeop, rename_operand_field_values, MirInstruction, MirOp, ARENA_BASE,
+    FUSED_COND_FIELD, FUSED_SHARE_FIELD,
 };
 use crate::target::shared::code::{CodeInstruction, Operand};
 
@@ -383,16 +383,16 @@ fn load_flag_rhs(dst: &str) -> Vec<CodeInstruction> {
 }
 
 /// Select neutral MIR into RV64GC machine ops (plan-99).
-pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruction> {
+pub(crate) fn select_riscv64(instructions: Vec<MirInstruction>) -> Vec<CodeInstruction> {
     let mut out = Vec::with_capacity(instructions.len());
     // Assign a memory slot to every distinct `v128` value the function uses, so
     // the SIMD ops can be scalarized onto the slot region (plan-99 §6).
-    let v128_slots = super::v128::build_slot_map(instructions);
+    let v128_slots = super::v128::build_slot_map(&instructions);
     // plan-32-C: physical vector-register assignment for the native-RVV arm of the
     // dual-path v128 lowering. `None` (register pressure past the v1..=v30 pool)
     // means this function emits the scalar arm only. `v128_seq` gives each v128
     // site a unique pair of arm labels.
-    let v128_vregs = super::v128::build_vreg_map(instructions);
+    let v128_vregs = super::v128::build_vreg_map(&instructions);
     let mut v128_seq = 0usize;
     // plan-32-D: the currently-accumulating maximal run of consecutive
     // RVV-lowerable v128 ops (flushed as one dual-path dispatch).
@@ -627,14 +627,17 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
         }
         // Non-fused MIR ops map 1:1 to a CodeOp via `to_code` (applying the
         // neutral→concrete renames, e.g. `call`→`bl`, `mulhi_u`→`umulh`); the
-        // rv64 encoder realizes each CodeOp as RISC-V bytes.
+        // rv64 encoder realizes each CodeOp as RISC-V bytes. MOVE the field bag
+        // instead of `code_fields_from_mir`'s `to_vec` clone (plan-84 Phase 2).
+        let source = instruction.source;
+        let op = instruction
+            .op
+            .to_code()
+            .expect("non-fused MIR op maps to a single CodeOp");
         out.push(CodeInstruction {
-            source: instruction.source,
-            op: instruction
-                .op
-                .to_code()
-                .expect("non-fused MIR op maps to a single CodeOp"),
-            fields: code_fields_from_mir(&instruction.fields),
+            source,
+            op,
+            fields: instruction.fields,
         });
     }
     // plan-32-D: flush a v128 run that ends the function (no trailing non-v128 op).
@@ -795,7 +798,7 @@ mod tests {
     }
 
     fn sel(instructions: &[CodeInstruction]) -> Vec<CodeInstruction> {
-        select_riscv64(&lower_to_mir(instructions))
+        select_riscv64(lower_to_mir(instructions))
     }
 
     fn values(out: &[CodeInstruction]) -> Vec<String> {

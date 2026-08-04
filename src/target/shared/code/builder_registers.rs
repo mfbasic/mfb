@@ -138,8 +138,11 @@ impl CodeBuilder<'_> {
             mir::capture_function(&self.current_symbol, mir::lower_to_mir(&self.instructions));
         }
         let backend = mir::active_backend();
-        let neutral = mir::lower_to_mir(&self.instructions);
-        self.instructions = backend.select(&neutral);
+        // Move the (dropped-after) pre-selection stream through the MIR boundary
+        // so each `fields` Vec is carried, not re-cloned (plan-84 Phase 2). The
+        // capture above (rare, `-mir` only) already took its own borrowing copy.
+        let neutral = mir::lower_to_mir_owned(std::mem::take(&mut self.instructions));
+        self.instructions = backend.select(neutral);
         // 16-aligned so FP spill slots hit `str q`'s alignment requirement (the
         // slot stride is `spill_slot_bytes()` = 16 on every backend).
         let spill_base = type_utils::align(self.stack_size, 16);

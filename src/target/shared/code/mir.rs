@@ -467,6 +467,31 @@ pub(crate) const FUSED_SHARE_FIELD: &str = "share";
 /// patterns), stay as mirror ops. The builder-emitted control flow this seam
 /// neutralizes always pairs one setter with one branch, so it fuses fully.
 pub(crate) fn lower_to_mir(instructions: &[CodeInstruction]) -> Vec<MirInstruction> {
+    // Borrowing entry: the rare `-mir` capture path and the unit tests reuse the
+    // pre-lowering stream, so they clone it into the by-value lowering. The hot
+    // pipeline callers instead move their (dropped-after) stream through
+    // [`lower_to_mir_owned`] to avoid re-cloning every `fields` Vec (plan-84).
+    // `CodeInstruction` is not `Clone`; rebuild each element from its parts.
+    lower_to_mir_owned(
+        instructions
+            .iter()
+            .map(|instruction| CodeInstruction {
+                op: instruction.op,
+                fields: instruction.fields.clone(),
+                source: instruction.source,
+            })
+            .collect(),
+    )
+}
+
+/// By-value [`lower_to_mir`]: consumes the `CodeInstruction` stream so each
+/// non-fused instruction's `fields` Vec is **moved** into the produced
+/// `MirInstruction` rather than `to_vec`-cloned (plan-84 Phase 2). The fused /
+/// `addr_of` / shared-branch cases still clone — they slice-borrow or reuse the
+/// setter's fields across multiple outputs — but they are the minority. Every
+/// produced field bag is byte-identical to the borrowing path; only the carrier
+/// (move vs clone) changes.
+pub(crate) fn lower_to_mir_owned(mut instructions: Vec<CodeInstruction>) -> Vec<MirInstruction> {
     // Build a fused op from a flag-setter's operands + a branch. `shared` marks
     // a branch that reuses the preceding comparison (see [`FUSED_SHARE_FIELD`]).
     fn fuse(
@@ -517,29 +542,39 @@ pub(crate) fn lower_to_mir(instructions: &[CodeInstruction]) -> Vec<MirInstructi
     let mut out = Vec::with_capacity(instructions.len());
     let mut i = 0;
     while i < instructions.len() {
-        let setter = &instructions[i];
+        // Read the op by copy so the common case below can `mem::take` this
+        // instruction's `fields` without holding an outstanding borrow (plan-84).
+        let setter_op = instructions[i].op;
         // `addr_of` fusion (plan-00-C): a symbol-address `adrp <dst>, <sym>;
         // add_pageoff <dst>, <dst>, <sym>` page pair is one neutral PC-relative
         // address op. The two are always emitted adjacently with `src == dst`
         // (every builder/helper site goes through `abi::load_page_address` +
         // `abi::add_page_offset` on the same register), so the fused op carries
         // just `[dst, symbol]` and `select_aarch64` rebuilds the pair exactly.
-        if setter.op == CodeOp::Adrp {
-            if let Some(add) = instructions.get(i + 1) {
-                if let Some(addr_of) = fuse_addr_of(setter, add) {
+        if setter_op == CodeOp::Adrp {
+            if i + 1 < instructions.len() {
+                if let Some(addr_of) = fuse_addr_of(&instructions[i], &instructions[i + 1]) {
                     out.push(addr_of);
                     i += 2;
                     continue;
                 }
             }
         }
-        if let Some(fused_op) = fused_variant(setter.op) {
+        if let Some(fused_op) = fused_variant(setter_op) {
             if instructions
                 .get(i + 1)
                 .is_some_and(|next| is_flag_reading_branch(next.op))
             {
-                // The first branch owns the comparison.
-                out.push(fuse(fused_op, &setter.fields, &instructions[i + 1], false));
+                // The first branch owns the comparison. The setter's fields are
+                // reused across every shared branch below, so this path clones
+                // (borrow + multi-use); it is the minority.
+                let setter_idx = i;
+                out.push(fuse(
+                    fused_op,
+                    &instructions[setter_idx].fields,
+                    &instructions[setter_idx + 1],
+                    false,
+                ));
                 i += 2;
                 // Any further consecutive flag-reading branches read the *same*
                 // flags (nothing reset them), so they share this comparison —
@@ -548,16 +583,25 @@ pub(crate) fn lower_to_mir(instructions: &[CodeInstruction]) -> Vec<MirInstructi
                     .get(i)
                     .is_some_and(|next| is_flag_reading_branch(next.op))
                 {
-                    out.push(fuse(fused_op, &setter.fields, &instructions[i], true));
+                    out.push(fuse(
+                        fused_op,
+                        &instructions[setter_idx].fields,
+                        &instructions[i],
+                        true,
+                    ));
                     i += 1;
                 }
                 continue;
             }
         }
+        // Common (non-fused) case: MOVE the fields Vec into the MIR instruction
+        // instead of `mir_fields_from_code`'s `to_vec` clone (plan-84 Phase 2).
+        let source = instructions[i].source;
+        let fields = std::mem::take(&mut instructions[i].fields);
         out.push(MirInstruction {
-            op: MirOp::from_code(setter.op),
-            fields: mir_fields_from_code(&setter.fields),
-            source: setter.source,
+            op: MirOp::from_code(setter_op),
+            fields,
+            source,
         });
         i += 1;
     }
@@ -583,8 +627,10 @@ pub(crate) fn lower_to_mir(instructions: &[CodeInstruction]) -> Vec<MirInstructi
 /// post-frame) stream again is a second identity pass over the frame/peephole
 /// output.
 pub(crate) fn route_function_through_mir(function: &mut CodeFunction) {
-    let neutral = lower_to_mir(&function.instructions);
-    function.instructions = active_backend().select(&neutral);
+    // Move the stream through the boundary (plan-84 Phase 2): it is overwritten
+    // by the selection result below, so ownership is free.
+    let neutral = lower_to_mir_owned(std::mem::take(&mut function.instructions));
+    function.instructions = active_backend().select(neutral);
 }
 
 // --- Backend dispatch ---------------------------------------------------------
@@ -599,8 +645,12 @@ pub(crate) fn route_function_through_mir(function: &mut CodeFunction) {
 /// selection / allocation sites, which is what makes a new backend additive
 /// (plan-00-H/I).
 pub(crate) trait Backend: Sync {
-    /// Select neutral MIR into this ISA's machine instructions.
-    fn select(&self, neutral: &[MirInstruction]) -> Vec<CodeInstruction>;
+    /// Select neutral MIR into this ISA's machine instructions. Consumes the MIR
+    /// stream by value so each non-fused instruction's `fields` Vec is **moved**
+    /// into the produced `CodeInstruction` instead of `code_fields_from_mir`'s
+    /// `to_vec` clone (plan-84 Phase 2). The stream is dropped after selection at
+    /// every call site, so ownership costs nothing.
+    fn select(&self, neutral: Vec<MirInstruction>) -> Vec<CodeInstruction>;
     /// The register model the shared allocator colors vregs against.
     fn register_model(&self) -> &'static dyn RegisterModel;
     /// Whether this backend is AArch64 — lets shared codegen pick a NEON path
@@ -883,7 +933,7 @@ mod tests {
     use super::*;
 
     fn assert_round_trips(original: &[CodeInstruction]) {
-        let round_tripped = crate::arch::aarch64::select::select_aarch64(&lower_to_mir(original));
+        let round_tripped = crate::arch::aarch64::select::select_aarch64(lower_to_mir(original));
         assert_eq!(
             round_tripped.len(),
             original.len(),

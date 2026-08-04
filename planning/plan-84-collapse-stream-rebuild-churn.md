@@ -131,19 +131,44 @@ passes.
 
 Acceptance: a written, measured target ranking + the move-safety decision, in this
 file. No code yet. — MET (above). Instrumentation is uncommitted (never staged).
-Commit: — (plan doc only; production code unchanged this phase; hash recorded next commit)
+Commit: 836bc00d1 (plan doc only; production code unchanged this phase)
 
 ### Phase 2 — Move `fields` through the MIR/select boundary instead of `to_vec`
 
-- [ ] Make `lower_to_mir`/`select` consume their input by value (or otherwise move
+- [x] Make `lower_to_mir`/`select` consume their input by value (or otherwise move
       each `fields` Vec into the produced instruction), so `mir_fields_from_code`/
       `code_fields_from_mir` move rather than `to_vec`-clone. Preserve the `-mir`
       capture and the round-trip identity (clone only where genuinely reused).
 
-Acceptance: `artifact-gate … all` 0 diffs; `cargo test --bin mfb` green; the
-attribution shows the `lower_to_mir`+`select` `to_vec`/clone buckets fall (record
-before/after).
-Commit: —
+Implemented: added `lower_to_mir_owned(Vec<CodeInstruction>)` that moves each
+non-fused instruction's `fields` Vec into the produced `MirInstruction`; the
+borrowing `lower_to_mir(&[…])` now rebuilds an owned copy for the rare `-mir`
+capture path and the ~20 unit-test callers (`CodeInstruction` is not `Clone`, so
+it maps element-by-element). Changed `Backend::select` + `select_aarch64`/
+`select_x86`/`select_riscv64` to consume `Vec<MirInstruction>` by value, moving
+each non-fused field bag into the `CodeInstruction`. Hot callers move via
+`std::mem::take`: `builder_registers.rs`, `route_function_through_mir`,
+`linux_gtk/mod.rs`. Fused / `addr_of` / shared-branch / v128 cases keep cloning
+(minority; slice-borrow or multi-use). Spec `15_x86_64-instruction-set.md`
+signature updated.
+
+**Measured (uncommitted per-site counters, `mfb test tests/acceptance`, 362/362):**
+
+| Bucket | before | after | Δ |
+|---|---|---|---|
+| `mir_fields_from_code` clones | 21,355,962 | 3,049,653 | −85.7% |
+| `code_fields_from_mir` clones | 19,694,107 | 1,387,798 | −93.0% |
+| `substitute_fields_clone` (Phase 3) | 21,420,760 | 21,420,760 | unchanged |
+| `total_allocs` | ≈479.6M | ≈387.4M | ≈−92M (−19%) |
+
+The two boundary buckets fell from 41.05M → 4.44M combined fields-Vec clones
+(the residue is exactly the fused/addr_of minority the design keeps).
+
+Acceptance: `artifact-gate … all` 0 diffs (**1159 tests, 1301 builds, 1569
+goldens, 0 diffs** — byte-identical across all 4 targets); `cargo test --bin mfb`
+green (**3783 passed; 0 failed**); the `lower_to_mir`+`select` buckets fell (above).
+— MET.
+Commit: — (hash recorded next commit)
 
 ### Phase 3 — Regalloc: rewrite vreg operands in place, don't clone the whole stream
 

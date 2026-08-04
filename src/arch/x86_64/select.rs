@@ -914,7 +914,7 @@ fn x86_float_branch(cond: &str, target: &str, site: usize) -> Vec<CodeInstructio
 /// setter + the flag-reading branch (x86 `cmp; jcc` works the same way), and
 /// `arena_base` realizes to the pinned `r15` — then remaps the residual AArch64
 /// ABI registers to their SysV homes ([`remap_x86_abi`]).
-pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<CodeInstruction> {
+pub(crate) fn select_x86(instructions: Vec<MirInstruction>, abi: X86Abi) -> Vec<CodeInstruction> {
     let mut out = Vec::with_capacity(instructions.len());
     // Distinguishes the skip label of every ordered-only float branch in this
     // function (see `x86_float_branch`).
@@ -984,15 +984,18 @@ pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<Co
         } else {
             // Non-fused MIR ops map 1:1 to a CodeOp via `to_code` (which applies
             // the neutral→concrete renames, e.g. `call`→`bl`); the x86 encoder
-            // realizes each CodeOp as x86 bytes.
+            // realizes each CodeOp as x86 bytes. MOVE the field bag instead of
+            // `code_fields_from_mir`'s `to_vec` clone (plan-84 Phase 2).
+            let op = instruction
+                .op
+                .to_code()
+                .expect("non-fused MIR op maps to a single CodeOp");
+            let source = instruction.source;
             out.push(CodeInstruction {
-                op: instruction
-                    .op
-                    .to_code()
-                    .expect("non-fused MIR op maps to a single CodeOp"),
-                fields: code_fields_from_mir(&instruction.fields),
+                op,
+                fields: instruction.fields,
                 // plan-71-C Phase 0: carry the builder source so the audit names it.
-                source: instruction.source,
+                source,
             });
         }
     }
@@ -1039,7 +1042,7 @@ mod tests {
 
     /// Select a stream from aarch64-form instructions.
     fn sel(instructions: &[CodeInstruction]) -> Vec<CodeInstruction> {
-        select_x86(&lower_to_mir(instructions), X86Abi::SysV)
+        select_x86(lower_to_mir(instructions), X86Abi::SysV)
     }
 
     /// Every field value in the selected stream, flattened.

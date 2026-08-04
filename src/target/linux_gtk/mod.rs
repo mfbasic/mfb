@@ -659,9 +659,9 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
     // Select to x86 ops (role remap + scratch map for anything left physical),
     // then color the vregs. The later plan-assembly MIR routing round-trips the
     // already-selected stream as an identity pass.
-    let neutral = mir::lower_to_mir(instructions);
+    let neutral = mir::lower_to_mir_owned(std::mem::take(instructions));
     let backend = mir::active_backend();
-    *instructions = backend.select(&neutral);
+    *instructions = backend.select(neutral);
     let spill_base = inner_frame + X86_WRAP_BYTES;
     let outcome = regalloc::allocate(
         regalloc::RegallocKind::LinearScan,
