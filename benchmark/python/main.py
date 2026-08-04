@@ -25,6 +25,7 @@ import io
 import json
 import list as listbench
 import mapbench
+import mapmatrix
 import math
 import mathbench
 import mathpipe
@@ -791,6 +792,9 @@ def main():
 
     # map group (set/lookup/int_ops/str_ops)
     mapbench.run_all(RUN, now_ns, record)
+
+    # map matrix — Fixed/Dynamic value + key-hash pair (peers mfb mapmatrix.mfb)
+    mapmatrix.run_all(RUN, now_ns, record)
 
     # mapchurn group (grow/churn/iterate)
     churnbench.run_mapchurn(RUN, now_ns, record)

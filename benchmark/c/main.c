@@ -32,6 +32,7 @@
 #include "encodingbench.h"
 #include "list.h"
 #include "mapbench.h"
+#include "mapmatrix.h"
 #include "mathbench.h"
 #include "mathpipe.h"
 #include "parsebench.h"
@@ -695,6 +696,8 @@ int main(int argc, char **argv) {
   run_listchurn_group();
 
   run_map_group();
+
+  run_mapmatrix_group();
 
   run_mapchurn_group();
 
