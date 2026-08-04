@@ -1,0 +1,36 @@
+IMPORT io
+IMPORT fs
+IMPORT strings
+IMPORT collections
+
+' bug-424: mutating a resource STATE field must mutate the existing STATE record
+' in place (like a MUT local), not rebuild the whole record. This fixture is a
+' correctness guard for the §15 aliasing/visibility contract the in-place fix
+' must preserve: a helper mutates BOTH a scalar field and an inlined collection
+' field through a RES parameter, and the owner must observe every mutation
+' (owner and alias share the one STATE payload behind the resource pointer).
+TYPE Accum
+  raw AS List OF Byte
+  n   AS Integer
+END TYPE
+
+FUNC feed(RES f AS File STATE Accum, chunk AS List OF Byte) AS Nothing
+  f.state.raw = collections::append(f.state.raw, chunk)
+  f.state.n = f.state.n + 1
+END FUNC
+
+FUNC main AS Integer
+  LET chunk AS List OF Byte = strings::toBytes("abcd")
+  RES f AS File STATE Accum = fs::openFile("tests/rt-behavior/resources/bug424_state_accum_inplace/project.json")
+  MUT i AS Integer = 0
+  WHILE i < 5
+    feed(f, chunk)
+    i = i + 1
+  END WHILE
+  ' The owner sees the callee's accumulation: 5 chunks of 4 bytes = 20 bytes,
+  ' n bumped 5 times.
+  LET total AS Integer = len(f.state.raw)
+  io::print("len=" & toString(total) & " n=" & toString(f.state.n))
+  fs::close(f)
+  RETURN 0
+END FUNC

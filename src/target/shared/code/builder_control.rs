@@ -24,6 +24,109 @@ impl CodeBuilder<'_> {
         result
     }
 
+    /// bug-424 Layer 1: recognize `s.state.field = <value>` where every updated
+    /// field is a fixed-width scalar stored inline in its record slot, and store
+    /// each new value in place at its field offset in the *existing* STATE block
+    /// — no whole-record rebuild, so no re-copy of any other (possibly large,
+    /// inlined `List`/`String`) field. `src/ast/stmt.rs` desugars the single-field
+    /// form to a single-field `WITH` update over `s.state`, so this matches a
+    /// `WithUpdate` whose target is exactly this resource's `state`.
+    ///
+    /// Only plain scalars are eligible: an inlined field (`String`, a flat
+    /// collection, a nested record — the slot holds a block-relative offset into
+    /// the trailing data region) or a pointer composite cannot be overwritten at a
+    /// fixed slot without relaying the block out, so those fall through to the
+    /// whole-record replace (`NirOp::StateAssign`) and Layer 2. The store goes
+    /// through the resource record's shared STATE pointer, so it stays visible to
+    /// the owner and every alias (§15). Returns `true` when handled in place.
+    fn try_inplace_state_scalar_assign(
+        &mut self,
+        resource: &str,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        let NirValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } = value
+        else {
+            return Ok(false);
+        };
+        // The update must rebuild THIS resource's current state (`resource.state`),
+        // not install some other record as the new state.
+        let NirValue::MemberAccess {
+            target: inner,
+            member,
+        } = target.as_ref()
+        else {
+            return Ok(false);
+        };
+        if member != "state" || !matches!(inner.as_ref(), NirValue::Local(name) if name == resource)
+        {
+            return Ok(false);
+        }
+        let Some(fields) = self.type_model.record_fields.get(type_).cloned() else {
+            return Ok(false);
+        };
+        // Every updated field must be a plain inline scalar. A `String`/collection/
+        // nested field is inlined (a block-relative offset) or a pointer composite;
+        // overwriting it at a fixed slot would corrupt the block or leak the old
+        // allocation, so bail to the whole-record replace.
+        let mut indices = Vec::with_capacity(updates.len());
+        for update in updates {
+            let Some((index, (_, field_type))) = fields
+                .iter()
+                .enumerate()
+                .find(|(_, (name, _))| name == &update.field)
+            else {
+                return Ok(false);
+            };
+            if self.record_field_is_inlined(type_, field_type)
+                || self.record_field_is_pointer(field_type)
+            {
+                return Ok(false);
+            }
+            indices.push(index);
+        }
+        if indices.is_empty() {
+            return Ok(false);
+        }
+        // Eligible. Compute every new value first (source order, matching WITH so a
+        // field that reads another field's old value sees it), spilling each to a
+        // slot; then store them into the existing STATE block.
+        let mut stores = Vec::with_capacity(updates.len());
+        for (update, index) in updates.iter().zip(indices) {
+            let value = self.lower_value(&update.value)?;
+            // Observation boundary: a `Float` field must be finite (plan-17).
+            self.observe_float(&update.value, &value)?;
+            // Materialize a `d`-native float to its GP bit pattern before the spill
+            // (plan-01), matching how `lower_with_update` gathers field values.
+            let value = self.materialize_value(value)?;
+            let slot = self.allocate_stack_object("state_field_inplace", 8);
+            self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
+            stores.push((index, slot));
+        }
+        // Load the shared STATE record pointer from the resource record. A scalar
+        // store never moves the block, so one load serves every field store.
+        let local = self
+            .locals
+            .get(resource)
+            .ok_or_else(|| format!("native code state assignment unknown local '{resource}'"))?;
+        let stack_offset = local.stack_offset;
+        let resource_type = local.type_.clone();
+        let block = self.allocate_register()?;
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
+        let record = self.emit_resource_record_ptr(&block, &resource_type)?;
+        let state_ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&state_ptr, &record, RESOURCE_OFFSET_STATE));
+        for (index, slot) in stores {
+            let value = self.allocate_register()?;
+            self.emit(abi::load_u64(&value, abi::stack_pointer(), slot));
+            self.emit(abi::store_u64(&value, &state_ptr, 8 * index));
+        }
+        Ok(true)
+    }
+
     fn lower_ops_inner(&mut self, ops: &[NirOp], cleanup_scope_start: usize) -> Result<(), String> {
         let zero_slot = self.temporary_vreg();
         for op in ops {
@@ -603,6 +706,12 @@ impl CodeBuilder<'_> {
                         }
                     }
                     NirOp::StateAssign { resource, value } => {
+                        // bug-424 Layer 1: a scalar `s.state.field = v` mutates the
+                        // existing STATE block in place; only a whole-record replace
+                        // (or a not-yet-in-place inlined field) falls through here.
+                        if self.try_inplace_state_scalar_assign(resource, value)? {
+                            return Ok(());
+                        }
                         // Replace the resource's `STATE` payload: store the new
                         // record pointer into the resource record's state slot.
                         // The resource value is itself a pointer, so the update
