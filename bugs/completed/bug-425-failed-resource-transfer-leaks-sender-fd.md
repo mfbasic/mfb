@@ -5,16 +5,45 @@ Effort: medium (few hours–1d)
 Severity: MEDIUM
 Class: Resource leak (OS fd + arena block) on an error path that the language contract says is recoverable; silent (no wrong value, no crash) until fd exhaustion.
 
-Status: Open
-Regression Test: tests/rt-behavior/threads/thread-resource-transfer-fail-leak (to be added — see Phase 1)
+Status: FIXED (4ada60f70)
+Regression Test: tests/rt-behavior/threads/thread-resource-transfer-fail-leak (+ thread-resource-transfer-fail-reclaim)
 
 `thread::transfer(t, res, timeoutMs)` (and `thread::emit`'s resource form) move a `File`/`Socket`/`UdpSocket` across a thread boundary on the resource plane. The documented contract is: **on a failed transfer no move happened and ownership stays with the sender, so a `TRAP` handler may still use — and close — the binding** (`mfb man thread transfer`, "**`transfer` moves the resource.**"). The implementation breaks this: the sender's resource record is flagged `moved|closed` **at message-copy time, before the enqueue is even attempted**. When the enqueue then fails (full queue → `ErrTimeout`, cancelled/closed worker → `ErrInterrupted`), the sender still "owns" the handle and its scope/`TRAP` cleanup still runs — but every `close` on that record now no-ops against the pre-set `CLOSED_BIT`. The OS fd is never closed by anyone, and the destination-arena copy is orphaned (it is passed size 0, so it is not eligible for the queue's pending-free reclaim). Both leak until the owning arena is torn down.
 
 The single correct behavior a fix produces: a `thread::transfer`/`thread::emit` that fails to enqueue leaves the sender's resource record **exactly as it was before the call** — open, un-flagged, closable — so the sender's `TRAP` handler (or lexical scope cleanup) closes the fd exactly once, and no destination-arena copy is stranded. A *successful* transfer keeps its current semantics: the source is flagged `moved|closed` and the receiver owns the handle.
 
-<!-- When the fix fully lands, add a status block here:
-       ## STATUS: FIXED (<commit hash>)
-     then archive this file to bugs/completed/. -->
+## STATUS: FIXED (4ada60f70, goldens 50a38f12b)
+
+The source `moved|closed` flag is now emitted on the enqueue-success branch, not
+at message-copy time, so a failed/timed-out `thread::transfer`/`emit` leaves the
+sender's resource open and closable — matching `mfb man thread transfer` and the
+already success-gated `deactivate_moved_resource_arguments`.
+
+Deviations from the doc's plan:
+- **Louder symptom than predicted.** The doc predicted a silent no-op `close`
+  (bounded fd leak). The runtime repro (first ever run — Phase 1) shows a *hard
+  error*: the sender's `TRAP` handler aborts with `ErrResourceClosed`/`ErrResourceMoved`
+  the moment it touches the tombstoned handle. Same mechanism (source flagged at
+  copy time), a more deterministic RED signal. The regression test reads the
+  handle in the `TRAP` (proving it is usable) before closing, which also defeats
+  the forbidden "swallow the close no-op" fix (a still-moved record fails the read).
+- **Implementation.** Design (a) via a transient `suppress_resource_source_flag`
+  builder flag: `copy_resource_to_current_arena` skips the source store when set;
+  the send helper re-emits it (extracted `emit_flag_resource_source_moved`) on the
+  `Ok` branch (non-raw) or, for an inline `TRAP`, only when the stashed enqueue
+  tag is `Ok`. Accept side and nested union/collection copies keep flagging inline.
+- **Dest-copy reclaim (Blast Radius "verify").** A *bare* resource's orphaned
+  destination copy is exactly one `RESOURCE_RECORD_SIZE` block; it is now handed
+  to arg-3 so the failed-send pending-free list reclaims it on the destination's
+  next read (`thread-resource-transfer-fail-reclaim` proves no double-free). A
+  *stateful* resource's separate STATE block cannot be described by that single
+  size, so it keeps the pre-existing bounded (worker-teardown) leak — unchanged.
+
+Validation: repro RED→GREEN and completes under a 48-fd `ulimit` (no leak);
+`thread-send-file-ownership-rt` / `thread-transfer-state-rt` /
+`thread-transfer-bidirectional-rt` / `func_thread_transfer_valid` unchanged;
+`cargo test --bin mfb` 3783 passed; `scripts/artifact-gate.sh all` 1573 goldens,
+0 diffs (thread `.ncodesum` regenerated; `.ncode` delta confirmed intended).
 
 ## Discovery
 
@@ -114,22 +143,22 @@ Whichever: on failure the source must be byte-identical to its pre-call state, a
 ## Phases
 
 ### Phase 1 — failing test + audit (no behavior change)
-- [ ] Add `tests/rt-behavior/threads/thread-resource-transfer-fail-leak`: a cap-1 resource queue, a worker that never accepts, a parent loop of `transfer(…, 0)` + `TRAP` `close`, asserting fd count is flat across the loop (or that the loop completes under a low fd rlimit). Confirm it **fails** today (fd grows / `EMFILE`).
-- [ ] Confirm each cited line in Root Cause / Blast Radius by reading it.
+- [x] Add `tests/rt-behavior/threads/thread-resource-transfer-fail-leak`: a cap-1 resource queue, a worker (`thread_res_sink::blockNeverAccept`) that never accepts, a parent loop of `transfer(…, 0)` whose `TRAP` first **reads** the handle (proving it is still usable, per the man page) then closes it. Confirmed **RED** today: the handler's first `fs::readAll(f)` aborts with `ErrResourceClosed` (7-703-0004) / `fs::close(f)` with `ErrResourceMoved` (7-703-0009) — the source is a tombstone at copy time, a louder symptom than the doc's predicted silent no-op, same mechanism.
+- [x] Confirm each cited line in Root Cause / Blast Radius by reading it (flag store at `builder_arena_transfer.rs:611-618`, enqueue at `builder_thread_cleanup.rs:187`, deactivation success-gate at `builder_resource_cleanup.rs:210-211`).
 
-Acceptance: the new test fails for the documented reason; audit complete. Commit: —
+Acceptance: the new test fails for the documented reason; audit complete. Commit: 4ada60f70
 
 ### Phase 2 — the fix
-- [ ] Make source `moved|closed` flagging success-gated (design (a)); keep accept-side flagging.
-- [ ] Handle any orphaned dest copy on failure (reclaim or prove already accounted).
+- [x] Made source `moved|closed` flagging success-gated (design (a) + a `suppress_resource_source_flag` builder flag so the accept side and nested union/collection copies keep flagging inline). Store extracted into `emit_flag_resource_source_moved`; re-emitted on the `Ok` branch (non-raw) and, for an inline `TRAP`, only when the stashed enqueue tag is `Ok`.
+- [x] Orphaned dest copy on failure: a **bare** resource copies to exactly one `RESOURCE_RECORD_SIZE` block, now handed to arg-3 so the failed-send pending-free list reclaims it on the destination's next read (verified by `thread-resource-transfer-fail-reclaim`, no double-free). A *stateful* resource's separate STATE block keeps the pre-existing bounded (worker-teardown) leak, unchanged.
 
-Acceptance: Phase 1 test passes; successful-transfer fixtures unchanged in observable behavior. Commit: —
+Acceptance: Phase 1 test passes; successful-transfer fixtures (`thread-send-file-ownership-rt`, `thread-transfer-state-rt`, `thread-transfer-bidirectional-rt`, `func_thread_transfer_valid`) produce identical output; no fd leak under a 48-fd `ulimit`. Commit: 4ada60f70
 
 ### Phase 3 — regenerate goldens + full validation
-- [ ] Regenerate affected `.ir`/`.ncode`; confirm the delta is only the moved flag-store.
-- [ ] `scripts/test-accept.sh` + `cargo test --bin mfb` + `scripts/artifact-gate.sh`.
+- [x] Change is native-codegen-only: `.ast`/`.ir`/`build.log` goldens unchanged (all 76 thread acceptance fixtures pass). Regenerated `tests/byte-identity/thread` `.ncodesum` for the 4 targets it carries; delta confirmed to be only the deferred flag-store + the reclaim size (JSON `.ncode` diff vs pre-fix compiler).
+- [x] `scripts/test-accept.sh` (thread subset) green; `cargo test --bin mfb` → 3783 passed, 0 failed; `scripts/artifact-gate.sh` green.
 
-Acceptance: full suite green; deltas are exactly the intended change. Commit: —
+Acceptance: full suite green; deltas are exactly the intended change. Commit: 4ada60f70
 
 ## Validation Plan
 - Regression test: the fd-flat resource-transfer-failure test under `tests/rt-behavior/threads/`.

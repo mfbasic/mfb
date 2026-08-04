@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/rt-behavior/threads/thread-resource-transfer-fail-leak
+uses thread_res_sink - [Unsigned]
+Wrote AST to tests/rt-behavior/threads/thread-resource-transfer-fail-leak/thread_resource_transfer_fail_leak.ast
+Wrote IR to tests/rt-behavior/threads/thread-resource-transfer-fail-leak/thread_resource_transfer_fail_leak.ir
+[exit 0]
+$ mfb build tests/rt-behavior/threads/thread-resource-transfer-fail-leak
+uses thread_res_sink - [Unsigned]
+Wrote executable to tests/rt-behavior/threads/thread-resource-transfer-fail-leak/build/thread_resource_transfer_fail_leak.out
+[exit 0]
+$ tests/rt-behavior/threads/thread-resource-transfer-fail-leak/build/thread_resource_transfer_fail_leak.out
+done
+300
+[exit 0]
