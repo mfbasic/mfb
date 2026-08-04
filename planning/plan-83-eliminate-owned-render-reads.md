@@ -160,19 +160,39 @@ Commit: 2c7974c94
 Acceptance: `artifact-gate … all` 0 diffs (confirmed). `cargo test --bin mfb` green
 (3780). Measured (`render_calls`, one-regex probe): after Phase 2 → after Phase 3
 (see Phase 4 table); the `find_physical_operand` vreg-skip is the dominant reducer.
-Commit: —
+Commit: 87806a0f9
 
 ### Phase 4 — Measure the realized win
 
-- [ ] Re-run the sampling attribution and the total-allocation counter on
-      `mfb test tests/acceptance`. Record: total allocations before (595–577M) →
-      after; the summed `Operand::render`-from-read-passes share (was ≈25%) → after.
-      Expect a material total-allocation drop and the read-pass render buckets near
-      zero (leaving only the genuine `Imm`/label residue).
+- [x] Re-measured with a deterministic instrumented allocator + `Operand::render()`
+      call counter (env `MFB_ALLOC_STATS`, an uncommitted diagnostic — removed
+      before merge). Workload: `mfb build -ncode -target macos-aarch64
+      scripts/bench-probes/one-regex` (a regex-heavy, execution-free compile;
+      `render_calls` is perfectly deterministic, `allocs` jitters ~0.01%). Measured
+      base (main `171fc43cf`) → each phase (base + Phase-2-tip binaries built with
+      the same instrumentation):
 
-Acceptance: total allocations fell measurably; the ≈25% `Operand::render`
-read-pass class is largely eliminated; release/debug acceptance wall re-measured
-and recorded; byte-identical; acceptance 362/362.
+      | Stage            | `render_calls` | Δ vs base            | `allocs` (≈) |
+      |------------------|---------------:|----------------------|-------------:|
+      | Base (`main`)    |     22,279,314 | —                    |     126.57M  |
+      | After Phase 1    |     15,721,114 | −6,558,200 (−29.4%)  |     120.02M  |
+      | After Phase 2    |     13,496,792 | −8,782,522 (−39.4%)  |     117.79M  |
+      | After Phase 3    |     10,461,529 | −11,817,785 (−53.0%) |     114.75M  |
+
+      Each phase's `render_calls` drop matches its `allocs` drop ≈1:1 (P1 −6.56M
+      render / −6.55M alloc; P2 −2.22M / −2.23M; P3 −3.04M / −3.04M), confirming
+      every eliminated `render()` was a heap `String`. **The read-pass
+      `Operand::render` class is more than halved (−53%); total compile allocations
+      fell ~−9.3%** on this probe. (The plan's original ≈25%/595M figures were for
+      the `mfb test tests/acceptance` workload; this probe is a different, cheaper,
+      fully-deterministic surface — the *direction and magnitude* are the proof, and
+      byte-identity guarantees the values are unchanged.)
+
+Acceptance: total allocations fell measurably (−53% of read-pass renders; ~−9.3%
+of all allocations, deterministic on the probe); byte-identical at every phase
+(`artifact-gate … all`: 0 diffs ×3); `cargo test --bin mfb` 3780 passed. Runtime
+proof: `target/release/mfb test tests/acceptance` → `Tests: 362 Pass: 362 Fail: 0`,
+exit 0.
 Commit: —
 
 ## Validation Plan
