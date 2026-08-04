@@ -147,11 +147,14 @@ fn emit_gtk_charwidth(
     asm.local_address(s2, UNICODE_STAGE2_SYMBOL);
     asm.push(abi::add_registers(s2, s2, s1));
     asm.push(abi::load_u16(s1, s2, 0));
-    asm.push(abi::move_immediate(s3, "Integer", "24")); // property record size
+    // Property record: 6 live u16 fields = 12 bytes, flags @ offset 6 (plan-77 U1
+    // repacked it from 24 bytes / flags @ 16). Must match the shared reader's
+    // UNICODE_PROPERTY_OFFSET_FLAGS in target/shared/code/private/unicode.rs.
+    asm.push(abi::move_immediate(s3, "Integer", "12")); // property record size
     asm.push(abi::multiply_registers(s1, s1, s3));
     asm.local_address(s2, UNICODE_PROPERTIES_SYMBOL);
     asm.push(abi::add_registers(s2, s2, s1));
-    asm.push(abi::load_u16(out, s2, 16)); // flags @ 16
+    asm.push(abi::load_u16(out, s2, 6)); // flags @ 6
     asm.push(abi::shift_right_immediate(out, out, 4));
     asm.push(abi::move_immediate(s3, "Integer", "3"));
     asm.push(abi::and_registers(out, out, s3)); // (flags>>4)&3 -> raw width 0/1/2
