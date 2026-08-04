@@ -11,20 +11,40 @@ Launches <app> in a pty, streams it into a real terminal emulator
 import base64
 import os
 import signal
+import subprocess
 import sys
 import time
 
-# Re-exec under the repo-local venv if it exists and we're not already in it,
-# so `./scripts/snap-term.py` works regardless of the invoking interpreter.
-# Detect membership via sys.prefix, not the executable path: a venv's python3
-# is a symlink back to the base interpreter, so realpath(executable) matches
-# the base and can't tell us whether the venv's site-packages are active.
+# Run under a repo-local venv so the script just works on a fresh checkout
+# without touching the system (PEP 668) Python. On first run we create the venv
+# and install the deps; every run then re-execs into it. Membership is detected
+# via sys.prefix, not the executable path: a venv's python3 is a symlink back to
+# the base interpreter, so realpath(executable) matches the base and can't tell
+# us whether the venv's site-packages are active.
 _VENV_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     ".venv-term",
 )
-_VENV_PY = os.path.join(_VENV_DIR, "bin", "python3")
-if os.path.exists(_VENV_PY) and os.path.realpath(sys.prefix) != os.path.realpath(_VENV_DIR):
+if sys.platform == "win32":
+    _VENV_PY = os.path.join(_VENV_DIR, "Scripts", "python.exe")
+else:
+    _VENV_PY = os.path.join(_VENV_DIR, "bin", "python3")
+
+
+def _provision_venv():
+    """Create .venv-term and install everything the script needs."""
+    print("snap-term: first run - creating .venv-term ...", file=sys.stderr)
+    subprocess.check_call([sys.executable, "-m", "venv", _VENV_DIR])
+    pip = [_VENV_PY, "-m", "pip", "install", "--quiet"]
+    subprocess.check_call(pip + ["--upgrade", "pip"])
+    deps = ["playwright"] + (["pywinpty"] if sys.platform == "win32" else [])
+    subprocess.check_call(pip + deps)
+    subprocess.check_call([_VENV_PY, "-m", "playwright", "install", "chromium"])
+
+
+if os.path.realpath(sys.prefix) != os.path.realpath(_VENV_DIR):
+    if not os.path.exists(_VENV_PY):
+        _provision_venv()
     os.execv(_VENV_PY, [_VENV_PY, os.path.abspath(__file__), *sys.argv[1:]])
 
 from playwright.sync_api import sync_playwright

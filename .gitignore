@@ -35,3 +35,8 @@ examples/**/*.lock
 .DS_Store
 *.swp
 .claude/
+
+# scripts/snap-term.py: auto-created venv + its default capture artifacts.
+.venv-term/
+/pty_screenshot.png
+/pty_screenshot.bin
