@@ -60,6 +60,48 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// Materialize a fresh CLOSED resource record: an arena record zeroed
+    /// (invalid internals) with its shared `RESOURCE_OFFSET_CLOSED` (16) flag
+    /// set. This is the record a `RES x = <fallible> TRAP` error path binds when
+    /// it needs a resource value it can never re-open — every later op then
+    /// short-circuits safely (`close` is an idempotent no-op; `read`/`write`/…
+    /// raise via their closed guard), and no null handle is ever exposed. The
+    /// caller attaches STATE (a concrete resource IS this record; a resource
+    /// union wraps it at `+8`), so this returns the bare record register.
+    fn emit_closed_resource_record(&mut self) -> Result<VirtualRegister, String> {
+        let record = self.allocate_register()?;
+        self.emit(abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            RESOURCE_RECORD_SIZE,
+        ));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit_symbol_call(ARENA_ALLOC_SYMBOL);
+        let alloc_ok = self.label("default_resource_alloc_ok");
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::move_register(&record, abi::RET[1]));
+        // Zero the record (invalid internals), then mark it closed.
+        let bytes: usize = RESOURCE_RECORD_SIZE_BYTES;
+        let mut offset = 0;
+        while offset < bytes {
+            self.emit(abi::store_u64(abi::ZERO, &record, offset));
+            offset += 8;
+        }
+        let one = self.allocate_register()?;
+        self.emit(abi::move_immediate(&one, "Integer", "1"));
+        // The single canonical closed-flag offset, shared by every built-in
+        // resource record (enforced by the compile-time asserts beside each
+        // per-resource closed-offset constant).
+        self.emit(abi::store_u64(&one, &record, RESOURCE_OFFSET_CLOSED));
+        Ok(record)
+    }
+
     pub(super) fn lower_default_value(&mut self, type_: &str) -> Result<ValueResult, String> {
         match type_ {
             "Nothing" => {
@@ -105,6 +147,67 @@ impl CodeBuilder<'_> {
                     text: format!("default {type_}"),
                 })
             }
+            _ if self.is_resource_union_type(type_) => {
+                // A resource UNION has no reconstructible default either; the site
+                // that needs one is the error-path binding of a
+                // `RES x = <fallible> TRAP` whose result is a resource union
+                // (`Stream STATE PendingState`, bug-429). Return a real
+                // `{tag@0, record-ptr@8}` union value whose record is CLOSED, so
+                // its tag-dispatched drop is a safe no-op and a `RECOVER`ed
+                // union's `.state`/`MATCH` reads a valid (closed) record rather
+                // than dereferencing null. Which variant tag is used is
+                // immaterial — the record is closed, so every variant's close op
+                // short-circuits on the shared closed flag.
+                let record = self.emit_closed_resource_record()?;
+                let record_slot = self.allocate_stack_object("default_union_record", 8);
+                self.emit(abi::store_u64(&record, abi::stack_pointer(), record_slot));
+                // The union block: `{tag@0, record-ptr@8}`, 16 bytes.
+                let block = self.allocate_register()?;
+                self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
+                self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+                self.emit_arena_alloc_call();
+                let alloc_ok = self.label("default_union_alloc_ok");
+                self.emit(abi::branch_eq(&alloc_ok));
+                self.emit_allocation_error_return()?;
+                self.emit(abi::label(&alloc_ok));
+                self.emit(abi::move_register(&block, abi::RET[1]));
+                let variants = self.resource_union_cleanup(type_).ok_or_else(|| {
+                    format!("native code cannot resolve resource-union variants for '{type_}'")
+                })?;
+                let (tag, _) = variants.first().ok_or_else(|| {
+                    format!("resource union '{type_}' has no variants for a default value")
+                })?;
+                let tag_register = self.allocate_register()?;
+                self.emit(abi::move_immediate(
+                    &tag_register,
+                    "UnionTag",
+                    &tag.to_string(),
+                ));
+                self.emit(abi::store_u64(&tag_register, &block, 0));
+                let record_reg = self.allocate_register()?;
+                self.emit(abi::load_u64(
+                    &record_reg,
+                    abi::stack_pointer(),
+                    record_slot,
+                ));
+                self.emit(abi::store_u64(&record_reg, &block, 8));
+                // Initialize the active variant record's uniform STATE through the
+                // union value (`emit_resource_record_ptr` derefs `+8`), so a
+                // `RECOVER`ed union's `.state` never dereferences null — the same
+                // guarantee the concrete branch gives.
+                if let Some(state) = crate::builtins::resource::state_type_name(type_) {
+                    let state = state.to_string();
+                    let block_slot = self.allocate_stack_object("default_union_block", 8);
+                    self.emit(abi::store_u64(&block, abi::stack_pointer(), block_slot));
+                    self.emit_resource_state_init(block_slot, &state, type_)?;
+                    self.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
+                }
+                Ok(ValueResult {
+                    type_: type_.to_string(),
+                    location: block.render(),
+                    text: format!("closed union {type_}"),
+                })
+            }
             _ if crate::builtins::is_resource_type(type_)
                 || self
                     .type_model
@@ -114,42 +217,10 @@ impl CodeBuilder<'_> {
                 // A resource wraps an OS handle we cannot re-open, so it has no
                 // reconstructible default. The site that needs one is the
                 // error-path binding of `RES x = <fallible> TRAP`. Return a CLOSED
-                // resource: an arena record whose internals are invalid but whose
-                // `closed` flag — `RESOURCE_OFFSET_CLOSED` (16), shared by every
-                // built-in resource record — is set. Every operation then short-circuits safely:
-                // `close` is an idempotent no-op and `read`/`write`/... raise via
-                // their closed guard. No null handle is ever exposed to a program.
-                let record = self.allocate_register()?;
-                self.emit(abi::move_immediate(
-                    abi::return_register(),
-                    "Integer",
-                    RESOURCE_RECORD_SIZE,
-                ));
-                self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
-                self.emit_symbol_call(ARENA_ALLOC_SYMBOL);
-                let alloc_ok = self.label("default_resource_alloc_ok");
-                self.emit(abi::compare_immediate(
-                    abi::return_register(),
-                    RESULT_OK_TAG,
-                ));
-                self.emit(abi::branch_eq(&alloc_ok));
-                self.emit_allocation_error_return()?;
-                self.emit(abi::label(&alloc_ok));
-                self.emit(abi::move_register(&record, abi::RET[1]));
-                // Zero the record (invalid internals), then mark it closed.
-                let bytes: usize = RESOURCE_RECORD_SIZE_BYTES;
-                let mut offset = 0;
-                while offset < bytes {
-                    self.emit(abi::store_u64(abi::ZERO, &record, offset));
-                    offset += 8;
-                }
-                let one = self.allocate_register()?;
-                self.emit(abi::move_immediate(&one, "Integer", "1"));
-                // The single canonical closed-flag offset, shared by every
-                // built-in resource record (enforced by the compile-time asserts
-                // beside each per-resource closed-offset constant).
-                self.emit(abi::store_u64(&one, &record, RESOURCE_OFFSET_CLOSED)); // closed flag
-
+                // resource record (see `emit_closed_resource_record`); every
+                // operation then short-circuits safely and no null handle is ever
+                // exposed to a program.
+                let record = self.emit_closed_resource_record()?;
                 // A stateful resource's `STATE` payload is null in the zeroed
                 // record, so give it the same default record a real `RES … STATE`
                 // binding gets — otherwise a `RECOVER`ed closed resource's
