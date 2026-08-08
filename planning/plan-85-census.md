@@ -170,3 +170,28 @@ C-boundary files (the plan-85-B conversion set): `audio/{alsa,macos,windows,wind
 > use is the C result (post-call) vs an MFB result; it is **blind to Category-2** same-
 > register reuse, so B reads the pre/post-call position at each site, not the audit's
 > silence (memory `bug387-divergence-audit-blind-to-category2`).
+
+## plan-85-C Phase 1 — Result-returning `_mfb_*` helper inventory (gathered during plan-85-A)
+
+The `_mfb_*` helpers that return a `Result` / a single C-style value, whose return
+convention moves to aligned `%retMFB` in plan-85-C (read-only source analysis; the
+body edits + call-site shims land in C):
+
+1. **`_mfb_make_error_result`** (`error_result.rs:97` `lower_make_error_result`) —
+   inputs `ARG[0..4]` (filename, line, char, code, message\*); **returns the 4-register
+   error `Result` in `RESULT_{TAG,VALUE,ERROR_MESSAGE,ERROR_SOURCE}_REGISTER` =
+   `RET[0..3]`** → becomes **`%retMFB[0..3]`**. Body reads `_mfb_build_error_loc`'s `x0`
+   return (`return_register()`, `:112`) into `RESULT_ERROR_SOURCE_REGISTER` — a helper-
+   `%retC0`→`%retMFB3` consumption. Called from `builder_error_emission.rs:556`.
+2. **`_mfb_build_error_loc`** (`error_result.rs:13` `lower_build_error_loc`) — inputs
+   `ARG[0..2]`; **returns a single `ErrorLoc*` (Pointer) in `x0`** (`return_register()`,
+   `:75`; `0` on OOM). Its body reads `_mfb_arena_alloc`'s `RET[0]` (tag, `:34`) / `RET[1]`
+   (ptr, `:49-53`). Per plan-85-C §3 a single C-value-in-`rax` return is **`%retC0`**;
+   its caller (`make_error_result:112`, `builder_error_emission.rs:178`) then reads
+   `%retC0`. **Open for C:** whether `build_error_loc`/`arena_alloc` returns are `%retC`
+   (rax-exact single value) or `%retMFB` (aligned) — decide in C from whether each is a
+   genuine 1-value C-style return or an MFB multi-register result (`arena_alloc` returns
+   a 2-value tag/ptr → `%retMFB[0..1]`; `build_error_loc` returns 1 pointer → `%retC0`).
+
+Both helper **bodies** (in `error_result.rs`) and the trap-site emitters
+(`builder_error_emission.rs`) are hand-emitted MIR, so C edits both sides in lockstep.
