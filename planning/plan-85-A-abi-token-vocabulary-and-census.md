@@ -419,7 +419,51 @@ Commit: ebb9afdac
 
 ## Corrections
 
-<Filled in during execution.>
+**CORE-PREMISE FALSIFIED (plan-85-B execution) — the "Win64/AArch64/RISC-V byte-identical
+cross-target gate" does not hold; the whole-feature verification model is invalid as
+written.** This is recorded here as a **Prerequisites defect**: the entry gate proved only
+that *A* is byte-identical (trivially true — A emits nothing), and never tested the
+load-bearing premise that *converting emission sites* is byte-identical on the non-SysV
+targets. A minimal conversion probe would have caught this before B committed to the
+incremental structure.
+
+Evidence (full `bug387-gate.sh full`, rebuild + exe-oracle ×4, on the A-only serial
+baselines, after converting all `shared/code` single-role args to `%argC`):
+
+| target | result |
+|---|---|
+| linux-aarch64 | **byte-identical** (OK 1354) |
+| linux-x86_64 (SysV) | **534/1354 executables CHANGED** |
+| windows-x86_64 (Win64) | **broadly CHANGED** |
+| linux-riscv64 | **1352/1352 CHANGED** (universal; unexplained — needs objdump root-cause) |
+
+Root cause (x86): `remap_x86_abi` colors every `xN` token by a **per-function GLOBAL
+dataflow** (`defined_since_boundary`/`staged_live`/`param_home`, `select.rs:687-697`).
+Converting *any* token makes it a physical register the fixpoint no longer tracks, so its
+dataflow shifts and it re-colors the *remaining* legacy tokens — broadly byte-changing on
+BOTH x86 ABIs. **Win64 runs the same `select_x86`/`remap_x86_abi`**, so the plan's premise
+that Win64 is a byte-identity cross-check (§2, §Non-goals: "Win64-x86 … byte-identical …
+their byte-identity is the migration's cross-target gate") is false. (Win64 also diverges
+at result index 0 anyway: `%retMFB0`=rcx vs `RETS_WIN64[0]`=rax.)
+
+**Consequence for B/C/D:** the plan as written cannot be executed — its correctness gate
+(cross-target byte-identity) is invalid, so a byte-changing conversion has no sound way to
+be verified on the two x86 ABIs. This needs **re-planning** (a write-plan task, outside
+follow-plan's scope), not an in-place correction. A viable redesign must: (1) root-cause the
+riscv64 universal diff (positional realization should be byte-identical like aarch64 — likely
+a latent bug in the entry/arena conversion or the `Operand::Abi` riscv path, isolatable by
+objdump of one fixture); (2) abandon the incremental "byte-identical args grouping" (there is
+none on x86); (3) convert **all** tokens at once (or per-fully-isolated-function) so the
+fixpoint has no partial state to perturb / no converted-vs-legacy register collision, which
+— because shared results (`arena_alloc`'s `RET[0]/RET[1]` at ~795 sites) interconnect the
+token graph — effectively merges B/C/D into one atomic conversion + `remap_x86_abi` deletion;
+(4) verify by **rt-behavior on BOTH x86 ABIs** (SysV box 2227, Win64 box 2230) plus AArch64
+(and RISC-V once fixed) byte-identity — NOT Win64 byte-identity.
+
+plan-85-A itself (the typed `Operand::Abi` vocabulary + aligned realization + direct-realize
+seam + census) stands and is byte-identical/verified; it is the correct primitive for the
+redesigned conversion. The failed B args conversion was reverted (`fb54a6e61`); its findings
+(C1–C4, inventories, worklist, `@src` sweep) are preserved in `planning/` for the redesign.
 
 ## Summary
 

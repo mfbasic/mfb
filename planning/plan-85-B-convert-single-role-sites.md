@@ -1,5 +1,15 @@
 # plan-85-B: convert the single-role emission sites to explicit aligned tokens
 
+> **⛔ BLOCKED — CORE PREMISE FALSIFIED (see plan-85-A Corrections + C4 below).** The
+> incremental conversion approach was executed and REVERTED (`fb54a6e61`): the full byte
+> gate showed converting the args alone broadly changes bytes on BOTH x86 ABIs (SysV
+> 534/1354, Win64 broad) via the `remap_x86_abi` global-dataflow perturbation, plus an
+> unexplained universal riscv64 diff — only aarch64 stayed byte-identical. The plan's
+> "Win64/ARM/RISC-V byte-identical cross-target gate" does not hold, so B/C/D as written
+> cannot be verified. **This needs re-planning (write-plan), not follow-plan execution.**
+> See plan-85-A Corrections for the redesign requirements. The findings below (C1–C4,
+> inventories) are the record for that redesign.
+
 Last updated: 2026-08-03
 Effort: x-large (1d–3d)
 Depends on: plan-85-A (the six-token vocabulary, the aligned per-target realization,

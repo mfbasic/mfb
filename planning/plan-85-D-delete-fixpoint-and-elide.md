@@ -1,5 +1,11 @@
 # plan-85-D: delete the `remap_x86_abi` fixpoint; ARM/RISC-V staging + self-move elision; reconcile
 
+> **⛔ BLOCKED — depends on plan-85-C/B, which are BLOCKED (core premise falsified; see
+> plan-85-A Corrections). Needs re-planning, not follow-plan execution. NOTE: the finding
+> that `remap_x86_abi` has GLOBAL per-function dataflow (any partial conversion perturbs it)
+> actually strengthens D's thesis that the fixpoint must be deleted — but only as part of an
+> ALL-AT-ONCE conversion, not the incremental B→C→D sequence.**
+
 Last updated: 2026-08-03
 Effort: large (3h–1d)
 Depends on: plan-85-C (no legacy `%arg`/`%ret`/`RESULT_*_REGISTER` token remains

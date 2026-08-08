@@ -1,5 +1,8 @@
 # plan-85-C: convert the error-Result convention to `%retMFB` (the dual-role tail)
 
+> **⛔ BLOCKED — depends on plan-85-B, which is BLOCKED (core premise falsified; see
+> plan-85-A Corrections). Needs re-planning, not follow-plan execution.**
+
 Last updated: 2026-08-03
 Effort: large (3h–1d)
 Depends on: plan-85-B (all single-role sites converted; the `%retC` boundary audit
