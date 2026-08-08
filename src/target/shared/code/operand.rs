@@ -56,6 +56,67 @@ use crate::target::shared::regmodel::RegClass;
 
 use super::regalloc::{fp_vreg_name, parse_fp_vreg, parse_vreg, vreg_name};
 
+/// Which calling convention an [`Operand::Abi`] register belongs to (plan-85-A).
+/// The six-token vocabulary that replaces the two overloaded `%arg`/`%ret` role
+/// tokens: `Mfb` is MFB's own internal convention, `C` the platform C ABI, `Sys`
+/// the kernel syscall convention. Naming the convention explicitly is what lets
+/// the x86 backend realize every operand by a direct table lookup instead of
+/// re-inferring its role from control flow (`remap_x86_abi`, deleted in
+/// plan-85-D). `Copy` — an `Operand::Abi` allocates nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum AbiConvention {
+    Mfb,
+    C,
+    Sys,
+}
+
+/// Whether an [`Operand::Abi`] register is a call *argument* or a *result*
+/// (plan-85-A). On MFB's aligned convention `Arg` and `Ret` coincide on SysV
+/// (`[rdi,rsi,rdx,rcx]`); on the C convention `Ret` is `rax`-first. `Copy`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum AbiRole {
+    Arg,
+    Ret,
+}
+
+// The static token-string table (plan-85-A §4.1). Each `(convention, role,
+// index)` names one `&'static str`, so `Operand::Abi::rendered()` returns a
+// borrowed slice with no allocation — the whole point of the typed arm (it
+// finishes plan-82's `Raw(Box<str>)` → typed migration for the token category).
+// The spellings are the six convention-explicit tokens the plan defines; they
+// are deliberately distinct from the legacy `%arg`/`%ret`/`%sysarg` tokens so the
+// two vocabularies coexist during the plan-85-B/C migration.
+const ABI_ARG_MFB: [&str; 8] = [
+    "%argMFB0", "%argMFB1", "%argMFB2", "%argMFB3", "%argMFB4", "%argMFB5", "%argMFB6", "%argMFB7",
+];
+const ABI_RET_MFB: [&str; 4] = ["%retMFB0", "%retMFB1", "%retMFB2", "%retMFB3"];
+const ABI_ARG_C: [&str; 8] = [
+    "%argC0", "%argC1", "%argC2", "%argC3", "%argC4", "%argC5", "%argC6", "%argC7",
+];
+const ABI_RET_C: [&str; 2] = ["%retC0", "%retC1"];
+const ABI_ARG_SYS: [&str; 6] = [
+    "%argSys0", "%argSys1", "%argSys2", "%argSys3", "%argSys4", "%argSys5",
+];
+const ABI_RET_SYS: [&str; 1] = ["%retSys"];
+
+/// The `&'static str` spelling for an ABI token `(convention, role, index)`.
+/// Panics on an out-of-range index — a construction bug, never reachable for a
+/// well-formed emission (the accessors in `abi.rs` are the only constructors and
+/// they pass in-range indices).
+pub(crate) fn abi_token(convention: AbiConvention, role: AbiRole, index: u8) -> &'static str {
+    let table: &[&str] = match (convention, role) {
+        (AbiConvention::Mfb, AbiRole::Arg) => &ABI_ARG_MFB,
+        (AbiConvention::Mfb, AbiRole::Ret) => &ABI_RET_MFB,
+        (AbiConvention::C, AbiRole::Arg) => &ABI_ARG_C,
+        (AbiConvention::C, AbiRole::Ret) => &ABI_RET_C,
+        (AbiConvention::Sys, AbiRole::Arg) => &ABI_ARG_SYS,
+        (AbiConvention::Sys, AbiRole::Ret) => &ABI_RET_SYS,
+    };
+    table.get(index as usize).copied().unwrap_or_else(|| {
+        panic!("ABI token index {index} out of range for {convention:?}/{role:?}")
+    })
+}
+
 /// A typed operand value. See the module docs for the arm set and why physical
 /// registers stay `Raw` until plan-78-C.
 ///
@@ -87,6 +148,18 @@ pub(crate) enum Operand {
     },
     /// A decimal integer immediate.
     Imm(i64),
+    /// A convention-explicit ABI register token (plan-85-A): the k-th argument or
+    /// result of MFB's internal convention, the platform C ABI, or the syscall
+    /// convention. Carries only `{convention, role, index}` — all `Copy`, **no
+    /// heap allocation** — and renders through the static [`abi_token`] table, so
+    /// `rendered()` borrows. Each backend's selection realizes it to a physical
+    /// register by a direct table lookup (aligned per plan-85-A §2), replacing the
+    /// x86 CFG role-inference the overloaded `%arg`/`%ret` tokens forced.
+    Abi {
+        convention: AbiConvention,
+        role: AbiRole,
+        index: u8,
+    },
     /// Any operand string not lifted to a typed arm — rendered verbatim.
     Raw(Box<str>),
 }
@@ -110,6 +183,16 @@ impl Operand {
         Operand::Imm(value)
     }
 
+    /// A convention-explicit ABI register token (plan-85-A). The `abi.rs`
+    /// accessors (`mfb_arg`/`c_return`/…) are the intended constructors.
+    pub(crate) fn abi(convention: AbiConvention, role: AbiRole, index: u8) -> Self {
+        Operand::Abi {
+            convention,
+            role,
+            index,
+        }
+    }
+
     /// The operand's rendered spelling, borrowed when possible: a `Raw` lends its
     /// inner `&str` with no allocation; `VReg`/`Imm` render into an owned string.
     /// The allocator hot path (plan-78-C) reads operands through this to avoid the
@@ -121,6 +204,13 @@ impl Operand {
             // A colored physical register lends its static name with no allocation
             // — the whole point of the typed arm (plan-82-B/D).
             Operand::Phys { name, .. } => std::borrow::Cow::Borrowed(name),
+            // An ABI token lends its static spelling from the token table with no
+            // allocation (plan-85-A).
+            Operand::Abi {
+                convention,
+                role,
+                index,
+            } => std::borrow::Cow::Borrowed(abi_token(*convention, *role, *index)),
             _ => std::borrow::Cow::Owned(self.render()),
         }
     }
@@ -140,6 +230,11 @@ impl Operand {
             } => fp_vreg_name(*id),
             Operand::Phys { name, .. } => name.to_string(),
             Operand::Imm(value) => value.to_string(),
+            Operand::Abi {
+                convention,
+                role,
+                index,
+            } => abi_token(*convention, *role, *index).to_string(),
             Operand::Raw(text) => text.to_string(),
         }
     }
@@ -469,6 +564,67 @@ mod tests {
         assert_eq!(inst.operand("missing"), None);
         assert_eq!(inst.get("dst").as_deref(), Some("x0"));
         assert_eq!(inst.get("value").as_deref(), Some("42"));
+    }
+
+    #[test]
+    fn abi_tokens_render_and_borrow() {
+        // plan-85-A: every convention-explicit ABI token renders to its exact
+        // spelling and `rendered()` borrows the static table entry (no allocation
+        // — the point of the typed arm). The index ranges match the §2 table.
+        let cases: &[(AbiConvention, AbiRole, u8, &str)] = &[
+            (AbiConvention::Mfb, AbiRole::Arg, 0, "%argMFB0"),
+            (AbiConvention::Mfb, AbiRole::Arg, 7, "%argMFB7"),
+            (AbiConvention::Mfb, AbiRole::Ret, 0, "%retMFB0"),
+            (AbiConvention::Mfb, AbiRole::Ret, 3, "%retMFB3"),
+            (AbiConvention::C, AbiRole::Arg, 0, "%argC0"),
+            (AbiConvention::C, AbiRole::Arg, 7, "%argC7"),
+            (AbiConvention::C, AbiRole::Ret, 0, "%retC0"),
+            (AbiConvention::C, AbiRole::Ret, 1, "%retC1"),
+            (AbiConvention::Sys, AbiRole::Arg, 0, "%argSys0"),
+            (AbiConvention::Sys, AbiRole::Arg, 5, "%argSys5"),
+            (AbiConvention::Sys, AbiRole::Ret, 0, "%retSys"),
+        ];
+        for &(convention, role, index, expected) in cases {
+            let op = Operand::abi(convention, role, index);
+            assert_eq!(op.render(), expected, "render mismatch for {expected}");
+            match op.rendered() {
+                std::borrow::Cow::Borrowed(s) => assert_eq!(s, expected),
+                std::borrow::Cow::Owned(_) => {
+                    panic!("ABI token {expected} must render borrowed, not owned")
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn abi_payload_is_copy_and_clones_without_alloc() {
+        // The `Abi` payload is all `Copy` (asserted by binding a value through a
+        // `Copy` bound), so cloning an `Operand::Abi` allocates nothing — the
+        // property plan-82's `Raw`→typed migration is finishing for tokens.
+        fn assert_copy<T: Copy>(_: T) {}
+        assert_copy(AbiConvention::Mfb);
+        assert_copy(AbiRole::Arg);
+        let op = Operand::abi(AbiConvention::C, AbiRole::Ret, 1);
+        assert_eq!(op.clone(), op);
+        assert!(matches!(
+            op,
+            Operand::Abi {
+                convention: AbiConvention::C,
+                role: AbiRole::Ret,
+                index: 1
+            }
+        ));
+    }
+
+    #[test]
+    fn abi_tokens_are_not_confused_with_legacy_or_vregs() {
+        // A new explicit token must NOT parse as a vreg/immediate, and its
+        // spelling is distinct from the legacy `%arg0`/`%ret0` (the two
+        // vocabularies coexist during plan-85-B/C).
+        assert!(matches!(Operand::parse("%argMFB0"), Operand::Raw(_)));
+        assert!(matches!(Operand::parse("%retMFB0"), Operand::Raw(_)));
+        assert_ne!(Operand::abi(AbiConvention::Mfb, AbiRole::Ret, 0).render(), "%ret0");
+        assert_ne!(Operand::abi(AbiConvention::Mfb, AbiRole::Arg, 0).render(), "%arg0");
     }
 
     #[test]

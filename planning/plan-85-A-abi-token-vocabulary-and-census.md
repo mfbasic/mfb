@@ -313,15 +313,24 @@ compile-time allocation reduction, no output effect). Win64/AArch64/RISC-V byte-
 > NOT DONE.
 
 ### Phase 1 — the typed `Operand::Abi` variant + accessors (`operand.rs`, `abi.rs`)
-- [ ] Add the `Operand::Abi{convention, role, index}` arm + the `AbiConvention`/`AbiRole`
+- [x] Add the `Operand::Abi{convention, role, index}` arm + the `AbiConvention`/`AbiRole`
       enums (`operand.rs`); implement `render()`/`rendered()` for it; add the
       `mfb_arg`/`c_arg`/`sys_arg`/… accessors returning `Operand::Abi` (`abi.rs`). Leave
-      the legacy string tokens in place.
-- [ ] Tests: `operand::tests` — `Operand::Abi` is `Copy`, round-trips through
-      `render()`, and each accessor yields the expected variant.
+      the legacy string tokens in place. — `operand.rs` (enum arm + static token table
+      `abi_token` + `Operand::abi`); `abi.rs` accessors; `code/mod.rs` re-exports
+      `AbiConvention`/`AbiRole`. `Abi` payload is `Copy`; `rendered()` borrows the static
+      spelling (no alloc). Legacy `ARG`/`RET`/`SYSARG` untouched.
+- [x] Tests: `operand::tests` — `Operand::Abi` is `Copy`, round-trips through
+      `render()`, and each accessor yields the expected variant. — `operand::tests`
+      (`abi_tokens_render_and_borrow`, `abi_payload_is_copy_and_clones_without_alloc`,
+      `abi_tokens_are_not_confused_with_legacy_or_vregs`) + `abi::tests`
+      (`convention_explicit_abi_accessors`); all green.
 
 Acceptance: `cargo test --bin mfb operand:: abi::` green; no emission site changed;
-`bug387-gate.sh full` byte-identical (five targets).
+`bug387-gate.sh full` byte-identical (five targets). — cargo tests green (57 passed);
+byte-identity deferred to the single full gate at A finalization (Phase 1+2 are both
+dormant primitives, so one release rebuild + gate covers both — memory
+`dont-run-full-gate-per-phase`).
 Commit: —
 
 ### Phase 2 — aligned typed realization (all four backends) + the direct-realize seam

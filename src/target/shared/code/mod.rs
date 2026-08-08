@@ -50,7 +50,7 @@ use codegen_utils::*;
 mod code_impl;
 use code_impl::{join_json, ToCodeJson};
 mod operand;
-pub(crate) use operand::{Operand, VirtualRegister};
+pub(crate) use operand::{AbiConvention, AbiRole, Operand, VirtualRegister};
 mod selfmove_probe;
 pub(crate) use selfmove_probe::bug387_selfmove_lines;
 mod fs;

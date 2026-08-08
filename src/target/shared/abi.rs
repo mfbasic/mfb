@@ -1,4 +1,4 @@
-use crate::target::shared::code::{CodeInstruction, Operand};
+use crate::target::shared::code::{AbiConvention, AbiRole, CodeInstruction, Operand};
 
 // There is deliberately no per-helper clobber list here: every internal
 // `bl _mfb_*` runtime call destroys the entire caller-saved integer file
@@ -94,6 +94,56 @@ pub(crate) fn fp_temporary_register(allocation: usize) -> Result<String, String>
 
 pub(crate) fn return_register() -> &'static str {
     RET[0]
+}
+
+// --- plan-85-A: convention-explicit ABI token accessors ---
+//
+// The six-token vocabulary that supersedes the two overloaded `%arg`/`%ret` role
+// tokens. Each returns a typed [`Operand::Abi`] (a `Copy` payload — no
+// `Box<str>`), realized per backend by a direct table lookup to its **final
+// aligned** physical register (plan-85-A §2): on SysV `%argMFB`/`%retMFB`/`%argC`
+// all collapse to the aligned bank `[rdi,rsi,rdx,rcx]` and `%retC` keeps `rax`,
+// so a dual-role MFB value sits in the argument register with no staging hop.
+//
+// These are the constructors the emission-site conversion (plan-85-B/C) calls;
+// they are a dormant primitive in plan-85-A (nothing emits them yet), exercised
+// by the `abi::tests` round-trip below. The `#[allow(dead_code)]` mirrors
+// `Operand::vreg`'s (plan-82): the primitive lands before its production writers.
+
+/// MFB internal-convention argument register `index` (0..8).
+#[allow(dead_code)] // plan-85-A primitive; production callers land in plan-85-B/C
+pub(crate) fn mfb_arg(index: u8) -> Operand {
+    Operand::abi(AbiConvention::Mfb, AbiRole::Arg, index)
+}
+
+/// MFB internal-convention result register `index` (0..4).
+#[allow(dead_code)] // plan-85-A primitive; production callers land in plan-85-B/C
+pub(crate) fn mfb_return(index: u8) -> Operand {
+    Operand::abi(AbiConvention::Mfb, AbiRole::Ret, index)
+}
+
+/// Platform C-ABI argument register `index` (0..8).
+#[allow(dead_code)] // plan-85-A primitive; production callers land in plan-85-B/C
+pub(crate) fn c_arg(index: u8) -> Operand {
+    Operand::abi(AbiConvention::C, AbiRole::Arg, index)
+}
+
+/// Platform C-ABI result register `index` (0..2; `rax`/`rdx` on x86).
+#[allow(dead_code)] // plan-85-A primitive; production callers land in plan-85-B/C
+pub(crate) fn c_return(index: u8) -> Operand {
+    Operand::abi(AbiConvention::C, AbiRole::Ret, index)
+}
+
+/// Syscall-convention argument register `index` (0..6).
+#[allow(dead_code)] // plan-85-A primitive; production callers land in plan-85-B/C
+pub(crate) fn sys_arg(index: u8) -> Operand {
+    Operand::abi(AbiConvention::Sys, AbiRole::Arg, index)
+}
+
+/// Syscall-convention result register (`rax` on x86).
+#[allow(dead_code)] // plan-85-A primitive; production callers land in plan-85-B/C
+pub(crate) fn sys_return() -> Operand {
+    Operand::abi(AbiConvention::Sys, AbiRole::Ret, 0)
 }
 
 /// The zero register as a register operand — the constant 0 readable as a source,
@@ -1513,6 +1563,29 @@ mod tests {
             .iter()
             .find(|(k, _)| *k == key)
             .map(|(_, v)| v.render())
+    }
+
+    #[test]
+    fn convention_explicit_abi_accessors() {
+        // plan-85-A: each accessor yields the expected typed `Operand::Abi`
+        // variant and renders to its convention-explicit token spelling.
+        assert_eq!(mfb_arg(0).render(), "%argMFB0");
+        assert_eq!(mfb_arg(7).render(), "%argMFB7");
+        assert_eq!(mfb_return(0).render(), "%retMFB0");
+        assert_eq!(mfb_return(3).render(), "%retMFB3");
+        assert_eq!(c_arg(2).render(), "%argC2");
+        assert_eq!(c_return(0).render(), "%retC0");
+        assert_eq!(c_return(1).render(), "%retC1");
+        assert_eq!(sys_arg(3).render(), "%argSys3");
+        assert_eq!(sys_return().render(), "%retSys");
+        assert_eq!(
+            mfb_arg(1),
+            Operand::abi(AbiConvention::Mfb, AbiRole::Arg, 1)
+        );
+        assert_eq!(
+            c_return(1),
+            Operand::abi(AbiConvention::C, AbiRole::Ret, 1)
+        );
     }
 
     #[test]
