@@ -1,0 +1,129 @@
+{
+  "project": "reduce_accumulator_reclaim_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 9 },
+    { "module": "collections", "line": 10 },
+    { "module": "strings", "line": 11 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "concat",
+      "line": 15,
+      "params": [
+      { "name": "acc", "type": "String", "default": null, "line": 15 },
+      { "name": "x", "type": "String", "default": null, "line": 15 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "identifier", "value": "x" } }, "line": 16 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "pickLast",
+      "line": 21,
+      "params": [
+      { "name": "acc", "type": "String", "default": null, "line": 21 },
+      { "name": "x", "type": "String", "default": null, "line": 21 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "x" }, "line": 22 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "keepAcc",
+      "line": 26,
+      "params": [
+      { "name": "acc", "type": "String", "default": null, "line": 26 },
+      { "name": "x", "type": "String", "default": null, "line": 26 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "acc" }, "line": 27 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "sumLen",
+      "line": 32,
+      "params": [
+      { "name": "acc", "type": "Integer", "default": null, "line": 32 },
+      { "name": "s", "type": "String", "default": null, "line": 32 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] } }, "line": 33 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "sum",
+      "line": 38,
+      "params": [
+      { "name": "acc", "type": "Integer", "default": null, "line": 38 },
+      { "name": "x", "type": "Integer", "default": null, "line": 38 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "identifier", "value": "x" } }, "line": 39 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 42,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "xs", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "ab" }, { "kind": "string", "value": "cde" }, { "kind": "string", "value": "fghi" }, { "kind": "string", "value": "j" }, { "kind": "string", "value": "klmno" }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "concat=" }, "right": { "kind": "call", "callee": "collections.reduce", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "string", "value": "" }, { "kind": "identifier", "value": "concat" }] } }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pickLast=" }, "right": { "kind": "call", "callee": "collections.reduce", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "string", "value": "" }, { "kind": "identifier", "value": "pickLast" }] } }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "keepAcc=[" }, "right": { "kind": "call", "callee": "collections.reduce", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "string", "value": "seed" }, { "kind": "identifier", "value": "keepAcc" }] } }, "right": { "kind": "string", "value": "]" } }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "sumLen=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.reduce", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "0" }, { "kind": "identifier", "value": "sumLen" }] }] } }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rr-concat=" }, "right": { "kind": "call", "callee": "collections.reduceRight", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "string", "value": "" }, { "kind": "identifier", "value": "concat" }] } }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rr-pickLast=" }, "right": { "kind": "call", "callee": "collections.reduceRight", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "string", "value": "" }, { "kind": "identifier", "value": "pickLast" }] } }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rr-keepAcc=[" }, "right": { "kind": "call", "callee": "collections.reduceRight", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "string", "value": "seed" }, { "kind": "identifier", "value": "keepAcc" }] } }, "right": { "kind": "string", "value": "]" } }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rr-sumLen=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.reduceRight", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "0" }, { "kind": "identifier", "value": "sumLen" }] }] } }] }, "line": 56 },
+      { "kind": "binding", "mutable": false, "name": "ns", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "sum=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.reduce", "arguments": [{ "kind": "identifier", "value": "ns" }, { "kind": "number", "value": "0" }, { "kind": "identifier", "value": "sum" }] }] } }] }, "line": 59 },
+      { "kind": "binding", "mutable": true, "name": "round", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 63 },
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 64 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "round" }, "right": { "kind": "number", "value": "500" } },
+        "line": 65,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "r", "type": "String", "value": { "kind": "call", "callee": "collections.reduce", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "string", "value": "" }, { "kind": "identifier", "value": "concat" }] }, "line": 66 },
+        { "kind": "binding", "mutable": false, "name": "rr", "type": "String", "value": { "kind": "call", "callee": "collections.reduceRight", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "string", "value": "" }, { "kind": "identifier", "value": "concat" }] }, "line": 67 },
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "r" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "rr" }] } }, "line": 68 },
+        { "kind": "assignment", "name": "round", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "round" }, "right": { "kind": "number", "value": "1" } }, "line": 69 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "repeat total=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] } }] }, "line": 71 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 72 }
+      ]
+    }
+    ]
+  }
+  ]
+}

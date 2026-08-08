@@ -1,0 +1,73 @@
+' plan-86-B (B1): native `reduce` now reclaims the superseded loop item and
+' accumulator each iteration instead of leaking them (the pre-fix lowering freed
+' neither, so a `List OF String` fold grew arena RSS by ~one block per element
+' per pass). The reclamation is guarded by runtime pointer-equality so the
+' bug-307 aliasing shapes stay safe. This fixture pins the CORRECTNESS of that
+' reclamation across every aliasing shape plus a heavy repeated fold; a
+' use-after-free or double-free would surface here as corrupted output or a crash
+' long before the loop ends.
+IMPORT io
+IMPORT collections
+IMPORT strings
+
+' Fresh owned result each step: both the superseded item and the superseded
+' accumulator are freed.
+FUNC concat(acc AS String, x AS String) AS String
+  RETURN acc & x
+END FUNC
+
+' Reducer adopts the item as the new accumulator: the item block must NOT be
+' freed (it becomes the accumulator).
+FUNC pickLast(acc AS String, x AS String) AS String
+  RETURN x
+END FUNC
+
+' Reducer returns the accumulator unchanged: the accumulator must NOT be freed.
+FUNC keepAcc(acc AS String, x AS String) AS String
+  RETURN acc
+END FUNC
+
+' Integer accumulator over String elements: the items are heap blocks (freed),
+' the accumulator is a scalar (nothing to free).
+FUNC sumLen(acc AS Integer, s AS String) AS Integer
+  RETURN acc + len(s)
+END FUNC
+
+' Scalar fold: neither accumulator nor element owns a block, so the unchanged
+' (non-owned) codegen path must still fold correctly.
+FUNC sum(acc AS Integer, x AS Integer) AS Integer
+  RETURN acc + x
+END FUNC
+
+FUNC main AS Integer
+  LET xs AS List OF String = ["ab", "cde", "fghi", "j", "klmno"]
+
+  io::print("concat=" & collections::reduce(xs, "", concat))
+  io::print("pickLast=" & collections::reduce(xs, "", pickLast))
+  io::print("keepAcc=[" & collections::reduce(xs, "seed", keepAcc) & "]")
+  io::print("sumLen=" & toString(collections::reduce(xs, 0, sumLen)))
+
+  ' plan-86-B (B2): native reduceRight shares the same reclamation, walked
+  ' right-to-left. reduceRight over the concat fold reverses the join order; the
+  ' aliasing shapes (adopt item / keep acc) must stay safe under the reverse walk.
+  io::print("rr-concat=" & collections::reduceRight(xs, "", concat))
+  io::print("rr-pickLast=" & collections::reduceRight(xs, "", pickLast))
+  io::print("rr-keepAcc=[" & collections::reduceRight(xs, "seed", keepAcc) & "]")
+  io::print("rr-sumLen=" & toString(collections::reduceRight(xs, 0, sumLen)))
+
+  LET ns AS List OF Integer = [1, 2, 3, 4, 5]
+  io::print("sum=" & toString(collections::reduce(ns, 0, sum)))
+
+  ' Heavy repeated iteration over the concat fold: any UAF or double-free from the
+  ' per-iteration reclamation would corrupt the result or crash before round 500.
+  MUT round AS Integer = 0
+  MUT total AS Integer = 0
+  WHILE round < 500
+    LET r AS String = collections::reduce(xs, "", concat)
+    LET rr AS String = collections::reduceRight(xs, "", concat)
+    total = total + len(r) + len(rr)
+    round = round + 1
+  END WHILE
+  io::print("repeat total=" & toString(total))
+  RETURN 0
+END FUNC
