@@ -331,19 +331,34 @@ Acceptance: `cargo test --bin mfb operand:: abi::` green; no emission site chang
 byte-identity deferred to the single full gate at A finalization (Phase 1+2 are both
 dormant primitives, so one release rebuild + gate covers both — memory
 `dont-run-full-gate-per-phase`).
-Commit: —
+Commit: 817ddd32b
 
 ### Phase 2 — aligned typed realization (all four backends) + the direct-realize seam
-- [ ] Add `realize_abi(convention, role, index, target)` (§4.2) returning the §2 register;
+- [x] Add `realize_abi(convention, role, index, target)` (§4.2) returning the §2 register;
       have each backend match `Operand::Abi` and call it — AArch64 (`select.rs:106`),
       RISC-V (`:732`), and x86's `map_token_direct` (SysV + Win64 columns, aligned `%retMFB`).
-- [ ] Add the `Operand::Abi` direct-realize branch in `select_x86` (§4.3) so an explicit
+      — Shared positional realizer `abi::realize_abi_positional(index) -> &'static str`
+      (`x{index}`; AArch64 args==results collapse) called from the AArch64 select loop and
+      the RISC-V select loop (which then remaps `xN`→`aN`). x86's `realize_abi_operand`
+      (`x86_64/select.rs`) returns the §2 aligned register per (convention, role, index, abi):
+      MFB arg/ret + C arg → aligned `CALL_ARGS[k]`; `%retC` → `rax:rdx` (`C_RETS`); syscalls
+      unchanged; Win64 on the `*_WIN64` banks. Kept as its own fn rather than folding into
+      `map_token_direct` (which stays for the legacy `Raw` `%arg`/`%ret` until plan-85-D).
+- [x] Add the `Operand::Abi` direct-realize branch in `select_x86` (§4.3) so an explicit
       token bypasses `remap_x86_abi`; legacy `Raw` `%arg`/`%ret` still defer to the fixpoint.
-- [ ] Tests: a realization unit test per (convention, role, index) per backend asserting
+      — the seam matches `Operand::Abi` first in the per-operand loop, realizes via
+      `realize_abi_operand`, and `continue`s before the `is_abi_role_token` deferral.
+- [x] Tests: a realization unit test per (convention, role, index) per backend asserting
       the §2 register; a `select_x86` test proving an `Operand::Abi` bypasses the fixpoint.
+      — `abi::abi_positional_realization_collapses_every_convention` (AArch64/RISC-V logic);
+      `x86_64::select::realize_abi_operand_maps_to_aligned_registers` (full §2 SysV+Win64);
+      `x86_64::select::explicit_abi_token_bypasses_the_fixpoint` (`%retMFB0`→`rdi`, no `rax`);
+      `{aarch64,riscv64}::select::explicit_abi_tokens_realize_to_positional_{x,a}_registers`
+      (end-to-end select path). All green; full `cargo test --bin mfb` = 3792 passed / 0 failed.
 
 Acceptance: realization tests green on all four backends; `bug387-gate.sh full`
-byte-identical (five targets — nothing emits `Operand::Abi` yet).
+byte-identical (five targets — nothing emits `Operand::Abi` yet). — realization tests
+green; byte-identity run as the single full gate at A finalization (below).
 Commit: —
 
 ### Phase 3 — per-operand census work-list

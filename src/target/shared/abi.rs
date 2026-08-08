@@ -146,6 +146,25 @@ pub(crate) fn sys_return() -> Operand {
     Operand::abi(AbiConvention::Sys, AbiRole::Ret, 0)
 }
 
+/// The AArch64 `xN` bank an explicit ABI token realizes to (plan-85-A §2). On
+/// AArch64 args and results coincide (the k-th argument and k-th result are both
+/// `xN`), so **every** convention and role collapses to `x{index}` — the property
+/// that makes the six-token vocabulary byte-identical on AArch64/RISC-V. The
+/// `retC`/`argSys`/`retSys` indices all fall inside `x0..x7`.
+const ABI_POSITIONAL_XREGS: [&str; 8] = ["x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"];
+
+/// Realize an explicit ABI token to its AArch64 `xN` spelling (plan-85-A §2).
+/// Convention and role are irrelevant on AArch64 — the bank is positional — so
+/// only `index` is taken. RISC-V selection calls this too and then remaps
+/// `xN`→`aN` through its existing positional `remap_register`, exactly as the
+/// legacy tokens flowed. Panics on an out-of-range index (a construction bug).
+pub(crate) fn realize_abi_positional(index: u8) -> &'static str {
+    ABI_POSITIONAL_XREGS
+        .get(index as usize)
+        .copied()
+        .unwrap_or_else(|| panic!("ABI token index {index} out of AArch64 positional range"))
+}
+
 /// The zero register as a register operand — the constant 0 readable as a source,
 /// a discard as a destination. AArch64 spells it `xzr`; RISC-V maps it to the
 /// hardware `zero`; x86-64 has none at all and realizes the token as an
@@ -1586,6 +1605,22 @@ mod tests {
             c_return(1),
             Operand::abi(AbiConvention::C, AbiRole::Ret, 1)
         );
+    }
+
+    #[test]
+    fn abi_positional_realization_collapses_every_convention() {
+        // plan-85-A §2: on the positional ABIs (AArch64 `xN`, RISC-V remaps to
+        // `aN`) every convention and role collapses to `x{index}`. Assert that
+        // realize_abi_positional matches x{index} across the whole index range and
+        // is convention/role-agnostic.
+        for index in 0u8..8 {
+            assert_eq!(realize_abi_positional(index), format!("x{index}"));
+        }
+        // The retC / argSys / retSys indices all fall inside x0..x7 and realize the
+        // same way (positional), which is why AArch64/RISC-V are byte-identical.
+        assert_eq!(realize_abi_positional(0), "x0"); // %retSys / %retC0 / %retMFB0
+        assert_eq!(realize_abi_positional(1), "x1"); // %retC1
+        assert_eq!(realize_abi_positional(5), "x5"); // %argSys5
     }
 
     #[test]

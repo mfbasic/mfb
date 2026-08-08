@@ -729,6 +729,13 @@ fn map_fp_register(n: usize) -> String {
 fn remap_riscv_abi(instructions: &mut [CodeInstruction]) {
     for instruction in instructions.iter_mut() {
         for (_, value) in instruction.fields.iter_mut() {
+            // A convention-explicit ABI token (plan-85-A) realizes positionally to
+            // `x{index}` first (args and results coincide on the positional ABIs),
+            // then the `remap_register` below maps that `xN`→`aN` exactly as it
+            // does the legacy tokens — byte-identical.
+            if let Operand::Abi { index, .. } = value {
+                *value = Operand::from(crate::target::shared::abi::realize_abi_positional(*index));
+            }
             // plan-34-B Phase-3b seam: realize a role token to its AArch64
             // spelling first (`%arg3` → `x3`), then the positional remap maps that
             // to the RISC-V home (`x3` → `a3`) exactly as today — byte-identical.
@@ -821,6 +828,31 @@ mod tests {
         assert!(vals.contains(&"a7".to_string()));
         assert!(vals.contains(&"sp".to_string()));
         assert!(vals.contains(&"zero".to_string()));
+    }
+
+    #[test]
+    fn explicit_abi_tokens_realize_to_positional_a_registers() {
+        use crate::target::shared::abi;
+        // plan-85-A: a typed `Operand::Abi` realizes positionally (`x{index}`) then
+        // remaps `xN`→`aN`, byte-identically to the legacy tokens — every
+        // convention/role collapses. %retC1 → a1, %argSys3 → a3, %retSys → a0.
+        let out = sel(&[
+            CodeInstruction::new("mov")
+                .field("dst", abi::mfb_return(0))
+                .field("src", abi::mfb_arg(2)),
+            CodeInstruction::new("mov")
+                .field("dst", abi::c_return(1))
+                .field("src", abi::sys_arg(3)),
+            CodeInstruction::new("mov")
+                .field("dst", abi::sys_return())
+                .field("src", abi::c_arg(7)),
+        ]);
+        let vals = values(&out);
+        assert!(vals.contains(&"a0".to_string()), "%retMFB0/%retSys → a0: {vals:?}");
+        assert!(vals.contains(&"a2".to_string()), "%argMFB2 → a2: {vals:?}");
+        assert!(vals.contains(&"a1".to_string()), "%retC1 → a1: {vals:?}");
+        assert!(vals.contains(&"a3".to_string()), "%argSys3 → a3: {vals:?}");
+        assert!(vals.contains(&"a7".to_string()), "%argC7 → a7: {vals:?}");
     }
 
     #[test]

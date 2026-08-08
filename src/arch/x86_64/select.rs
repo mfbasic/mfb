@@ -12,7 +12,7 @@ use crate::target::shared::code::mir::{
     FUSED_SHARE_FIELD,
 };
 use crate::target::shared::code::CodeInstruction;
-use crate::target::shared::code::Operand;
+use crate::target::shared::code::{AbiConvention, AbiRole, Operand};
 
 /// A call/return boundary that fixes the SysV ABI role of an `x0`–`x8` operand.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -200,6 +200,56 @@ fn map_token_direct(value: &str, abi: X86Abi) -> Option<String> {
 /// `remap_x86_abi` can both realize them (byte-identically) and cross-check them.
 fn is_abi_role_token(value: &str) -> bool {
     map_token_direct(value, X86Abi::SysV).is_some()
+}
+
+/// The C-ABI return bank (plan-85-A §2): `rax:rdx`, the ≤2 registers the platform
+/// C ABI returns in, identical on SysV and Win64 (`RETS`/`RETS_WIN64` both start
+/// `rax, rdx`). `%retC` keeps `rax` — the one register MFB's aligned convention
+/// does *not* claim — so a genuine C boundary is the sole `rax`-bearing site.
+const C_RETS: &[&str] = &["rax", "rdx"];
+
+/// Realize a **convention-explicit** ABI token (plan-85-A `Operand::Abi`) to its
+/// final **aligned** x86-64 register under `abi`, by a direct table lookup — the
+/// whole point of the six-token vocabulary (no CFG role inference). Per §2:
+/// `%argMFB`/`%retMFB`/`%argC` all draw from the call-argument bank (on SysV the
+/// aligned `[rdi,rsi,rdx,rcx,…]`, so a result register == the argument register),
+/// `%retC` from `rax:rdx`, `%argSys`/`%retSys` from the syscall file. This is the
+/// map `select_x86` applies directly, bypassing `remap_x86_abi` (deleted in
+/// plan-85-D). Panics on an out-of-range index (a construction bug).
+fn realize_abi_operand(
+    convention: AbiConvention,
+    role: AbiRole,
+    index: usize,
+    abi: X86Abi,
+) -> &'static str {
+    let (call_args, sys_args): (&[&str], &[&str]) = match abi {
+        X86Abi::SysV => (CALL_ARGS, SYS_ARGS),
+        // Win64 emits no raw syscall (OS calls go through the IAT), so `SYS_ARGS`
+        // is unreachable under Win64; it is passed only to keep the arity uniform.
+        X86Abi::Win64 => (CALL_ARGS_WIN64, SYS_ARGS),
+    };
+    let bank: &[&str] = match (convention, role) {
+        // MFB's aligned convention: arg and result share the call-argument bank
+        // (on SysV `[rdi,rsi,rdx,rcx]`, no `rax`); a C-call argument is the same
+        // bank, so an MFB result feeding a C call needs no staging move.
+        (AbiConvention::Mfb, _) | (AbiConvention::C, AbiRole::Arg) => call_args,
+        (AbiConvention::C, AbiRole::Ret) => C_RETS,
+        (AbiConvention::Sys, AbiRole::Arg) => match abi {
+            X86Abi::SysV => sys_args,
+            X86Abi::Win64 => {
+                unreachable!("Win64 emits no syscall boundary; OS calls go through the IAT")
+            }
+        },
+        (AbiConvention::Sys, AbiRole::Ret) => match abi {
+            X86Abi::SysV => return "rax",
+            X86Abi::Win64 => {
+                unreachable!("Win64 emits no syscall boundary; OS calls go through the IAT")
+            }
+        },
+    };
+    bank.get(index).copied().unwrap_or_else(|| {
+        panic!("ABI token index {index} out of range for {convention:?}/{role:?} on x86")
+    })
 }
 
 /// Remap the residual AArch64 physical registers a selected stream still carries
@@ -1013,6 +1063,21 @@ pub(crate) fn select_x86(instructions: Vec<MirInstruction>, abi: X86Abi) -> Vec<
         // them against `map_token_direct`; every other token (`%scratchN`,
         // `%localN`, `%mathpool`, `%sysnr_darwin`, …) is realized here as before.
         for (_, value) in instruction.fields.iter_mut() {
+            // plan-85-A direct-realize seam: a convention-explicit `Operand::Abi`
+            // token is realized *here*, directly to its aligned x86 register,
+            // bypassing `remap_x86_abi` entirely — the seam plan-85-D widens to
+            // "every operand direct, fixpoint gone". Legacy `%arg`/`%ret` role
+            // tokens still defer to the fixpoint below.
+            if let Operand::Abi {
+                convention,
+                role,
+                index,
+            } = value
+            {
+                let reg = realize_abi_operand(*convention, *role, *index as usize, abi);
+                *value = Operand::from(reg);
+                continue;
+            }
             let rendered = value.render();
             if is_abi_role_token(&rendered) {
                 continue;
@@ -1560,6 +1625,102 @@ mod tests {
         assert_eq!(
             map_token_direct("%ret2", X86Abi::Win64).as_deref(),
             Some("r8")
+        );
+    }
+
+    #[test]
+    fn realize_abi_operand_maps_to_aligned_registers() {
+        // plan-85-A §2 aligned SysV realization: MFB args/results and C args all
+        // draw from the aligned call-argument bank; %retC keeps rax:rdx; the
+        // syscall file is unchanged.
+        for (n, reg) in ["rdi", "rsi", "rdx", "rcx", "r8", "r9", "rax", "rbp"]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(
+                realize_abi_operand(AbiConvention::Mfb, AbiRole::Arg, n, X86Abi::SysV),
+                reg
+            );
+            assert_eq!(
+                realize_abi_operand(AbiConvention::C, AbiRole::Arg, n, X86Abi::SysV),
+                reg
+            );
+        }
+        // %retMFB is the byte-CHANGING choice: aligned [rdi,rsi,rdx,rcx], NOT the
+        // legacy RETS [rax,rdx,rcx,rsi].
+        for (n, reg) in ["rdi", "rsi", "rdx", "rcx"].into_iter().enumerate() {
+            assert_eq!(
+                realize_abi_operand(AbiConvention::Mfb, AbiRole::Ret, n, X86Abi::SysV),
+                reg
+            );
+        }
+        // %retC keeps the genuine C return bank rax:rdx.
+        assert_eq!(
+            realize_abi_operand(AbiConvention::C, AbiRole::Ret, 0, X86Abi::SysV),
+            "rax"
+        );
+        assert_eq!(
+            realize_abi_operand(AbiConvention::C, AbiRole::Ret, 1, X86Abi::SysV),
+            "rdx"
+        );
+        // Syscalls.
+        for (n, reg) in ["rdi", "rsi", "rdx", "r10", "r8", "r9"]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(
+                realize_abi_operand(AbiConvention::Sys, AbiRole::Arg, n, X86Abi::SysV),
+                reg
+            );
+        }
+        assert_eq!(
+            realize_abi_operand(AbiConvention::Sys, AbiRole::Ret, 0, X86Abi::SysV),
+            "rax"
+        );
+        // Win64: aligned onto the Win64 call bank; %retC still rax:rdx.
+        for (n, reg) in ["rcx", "rdx", "r8", "r9"].into_iter().enumerate() {
+            assert_eq!(
+                realize_abi_operand(AbiConvention::Mfb, AbiRole::Arg, n, X86Abi::Win64),
+                reg
+            );
+            assert_eq!(
+                realize_abi_operand(AbiConvention::Mfb, AbiRole::Ret, n, X86Abi::Win64),
+                reg
+            );
+        }
+        assert_eq!(
+            realize_abi_operand(AbiConvention::C, AbiRole::Ret, 0, X86Abi::Win64),
+            "rax"
+        );
+        assert_eq!(
+            realize_abi_operand(AbiConvention::C, AbiRole::Ret, 1, X86Abi::Win64),
+            "rdx"
+        );
+    }
+
+    #[test]
+    fn explicit_abi_token_bypasses_the_fixpoint() {
+        use crate::target::shared::abi;
+        // A typed `Operand::Abi` is realized directly by the plan-85-A seam to its
+        // ALIGNED register, NOT by `remap_x86_abi`. Proof: `%retMFB0` realizes to
+        // `rdi` (aligned CALL_ARGS[0]); the fixpoint / legacy `%ret0` would give
+        // `rax` (RETS[0]). If `rax` appeared, the token flowed through the fixpoint.
+        let inst = CodeInstruction::new("mov")
+            .field("dst", abi::mfb_return(0))
+            .field("src", abi::mfb_arg(1));
+        let out = sel(&[inst]);
+        let vals = values(&out);
+        assert!(
+            vals.iter().any(|v| v == "rdi"),
+            "%retMFB0 must realize aligned to rdi, got {vals:?}"
+        );
+        assert!(
+            vals.iter().any(|v| v == "rsi"),
+            "%argMFB1 must realize aligned to rsi, got {vals:?}"
+        );
+        assert!(
+            !vals.iter().any(|v| v == "rax"),
+            "no rax expected — the fixpoint's RETS[0] must not appear, got {vals:?}"
         );
     }
 
