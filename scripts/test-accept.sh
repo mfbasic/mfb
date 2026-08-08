@@ -147,6 +147,7 @@ fi
 
 failures=0
 ran=0
+skipped=0
 
 project_name() {
   sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1/project.json" | head -n 1
@@ -281,6 +282,28 @@ while IFS= read -r project_json; do
 
   test_name=${test_dir#"$TEST_ROOT/"}
   matches_filter "$test_name" || continue
+
+  # Per-fixture environment gate. A fixture may ship an executable `test-gate.sh`
+  # in its own directory that decides, at runtime, whether this machine can run
+  # it. The gate is run from the fixture directory; exit 0 means "run me", any
+  # non-zero exit means "skip me" and whatever the gate printed is the reason.
+  #
+  # This exists for fixtures whose success depends on the host environment rather
+  # than the compiler — e.g. `rt-behavior/tls/tls-connect-google-rt`, a live TLS
+  # handshake against a public host, which cannot pass on a machine with no
+  # network. Deleting such a fixture loses the coverage everywhere; leaving it
+  # ungated turns the whole suite red on any offline/firewalled box. The gate
+  # keeps the fixture running where it can and skipping (loudly, with a reason)
+  # where it cannot, so a skip is never silently mistaken for a pass.
+  if [ -f "$test_dir/test-gate.sh" ]; then
+    gate_reason=$(cd "$test_dir" && bash test-gate.sh 2>&1)
+    if [ "$?" -ne 0 ]; then
+      skipped=$((skipped + 1))
+      printf '[skip] %s: %s\n' "$test_name" "${gate_reason:-no reason given}" >&2
+      continue
+    fi
+  fi
+
   ran=$((ran + 1))
   # Stream per-fixture progress to stderr so a long run is observable live
   # (stdout stays reserved for the final pass/fail summary; goldens diff only
@@ -541,14 +564,20 @@ while IFS= read -r project_json; do
   done
 done < <(find "$TEST_ROOT" -name project.json | sort)
 
-if [ "${#FILTERS[@]}" -ne 0 ] && [ "$ran" -eq 0 ]; then
+# A filter that matched only gated-out fixtures ($ran == 0 but $skipped > 0) is
+# not "no match" — the tests exist, this machine just cannot run them. Only a
+# genuine zero-match (nothing ran, nothing skipped) is the usage error.
+if [ "${#FILTERS[@]}" -ne 0 ] && [ "$ran" -eq 0 ] && [ "$skipped" -eq 0 ]; then
   echo "no tests matched filter: ${FILTERS[*]}" >&2
   exit 2
 fi
 
+skip_note=""
+[ "$skipped" -ne 0 ] && skip_note=", $skipped skipped"
+
 if [ "$failures" -ne 0 ]; then
-  echo "acceptance tests failed: $failures mismatch(es) ($ran test(s) ran)" >&2
+  echo "acceptance tests failed: $failures mismatch(es) ($ran test(s) ran$skip_note)" >&2
   exit 1
 fi
 
-echo "acceptance tests passed ($ran test(s) ran)"
+echo "acceptance tests passed ($ran test(s) ran$skip_note)"
