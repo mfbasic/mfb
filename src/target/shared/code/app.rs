@@ -109,7 +109,7 @@ fn emit_set_mode(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    instructions.push(abi::move_register("%v9", abi::ARG[0]));
+    instructions.push(abi::move_register("%v9", abi::c_arg(0)));
     instructions.push(abi::store_u64(
         "%v9",
         ARENA_STATE_REGISTER,

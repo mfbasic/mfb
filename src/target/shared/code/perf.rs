@@ -157,7 +157,7 @@ pub(super) fn lower_perf_helper(
                 let record = format!("{symbol}_rec");
                 let done = format!("{symbol}_done");
                 let cap_str = PERF_B_CAPACITY.to_string();
-                instructions.push(abi::move_register(&name, abi::ARG[0]));
+                instructions.push(abi::move_register(&name, abi::c_arg(0)));
                 push_symbol_address(
                     symbol,
                     PERF_STATE_SYMBOL,
@@ -244,7 +244,7 @@ pub(super) fn lower_perf_helper(
                 let done = format!("{symbol}_done");
                 let acap_str = PERF_A_CAPACITY.to_string();
                 let limit_str = PERF_LOG_LIMIT.to_string();
-                instructions.push(abi::move_register(&name, abi::ARG[0]));
+                instructions.push(abi::move_register(&name, abi::c_arg(0)));
                 push_symbol_address(
                     symbol,
                     PERF_STATE_SYMBOL,
@@ -482,12 +482,12 @@ fn emit_read_monotonic_nanos(
     let nsec = vregs.next();
     let billion = vregs.next();
     instructions.push(abi::move_immediate(
-        abi::ARG[0],
+        abi::c_arg(0),
         "Integer",
         CLOCK_MONOTONIC_DARWIN,
     ));
     instructions.push(abi::add_immediate(
-        abi::ARG[1],
+        abi::c_arg(1),
         abi::stack_pointer(),
         PERF_TIMESPEC_OFFSET,
     ));
