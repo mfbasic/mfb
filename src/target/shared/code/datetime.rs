@@ -118,9 +118,9 @@ pub(super) fn lower_datetime_helper(
                     }
                 };
                 // x0 = clock id, x1 = &timespec.
-                instructions.push(abi::move_immediate(abi::ARG[0], "Integer", clock_id));
+                instructions.push(abi::move_immediate(abi::c_arg(0), "Integer", clock_id));
                 instructions.push(abi::add_immediate(
-                    abi::ARG[1],
+                    abi::c_arg(1),
                     abi::stack_pointer(),
                     TIMESPEC_OFFSET,
                 ));
@@ -144,9 +144,9 @@ pub(super) fn lower_datetime_helper(
                 // x0 holds epochSeconds. Stash it as the `time_t` input, then call
                 // `localtime_r(&time_t, &tm)` and read `tm.tm_gmtoff`.
                 instructions.extend([
-                    abi::store_u64(abi::ARG[0], abi::stack_pointer(), TIME_T_OFFSET),
-                    abi::add_immediate(abi::ARG[0], abi::stack_pointer(), TIME_T_OFFSET),
-                    abi::add_immediate(abi::ARG[1], abi::stack_pointer(), TM_OFFSET),
+                    abi::store_u64(abi::c_arg(0), abi::stack_pointer(), TIME_T_OFFSET),
+                    abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), TIME_T_OFFSET),
+                    abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), TM_OFFSET),
                 ]);
                 platform.emit_libc_call(
                     "localtime_r",
@@ -242,13 +242,13 @@ fn lower_datetime_windows(
         "datetime.monotonicNanos" => {
             // QueryPerformanceCounter(&counter); QueryPerformanceFrequency(&freq).
             instructions.push(abi::add_immediate(
-                abi::ARG[0],
+                abi::c_arg(0),
                 abi::stack_pointer(),
                 WIN_FILETIME_OFFSET,
             ));
             call_win("QueryPerformanceCounter", instructions, relocations)?;
             instructions.push(abi::add_immediate(
-                abi::ARG[0],
+                abi::c_arg(0),
                 abi::stack_pointer(),
                 WIN_QPC_FREQ_OFFSET,
             ));
@@ -271,7 +271,7 @@ fn lower_datetime_windows(
         "datetime.nowNanos" => {
             // GetSystemTimePreciseAsFileTime(&ft): 100 ns intervals since 1601.
             instructions.push(abi::add_immediate(
-                abi::ARG[0],
+                abi::c_arg(0),
                 abi::stack_pointer(),
                 WIN_FILETIME_OFFSET,
             ));
@@ -299,7 +299,7 @@ fn lower_datetime_windows(
             // `epochSeconds*1e7 + epoch` exceeds i64. The residual year>30827 edge is
             // still caught by the FileTimeToSystemTime NULL check downstream.
             instructions.extend([
-                abi::move_register("%v9", abi::ARG[0]), // epochSeconds
+                abi::move_register("%v9", abi::c_arg(0)), // epochSeconds
                 // HIGH: epochSeconds > 910692730085 → epochSeconds*1e7+epoch > i64max.
                 abi::move_immediate("%v10", "Integer", WIN_FILETIME_MAX_UNIX_SEC),
                 abi::compare_registers("%v9", "%v10"),
@@ -314,8 +314,8 @@ fn lower_datetime_windows(
                 abi::move_immediate("%v10", "Integer", WIN_FILETIME_UNIX_EPOCH_100NS),
                 abi::add_registers("%v9", "%v9", "%v10"), // FILETIME
                 abi::store_u64("%v9", abi::stack_pointer(), WIN_FILETIME_OFFSET),
-                abi::add_immediate(abi::ARG[0], abi::stack_pointer(), WIN_FILETIME_OFFSET),
-                abi::add_immediate(abi::ARG[1], abi::stack_pointer(), WIN_UTC_SYSTEMTIME_OFFSET),
+                abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), WIN_FILETIME_OFFSET),
+                abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), WIN_UTC_SYSTEMTIME_OFFSET),
             ]);
             call_win("FileTimeToSystemTime", instructions, relocations)?;
             instructions.push(abi::compare_immediate(abi::RET[0], "0"));
@@ -323,10 +323,10 @@ fn lower_datetime_windows(
             // SystemTimeToTzSpecificLocalTime(NULL, &utc, &local): NULL selects the
             // machine's current time zone, applying its DST rules to the instant.
             instructions.extend([
-                abi::move_immediate(abi::ARG[0], "Integer", "0"),
-                abi::add_immediate(abi::ARG[1], abi::stack_pointer(), WIN_UTC_SYSTEMTIME_OFFSET),
+                abi::move_immediate(abi::c_arg(0), "Integer", "0"),
+                abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), WIN_UTC_SYSTEMTIME_OFFSET),
                 abi::add_immediate(
-                    abi::ARG[2],
+                    abi::c_arg(2),
                     abi::stack_pointer(),
                     WIN_LOCAL_SYSTEMTIME_OFFSET,
                 ),
@@ -337,11 +337,11 @@ fn lower_datetime_windows(
             // SystemTimeToFileTime(&local, &localFt).
             instructions.extend([
                 abi::add_immediate(
-                    abi::ARG[0],
+                    abi::c_arg(0),
                     abi::stack_pointer(),
                     WIN_LOCAL_SYSTEMTIME_OFFSET,
                 ),
-                abi::add_immediate(abi::ARG[1], abi::stack_pointer(), WIN_LOCAL_FILETIME_OFFSET),
+                abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), WIN_LOCAL_FILETIME_OFFSET),
             ]);
             call_win("SystemTimeToFileTime", instructions, relocations)?;
             instructions.push(abi::compare_immediate(abi::RET[0], "0"));
