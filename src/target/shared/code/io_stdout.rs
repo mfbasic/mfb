@@ -199,7 +199,7 @@ pub(in crate::target::shared::code) fn emit_append_to_buffer(
         abi::branch_ne(&have_buf),
         // Lazily allocate the buffer on first buffered write.
         abi::move_immediate(abi::return_register(), "Integer", cap),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     ctx.relocations

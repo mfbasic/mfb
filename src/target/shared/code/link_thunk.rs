@@ -83,15 +83,13 @@ fn slot_offset(globals_base: usize, index: usize) -> usize {
 /// Emit `adrp`/`add` to materialize the address of data `symbol` into `dst`.
 fn emit_data_address(
     from: &str,
-    // plan-85-B: accept a typed `Operand` (`abi::c_arg(1)`) or a legacy `&str`.
-    dst: impl Into<Operand>,
+    dst: &str,
     symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    let dst = dst.into();
-    instructions.push(abi::load_page_address(&dst, symbol));
-    instructions.push(abi::add_page_offset(&dst, &dst, symbol));
+    instructions.push(abi::load_page_address(dst, symbol));
+    instructions.push(abi::add_page_offset(dst, dst, symbol));
     relocations.extend([
         CodeRelocation {
             from: from.to_string(),
@@ -347,7 +345,7 @@ fn lower_link_initializer(
             &mut instructions,
             &mut relocations,
         );
-        instructions.push(abi::move_immediate(abi::c_arg(1), "Integer", "2")); // RTLD_NOW
+        instructions.push(abi::move_immediate(abi::ARG[1], "Integer", "2")); // RTLD_NOW
         platform.emit_libc_call(
             "dlopen",
             symbol,
@@ -368,7 +366,7 @@ fn lower_link_initializer(
             instructions.push(abi::move_register(abi::return_register(), &handle));
             emit_data_address(
                 symbol,
-                abi::c_arg(1),
+                abi::ARG[1],
                 &sym_symbol(fn_idx),
                 &mut instructions,
                 &mut relocations,
@@ -395,7 +393,7 @@ fn lower_link_initializer(
                 instructions.push(abi::move_register(abi::return_register(), &handle));
                 emit_data_address(
                     symbol,
-                    abi::c_arg(1),
+                    abi::ARG[1],
                     &free_sym_symbol(k),
                     &mut instructions,
                     &mut relocations,
@@ -1436,7 +1434,7 @@ fn lower_link_thunk(
             // Park the handle; alloc clobbers every caller-saved register.
             abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), rec_handle_off),
             abi::move_immediate(abi::return_register(), "Integer", RESOURCE_RECORD_SIZE),
-            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
         ]);
         emit_alloc(&symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
@@ -1870,7 +1868,7 @@ fn emit_copy_string_to_cstring(
         abi::load_u64("%v9", abi::stack_pointer(), str_off),
         abi::load_u64("%v10", "%v9", 0),
         abi::add_immediate(abi::return_register(), "%v10", 1),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
@@ -1945,7 +1943,7 @@ fn emit_copy_cstring_to_string(
         abi::label(&len_done),
         abi::store_u64("%v10", abi::stack_pointer(), len_off),
         abi::add_immediate(abi::return_register(), "%v10", 9),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
@@ -1969,7 +1967,7 @@ fn emit_copy_cstring_to_string(
         // §12.4: returned bytes are validated as UTF-8 at the boundary.
         abi::load_u64(abi::return_register(), abi::stack_pointer(), ret_off),
         abi::add_immediate(abi::return_register(), abi::return_register(), 8),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), len_off),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), len_off),
     ]);
     emit_call_validate_utf8(symbol, encoding_fail, instructions, relocations);
     instructions.extend([
@@ -1978,7 +1976,7 @@ fn emit_copy_cstring_to_string(
         // NULL -> empty string [u64 0][nul].
         abi::label(&null_label),
         abi::move_immediate(abi::return_register(), "Integer", "9"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
@@ -2413,7 +2411,7 @@ fn marshal_struct_out(
             abi::store_u64("%v10", abi::stack_pointer(), len_slot),
             // Validate before anything is copied into the record.
             abi::load_u64(abi::return_register(), abi::stack_pointer(), ptr_slot),
-            abi::load_u64(abi::c_arg(1), abi::stack_pointer(), len_slot),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), len_slot),
         ]);
         emit_call_validate_utf8(symbol, encoding_fail, instructions, relocations);
         instructions.extend([
@@ -2449,7 +2447,7 @@ fn marshal_struct_out(
     }
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), total_off),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), REC_OFF));

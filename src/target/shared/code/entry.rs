@@ -79,7 +79,7 @@ pub(crate) fn lower_program_entry(
                 &mut instructions,
                 &mut relocations,
             );
-            instructions.push(abi::store_u64(abi::c_arg(0), abi::SCRATCH[0], 0));
+            instructions.push(abi::store_u64(abi::ARG[0], abi::SCRATCH[0], 0));
             push_symbol_address(
                 entry_symbol,
                 super::os::OS_ARGV_GLOBAL_SYMBOL,
@@ -87,7 +87,7 @@ pub(crate) fn lower_program_entry(
                 &mut instructions,
                 &mut relocations,
             );
-            instructions.push(abi::store_u64(abi::c_arg(1), abi::SCRATCH[0], 0));
+            instructions.push(abi::store_u64(abi::ARG[1], abi::SCRATCH[0], 0));
         } else {
             instructions.push(abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), 0));
             push_symbol_address(
@@ -121,8 +121,8 @@ pub(crate) fn lower_program_entry(
     // argc/argv the caller passed in registers (bug-240).
     if language_entry_accepts_args && !args_in_registers {
         instructions.extend([
-            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 0),
-            abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), 8),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), 8),
         ]);
     }
     // Park argc/argv into callee-saved SCRATCH[17]/SCRATCH[18] (AArch64 x27/x28,
@@ -144,8 +144,8 @@ pub(crate) fn lower_program_entry(
     // byte-identical.
     if language_entry_accepts_args {
         instructions.extend([
-            abi::move_register(abi::SCRATCH[17], abi::c_arg(0)),
-            abi::move_register(abi::SCRATCH[18], abi::c_arg(1)),
+            abi::move_register(abi::SCRATCH[17], abi::ARG[0]),
+            abi::move_register(abi::SCRATCH[18], abi::ARG[1]),
         ]);
     }
     // Reserve the callee's outgoing shadow space at the very bottom of the entry
@@ -227,7 +227,7 @@ pub(crate) fn lower_program_entry(
         push_symbol_address(
             entry_symbol,
             PERF_NAME_PROGRAM_SYMBOL,
-            abi::c_arg(0),
+            abi::ARG[0],
             &mut instructions,
             &mut relocations,
         );
@@ -254,7 +254,7 @@ pub(crate) fn lower_program_entry(
             &mut instructions,
             &mut relocations,
         );
-        instructions.push(abi::store_u64(abi::c_arg(0), abi::SCRATCH[0], 0));
+        instructions.push(abi::store_u64(abi::ARG[0], abi::SCRATCH[0], 0));
         push_symbol_address(
             entry_symbol,
             super::os::OS_ARGV_GLOBAL_SYMBOL,
@@ -262,7 +262,7 @@ pub(crate) fn lower_program_entry(
             &mut instructions,
             &mut relocations,
         );
-        instructions.push(abi::store_u64(abi::c_arg(1), abi::SCRATCH[0], 0));
+        instructions.push(abi::store_u64(abi::ARG[1], abi::SCRATCH[0], 0));
     }
     // Install SIGINT/SIGTERM handlers (console programs). `signal()` clobbers
     // `x0`/`x1`, so argc/argv are parked below the frame across the calls; `x19`
@@ -270,15 +270,15 @@ pub(crate) fn lower_program_entry(
     if register_signal_handlers {
         instructions.extend([
             abi::subtract_stack(16),
-            abi::store_u64(abi::c_arg(0), abi::stack_pointer(), 0),
-            abi::store_u64(abi::c_arg(1), abi::stack_pointer(), 8),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), 8),
         ]);
         for signo in ["2", "15"] {
-            instructions.push(abi::move_immediate(abi::c_arg(0), "Integer", signo));
+            instructions.push(abi::move_immediate(abi::ARG[0], "Integer", signo));
             push_symbol_address(
                 entry_symbol,
                 SIGNAL_HANDLER_SYMBOL,
-                abi::c_arg(1),
+                abi::ARG[1],
                 &mut instructions,
                 &mut relocations,
             );
@@ -291,8 +291,8 @@ pub(crate) fn lower_program_entry(
             )?;
         }
         instructions.extend([
-            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 0),
-            abi::load_u64(abi::c_arg(1), abi::stack_pointer(), 8),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), 8),
             abi::add_stack(16),
         ]);
     }
@@ -313,8 +313,8 @@ pub(crate) fn lower_program_entry(
                 abi::stack_pointer(),
                 ENTRY_SEED_SCRATCH_OFFSET,
             ),
-            abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), ENTRY_SEED_SCRATCH_OFFSET),
-            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+            abi::add_immediate(abi::ARG[0], abi::stack_pointer(), ENTRY_SEED_SCRATCH_OFFSET),
+            abi::move_immediate(abi::SYSARG[1], "Integer", "8"),
         ]);
         platform.emit_random_bytes(
             entry_symbol,
@@ -323,8 +323,8 @@ pub(crate) fn lower_program_entry(
             &mut relocations,
         )?;
         instructions.extend([
-            abi::load_u64(abi::c_arg(1), abi::stack_pointer(), ENTRY_SEED_SCRATCH_OFFSET),
-            abi::move_register(abi::c_arg(0), ARENA_STATE_REGISTER),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), ENTRY_SEED_SCRATCH_OFFSET),
+            abi::move_register(abi::ARG[0], ARENA_STATE_REGISTER),
             abi::branch_link(RNG_SEED_SYMBOL),
         ]);
         relocations.push(internal_branch(entry_symbol, RNG_SEED_SYMBOL));
@@ -336,8 +336,8 @@ pub(crate) fn lower_program_entry(
     // seed_rng block above and the LINK/global-init calls below both treat it as
     // clobbered), and ARENA_STATE_REGISTER is already pinned.
     if let Some(offset) = seed_presentation_mode_offset {
-        instructions.push(abi::move_immediate(abi::c_arg(0), "Integer", "1"));
-        instructions.push(abi::store_u64(abi::c_arg(0), ARENA_STATE_REGISTER, offset));
+        instructions.push(abi::move_immediate(abi::ARG[0], "Integer", "1"));
+        instructions.push(abi::store_u64(abi::ARG[0], ARENA_STATE_REGISTER, offset));
     }
     // Capture the arena start time (offset 40) and seed the dedicated memory-fill
     // RNG (offsets 16/24). Always on — entropy fill is a requirement (plan-01 §6),
@@ -356,8 +356,8 @@ pub(crate) fn lower_program_entry(
     // the seed_rng block clobbered x0/x1), so it must NOT re-park garbage here.
     if !language_entry_accepts_args {
         instructions.extend([
-            abi::move_register(abi::SCRATCH[17], abi::c_arg(0)),
-            abi::move_register(abi::SCRATCH[18], abi::c_arg(1)),
+            abi::move_register(abi::SCRATCH[17], abi::ARG[0]),
+            abi::move_register(abi::SCRATCH[18], abi::ARG[1]),
         ]);
     }
     // Capture the arena start time into ARENA_START_TIME_OFFSET, using a 16-byte
@@ -400,8 +400,8 @@ pub(crate) fn lower_program_entry(
     instructions.extend([
         // Pre-fill the seed scratch with the arena address (getentropy fallback).
         abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 0),
-        abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 0),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
+        abi::move_immediate(abi::SYSARG[1], "Integer", "8"),
     ]);
     platform.emit_random_bytes(
         entry_symbol,
@@ -410,20 +410,20 @@ pub(crate) fn lower_program_entry(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), 0), // entropy (or arena addr)
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0), // entropy (or arena addr)
         abi::add_stack(16),
         abi::load_u64(
             abi::SCRATCH[0],
             ARENA_STATE_REGISTER,
             ARENA_START_TIME_OFFSET,
         ),
-        abi::exclusive_or_registers(abi::c_arg(1), abi::c_arg(1), abi::SCRATCH[0]), // mix start time
-        abi::exclusive_or_registers(abi::c_arg(1), abi::c_arg(1), ARENA_STATE_REGISTER), // mix arena address
-        abi::move_register(abi::c_arg(0), ARENA_STATE_REGISTER),
+        abi::exclusive_or_registers(abi::ARG[1], abi::ARG[1], abi::SCRATCH[0]), // mix start time
+        abi::exclusive_or_registers(abi::ARG[1], abi::ARG[1], ARENA_STATE_REGISTER), // mix arena address
+        abi::move_register(abi::ARG[0], ARENA_STATE_REGISTER),
         abi::branch_link(ARENA_FILL_SEED_SYMBOL),
         // Restore argc/argv for the arg-materialization path below.
-        abi::move_register(abi::c_arg(0), abi::SCRATCH[17]),
-        abi::move_register(abi::c_arg(1), abi::SCRATCH[18]),
+        abi::move_register(abi::ARG[0], abi::SCRATCH[17]),
+        abi::move_register(abi::ARG[1], abi::SCRATCH[18]),
     ]);
     relocations.push(internal_branch(entry_symbol, ARENA_FILL_SEED_SYMBOL));
     // Populate the static closure descriptors (bug-78): write each no-capture
@@ -485,7 +485,7 @@ pub(crate) fn lower_program_entry(
     // materialization below re-derives x0 from the frame. Workers subscribe
     // explicitly via `thread::openStdIn(worker)`.
     if subscribe_stdin {
-        instructions.push(abi::move_register(abi::c_arg(0), ARENA_STATE_REGISTER));
+        instructions.push(abi::move_register(abi::ARG[0], ARENA_STATE_REGISTER));
         instructions.push(abi::branch_link(STDIN_SUBSCRIBE_SYMBOL));
         relocations.push(internal_branch(entry_symbol, STDIN_SUBSCRIBE_SYMBOL));
     }
@@ -510,7 +510,7 @@ pub(crate) fn lower_program_entry(
             &mut relocations,
         );
         instructions.push(abi::load_u64(
-            abi::c_arg(0),
+            abi::ARG[0],
             abi::stack_pointer(),
             args_base + 16,
         ));
@@ -677,7 +677,7 @@ pub(crate) fn lower_program_entry(
         push_symbol_address(
             entry_symbol,
             PERF_NAME_PROGRAM_SYMBOL,
-            abi::c_arg(0),
+            abi::ARG[0],
             &mut instructions,
             &mut relocations,
         );
@@ -814,8 +814,8 @@ pub(crate) fn emit_default_arena_start_time<P: super::CodegenPlatform + ?Sized>(
 ) -> Result<(), String> {
     instructions.extend([
         abi::subtract_stack(16),
-        abi::move_immediate(abi::c_arg(0), "Integer", "0"), // CLOCK_REALTIME
-        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), 0),
+        abi::move_immediate(abi::SYSARG[0], "Integer", "0"), // CLOCK_REALTIME
+        abi::add_immediate(abi::SYSARG[1], abi::stack_pointer(), 0),
     ]);
     platform.emit_libc_call(
         "clock_gettime",
@@ -884,7 +884,7 @@ fn emit_entry_args_list_materialization(
             abi::SCRATCH[15],
             COLLECTION_HEADER_SIZE,
         ),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(entry_symbol, ARENA_ALLOC_SYMBOL));

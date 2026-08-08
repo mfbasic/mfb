@@ -75,7 +75,7 @@ impl CodeBuilder<'_> {
             "Integer",
             RESOURCE_RECORD_SIZE,
         ));
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_symbol_call(ARENA_ALLOC_SYMBOL);
         let alloc_ok = self.label("default_resource_alloc_ok");
         self.emit(abi::compare_immediate(
@@ -164,7 +164,7 @@ impl CodeBuilder<'_> {
                 // The union block: `{tag@0, record-ptr@8}`, 16 bytes.
                 let block = self.allocate_register()?;
                 self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
-                self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+                self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
                 self.emit_arena_alloc_call();
                 let alloc_ok = self.label("default_union_alloc_ok");
                 self.emit(abi::branch_eq(&alloc_ok));
@@ -542,8 +542,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(total_len, left_len, right_len));
         self.emit(abi::store_u64(total_len, abi::stack_pointer(), total_slot));
         // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
-        self.emit(abi::add_immediate(abi::c_arg(0), total_len, 9));
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::add_immediate(abi::ARG[0], total_len, 9));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;

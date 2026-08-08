@@ -2,17 +2,6 @@ use super::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
 
-// plan-85-B: every ABI arg in this file is a C-boundary argument — staged for a
-// libc call (`pthread_mutex_lock/unlock`, `getenv`/`setenv`/`unsetenv`,
-// `emit_errno`), for `_mfb_arena_alloc`, or read as this runtime helper's own
-// incoming arg (the C-style internal ABI). So every `abi::ARG[k]` converts to the
-// explicit `abi::c_arg(k)`. This is BYTE-IDENTICAL on every target: `%argC[k]`
-// realizes to `CALL_ARGS[k]`, exactly where the old `remap_x86_abi` already placed
-// an outgoing arg (before a call) and where the aligned convention delivers an
-// incoming one (plan-85-B Correction C1). The MFB-result registers (`RET[1]` =
-// arena_alloc ptr; `RESULT_*_REGISTER`) are NOT converted here — the arena_alloc
-// ptr is a cross-file atomic unit and `RESULT_*` is plan-85-C.
-
 /// Whether `module` uses any `os::` helper that must serialize on the env/pwd
 /// lock, so the writable mutex global is emitted (see `OS_ENV_LOCK_SYMBOL`).
 pub(crate) fn module_uses_env_lock(module: &NirModule) -> bool {
@@ -64,7 +53,7 @@ pub(super) fn emit_env_lock(ctx: &mut EmitCtx) -> Result<(), String> {
     push_symbol_address(
         symbol,
         OS_ENV_LOCK_SYMBOL,
-        abi::c_arg(0),
+        abi::ARG[0],
         ctx.instructions,
         ctx.relocations,
     );
@@ -101,7 +90,7 @@ pub(super) fn emit_env_unlock_return(ctx: &mut EmitCtx, vregs: &mut Vregs) -> Re
     push_symbol_address(
         symbol,
         OS_ENV_LOCK_SYMBOL,
-        abi::c_arg(0),
+        abi::ARG[0],
         ctx.instructions,
         ctx.relocations,
     );
@@ -138,9 +127,9 @@ pub(super) fn lower_get_env(
     let fallback = vregs.next();
     let cname = vregs.next();
     let value = vregs.next();
-    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, abi::c_arg(0))];
+    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, abi::ARG[0])];
     if with_fallback {
-        instructions.push(abi::move_register(&fallback, abi::c_arg(1)));
+        instructions.push(abi::move_register(&fallback, abi::ARG[1]));
     }
     let mut relocations = Vec::new();
     // Serialize the whole `getenv` + marshal-into-arena against a concurrent
@@ -162,7 +151,7 @@ pub(super) fn lower_get_env(
         &mut instructions,
         &mut relocations,
     );
-    instructions.push(abi::move_register(abi::c_arg(0), &cname));
+    instructions.push(abi::move_register(abi::ARG[0], &cname));
     // Windows has no `getenv`: GetEnvironmentVariableW + UTF-16↔UTF-8 marshal,
     // leaving a UTF-8 value C-string pointer (0 = unset) in the return register —
     // the same contract the not-found/build-string tail below expects (plan-66-B).
@@ -212,7 +201,7 @@ pub(super) fn lower_get_env(
         instructions.extend([
             abi::load_u64(&flen, &fallback, 0),
             abi::add_immediate(abi::return_register(), &flen, 9),
-            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
             abi::branch_link(ARENA_ALLOC_SYMBOL),
         ]);
         alloc_reloc(symbol, &mut relocations);
@@ -284,7 +273,7 @@ pub(super) fn lower_has_env(
     let mut vregs = Vregs::new();
     let name = vregs.next();
     let cname = vregs.next();
-    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, abi::c_arg(0))];
+    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, abi::ARG[0])];
     let mut relocations = Vec::new();
     // Serialize the `getenv` probe against a concurrent `os::setEnv` relocating
     // `environ` (bug-64).
@@ -305,7 +294,7 @@ pub(super) fn lower_has_env(
         &mut instructions,
         &mut relocations,
     );
-    instructions.push(abi::move_register(abi::c_arg(0), &cname));
+    instructions.push(abi::move_register(abi::ARG[0], &cname));
     // Windows: GetEnvironmentVariableW (via emit_env_get) leaves a non-zero UTF-8
     // value pointer when the variable exists, 0 when unset — the same nonzero-means-
     // present test as POSIX getenv (plan-66-B).
@@ -373,8 +362,8 @@ pub(super) fn lower_set_env(
     let errno = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::move_register(&name, abi::c_arg(0)),
-        abi::move_register(&value, abi::c_arg(1)),
+        abi::move_register(&name, abi::ARG[0]),
+        abi::move_register(&value, abi::ARG[1]),
     ];
     let mut relocations = Vec::new();
     // Hold the lock across `setenv` so a concurrent env reader on another thread
@@ -407,9 +396,9 @@ pub(super) fn lower_set_env(
         &mut relocations,
     );
     instructions.extend([
-        abi::move_register(abi::c_arg(0), &cname),
-        abi::move_register(abi::c_arg(1), &cvalue),
-        abi::move_immediate(abi::c_arg(2), "Integer", "1"),
+        abi::move_register(abi::ARG[0], &cname),
+        abi::move_register(abi::ARG[1], &cvalue),
+        abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
     // Windows: SetEnvironmentVariableW(wideName, wideValue) via emit_env_set, which
     // marshals both and returns the POSIX convention (0 = success) the branch below
@@ -491,7 +480,7 @@ pub(super) fn lower_unset_env(
     let mut vregs = Vregs::new();
     let name = vregs.next();
     let cname = vregs.next();
-    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, abi::c_arg(0))];
+    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, abi::ARG[0])];
     let mut relocations = Vec::new();
     // Hold the lock across `unsetenv` so a concurrent env reader on another thread
     // never observes a half-relocated `environ` (bug-64).
@@ -512,11 +501,11 @@ pub(super) fn lower_unset_env(
         &mut instructions,
         &mut relocations,
     );
-    instructions.push(abi::move_register(abi::c_arg(0), &cname));
+    instructions.push(abi::move_register(abi::ARG[0], &cname));
     // Windows: SetEnvironmentVariableW(name, NULL) deletes the variable; a NULL
     // value pointer in ARG[1] selects the delete path in emit_env_set (plan-66-B).
     if platform.family() == PlatformFamily::Windows {
-        instructions.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
+        instructions.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
         platform.emit_env_set(
             symbol,
             platform_imports,
@@ -667,7 +656,7 @@ pub(super) fn lower_environ(
         abi::multiply_registers(&scratch, &count, &scratch),
         abi::add_registers(&scratch, &scratch, &data_bytes),
         abi::add_immediate(abi::return_register(), &scratch, COLLECTION_HEADER_SIZE),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(symbol, &mut relocations);

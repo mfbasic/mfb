@@ -102,7 +102,7 @@ fn emit_pthread1(
     ctx.instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), state_off),
         abi::add_immediate(abi::return_register(), abi::return_register(), field),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
     platform.emit_libc_call(
         op,
@@ -154,15 +154,15 @@ fn lower_open_output(
     if device {
         instructions.extend([
             abi::store_u64(abi::return_register(), abi::stack_pointer(), DEVID_OFF),
-            abi::store_u64(abi::c_arg(1), abi::stack_pointer(), SR_OFF),
-            abi::store_u64(abi::c_arg(2), abi::stack_pointer(), CH_OFF),
-            abi::store_u64(abi::c_arg(3), abi::stack_pointer(), BF_OFF),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), SR_OFF),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), CH_OFF),
+            abi::store_u64(abi::ARG[3], abi::stack_pointer(), BF_OFF),
         ]);
     } else {
         instructions.extend([
             abi::store_u64(abi::return_register(), abi::stack_pointer(), SR_OFF),
-            abi::store_u64(abi::c_arg(1), abi::stack_pointer(), CH_OFF),
-            abi::store_u64(abi::c_arg(2), abi::stack_pointer(), BF_OFF),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), CH_OFF),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), BF_OFF),
         ]);
     }
     // Zero the state slot so the open-error cleanup can tell the page was not yet
@@ -181,7 +181,7 @@ fn lower_open_output(
             "Integer",
             &H_RECORD_SIZE.to_string(),
         ),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
@@ -206,11 +206,11 @@ fn lower_open_output(
     // mmap the AudioState page.
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"), // addr
-        abi::move_immediate(abi::c_arg(1), "Integer", &STATE_PAGE.to_string()),
-        abi::move_immediate(abi::c_arg(2), "Integer", MMAP_PROT),
-        abi::move_immediate(abi::c_arg(3), "Integer", MMAP_FLAGS),
-        abi::bitwise_not(abi::c_arg(4), abi::ZERO), // fd = -1
-        abi::move_immediate(abi::c_arg(5), "Integer", "0"), // offset
+        abi::move_immediate(abi::ARG[1], "Integer", &STATE_PAGE.to_string()),
+        abi::move_immediate(abi::ARG[2], "Integer", MMAP_PROT),
+        abi::move_immediate(abi::ARG[3], "Integer", MMAP_FLAGS),
+        abi::bitwise_not(abi::ARG[4], abi::ZERO), // fd = -1
+        abi::move_immediate(abi::ARG[5], "Integer", "0"), // offset
     ]);
     platform.emit_libc_call(
         "mmap",
@@ -290,18 +290,18 @@ fn lower_open_output(
     )]);
     emit_data_address(
         symbol,
-        abi::c_arg(1),
+        abi::ARG[1],
         AUDIO_OUTPUT_CALLBACK_SYMBOL,
         &mut instructions,
         &mut relocations,
     );
     instructions.extend([
-        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), HANDLE_OFF),
-        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(4), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(5), "Integer", "0"),
-        abi::load_u64(abi::c_arg(6), abi::stack_pointer(), STATE_OFF),
-        abi::add_immediate(abi::c_arg(6), abi::c_arg(6), S_OSOBJECT),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), HANDLE_OFF),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::move_immediate(abi::ARG[4], "Integer", "0"),
+        abi::move_immediate(abi::ARG[5], "Integer", "0"),
+        abi::load_u64(abi::ARG[6], abi::stack_pointer(), STATE_OFF),
+        abi::add_immediate(abi::ARG[6], abi::ARG[6], S_OSOBJECT),
     ]);
     platform.emit_libc_call(
         "AudioQueueNewOutput",
@@ -341,8 +341,8 @@ fn lower_open_output(
         abi::load_u64("%v11", abi::stack_pointer(), BF_OFF),
         abi::load_u64("%v12", abi::stack_pointer(), BPF_OFF),
         abi::multiply_registers("%v11", "%v11", "%v12"),
-        abi::move_register(abi::c_arg(1), "%v11"),
-        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), BUFPTR_OFF),
+        abi::move_register(abi::ARG[1], "%v11"),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), BUFPTR_OFF),
     ]);
     platform.emit_libc_call(
         "AudioQueueAllocateBuffer",
@@ -379,7 +379,7 @@ fn lower_open_output(
         abi::store_u64("%v9", "%v10", S_STARTED),
         // AudioQueueStart(queue, NULL)
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
     platform.emit_libc_call(
         "AudioQueueStart",
@@ -481,8 +481,8 @@ fn emit_select_device(ctx: &mut EmitCtx, dev_fail: &str) -> Result<(), String> {
         abi::store_u8(abi::ZERO, "%v12", 0),
         // CFStringCreateWithCString(NULL, uidCStr, kCFStringEncodingUTF8)
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), UID_CSTR_OFF),
-        abi::move_immediate(abi::c_arg(2), "Integer", ENC_UTF8),
+        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), UID_CSTR_OFF),
+        abi::move_immediate(abi::ARG[2], "Integer", ENC_UTF8),
     ]);
     platform.emit_libc_call(
         "CFStringCreateWithCString",
@@ -498,9 +498,9 @@ fn emit_select_device(ctx: &mut EmitCtx, dev_fail: &str) -> Result<(), String> {
         // AudioQueueSetProperty(queue, 'aqcd', &cfref, 8)
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1634820964"),
-        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), UID_CFREF_OFF),
-        abi::move_immediate(abi::c_arg(3), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1634820964"),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), UID_CFREF_OFF),
+        abi::move_immediate(abi::ARG[3], "Integer", "8"),
     ]);
     platform.emit_libc_call(
         "AudioQueueSetProperty",
@@ -551,7 +551,7 @@ fn emit_open_cleanup(ctx: &mut EmitCtx) -> Result<(), String> {
         abi::branch_eq(&munmap),
         // AudioQueueDispose(queue, 1)
         abi::move_register(abi::return_register(), "%v9"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     platform.emit_libc_call(
         "AudioQueueDispose",
@@ -563,7 +563,7 @@ fn emit_open_cleanup(ctx: &mut EmitCtx) -> Result<(), String> {
     ctx.instructions.extend([
         abi::label(&munmap),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
-        abi::load_u64(abi::c_arg(1), abi::return_register(), S_MAP_SIZE),
+        abi::load_u64(abi::ARG[1], abi::return_register(), S_MAP_SIZE),
     ]);
     platform.emit_libc_call(
         "munmap",
@@ -605,11 +605,11 @@ fn call_get_property(
         abi::move_immediate("%v9", "Integer", size_val),
         abi::store_u32("%v9", abi::stack_pointer(), SIZE_OFF),
         abi::load_u32(abi::return_register(), abi::stack_pointer(), object_off),
-        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), PROPADDR_OFF),
-        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
-        abi::add_immediate(abi::c_arg(4), abi::stack_pointer(), SIZE_OFF),
-        abi::add_immediate(abi::c_arg(5), abi::stack_pointer(), out_off),
+        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), PROPADDR_OFF),
+        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::add_immediate(abi::ARG[4], abi::stack_pointer(), SIZE_OFF),
+        abi::add_immediate(abi::ARG[5], abi::stack_pointer(), out_off),
     ]);
     platform.emit_libc_call(
         "AudioObjectGetPropertyData",
@@ -665,9 +665,9 @@ fn emit_cfstring_field(
         abi::branch_ne(dev_fail),
         // CFStringGetCString(cfref, CSTRBUF, 256, kCFStringEncodingUTF8)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CFREF_OFF),
-        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), CSTRBUF_OFF),
-        abi::move_immediate(abi::c_arg(2), "Integer", CSTRBUF_CAP),
-        abi::move_immediate(abi::c_arg(3), "Integer", ENC_UTF8),
+        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CSTRBUF_OFF),
+        abi::move_immediate(abi::ARG[2], "Integer", CSTRBUF_CAP),
+        abi::move_immediate(abi::ARG[3], "Integer", ENC_UTF8),
     ]);
     platform.emit_libc_call(
         "CFStringGetCString",
@@ -708,7 +708,7 @@ fn emit_cfstring_field(
         abi::store_u64("%v10", abi::stack_pointer(), SIZE_OFF),
         // Allocate String: [u64 len][bytes][nul].
         abi::add_immediate(abi::return_register(), "%v10", 9),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
     ctx.instructions.extend([
@@ -814,7 +814,7 @@ fn lower_write(
     let mut relocations = Vec::new();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
-        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), DEVID_OFF), // byteList ptr
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), DEVID_OFF), // byteList ptr
         // Guard write-after-close via the arena-resident mirror (state may be
         // unmapped): if handle->H_CLOSED, raise.
         abi::load_u64("%v9", abi::return_register(), H_CLOSED),
@@ -827,7 +827,7 @@ fn lower_write(
         abi::load_u64("%v11", abi::return_register(), H_BUFFER_FRAMES),
         abi::multiply_registers("%v12", "%v11", "%v10"),
         abi::store_u64("%v12", abi::stack_pointer(), CAP_OFF),
-        abi::load_u64("%v13", abi::c_arg(1), COLLECTION_OFFSET_COUNT),
+        abi::load_u64("%v13", abi::ARG[1], COLLECTION_OFFSET_COUNT),
         abi::store_u64("%v13", abi::stack_pointer(), TOTAL_OFF),
         // The byte payload starts past the CAPACITY-sized entry array, not the
         // COUNT-sized one: an append-built list carries spare capacity, so
@@ -837,7 +837,7 @@ fn lower_write(
     push_collection_data_base_from_capacity(
         &mut instructions,
         "%v14",
-        abi::c_arg(1),
+        abi::ARG[1],
         "%v12",
         "%v14",
         "%v14",
@@ -889,7 +889,7 @@ fn lower_write(
         abi::branch_ne(&wait_ready),
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::add_immediate(abi::return_register(), "%v10", S_COND),
-        abi::add_immediate(abi::c_arg(1), "%v10", S_MUTEX),
+        abi::add_immediate(abi::ARG[1], "%v10", S_MUTEX),
     ]);
     platform.emit_libc_call(
         "pthread_cond_wait",
@@ -974,9 +974,9 @@ fn lower_write(
         abi::store_u32("%v11", "%v14", 16), // mAudioDataByteSize = cap
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), BUFPTR_OFF),
-        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), BUFPTR_OFF),
+        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
     ]);
     platform.emit_libc_call(
         "AudioQueueEnqueueBuffer",
@@ -1089,9 +1089,9 @@ fn lower_close_output(
         abi::store_u64(abi::ZERO, "%v10", S_PENDING_FILL),
         abi::store_u64(abi::ZERO, "%v10", S_PENDING_BUF),
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), BUFPTR_OFF),
-        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), BUFPTR_OFF),
+        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
     ]);
     platform.emit_libc_call(
         "AudioQueueEnqueueBuffer",
@@ -1146,7 +1146,7 @@ fn lower_close_output(
         abi::compare_immediate("%v9", &NUM_BUFFERS.to_string()),
         abi::branch_ge(&drain_done),
         abi::add_immediate(abi::return_register(), "%v10", S_COND),
-        abi::add_immediate(abi::c_arg(1), "%v10", S_MUTEX),
+        abi::add_immediate(abi::ARG[1], "%v10", S_MUTEX),
     ]);
     platform.emit_libc_call(
         "pthread_cond_wait",
@@ -1177,7 +1177,7 @@ fn lower_close_output(
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     platform.emit_libc_call(
         "AudioQueueStop",
@@ -1189,7 +1189,7 @@ fn lower_close_output(
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     platform.emit_libc_call(
         "AudioQueueDispose",
@@ -1227,7 +1227,7 @@ fn lower_close_output(
         abi::move_immediate("%v9", "Integer", "1"),
         abi::store_u64("%v9", "%v10", H_CLOSED),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
-        abi::load_u64(abi::c_arg(1), abi::return_register(), S_MAP_SIZE),
+        abi::load_u64(abi::ARG[1], abi::return_register(), S_MAP_SIZE),
     ]);
     platform.emit_libc_call(
         "munmap",
@@ -1271,7 +1271,7 @@ fn lower_query(
     if let Query::PollTimeout = kind {
         // Spill `timeoutMs` (ARG[1]) before any libc call clobbers it.
         instructions.push(abi::store_u64(
-            abi::c_arg(1),
+            abi::ARG[1],
             abi::stack_pointer(),
             TIMEOUT_OFF,
         ));
@@ -1337,7 +1337,7 @@ fn lower_query(
             abi::branch_ne(&poll_ready),
             // Not ready: block on the stream condition until the callback signals.
             abi::add_immediate(abi::return_register(), "%v10", S_COND),
-            abi::add_immediate(abi::c_arg(1), "%v10", S_MUTEX),
+            abi::add_immediate(abi::ARG[1], "%v10", S_MUTEX),
         ]);
         platform.emit_libc_call(
             "pthread_cond_wait",
@@ -1387,7 +1387,7 @@ fn lower_query(
         // deadline = now + timeoutMs*1e6 (CLOCK_MONOTONIC = 6 on macOS).
         instructions.extend([
             abi::move_immediate(abi::return_register(), "Integer", "6"),
-            abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), CLK_OFF),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CLK_OFF),
         ]);
         platform.emit_libc_call(
             "clock_gettime",
@@ -1423,7 +1423,7 @@ fn lower_query(
             abi::branch_ne(&pt_ready),
             // No data yet: has the deadline passed?
             abi::move_immediate(abi::return_register(), "Integer", "6"),
-            abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), CLK_OFF),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CLK_OFF),
         ]);
         platform.emit_libc_call(
             "clock_gettime",
@@ -1452,8 +1452,8 @@ fn lower_query(
             // pthread_cond_timedwait_relative_np(cond, mutex, ts)
             abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
             abi::add_immediate(abi::return_register(), "%v10", S_COND),
-            abi::add_immediate(abi::c_arg(1), "%v10", S_MUTEX),
-            abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), TS_OFF),
+            abi::add_immediate(abi::ARG[1], "%v10", S_MUTEX),
+            abi::add_immediate(abi::ARG[2], abi::stack_pointer(), TS_OFF),
         ]);
         platform.emit_libc_call(
             "pthread_cond_timedwait_relative_np",
@@ -1622,7 +1622,7 @@ pub(in crate::target::shared::code) fn lower_audio_output_callback(
     let mut relocations = Vec::new();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), CB_HANDLE),
-        abi::store_u64(abi::c_arg(2), abi::stack_pointer(), CB_BUF),
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), CB_BUF),
         abi::load_u64("%v9", abi::return_register(), H_STATE),
         abi::store_u64("%v9", abi::stack_pointer(), CB_STATE),
     ]);
@@ -1739,15 +1739,15 @@ fn lower_open_input(
     if device {
         instructions.extend([
             abi::store_u64(abi::return_register(), abi::stack_pointer(), DEVID_OFF),
-            abi::store_u64(abi::c_arg(1), abi::stack_pointer(), SR_OFF),
-            abi::store_u64(abi::c_arg(2), abi::stack_pointer(), CH_OFF),
-            abi::store_u64(abi::c_arg(3), abi::stack_pointer(), BF_OFF),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), SR_OFF),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), CH_OFF),
+            abi::store_u64(abi::ARG[3], abi::stack_pointer(), BF_OFF),
         ]);
     } else {
         instructions.extend([
             abi::store_u64(abi::return_register(), abi::stack_pointer(), SR_OFF),
-            abi::store_u64(abi::c_arg(1), abi::stack_pointer(), CH_OFF),
-            abi::store_u64(abi::c_arg(2), abi::stack_pointer(), BF_OFF),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), CH_OFF),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), BF_OFF),
         ]);
     }
     // Zero the state slot so the open-error cleanup can tell the page was not yet
@@ -1766,11 +1766,11 @@ fn lower_open_input(
             abi::store_u32("%v9", abi::stack_pointer(), PRECHK_SIZE),
             abi::store_u32(abi::ZERO, abi::stack_pointer(), PRECHK_ID),
             abi::move_immediate(abi::return_register(), "Integer", SYS_OBJECT),
-            abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), PRECHK_ADDR),
-            abi::move_immediate(abi::c_arg(2), "Integer", "0"),
-            abi::move_immediate(abi::c_arg(3), "Integer", "0"),
-            abi::add_immediate(abi::c_arg(4), abi::stack_pointer(), PRECHK_SIZE),
-            abi::add_immediate(abi::c_arg(5), abi::stack_pointer(), PRECHK_ID),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), PRECHK_ADDR),
+            abi::move_immediate(abi::ARG[2], "Integer", "0"),
+            abi::move_immediate(abi::ARG[3], "Integer", "0"),
+            abi::add_immediate(abi::ARG[4], abi::stack_pointer(), PRECHK_SIZE),
+            abi::add_immediate(abi::ARG[5], abi::stack_pointer(), PRECHK_ID),
         ]);
         platform.emit_libc_call(
             "AudioObjectGetPropertyData",
@@ -1812,7 +1812,7 @@ fn lower_open_input(
             "Integer",
             &H_RECORD_SIZE.to_string(),
         ),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
@@ -1835,11 +1835,11 @@ fn lower_open_input(
         abi::store_u64("%v9", "%v15", H_BUFFER_FRAMES),
         // mmap(0, mapSize, PROT, FLAGS, -1, 0)
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), MAPSIZE_OFF),
-        abi::move_immediate(abi::c_arg(2), "Integer", MMAP_PROT),
-        abi::move_immediate(abi::c_arg(3), "Integer", MMAP_FLAGS),
-        abi::bitwise_not(abi::c_arg(4), abi::ZERO),
-        abi::move_immediate(abi::c_arg(5), "Integer", "0"),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), MAPSIZE_OFF),
+        abi::move_immediate(abi::ARG[2], "Integer", MMAP_PROT),
+        abi::move_immediate(abi::ARG[3], "Integer", MMAP_FLAGS),
+        abi::bitwise_not(abi::ARG[4], abi::ZERO),
+        abi::move_immediate(abi::ARG[5], "Integer", "0"),
     ]);
     platform.emit_libc_call(
         "mmap",
@@ -1915,18 +1915,18 @@ fn lower_open_input(
     ]);
     emit_data_address(
         symbol,
-        abi::c_arg(1),
+        abi::ARG[1],
         AUDIO_INPUT_CALLBACK_SYMBOL,
         &mut instructions,
         &mut relocations,
     );
     instructions.extend([
-        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), HANDLE_OFF),
-        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(4), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(5), "Integer", "0"),
-        abi::load_u64(abi::c_arg(6), abi::stack_pointer(), STATE_OFF),
-        abi::add_immediate(abi::c_arg(6), abi::c_arg(6), S_OSOBJECT),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), HANDLE_OFF),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::move_immediate(abi::ARG[4], "Integer", "0"),
+        abi::move_immediate(abi::ARG[5], "Integer", "0"),
+        abi::load_u64(abi::ARG[6], abi::stack_pointer(), STATE_OFF),
+        abi::add_immediate(abi::ARG[6], abi::ARG[6], S_OSOBJECT),
     ]);
     platform.emit_libc_call(
         "AudioQueueNewInput",
@@ -1965,8 +1965,8 @@ fn lower_open_input(
         abi::load_u64("%v11", abi::stack_pointer(), BF_OFF),
         abi::load_u64("%v12", abi::stack_pointer(), BPF_OFF),
         abi::multiply_registers("%v11", "%v11", "%v12"),
-        abi::move_register(abi::c_arg(1), "%v11"),
-        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), BUFPTR_OFF),
+        abi::move_register(abi::ARG[1], "%v11"),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), BUFPTR_OFF),
     ]);
     platform.emit_libc_call(
         "AudioQueueAllocateBuffer",
@@ -1982,9 +1982,9 @@ fn lower_open_input(
         // AudioQueueEnqueueBuffer(queue, buf, 0, NULL)
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), BUFPTR_OFF),
-        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), BUFPTR_OFF),
+        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
     ]);
     platform.emit_libc_call(
         "AudioQueueEnqueueBuffer",
@@ -2006,7 +2006,7 @@ fn lower_open_input(
         abi::move_immediate("%v9", "Integer", "1"),
         abi::store_u64("%v9", "%v10", S_STARTED),
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
     platform.emit_libc_call(
         "AudioQueueStart",
@@ -2102,11 +2102,11 @@ fn lower_read(
     let mut relocations = Vec::new();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
-        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), FRAMES_OFF),
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), FRAMES_OFF),
     ]);
     if timeout {
         instructions.push(abi::store_u64(
-            abi::c_arg(2),
+            abi::ARG[2],
             abi::stack_pointer(),
             TIMEOUT_OFF,
         ));
@@ -2182,7 +2182,7 @@ fn lower_read(
         // deadline = now + timeoutMs*1e6 (CLOCK_MONOTONIC = 6).
         instructions.extend([
             abi::move_immediate(abi::return_register(), "Integer", "6"),
-            abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), CLK_OFF),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CLK_OFF),
         ]);
         platform.emit_libc_call(
             "clock_gettime",
@@ -2220,7 +2220,7 @@ fn lower_read(
     if timeout {
         instructions.extend([
             abi::move_immediate(abi::return_register(), "Integer", "6"),
-            abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), CLK_OFF),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CLK_OFF),
         ]);
         platform.emit_libc_call(
             "clock_gettime",
@@ -2247,8 +2247,8 @@ fn lower_read(
             abi::store_u64("%v14", abi::stack_pointer(), TS_OFF + 8),
             abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
             abi::add_immediate(abi::return_register(), "%v10", S_COND),
-            abi::add_immediate(abi::c_arg(1), "%v10", S_MUTEX),
-            abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), TS_OFF),
+            abi::add_immediate(abi::ARG[1], "%v10", S_MUTEX),
+            abi::add_immediate(abi::ARG[2], abi::stack_pointer(), TS_OFF),
         ]);
         platform.emit_libc_call(
             "pthread_cond_timedwait_relative_np",
@@ -2262,7 +2262,7 @@ fn lower_read(
         instructions.extend([
             abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
             abi::add_immediate(abi::return_register(), "%v10", S_COND),
-            abi::add_immediate(abi::c_arg(1), "%v10", S_MUTEX),
+            abi::add_immediate(abi::ARG[1], "%v10", S_MUTEX),
         ]);
         platform.emit_libc_call(
             "pthread_cond_wait",
@@ -2376,7 +2376,7 @@ fn lower_read(
         abi::multiply_registers("%v11", "%v9", "%v10"),
         abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE),
         abi::add_registers("%v11", "%v11", "%v9"),
-        abi::move_register(abi::c_arg(1), "%v11"),
+        abi::move_register(abi::ARG[1], "%v11"),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), LIST_PTR_OFF),
     ]);
     emit_arena_free(symbol, &mut instructions, &mut relocations);
@@ -2473,7 +2473,7 @@ fn lower_close_input(
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     platform.emit_libc_call(
         "AudioQueueStop",
@@ -2485,7 +2485,7 @@ fn lower_close_input(
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     platform.emit_libc_call(
         "AudioQueueDispose",
@@ -2523,7 +2523,7 @@ fn lower_close_input(
         abi::move_immediate("%v9", "Integer", "1"),
         abi::store_u64("%v9", "%v10", H_CLOSED),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
-        abi::load_u64(abi::c_arg(1), abi::return_register(), S_MAP_SIZE),
+        abi::load_u64(abi::ARG[1], abi::return_register(), S_MAP_SIZE),
     ]);
     platform.emit_libc_call(
         "munmap",
@@ -2569,8 +2569,8 @@ pub(in crate::target::shared::code) fn lower_audio_input_callback(
     let mut relocations = Vec::new();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), CB_HANDLE),
-        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), CB_AQ),
-        abi::store_u64(abi::c_arg(2), abi::stack_pointer(), CB_BUF),
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), CB_AQ),
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), CB_BUF),
         abi::load_u64("%v9", abi::return_register(), H_STATE),
         abi::store_u64("%v9", abi::stack_pointer(), CB_STATE),
     ]);
@@ -2681,9 +2681,9 @@ pub(in crate::target::shared::code) fn lower_audio_input_callback(
     // Re-enqueue the buffer.
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CB_AQ),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), CB_BUF),
-        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), CB_BUF),
+        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
     ]);
     platform.emit_libc_call(
         "AudioQueueEnqueueBuffer",
@@ -2803,7 +2803,7 @@ fn lower_devices(
         abi::move_immediate("%v12", "Integer", &DEVICE_RECORD_SIZE.to_string()),
         abi::multiply_registers("%v13", "%v9", "%v12"),
         abi::add_registers(abi::return_register(), "%v11", "%v13"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([

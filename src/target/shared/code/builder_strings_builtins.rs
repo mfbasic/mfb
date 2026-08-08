@@ -113,7 +113,7 @@ impl CodeBuilder<'_> {
             &scratch9,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -314,7 +314,7 @@ impl CodeBuilder<'_> {
             COLLECTION_HEADER_SIZE,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -537,7 +537,7 @@ impl CodeBuilder<'_> {
             9,
             &ascii_size_overflow,
         );
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&ascii_alloc_ok));
         self.emit_allocation_error_return()?;
@@ -630,7 +630,7 @@ impl CodeBuilder<'_> {
         // pathological byte length cannot wrap the allocation size.
         let size_overflow = self.label("strings_case_map_size_overflow");
         self.emit_checked_size_add_immediate(abi::return_register(), &scratch24, 9, &size_overflow);
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -810,7 +810,7 @@ impl CodeBuilder<'_> {
             9,
             &ascii_size_overflow,
         );
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&ascii_alloc_ok));
         self.emit_allocation_error_return()?;
@@ -893,7 +893,7 @@ impl CodeBuilder<'_> {
             &scratch13,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&temp_alloc_ok));
         self.emit_allocation_error_return()?;
@@ -1127,7 +1127,7 @@ impl CodeBuilder<'_> {
         // matching every sibling string builder (case-map, graphemes, ...).
         let size_overflow = self.label("strings_nfc_size_overflow");
         self.emit_checked_size_add_immediate(abi::return_register(), &scratch24, 9, &size_overflow);
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&result_alloc_ok));
         self.emit_allocation_error_return()?;
@@ -1491,7 +1491,7 @@ impl CodeBuilder<'_> {
 
         // allocate output_len + 9 (block header), trapping the header add's wrap.
         self.emit_checked_size_add_immediate(abi::return_register(), &scratch11, 9, &overflow);
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -1751,7 +1751,7 @@ impl CodeBuilder<'_> {
             &scratch12,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -2328,7 +2328,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(total, abi::stack_pointer(), total_slot));
         // allocate total + 9.
         self.emit_checked_size_add_immediate(abi::return_register(), total, 9, &invalid);
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -2552,7 +2552,7 @@ impl CodeBuilder<'_> {
 
         // allocate total + 9.
         self.emit_checked_size_add_immediate(abi::return_register(), &scratch11, 9, &invalid);
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;

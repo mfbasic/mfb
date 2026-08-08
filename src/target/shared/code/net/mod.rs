@@ -180,7 +180,7 @@ pub(in crate::target::shared::code) fn emit_string_result_build(
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), n_offset),
         abi::add_immediate(abi::return_register(), "%v10", 9),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
@@ -205,7 +205,7 @@ pub(in crate::target::shared::code) fn emit_string_result_build(
         // validate_utf8(bytes, len)
         abi::load_u64("%v9", abi::stack_pointer(), str_offset),
         abi::add_immediate(abi::return_register(), "%v9", 8),
-        abi::load_u64(abi::c_arg(1), "%v9", 0),
+        abi::load_u64(abi::ARG[1], "%v9", 0),
     ]);
     emit_call_validate_utf8(symbol, encoding_error, instructions, relocations);
 }
@@ -229,7 +229,7 @@ fn emit_cstring(
         abi::load_u64("%v9", abi::stack_pointer(), str_off),
         abi::load_u64("%v10", "%v9", 0),
         abi::add_immediate(abi::return_register(), "%v10", 1),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
@@ -311,7 +311,7 @@ fn emit_address_from_sockaddr(
     // Temp dst buffer for the numeric host string.
     ctx.instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", &ADDR_STR_CAP.to_string()),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
     ctx.instructions.extend([
@@ -319,9 +319,9 @@ fn emit_address_from_sockaddr(
         // inet_ntop(AF_INET, sockaddr + 4, dst, ADDR_STR_CAP)
         abi::move_immediate(abi::return_register(), "Integer", AF_INET),
         abi::load_u64("%v9", abi::stack_pointer(), sockaddr_off),
-        abi::add_immediate(abi::c_arg(1), "%v9", 4),
-        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), dst_off),
-        abi::move_immediate(abi::c_arg(3), "Integer", &ADDR_STR_CAP.to_string()),
+        abi::add_immediate(abi::ARG[1], "%v9", 4),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), dst_off),
+        abi::move_immediate(abi::ARG[3], "Integer", &ADDR_STR_CAP.to_string()),
     ]);
     platform.emit_libc_call(
         "inet_ntop",
@@ -347,7 +347,7 @@ fn emit_address_from_sockaddr(
         abi::store_u64("%v10", abi::stack_pointer(), len_off),
         // Allocate the host String: [u64 len][bytes][nul].
         abi::add_immediate(abi::return_register(), "%v10", 9),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
     ctx.instructions.extend([
@@ -371,7 +371,7 @@ fn emit_address_from_sockaddr(
         abi::store_u8(abi::ZERO, "%v12", 0),
         // Allocate the Address record: [host ptr][port].
         abi::move_immediate(abi::return_register(), "Integer", "16"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
     ctx.instructions.extend([
@@ -404,7 +404,7 @@ fn emit_make_handle(
 ) {
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", RESOURCE_RECORD_SIZE),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
@@ -481,13 +481,13 @@ fn lower_net_endpoint_helper(
             abi::store_u64("%v9", abi::stack_pointer(), HOST_OFFSET),
             abi::load_u64("%v9", abi::return_register(), 8),
             abi::store_u64("%v9", abi::stack_pointer(), PORT_OFFSET),
-            abi::store_u64(abi::c_arg(1), abi::stack_pointer(), EXTRA_OFFSET),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), EXTRA_OFFSET),
         ]);
     } else {
         instructions.extend([
             abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
-            abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT_OFFSET),
-            abi::store_u64(abi::c_arg(2), abi::stack_pointer(), EXTRA_OFFSET),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), PORT_OFFSET),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), EXTRA_OFFSET),
         ]);
     }
     if !listen {
@@ -553,9 +553,9 @@ fn lower_net_endpoint_helper(
         abi::label(&resolved),
         // getaddrinfo(host, service, &hints, &res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CSTR_OFFSET),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), SERVICE_OFFSET),
-        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), HINTS_OFFSET),
-        abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), RES_OFFSET),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), SERVICE_OFFSET),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), HINTS_OFFSET),
+        abi::add_immediate(abi::ARG[3], abi::stack_pointer(), RES_OFFSET),
     ]);
     platform.emit_libc_call(
         net_symbol(platform, NetSymbol::GetAddrInfo),
@@ -570,8 +570,8 @@ fn lower_net_endpoint_helper(
         // socket(ai_family, ai_socktype, ai_protocol)
         abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
         abi::load_u32(abi::return_register(), "%v9", 4),
-        abi::load_u32(abi::c_arg(1), "%v9", 8),
-        abi::load_u32(abi::c_arg(2), "%v9", 12),
+        abi::load_u32(abi::ARG[1], "%v9", 8),
+        abi::load_u32(abi::ARG[2], "%v9", 12),
     ]);
     platform.emit_libc_call(
         net_symbol(platform, NetSymbol::Socket),
@@ -602,10 +602,10 @@ fn lower_net_endpoint_helper(
             abi::move_immediate("%v9", "Integer", "1"),
             abi::store_u64("%v9", abi::stack_pointer(), ONE_OFFSET),
             abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-            abi::move_immediate(abi::c_arg(1), "Integer", platform.sol_socket()),
-            abi::move_immediate(abi::c_arg(2), "Integer", platform.so_reuseaddr()),
-            abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), ONE_OFFSET),
-            abi::move_immediate(abi::c_arg(4), "Integer", "4"),
+            abi::move_immediate(abi::ARG[1], "Integer", platform.sol_socket()),
+            abi::move_immediate(abi::ARG[2], "Integer", platform.so_reuseaddr()),
+            abi::add_immediate(abi::ARG[3], abi::stack_pointer(), ONE_OFFSET),
+            abi::move_immediate(abi::ARG[4], "Integer", "4"),
         ]);
         // setsockopt takes FIVE int args; on Win64 the 5th (optlen) is a stack
         // argument above the shadow, not rdi (bug-384). POSIX passes it in a
@@ -623,8 +623,8 @@ fn lower_net_endpoint_helper(
         instructions.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
             abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
-            abi::load_u64(abi::c_arg(1), "%v9", platform.addrinfo_addr_offset()),
-            abi::load_u32(abi::c_arg(2), "%v9", 16),
+            abi::load_u64(abi::ARG[1], "%v9", platform.addrinfo_addr_offset()),
+            abi::load_u32(abi::ARG[2], "%v9", 16),
         ]);
         platform.emit_libc_call(
             net_symbol(platform, NetSymbol::Bind),
@@ -641,13 +641,13 @@ fn lower_net_endpoint_helper(
             abi::branch_lt(&op_fail),
             // listen(fd, backlog)
             abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-            abi::load_u64(abi::c_arg(1), abi::stack_pointer(), EXTRA_OFFSET),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), EXTRA_OFFSET),
             // Clamp backlog to INT_MAX: listen() takes a C `int`, so a 64-bit value
             // with bit 31 set would be passed as a negative backlog (bug-239).
             abi::move_immediate("%v9", "Integer", "2147483647"),
-            abi::compare_registers(abi::c_arg(1), "%v9"),
+            abi::compare_registers(abi::ARG[1], "%v9"),
             abi::branch_le(&listen_backlog_ok),
-            abi::move_register(abi::c_arg(1), "%v9"),
+            abi::move_register(abi::ARG[1], "%v9"),
             abi::label(&listen_backlog_ok),
         ]);
         platform.emit_libc_call(
@@ -690,8 +690,8 @@ fn lower_net_endpoint_helper(
             // FLAGS_OFFSET.
             instructions.extend([
                 abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-                abi::move_immediate(abi::c_arg(1), "Integer", "3"),
-                abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+                abi::move_immediate(abi::ARG[1], "Integer", "3"),
+                abi::move_immediate(abi::ARG[2], "Integer", "0"),
             ]);
             platform.emit_variadic_call(
                 net_symbol(platform, NetSymbol::Fcntl),
@@ -719,8 +719,8 @@ fn lower_net_endpoint_helper(
         instructions.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
             abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
-            abi::load_u64(abi::c_arg(1), "%v9", platform.addrinfo_addr_offset()),
-            abi::load_u32(abi::c_arg(2), "%v9", 16),
+            abi::load_u64(abi::ARG[1], "%v9", platform.addrinfo_addr_offset()),
+            abi::load_u32(abi::ARG[2], "%v9", 16),
         ]);
         platform.emit_libc_call(
             net_symbol(platform, NetSymbol::Connect),
@@ -758,14 +758,14 @@ fn lower_net_endpoint_helper(
             abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 6),
             abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 7),
             abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
-            abi::move_immediate(abi::c_arg(1), "Integer", "1"),
-            abi::load_u64(abi::c_arg(2), abi::stack_pointer(), EXTRA_OFFSET),
+            abi::move_immediate(abi::ARG[1], "Integer", "1"),
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), EXTRA_OFFSET),
             // Clamp the connect timeout to INT_MAX: poll() takes a C `int`, so a
             // 64-bit value with bit 31 set would block forever (bug-239).
             abi::move_immediate("%v11", "Integer", "2147483647"),
-            abi::compare_registers(abi::c_arg(2), "%v11"),
+            abi::compare_registers(abi::ARG[2], "%v11"),
             abi::branch_le(&connect_timeout_ok),
-            abi::move_register(abi::c_arg(2), "%v11"),
+            abi::move_register(abi::ARG[2], "%v11"),
             abi::label(&connect_timeout_ok),
         ]);
         platform.emit_libc_call(
@@ -803,10 +803,10 @@ fn lower_net_endpoint_helper(
             abi::store_u64("%v9", abi::stack_pointer(), SOLEN_OFFSET),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), SOERR_OFFSET),
             abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-            abi::move_immediate(abi::c_arg(1), "Integer", platform.sol_socket()),
-            abi::move_immediate(abi::c_arg(2), "Integer", platform.so_error()),
-            abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), SOERR_OFFSET),
-            abi::add_immediate(abi::c_arg(4), abi::stack_pointer(), SOLEN_OFFSET),
+            abi::move_immediate(abi::ARG[1], "Integer", platform.sol_socket()),
+            abi::move_immediate(abi::ARG[2], "Integer", platform.so_error()),
+            abi::add_immediate(abi::ARG[3], abi::stack_pointer(), SOERR_OFFSET),
+            abi::add_immediate(abi::ARG[4], abi::stack_pointer(), SOLEN_OFFSET),
         ]);
         // getsockopt takes FIVE int args; on Win64 the 5th (&optlen) is a stack
         // argument above the shadow, not rdi (bug-384) — a garbage optlen makes
@@ -846,8 +846,8 @@ fn lower_net_endpoint_helper(
         } else {
             instructions.extend([
                 abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-                abi::move_immediate(abi::c_arg(1), "Integer", "4"),
-                abi::load_u64(abi::c_arg(2), abi::stack_pointer(), FLAGS_OFFSET),
+                abi::move_immediate(abi::ARG[1], "Integer", "4"),
+                abi::load_u64(abi::ARG[2], abi::stack_pointer(), FLAGS_OFFSET),
             ]);
             platform.emit_variadic_call(
                 net_symbol(platform, NetSymbol::Fcntl),

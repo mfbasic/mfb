@@ -2422,7 +2422,7 @@ fn lower_map_build_buckets_helper() -> CodeFunction {
         // incoming param homes in rax/rdx by role, which the div/msub below
         // clobber — destroying it before the final store. As a vreg the
         // allocator keeps it in a safe (or spilled) location. AArch64 unaffected.
-        abi::move_register("%v18", abi::c_arg(0)),
+        abi::move_register("%v18", abi::ARG[0]),
         // dataBase (v11) = map + HEADER + capacity*ENTRY ; bucketBase (v12) += dataCap.
         abi::load_u64("%v9", "%v18", COLLECTION_OFFSET_COUNT),
         abi::load_u64("%v14", "%v18", COLLECTION_OFFSET_CAPACITY),
@@ -2527,8 +2527,8 @@ fn lower_map_bucket_put_helper() -> CodeFunction {
         abi::label("entry"),
         // Capture map ptr (x0) and entry index (x1) into vregs before the div/msub
         // below clobber their x86 arg-register homes (rax/rdx). AArch64 unaffected.
-        abi::move_register("%v20", abi::c_arg(0)),
-        abi::move_register("%v21", abi::c_arg(1)),
+        abi::move_register("%v20", abi::ARG[0]),
+        abi::move_register("%v21", abi::ARG[1]),
         abi::load_u64("%v14", "%v20", COLLECTION_OFFSET_CAPACITY),
         abi::move_immediate("%v16", "Integer", &entry_size),
         abi::multiply_registers("%v11", "%v14", "%v16"),
@@ -2619,9 +2619,9 @@ fn lower_map_probe_helper() -> CodeFunction {
         // on x86 (esp. rdx via its div), so x0/x1/x2 must not be read after it.
         // The build call still receives the map implicitly in rdi (unclobbered
         // until then). AArch64 unaffected.
-        abi::move_register("%v20", abi::c_arg(0)),
-        abi::move_register("%v21", abi::c_arg(1)),
-        abi::move_register("%v22", abi::c_arg(2)),
+        abi::move_register("%v20", abi::ARG[0]),
+        abi::move_register("%v21", abi::ARG[1]),
+        abi::move_register("%v22", abi::ARG[2]),
         // Lazy build if not ready.
         abi::load_u8("%v9", "%v20", COLLECTION_OFFSET_BUCKETS_READY),
         abi::compare_immediate("%v9", "0"),

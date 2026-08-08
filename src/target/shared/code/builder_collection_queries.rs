@@ -559,7 +559,7 @@ impl CodeBuilder<'_> {
             &scratch11,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -893,7 +893,7 @@ impl CodeBuilder<'_> {
             &s16,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_symbol_call(ARENA_ALLOC_SYMBOL);
         let alloc_ok = self.label("zip_alloc_ok");
         self.emit(abi::compare_immediate(
@@ -1277,7 +1277,7 @@ impl CodeBuilder<'_> {
             &s13,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_symbol_call(ARENA_ALLOC_SYMBOL);
         let alloc_ok = self.label("slice_alloc_ok");
         self.emit(abi::compare_immediate(
@@ -2634,7 +2634,7 @@ impl CodeBuilder<'_> {
             COLLECTION_HEADER_SIZE,
             &overflow,
         );
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -3369,7 +3369,7 @@ impl CodeBuilder<'_> {
             &size_overflow,
         );
         let alloc_ok = self.label("window_alloc_ok");
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -3572,7 +3572,7 @@ impl CodeBuilder<'_> {
             &size_overflow,
         );
         let alloc_ok = self.label("chunks_alloc_ok");
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -3795,7 +3795,7 @@ impl CodeBuilder<'_> {
                 COLLECTION_HEADER_SIZE,
                 &ovf,
             );
-            self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+            self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
             self.emit_arena_alloc_call();
             let ok = self.label("gb_scratch_ok");
             self.emit(abi::branch_eq(&ok));
@@ -3911,7 +3911,7 @@ impl CodeBuilder<'_> {
             "Integer",
             &(COLLECTION_HEADER_SIZE + 8).to_string(),
         ));
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         let ins_ok = self.label("gb_ins_ok");
         self.emit(abi::branch_eq(&ins_ok));
@@ -4603,7 +4603,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             item_slot,
         ));
-        self.emit(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), size_slot));
         self.emit_arena_free_call();
         Ok(())
     }

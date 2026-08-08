@@ -46,7 +46,7 @@ pub(super) fn emit_configure_stdin_terminal(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_le(&skip),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::c_arg(1), base_register, slots.original),
+        abi::add_immediate(abi::ARG[1], base_register, slots.original),
     ]);
     platform.emit_terminal_control_call(
         TerminalControlCall::GetAttrs,
@@ -73,8 +73,8 @@ pub(super) fn emit_configure_stdin_terminal(
 
     ctx.instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
-        abi::add_immediate(abi::c_arg(2), base_register, slots.modified),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::add_immediate(abi::ARG[2], base_register, slots.modified),
     ]);
     platform.emit_terminal_control_call(
         TerminalControlCall::SetAttrs,
@@ -117,8 +117,8 @@ pub(super) fn emit_restore_stdin_terminal(
         abi::compare_immediate("%v9", "1"),
         abi::branch_ne(&restored),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
-        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), slots.original),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), slots.original),
     ]);
     platform.emit_terminal_control_call(
         TerminalControlCall::SetAttrs,
@@ -199,8 +199,8 @@ pub(super) fn emit_console_raw_line_mode(
     }
     ctx.instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
-        abi::add_immediate(abi::c_arg(2), ARENA_STATE_REGISTER, buffer_offset),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::add_immediate(abi::ARG[2], ARENA_STATE_REGISTER, buffer_offset),
     ]);
     platform.emit_terminal_control_call(
         TerminalControlCall::SetAttrs,

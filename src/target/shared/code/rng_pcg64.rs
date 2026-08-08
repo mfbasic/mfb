@@ -100,8 +100,8 @@ fn emit_seed_dance(name: &str, symbol: &str, lo_offset: usize, hi_offset: usize)
     let hi = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::move_register(&ptr, abi::c_arg(0)),
-        abi::move_register(&seed, abi::c_arg(1)),
+        abi::move_register(&ptr, abi::ARG[0]),
+        abi::move_register(&seed, abi::ARG[1]),
         abi::move_immediate(&lo, "Integer", "0"),
         abi::move_immediate(&hi, "Integer", "0"),
     ];
@@ -165,8 +165,8 @@ pub(super) fn lower_arena_fill_random() -> CodeFunction {
     let hi = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::move_register(&ptr, abi::c_arg(0)),
-        abi::move_register(&count, abi::c_arg(1)),
+        abi::move_register(&ptr, abi::ARG[0]),
+        abi::move_register(&count, abi::ARG[1]),
         // word count = (len + 7) >> 3
         abi::add_immediate(&count, &count, 7),
         abi::shift_right_immediate(&count, &count, 3),

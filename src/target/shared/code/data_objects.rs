@@ -7,16 +7,12 @@ use super::*;
 pub(super) fn push_symbol_address(
     from: &str,
     symbol: &str,
-    // plan-85-B: accept a typed `Operand` (e.g. `abi::c_arg(0)`) as well as the
-    // legacy `&str` token — `&str: Into<Operand>`, so every existing caller is
-    // unchanged and byte-identical.
-    dst: impl Into<Operand>,
+    dst: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    let dst = dst.into();
-    instructions.push(abi::load_page_address(&dst, symbol));
-    instructions.push(abi::add_page_offset(&dst, &dst, symbol));
+    instructions.push(abi::load_page_address(dst, symbol));
+    instructions.push(abi::add_page_offset(dst, dst, symbol));
     relocations.extend([
         CodeRelocation {
             from: from.to_string(),

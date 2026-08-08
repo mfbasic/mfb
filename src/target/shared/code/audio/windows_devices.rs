@@ -42,7 +42,7 @@ fn emit_string_from_wstr(
         abi::label(&len_done),
         abi::store_u64("%v10", abi::stack_pointer(), TOTAL_OFF), // stash len (COUNT_OFF holds the device-loop bound)
         abi::add_immediate(abi::return_register(), "%v10", 9),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, ins, rel, alloc_fail);
     ins.extend([
@@ -84,7 +84,7 @@ fn lower_devices(
     // CoInitializeEx(NULL, MTA)
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(1), "Integer", COINIT_MULTITHREADED),
+        abi::move_immediate(abi::ARG[1], "Integer", COINIT_MULTITHREADED),
     ]);
     ole_call(symbol, "CoInitializeEx", 2, platform_imports, platform, &mut ins, &mut rel)?;
     // Zero the object slots so a bail-out never Releases garbage.
@@ -95,10 +95,10 @@ fn lower_devices(
     // CoCreateInstance(CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL,
     //                  IID_IMMDeviceEnumerator, &enum)
     guid_addr(symbol, abi::return_register(), "CLSID_MMDeviceEnumerator", &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
-    ins.push(abi::move_immediate(abi::c_arg(2), "Integer", CLSCTX_ALL));
-    guid_addr(symbol, abi::c_arg(3), "IID_IMMDeviceEnumerator", &mut ins, &mut rel);
-    ins.push(abi::add_immediate(abi::c_arg(4), abi::stack_pointer(), D_ENUM));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", CLSCTX_ALL));
+    guid_addr(symbol, abi::ARG[3], "IID_IMMDeviceEnumerator", &mut ins, &mut rel);
+    ins.push(abi::add_immediate(abi::ARG[4], abi::stack_pointer(), D_ENUM));
     ole_call(symbol, "CoCreateInstance", 5, platform_imports, platform, &mut ins, &mut rel)?;
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
@@ -108,9 +108,9 @@ fn lower_devices(
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), D_ENUM),
         abi::store_u64("%v9", abi::stack_pointer(), OBJ_OFF),
-        abi::move_immediate(abi::c_arg(1), "Integer", E_ALL),
-        abi::move_immediate(abi::c_arg(2), "Integer", DEVICE_STATE_ACTIVE),
-        abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), D_COLL),
+        abi::move_immediate(abi::ARG[1], "Integer", E_ALL),
+        abi::move_immediate(abi::ARG[2], "Integer", DEVICE_STATE_ACTIVE),
+        abi::add_immediate(abi::ARG[3], abi::stack_pointer(), D_COLL),
     ]);
     com_call(SLOT_ENUM_ENDPOINTS, 4, &mut ins);
     ins.extend([
@@ -120,7 +120,7 @@ fn lower_devices(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), COUNT_OFF),
         abi::load_u64("%v9", abi::stack_pointer(), D_COLL),
         abi::store_u64("%v9", abi::stack_pointer(), OBJ_OFF),
-        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), COUNT_OFF),
+        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), COUNT_OFF),
     ]);
     com_call(SLOT_COLL_GET_COUNT, 2, &mut ins);
     ins.extend([
@@ -138,7 +138,7 @@ fn lower_devices(
         abi::move_immediate("%v13", "Integer", &DEVICE_RECORD_SIZE.to_string()),
         abi::multiply_registers("%v14", "%v10", "%v13"),
         abi::add_registers(abi::return_register(), "%v12", "%v14"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
@@ -177,8 +177,8 @@ fn lower_devices(
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), D_COLL),
         abi::store_u64("%v9", abi::stack_pointer(), OBJ_OFF),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), OFFSET_OFF),
-        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), D_DEV),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), OFFSET_OFF),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), D_DEV),
     ]);
     com_call(SLOT_COLL_ITEM, 3, &mut ins);
     ins.extend([
@@ -188,7 +188,7 @@ fn lower_devices(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), D_IDRAW),
         abi::load_u64("%v9", abi::stack_pointer(), D_DEV),
         abi::store_u64("%v9", abi::stack_pointer(), OBJ_OFF),
-        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), D_IDRAW),
+        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), D_IDRAW),
     ]);
     com_call(SLOT_DEV_GET_ID, 2, &mut ins);
     // id = string(pId)
@@ -201,8 +201,8 @@ fn lower_devices(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), D_PROPS),
         abi::load_u64("%v9", abi::stack_pointer(), D_DEV),
         abi::store_u64("%v9", abi::stack_pointer(), OBJ_OFF),
-        abi::move_immediate(abi::c_arg(1), "Integer", STGM_READ),
-        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), D_PROPS),
+        abi::move_immediate(abi::ARG[1], "Integer", STGM_READ),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), D_PROPS),
     ]);
     com_call(SLOT_DEV_OPEN_PROPSTORE, 3, &mut ins);
     ins.extend([
@@ -216,8 +216,8 @@ fn lower_devices(
         abi::load_u64("%v9", abi::stack_pointer(), D_PROPS),
         abi::store_u64("%v9", abi::stack_pointer(), OBJ_OFF),
     ]);
-    guid_addr(symbol, abi::c_arg(1), "PKEY_Device_FriendlyName", &mut ins, &mut rel);
-    ins.push(abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), D_PROPVAR));
+    guid_addr(symbol, abi::ARG[1], "PKEY_Device_FriendlyName", &mut ins, &mut rel);
+    ins.push(abi::add_immediate(abi::ARG[2], abi::stack_pointer(), D_PROPVAR));
     com_call(SLOT_PROPS_GET_VALUE, 3, &mut ins);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),

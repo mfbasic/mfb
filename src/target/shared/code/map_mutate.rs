@@ -350,7 +350,7 @@ impl CodeBuilder<'_> {
         );
         // Reserve the map hash bucket region (x14 = capacity, unchanged on vgrow).
         self.emit_reserve_map_buckets(true, &scratch14, abi::return_register(), &scratch16);
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&valloc_ok));
         self.emit_allocation_error_return()?;
@@ -661,7 +661,7 @@ impl CodeBuilder<'_> {
         );
         // Reserve the map hash bucket region (x14 = new capacity).
         self.emit_reserve_map_buckets(true, &scratch14, abi::return_register(), &scratch16);
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -886,13 +886,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&skip_put));
-        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64(abi::ARG[0], abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(
-            abi::c_arg(1),
-            abi::c_arg(0),
+            abi::ARG[1],
+            abi::ARG[0],
             COLLECTION_OFFSET_COUNT,
         ));
-        self.emit(abi::subtract_immediate(abi::c_arg(1), abi::c_arg(1), 1)); // new entry index
+        self.emit(abi::subtract_immediate(abi::ARG[1], abi::ARG[1], 1)); // new entry index
         self.emit(abi::branch_link(MAP_BUCKET_PUT_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -1004,7 +1004,7 @@ impl CodeBuilder<'_> {
         );
         // Reserve the map hash bucket region (x12 = total count = capacity).
         self.emit_reserve_map_buckets(true, &scratch12, abi::return_register(), &scratch15);
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -1347,7 +1347,7 @@ impl CodeBuilder<'_> {
         ));
         // Reserve the map hash bucket region (x14 = remaining count = capacity).
         self.emit_reserve_map_buckets(true, &scratch14, abi::return_register(), &scratch16);
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;

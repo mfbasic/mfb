@@ -58,9 +58,9 @@ pub(super) fn lower_tls_connect_openssl(
     // x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName.
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
-        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT_OFFSET),
-        abi::store_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::store_u64(abi::c_arg(3), abi::stack_pointer(), SNAME_OFFSET),
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), PORT_OFFSET),
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::store_u64(abi::ARG[3], abi::stack_pointer(), SNAME_OFFSET),
         // Sentinel-initialise the fd (-1) and the SSL/SSL_CTX slots (0) so the
         // alloc_fail exit can close/free exactly what has been acquired without
         // touching a garbage fd or object (bug-55).
@@ -129,9 +129,9 @@ pub(super) fn lower_tls_connect_openssl(
             abi::stack_pointer(),
             HOSTCSTR_OFFSET,
         ),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
-        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), HINTS_OFFSET),
-        abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), RES_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), HINTS_OFFSET),
+        abi::add_immediate(abi::ARG[3], abi::stack_pointer(), RES_OFFSET),
     ]);
     platform.emit_libc_call(
         "getaddrinfo",
@@ -146,8 +146,8 @@ pub(super) fn lower_tls_connect_openssl(
         // socket(ai_family, ai_socktype, ai_protocol)
         abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
         abi::load_u32(abi::return_register(), "%v9", 4),
-        abi::load_u32(abi::c_arg(1), "%v9", 8),
-        abi::load_u32(abi::c_arg(2), "%v9", 12),
+        abi::load_u32(abi::ARG[1], "%v9", 8),
+        abi::load_u32(abi::ARG[2], "%v9", 12),
     ]);
     platform.emit_libc_call(
         "socket",
@@ -182,8 +182,8 @@ pub(super) fn lower_tls_connect_openssl(
         abi::branch_eq(&blocking_connect),
         // flags = fcntl(fd, F_GETFL, 0)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::move_immediate(abi::c_arg(1), "Integer", "3"),
-        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+        abi::move_immediate(abi::ARG[1], "Integer", "3"),
+        abi::move_immediate(abi::ARG[2], "Integer", "0"),
     ]);
     platform.emit_variadic_call(
         "fcntl",
@@ -210,8 +210,8 @@ pub(super) fn lower_tls_connect_openssl(
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
-        abi::load_u64(abi::c_arg(1), "%v9", addr_off),
-        abi::load_u32(abi::c_arg(2), "%v9", 16),
+        abi::load_u64(abi::ARG[1], "%v9", addr_off),
+        abi::load_u32(abi::ARG[2], "%v9", 16),
     ]);
     platform.emit_libc_call(
         "connect",
@@ -244,8 +244,8 @@ pub(super) fn lower_tls_connect_openssl(
         abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 6),
         abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 7),
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
-        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFFSET),
     ]);
     platform.emit_libc_call(
         "poll",
@@ -265,10 +265,10 @@ pub(super) fn lower_tls_connect_openssl(
         abi::store_u64("%v9", abi::stack_pointer(), SOLEN_OFFSET),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), SOERR_OFFSET),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::move_immediate(abi::c_arg(1), "Integer", platform.sol_socket()),
-        abi::move_immediate(abi::c_arg(2), "Integer", platform.so_error()),
-        abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), SOERR_OFFSET),
-        abi::add_immediate(abi::c_arg(4), abi::stack_pointer(), SOLEN_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", platform.sol_socket()),
+        abi::move_immediate(abi::ARG[2], "Integer", platform.so_error()),
+        abi::add_immediate(abi::ARG[3], abi::stack_pointer(), SOERR_OFFSET),
+        abi::add_immediate(abi::ARG[4], abi::stack_pointer(), SOLEN_OFFSET),
     ]);
     platform.emit_libc_call(
         "getsockopt",
@@ -288,8 +288,8 @@ pub(super) fn lower_tls_connect_openssl(
         // Connected: restore blocking mode with fcntl(fd, F_SETFL, flags).
         abi::label(&nb_connected),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::move_immediate(abi::c_arg(1), "Integer", "4"),
-        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), FLAGS_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", "4"),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), FLAGS_OFFSET),
     ]);
     platform.emit_variadic_call(
         "fcntl",
@@ -304,8 +304,8 @@ pub(super) fn lower_tls_connect_openssl(
         abi::label(&blocking_connect),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
-        abi::load_u64(abi::c_arg(1), "%v9", addr_off),
-        abi::load_u32(abi::c_arg(2), "%v9", 16),
+        abi::load_u64(abi::ARG[1], "%v9", addr_off),
+        abi::load_u32(abi::ARG[2], "%v9", 16),
     ]);
     platform.emit_libc_call(
         "connect",
@@ -506,7 +506,7 @@ pub(super) fn lower_tls_connect_openssl(
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), FD_OFFSET),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), FD_OFFSET),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
         abi::compare_immediate(abi::return_register(), "1"),
@@ -528,8 +528,8 @@ pub(super) fn lower_tls_connect_openssl(
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
-        abi::move_immediate(abi::c_arg(1), "Integer", SSL_VERIFY_PEER),
-        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+        abi::move_immediate(abi::ARG[1], "Integer", SSL_VERIFY_PEER),
+        abi::move_immediate(abi::ARG[2], "Integer", "0"),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
     ]);
@@ -554,7 +554,7 @@ pub(super) fn lower_tls_connect_openssl(
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), SNICSTR_OFFSET),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), SNICSTR_OFFSET),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
         abi::compare_immediate(abi::return_register(), "1"),
@@ -576,16 +576,16 @@ pub(super) fn lower_tls_connect_openssl(
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
-        abi::move_immediate(abi::c_arg(1), "Integer", SSL_CTRL_SET_TLSEXT_HOSTNAME),
-        abi::move_immediate(abi::c_arg(2), "Integer", TLSEXT_NAMETYPE_HOST_NAME),
-        abi::load_u64(abi::c_arg(3), abi::stack_pointer(), SNICSTR_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", SSL_CTRL_SET_TLSEXT_HOSTNAME),
+        abi::move_immediate(abi::ARG[2], "Integer", TLSEXT_NAMETYPE_HOST_NAME),
+        abi::load_u64(abi::ARG[3], abi::stack_pointer(), SNICSTR_OFFSET),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
         // SSL_ctrl(ssl, SSL_CTRL_SET_MIN_PROTO_VERSION, TLS1_2_VERSION, NULL)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
-        abi::move_immediate(abi::c_arg(1), "Integer", SSL_CTRL_SET_MIN_PROTO_VERSION),
-        abi::move_immediate(abi::c_arg(2), "Integer", TLS1_2_VERSION),
-        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
+        abi::move_immediate(abi::ARG[1], "Integer", SSL_CTRL_SET_MIN_PROTO_VERSION),
+        abi::move_immediate(abi::ARG[2], "Integer", TLS1_2_VERSION),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
         // Require the TLS 1.2 floor to have been set (returns 1 on success),
@@ -683,7 +683,7 @@ pub(super) fn lower_tls_connect_openssl(
     // then the TLS tail { ssl, ctx } (plan-80).
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
@@ -1051,10 +1051,10 @@ pub(super) fn lower_tls_listen_openssl(
     // x0 = host; x1 = port; x2 = certPath; x3 = keyPath; x4 = backlog.
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
-        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT_OFFSET),
-        abi::store_u64(abi::c_arg(2), abi::stack_pointer(), CERT_OFFSET),
-        abi::store_u64(abi::c_arg(3), abi::stack_pointer(), KEY_OFFSET),
-        abi::store_u64(abi::c_arg(4), abi::stack_pointer(), BACKLOG_OFFSET),
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), PORT_OFFSET),
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), CERT_OFFSET),
+        abi::store_u64(abi::ARG[3], abi::stack_pointer(), KEY_OFFSET),
+        abi::store_u64(abi::ARG[4], abi::stack_pointer(), BACKLOG_OFFSET),
     ]);
     // Zero a 48-byte hints block; ai_flags = AI_PASSIVE, ai_family = AF_INET,
     // ai_socktype = SOCK_STREAM — the bind/listen resolution mirrors
@@ -1097,9 +1097,9 @@ pub(super) fn lower_tls_listen_openssl(
             abi::stack_pointer(),
             HOSTCSTR_OFFSET,
         ),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
-        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), HINTS_OFFSET),
-        abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), RES_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), HINTS_OFFSET),
+        abi::add_immediate(abi::ARG[3], abi::stack_pointer(), RES_OFFSET),
     ]);
     platform.emit_libc_call(
         "getaddrinfo",
@@ -1114,8 +1114,8 @@ pub(super) fn lower_tls_listen_openssl(
         // socket(ai_family, ai_socktype, ai_protocol)
         abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
         abi::load_u32(abi::return_register(), "%v9", 4),
-        abi::load_u32(abi::c_arg(1), "%v9", 8),
-        abi::load_u32(abi::c_arg(2), "%v9", 12),
+        abi::load_u32(abi::ARG[1], "%v9", 8),
+        abi::load_u32(abi::ARG[2], "%v9", 12),
     ]);
     platform.emit_libc_call(
         "socket",
@@ -1141,10 +1141,10 @@ pub(super) fn lower_tls_listen_openssl(
         abi::move_immediate("%v9", "Integer", "1"),
         abi::store_u64("%v9", abi::stack_pointer(), ONE_OFFSET),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::move_immediate(abi::c_arg(1), "Integer", platform.sol_socket()),
-        abi::move_immediate(abi::c_arg(2), "Integer", platform.so_reuseaddr()),
-        abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), ONE_OFFSET),
-        abi::move_immediate(abi::c_arg(4), "Integer", "4"),
+        abi::move_immediate(abi::ARG[1], "Integer", platform.sol_socket()),
+        abi::move_immediate(abi::ARG[2], "Integer", platform.so_reuseaddr()),
+        abi::add_immediate(abi::ARG[3], abi::stack_pointer(), ONE_OFFSET),
+        abi::move_immediate(abi::ARG[4], "Integer", "4"),
     ]);
     platform.emit_libc_call(
         "setsockopt",
@@ -1157,8 +1157,8 @@ pub(super) fn lower_tls_listen_openssl(
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
-        abi::load_u64(abi::c_arg(1), "%v9", addr_off),
-        abi::load_u32(abi::c_arg(2), "%v9", 16),
+        abi::load_u64(abi::ARG[1], "%v9", addr_off),
+        abi::load_u32(abi::ARG[2], "%v9", 16),
     ]);
     platform.emit_libc_call(
         "bind",
@@ -1174,7 +1174,7 @@ pub(super) fn lower_tls_listen_openssl(
         abi::branch_lt(&op_fail),
         // listen(fd, backlog)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), BACKLOG_OFFSET),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), BACKLOG_OFFSET),
     ]);
     platform.emit_libc_call(
         "listen",
@@ -1285,9 +1285,9 @@ pub(super) fn lower_tls_listen_openssl(
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
-        abi::move_immediate(abi::c_arg(1), "Integer", SSL_CTRL_SET_MIN_PROTO_VERSION),
-        abi::move_immediate(abi::c_arg(2), "Integer", TLS1_2_VERSION),
-        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
+        abi::move_immediate(abi::ARG[1], "Integer", SSL_CTRL_SET_MIN_PROTO_VERSION),
+        abi::move_immediate(abi::ARG[2], "Integer", TLS1_2_VERSION),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
         // Require the TLS 1.2 floor to have been set (returns 1 on success),
@@ -1313,7 +1313,7 @@ pub(super) fn lower_tls_listen_openssl(
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), CERTCSTR_OFFSET),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), CERTCSTR_OFFSET),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
         abi::compare_immediate(abi::return_register(), "1"),
@@ -1335,8 +1335,8 @@ pub(super) fn lower_tls_listen_openssl(
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), KEYCSTR_OFFSET),
-        abi::move_immediate(abi::c_arg(2), "Integer", "1"),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), KEYCSTR_OFFSET),
+        abi::move_immediate(abi::ARG[2], "Integer", "1"),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
         abi::compare_immediate(abi::return_register(), "1"),
@@ -1367,7 +1367,7 @@ pub(super) fn lower_tls_listen_openssl(
     // then the TLS tail { ctx } (plan-80).
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     // The server SSL_CTX already exists here, so an OOM must free it before
     // reporting: `alloc_fail_fd` closes the fd but leaked the context (bug-236).
@@ -1573,7 +1573,7 @@ pub(super) fn lower_tls_accept_openssl(
     let mut relocations = Vec::new();
     // x0 = listener record { fd@0, closed@8, ctx@16 }; x1 = timeoutMs.
     instructions.extend([
-        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTOFLAG),
         abi::load_u64("%v9", abi::return_register(), TLS_LISTENER_OFFSET_CLOSED),
         abi::compare_immediate("%v9", "0"),
@@ -1608,8 +1608,8 @@ pub(super) fn lower_tls_accept_openssl(
         abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 6),
         abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 7),
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
-        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFFSET),
     ]);
     platform.emit_libc_call(
         "poll",
@@ -1627,8 +1627,8 @@ pub(super) fn lower_tls_accept_openssl(
         abi::label(&no_timeout),
         // accept(fd, NULL, NULL)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::move_immediate(abi::ARG[2], "Integer", "0"),
     ]);
     platform.emit_libc_call(
         "accept",
@@ -1694,7 +1694,7 @@ pub(super) fn lower_tls_accept_openssl(
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), CONNFD_OFFSET),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), CONNFD_OFFSET),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
         abi::compare_immediate(abi::return_register(), "1"),
@@ -1809,7 +1809,7 @@ pub(super) fn lower_tls_accept_openssl(
     // free (plan-06-tls-server.md §6.4).
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
@@ -2006,7 +2006,7 @@ pub(super) fn lower_tls_read_openssl(
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     instructions.extend([
-        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MAX_OFFSET),
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), MAX_OFFSET),
         abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
@@ -2017,7 +2017,7 @@ pub(super) fn lower_tls_read_openssl(
         abi::branch_le(&invalid),
         // Allocate a maxBytes read buffer.
         abi::move_register(abi::return_register(), "%v10"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.push(abi::store_u64(
@@ -2052,8 +2052,8 @@ pub(super) fn lower_tls_read_openssl(
     // n = SSL_read(ssl, buf, maxBytes)
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), BUF_OFFSET),
-        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), MAX_OFFSET),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), BUF_OFFSET),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), MAX_OFFSET),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
         // SSL_read returns a C int; sign-extend before the signed 0/<0 tests so a
@@ -2068,7 +2068,7 @@ pub(super) fn lower_tls_read_openssl(
         instructions.extend([
             abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
             abi::add_immediate(abi::return_register(), "%v10", 9),
-            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
         ]);
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
@@ -2091,7 +2091,7 @@ pub(super) fn lower_tls_read_openssl(
             abi::store_u8(abi::ZERO, "%v12", 0),
             abi::load_u64("%v9", abi::stack_pointer(), STR_OFFSET),
             abi::add_immediate(abi::return_register(), "%v9", 8),
-            abi::load_u64(abi::c_arg(1), "%v9", 0),
+            abi::load_u64(abi::ARG[1], "%v9", 0),
         ]);
         emit_call_validate_utf8(symbol, &encoding_error, &mut instructions, &mut relocations);
         instructions.extend([
@@ -2115,7 +2115,7 @@ pub(super) fn lower_tls_read_openssl(
             abi::multiply_registers("%v12", "%v10", "%v11"),
             abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
             abi::add_registers(abi::return_register(), "%v12", "%v10"),
-            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
         ]);
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
@@ -2260,7 +2260,7 @@ pub(super) fn lower_tls_poll_openssl(
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     instructions.extend([
-        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
@@ -2333,8 +2333,8 @@ pub(super) fn lower_tls_poll_openssl(
         abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 7),
         abi::label(&poll_retry),
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
-        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFFSET),
     ]);
     platform.emit_libc_call(
         "poll",
@@ -2446,14 +2446,14 @@ pub(super) fn lower_tls_write_openssl(
     ]);
     if text {
         instructions.extend([
-            abi::load_u64("%v10", abi::c_arg(1), 0),
+            abi::load_u64("%v10", abi::ARG[1], 0),
             abi::store_u64("%v10", abi::stack_pointer(), REMAINING_OFFSET),
-            abi::add_immediate("%v11", abi::c_arg(1), 8),
+            abi::add_immediate("%v11", abi::ARG[1], 8),
             abi::store_u64("%v11", abi::stack_pointer(), SRC_OFFSET),
         ]);
     } else {
         instructions.extend([
-            abi::load_u64("%v10", abi::c_arg(1), COLLECTION_OFFSET_COUNT),
+            abi::load_u64("%v10", abi::ARG[1], COLLECTION_OFFSET_COUNT),
             abi::store_u64("%v10", abi::stack_pointer(), REMAINING_OFFSET),
             // The byte payload begins past the CAPACITY-sized entry array, not the
             // COUNT-sized one: an append-built list carries spare capacity, so
@@ -2463,7 +2463,7 @@ pub(super) fn lower_tls_write_openssl(
         push_collection_data_base_from_capacity(
             &mut instructions,
             "%v11",
-            abi::c_arg(1),
+            abi::ARG[1],
             "%v14",
             "%v12",
             "%v13",
@@ -2501,8 +2501,8 @@ pub(super) fn lower_tls_write_openssl(
         abi::branch_eq(&write_done),
         // n = SSL_write(ssl, src, remaining)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), SRC_OFFSET),
-        abi::move_register(abi::c_arg(2), "%v10"),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), SRC_OFFSET),
+        abi::move_register(abi::ARG[2], "%v10"),
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
         // SSL_write returns a C int; sign-extend before the signed <=0 test (bug-102).

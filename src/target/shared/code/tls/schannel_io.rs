@@ -16,7 +16,7 @@ fn emit_wide_cstring(
     // Allocate 64 KiB (32767 wchars, Windows max) — the serverName is short.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "65536"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "2"),
+        abi::move_immediate(abi::ARG[1], "Integer", "2"),
     ]);
     emit_alloc(symbol, ins, rel, fail);
     ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), out_off));
@@ -28,13 +28,13 @@ fn emit_wide_cstring(
     // body_shift off (a garbage lpWideCharStr scribbled over the socket fd slot).
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "65001"), // 0: CP_UTF8
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),               // 1: dwFlags
-        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), str_off),
-        abi::add_immediate(abi::c_arg(2), abi::c_arg(2), 8),                 // 2: lpMultiByteStr
-        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
-        abi::subtract_immediate(abi::c_arg(3), abi::c_arg(3), 1),           // 3: cbMultiByte=-1
-        abi::load_u64(abi::c_arg(4), abi::stack_pointer(), out_off),       // 4: lpWideCharStr
-        abi::move_immediate(abi::c_arg(5), "Integer", "32768"),           // 5: cchWideChar
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),               // 1: dwFlags
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), str_off),
+        abi::add_immediate(abi::ARG[2], abi::ARG[2], 8),                 // 2: lpMultiByteStr
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1),           // 3: cbMultiByte=-1
+        abi::load_u64(abi::ARG[4], abi::stack_pointer(), out_off),       // 4: lpWideCharStr
+        abi::move_immediate(abi::ARG[5], "Integer", "32768"),           // 5: cchWideChar
     ]);
     sspi_call(symbol, "MultiByteToWideChar", "kernel32.dll", 6, imports, platform, ins, rel)?;
     Ok(())
@@ -111,8 +111,8 @@ fn emit_verify_hostname(
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), state_off),
         abi::add_immediate(abi::return_register(), abi::return_register(), st::CTXT),
-        abi::move_immediate(abi::c_arg(1), "Integer", SECPKG_ATTR_REMOTE_CERT_CONTEXT),
-        abi::add_immediate(abi::c_arg(2), "%v8", CERTCTX),
+        abi::move_immediate(abi::ARG[1], "Integer", SECPKG_ATTR_REMOTE_CERT_CONTEXT),
+        abi::add_immediate(abi::ARG[2], "%v8", CERTCTX),
     ]);
     sspi_call(symbol, "QueryContextAttributesW", SECUR32, 3, imports, platform, ins, rel)?;
     ins.push(abi::branch_lt(fail));
@@ -126,13 +126,13 @@ fn emit_verify_hostname(
         abi::store_u32("%v9", "%v8", CHAINPARA),
         // CertGetCertificateChain(NULL, certCtx, NULL, NULL, &chainPara, 0, NULL, &chainCtx)
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::load_u64(abi::c_arg(1), "%v8", CERTCTX),
-        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
-        abi::add_immediate(abi::c_arg(4), "%v8", CHAINPARA),
-        abi::move_immediate(abi::c_arg(5), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(6), "Integer", "0"),
-        abi::add_immediate(abi::c_arg(7), "%v8", CHAINCTX),
+        abi::load_u64(abi::ARG[1], "%v8", CERTCTX),
+        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::add_immediate(abi::ARG[4], "%v8", CHAINPARA),
+        abi::move_immediate(abi::ARG[5], "Integer", "0"),
+        abi::move_immediate(abi::ARG[6], "Integer", "0"),
+        abi::add_immediate(abi::ARG[7], "%v8", CHAINCTX),
     ]);
     sspi_call(symbol, "CertGetCertificateChain", CRYPT32, 8, imports, platform, ins, rel)?;
     ins.extend([
@@ -161,9 +161,9 @@ fn emit_verify_hostname(
         abi::store_u32("%v9", "%v8", STATUS),
         // CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL, chainCtx, &para, &status)
         abi::move_immediate(abi::return_register(), "Integer", CERT_CHAIN_POLICY_SSL),
-        abi::load_u64(abi::c_arg(1), "%v8", CHAINCTX),
-        abi::add_immediate(abi::c_arg(2), "%v8", POLICYPARA),
-        abi::add_immediate(abi::c_arg(3), "%v8", STATUS),
+        abi::load_u64(abi::ARG[1], "%v8", CHAINCTX),
+        abi::add_immediate(abi::ARG[2], "%v8", POLICYPARA),
+        abi::add_immediate(abi::ARG[3], "%v8", STATUS),
     ]);
     sspi_call(symbol, "CertVerifyCertificateChainPolicy", CRYPT32, 4, imports, platform, ins, rel)?;
     ins.push(abi::compare_immediate(abi::return_register(), "0"));
@@ -285,9 +285,9 @@ pub(super) fn lower_tls_write(
         abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_FD),
         abi::store_u64("%v9", abi::stack_pointer(), FD),
         // data pointer + length: String/List OF Byte both carry [u64 len][bytes].
-        abi::add_immediate("%v10", abi::c_arg(1), 8),
+        abi::add_immediate("%v10", abi::ARG[1], 8),
         abi::store_u64("%v10", abi::stack_pointer(), SRC),
-        abi::load_u64("%v10", abi::c_arg(1), 0),
+        abi::load_u64("%v10", abi::ARG[1], 0),
         abi::store_u64("%v10", abi::stack_pointer(), REMAIN),
         abi::store_u64("%v10", abi::stack_pointer(), ORIGLEN), // result = original length
     ]);
@@ -300,7 +300,7 @@ pub(super) fn lower_tls_write(
         abi::load_u32("%v13", "%v10", st::TRAILER),
         abi::add_registers(abi::return_register(), "%v11", "%v12"),
         abi::add_registers(abi::return_register(), abi::return_register(), "%v13"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), SENDBUF));
@@ -357,9 +357,9 @@ pub(super) fn lower_tls_write(
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE),
         abi::add_immediate(abi::return_register(), abi::return_register(), st::CTXT),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
-        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), DESC),
-        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), DESC),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
     ]);
     sspi_call(symbol, "EncryptMessage", SECUR32, 4, imports, platform, &mut ins, &mut rel)?;
     ins.push(abi::branch_lt(&fail));

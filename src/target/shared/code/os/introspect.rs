@@ -18,7 +18,7 @@ pub(super) fn lower_const_string(symbol: &str, value: &str) -> HelperResult {
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_immediate(abi::return_register(), "Integer", &(len + 9).to_string()),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = Vec::new();
@@ -99,7 +99,7 @@ pub(super) fn lower_cpu_count(
         let count = vregs.next();
         let mut instructions = vec![
             abi::label("entry"),
-            abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 0), // &SYSTEM_INFO
+            abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0), // &SYSTEM_INFO
         ];
         let mut relocations = Vec::new();
         platform.emit_libc_call(
@@ -136,7 +136,7 @@ pub(super) fn lower_cpu_count(
     let count = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::move_immediate(abi::c_arg(0), "Integer", sc_nprocessors_onln),
+        abi::move_immediate(abi::ARG[0], "Integer", sc_nprocessors_onln),
     ];
     let mut relocations = Vec::new();
     platform.emit_libc_call(
@@ -240,8 +240,8 @@ pub(super) fn lower_host_name(
     let buf = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 0),
-        abi::move_immediate(abi::c_arg(1), "Integer", &BUF.to_string()),
+        abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
+        abi::move_immediate(abi::ARG[1], "Integer", &BUF.to_string()),
     ];
     let mut relocations = Vec::new();
     platform.emit_libc_call(
@@ -463,7 +463,7 @@ pub(super) fn lower_args(symbol: &str) -> HelperResult {
         abi::multiply_registers(&scratch, &count, &scratch),
         abi::add_registers(&scratch, &scratch, &data_bytes),
         abi::add_immediate(abi::return_register(), &scratch, COLLECTION_HEADER_SIZE),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(symbol, &mut relocations);

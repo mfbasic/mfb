@@ -30,24 +30,20 @@ pub(super) fn hex_encode_cstring(text: &str) -> String {
 /// Load the address of a read-only data symbol into `dst` (adrp + add).
 pub(super) fn emit_data_address(
     from: &str,
-    // plan-85-B: accept a typed `Operand` (e.g. `abi::c_arg(1)`) as well as a
-    // legacy `&str` token — `&str: Into<Operand>`, so every existing caller is
-    // unchanged and byte-identical.
-    dst: impl Into<Operand>,
+    dst: &str,
     data_symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    let dst = dst.into();
     instructions.push(
         CodeInstruction::new("adrp")
-            .field("dst", &dst)
+            .field("dst", dst)
             .field("symbol", data_symbol),
     );
     instructions.push(
         CodeInstruction::new("add_pageoff")
-            .field("dst", &dst)
-            .field("src", &dst)
+            .field("dst", dst)
+            .field("src", dst)
             .field("symbol", data_symbol),
     );
     relocations.extend([
@@ -104,7 +100,7 @@ pub(super) fn emit_external_int_call(
         .external_int_argument_registers();
     for n in register_args..int_args {
         instructions.push(abi::outgoing_stack_arg_store(
-            abi::c_arg(n as u8),
+            abi::ARG[n],
             n - register_args,
         ));
     }
@@ -165,7 +161,7 @@ pub(super) fn emit_read_byte_list(
         abi::load_u64("%v10", "%v9", COLLECTION_OFFSET_COUNT),
         abi::store_u64("%v10", abi::stack_pointer(), len_off),
         abi::add_immediate(abi::return_register(), "%v10", 1),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
@@ -252,7 +248,7 @@ pub(super) fn emit_build_byte_list(
         abi::multiply_registers("%v12", "%v10", "%v11"),
         abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
         abi::add_registers(abi::return_register(), "%v12", "%v10"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     // `block` names the register the freshly allocated block lives in, which is
