@@ -236,9 +236,17 @@ priority reach (P1s cleared, biggest offenders first). Each gets its own
 > Highest leverage: **B** (biggest single row, cheap), **A** (~11 P1), **C** (7 P1), **D**
 > (map cluster), then **E/F/G/H**.
 
-### Sub-plan A — String-element native collection lowering (split candidate) — **partition + sortBy + sort DONE; rest open**
+### Sub-plan A — String-element native collection lowering (split candidate) — **partition + sortBy + sort (String+fixed-width) DONE; rest open**
 
-**Status (landed this session):** A1-sort complete. `collections::sort` for a String item list is now
+**Status (landed this session):** A1-sort now covers **fixed-width items too**. `collections::sort`
+for `Integer`/`Fixed`/`Money` routes to the same index-permutation merge, branching (`if is_string`) to a
+**signed word compare** + **word-copy gather** (the String path stays byte-identical — the merge and gather
+are unchanged for it). `Float` excluded (NaN order). `list (Fixed)`: `sort_rand` **5.07 → 0.99 ms** (~5×),
+`sort_asc` 0.78, `sort_desc` 0.75 — all now **beat Python** (1.85); checksums identical (232616725) across
+asc/desc/rand. The `sort-string-gather-rt` fixture now also covers Integer (ascending, stable dups, negatives,
+edge cases). See Corrections.
+
+**A1-sort String (landed earlier this session):** `collections::sort` for a String item list is now
 natively lowered by the same **index-permutation gather**, but with **no key function**: the merge
 compares the two source Strings **lexicographically** (`emit_index_string_less_branch` — unsigned bytes
 via `emit_byte_compare_loop`, a proper prefix is the smaller string, equal keeps original order = stable)
@@ -677,9 +685,10 @@ sqrt; float leibniz/nbody/mandelbrot; recurse fib; thread sum; io format; crypto
   from the count (sortBy borrowed that sizing from its `transform`-built keys; `sort` has none). Result:
   `sort_asc` 23.12→2.94, `sort_desc` 22.61→2.82 (both now **beat** Python 3.15), `sort_rand` 29.56→4.53
   (close to Python 3.15). Correctness pinned by the identical `871130213` checksum across all three input
-  orderings (a wrong sort would diverge) plus the `sort-string-gather-rt` fixture. Fixed-width `sort` is
-  still interpreted (`list (Fixed) sort_rand` 5.07, a P1) — extending this native path to fixed-width
-  items (numeric compare instead of byte compare) is a cheap follow-up left open.
+  orderings (a wrong sort would diverge) plus the `sort-string-gather-rt` fixture. **Fixed-width `sort`
+  followed** (same session): `Integer`/`Fixed`/`Money` route to the same merge with a signed word compare
+  + word-copy gather (String path byte-identical), retiring `list (Fixed) sort_rand` (5.07 → 0.99 ms, now
+  beats Python 1.85). `Float` stays interpreted (NaN ordering).
 - **Sub-plan A1: `sortBy` for String uses an index-permutation gather, not an in-place String merge.**
   The plan's A1 offered two routes (data-region-aware element move, or generic get/set on ping-pong
   buffers). As implemented it is a third: sort an **Integer index permutation** with the existing

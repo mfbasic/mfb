@@ -2651,8 +2651,13 @@ impl CodeBuilder<'_> {
         let list_type = source.type_.clone();
         let elem = list_element_type(&list_type)
             .ok_or_else(|| format!("native sort does not accept {list_type}"))?;
-        if elem != "String" {
-            return Err(format!("native sort only supports String items, got {elem}"));
+        // String sorts lexicographically (byte compare + materialized gather);
+        // signed-8-byte fixed-width items (Integer/Fixed/Money) sort by a direct
+        // word compare + word gather. Float is excluded (NaN ordering), matching
+        // `sortBy`'s key restriction.
+        let is_string = elem == "String";
+        if !is_string && !matches!(elem.as_str(), "Integer" | "Fixed" | "Money") {
+            return Err(format!("native sort does not support item type {elem}"));
         }
         let coll_slot = self.allocate_stack_object("sort_coll", 8);
         self.emit(abi::store_u64(&source.location, abi::stack_pointer(), coll_slot));
@@ -2764,8 +2769,37 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ge(&merge_end));
         self.emit(abi::compare_registers(&jj, &hi));
         self.emit(abi::branch_ge(&merge_end));
-        // Decide take_j iff source[its[jj]] < source[its[ii]] lexicographically.
-        self.emit_index_string_less_branch(coll_slot, &its, &ii, &jj, &take_j, &take_i);
+        // Decide take_j iff source[its[jj]] < source[its[ii]].
+        if is_string {
+            self.emit_index_string_less_branch(coll_slot, &its, &ii, &jj, &take_j, &take_i);
+        } else {
+            // Fixed-width: signed word compare of the two source values at the
+            // permuted indices (kind-2, so value i lives at dataBase + i*8).
+            let sb = self.temporary_vreg();
+            let db = self.temporary_vreg();
+            let idx_i = self.temporary_vreg();
+            let idx_j = self.temporary_vreg();
+            let val_i = self.temporary_vreg();
+            let val_j = self.temporary_vreg();
+            let ad = self.temporary_vreg();
+            self.emit(abi::load_u64(&sb, abi::stack_pointer(), coll_slot));
+            self.emit_collection_data_pointer_for(&db, &sb, &elem);
+            self.emit(abi::shift_left_immediate(&ad, &ii, 3));
+            self.emit(abi::add_registers(&ad, &its, &ad));
+            self.emit(abi::load_u64(&idx_i, &ad, 0));
+            self.emit(abi::shift_left_immediate(&ad, &jj, 3));
+            self.emit(abi::add_registers(&ad, &its, &ad));
+            self.emit(abi::load_u64(&idx_j, &ad, 0));
+            self.emit(abi::shift_left_immediate(&ad, &idx_i, 3));
+            self.emit(abi::add_registers(&ad, &db, &ad));
+            self.emit(abi::load_u64(&val_i, &ad, 0));
+            self.emit(abi::shift_left_immediate(&ad, &idx_j, 3));
+            self.emit(abi::add_registers(&ad, &db, &ad));
+            self.emit(abi::load_u64(&val_j, &ad, 0));
+            self.emit(abi::compare_registers(&val_j, &val_i));
+            self.emit(abi::branch_lt(&take_j));
+            self.emit(abi::branch(&take_i));
+        }
         self.emit(abi::label(&take_i));
         // itemsDst[kk] = itemsSrc[ii]
         self.emit(abi::shift_left_immediate(&t0, &ii, 3));
@@ -2835,46 +2869,95 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&outer));
         self.emit(abi::label(&outer_done));
 
-        // Gather: items_slot holds the sorted index permutation; build the String
-        // result by copying source[idx] in order, then free the two index buffers.
+        // Gather: items_slot holds the sorted index permutation; build the result
+        // by copying source[idx] in order, then free the two index buffers.
         let result = self.lower_reserved_list(&list_type, coll_slot)?;
         let result_slot = self.allocate_stack_object("sort_result", 8);
         self.emit(abi::store_u64(&result.location, abi::stack_pointer(), result_slot));
         let gk_slot = self.allocate_stack_object("sort_gather_k", 8);
-        let gitem_slot = self.allocate_stack_object("sort_gather_item", 8);
         let gloop = self.label("sort_gather_loop");
         let gdone = self.label("sort_gather_done");
-        self.emit(abi::move_immediate(&r0, "Integer", "0"));
-        self.emit(abi::store_u64(&r0, abi::stack_pointer(), gk_slot));
-        self.emit(abi::label(&gloop));
-        self.emit(abi::load_u64(&r0, abi::stack_pointer(), gk_slot));
-        self.emit(abi::load_u64(&r1, abi::stack_pointer(), n_slot));
-        self.emit(abi::compare_registers(&r0, &r1));
-        self.emit(abi::branch_ge(&gdone));
-        let gaddr = self.temporary_vreg();
-        let goff = self.temporary_vreg();
-        let gidx = self.temporary_vreg();
-        self.emit(abi::load_u64(&gaddr, abi::stack_pointer(), items_slot));
-        self.emit(abi::add_immediate(&gaddr, &gaddr, COLLECTION_HEADER_SIZE));
-        self.emit(abi::shift_left_immediate(&goff, &r0, 3));
-        self.emit(abi::add_registers(&gaddr, &gaddr, &goff));
-        self.emit(abi::load_u64(&gidx, &gaddr, 0));
-        let gvoff = self.temporary_vreg();
-        let gvlen = self.temporary_vreg();
-        let gscr1 = self.temporary_vreg();
-        let gscr2 = self.temporary_vreg();
-        let gcoll = self.temporary_vreg();
-        self.emit(abi::load_u64(&gcoll, abi::stack_pointer(), coll_slot));
-        self.emit_element_value_offset(&gvoff, &gvlen, &gcoll, &gidx, &gscr1, &gscr2, "String");
-        let gitem = self.emit_load_collection_payload("String", &gcoll, &gvoff, &gvlen)?;
-        self.emit(abi::store_u64(&gitem, abi::stack_pointer(), gitem_slot));
-        self.lower_list_append_in_place(result_slot, gitem_slot, &list_type, "String")?;
-        self.free_collection_loop_item(gitem_slot, "String")?;
-        self.emit(abi::load_u64(&r0, abi::stack_pointer(), gk_slot));
-        self.emit(abi::add_immediate(&r0, &r0, 1));
-        self.emit(abi::store_u64(&r0, abi::stack_pointer(), gk_slot));
-        self.emit(abi::branch(&gloop));
-        self.emit(abi::label(&gdone));
+        if is_string {
+            let gitem_slot = self.allocate_stack_object("sort_gather_item", 8);
+            self.emit(abi::move_immediate(&r0, "Integer", "0"));
+            self.emit(abi::store_u64(&r0, abi::stack_pointer(), gk_slot));
+            self.emit(abi::label(&gloop));
+            self.emit(abi::load_u64(&r0, abi::stack_pointer(), gk_slot));
+            self.emit(abi::load_u64(&r1, abi::stack_pointer(), n_slot));
+            self.emit(abi::compare_registers(&r0, &r1));
+            self.emit(abi::branch_ge(&gdone));
+            let gaddr = self.temporary_vreg();
+            let goff = self.temporary_vreg();
+            let gidx = self.temporary_vreg();
+            self.emit(abi::load_u64(&gaddr, abi::stack_pointer(), items_slot));
+            self.emit(abi::add_immediate(&gaddr, &gaddr, COLLECTION_HEADER_SIZE));
+            self.emit(abi::shift_left_immediate(&goff, &r0, 3));
+            self.emit(abi::add_registers(&gaddr, &gaddr, &goff));
+            self.emit(abi::load_u64(&gidx, &gaddr, 0));
+            let gvoff = self.temporary_vreg();
+            let gvlen = self.temporary_vreg();
+            let gscr1 = self.temporary_vreg();
+            let gscr2 = self.temporary_vreg();
+            let gcoll = self.temporary_vreg();
+            self.emit(abi::load_u64(&gcoll, abi::stack_pointer(), coll_slot));
+            self.emit_element_value_offset(&gvoff, &gvlen, &gcoll, &gidx, &gscr1, &gscr2, "String");
+            let gitem = self.emit_load_collection_payload("String", &gcoll, &gvoff, &gvlen)?;
+            self.emit(abi::store_u64(&gitem, abi::stack_pointer(), gitem_slot));
+            self.lower_list_append_in_place(result_slot, gitem_slot, &list_type, "String")?;
+            self.free_collection_loop_item(gitem_slot, "String")?;
+            self.emit(abi::load_u64(&r0, abi::stack_pointer(), gk_slot));
+            self.emit(abi::add_immediate(&r0, &r0, 1));
+            self.emit(abi::store_u64(&r0, abi::stack_pointer(), gk_slot));
+            self.emit(abi::branch(&gloop));
+            self.emit(abi::label(&gdone));
+        } else {
+            // Fixed-width word gather: result[k] = source[items[k]] (kind-2, so a
+            // value lives at dataBase + i*8). The reserved result starts count 0, so
+            // stamp count = n, dataLength = n*8 after the copy.
+            let gaddr = self.temporary_vreg();
+            let goff = self.temporary_vreg();
+            let gidx = self.temporary_vreg();
+            let gcoll = self.temporary_vreg();
+            let gdb = self.temporary_vreg();
+            let grb = self.temporary_vreg();
+            let grdb = self.temporary_vreg();
+            let gval = self.temporary_vreg();
+            self.emit(abi::move_immediate(&r0, "Integer", "0"));
+            self.emit(abi::store_u64(&r0, abi::stack_pointer(), gk_slot));
+            self.emit(abi::label(&gloop));
+            self.emit(abi::load_u64(&r0, abi::stack_pointer(), gk_slot));
+            self.emit(abi::load_u64(&r1, abi::stack_pointer(), n_slot));
+            self.emit(abi::compare_registers(&r0, &r1));
+            self.emit(abi::branch_ge(&gdone));
+            // idx = items[k]
+            self.emit(abi::load_u64(&gaddr, abi::stack_pointer(), items_slot));
+            self.emit(abi::add_immediate(&gaddr, &gaddr, COLLECTION_HEADER_SIZE));
+            self.emit(abi::shift_left_immediate(&goff, &r0, 3));
+            self.emit(abi::add_registers(&gaddr, &gaddr, &goff));
+            self.emit(abi::load_u64(&gidx, &gaddr, 0));
+            // val = source dataBase + idx*8
+            self.emit(abi::load_u64(&gcoll, abi::stack_pointer(), coll_slot));
+            self.emit_collection_data_pointer_for(&gdb, &gcoll, &elem);
+            self.emit(abi::shift_left_immediate(&goff, &gidx, 3));
+            self.emit(abi::add_registers(&gaddr, &gdb, &goff));
+            self.emit(abi::load_u64(&gval, &gaddr, 0));
+            // result dataBase + k*8 = val
+            self.emit(abi::load_u64(&grb, abi::stack_pointer(), result_slot));
+            self.emit_collection_data_pointer_for(&grdb, &grb, &elem);
+            self.emit(abi::shift_left_immediate(&goff, &r0, 3));
+            self.emit(abi::add_registers(&gaddr, &grdb, &goff));
+            self.emit(abi::store_u64(&gval, &gaddr, 0));
+            self.emit(abi::add_immediate(&r0, &r0, 1));
+            self.emit(abi::store_u64(&r0, abi::stack_pointer(), gk_slot));
+            self.emit(abi::branch(&gloop));
+            self.emit(abi::label(&gdone));
+            // stamp count = n, dataLength = n*8
+            self.emit(abi::load_u64(&grb, abi::stack_pointer(), result_slot));
+            self.emit(abi::load_u64(&r1, abi::stack_pointer(), n_slot));
+            self.emit(abi::store_u64(&r1, &grb, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::shift_left_immediate(&goff, &r1, 3));
+            self.emit(abi::store_u64(&goff, &grb, COLLECTION_OFFSET_DATA_LENGTH));
+        }
         let result_reg = self.allocate_register()?;
         self.emit(abi::load_u64(&result_reg, abi::stack_pointer(), result_slot));
         let threaded = ValueResult {

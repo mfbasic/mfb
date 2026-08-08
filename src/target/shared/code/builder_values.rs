@@ -792,13 +792,14 @@ impl CodeBuilder<'_> {
                         }
                     }
                 }
-                // plan-86 A1: native `collections::sort` for a String item list
-                // (`#collections_sort$String`, 1 arg) — an index-permutation merge
-                // with a lexicographic byte compare. Fixed-width sort has no native
-                // path today, so only String is routed here; the source is lowered
-                // exactly once (no re-lowering), so no re-eval guard is needed.
+                // plan-86 A1: native `collections::sort` (`#collections_sort$T`, 1
+                // arg) — an index-permutation merge. String compares
+                // lexicographically (byte compare + materialized gather);
+                // signed-8-byte fixed-width items (Integer/Fixed/Money) compare by a
+                // direct word compare + word gather. Float is excluded (NaN order).
+                // The source is lowered exactly once, so no re-eval guard is needed.
                 if let Some(t) = target.strip_prefix("#collections_sort$") {
-                    if t == "String" && args.len() == 1 {
+                    if matches!(t, "String" | "Integer" | "Fixed" | "Money") && args.len() == 1 {
                         return self.lower_collection_sort_call(args);
                     }
                 }

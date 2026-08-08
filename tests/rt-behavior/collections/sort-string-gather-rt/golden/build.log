@@ -17,4 +17,8 @@ empty len=0
 one: only|
 src unchanged: c|a|b|
 stress acc=1000
+int: -7|0|1|1|2|3|4|5|
+int rev: 5|6|7|8|9|
+int empty=0
+int one: 42|
 [exit 0]
