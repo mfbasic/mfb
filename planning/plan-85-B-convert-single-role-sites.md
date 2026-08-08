@@ -207,7 +207,40 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+**C1 (plan-85-A, source analysis) — the byte change is ONLY the MFB-result move; arg
+conversions are byte-identical; shared-helper results are cross-file-atomic.**
+
+The aligned realization (`x86_64/select.rs realize_abi_operand`) maps `%argMFB[k]`,
+`%argC[k]`, **and `%retMFB[k]`** all to `call_args[k]` (SysV `[rdi,rsi,rdx,rcx]`, Win64
+`[rcx,rdx,r8,r9]`). Only `%retC` (`rax:rdx`) and `%argSys`/`%retSys` (syscall file) sit
+outside that bank. Consequences for B's sequencing:
+
+- **Arg conversions are byte-identical on every target.** `abi::ARG[k]`/`argument_register(k)`
+  → `%argC[k]` or `%argMFB[k]` both realize to `CALL_ARGS[k]`, which is exactly where the
+  old fixpoint already placed an outgoing arg (before a call) and an incoming arg (at entry).
+  So the `%argC`-vs-`%argMFB` choice is a **documentation** choice, not a byte choice, and
+  arg sites can convert freely per-file with a byte-identical gate on ALL five targets.
+- **The SysV byte change is exactly the MFB-result move `RETS→CALL_ARGS`.** An `abi::RET[k]`/
+  `return_register()`/`RESULT_*_REGISTER` used as an **MFB result** moves
+  `[rax,rdx,rcx,rsi][k]`→`[rdi,rsi,rdx,rcx][k]` (k0 rax→rdi, k1 rdx→rsi, k2 rcx→rdx, k3
+  rsi→rcx). A `RET[0]` used as a **C-call result** (post-`bl`, → `%retC0`) stays `rax` —
+  byte-identical.
+- **Shared-helper results are cross-file ATOMIC.** A result register is fixed by the
+  producer (helper body). A consumer that reads `%retMFB1` (rsi) while the producer still
+  emits the legacy `RET[1]` (fixpoint→rdx) MISMATCHES. So `_mfb_arena_alloc`'s
+  `{tag=RET[0], ptr=RET[1]}` result + its **body** (`entry_and_arena.rs`) + **all ~795
+  read sites** convert as ONE unit; the same holds for every `_mfb_*` helper whose own
+  return is read across files. Per-file commits are fine for **arg** sites and for a
+  helper's **self-contained** result, but a shared-helper result crosses files — group its
+  producer+consumers into one commit (or convert the body last, after all readers, in a
+  tight sequence gated together). This supersedes the flat "commit per file" where a shared
+  result spans files.
+
+Pilot file analysis (`os/env.rs`): arg sites `ARG[0]`/`ARG[1]`/`ARG[2]` feeding
+`pthread_mutex_lock/unlock`, `getenv`/`setenv`/`unsetenv`, `arena_alloc` → `%argC` (all
+byte-identical); `return_register()` post-`emit_libc_call` (getenv/setenv result) → `%retC0`
+(byte-identical, stays rax); `RET[1]` = arena_alloc ptr → `%retMFB1` (atomic with the
+arena_alloc body); `RESULT_*_REGISTER` → left for plan-85-C.
 
 ## Summary
 
