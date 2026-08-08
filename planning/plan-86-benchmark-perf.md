@@ -236,9 +236,24 @@ priority reach (P1s cleared, biggest offenders first). Each gets its own
 > Highest leverage: **B** (biggest single row, cheap), **A** (~11 P1), **C** (7 P1), **D**
 > (map cluster), then **E/F/G/H**.
 
-### Sub-plan A — String-element native collection lowering (split candidate) — **partition + sortBy DONE; rest open**
+### Sub-plan A — String-element native collection lowering (split candidate) — **partition + sortBy + sort DONE; rest open**
 
-**Status (landed this session):** A1-sortBy complete. `collections::sortBy` over a String item list with
+**Status (landed this session):** A1-sort complete. `collections::sort` for a String item list is now
+natively lowered by the same **index-permutation gather**, but with **no key function**: the merge
+compares the two source Strings **lexicographically** (`emit_index_string_less_branch` — unsigned bytes
+via `emit_byte_compare_loop`, a proper prefix is the smaller string, equal keeps original order = stable)
+instead of an 8-byte key word. Since there is no keyFn/`transform` to size the index buffer, a new
+`reserve_integer_index_list(n_slot)` allocates the `n*8` `List OF Integer` buffers from the runtime count.
+Gate: `#collections_sort$String`, 1 arg (source lowered once → no re-eval guard). Fixed-width `sort` has
+no native path either, so only String is routed. Results (median `--run 10`, checksums all `871130213`
+= identical across asc/desc/rand inputs, proving a correct deterministic total order): `sort_asc`
+**23.12 → 2.94**, `sort_desc` **22.61 → 2.82**, `sort_rand` **29.56 → 4.53 ms** (~7–8×); asc/desc now
+**beat Python** (3.15). New `sort-string-gather-rt` golden fixture (prefix ordering `ap<app<apple`,
+stability, lexicographic numeric `"10"<"2"`, empty-strings-first, empty/single, source-immutability,
+1000-call UAF stress). All additive (2 new methods + 1 gate branch); no existing path changed. See
+Corrections.
+
+**A1-sortBy (landed earlier this session):** `collections::sortBy` over a String item list with
 a signed-8-byte key (Integer/Fixed/Money) is now natively lowered via an **index-permutation gather**:
 the 8-byte merge cannot move variable-width String payloads, so the lowering builds the keys with the
 native `transform` (a correctly-sized `List OF Integer`; the manual fixed-width keys-fill cannot size an
@@ -654,6 +669,17 @@ sqrt; float leibniz/nbody/mandelbrot; recurse fib; thread sum; io format; crypto
 
 ## Corrections
 
+- **Sub-plan A1: `sort` had NO native path for ANY type; native String `sort` now clears G1 for asc/desc.**
+  The plan's A note ("`sort_asc/desc/rand` … no native path at all") applied to every element type, not
+  just String — `collections::sort` always ran the interpreted `.mfb` merge. Native String `sort` reuses
+  the sortBy index-permutation + gather, but with a lexicographic byte compare of the two source Strings
+  in the merge (there is no key), and a new `reserve_integer_index_list` to size the `n*8` index buffers
+  from the count (sortBy borrowed that sizing from its `transform`-built keys; `sort` has none). Result:
+  `sort_asc` 23.12→2.94, `sort_desc` 22.61→2.82 (both now **beat** Python 3.15), `sort_rand` 29.56→4.53
+  (close to Python 3.15). Correctness pinned by the identical `871130213` checksum across all three input
+  orderings (a wrong sort would diverge) plus the `sort-string-gather-rt` fixture. Fixed-width `sort` is
+  still interpreted (`list (Fixed) sort_rand` 5.07, a P1) — extending this native path to fixed-width
+  items (numeric compare instead of byte compare) is a cheap follow-up left open.
 - **Sub-plan A1: `sortBy` for String uses an index-permutation gather, not an in-place String merge.**
   The plan's A1 offered two routes (data-region-aware element move, or generic get/set on ping-pong
   buffers). As implemented it is a third: sort an **Integer index permutation** with the existing

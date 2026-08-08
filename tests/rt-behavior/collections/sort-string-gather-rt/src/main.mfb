@@ -1,0 +1,48 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 A1: native `collections::sort` for a String item list. Unlike sortBy
+' there is no key function, so the index-permutation merge compares the source
+' Strings lexicographically (unsigned bytes; a proper prefix is the smaller
+' string; equal strings keep their original order = stable). This fixture pins
+' that the native order matches the interpreted `.mfb` merge sort across the
+' tricky cases, handles the edge cases, and does not leak/UAF across repeats.
+
+FUNC show(s AS List OF String) AS String
+  MUT out AS String = ""
+  FOR i = 0 TO len(s) - 1
+    out = out & collections::get(s, i) & "|"
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main AS Integer
+  ' Prefix ordering + duplicates (stable): ap < app < apple(=apple) < apricot.
+  io::print("prefix: " & show(collections::sort(["apple", "app", "apricot", "ap", "apple"])))
+  ' Already-ascending, descending, and shuffled inputs must all yield one order.
+  io::print("asc:  " & show(collections::sort(["a", "b", "c", "d", "e"])))
+  io::print("desc: " & show(collections::sort(["e", "d", "c", "b", "a"])))
+  io::print("rand: " & show(collections::sort(["c", "a", "e", "b", "d"])))
+  ' Shared prefixes / mixed lengths, with duplicate "b" kept stable.
+  io::print("mixed: " & show(collections::sort(["ba", "b", "bb", "b", "ab", "a"])))
+  ' Empty strings sort first; multi-digit numeric strings sort lexicographically
+  ' ("10" < "2"), matching the .mfb path.
+  io::print("empties: " & show(collections::sort(["x", "", "y", ""])))
+  io::print("numeric: " & show(collections::sort(["2", "10", "1", "20", "100"])))
+  ' Edge cases: empty and single-element.
+  LET es AS List OF String = []
+  io::print("empty len=" & toString(len(collections::sort(es))))
+  io::print("one: " & show(collections::sort(["only"])))
+  ' Source is not mutated.
+  LET base AS List OF String = ["c", "a", "b"]
+  LET sorted AS List OF String = collections::sort(base)
+  io::print("src unchanged: " & show(base))
+  ' Repeated sorts: a UAF/leak would corrupt output or crash.
+  MUT acc AS Integer = 0
+  FOR r = 0 TO 999
+    LET s AS List OF String = collections::sort(["m", "a", "z", "a", "q"])
+    acc = acc + len(collections::get(s, 0))
+  NEXT
+  io::print("stress acc=" & toString(acc))
+  RETURN 0
+END FUNC

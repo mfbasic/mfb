@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/sort-string-gather-rt
+Wrote AST to tests/rt-behavior/collections/sort-string-gather-rt/sort_string_gather_rt.ast
+Wrote IR to tests/rt-behavior/collections/sort-string-gather-rt/sort_string_gather_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/sort-string-gather-rt
+Wrote executable to tests/rt-behavior/collections/sort-string-gather-rt/build/sort_string_gather_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/sort-string-gather-rt/build/sort_string_gather_rt.out
+prefix: ap|app|apple|apple|apricot|
+asc:  a|b|c|d|e|
+desc: a|b|c|d|e|
+rand: a|b|c|d|e|
+mixed: a|ab|b|b|ba|bb|
+empties: ||x|y|
+numeric: 1|10|100|2|20|
+empty len=0
+one: only|
+src unchanged: c|a|b|
+stress acc=1000
+[exit 0]

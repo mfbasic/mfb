@@ -792,6 +792,16 @@ impl CodeBuilder<'_> {
                         }
                     }
                 }
+                // plan-86 A1: native `collections::sort` for a String item list
+                // (`#collections_sort$String`, 1 arg) — an index-permutation merge
+                // with a lexicographic byte compare. Fixed-width sort has no native
+                // path today, so only String is routed here; the source is lowered
+                // exactly once (no re-lowering), so no re-eval guard is needed.
+                if let Some(t) = target.strip_prefix("#collections_sort$") {
+                    if t == "String" && args.len() == 1 {
+                        return self.lower_collection_sort_call(args);
+                    }
+                }
                 // plan-64 C2: native mapValues when the value type is unchanged and
                 // 8-byte fixed-width (`#collections_mapValues$K$V$U`, V == U in
                 // Integer/Float/Fixed/Money). Other instantiations fall through to
