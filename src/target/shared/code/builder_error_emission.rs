@@ -157,12 +157,12 @@ impl CodeBuilder<'_> {
         // clobbering caller-saved registers (the former inline `arena_alloc` did),
         // so the contract is unchanged.
         self.emit(abi::move_immediate(
-            abi::ARG[1],
+            abi::c_arg(1),
             "Integer",
             &self.current_loc.line.to_string(),
         ));
         self.emit(abi::move_immediate(
-            abi::ARG[2],
+            abi::c_arg(2),
             "Integer",
             &self.current_loc.column.to_string(),
         ));
@@ -171,9 +171,9 @@ impl CodeBuilder<'_> {
         let filename = self.current_file.clone();
         if filename.is_empty() {
             let register = self.load_empty_string_constant()?;
-            self.emit(abi::move_register(abi::ARG[0], &register));
+            self.emit(abi::move_register(abi::c_arg(0), &register));
         } else {
-            self.emit_load_string_constant(abi::ARG[0], &filename)?;
+            self.emit_load_string_constant(abi::c_arg(0), &filename)?;
         }
         self.emit(abi::branch_link(BUILD_ERROR_LOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -294,8 +294,8 @@ impl CodeBuilder<'_> {
         // `return_register()` (`%ret0`). Byte-identical (both realize to x0/a0 on
         // AArch64/RISC-V; `map_token_direct(%arg0)=rdi` = the x86 fixpoint's inferred
         // register), and it clears the `builder_error_emission.rs:278` divergence.
-        self.emit(abi::load_u64(abi::ARG[0], abi::stack_pointer(), size_slot));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), size_slot));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -533,25 +533,25 @@ impl CodeBuilder<'_> {
         // inputs and calls. Move the code to its arg slot (x3) first — the code
         // may currently live in one of the other arg registers (the allocation
         // path passes it in x0), so set it before x1/x2/x4/x0 are overwritten.
-        self.emit(abi::move_register(abi::ARG[3], code_register));
+        self.emit(abi::move_register(abi::c_arg(3), code_register));
         self.emit(abi::move_immediate(
-            abi::ARG[1],
+            abi::c_arg(1),
             "Integer",
             &self.current_loc.line.to_string(),
         ));
         self.emit(abi::move_immediate(
-            abi::ARG[2],
+            abi::c_arg(2),
             "Integer",
             &self.current_loc.column.to_string(),
         ));
-        self.emit_load_string_address_into(abi::ARG[4], message)?;
+        self.emit_load_string_address_into(abi::c_arg(4), message)?;
         // x0 = filename String pointer (empty String when the file is unknown).
         let filename = self.current_file.clone();
         if filename.is_empty() {
             let register = self.load_empty_string_constant()?;
-            self.emit(abi::move_register(abi::ARG[0], &register));
+            self.emit(abi::move_register(abi::c_arg(0), &register));
         } else {
-            self.emit_load_string_constant(abi::ARG[0], &filename)?;
+            self.emit_load_string_constant(abi::c_arg(0), &filename)?;
         }
         self.emit(abi::branch_link(MAKE_ERROR_RESULT_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -804,7 +804,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             ptr_slot,
         ));
-        self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), size_slot));
         self.emit_arena_free_call();
         Ok(())
     }

@@ -104,7 +104,7 @@ pub(super) fn emit_external_int_call(
         .external_int_argument_registers();
     for n in register_args..int_args {
         instructions.push(abi::outgoing_stack_arg_store(
-            abi::ARG[n],
+            abi::c_arg(n as u8),
             n - register_args,
         ));
     }
@@ -165,7 +165,7 @@ pub(super) fn emit_read_byte_list(
         abi::load_u64("%v10", "%v9", COLLECTION_OFFSET_COUNT),
         abi::store_u64("%v10", abi::stack_pointer(), len_off),
         abi::add_immediate(abi::return_register(), "%v10", 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
@@ -252,7 +252,7 @@ pub(super) fn emit_build_byte_list(
         abi::multiply_registers("%v12", "%v10", "%v11"),
         abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
         abi::add_registers(abi::return_register(), "%v12", "%v10"),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     // `block` names the register the freshly allocated block lives in, which is

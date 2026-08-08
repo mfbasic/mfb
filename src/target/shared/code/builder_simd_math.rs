@@ -122,8 +122,8 @@ impl CodeBuilder<'_> {
         label_prefix: &str,
     ) -> Result<VirtualRegister, String> {
         // base = _mfb_simd_alloc_list(count, typeCode) → x0 = base, x1 = status.
-        self.emit(abi::move_register(abi::ARG[0], count));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", type_code));
+        self.emit(abi::move_register(abi::c_arg(0), count));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", type_code));
         self.emit(abi::branch_link(SIMD_ALLOC_LIST_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),

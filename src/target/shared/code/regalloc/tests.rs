@@ -406,7 +406,7 @@ fn find_physical_operand_catches_every_class_and_passes_tokens() {
             .field("offset", "16"),
         CodeInstruction::new("mov")
             .field("dst", abi::VEC_SCRATCH[3])
-            .field("src", abi::ARG[0]),
+            .field("src", abi::c_arg(0)),
         CodeInstruction::new("mov")
             .field("dst", abi::MATH_POOL)
             .field("src", abi::CURRENT_THREAD),

@@ -242,6 +242,21 @@ byte-identical); `return_register()` post-`emit_libc_call` (getenv/setenv result
 (byte-identical, stays rax); `RET[1]` = arena_alloc ptr → `%retMFB1` (atomic with the
 arena_alloc body); `RESULT_*_REGISTER` → left for plan-85-C.
 
+**C2 — the 5 `shared/code` `abi::SYSARG[]` sites are NOT genuine syscall args; they are
+`%argC`.** Converting them to `%argSys` (`sys_arg`) hit `realize_abi_operand`'s Win64
+`unreachable!("Win64 emits no syscall boundary")` and crashed `build_project_*` cross-target
+tests. Cause: those sites (`entry.rs:317/404` getentropy via `emit_random_bytes`,
+`entry.rs:817/818` `clock_gettime` via `emit_libc_call`, `arena.rs:1166` munmap/`VirtualFree`
+via `emit_arena_unmap`) feed **platform-abstracted libc/OS calls**, not a raw `svc` — the
+old fixpoint realized their `SYSARG` token by the **Call** boundary (→ `CALL_ARGS`), never
+the syscall file. On SysV `SYS_ARGS[k]==CALL_ARGS[k]` for k≤2 (all these are index 0/1), so
+`%argC` is byte-identical there and is the only token that also works on Win64. Fixed to
+`abi::c_arg(k)`. The genuine `%argSys` (raw `svc`, index-3 `r10` divergence) lives in the
+**Linux platform backends** (`arch/linux_*/code.rs`), outside `shared/code`, so there are
+**zero genuine syscall-arg sites in B's `shared/code` scope** — the census "syscall (5)"
+bucket is entirely `%argC`. `sys_arg`/`sys_return` accessors remain for the Linux-backend
+conversion (a later scope). `grep -rn 'abi::SYSARG\[' src/target/shared/code/` → empty.
+
 ## Summary
 
 B converts the single-role bulk to explicit aligned tokens. It is byte-CHANGING on
