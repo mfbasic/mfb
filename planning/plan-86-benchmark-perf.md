@@ -635,6 +635,16 @@ sqrt; float leibniz/nbody/mandelbrot; recurse fib; thread sum; io format; crypto
   was re-split. B3 was reclassified from "conditional structural note" to **blocked on Sub-plan K**: an
   in-place growing accumulator needs K's uniquely-owned-mutation analysis to make the *user* reducer's
   `acc & s` mutate in place, which "Sub-plan B only" excludes — recorded, not silently skipped.
+- **Acceptance baseline: 5 pre-existing reds, none from Sub-plan B.** The full `scripts/test-accept.sh`
+  on the merged tree reports 5 mismatches — `rt-behavior/tls/tls-connect-google-rt` (network flake),
+  `syntax/app/macos-app-mode-term` (`.ncode` path), and three poll-list diagnostic goldens
+  (`syntax/net/func_net_poll_invalid`, `syntax/tls/poll_invalid`, `syntax/csv/func_csv_parse_invalid`,
+  each stale by a prior `net`/`tls` poll-list overload adding `or List OF RES Socket, Integer` to the
+  expected-arguments string). All 5 were reproduced red at the fork base `2c50e5955` with a
+  base-built binary before any Sub-plan B commit, proving they are pre-existing and outside collections
+  (Sub-plan B touches only `collections`). `scripts/artifact-gate.sh all` is fully green (0 diffs) and
+  the collections behaviour/diagnostic fixtures all pass; the 5 reds are the standing baseline
+  (`[[acceptance-preexisting-reds-baseline]]`), not a regression.
 
 ## Open Decisions
 
