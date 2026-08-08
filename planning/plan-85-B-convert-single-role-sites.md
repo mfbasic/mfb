@@ -167,15 +167,27 @@ convention cannot silently corrupt a C return. `cargo test --bin mfb` green;
 Commit: —
 
 ### Phase 2 — C-boundary + syscall args (`%argC` / `%argSys`) + C-return staging
-- [ ] Convert single-role args feeding `_mfb_*`/arena/`emit_symbol_call` to `%argC`, and
+- [~] Convert single-role args feeding `_mfb_*`/arena/`emit_symbol_call` to `%argC`, and
       syscall args to `%argSys`; insert `%retC`→aligned staging where MFB consumes a C/
       syscall return. Per-file commits.
-- [ ] Gate per commit: Win64/ARM/RISC-V byte-identical; SysV-x86 goldens regenerated (diff
+      — **ARG portion DONE** (`4db1e05a1`): all `abi::ARG[k]` + the 5 `SYSARG[k]` (which are
+      libc-abstracted args, not raw syscalls — Correction C2, so `%argC` not `%argSys`)
+      across all 69 shared/code files → `abi::c_arg(k)`; helper-consumer widenings applied;
+      cargo test 3793/0. Args are byte-identical on ALL targets (they stay in `CALL_ARGS`;
+      the byte change is the *result* move). REMAINING: the `%retC`→aligned staging where
+      an MFB value consumes a C return — that rides with the Phase 3 result conversion (the
+      C-return read is a result-side token).
+- [~] Gate per commit: Win64/ARM/RISC-V byte-identical; SysV-x86 goldens regenerated (diff
       = re-slot only); rt-behavior over the file's area green on a Linux-x86 box.
+      — args grouping gated ONCE (memory `batch-full-gate-per-grouping`): full `bug387-gate.sh
+      full` running (all 5 targets byte-identical expected, since args don't move). No SysV
+      re-slot yet (that's the result grouping).
 
 Acceptance: no single-role C/syscall arg emits a legacy token; four non-SysV targets
 byte-identical; SysV-x86 rt-behavior green; `cargo test --bin mfb` green.
-Commit: —
+— args: no `abi::ARG`/`SYSARG` token remains in shared/code (grep-proven); byte-identical
+verification via the running gate; `cargo test` 3793/0.
+Commit: 4db1e05a1 (args)
 
 ### Phase 3 — results + internal args (`%retMFB` / `%retC` / `%argMFB`) + convergence
 - [ ] Convert single-role result emissions to `%retMFB` (genuine results) / `%retC`
