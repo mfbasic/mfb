@@ -137,3 +137,36 @@ list: `grep -rEc 'RESULT_(TAG|VALUE|ERROR_MESSAGE|ERROR_SOURCE)_REGISTER' src/ta
 
 _(Per-file conversion progress + the per-file audit callee refinement are appended
 here as plan-85-B/C convert each file.)_
+
+## plan-85-B Phase 1 — `%retC` boundary inventory (gathered during plan-85-A)
+
+Enumerated the MFB↔C value crossings (read-only source analysis; the conversion +
+per-boundary fix land in plan-85-B). **204** external/libc/variadic call sites across
+**37** files (`grep -rnE '\.emit_libc_call\(|emit_external_int_call\(|\.emit_variadic_call\('
+src/target/shared/code/ | wc -l` = 204; the 37 files are those calling `emit_libc_call`/
+`emit_external_int_call`/`emit_variadic_call`/`emit_errno`).
+
+**Key finding (confirms the plan's central uncertainty).** `abi::return_register()`
+(= `RET[0]`, AArch64 `x0`) is **dual-role at a C boundary**: e.g. `net/io.rs:203`
+stages the `poll()` **argument** into it *before* `emit_libc_call`, and `net/io.rs:217`
+reads the C **result** from it *after*. On AArch64 both are `x0` so one token sufficed;
+on SysV arg0=`rdi` but the C return=`rax`, which is exactly why `remap_x86_abi` infers
+the role from the call boundary. Under the aligned convention B must split each use:
+
+- `return_register()`/`ARG[k]` **staged before** a C call (an argument) → **`%argC[k]`**
+  (SysV `rdi,rsi,…`).
+- `return_register()`/`RET[0]` **read after** a C call (the C result) → **`%retC0`**
+  (SysV `rax`) — NOT `%retMFB0` (which aligns to `rdi`). A C `int` return is
+  `sign_extend_word`'d in place (`net/io.rs:217`), so the extend's dst/src is `%retC0`.
+- A C result then **moved into MFB's result** (`RESULT_VALUE_REGISTER`/`%retMFB`) needs
+  the explicit `%retC0`→`%retMFB`/`%argMFB` staging move (SysV `mov rdi,rax`).
+
+C-boundary files (the plan-85-B conversion set): `audio/{alsa,macos,windows,windows_io,windows_open}`,
+`crypto`, `crypto_ec/{cng,macos,openssl}`, `datetime`, `entry`, `fs/{atomic,io,mod,paths}`,
+`link_thunk`, `native_helpers`, `net/{io,mod,poll}`, `os/{env,introspect,paths}`, `perf`,
+`stdin_broadcast`, `tls/{macos/*,mod,openssl,schannel*}`, `types`.
+
+> The audit sweep (`MFB_BUG387_AUDIT=1` release build) confirms per-site which `RET[0]`
+> use is the C result (post-call) vs an MFB result; it is **blind to Category-2** same-
+> register reuse, so B reads the pre/post-call position at each site, not the audit's
+> silence (memory `bug387-divergence-audit-blind-to-category2`).
