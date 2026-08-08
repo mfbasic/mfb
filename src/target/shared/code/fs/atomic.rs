@@ -63,7 +63,7 @@ pub(in crate::target::shared::code) fn lower_fs_create_temp_file_helper(
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
         abi::add_immediate(abi::return_register(), &len0, UUID_FILE_EXTRA),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
@@ -103,7 +103,7 @@ pub(in crate::target::shared::code) fn lower_fs_create_temp_file_helper(
     }
     instructions.extend([
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), RANDOM_OFFSET),
-        abi::move_immediate(abi::ARG[1], "Integer", "16"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "16"),
     ]);
     platform.emit_random_bytes(
         symbol,
@@ -138,11 +138,11 @@ pub(in crate::target::shared::code) fn lower_fs_create_temp_file_helper(
         abi::store_u8(abi::ZERO, &cursor, 0),
         abi::move_register(abi::return_register(), &path),
         abi::move_immediate(
-            abi::ARG[1],
+            abi::c_arg(1),
             "Integer",
             temp_file_open_flags(platform.family()),
         ),
-        abi::move_immediate(abi::ARG[2], "Integer", "384"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "384"),
     ]);
     platform.emit_open_file(
         symbol,
@@ -159,7 +159,7 @@ pub(in crate::target::shared::code) fn lower_fs_create_temp_file_helper(
         abi::label(&fd_ok),
         abi::move_register(&fd, abi::return_register()),
         abi::move_immediate(abi::return_register(), "Integer", RESOURCE_RECORD_SIZE),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -426,7 +426,7 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
         abi::add_immediate(abi::return_register(), &len0, 9 + TEMPLATE_SUFFIX.len()),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
@@ -468,7 +468,7 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
     instructions.extend([
         abi::store_u8(abi::ZERO, &dst, 0),
         abi::add_immediate(abi::return_register(), &temp_path, 8),
-        abi::move_immediate(abi::ARG[1], "Integer", &MKTEMPS_SUFFIX_LEN.to_string()),
+        abi::move_immediate(abi::c_arg(1), "Integer", &MKTEMPS_SUFFIX_LEN.to_string()),
     ]);
     platform.emit_mkstemps(
         symbol,
@@ -509,8 +509,8 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
         abi::compare_immediate(&remaining, "0"),
         abi::branch_eq(&write_ok),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_register(abi::ARG[1], &cursor),
-        abi::move_register(abi::ARG[2], &remaining),
+        abi::move_register(abi::c_arg(1), &cursor),
+        abi::move_register(abi::c_arg(2), &remaining),
     ]);
     platform.emit_write(
         symbol,
@@ -565,7 +565,7 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
         abi::branch_lt(&close_error),
         abi::load_u64(abi::return_register(), &temp_path, 0),
         abi::add_immediate(abi::return_register(), abi::return_register(), 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(&mut relocations);
@@ -577,7 +577,7 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
         abi::move_register(&c_temp, abi::RET[1]),
         abi::load_u64(abi::return_register(), &path, 0),
         abi::add_immediate(abi::return_register(), abi::return_register(), 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(&mut relocations);
@@ -618,7 +618,7 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
         abi::label(&c_final_done),
         abi::store_u8(abi::ZERO, &dst, 0),
         abi::move_register(abi::return_register(), &c_temp),
-        abi::move_register(abi::ARG[1], &c_final),
+        abi::move_register(abi::c_arg(1), &c_final),
     ]);
     platform.emit_rename_path(
         symbol,
@@ -683,8 +683,8 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
         abi::label(&dir_open),
         // open(dir, O_RDONLY, 0)
         abi::move_register(abi::return_register(), &c_final),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
     platform.emit_open_file(
         symbol,
@@ -895,7 +895,7 @@ pub(in crate::target::shared::code) fn lower_fs_write_path_helper(
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
         abi::add_immediate(abi::return_register(), &len0, 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
@@ -924,10 +924,10 @@ pub(in crate::target::shared::code) fn lower_fs_write_path_helper(
     );
     instructions.extend([
         abi::move_register(abi::return_register(), &c_path),
-        abi::move_immediate(abi::ARG[1], "Integer", mode_flags),
+        abi::move_immediate(abi::c_arg(1), "Integer", mode_flags),
         // Owner-only create mode (0o600 = 384), not world-readable 0o666
         // (audit-2 OS-01 / bug-184).
-        abi::move_immediate(abi::ARG[2], "Integer", "384"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "384"),
     ]);
     platform.emit_open_file(
         symbol,
@@ -967,8 +967,8 @@ pub(in crate::target::shared::code) fn lower_fs_write_path_helper(
         abi::compare_immediate(&remaining, "0"),
         abi::branch_eq(&write_done),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_register(abi::ARG[1], &cursor),
-        abi::move_register(abi::ARG[2], &remaining),
+        abi::move_register(abi::c_arg(1), &cursor),
+        abi::move_register(abi::c_arg(2), &remaining),
     ]);
     platform.emit_write(
         symbol,
@@ -1142,7 +1142,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
         abi::add_immediate(abi::return_register(), &len0, 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
@@ -1171,8 +1171,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
     );
     instructions.extend([
         abi::move_register(abi::return_register(), &c_path),
-        abi::move_immediate(abi::ARG[1], "Integer", flags.read),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", flags.read),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
     platform.emit_open_file(
         symbol,
@@ -1195,8 +1195,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
         // (glibc: AT_FDCWD → EBADF; musl happened to leave the fd there, which
         // masked the bug). Every sibling seek/read/close site already does this.
         abi::move_register(abi::return_register(), &fd),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::move_immediate(abi::ARG[2], "Integer", "2"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "2"),
     ]);
     platform.emit_seek_file(
         symbol,
@@ -1209,8 +1209,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
         abi::branch_lt(&close_and_read_error),
         abi::move_register(&length, abi::return_register()),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
     platform.emit_seek_file(
         symbol,
@@ -1222,7 +1222,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&close_and_read_error),
         abi::add_immediate(abi::return_register(), &length, 9),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -1252,8 +1252,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
         abi::compare_immediate(&remaining, "0"),
         abi::branch_eq(&read_done),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_register(abi::ARG[1], &cursor),
-        abi::move_register(abi::ARG[2], &remaining),
+        abi::move_register(abi::c_arg(1), &cursor),
+        abi::move_register(abi::c_arg(2), &remaining),
     ]);
     platform.emit_read_file(
         symbol,
@@ -1293,8 +1293,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
     )?;
     let encoding_error = format!("{symbol}_encoding_error");
     instructions.extend([
-        abi::add_immediate(abi::ARG[0], &string, 8),
-        abi::move_register(abi::ARG[1], &length),
+        abi::add_immediate(abi::c_arg(0), &string, 8),
+        abi::move_register(abi::c_arg(1), &length),
     ]);
     emit_call_validate_utf8(symbol, &encoding_error, &mut instructions, &mut relocations);
     instructions.extend([
@@ -1418,7 +1418,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_bytes_path_helper(
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
         abi::add_immediate(abi::return_register(), &len0, 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
@@ -1447,8 +1447,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_bytes_path_helper(
     );
     instructions.extend([
         abi::move_register(abi::return_register(), &c_path),
-        abi::move_immediate(abi::ARG[1], "Integer", flags.read),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", flags.read),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
     platform.emit_open_file(
         symbol,
@@ -1465,7 +1465,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_bytes_path_helper(
         abi::label(&open_ok),
         abi::move_register(&fd, abi::return_register()),
         abi::move_immediate(abi::return_register(), "Integer", RESOURCE_RECORD_SIZE),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));

@@ -432,8 +432,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&block, "0"));
         self.emit(abi::branch_eq(&skip));
         // plan-71-C Family-1a: block ptr is arg 0 of arena-free → `%arg0`.
-        self.emit(abi::move_register(abi::ARG[0], &block));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", size));
+        self.emit(abi::move_register(abi::c_arg(0), &block));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", size));
         self.emit_arena_free_call();
         // Reload: the call above destroyed every caller-saved register.
         let ptr_after = self.allocate_register()?;
@@ -471,7 +471,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             state_slot,
         ));
-        self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), size_slot));
         self.emit_arena_free_call();
         let ptr_after = self.allocate_register()?;
         self.emit(abi::load_u64(

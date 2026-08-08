@@ -197,7 +197,7 @@ impl CodeBuilder<'_> {
         ));
         // allocate output_len + 9 (block header), trapping the header add's wrap.
         self.emit_checked_size_add_immediate(abi::return_register(), output_len, 9, &overflow);
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -454,7 +454,7 @@ impl CodeBuilder<'_> {
             &scratch15,
             &overflow,
         );
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -974,8 +974,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(cursor, abi::stack_pointer(), start_slot));
 
         // plan-71-C Family-1a: alloc size is arg 0 of the arena-alloc call → `%arg0`.
-        self.emit(abi::add_immediate(abi::ARG[0], length, 9));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::add_immediate(abi::c_arg(0), length, 9));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -1210,8 +1210,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&validate_done));
         self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));
         // plan-71-C Family-1a: alloc size is arg 0 of the arena-alloc call → `%arg0`.
-        self.emit(abi::add_immediate(abi::ARG[0], length, 9));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::add_immediate(abi::c_arg(0), length, 9));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -1437,7 +1437,7 @@ impl CodeBuilder<'_> {
             total_len.clone(),
             9,
         ));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(alloc_ok));
         self.emit_allocation_error_return()?;
@@ -1939,8 +1939,8 @@ impl CodeBuilder<'_> {
         precision_register: impl Into<Operand>,
     ) -> Result<ValueResult, String> {
         let alloc_ok = self.label("float_string_alloc_ok");
-        self.emit(abi::move_register(abi::ARG[0], source_register));
-        self.emit(abi::move_register(abi::ARG[1], precision_register));
+        self.emit(abi::move_register(abi::c_arg(0), source_register));
+        self.emit(abi::move_register(abi::c_arg(1), precision_register));
         self.emit(abi::branch_link(FLOAT_TO_STRING_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),

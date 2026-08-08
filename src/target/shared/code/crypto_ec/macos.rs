@@ -103,7 +103,7 @@ fn dlopen_one(
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
     emit_data_address(symbol, abi::return_register(), path_symbol, ins, rel);
-    ins.push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
+    ins.push(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
     platform.emit_libc_call("dlopen", symbol, imports, ins, rel)?;
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), handle_off),
@@ -132,7 +132,7 @@ fn dlsym_into(
         abi::stack_pointer(),
         handle_off,
     ));
-    emit_data_address(symbol, abi::ARG[1], &sym(name), ins, rel);
+    emit_data_address(symbol, abi::c_arg(1), &sym(name), ins, rel);
     platform.emit_libc_call("dlsym", symbol, imports, ins, rel)?;
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
@@ -316,11 +316,11 @@ fn build_dict2(
     )?;
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), scratch_off),
-        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), scratch_off + 16),
-        abi::move_immediate(abi::ARG[3], "Integer", "2"),
-        abi::load_u64(abi::ARG[4], abi::stack_pointer(), scratch_off + 32),
-        abi::load_u64(abi::ARG[5], abi::stack_pointer(), scratch_off + 40),
+        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), scratch_off),
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), scratch_off + 16),
+        abi::move_immediate(abi::c_arg(3), "Integer", "2"),
+        abi::load_u64(abi::c_arg(4), abi::stack_pointer(), scratch_off + 32),
+        abi::load_u64(abi::c_arg(5), abi::stack_pointer(), scratch_off + 40),
     ]);
     call_fn(fn_off, ins);
     ins.push(abi::store_u64(
@@ -437,8 +437,8 @@ fn generate(
     )?;
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::move_immediate(abi::ARG[1], "Integer", CF_NUMBER_INT_TYPE),
-        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), NUMVAL),
+        abi::move_immediate(abi::c_arg(1), "Integer", CF_NUMBER_INT_TYPE),
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), NUMVAL),
     ]);
     call_fn(FN, &mut ins);
     ins.push(abi::store_u64(
@@ -530,11 +530,11 @@ fn generate(
     )?;
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), KEYS),
-        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), VALS),
-        abi::move_immediate(abi::ARG[3], "Integer", "2"),
-        abi::load_u64(abi::ARG[4], abi::stack_pointer(), KEYCB),
-        abi::load_u64(abi::ARG[5], abi::stack_pointer(), VALCB),
+        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), KEYS),
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), VALS),
+        abi::move_immediate(abi::c_arg(3), "Integer", "2"),
+        abi::load_u64(abi::c_arg(4), abi::stack_pointer(), KEYCB),
+        abi::load_u64(abi::c_arg(5), abi::stack_pointer(), VALCB),
     ]);
     call_fn(FN, &mut ins);
     ins.push(abi::store_u64(
@@ -557,7 +557,7 @@ fn generate(
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), DICT),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
     call_fn(FN, &mut ins);
     ins.extend([
@@ -580,7 +580,7 @@ fn generate(
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), KEY),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
     call_fn(FN, &mut ins);
     ins.extend([
@@ -702,7 +702,7 @@ fn sign(
     // Stash the two collection arguments before anything clobbers x0/x1.
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PRIVCOLL),
-        abi::store_u64(abi::ARG[1], abi::stack_pointer(), MSGCOLL),
+        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MSGCOLL),
     ]);
     // Zero the CF object slots and the private-scalar scratch pointer so the
     // error-exit cleanup can null-guard each CFRelease / wipe (bug-55).
@@ -815,8 +815,8 @@ fn sign(
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PRIVDATA),
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), DICT),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), DICT),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
     call_fn(FN, &mut ins);
     ins.extend([
@@ -852,9 +852,9 @@ fn sign(
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), KEY),
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), ALGO),
-        abi::load_u64(abi::ARG[2], abi::stack_pointer(), MSGDATA),
-        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), ALGO),
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), MSGDATA),
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
     call_fn(FN, &mut ins);
     ins.extend([
@@ -990,8 +990,8 @@ fn verify(
 
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PUBCOLL),
-        abi::store_u64(abi::ARG[1], abi::stack_pointer(), MSGCOLL),
-        abi::store_u64(abi::ARG[2], abi::stack_pointer(), SIGCOLL),
+        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MSGCOLL),
+        abi::store_u64(abi::c_arg(2), abi::stack_pointer(), SIGCOLL),
     ]);
     // Zero the CF object slots so the error-exit cleanup can null-guard each
     // CFRelease (the frame is not zero-initialised) — bug-55.
@@ -1123,8 +1123,8 @@ fn verify(
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PUBDATA),
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), DICT),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), DICT),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
     call_fn(FN, &mut ins);
     ins.extend([
@@ -1160,10 +1160,10 @@ fn verify(
     )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), KEY),
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), ALGO),
-        abi::load_u64(abi::ARG[2], abi::stack_pointer(), MSGDATA),
-        abi::load_u64(abi::ARG[3], abi::stack_pointer(), SIGDATA),
-        abi::move_immediate(abi::ARG[4], "Integer", "0"),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), ALGO),
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), MSGDATA),
+        abi::load_u64(abi::c_arg(3), abi::stack_pointer(), SIGDATA),
+        abi::move_immediate(abi::c_arg(4), "Integer", "0"),
     ]);
     call_fn(FN, &mut ins);
     // Normalise the CF `Boolean` (a 0/1 byte with unspecified upper bits) to a
@@ -1242,8 +1242,8 @@ fn emit_cfdata_create(
 ) {
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), buf_off),
-        abi::load_u64(abi::ARG[2], abi::stack_pointer(), len_off),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), buf_off),
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), len_off),
     ]);
     call_fn(fn_off, ins);
     ins.push(abi::store_u64(

@@ -507,7 +507,7 @@ impl CodeBuilder<'_> {
                         "Integer",
                         &env_size,
                     ));
-                    self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+                    self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
                     self.emit_arena_alloc_call();
                     self.emit(abi::branch_eq(&alloc_ok));
                     self.emit_allocation_error_return()?;
@@ -542,11 +542,11 @@ impl CodeBuilder<'_> {
                 let alloc_ok = self.label("closure_alloc_ok");
                 // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
                 self.emit(abi::move_immediate(
-                    abi::ARG[0],
+                    abi::c_arg(0),
                     "Integer",
                     &CLOSURE_OBJECT_SIZE.to_string(),
                 ));
-                self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+                self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
                 self.emit_arena_alloc_call();
                 self.emit(abi::branch_eq(&alloc_ok));
                 self.emit_allocation_error_return()?;
@@ -1287,7 +1287,7 @@ impl CodeBuilder<'_> {
                     "Integer",
                     &union_size.to_string(),
                 ));
-                self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+                self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
                 self.emit_arena_alloc_call();
                 self.emit(abi::branch_eq(&alloc_ok));
                 self.emit_allocation_error_return()?;
@@ -1396,7 +1396,7 @@ impl CodeBuilder<'_> {
                     "Integer",
                     &union_size.to_string(),
                 ));
-                self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+                self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
                 self.emit_arena_alloc_call();
                 self.emit(abi::branch_eq(&alloc_ok));
                 self.emit_allocation_error_return()?;

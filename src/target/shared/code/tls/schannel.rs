@@ -134,7 +134,7 @@ pub(crate) fn data_objects() -> Vec<CodeDataObject> {
 
 fn wide_addr(
     from: &str,
-    dst: &str,
+    dst: impl Into<Operand>,
     id: &str,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
@@ -162,7 +162,7 @@ fn sspi_call(
         ins.push(abi::subtract_stack(frame));
         for i in 0..stack {
             ins.push(abi::store_u64(
-                abi::ARG[4 + i],
+                abi::c_arg((4 + i) as u8),
                 abi::stack_pointer(),
                 0x20 + i * 8,
             ));

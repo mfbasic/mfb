@@ -26,7 +26,7 @@ pub(in crate::target::shared::code) fn lower_fs_exists_helper(
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::add_immediate(abi::return_register(), &len0, 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
@@ -136,7 +136,7 @@ pub(in crate::target::shared::code) fn lower_fs_kind_exists_helper(
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::add_immediate(abi::return_register(), &len0, 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
@@ -183,7 +183,7 @@ pub(in crate::target::shared::code) fn lower_fs_kind_exists_helper(
     );
     instructions.extend([
         abi::move_register(abi::return_register(), &alloc),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), STAT_OFFSET),
+        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), STAT_OFFSET),
     ]);
     platform.emit_path_stat(
         symbol,
@@ -256,7 +256,7 @@ pub(in crate::target::shared::code) fn lower_fs_current_directory_helper(
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_immediate(abi::return_register(), "Integer", GETCWD_CAPACITY),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
@@ -267,7 +267,7 @@ pub(in crate::target::shared::code) fn lower_fs_current_directory_helper(
         abi::label(&temp_alloc_ok),
         abi::move_register(&buffer, abi::RET[1]),
         abi::move_register(abi::return_register(), abi::RET[1]),
-        abi::move_immediate(abi::ARG[1], "Integer", GETCWD_CAPACITY),
+        abi::move_immediate(abi::c_arg(1), "Integer", GETCWD_CAPACITY),
     ]);
     platform.emit_current_directory(
         symbol,
@@ -291,7 +291,7 @@ pub(in crate::target::shared::code) fn lower_fs_current_directory_helper(
         abi::branch(&count_loop),
         abi::label(&count_done),
         abi::add_immediate(abi::return_register(), &length, 9),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -371,7 +371,7 @@ pub(in crate::target::shared::code) fn lower_fs_temp_directory_helper(
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_immediate(abi::return_register(), "Integer", TEMP_CAPACITY),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
@@ -382,7 +382,7 @@ pub(in crate::target::shared::code) fn lower_fs_temp_directory_helper(
         abi::label(&temp_alloc_ok),
         abi::move_register(&buffer, abi::RET[1]),
         abi::move_register(abi::return_register(), abi::RET[1]),
-        abi::move_immediate(abi::ARG[1], "Integer", TEMP_CAPACITY),
+        abi::move_immediate(abi::c_arg(1), "Integer", TEMP_CAPACITY),
     ]);
     platform.emit_temp_directory(
         symbol,
@@ -409,7 +409,7 @@ pub(in crate::target::shared::code) fn lower_fs_temp_directory_helper(
         abi::branch_le(&read_error),
         abi::move_register(&length, abi::return_register()),
         abi::add_immediate(abi::return_register(), abi::return_register(), 9),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -497,7 +497,7 @@ pub(in crate::target::shared::code) fn lower_fs_path_operation_helper(
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid_path),
         abi::add_immediate(abi::return_register(), &len0, 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
@@ -625,7 +625,7 @@ pub(in crate::target::shared::code) fn lower_fs_create_directories_helper(
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid_path),
         abi::add_immediate(abi::return_register(), &len0, 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
@@ -865,7 +865,7 @@ pub(in crate::target::shared::code) fn lower_fs_list_directory_helper(
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
         abi::add_immediate(abi::return_register(), &len0, 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
@@ -962,7 +962,7 @@ pub(in crate::target::shared::code) fn lower_fs_list_directory_helper(
         abi::multiply_registers(&scratch, &count, &scratch),
         abi::add_registers(&scratch, &scratch, &data_len),
         abi::add_immediate(abi::return_register(), &scratch, COLLECTION_HEADER_SIZE),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(&mut relocations);
@@ -1196,7 +1196,7 @@ pub(in crate::target::shared::code) fn lower_fs_canonical_path_helper(
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
         abi::add_immediate(abi::return_register(), &len0, 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
@@ -1235,7 +1235,7 @@ pub(in crate::target::shared::code) fn lower_fs_canonical_path_helper(
             "Integer",
             &PATH_MAX_PLUS_NUL.to_string(),
         ),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -1246,7 +1246,7 @@ pub(in crate::target::shared::code) fn lower_fs_canonical_path_helper(
         abi::label(&buffer_alloc_ok),
         abi::move_register(&buffer, abi::RET[1]),
         abi::move_register(abi::return_register(), &c_path),
-        abi::move_register(abi::ARG[1], &buffer),
+        abi::move_register(abi::c_arg(1), &buffer),
     ]);
     platform.emit_realpath(
         symbol,
@@ -1269,7 +1269,7 @@ pub(in crate::target::shared::code) fn lower_fs_canonical_path_helper(
         abi::branch(&length_loop),
         abi::label(&length_done),
         abi::add_immediate(abi::return_register(), &length, 9),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -1394,7 +1394,7 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
         abi::compare_immediate(&len, "0"),
         abi::branch_eq(&invalid),
         abi::add_immediate(abi::return_register(), &len, 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
@@ -1428,7 +1428,7 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
         abi::compare_immediate(&len, "0"),
         abi::branch_eq(&invalid),
         abi::add_immediate(abi::return_register(), &len, 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(&mut relocations);
@@ -1460,7 +1460,7 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
             "Integer",
             &PATH_MAX_PLUS_NUL.to_string(),
         ),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(&mut relocations);
@@ -1475,7 +1475,7 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
             "Integer",
             &PATH_MAX_PLUS_NUL.to_string(),
         ),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(&mut relocations);
@@ -1486,7 +1486,7 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
         abi::label(&child_buffer_alloc_ok),
         abi::move_register(&child_buffer, abi::RET[1]),
         abi::move_register(abi::return_register(), &c_base),
-        abi::move_register(abi::ARG[1], &base_buffer),
+        abi::move_register(abi::c_arg(1), &base_buffer),
     ]);
     platform.emit_realpath(
         symbol,
@@ -1500,7 +1500,7 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
         abi::branch(&realpath_error),
         abi::label(&base_realpath_ok),
         abi::move_register(abi::return_register(), &c_child),
-        abi::move_register(abi::ARG[1], &child_buffer),
+        abi::move_register(abi::c_arg(1), &child_buffer),
     ]);
     platform.emit_realpath(
         symbol,
@@ -1665,7 +1665,7 @@ pub(in crate::target::shared::code) fn lower_fs_path_join_helper() -> CodeFuncti
         abi::label(&length_done),
         abi::add_registers(abi::return_register(), &total, &count),
         abi::add_immediate(abi::return_register(), abi::return_register(), 9),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
