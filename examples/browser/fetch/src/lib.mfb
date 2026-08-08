@@ -63,7 +63,11 @@ FUNC resolveLocation(base AS net::Url, loc AS String) AS String
   LET target AS String = strings::trim(loc)
   IF strings::contains(target, "://") THEN RETURN target
   LET authority AS String = base.scheme & "://" & base.host & ":" & toString(base.port)
-  IF strings::startsWith(target, "/") THEN RETURN authority & target
+  IF strings::startsWith(target, "//") THEN 
+    RETURN base.scheme & ":" & target
+  ELSEIF strings::startsWith(target, "/") THEN 
+    RETURN authority & target
+  END IF
   MUT dir AS String = base.path
   LET slash AS Integer = lastSlash(dir)
   IF slash >= 0 THEN

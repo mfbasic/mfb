@@ -394,6 +394,18 @@ impl CodeBuilder<'_> {
                             // is now an alias and registers no static cleanup.
                             let collection = collection.clone();
                             self.emit_owned_list_push(&collection, stack_offset)?;
+                            // The floated record is aliased from a producer temp
+                            // (`local $src`) when a fallible producer used an inline
+                            // `TRAP` — the desugar's `$trap_valN` is not a `RES`
+                            // name, so the escape analysis leaves it owning a close
+                            // at *its* (inner loop) scope. Ownership has floated to
+                            // `collection`; drop the source's close so the record is
+                            // closed once by the owned-list drain, not prematurely at
+                            // each loop iteration (a floated handle would otherwise be
+                            // closed while the collection still held it).
+                            if let Some(NirValue::Local(src)) = value {
+                                self.deactivate_resource_cleanup(src);
+                            }
                         } else if aliases_live_resource
                             && (self.resource_cleanup_symbol(type_).is_some()
                                 || self.resource_union_cleanup(type_).is_some())

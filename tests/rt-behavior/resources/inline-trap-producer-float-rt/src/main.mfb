@@ -1,0 +1,35 @@
+IMPORT collections
+IMPORT fs
+IMPORT io
+
+' A fallible resource producer with an inline TRAP, inside a loop, whose handle
+' is appended to an outer-scope List. The TRAP desugars the producer to
+' `bind $trap_valN = fs::openFile(...); bind f = local $trap_valN`, so the real
+' record is owned by the temp `$trap_valN` — a name the escape analysis never
+' floats. It kept a `ResOwner::Local` close at the loop-body scope and closed the
+' handle on every iteration, even though `f` floats the same record up to the
+' List's scope (§15.6). The List then held a closed handle: a plain resource read
+' back "already closed", and a resource union (e.g. http::Stream) SIGSEGV'd
+' reading STATE through the closed/null record (the browser CSS-download crash).
+'
+' Counting the List is not enough — the handles must actually be USED after the
+' loop to prove they stayed open, matching inline-trap-collection-escape-rt.
+FUNC main AS Integer
+  MUT handles AS List OF RES File = []
+  MUT i AS Integer = 0
+  WHILE i < 3
+    RES f AS File = fs::openFile("tests/rt-behavior/resources/inline-trap-producer-float-rt/src/main.mfb") TRAP(e)
+      CONTINUE WHILE
+    END TRAP
+    handles = collections::append(handles, f)
+    i = i + 1
+  END WHILE
+  io::print("opened=" & toString(len(handles)))
+  MUT read AS Integer = 0
+  FOR EACH h IN handles
+    LET line AS String = fs::readLine(h)
+    read = read + 1
+  NEXT
+  io::print("read=" & toString(read))
+  RETURN 0
+END FUNC

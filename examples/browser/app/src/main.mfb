@@ -229,10 +229,12 @@ SUB drawChrome(size AS TermSize, addressMode AS Boolean, rawMode AS Boolean, url
   term::setBackground(0, 0, 0)
   term::setForeground(255, 255, 255)
 
-  ' Cursor: visible at the end of the URL while editing, hidden otherwise. Each
-  ' scalar (the emoji included) is one cell on the term:: grid.
+  ' Cursor: visible at the end of the URL while editing, hidden otherwise. The
+  ' column is the on-screen width of the prefix plus URL, not their scalar count:
+  ' the indicator emoji (🔒/🔓) is one scalar but occupies two terminal cells, so
+  ' `len` would place the cursor one cell short — on the last letter, not past it.
   IF addressMode THEN
-    LET curCol AS Integer = minOf(len(hrefPrefix) + len(url), cols - 1)
+    LET curCol AS Integer = minOf(strings::displayWidth(hrefPrefix) + strings::displayWidth(url), cols - 1)
     term::moveTo(0, curCol)
     term::showCursor()
   ELSE
