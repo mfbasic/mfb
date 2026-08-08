@@ -280,7 +280,19 @@ payload to the result's data region and store its offset) rather than an 8-byte 
   gate: the per-group `list (Dynamic)` checksums (order-sensitive for the sort rows) unchanged +
   `scripts/artifact-gate.sh` + `tests/` collections + a String-element acceptance fixture per op.
 
-### Sub-plan B — reduce/reduceRight accumulator (highest ROI)
+### Sub-plan B — reduce/reduceRight accumulator (highest ROI) — **DONE (B1+B2; B3 deferred to K)**
+
+**Status (landed this session):** B1 + B2 complete and verified. B1 eliminated the native-`reduce`
+accumulator/item leak; a focused heavy-fold probe (400-elem `List OF String`, 400 folds) dropped
+peak RSS from **869,908,480 → 3,702,784 bytes (~235×)** and wall time from **0.34 s → 0.18 s
+(~1.9×)** with byte-identical output (`total=1076000`), measured new-binary vs the pre-change `main`
+tip `840945e5f`. B2 made `reduceRight` native (reverse-walk twin of `reduce`, sharing B1's
+aliasing-safe reclamation) and deleted the interpreted `__collections_reduceRight` `.mfb` body.
+Acceptance fixtures: `tests/rt-behavior/collections/reduce-accumulator-reclaim-rt` (both directions,
+every aliasing shape, 500-round UAF stress) and `tests/syntax/collections/func_collection_reduceRight_invalid`;
+the pre-existing `hof-string-item-lifetime-rt` still pins the reducer-adopts-item case (`reduce-alias
+= fghi`). B3 is **not** in the B execution order (it is conditional and depends on Sub-plan K's
+uniquely-owned-mutation infrastructure) — see the B3 bullet. See Corrections.
 
 **Covers (2 P1, biggest ms):** list (Dynamic) reduce (3048), reduceRight (877).
 
@@ -299,17 +311,35 @@ transient-churn penalty on top of the concat — the reason native `reduce` (304
 than interpreted `reduceRight` (877)** doing the identical fold.
 
 **Fixes (semantics-preserving).**
-- **B1 (biggest, cheap):** free the *previous* accumulator when it is provably not the item and
+- **B1 (biggest, cheap) — DONE:** free the *previous* accumulator when it is provably not the item and
   not aliased into the new result — i.e. when the reducer's output is a fresh allocation distinct
   from both inputs (the String-concat case). A scope-drop of the superseded accumulator each
   iteration removes the leak; expect reduce → ≈ reduceRight (877) or better. Reuses the escape
   reasoning in `[[nir-visitor-exhaustive-escape-analysis]]`.
-- **B2:** native `reduceRight` mirroring `reduce` (with B1's free) — removes the interpreted per-
-  element overhead.
-- **B3 (structural note):** the residual O(n²) concat is the fair floor; an in-place growing
-  accumulator (append the item's bytes to a uniquely-owned `acc` in place) would make it O(n) but
-  overlaps **K** (COW / uniquely-owned mutation) — only pursue if B1 leaves a gap to Python.
-- Order: B1 → B2. Gate: `list (Dynamic) reduce`/`reduceRight` checksums unchanged + a reducer-
+  *Landed:* `lower_collection_reduce_impl` now tracks accumulator ownership at runtime (the seed
+  starts not-owned so it is never freed / never double-freed) and each success iteration frees the
+  superseded item and accumulator, guarded by runtime pointer-equality against the item and the old
+  accumulator. Value semantics guarantees a returned String never *partially* aliases an input, so
+  pointer equality is an exact, sufficient aliasing test — the bug-307 adopt-item / return-acc cases
+  stay safe. The failure path still frees nothing (`emit_callback_failure_exit(None)`); it leaks at
+  most one in-flight item/accumulator on the rare error path.
+- **B2 — DONE:** native `reduceRight` mirroring `reduce` (with B1's free) — removes the interpreted per-
+  element overhead. *Landed:* `lower_collection_reduce_right_call` shares `lower_collection_reduce_impl`
+  with a `reverse` flag; new `initialize_collection_loop_slots_reverse` / `advance_collection_loop_reverse`
+  walk the cursor from the last element to the first (`reduceRight(xs,i,f) == reduce` over the
+  reverse-iterated elements with the same `FUNC(U,T) AS U`). `reduceRight` moved from the source-generic
+  `FUNCTIONS` list to `NATIVE_MEMBERS` (descriptor + resolver + `native_builtin_target` +
+  `inline_builtin_raw_supported` + both `builder_values.rs` dispatch sites), and the `.mfb` body was
+  deleted; its man citations repoint to the native lowering.
+- **B3 (structural note) — DEFERRED (depends on K):** the residual O(n²) concat is the fair floor; an
+  in-place growing accumulator (append the item's bytes to a uniquely-owned `acc` in place) would make
+  it O(n) but **overlaps K** (COW / uniquely-owned mutation). The reducer's `acc & s` is *user* code, so
+  making its `&` mutate in place requires K's general uniquely-owned-mutation analysis — infrastructure a
+  separate sub-plan owns and this "Sub-plan B only" scope excludes. B3 is explicitly outside the B
+  execution order (below) and the plan gates it on "only pursue if B1 leaves a gap to Python"; B's own
+  acceptance criterion (checksums + UAF fixture + artifact-gate) does not require Python parity. Track
+  with K.
+- Order: B1 → B2 (**both landed**). Gate: `list (Dynamic) reduce`/`reduceRight` checksums unchanged + a reducer-
   aliases-item acceptance fixture (prove no UAF) + `scripts/artifact-gate.sh`.
 
 ### Sub-plan C — native set-algebra builders + in-place add (split candidate)
@@ -588,6 +618,23 @@ sqrt; float leibniz/nbody/mandelbrot; recurse fib; thread sum; io format; crypto
 - Codegen changes: `scripts/artifact-gate.sh` (byte-deterministic 4-target self-diff — do NOT run
   concurrently with another gate, `[[no-concurrent-artifact-gate]]`). Math changes:
   `tools/math-kernels/runtime_ulp.py`.
+
+## Corrections
+
+- **Sub-plan B (B1+B2) landed this session; B3 deferred to K.** The plan framed B1 as "free the
+  *previous* accumulator … via a scope-drop / `[[nir-visitor-exhaustive-escape-analysis]]`". As
+  implemented it is a **runtime** reclamation, not a compile-time escape analysis: because the reducer
+  is an opaque function value, whether its output aliases the item or the accumulator is only knowable
+  at run time, so the lowering emits pointer-equality guards (`new == item?`, `new == old_acc?`) plus a
+  per-accumulator ownership flag (seed = not-owned). This is stronger than the plan's "provably distinct"
+  wording (which implied a static proof) and is what makes the bug-307 adopt-item case safe without a
+  UAF. B2's `reduceRight` migration from source-generic to native touched more seams than "mirror reduce"
+  implied — descriptor authority, resolver, `native_builtin_target`, `inline_builtin_raw_supported`, two
+  `builder_values.rs` dispatch sites, `.mfb` body deletion, and man-citation repointing (the
+  `man_citations_resolve` unit test caught the dangling `__collections_reduceRight` citation). No scope
+  was re-split. B3 was reclassified from "conditional structural note" to **blocked on Sub-plan K**: an
+  in-place growing accumulator needs K's uniquely-owned-mutation analysis to make the *user* reducer's
+  `acc & s` mutate in place, which "Sub-plan B only" excludes — recorded, not silently skipped.
 
 ## Open Decisions
 
