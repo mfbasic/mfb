@@ -3491,7 +3491,11 @@ impl CodeBuilder<'_> {
 
             // Spill the reducer output; the frees below clobber every caller-saved
             // register (the `arena_free` call), so `new` must live in a slot.
-            self.emit(abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), new_slot));
+            self.emit(abi::store_u64(
+                RESULT_VALUE_REGISTER,
+                abi::stack_pointer(),
+                new_slot,
+            ));
 
             // new_owned = (new == old_acc) ? old_owned : 1.
             //   - fresh result  → we own it (free it next iteration / not at all if final)
@@ -3503,12 +3507,24 @@ impl CodeBuilder<'_> {
             let owned_done = self.label("reduce_new_owned_done");
             self.emit(abi::move_immediate(&r_owned, "Integer", "1"));
             self.emit(abi::load_u64(&r_new, abi::stack_pointer(), new_slot));
-            self.emit(abi::load_u64(&r_acc, abi::stack_pointer(), accumulator_slot));
+            self.emit(abi::load_u64(
+                &r_acc,
+                abi::stack_pointer(),
+                accumulator_slot,
+            ));
             self.emit(abi::compare_registers(&r_new, &r_acc));
             self.emit(abi::branch_ne(&owned_done));
-            self.emit(abi::load_u64(&r_owned, abi::stack_pointer(), acc_owned_slot));
+            self.emit(abi::load_u64(
+                &r_owned,
+                abi::stack_pointer(),
+                acc_owned_slot,
+            ));
             self.emit(abi::label(&owned_done));
-            self.emit(abi::store_u64(&r_owned, abi::stack_pointer(), new_owned_slot));
+            self.emit(abi::store_u64(
+                &r_owned,
+                abi::stack_pointer(),
+                new_owned_slot,
+            ));
 
             // Free the loop item unless the reducer adopted it as the new
             // accumulator (item == new). Only String items own a standalone block;
@@ -3548,10 +3564,22 @@ impl CodeBuilder<'_> {
             // Commit the new accumulator and its ownership for the next iteration.
             let r_commit = self.temporary_vreg();
             self.emit(abi::load_u64(&r_commit, abi::stack_pointer(), new_slot));
-            self.emit(abi::store_u64(&r_commit, abi::stack_pointer(), accumulator_slot));
+            self.emit(abi::store_u64(
+                &r_commit,
+                abi::stack_pointer(),
+                accumulator_slot,
+            ));
             let r_commit_owned = self.temporary_vreg();
-            self.emit(abi::load_u64(&r_commit_owned, abi::stack_pointer(), new_owned_slot));
-            self.emit(abi::store_u64(&r_commit_owned, abi::stack_pointer(), acc_owned_slot));
+            self.emit(abi::load_u64(
+                &r_commit_owned,
+                abi::stack_pointer(),
+                new_owned_slot,
+            ));
+            self.emit(abi::store_u64(
+                &r_commit_owned,
+                abi::stack_pointer(),
+                acc_owned_slot,
+            ));
         } else {
             self.emit(abi::store_u64(
                 RESULT_VALUE_REGISTER,
@@ -3916,7 +3944,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&coll, abi::stack_pointer(), collection_slot));
         self.emit(abi::load_u64(&count, &coll, COLLECTION_OFFSET_COUNT));
         // last index = count - 1; last-element byte offset = (count - 1) * stride.
-        self.emit(abi::move_immediate(&stride_reg, "Integer", &stride.to_string()));
+        self.emit(abi::move_immediate(
+            &stride_reg,
+            "Integer",
+            &stride.to_string(),
+        ));
         self.emit(abi::subtract_immediate(&index, &count, 1));
         self.emit(abi::multiply_registers(&offset, &index, &stride_reg));
         if kind2_payload_size(element_type).is_some() {
