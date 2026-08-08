@@ -328,9 +328,10 @@ compile-time allocation reduction, no output effect). Win64/AArch64/RISC-V byte-
 
 Acceptance: `cargo test --bin mfb operand:: abi::` green; no emission site changed;
 `bug387-gate.sh full` byte-identical (five targets). — cargo tests green (57 passed);
-byte-identity deferred to the single full gate at A finalization (Phase 1+2 are both
-dormant primitives, so one release rebuild + gate covers both — memory
-`dont-run-full-gate-per-phase`).
+**`bug387-gate.sh target/release/mfb full` = PASS byte-identical on ALL 5 targets**
+(app-ncode + linux-x86_64 1354 / windows 644 / riscv64 1352 / aarch64 1354 executables),
+verified against the serial fresh baselines. Confirms the dormant primitive emits zero
+byte change.
 Commit: 817ddd32b
 
 ### Phase 2 — aligned typed realization (all four backends) + the direct-realize seam
@@ -358,17 +359,29 @@ Commit: 817ddd32b
 
 Acceptance: realization tests green on all four backends; `bug387-gate.sh full`
 byte-identical (five targets — nothing emits `Operand::Abi` yet). — realization tests
-green; byte-identity run as the single full gate at A finalization (below).
-Commit: —
+green (all four backends); **`bug387-gate.sh full` = PASS byte-identical on all 5 targets**
+(same run as Phase 1; Phase 1+2 are both dormant, one gate covers both).
+Commit: f19a18bbf
 
 ### Phase 3 — per-operand census work-list
 - [x] ~~Measure the split-deciding distribution~~ — done during planning
       (`planning/plan-85-census.md`: 884 / ~4,008 / 16, with commands).
-- [ ] Append the per-`file:line` target token + justifying callee/boundary from the
+- [x] Append the per-`file:line` target token + justifying callee/boundary from the
       `MFB_BUG387_AUDIT=1` `@src` sweep on a release build — the B and C work-lists.
+      — Ran the sweep over 135 error-path fixtures on the A-only (byte-identical) release
+      binary: 14,748 `BUG387-MISMATCH` lines across **273 distinct `@src` sites**, saved to
+      `plan-85-audit-src.txt` and summarized in `plan-85-census.md` (§"MFB_BUG387_AUDIT @src
+      sweep results"). The divergences are exactly the byte-changing MFB-result sites
+      (`builder_error_emission.rs` dominant → C; entry/io_stdout/collection result staging →
+      B); arg sites do not diverge (confirms Correction C1's byte-identical args). Combined
+      with the complete grep work-list (`plan-85-worklist.md`), every site has a target token
+      justified by its callee/boundary.
 
 Acceptance: `planning/plan-85-census.md` carries a complete per-`file:line` work-list;
 every site has a target token justified by its callee/boundary; counts carry commands.
+— MET: `plan-85-worklist.md` (complete per-`file:line` enumeration, all categories, with
+generating commands) + the `@src` sweep (273 divergent sites confirming the byte-changing
+subset) + the deterministic target-token rule + per-file distribution, all in the census.
 Commit: —
 
 ## Validation Plan

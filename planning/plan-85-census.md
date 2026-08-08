@@ -135,6 +135,34 @@ Single-role **ret** (`abi::RET[`/`return_register()`) — top files: `tls/openss
 42, `builder_error_emission.rs` 36, `term.rs` 32, `runtime_helpers.rs` 30, … (full
 list: `grep -rEc 'RESULT_(TAG|VALUE|ERROR_MESSAGE|ERROR_SOURCE)_REGISTER' src/target/shared/code/ | grep -v ':0$' | sort -t: -k2 -rn`).
 
+### MFB_BUG387_AUDIT @src sweep results (plan-85-A Phase 3, on the A-only release build)
+
+Ran `MFB_BUG387_AUDIT=1 target/release/mfb build -target linux-x86_64 <fixture>` over
+**135 error-path fixtures** (`tests/rt-error/**` + `tests/syntax/app/**`) on the byte-identical
+A-only release binary. Result: **14,748 `BUG387-MISMATCH` lines across 273 distinct `@src`
+sites** — the sites where the fixpoint's role inference *disagrees* with the context-free
+`map_token_direct`, i.e. the genuinely **byte-changing MFB-result** conversion targets
+(the `%argC`/incoming-arg sites do NOT diverge — they already agree, confirming Correction
+C1's "args are byte-identical"). Top divergence sites saved to `plan-85-audit-src.txt`;
+aggregated by file (top-40 by fixture frequency):
+
+- **`builder_error_emission.rs` (19 of the top sites)** — the error-Result production/park/
+  spill path → **plan-85-C** (`RESULT_*_REGISTER` → `%retMFB[0..3]`). By far the dominant
+  divergence (the `:88`/`:104`/`:106`/`:90` spill-register moves alone are ~4,000 lines).
+- **`entry.rs` / `process_lifecycle.rs` (7 sites)** — entry/exit result staging (the
+  `main` return → exit-arg boundary) → **plan-85-B**.
+- **`io_stdout.rs` (5), `builder_collection_layout.rs` (3), `builder_inplace_assign.rs` (2),
+  `builder_strings.rs`, `error_result.rs`, `crypto_ec/openssl.rs`, `arena.rs`** — MFB-result
+  reads (arena_alloc `RET[1]`, helper own-returns) → **plan-85-B** (the cross-file atomic
+  result move, Correction C1).
+
+This confirms the split: the divergences (byte-changing sites) are the MFB-result
+convention — error-Result (C) + result staging/reads (B) — while the arg sites are
+byte-identical (no divergence), so the args batch converts freely and the result move is
+the byte-changing core. The `@src` sweep is blind to Category-2 (memory
+`bug387-divergence-audit-blind-to-category2`), so it under-reports same-register result→arg
+reuse; the grep work-list (`plan-85-worklist.md`) remains the complete site enumeration.
+
 _(Per-file conversion progress + the per-file audit callee refinement are appended
 here as plan-85-B/C convert each file.)_
 
