@@ -1,0 +1,48 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 C2: `s = collections::add(s, x)` on a uniquely-owned MUT Set mutates the
+' live buffer in place (skips lower_set_add's whole-set copy), making the
+' interpreted set-algebra bodies O(n) instead of O(n²). This fixture pins the
+' correctness properties the in-place path must preserve: value semantics (a bind
+' aliases nothing — the source of an algebra op is never mutated), idempotence,
+' and correctness across a large self-assign loop that forces geometric growth.
+
+FUNC show(s AS Set OF Integer) AS String
+  MUT sorted AS List OF Integer = collections::sort(collections::toList(s))
+  MUT out AS String = ""
+  FOR i = 0 TO len(sorted) - 1
+    out = out & toString(collections::get(sorted, i)) & ","
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main AS Integer
+  LET a AS Set OF Integer = collections::toSet([1, 2, 3, 4, 5])
+  LET b AS Set OF Integer = collections::toSet([4, 5, 6, 7])
+  io::print("union=" & show(collections::union(a, b)))
+  io::print("inter=" & show(collections::intersection(a, b)))
+  io::print("diff=" & show(collections::difference(a, b)))
+  io::print("symdiff=" & show(collections::symmetricDifference(a, b)))
+  ' Value semantics: the algebra ops must NOT mutate their operands.
+  io::print("a after=" & show(a) & " b after=" & show(b))
+  ' Idempotent add: re-adding present elements changes nothing.
+  MUT s AS Set OF Integer = collections::toSet([10, 20])
+  s = collections::add(s, 10)
+  s = collections::add(s, 20)
+  s = collections::add(s, 30)
+  io::print("idempotent=" & show(s))
+  ' Aliasing: binding does not share the buffer (in-place add on the copy leaves
+  ' the original untouched).
+  LET orig AS Set OF Integer = collections::toSet([1, 2])
+  MUT copy AS Set OF Integer = orig
+  copy = collections::add(copy, 3)
+  io::print("orig=" & show(orig) & " copy=" & show(copy))
+  ' Large self-assign loop forces geometric growth; a stale pointer would corrupt.
+  MUT big AS Set OF Integer = Set OF Integer { }
+  FOR i = 0 TO 999
+    big = collections::add(big, i MOD 250)
+  NEXT
+  io::print("big size=" & toString(len(big)))
+  RETURN 0
+END FUNC

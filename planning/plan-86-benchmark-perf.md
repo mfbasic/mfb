@@ -411,7 +411,25 @@ than interpreted `reduceRight` (877)** doing the identical fold.
 - Order: B1 → B2 (**both landed**). Gate: `list (Dynamic) reduce`/`reduceRight` checksums unchanged + a reducer-
   aliases-item acceptance fixture (prove no UAF) + `scripts/artifact-gate.sh`.
 
-### Sub-plan C — native set-algebra builders + in-place add (split candidate)
+### Sub-plan C — native set-algebra builders + in-place add (split candidate) — **DONE via C2 alone; C1 proven unnecessary**
+
+**Status (landed this session):** C2 (in-place `MUT` set `add`) complete — and it **retired all 7 P1 rows
+by itself**, so C1 (native one-pass builders) is proven unnecessary (not a guess: the ≤5 ms results
+below clear the "≤5 ms = complete" override). A new `try_inplace_set_add_assign`
+(`builder_inplace_assign.rs`, wired into the `builder_control.rs` assign-dispatch chain) recognizes
+`name = collections::add(name, x)` on a uniquely-owned `MUT` Set local and inserts into the live buffer
+via `lower_map_set_in_place`, skipping `lower_set_add`'s `copy_collection_tight`. That whole-set copy
+(and the bucket-index rebuild it forced) is what made the interpreted algebra bodies
+(`union`/`toSet`/`intersection`/`difference`/`symmetricDifference`, each a `FOR EACH … result = add(result,
+x)` loop) O(n²); in place, each add is amortized O(1) → the whole op is O(n). It is the exact set-add
+sibling of the landed list-append-in-place path. Results (median `--run 10`, checksums unchanged):
+set (Fixed) **union 110.7 → 0.69**, **symmetricDifference 70.4 → 1.10**, **toSet 69.2 → 1.03**,
+**intersection 17.1 → 0.54**, **difference 17.0 → 0.53**; set (Dynamic) **union 7.43 → 0.17**,
+**add 5.07 → 0.046** — all now **≤ 5 ms = complete**. Correctness: `set-algebra-rt` + `set-behavior-rt`
+pass with unchanged goldens; new `set-inplace-add-rt` fixture pins value semantics (a bind copies — an
+in-place add on the copy leaves the original untouched: `orig=1,2 copy=1,2,3`), idempotence, and a
+1000-add geometric-growth loop. Gate-clean: no byte-identity fixture exercises set algebra, so the scoped
+collections gate is 0-diff (no `.ncodesum` regen). See Corrections.
 
 **Covers (7 P1):** set (Fixed) union (110), symmetricDifference (70), toSet (69), intersection
 (17), difference (17); set (Dynamic) union (7.4), add (5.07). All min≈median ⇒ genuine O(n²).
@@ -690,6 +708,15 @@ sqrt; float leibniz/nbody/mandelbrot; recurse fib; thread sum; io format; crypto
 
 ## Corrections
 
+- **Sub-plan C: C2 (in-place set `add`) alone retired all 7 P1 rows; C1 (native builders) is unnecessary.**
+  The plan ordered C1 (native one-pass builders) first as "biggest" and C2 (in-place add) second. In
+  practice the O(n²) was **entirely** the whole-set copy inside `add` — the interpreted
+  `FOR EACH … result = add(result, x)` bodies are already the right algorithm, just quadratic because each
+  `add` copied. Making `add` in-place (the C2 sibling of the landed list-append-in-place path, ~80 LOC)
+  dropped every set-algebra op to ≤ 1.1 ms (union 110 → 0.69), clearing the "≤ 5 ms = complete" bar for
+  all 7 P1s. So C1's separate native builders would be pure redundancy — **proven** unnecessary by
+  measurement, not skipped on a hunch. The set (Fixed)/(Dynamic) `State-*` matrix rows (whole-record
+  rebuild) still stand; C2 helps their `add` but the STATE-mutation cost is the bug-430 residual.
 - **Sub-plan A3: the `flatten` benchmark row is `chunks`-bound, not `flatten`-bound.** The scored row is
   `len(flatten(chunks(base, 10)))` — it first builds 100 nested String lists via the **interpreted**
   `collections::chunks` (String `chunks` is not native), then flattens. Native `flatten` (inline-inner
