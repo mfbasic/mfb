@@ -159,39 +159,73 @@ all-resource, never mixed — rule `TYPE_MIXED_RESOURCE_UNION`) is
 
 ## Resource Record
 
-Every resource value is a pointer to an **80-byte arena record**. The size is
+Every resource value is a pointer to a **96-byte arena record**. The size is
 uniform across resource kinds — `File`, `Socket`, `Listener`, `TlsSocket`,
 `AudioInput`, a native `LINK` resource — so the generic thread-transfer copy and
 the closed-default record stay one implementation. A kind that needs fewer words
 carries the rest inertly.
 
+Offsets `0..32` are a **single canonical header** shared by every built-in and
+package resource (plan-80); the type-specific tail starts at `+32`. Before
+plan-80 the header diverged after offset 8 and `STATE` lived at 16, which the
+TLS/audio backends already used for `SSL*`/dispatch-queue/sample-rate fields — so
+a union `STATE` over a `TlsSocket` clobbered a live field. The unified header
+gives the generic `STATE` payload (plan-74) a free slot in *every* layout.
+
 ```text
-ResourceRecord (80 bytes, alignment 8)
-  +0   U64  handle    ; the OS handle (fd, socket, or native pointer)
-  +8   U64  flags     ; flag SET, not a boolean — see below
-  +16  U64  state     ; pointer to the STATE payload, 0 until initialized
-  +24  U64  bufPtr    ; per-File output buffer (plan-14-B), 0 = unbuffered
-  +32  U64  bufFilled ; bytes currently held in bufPtr
-  +40  U64  bufEnabled; 0 on every freshly opened handle
-  +48  U64  readPtr   ; per-File read buffer (plan-14-C), 0 until first read
-  +56  U64  readPos   ; next unconsumed byte offset within readPtr
-  +64  U64  readFill  ; valid bytes in readPtr
-  +72  U64  readAtEof ; set once the underlying read() returned 0
+ResourceRecord (96 bytes, alignment 8)
+  ; --- canonical header (every resource, offsets 0..32) ---
+  +0   U64  tag       ; resource type id, self-describing (plan-80); 0 = invalid
+  +8   U64  handle    ; polymorphic: fd / connection ptr / audio kind / native ptr
+  +16  U64  closed    ; flag SET, not a boolean — see below
+  +24  U64  state     ; pointer to the STATE payload, 0 until initialized
+  ; --- type-specific tail (offsets 32+; File shown) ---
+  +32  U64  bufPtr    ; per-File output buffer (plan-14-B), 0 = unbuffered
+  +40  U64  bufFilled ; bytes currently held in bufPtr
+  +48  U64  bufEnabled; 0 on every freshly opened handle
+  +56  U64  readPtr   ; per-File read buffer (plan-14-C), 0 until first read
+  +64  U64  readPos   ; next unconsumed byte offset within readPtr
+  +72  U64  readFill  ; valid bytes in readPtr
+  +80  U64  readAtEof ; set once the underlying read() returned 0
 ```
 
-`flags` at **offset 8 is a compiler-enforced invariant**, not a convention: bit 0
-is `closed`, bit 1 is `moved`, and 62 bits are spare. Every guard tests the word
-for *non-zero* rather than for `== 1`, so a moved record already refuses every
-operation with no extra code; only a path that must distinguish
-`ErrResourceMoved` from `ErrResourceClosed` reads the individual bits. A
-closed-default record is 80 zeroed bytes with this word set to 1. Compile-time
-asserts tie every per-backend resource layout to this offset, so a future
-resource whose closed flag drifts off offset 8 fails to build.
-[[src/target/shared/code/error_constants.rs:RESOURCE_RECORD_SIZE_BYTES]] [[src/target/shared/code/error_constants.rs:RESOURCE_OFFSET_CLOSED]] [[src/target/shared/code/error_constants.rs:RESOURCE_MOVED_BIT]]
+The File tail is the widest, ending at offset 88; the record is rounded up to 96
+(a 16-byte multiple, with one slot of headroom). `tag` at `+0` makes a record
+self-describing, though close dispatch itself stays compile-time-resolved by the
+static resource type. `0x00` is never a live record (uninitialized/invalid); a
+value `< 0xFE` keys a built-in resource; an imported/native `LINK` resource
+carries `RESOURCE_TAG_NATIVE`:
+
+| Tag | Constant                    | Resource kind                       |
+|-----|-----------------------------|-------------------------------------|
+| 0   | *(none)*                    | uninitialized / invalid             |
+| 1   | `RESOURCE_TAG_FILE`         | `File`                              |
+| 2   | `RESOURCE_TAG_SOCKET`       | TCP `Socket`                        |
+| 3   | `RESOURCE_TAG_UDP_SOCKET`   | UDP socket                          |
+| 4   | `RESOURCE_TAG_LISTENER`     | TCP `Listener`                      |
+| 5   | `RESOURCE_TAG_TLS_OPENSSL`  | `TlsSocket` (OpenSSL backend)       |
+| 6   | `RESOURCE_TAG_TLS_MACOS`    | `TlsSocket` (Network.framework)     |
+| 7   | `RESOURCE_TAG_TLS_SCHANNEL` | `TlsSocket` (Windows SChannel)      |
+| 8   | `RESOURCE_TAG_TLS_LISTENER` | TLS listener                        |
+| 9   | `RESOURCE_TAG_AUDIO`        | audio input/output                  |
+| 255 | `RESOURCE_TAG_NATIVE`       | imported / native `LINK` resource   |
+
+[[src/target/shared/code/error_constants.rs:RESOURCE_TAG_FILE]]
+
+`closed` at **offset 16 is a compiler-enforced invariant**, not a convention: it
+is a u64 flag *set*, not a boolean — bit 0 is `closed`, bit 1 is `moved`, and 62
+bits are spare. Every guard tests the word for *non-zero* rather than for `== 1`,
+so a moved record already refuses every operation with no extra code; only a path
+that must distinguish `ErrResourceMoved` from `ErrResourceClosed` reads the
+individual bits (a moved record is flagged `moved|closed` = 3). A closed-default
+record is 96 zeroed bytes with this word set to 1. Compile-time asserts tie every
+per-backend resource layout to the header offsets, so a future resource whose
+`closed`/`STATE` slot drifts fails to build.
+[[src/target/shared/code/error_constants.rs:RESOURCE_RECORD_SIZE_BYTES]] [[src/target/shared/code/error_constants.rs:RESOURCE_OFFSET_TAG]] [[src/target/shared/code/error_constants.rs:RESOURCE_OFFSET_CLOSED]] [[src/target/shared/code/error_constants.rs:RESOURCE_OFFSET_STATE]] [[src/target/shared/code/error_constants.rs:RESOURCE_MOVED_BIT]]
 
 Every pointer to a resource shares the one record, and therefore shares the `state`
 pointer. Scope-drop reclaims the two buffers and the `STATE` payload but leaves
-the 80-byte record itself as a tombstone carrying the flags — see
+the 96-byte record itself as a tombstone carrying the flags — see
 `./mfb spec memory arenas`.
 
 ## See Also
