@@ -1946,15 +1946,19 @@ impl CodeBuilder<'_> {
         })
     }
 
-    /// plan-64 D4: native `collections::partition` for **8-byte fixed-width
-    /// elements** (Integer/Float/Fixed/Money). Splits the source into
-    /// `matched`/`unmatched` in a single predicate pass — exactly like the `.mfb`
-    /// `__collections_partition`, but without the per-element `collections::get`
-    /// copy and indirect-append churn — then builds the `Partition OF T` record by
-    /// inlining both flat lists once (the same `emit_build_inlined_record` the
-    /// interpreted `Partition[matched, unmatched]` constructor uses, so the record
-    /// bytes are constructed identically). String/Scalar/Byte elements fall through
-    /// to the `.mfb` version at the dispatch gate.
+    /// plan-64 D4 / plan-86 A2: native `collections::partition` for **8-byte
+    /// fixed-width elements** (Integer/Float/Fixed/Money) and for **String**.
+    /// Splits the source into `matched`/`unmatched` in a single predicate pass —
+    /// exactly like the `.mfb` `__collections_partition`, but without the
+    /// per-element `collections::get` copy and indirect-append churn — then builds
+    /// the `Partition OF T` record by inlining both flat lists once (the same
+    /// `emit_build_inlined_record` the interpreted `Partition[matched, unmatched]`
+    /// constructor uses, so the record bytes are constructed identically). String
+    /// items are read through `load_collection_loop_item` (materializes an owned
+    /// block), written through `lower_list_append_in_place` (copies the bytes into
+    /// the destination data region), and the materialized item is freed after the
+    /// append (plan-86 A2, mirroring `filter`). Scalar/Byte elements fall through to
+    /// the `.mfb` version at the dispatch gate.
     pub(super) fn lower_collection_partition_call(
         &mut self,
         args: &[NirValue],
@@ -2091,7 +2095,15 @@ impl CodeBuilder<'_> {
             element_type,
         )?;
         self.emit(abi::label(&after_append));
-        // Fixed-width elements allocate nothing per item, so no `free_collection_loop_item`.
+        // bug-307 (plan-86 A2): freed after the append on purpose, mirroring
+        // `lower_collection_filter_call`. `lower_list_append_in_place` COPIES the
+        // String's bytes into the destination's packed data region rather than
+        // storing the pointer, so the materialized source block is dead on both the
+        // matched and unmatched paths — which is why the free sits at `after_append`,
+        // covering both. A no-op for fixed-width elements (they materialize nothing).
+        // `item_slot` already holds the pointer (stored before the predicate call),
+        // so it survives both appends.
+        self.free_collection_loop_item(item_slot, element_type)?;
         self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, element_type);
         self.emit(abi::label(&done));
 

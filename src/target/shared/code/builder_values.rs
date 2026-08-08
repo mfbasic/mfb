@@ -859,11 +859,16 @@ impl CodeBuilder<'_> {
                         }
                     }
                 }
-                // plan-64 D4: native partition for 8-byte fixed-width elements
-                // (`#collections_partition$T`, 2 args). String/Scalar/Byte fall
-                // through to the `.mfb` `__collections_partition`.
+                // plan-64 D4 / plan-86 A2: native partition for 8-byte fixed-width
+                // elements (Integer/Float/Fixed/Money) and for String (the body
+                // reads each item through `load_collection_loop_item` and writes it
+                // through `lower_list_append_in_place`, both String-correct, and
+                // frees the materialized item after the append — see A2). Scalar/Byte
+                // still fall through to the `.mfb` `__collections_partition`.
                 if let Some(t) = target.strip_prefix("#collections_partition$") {
-                    if matches!(t, "Integer" | "Float" | "Fixed" | "Money") && args.len() == 2 {
+                    if matches!(t, "Integer" | "Float" | "Fixed" | "Money" | "String")
+                        && args.len() == 2
+                    {
                         return self.lower_collection_partition_call(args, t);
                     }
                 }

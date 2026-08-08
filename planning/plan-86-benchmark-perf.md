@@ -236,7 +236,22 @@ priority reach (P1s cleared, biggest offenders first). Each gets its own
 > Highest leverage: **B** (biggest single row, cheap), **A** (~11 P1), **C** (7 P1), **D**
 > (map cluster), then **E/F/G/H**.
 
-### Sub-plan A — String-element native collection lowering (split candidate)
+### Sub-plan A — String-element native collection lowering (split candidate) — **partition DONE; rest open**
+
+**Status (landed this session):** A2-partition complete. `collections::partition` is now natively
+lowered for String (the dispatch gate at `builder_values.rs` was relaxed from
+`Integer|Float|Fixed|Money` to include `String`, and `lower_collection_partition_call` now frees the
+per-element materialized String after the append — one line mirroring `lower_collection_filter_call`,
+which was already String-correct). `list (Dynamic) partition` dropped **18.79 → 13.68 ms** (median,
+`--run 10`, trimmed `list (Dynamic)` copy), checksum `test_ld_partition = 2000` unchanged. The residual
+gap to Python (8.31) is the `Partition OF String` **record inline-copy** (value semantics: the record
+owns byte copies of both `matched`/`unmatched` lists) plus the two full-source output allocations — a
+structural floor A2 does not target (filter, which returns one list with no record wrap, is 4.59 ms on
+the identical workload). Acceptance: the existing `partition-native-trap-rt` fixture (now exercising the
+native String path incl. the failing-predicate-under-TRAP case) + all 19 collections fixtures + the
+`hof-string-item-lifetime-rt` UAF pin pass with byte-identical goldens. **Remaining A open:** sort family
+(A1), window/chunks/groupBy String (A2 nested-block), flatten/zip/findLastIndex (A3) — all still on raw
+8-byte word-copy loops or absent, needing the data-region-aware element move. See Corrections.
 
 **Covers (~11 P1 + 1 P3):** list (Dynamic) groupby (166), window (88), sortBy (61),
 sort_rand/asc/desc (28.9/22.9/22.6), zip (25.6), flatten (24.6), partition (18.7),
@@ -621,6 +636,19 @@ sqrt; float leibniz/nbody/mandelbrot; recurse fib; thread sum; io format; crypto
 
 ## Corrections
 
+- **Sub-plan A: `partition` landed natively for String; it does NOT clear G1 (record-copy floor).**
+  The plan grouped `partition` with the "~11 P1" that native lowering would retire. In practice the
+  native String path (relax gate + free-after-append, mirroring the already-String-correct `filter`)
+  cut it 18.79 → 13.68 ms but left it **above** Python's 8.31 ms, because `partition` returns a
+  `Partition OF String` **record** whose two `List OF String` fields are inlined as owned byte copies
+  (value semantics) — a second full copy of every element on top of the two output-list allocations,
+  which `filter` (single list, no record) does not pay. So `partition` is a real ~27 % win but a
+  **G2-class** result, not a G1 clear; fully closing it would need move-into-record (elide the record
+  inline-copy) which is K-territory (uniquely-owned move), outside A2. Recorded, not silently dropped.
+  The rest of A (sort family, window/chunks/groupBy String, flatten/zip/findLastIndex) remains open and
+  genuinely needs the data-region-aware element move — no more "just relax the gate" wins there
+  (`filter`/`partition` were the only native bodies already built on the generic String-correct
+  get/append primitives; the others use raw 8-byte word-copy loops or have no native path).
 - **Sub-plan B (B1+B2) landed this session; B3 deferred to K.** The plan framed B1 as "free the
   *previous* accumulator … via a scope-drop / `[[nir-visitor-exhaustive-escape-analysis]]`". As
   implemented it is a **runtime** reclamation, not a compile-time escape analysis: because the reducer
