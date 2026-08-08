@@ -99,11 +99,11 @@ Stated once here for the whole plan-85 feature; every later letter points here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-71 complete & archived (its tool + probe + arena work landed) | `ls planning/plan-71-*.md 2>/dev/null` → none; `ls src/target/shared/code/selfmove_probe.rs` exists | MET — plan-71 archived; `selfmove_probe.rs` on main (f3b62d29a) |
-| Repo builds clean; full byte-identity gate green at HEAD | `cargo build --release --bin mfb && bash scripts/bug387-gate.sh target/release/mfb full` (record fresh SERIAL baselines first) | UNVERIFIED — run first |
-| exe-oracle baselines re-recorded from clean `main` **serially** | `for t in linux-x86_64 windows-x86_64 linux-riscv64 linux-aarch64; do bash scripts/exe-oracle.sh <exe> $t record /tmp/bug387/oracle-$t.txt; done` (one at a time) | RE-RECORD FIRST |
-| A Linux x86 box reachable for SysV-x86 rt-behavior execution proof | per `.ai/remote_systems.md` | RE-PROBE at plan-85-B/D |
-| No concurrent artifact-gate / exe-oracle running | `pgrep -f 'artifact-gate\|exe-oracle'` → empty | UNVERIFIED — check before each gate |
+| plan-71 complete & archived (its tool + probe + arena work landed) | `ls planning/plan-71-*.md 2>/dev/null` → none; `ls src/target/shared/code/selfmove_probe.rs` exists | MET (re-verified c0c30e70a) — no `plan-71-*.md` in `planning/`; `selfmove_probe.rs` present |
+| Repo builds clean; full byte-identity gate green at HEAD | `cargo build --release --bin mfb && bash scripts/bug387-gate.sh target/release/mfb full` (record fresh SERIAL baselines first) | MET (build) + IN-PROGRESS (gate): release rebuilt clean (38.62s); `app-ncode: byte-identical`; exe-oracle ×4 compare running against the fresh baselines (job `bvp6y25j6`) |
+| exe-oracle baselines re-recorded from clean `main` **serially** | `for t in linux-x86_64 windows-x86_64 linux-riscv64 linux-aarch64; do bash scripts/exe-oracle.sh <exe> $t record /tmp/bug387/oracle-$t.txt; done` (one at a time) | MET — all 4 `/tmp/bug387/oracle-*.txt` recorded serially from the c0c30e70a-forked worktree (linux-x86_64 1354, windows 644, riscv64 1352, aarch64) |
+| A Linux x86 box reachable for SysV-x86 rt-behavior execution proof | per `.ai/remote_systems.md` | MET — box 2227 (Alpine musl x86_64) reachable (`ssh -p 2227` → `Linux x86_64`); 2228 (glibc) timed out, recorded (plan-71 stance: available box stands) |
+| No concurrent artifact-gate / exe-oracle running | `pgrep -f 'artifact-gate\|exe-oracle'` → empty | MET at gate start (no foreign gate); this plan's own finalize gate is the only exe-oracle now |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** The
 > `/tmp/bug387/*` baselines are ephemeral and MUST be re-recorded from clean `main`
