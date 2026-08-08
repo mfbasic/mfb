@@ -19,7 +19,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "conn", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "8.8.8.8" }, { "kind": "number", "value": "443" }, { "kind": "number", "value": "0" }, { "kind": "string", "value": "dns.google" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "conn", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "8.8.8.8" }, { "kind": "number", "value": "443" }, { "kind": "number", "value": "5000" }, { "kind": "string", "value": "dns.google" }] }, "line": 12 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "connected=TRUE" }] }, "line": 13 },
       { "kind": "binding", "mutable": false, "name": "crlfBytes", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "13" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "10" }] }] }, "line": 14 },
       { "kind": "binding", "mutable": false, "name": "crlf", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "crlfBytes" }] }, "line": 15 },

@@ -9,7 +9,7 @@ IMPORT tls
 ' sends it as the SNI host. Output is reduced to stable booleans so the
 ' golden does not depend on the remote response bytes.
 FUNC main AS Integer
-  RES conn = tls::connect("8.8.8.8", 443, 0, "dns.google")
+  RES conn = tls::connect("8.8.8.8", 443, 5000, "dns.google")
   io::print("connected=TRUE")
   LET crlfBytes AS List OF Byte = [toByte(13), toByte(10)]
   LET crlf AS String = toString(crlfBytes)
