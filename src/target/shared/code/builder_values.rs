@@ -870,6 +870,9 @@ impl CodeBuilder<'_> {
                 if native == Some("reduce") && args.len() == 3 {
                     return self.lower_collection_reduce_call(args);
                 }
+                if native == Some("reduceRight") && args.len() == 3 {
+                    return self.lower_collection_reduce_right_call(args);
+                }
                 if target == "toString" && (args.len() == 1 || args.len() == 2) {
                     return self.lower_to_string(args);
                 }
@@ -1647,6 +1650,7 @@ impl CodeBuilder<'_> {
                 Some("transform") => self.lower_collection_transform_call(args),
                 Some("filter") => self.lower_collection_filter_call(args),
                 Some("reduce") => self.lower_collection_reduce_call(args),
+                Some("reduceRight") => self.lower_collection_reduce_right_call(args),
                 Some("forEach") => self.lower_collection_for_each_call(args),
                 other => Err(format!(
                     "native raw inline builtin '{target}' ({other:?}) is not supported"

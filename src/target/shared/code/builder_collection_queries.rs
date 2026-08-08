@@ -3322,6 +3322,27 @@ impl CodeBuilder<'_> {
         &mut self,
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
+        self.lower_collection_reduce_impl(args, false)
+    }
+
+    /// `reduceRight` (plan-86-B, B2): the same left-fold machinery as `reduce`,
+    /// walked from the last element to the first. `reduceRight(xs, init, f)` folds
+    /// `f(acc, xs[n-1]), f(acc, xs[n-2]), …, f(acc, xs[0])`, which is exactly
+    /// `reduce` over the reverse-iterated elements with the identical
+    /// `FUNC(U, T) AS U` reducer — so it shares the accumulator reclamation and the
+    /// aliasing-safe frees below, differing only in the loop-slot walk direction.
+    pub(super) fn lower_collection_reduce_right_call(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
+        self.lower_collection_reduce_impl(args, true)
+    }
+
+    fn lower_collection_reduce_impl(
+        &mut self,
+        args: &[NirValue],
+        reverse: bool,
+    ) -> Result<ValueResult, String> {
         let scratch9 = self.temporary_vreg();
         let scratch17 = self.temporary_vreg();
         let collection = self.lower_value(&args[0])?;
@@ -3357,7 +3378,7 @@ impl CodeBuilder<'_> {
                 initial.type_
             ));
         }
-        self.require_direct_callable("reduce", &action)?;
+        self.require_direct_callable(if reverse { "reduceRight" } else { "reduce" }, &action)?;
         let action_slot = self.allocate_stack_object("reduce_action", 8);
         self.emit(abi::store_u64(
             &action.location,
@@ -3366,12 +3387,62 @@ impl CodeBuilder<'_> {
         ));
         let cursor_slot = self.allocate_stack_object("reduce_cursor", 8);
         let remaining_slot = self.allocate_stack_object("reduce_remaining", 8);
-        self.initialize_collection_loop_slots(
-            collection_slot,
-            cursor_slot,
-            remaining_slot,
-            &element_type,
-        );
+        if reverse {
+            self.initialize_collection_loop_slots_reverse(
+                collection_slot,
+                cursor_slot,
+                remaining_slot,
+                &element_type,
+            );
+        } else {
+            self.initialize_collection_loop_slots(
+                collection_slot,
+                cursor_slot,
+                remaining_slot,
+                &element_type,
+            );
+        }
+
+        // plan-86-B (B1): reclaim the superseded loop item and accumulator each
+        // iteration instead of leaking them (the pre-fix native `reduce` never
+        // freed either, so a `List OF String` fold over N passes grew arena RSS by
+        // ~one block per element per pass — the 3.5× penalty that made native
+        // `reduce` slower than interpreted `reduceRight` doing the same fold).
+        //
+        // The bug-307 hazard the leak avoided is real but detectable at runtime:
+        // the reducer may adopt the item (`FUNC(acc, x) RETURN x`) or return the
+        // accumulator unchanged/in-place, in which case the block is still live.
+        // MFBASIC value semantics guarantees a returned String never *partially*
+        // aliases an input (a slice/concat produces a fresh owned block), so a
+        // pointer-equality check against the item and the old accumulator is a
+        // sufficient and exact aliasing test. We free only blocks we own and that
+        // the reducer did not carry forward.
+        //
+        // `acc_owned` tracks whether the current accumulator is a block this loop
+        // is responsible for freeing. The seed starts `owned = 0`: its ownership
+        // stays with the caller (value semantics), exactly as before this fix, so
+        // it is never freed here and the returned result is never double-freed.
+        // This machinery is emitted only when a String block is actually at risk
+        // of leaking (String accumulator and/or String element); scalar folds keep
+        // their prior byte-identical codegen.
+        let manages_owned = initial.type_ == "String" || element_type == "String";
+        let (item_slot, acc_owned_slot, new_slot, new_owned_slot) = if manages_owned {
+            let item_slot = self.allocate_stack_object("reduce_item", 8);
+            let acc_owned_slot = self.allocate_stack_object("reduce_acc_owned", 8);
+            let new_slot = self.allocate_stack_object("reduce_new", 8);
+            let new_owned_slot = self.allocate_stack_object("reduce_new_owned", 8);
+            let zero = self.temporary_vreg();
+            self.emit(abi::move_immediate(&zero, "Integer", "0"));
+            self.emit(abi::store_u64(&zero, abi::stack_pointer(), acc_owned_slot));
+            (
+                Some(item_slot),
+                Some(acc_owned_slot),
+                Some(new_slot),
+                Some(new_owned_slot),
+            )
+        } else {
+            (None, None, None, None)
+        };
 
         let loop_label = self.label("reduce_call_loop");
         let ok_label = self.label("reduce_call_ok");
@@ -3385,6 +3456,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&done));
         let item = self.load_collection_loop_item(collection_slot, cursor_slot, &element_type)?;
+        if let Some(item_slot) = item_slot {
+            // Spill the (freshly materialized, owned) item so it survives the
+            // reducer call's register clobber and can be freed/compared after.
+            self.emit(abi::store_u64(&item, abi::stack_pointer(), item_slot));
+        }
         self.emit(abi::load_u64(
             &abi::argument_register(0)?,
             abi::stack_pointer(),
@@ -3395,26 +3471,104 @@ impl CodeBuilder<'_> {
         self.emit_direct_callable_branch(&scratch17);
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok_label));
-        // bug-307: `reduce` is deliberately NOT given the loop-item free the other
-        // three higher-order members get. Its reducer may return the item itself as
-        // the new accumulator (`reduce(xs, "", FUNC(acc, x) RETURN x)`), so the
-        // block can still be live after the callback returns — freeing it would
-        // trade this leak for a use-after-free, which is strictly worse. Closing it
-        // needs the accumulator to take an owning copy, which is the same
-        // aliasing question the comment below already records.
-        //
-        // A failing reducer: no cleanup — the accumulator may still alias the
-        // aliased seed (no owning copy is inserted for it), so freeing it here
-        // would be a use-after-free after the handler recovers; the success path
-        // likewise leaves intermediate accumulators unfreed (plan-26-B).
+        // Failure path (bug-307 / plan-26-B): pass `None` (no cleanup). The
+        // success path below reclaims the superseded item and accumulator via
+        // runtime aliasing checks, but on a *failing* iteration the current item
+        // and accumulator may still alias the reducer's live inputs or the
+        // non-owned seed, and the ownership bookkeeping has not yet been committed
+        // for this iteration — so freeing here could double-free or free a
+        // borrowed block after the handler recovers. Leaking the at-most-one
+        // in-flight item/accumulator on the rare error path is the safe choice;
+        // the hot success path is where the reclamation matters (plan-86-B).
         self.emit_callback_failure_exit(None)?;
         self.emit(abi::label(&ok_label));
-        self.emit(abi::store_u64(
-            RESULT_VALUE_REGISTER,
-            abi::stack_pointer(),
-            accumulator_slot,
-        ));
-        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, &element_type);
+        if manages_owned {
+            // Slots are all `Some` under `manages_owned`.
+            let item_slot = item_slot.unwrap();
+            let acc_owned_slot = acc_owned_slot.unwrap();
+            let new_slot = new_slot.unwrap();
+            let new_owned_slot = new_owned_slot.unwrap();
+
+            // Spill the reducer output; the frees below clobber every caller-saved
+            // register (the `arena_free` call), so `new` must live in a slot.
+            self.emit(abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), new_slot));
+
+            // new_owned = (new == old_acc) ? old_owned : 1.
+            //   - fresh result  → we own it (free it next iteration / not at all if final)
+            //   - returned acc unchanged/in-place → inherit the old ownership
+            //   - adopted item  → new != old_acc, so owned = 1 (the item block is owned)
+            let r_owned = self.temporary_vreg();
+            let r_new = self.temporary_vreg();
+            let r_acc = self.temporary_vreg();
+            let owned_done = self.label("reduce_new_owned_done");
+            self.emit(abi::move_immediate(&r_owned, "Integer", "1"));
+            self.emit(abi::load_u64(&r_new, abi::stack_pointer(), new_slot));
+            self.emit(abi::load_u64(&r_acc, abi::stack_pointer(), accumulator_slot));
+            self.emit(abi::compare_registers(&r_new, &r_acc));
+            self.emit(abi::branch_ne(&owned_done));
+            self.emit(abi::load_u64(&r_owned, abi::stack_pointer(), acc_owned_slot));
+            self.emit(abi::label(&owned_done));
+            self.emit(abi::store_u64(&r_owned, abi::stack_pointer(), new_owned_slot));
+
+            // Free the loop item unless the reducer adopted it as the new
+            // accumulator (item == new). Only String items own a standalone block;
+            // fixed-width items materialize nothing.
+            if element_type == "String" {
+                let r_item = self.temporary_vreg();
+                let r_new2 = self.temporary_vreg();
+                let item_kept = self.label("reduce_item_kept");
+                self.emit(abi::load_u64(&r_item, abi::stack_pointer(), item_slot));
+                self.emit(abi::load_u64(&r_new2, abi::stack_pointer(), new_slot));
+                self.emit(abi::compare_registers(&r_item, &r_new2));
+                self.emit(abi::branch_eq(&item_kept));
+                self.free_collection_loop_item(item_slot, "String")?;
+                self.emit(abi::label(&item_kept));
+            }
+
+            // Free the superseded accumulator when this loop owns it (owned != 0)
+            // and the reducer produced a distinct result (old_acc != new). This
+            // frees a String block from a stack slot — the same operation
+            // `free_collection_loop_item` performs, applied to the accumulator.
+            if initial.type_ == "String" {
+                let r_o = self.temporary_vreg();
+                let r_a = self.temporary_vreg();
+                let r_n = self.temporary_vreg();
+                let acc_kept = self.label("reduce_acc_kept");
+                self.emit(abi::load_u64(&r_o, abi::stack_pointer(), acc_owned_slot));
+                self.emit(abi::compare_immediate(&r_o, "0"));
+                self.emit(abi::branch_eq(&acc_kept));
+                self.emit(abi::load_u64(&r_a, abi::stack_pointer(), accumulator_slot));
+                self.emit(abi::load_u64(&r_n, abi::stack_pointer(), new_slot));
+                self.emit(abi::compare_registers(&r_a, &r_n));
+                self.emit(abi::branch_eq(&acc_kept));
+                self.free_collection_loop_item(accumulator_slot, "String")?;
+                self.emit(abi::label(&acc_kept));
+            }
+
+            // Commit the new accumulator and its ownership for the next iteration.
+            let r_commit = self.temporary_vreg();
+            self.emit(abi::load_u64(&r_commit, abi::stack_pointer(), new_slot));
+            self.emit(abi::store_u64(&r_commit, abi::stack_pointer(), accumulator_slot));
+            let r_commit_owned = self.temporary_vreg();
+            self.emit(abi::load_u64(&r_commit_owned, abi::stack_pointer(), new_owned_slot));
+            self.emit(abi::store_u64(&r_commit_owned, abi::stack_pointer(), acc_owned_slot));
+        } else {
+            self.emit(abi::store_u64(
+                RESULT_VALUE_REGISTER,
+                abi::stack_pointer(),
+                accumulator_slot,
+            ));
+        }
+        if reverse {
+            self.advance_collection_loop_reverse(
+                cursor_slot,
+                remaining_slot,
+                &loop_label,
+                &element_type,
+            );
+        } else {
+            self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, &element_type);
+        }
         self.emit(abi::label(&done));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(
@@ -3426,8 +3580,11 @@ impl CodeBuilder<'_> {
             type_: initial.type_,
             location: result.render(),
             text: format!(
-                "reduce({}, {}, {})",
-                collection.type_, initial.text, action.text
+                "{}({}, {}, {})",
+                if reverse { "reduceRight" } else { "reduce" },
+                collection.type_,
+                initial.text,
+                action.text
             ),
         })
     }
@@ -3448,11 +3605,12 @@ impl CodeBuilder<'_> {
     ///
     /// `cleanup` names the member's private, uniquely-owned intermediate to free
     /// (`transform`/`filter`: the partial output list; `forEach`: none). `reduce`
-    /// passes `None`: its accumulator may still alias the **non-owned** seed on an
-    /// iteration-1 failure (the seed reaches codegen as a bare local with no owning
-    /// copy), so freeing it would be a use-after-free after the handler recovers —
-    /// and the success path already leaves intermediate accumulators unfreed, so
-    /// not freeing here matches it exactly.
+    /// passes `None`: on a failing iteration its accumulator may still alias the
+    /// **non-owned** seed (the seed reaches codegen as a bare local with no owning
+    /// copy) or the reducer's live inputs, and its per-iteration ownership flag has
+    /// not been committed yet, so freeing here could double-free or free a borrowed
+    /// block after the handler recovers. Its *success* path reclaims the superseded
+    /// item/accumulator itself via runtime aliasing checks (plan-86-B).
     pub(super) fn emit_callback_failure_exit(
         &mut self,
         cleanup: Option<(usize, String)>,
@@ -3660,9 +3818,9 @@ impl CodeBuilder<'_> {
     /// (`emit_materialize_string_from_bytes`) because a packed String has no
     /// standalone header to point at. That block was moved into the callback's
     /// argument register and then never referenced again and never freed, so
-    /// `forEach`/`transform`/`filter`/`reduce` over a `List OF String` grew arena
-    /// RSS by one block per element per pass -- unbounded across repeated
-    /// iteration, since nothing reclaimed it between passes.
+    /// `forEach`/`transform`/`filter`/`reduce`/`reduceRight` over a `List OF
+    /// String` grew arena RSS by one block per element per pass -- unbounded across
+    /// repeated iteration, since nothing reclaimed it between passes.
     ///
     /// The callback receives it by value and does not take ownership, so the block
     /// is dead the moment the callback returns and freeing it here is safe. A
@@ -3712,6 +3870,81 @@ impl CodeBuilder<'_> {
         let stride = kind2_payload_size(element_type).unwrap_or(COLLECTION_ENTRY_SIZE);
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), cursor_slot));
         self.emit(abi::add_immediate(&scratch10, &scratch10, stride));
+        self.emit(abi::store_u64(
+            &scratch10,
+            abi::stack_pointer(),
+            cursor_slot,
+        ));
+        self.emit(abi::load_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            remaining_slot,
+        ));
+        self.emit(abi::subtract_immediate(&scratch9, &scratch9, 1));
+        self.emit(abi::store_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            remaining_slot,
+        ));
+        self.emit(abi::branch(loop_label));
+    }
+
+    /// The reverse-walk twin of [`Self::initialize_collection_loop_slots`]
+    /// (plan-86-B, `reduceRight`): `remaining = count` as before, but the cursor
+    /// starts at the LAST element so the walk runs from `count - 1` down to `0`.
+    ///
+    /// The cursor carries the same representation the forward walk uses — a byte
+    /// offset from the data base for a kind-2 fixed-width list, an entry pointer
+    /// otherwise — so [`Self::load_collection_loop_item`] reads it unchanged.
+    /// When `count == 0` the loop's `remaining == 0` guard fires before the cursor
+    /// is ever dereferenced, so the (then-negative) last-element address computed
+    /// here is never used.
+    pub(super) fn initialize_collection_loop_slots_reverse(
+        &mut self,
+        collection_slot: usize,
+        cursor_slot: usize,
+        remaining_slot: usize,
+        element_type: &str,
+    ) {
+        let coll = self.temporary_vreg();
+        let count = self.temporary_vreg();
+        let stride_reg = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        let offset = self.temporary_vreg();
+        let cursor = self.temporary_vreg();
+        let stride = kind2_payload_size(element_type).unwrap_or(COLLECTION_ENTRY_SIZE);
+        self.emit(abi::load_u64(&coll, abi::stack_pointer(), collection_slot));
+        self.emit(abi::load_u64(&count, &coll, COLLECTION_OFFSET_COUNT));
+        // last index = count - 1; last-element byte offset = (count - 1) * stride.
+        self.emit(abi::move_immediate(&stride_reg, "Integer", &stride.to_string()));
+        self.emit(abi::subtract_immediate(&index, &count, 1));
+        self.emit(abi::multiply_registers(&offset, &index, &stride_reg));
+        if kind2_payload_size(element_type).is_some() {
+            // kind 2: the cursor is the raw byte offset from the data base.
+            self.emit(abi::move_register(&cursor, &offset));
+        } else {
+            // kind 0: the cursor is an entry pointer = base + HEADER + offset.
+            self.emit(abi::add_immediate(&cursor, &coll, COLLECTION_HEADER_SIZE));
+            self.emit(abi::add_registers(&cursor, &cursor, &offset));
+        }
+        self.emit(abi::store_u64(&cursor, abi::stack_pointer(), cursor_slot));
+        self.emit(abi::store_u64(&count, abi::stack_pointer(), remaining_slot));
+    }
+
+    /// The reverse-walk twin of [`Self::advance_collection_loop`]: step the cursor
+    /// one element BACK (toward index 0) and decrement `remaining`.
+    pub(super) fn advance_collection_loop_reverse(
+        &mut self,
+        cursor_slot: usize,
+        remaining_slot: usize,
+        loop_label: &str,
+        element_type: &str,
+    ) {
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
+        let stride = kind2_payload_size(element_type).unwrap_or(COLLECTION_ENTRY_SIZE);
+        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), cursor_slot));
+        self.emit(abi::subtract_immediate(&scratch10, &scratch10, stride));
         self.emit(abi::store_u64(
             &scratch10,
             abi::stack_pointer(),

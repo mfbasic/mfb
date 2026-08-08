@@ -226,6 +226,7 @@ pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
         "transform" => Some("transform"),
         "filter" => Some("filter"),
         "reduce" => Some("reduce"),
+        "reduceRight" => Some("reduceRight"),
         "sum" => Some("sum"),
         "find" => Some("find"),
         "mid" => Some("mid"),
@@ -279,7 +280,8 @@ pub(crate) fn inline_trap_unsupported(target: &str) -> bool {
 ///   `strings::mid`, and `find` (`collections::find`/`strings::find`) raise
 ///   through the shared `emit_error_register_return` tail, whose
 ///   `raw_result_capture` branch redirects the domain error (plan-21-B);
-/// - the callback loop members `forEach`/`transform`/`filter`/`reduce` route a
+/// - the callback loop members `forEach`/`transform`/`filter`/`reduce`/
+///   `reduceRight` route a
 ///   failing user callback through `emit_callback_failure_exit`, which frees each
 ///   member's loop-scoped intermediate before joining the capture (plan-26-B).
 ///
@@ -305,6 +307,7 @@ pub(crate) fn inline_builtin_raw_supported(target: &str) -> bool {
                     | "transform"
                     | "filter"
                     | "reduce"
+                    | "reduceRight"
             )
         )
 }
@@ -328,8 +331,8 @@ pub(crate) fn inline_builtin_raw_supported(target: &str) -> bool {
 /// error): the `bits::` variable shifts `sl`/`sr`/`sra` (out-of-range count
 /// raises `ErrInvalidArgument`), the index members `get`/`set`/`insert`/`removeAt`,
 /// `strings::mid`, `find` (negative start raises), and the callback members
-/// `forEach`/`transform`/`filter`/`reduce` (a failing callback raises a real
-/// error). `target` is the canonical callee (`collections.get`, `strings.mid`,
+/// `forEach`/`transform`/`filter`/`reduce`/`reduceRight` (a failing callback
+/// raises a real error). `target` is the canonical callee (`collections.get`, `strings.mid`,
 /// `bits.sl`) or a bare general-builtin name.
 pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
     // Every `bits::` op is total EXCEPT the variable shifts (`sl`/`sr`/`sra`),
