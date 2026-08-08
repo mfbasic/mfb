@@ -4,7 +4,7 @@ $ mfb build -ast -ir tests/syntax/csv/func_csv_parse_invalid
    4 |   LET missing AS List OF List OF String = csv::parse()
      | ^
 tests/syntax/csv/func_csv_parse_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `csv.parse` has 0 argument(s), expected 1.
+               Call to `csv.parse` has 0 argument(s), expected 1 to 3.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing AS List OF List OF String = csv::parse()
@@ -23,18 +23,6 @@ tests/syntax/csv/func_csv_parse_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CAL
      | ^
 tests/syntax/csv/func_csv_parse_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongType` does not have a known type.
-   4 |   LET missing AS List OF List OF String = csv::parse()
-   5 |   LET wrongType AS List OF List OF String = csv::parse(TRUE)
-   6 |   LET tooMany AS List OF List OF String = csv::parse("a", "b")
-     | ^
-tests/syntax/csv/func_csv_parse_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `csv.parse` has 2 argument(s), expected 1.
-   4 |   LET missing AS List OF List OF String = csv::parse()
-   5 |   LET wrongType AS List OF List OF String = csv::parse(TRUE)
-   6 |   LET tooMany AS List OF List OF String = csv::parse("a", "b")
-     | ^
-tests/syntax/csv/func_csv_parse_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `tooMany` does not have a known type.
    5 |   LET wrongType AS List OF List OF String = csv::parse(TRUE)
    6 |   LET tooMany AS List OF List OF String = csv::parse("a", "b")
    7 |   LET badName AS List OF List OF String = csv::parse(textValue := "a")
@@ -46,7 +34,7 @@ tests/syntax/csv/func_csv_parse_invalid/src/main.mfb:7 error[2-203-0059 TYPE_UNK
    7 |   LET badName AS List OF List OF String = csv::parse(textValue := "a")
      | ^
 tests/syntax/csv/func_csv_parse_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `csv.parse` has 0 argument(s), expected 1.
+               Call to `csv.parse` has 0 argument(s), expected 1 to 3.
    5 |   LET wrongType AS List OF List OF String = csv::parse(TRUE)
    6 |   LET tooMany AS List OF List OF String = csv::parse("a", "b")
    7 |   LET badName AS List OF List OF String = csv::parse(textValue := "a")
