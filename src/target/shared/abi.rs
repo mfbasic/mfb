@@ -165,6 +165,32 @@ pub(crate) fn realize_abi_positional(index: u8) -> &'static str {
         .unwrap_or_else(|| panic!("ABI token index {index} out of AArch64 positional range"))
 }
 
+/// Recognize a convention-explicit ABI token in its **rendered string** form
+/// (`%argMFB{k}`/`%retMFB{k}`/`%argC{k}`/`%retC{k}`/`%argSys{k}`/`%retSys`) and
+/// realize it to its positional `x{index}` — identical to the legacy `%arg{k}`
+/// spelling (plan-85-A). Used by [`realize_abi_token`] as the fallback for a token
+/// whose typed `Operand::Abi` arm was already erased to a `Raw` string by a codegen
+/// pass (the riscv64/x86 fused compare-branch `expand_fused`, which `render()`s its
+/// operands). `None` for any non-convention string.
+pub(crate) fn realize_convention_token(value: &str) -> Option<&'static str> {
+    let index: usize = if let Some(rest) = value.strip_prefix("%argMFB") {
+        rest.parse().ok()?
+    } else if let Some(rest) = value.strip_prefix("%retMFB") {
+        rest.parse().ok()?
+    } else if let Some(rest) = value.strip_prefix("%argSys") {
+        rest.parse().ok()?
+    } else if let Some(rest) = value.strip_prefix("%argC") {
+        rest.parse().ok()?
+    } else if let Some(rest) = value.strip_prefix("%retC") {
+        rest.parse().ok()?
+    } else if value == "%retSys" {
+        0
+    } else {
+        return None;
+    };
+    ABI_POSITIONAL_XREGS.get(index).copied()
+}
+
 /// The zero register as a register operand — the constant 0 readable as a source,
 /// a discard as a destination. AArch64 spells it `xzr`; RISC-V maps it to the
 /// hardware `zero`; x86-64 has none at all and realizes the token as an
@@ -396,6 +422,17 @@ pub(crate) fn fp_argument_register(index: usize) -> Result<&'static str, String>
 /// with result-accessors that only the inference disambiguates on x86 (bug-85). A
 /// non-token value passes through unchanged.
 pub(crate) fn realize_abi_token(value: &str) -> Option<&'static str> {
+    // plan-85-A: a convention-explicit `Operand::Abi` token that reaches this
+    // string seam (e.g. the riscv64/x86 fused compare-branch expansion renders its
+    // operands to strings via `expand_fused`) realizes POSITIONALLY to `xN` — the
+    // same `xN` the legacy `%arg{k}`/`%ret{k}` string maps to, so byte-identical on
+    // every backend (AArch64 uses `xN`; riscv64 remaps `xN`→`aN`; x86 colors `xN`
+    // via `remap_x86_abi` exactly as it does the legacy token). The TYPED arm still
+    // realizes directly through each backend's `Operand::Abi` handler; this is the
+    // fallback for when the type was already erased to a string.
+    if let Some(reg) = realize_convention_token(value) {
+        return Some(reg);
+    }
     Some(match value {
         "%arg0" | "%ret0" | "%sysarg0" | "%sysret" => "x0",
         "%arg1" | "%ret1" | "%sysarg1" => "x1",
@@ -1605,6 +1642,37 @@ mod tests {
             c_return(1),
             Operand::abi(AbiConvention::C, AbiRole::Ret, 1)
         );
+    }
+
+    #[test]
+    fn convention_token_string_realizes_positionally() {
+        // plan-85-A regression: a convention-explicit `Operand::Abi` token whose
+        // type was erased to a `Raw` STRING by a codegen pass (the riscv64/x86
+        // fused compare-branch `expand_fused` renders operands) must still realize —
+        // positionally to `xN`, identical to the legacy `%arg{k}` string, so
+        // byte-identical on every backend. Before this, a rendered `%argC1` leaked
+        // to the encoder as "unknown rv64 integer register '%argC1'".
+        assert_eq!(realize_convention_token("%argC0"), Some("x0"));
+        assert_eq!(realize_convention_token("%argC1"), Some("x1"));
+        assert_eq!(realize_convention_token("%argC7"), Some("x7"));
+        assert_eq!(realize_convention_token("%argMFB3"), Some("x3"));
+        assert_eq!(realize_convention_token("%retMFB2"), Some("x2"));
+        assert_eq!(realize_convention_token("%retC0"), Some("x0"));
+        assert_eq!(realize_convention_token("%retC1"), Some("x1"));
+        assert_eq!(realize_convention_token("%argSys5"), Some("x5"));
+        assert_eq!(realize_convention_token("%retSys"), Some("x0"));
+        // Not a convention token → None (falls through to the legacy match / passthrough).
+        assert_eq!(realize_convention_token("%arg1"), None);
+        assert_eq!(realize_convention_token("a1"), None);
+        assert_eq!(realize_convention_token("%argCx"), None);
+        // And the string realization matches the TYPED positional realization, so a
+        // stringified token and a typed token land on the same register.
+        for (tok, idx) in [("%argC1", 1u8), ("%retMFB3", 3), ("%argSys5", 5)] {
+            assert_eq!(realize_convention_token(tok), Some(realize_abi_positional(idx)));
+        }
+        // The shared string seam picks it up too (what the backends call).
+        assert_eq!(realize_abi_token("%argC1"), Some("x1"));
+        assert_eq!(realize_abi_token("%retMFB0"), Some("x0"));
     }
 
     #[test]
