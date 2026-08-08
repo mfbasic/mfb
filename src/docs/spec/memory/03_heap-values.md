@@ -212,6 +212,29 @@ carries `RESOURCE_TAG_NATIVE`:
 
 [[src/target/shared/code/error_constants.rs:RESOURCE_TAG_FILE]]
 
+The type-specific tail (offsets 32+) differs per backend; every kind shares the
+`0..32` header and the closed-default covers the widest layout. `—` is an inert
+(zeroed) slot the kind never reads. `Socket`, `UdpSocket`, and `Listener` are
+header-only. A `Native` record (imported and native `LINK` resources alike) is a
+zeroed `File`-shaped record — its handle is a native `CPtr` and its tail carries
+no live fields (close is resolved by the native thunk, not stored in the record).
+
+| Offset | File | Socket | Udp | Listener | TLS ossl | TLS macOS | TLS schan | TLSListener | Audio | Native |
+|--------|------|--------|-----|----------|----------|-----------|-----------|-------------|-------|--------|
+| 0  | 0x01 | 0x02 | 0x03 | 0x04 | 0x05 | 0x06 | 0x07 | 0x08 | 0x09 | 0xFF |
+| 8  | fd | fd | fd | fd | fd | conn ptr | fd | fd | kind | CPtr |
+| 16 | closed | closed | closed | closed | closed | closed | closed | closed | closed | closed |
+| 24 | STATE | STATE | STATE | STATE | STATE | STATE | STATE | STATE | STATE | STATE |
+| 32 | out-buf ptr | — | — | — | SSL_CTX | conn CTX | — | SSL_CTX | sampleRate | — |
+| 40 | out-buf filled | — | — | — | SSL | dispatch queue | SSPI block ptr | — | channels | — |
+| 48 | out-buf enabled | — | — | — | — | — | — | — | bytesPerFrame | — |
+| 56 | read-buf ptr | — | — | — | — | — | — | — | bufferFrames | — |
+| 64 | read-buf pos | — | — | — | — | — | — | — | AudioState ptr | — |
+| 72 | read-buf fill | — | — | — | — | — | — | — | — | — |
+| 80 | read-buf at-eof | — | — | — | — | — | — | — | — | — |
+
+[[src/target/shared/code/audio/mod.rs:H_SAMPLE_RATE]] [[src/target/shared/code/tls/mod.rs:TLS_OFFSET_CTX]] [[src/target/shared/code/tls/mod.rs:TLS_SCHANNEL_OFFSET_BLOCK]]
+
 `closed` at **offset 16 is a compiler-enforced invariant**, not a convention: it
 is a u64 flag *set*, not a boolean — bit 0 is `closed`, bit 1 is `moved`, and 62
 bits are spare. Every guard tests the word for *non-zero* rather than for `== 1`,
