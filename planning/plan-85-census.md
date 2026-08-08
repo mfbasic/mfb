@@ -171,6 +171,32 @@ C-boundary files (the plan-85-B conversion set): `audio/{alsa,macos,windows,wind
 > register reuse, so B reads the pre/post-call position at each site, not the audit's
 > silence (memory `bug387-divergence-audit-blind-to-category2`).
 
+### B Phase 1 audit CONCLUSION — the C boundary is cleanly separable (no old-`RETS` dependency)
+
+The plan's central uncertainty was: *does any FFI / entry / runtime-helper / 2-register
+C-return path silently rely on MFB returning in the old `RETS = [rax,rdx,rcx,rsi]`?*
+**Answer: no.** Auditing every multi-register `RET[k]` read (`grep -rohE 'abi::RET\[[123]\]'
+src/target/shared/code/ | sort | uniq -c` → `RET[1]` ×546, `RET[2]` ×2, `RET[3]` ×1):
+
+- **`RET[1]` (×546)** is overwhelmingly the `_mfb_arena_alloc` result — an **MFB** 2-value
+  `{tag@RET[0], ptr@RET[1]}` result (comments: "alloc result → vreg base") → `%retMFB[0..1]`
+  (aligned). `arena_alloc` is an MFB-internal helper, not a genuine C function; its 2-value
+  result is exactly what the aligned bank carries. No C 2-register return reads `RET[1]`.
+- **`RET[2]`/`RET[3]`** are `RESULT_ERROR_MESSAGE_REGISTER`/`RESULT_ERROR_SOURCE_REGISTER`
+  (`error_constants.rs:27/31`), the error-Result convention → `%retMFB[2..3]` (plan-85-C);
+  plus one read of an **incoming argument** via a `RET` token at a helper entry
+  (`fs/io.rs:901` reads `mode` = incoming arg2 as `RET[2]`), which is byte-safe under
+  alignment because `%retMFB[k] == %argMFB[k]` on SysV.
+- **Genuine C returns are single-value in `rax` (`%retC0`)**, read via `return_register()` /
+  `RET[0]` immediately after a libc `bl` (e.g. `net/io.rs:217`). A 2-value C return (rare)
+  uses `rax:rdx = %retC[0..1]`. **Nothing reads a C result from `RET[1..3]`.**
+
+Therefore the aligned convention cannot silently corrupt a C return: every multi-register
+`RET` read is an MFB result (aligned) or the error-Result convention (plan-85-C), never a
+C 2+-register return. plan-85-B's byte-changing conversion rests on solid ground. (The
+"still byte-identical, no conversion yet" half of B Phase 1's acceptance is the plan-85-A
+finalization gate, since B Phase 1 converts nothing.)
+
 ## plan-85-C Phase 1 — Result-returning `_mfb_*` helper inventory (gathered during plan-85-A)
 
 The `_mfb_*` helpers that return a `Result` / a single C-style value, whose return
