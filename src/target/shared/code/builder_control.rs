@@ -583,7 +583,12 @@ impl CodeBuilder<'_> {
                                 stack_offset,
                                 by_ref,
                             )?
-                            && !self.try_inplace_set_add_assign(name, value, stack_offset, by_ref)?
+                            && !self.try_inplace_set_add_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
                             && !self.try_inplace_set_assign(name, value, stack_offset, by_ref)?
                             && !self.try_inplace_prepend_assign(
                                 name,

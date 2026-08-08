@@ -2192,11 +2192,19 @@ impl CodeBuilder<'_> {
             // gate only routes String sortBy here when both are re-eval-safe.
             let keys = self.lower_collection_transform_call(args)?;
             let keys_slot = self.allocate_stack_object("sortby_keys", 8);
-            self.emit(abi::store_u64(&keys.location, abi::stack_pointer(), keys_slot));
+            self.emit(abi::store_u64(
+                &keys.location,
+                abi::stack_pointer(),
+                keys_slot,
+            ));
             // items = the index permutation [0, 1, ..., n-1] the merge sorts.
             let items = self.lower_reserved_list(&keys_type, keys_slot)?;
             let items_slot = self.allocate_stack_object("sortby_items", 8);
-            self.emit(abi::store_u64(&items.location, abi::stack_pointer(), items_slot));
+            self.emit(abi::store_u64(
+                &items.location,
+                abi::stack_pointer(),
+                items_slot,
+            ));
             let gi_slot = self.allocate_stack_object("sortby_idxfill_i", 8);
             let gfill = self.label("sortby_idxfill");
             let gfill_done = self.label("sortby_idxfill_done");
@@ -2221,10 +2229,18 @@ impl CodeBuilder<'_> {
             // itemsB / keysB scratch, both List OF Integer sized n*8 (from keys_slot).
             let itemsb = self.lower_reserved_list(&keys_type, keys_slot)?;
             let itemsb_slot = self.allocate_stack_object("sortby_itemsb", 8);
-            self.emit(abi::store_u64(&itemsb.location, abi::stack_pointer(), itemsb_slot));
+            self.emit(abi::store_u64(
+                &itemsb.location,
+                abi::stack_pointer(),
+                itemsb_slot,
+            ));
             let keysb = self.lower_reserved_list(&keys_type, keys_slot)?;
             let keysb_slot = self.allocate_stack_object("sortby_keysb", 8);
-            self.emit(abi::store_u64(&keysb.location, abi::stack_pointer(), keysb_slot));
+            self.emit(abi::store_u64(
+                &keysb.location,
+                abi::stack_pointer(),
+                keysb_slot,
+            ));
             (keys_slot, items_slot, itemsb_slot, keysb_slot)
         } else {
             // keys = reserved List OF key_type (count 0, capacity n); fill by calling
@@ -2498,7 +2514,11 @@ impl CodeBuilder<'_> {
             // permutation), so no append regrows.
             let result = self.lower_reserved_list(&list_type, coll_slot)?;
             let result_slot = self.allocate_stack_object("sortby_result", 8);
-            self.emit(abi::store_u64(&result.location, abi::stack_pointer(), result_slot));
+            self.emit(abi::store_u64(
+                &result.location,
+                abi::stack_pointer(),
+                result_slot,
+            ));
             let gk_slot = self.allocate_stack_object("sortby_gather_k", 8);
             let gitem_slot = self.allocate_stack_object("sortby_gather_item", 8);
             let gloop = self.label("sortby_gather_loop");
@@ -2538,7 +2558,11 @@ impl CodeBuilder<'_> {
             self.emit(abi::branch(&gloop));
             self.emit(abi::label(&gdone));
             let result_reg = self.allocate_register()?;
-            self.emit(abi::load_u64(&result_reg, abi::stack_pointer(), result_slot));
+            self.emit(abi::load_u64(
+                &result_reg,
+                abi::stack_pointer(),
+                result_slot,
+            ));
             let threaded = ValueResult {
                 type_: list_type.clone(),
                 location: result_reg.render(),
@@ -2617,7 +2641,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::RET[1],
+            abi::stack_pointer(),
+            result_slot,
+        ));
         // Header: count = capacity = n; dataLength = dataCapacity = n*8.
         let base = self.temporary_vreg();
         let nn = self.temporary_vreg();
@@ -2660,7 +2688,11 @@ impl CodeBuilder<'_> {
             return Err(format!("native sort does not support item type {elem}"));
         }
         let coll_slot = self.allocate_stack_object("sort_coll", 8);
-        self.emit(abi::store_u64(&source.location, abi::stack_pointer(), coll_slot));
+        self.emit(abi::store_u64(
+            &source.location,
+            abi::stack_pointer(),
+            coll_slot,
+        ));
         let n_slot = self.allocate_stack_object("sort_n", 8);
         let r0 = self.temporary_vreg();
         let r1 = self.temporary_vreg();
@@ -2672,7 +2704,11 @@ impl CodeBuilder<'_> {
         // Integer sized n*8 (count-based).
         let items = self.reserve_integer_index_list(n_slot)?;
         let items_slot = self.allocate_stack_object("sort_items", 8);
-        self.emit(abi::store_u64(&items.location, abi::stack_pointer(), items_slot));
+        self.emit(abi::store_u64(
+            &items.location,
+            abi::stack_pointer(),
+            items_slot,
+        ));
         let fi_slot = self.allocate_stack_object("sort_fill_i", 8);
         let fl = self.label("sort_fill");
         let fl_done = self.label("sort_fill_done");
@@ -2696,7 +2732,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&fl_done));
         let itemsb = self.reserve_integer_index_list(n_slot)?;
         let itemsb_slot = self.allocate_stack_object("sort_itemsb", 8);
-        self.emit(abi::store_u64(&itemsb.location, abi::stack_pointer(), itemsb_slot));
+        self.emit(abi::store_u64(
+            &itemsb.location,
+            abi::stack_pointer(),
+            itemsb_slot,
+        ));
 
         // --- Bottom-up stable merge over the index buffer; the compare is a
         //     lexicographic byte compare of the two source Strings. ---
@@ -2873,7 +2913,11 @@ impl CodeBuilder<'_> {
         // by copying source[idx] in order, then free the two index buffers.
         let result = self.lower_reserved_list(&list_type, coll_slot)?;
         let result_slot = self.allocate_stack_object("sort_result", 8);
-        self.emit(abi::store_u64(&result.location, abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            &result.location,
+            abi::stack_pointer(),
+            result_slot,
+        ));
         let gk_slot = self.allocate_stack_object("sort_gather_k", 8);
         let gloop = self.label("sort_gather_loop");
         let gdone = self.label("sort_gather_done");
@@ -2959,7 +3003,11 @@ impl CodeBuilder<'_> {
             self.emit(abi::store_u64(&goff, &grb, COLLECTION_OFFSET_DATA_LENGTH));
         }
         let result_reg = self.allocate_register()?;
-        self.emit(abi::load_u64(&result_reg, abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(
+            &result_reg,
+            abi::stack_pointer(),
+            result_slot,
+        ));
         let threaded = ValueResult {
             type_: list_type.clone(),
             location: result_reg.render(),
@@ -3066,7 +3114,11 @@ impl CodeBuilder<'_> {
         let elem = list_element_type(&inner_type)
             .ok_or_else(|| format!("native flatten inner type {inner_type} is not a list"))?;
         let source_slot = self.allocate_stack_object("flatten_source", 8);
-        self.emit(abi::store_u64(&source.location, abi::stack_pointer(), source_slot));
+        self.emit(abi::store_u64(
+            &source.location,
+            abi::stack_pointer(),
+            source_slot,
+        ));
         // outerCount = count(source)
         let oc_slot = self.allocate_stack_object("flatten_outer_count", 8);
         let r0 = self.temporary_vreg();
@@ -3077,7 +3129,11 @@ impl CodeBuilder<'_> {
         // result = empty, growable List OF <elem>
         let result = self.lower_empty_collection(&inner_type)?;
         let result_slot = self.allocate_stack_object("flatten_result", 8);
-        self.emit(abi::store_u64(&result.location, abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            &result.location,
+            abi::stack_pointer(),
+            result_slot,
+        ));
         let inner_slot = self.allocate_stack_object("flatten_inner_ptr", 8);
         let i_slot = self.allocate_stack_object("flatten_i", 8);
         let loop_l = self.label("flatten_loop");
@@ -3110,7 +3166,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&loop_l));
         self.emit(abi::label(&done_l));
         let result_reg = self.allocate_register()?;
-        self.emit(abi::load_u64(&result_reg, abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(
+            &result_reg,
+            abi::stack_pointer(),
+            result_slot,
+        ));
         Ok(ValueResult {
             type_: inner_type.clone(),
             location: result_reg.render(),
