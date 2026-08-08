@@ -1,10 +1,13 @@
 # plan-85-D: delete the `remap_x86_abi` fixpoint; ARM/RISC-V staging + self-move elision; reconcile
 
-> **⛔ BLOCKED — depends on plan-85-C/B, which are BLOCKED (core premise falsified; see
-> plan-85-A Corrections). Needs re-planning, not follow-plan execution. NOTE: the finding
-> that `remap_x86_abi` has GLOBAL per-function dataflow (any partial conversion perturbs it)
-> actually strengthens D's thesis that the fixpoint must be deleted — but only as part of an
-> ALL-AT-ONCE conversion, not the incremental B→C→D sequence.**
+> **✅ UN-BLOCKED — the "core premise falsified" was a premature-stop error, corrected in
+> plan-85-A Corrections (fixable wiring bug fixed `f4509c534`). Depends on plan-85-C/B, which
+> are resuming. NOTE for D: when a convention-token's typed `Operand::Abi` is erased to a
+> string by the fused compare-branch expander (`expand_fused`), it currently realizes via
+> the string seam (`realize_convention_token`→`xN`→`remap_x86_abi`), so D's fixpoint deletion
+> must either (a) teach `expand_fused` to preserve the typed operand, or (b) route the
+> stringified convention token through `map_token_direct`. Covered by the
+> `convention_token_string_realizes_positionally` test.**
 
 Last updated: 2026-08-03
 Effort: large (3h–1d)

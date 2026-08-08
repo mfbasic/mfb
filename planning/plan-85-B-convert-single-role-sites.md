@@ -1,14 +1,11 @@
 # plan-85-B: convert the single-role emission sites to explicit aligned tokens
 
-> **⛔ BLOCKED — CORE PREMISE FALSIFIED (see plan-85-A Corrections + C4 below).** The
-> incremental conversion approach was executed and REVERTED (`fb54a6e61`): the full byte
-> gate showed converting the args alone broadly changes bytes on BOTH x86 ABIs (SysV
-> 534/1354, Win64 broad) via the `remap_x86_abi` global-dataflow perturbation, plus an
-> unexplained universal riscv64 diff — only aarch64 stayed byte-identical. The plan's
-> "Win64/ARM/RISC-V byte-identical cross-target gate" does not hold, so B/C/D as written
-> cannot be verified. **This needs re-planning (write-plan), not follow-plan execution.**
-> See plan-85-A Corrections for the redesign requirements. The findings below (C1–C4,
-> inventories) are the record for that redesign.
+> **✅ UN-BLOCKED — the "falsified premise" was a premature-stop error; the real cause was a
+> fixable plan-85-A wiring bug, fixed in `f4509c534` (see plan-85-A Corrections + C4 below).**
+> Clean arg conversion IS byte-identical on all targets (proven by isolated `-ncode`/exe
+> diffs); the broad diffs came from the fused compare-branch expander stringifying
+> `Operand::Abi`, now realized correctly by `realize_convention_token`. The conversion
+> resumes on this fixed base.
 
 Last updated: 2026-08-03
 Effort: x-large (1d–3d)
@@ -283,9 +280,10 @@ helper whose own return is read across files. This is the byte-changing grouping
 rt-behavior (box 2227) + Win64/ARM/RISC-V byte-identity, run AFTER the byte-identical args
 grouping's gate is green.
 
-**C4 — the args conversion is NOT byte-identical on x86; the x86 fixpoint has GLOBAL
-dataflow that ANY partial conversion perturbs. This supersedes C1 and revises the plan's
-"Win64 byte-identical" premise.** After converting all `shared/code` `abi::ARG[]`→`c_arg()`
+**C4 — RETRACTED. The "x86 global-dataflow perturbation" theory was WRONG; the broad diffs
+were a fused-op stringification bug (fixed `f4509c534`), and clean arg conversion IS
+byte-identical on all targets (C1 stands).** Retained below as the record of the wrong
+turn; the empirical disproof is in plan-85-A Corrections. Original (incorrect) text: After converting all `shared/code` `abi::ARG[]`→`c_arg()`
 (args only, no results), the full byte gate on the A-only baselines showed **534 of 1354
 linux-x86_64 executables changed AND windows-x86_64 broadly changed** (both x86 ABIs), while
 the conversion touched NO result tokens. Root cause: `remap_x86_abi` colors every `xN` token

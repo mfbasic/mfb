@@ -419,13 +419,35 @@ Commit: ebb9afdac
 
 ## Corrections
 
-**CORE-PREMISE FALSIFIED (plan-85-B execution) — the "Win64/AArch64/RISC-V byte-identical
-cross-target gate" does not hold; the whole-feature verification model is invalid as
-written.** This is recorded here as a **Prerequisites defect**: the entry gate proved only
-that *A* is byte-identical (trivially true — A emits nothing), and never tested the
-load-bearing premise that *converting emission sites* is byte-identical on the non-SysV
-targets. A minimal conversion probe would have caught this before B committed to the
-incremental structure.
+**RETRACTED — "core premise falsified" was WRONG (a premature stop). The real cause was a
+fixable plan-85-A wiring bug, now fixed (`f4509c534`); the premise HOLDS.** I ran
+`bug387-gate.sh full` (which checks byte-identity on *all* targets), saw the broad diffs
+below, theorized an inherent "fixpoint global-dataflow perturbation," and stopped —
+**without ever objdumping a single diff.** That was the error. Empirical root-cause (a
+minimal isolated conversion + `-ncode`/executable diff, which I should have done first):
+
+- Converting `datetime.rs`'s args alone is **byte-identical on linux-x86_64, windows-x86_64,
+  AND linux-riscv64** (`-ncode` 0-diff on all three). So clean arg conversion IS byte-neutral
+  — the "perturbation" theory was false.
+- The broad diffs came from a **single ~30-line bug**: the riscv64/x86 fused compare-branch
+  expander (`expand_fused`) `render()`s its operands to STRINGS, erasing the typed
+  `Operand::Abi` arm; the shared string realizer `realize_abi_token` only knew the legacy
+  `%arg`/`%ret` strings, so a rendered `%argC1` leaked unrealized to the encoder (`unknown
+  rv64 integer register '%argC1'`). Because `arena_alloc` (linked into *every* executable)
+  runs a fused compare over an ABI token, this broke/changed nearly every binary — hence the
+  "universal riscv64 diff" and broad x86 diffs I misread as a dead premise.
+- **Fix (`f4509c534`):** `realize_convention_token` maps the rendered convention-token
+  strings positionally to `xN` (identical to the legacy `%arg{k}` string), so a stringified
+  token realizes byte-identically on every backend. **Proven:** converting `arena.rs`
+  (arena_alloc) now yields identical executable hashes vs A-only on BOTH linux-x86_64
+  (`36bf5b383…`) and linux-riscv64 (`6fcbbe604…`).
+
+Genuine lesson (recorded as a Prerequisites note): the A entry gate proved only that *A* is
+byte-identical (trivial — A emits nothing); the load-bearing check is that a *conversion*
+stays byte-identical on the non-SysV targets. A one-file conversion probe belongs in the
+Prerequisites gate and catches exactly this class of wiring bug — which is now covered by
+the `convention_token_string_realizes_positionally` regression test. B/C/D are UN-blocked;
+the plan proceeds.
 
 Evidence (full `bug387-gate.sh full`, rebuild + exe-oracle ×4, on the A-only serial
 baselines, after converting all `shared/code` single-role args to `%argC`):

@@ -1,7 +1,8 @@
 # plan-85-C: convert the error-Result convention to `%retMFB` (the dual-role tail)
 
-> **⛔ BLOCKED — depends on plan-85-B, which is BLOCKED (core premise falsified; see
-> plan-85-A Corrections). Needs re-planning, not follow-plan execution.**
+> **✅ UN-BLOCKED — the "core premise falsified" was a premature-stop error, corrected in
+> plan-85-A Corrections (fixable wiring bug fixed `f4509c534`). Depends on plan-85-B, which
+> is resuming.**
 
 Last updated: 2026-08-03
 Effort: large (3h–1d)
