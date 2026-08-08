@@ -765,14 +765,28 @@ impl CodeBuilder<'_> {
                 if let Some(params) = target.strip_prefix("#collections_sortBy$") {
                     if args.len() == 2 {
                         let mut parts = params.split('$');
-                        let item_ok = parts
-                            .next()
-                            .map(|t| matches!(t, "Integer" | "Float" | "Fixed" | "Money"))
-                            .unwrap_or(false);
+                        let item = parts.next().unwrap_or("");
                         let key_ok = parts
                             .next()
                             .map(|u| matches!(u, "Integer" | "Fixed" | "Money"))
                             .unwrap_or(false);
+                        // plan-86 A1: a String item list sorts an Integer index
+                        // permutation and gathers the Strings once (see
+                        // `lower_collection_sortby_call`); the keys are rebuilt via a
+                        // re-lowered `transform(source, keyFn)`, so the SOURCE (args[0])
+                        // must be re-eval-safe (a bare re-load, no side effects). The
+                        // keyFn (args[1]) is a pure functionRef/callable value whose
+                        // re-lowering is a pointer load, so it needs no such guard.
+                        // Fixed-width items take the direct value merge unconditionally.
+                        let source_reeval_safe = matches!(
+                            &args[0],
+                            NirValue::Local(_)
+                                | NirValue::Const { .. }
+                                | NirValue::Global { .. }
+                                | NirValue::LocalRef { .. }
+                        );
+                        let item_ok = matches!(item, "Integer" | "Float" | "Fixed" | "Money")
+                            || (item == "String" && source_reeval_safe);
                         if item_ok && key_ok {
                             return self.lower_collection_sortby_call(args);
                         }

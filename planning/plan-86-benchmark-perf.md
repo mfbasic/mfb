@@ -236,9 +236,27 @@ priority reach (P1s cleared, biggest offenders first). Each gets its own
 > Highest leverage: **B** (biggest single row, cheap), **A** (~11 P1), **C** (7 P1), **D**
 > (map cluster), then **E/F/G/H**.
 
-### Sub-plan A — String-element native collection lowering (split candidate) — **partition DONE; rest open**
+### Sub-plan A — String-element native collection lowering (split candidate) — **partition + sortBy DONE; rest open**
 
-**Status (landed this session):** A2-partition complete. `collections::partition` is now natively
+**Status (landed this session):** A1-sortBy complete. `collections::sortBy` over a String item list with
+a signed-8-byte key (Integer/Fixed/Money) is now natively lowered via an **index-permutation gather**:
+the 8-byte merge cannot move variable-width String payloads, so the lowering builds the keys with the
+native `transform` (a correctly-sized `List OF Integer`; the manual fixed-width keys-fill cannot size an
+n*8 buffer from a String source whose data region is the string bytes), sorts an Integer index
+permutation `[0..n)` with the **identical, untouched stable word-merge**, then gathers `source[idx]` once
+at the end (`emit_element_value_offset` + `emit_load_collection_payload` materialize, `append_in_place`
+copies, `free_collection_loop_item` reclaims). The fixed-width value-merge path is byte-identical (the
+existing code is the verbatim `else` branch, preserving vreg-allocation order). Dispatch gate relaxed to
+route String items when the **source** (args[0]) is re-eval-safe (transform re-lowers it; the keyFn is a
+pure functionRef needing no guard). `list (Dynamic) sortBy`: **61.38 → 8.13 ms (~7.5×)**, checksum
+`test_ld_sortBy = 400` unchanged. **Caught during impl:** the first gate spelling required *all* args
+re-eval-safe, but the keyFn lowers to a `functionRef` (not Local/Const/Global/LocalRef), so String sortBy
+silently kept falling to `.mfb` (measured 60 ms, ~no change) — the fix was to gate on the source only.
+Acceptance: new `sortby-string-gather-rt` golden fixture (stability on equal keys, empty/single edge
+cases, source-not-mutated, 1000-call UAF/leak stress, keyFn-failure-under-TRAP) + all collections +
+byte-identity pass. See Corrections.
+
+**A2-partition (landed earlier this session):** `collections::partition` is now natively
 lowered for String (the dispatch gate at `builder_values.rs` was relaxed from
 `Integer|Float|Fixed|Money` to include `String`, and `lower_collection_partition_call` now frees the
 per-element materialized String after the append — one line mirroring `lower_collection_filter_call`,
@@ -636,6 +654,22 @@ sqrt; float leibniz/nbody/mandelbrot; recurse fib; thread sum; io format; crypto
 
 ## Corrections
 
+- **Sub-plan A1: `sortBy` for String uses an index-permutation gather, not an in-place String merge.**
+  The plan's A1 offered two routes (data-region-aware element move, or generic get/set on ping-pong
+  buffers). As implemented it is a third: sort an **Integer index permutation** with the existing
+  fixed-width word-merge untouched, then gather the Strings once. This keeps the hot merge byte-identical
+  and confines all String handling to `transform` (keys) + one gather pass — no change to the merge core,
+  no new element-copy primitive. It required (a) building keys via native `transform` rather than a manual
+  fill, because a manual `lower_reserved_list(source)` on a String source sizes the keys/index buffers
+  from the source's *string-byte* data region, far smaller than the `n*8` the merge writes → an overflow;
+  reserving the index buffers from `keys_slot` (a `List OF Integer`, data region `n*8`) fixes the size.
+  **Gotcha caught by measurement:** the dispatch gate first required *every* arg re-eval-safe, but the
+  keyFn is a `functionRef` NirValue (not Local/Const/Global/LocalRef), so String sortBy silently kept
+  taking the `.mfb` path — the benchmark showed ~no change (60 ms) until the gate was narrowed to guard
+  only the *source* (args[0]); the keyFn is a pure pointer load. This is a reminder that "correct output"
+  did **not** prove the native path ran (the `.mfb` fallback is also correct); only the 61→8 ms drop did.
+  Result: `list (Dynamic) sortBy` 61.38 → 8.13 ms; still above Python (3.22) because keys+gather each walk
+  the n Strings once (a fuse is possible but out of A1 scope).
 - **Sub-plan A: `partition` landed natively for String; it does NOT clear G1 (record-copy floor).**
   The plan grouped `partition` with the "~11 P1" that native lowering would retire. In practice the
   native String path (relax gate + free-after-append, mirroring the already-String-correct `filter`)

@@ -2142,8 +2142,15 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
         let collection = self.lower_value(&args[0])?;
-        let _item_type = list_element_type(&collection.type_)
+        let item_type = list_element_type(&collection.type_)
             .ok_or_else(|| format!("native sortBy does not accept {}", collection.type_))?;
+        // plan-86 A1: for a String item list the 8-byte merge cannot move the
+        // variable-width payloads, so `gather` mode sorts an Integer index
+        // permutation with the identical word-merge and gathers the Strings once
+        // at the end (see the `if gather` blocks below). The dispatch gate only
+        // routes String here when both args are re-eval-safe (the keys build
+        // re-lowers them through `transform`).
+        let gather = item_type == "String";
         let list_type = collection.type_.clone();
         let coll_slot = self.allocate_stack_object("sortby_coll", 8);
         self.emit(abi::store_u64(
@@ -2175,82 +2182,129 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&r1, &r0, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(&r1, abi::stack_pointer(), n_slot));
 
-        // keys = reserved List OF key_type (count 0, capacity n); fill by calling
-        // keyFn on each source element, writing keys[i] directly.
-        let keys = self.lower_reserved_list(&keys_type, coll_slot)?;
-        let keys_slot = self.allocate_stack_object("sortby_keys", 8);
-        self.emit(abi::store_u64(
-            &keys.location,
-            abi::stack_pointer(),
-            keys_slot,
-        ));
+        let (keys_slot, items_slot, itemsb_slot, keysb_slot) = if gather {
+            // plan-86 A1 gather mode (String items). keys is built by the native
+            // `transform` lowering — a correctly-sized `List OF Integer` (data
+            // region n*8), which the manual fixed-width fill below CANNOT be for a
+            // String source (its data region is the string bytes, far smaller than
+            // n*8). itemsB/keysB/items are then reserved FROM keys_slot (n*8), never
+            // the String source. `transform` re-lowers args[0]/args[1]; the dispatch
+            // gate only routes String sortBy here when both are re-eval-safe.
+            let keys = self.lower_collection_transform_call(args)?;
+            let keys_slot = self.allocate_stack_object("sortby_keys", 8);
+            self.emit(abi::store_u64(&keys.location, abi::stack_pointer(), keys_slot));
+            // items = the index permutation [0, 1, ..., n-1] the merge sorts.
+            let items = self.lower_reserved_list(&keys_type, keys_slot)?;
+            let items_slot = self.allocate_stack_object("sortby_items", 8);
+            self.emit(abi::store_u64(&items.location, abi::stack_pointer(), items_slot));
+            let gi_slot = self.allocate_stack_object("sortby_idxfill_i", 8);
+            let gfill = self.label("sortby_idxfill");
+            let gfill_done = self.label("sortby_idxfill_done");
+            self.emit(abi::move_immediate(&r0, "Integer", "0"));
+            self.emit(abi::store_u64(&r0, abi::stack_pointer(), gi_slot));
+            self.emit(abi::label(&gfill));
+            self.emit(abi::load_u64(&r0, abi::stack_pointer(), gi_slot));
+            self.emit(abi::load_u64(&r1, abi::stack_pointer(), n_slot));
+            self.emit(abi::compare_registers(&r0, &r1));
+            self.emit(abi::branch_ge(&gfill_done));
+            let gaddr = self.temporary_vreg();
+            let goff = self.temporary_vreg();
+            self.emit(abi::load_u64(&gaddr, abi::stack_pointer(), items_slot));
+            self.emit(abi::add_immediate(&gaddr, &gaddr, COLLECTION_HEADER_SIZE));
+            self.emit(abi::shift_left_immediate(&goff, &r0, 3));
+            self.emit(abi::add_registers(&gaddr, &gaddr, &goff));
+            self.emit(abi::store_u64(&r0, &gaddr, 0));
+            self.emit(abi::add_immediate(&r0, &r0, 1));
+            self.emit(abi::store_u64(&r0, abi::stack_pointer(), gi_slot));
+            self.emit(abi::branch(&gfill));
+            self.emit(abi::label(&gfill_done));
+            // itemsB / keysB scratch, both List OF Integer sized n*8 (from keys_slot).
+            let itemsb = self.lower_reserved_list(&keys_type, keys_slot)?;
+            let itemsb_slot = self.allocate_stack_object("sortby_itemsb", 8);
+            self.emit(abi::store_u64(&itemsb.location, abi::stack_pointer(), itemsb_slot));
+            let keysb = self.lower_reserved_list(&keys_type, keys_slot)?;
+            let keysb_slot = self.allocate_stack_object("sortby_keysb", 8);
+            self.emit(abi::store_u64(&keysb.location, abi::stack_pointer(), keysb_slot));
+            (keys_slot, items_slot, itemsb_slot, keysb_slot)
+        } else {
+            // keys = reserved List OF key_type (count 0, capacity n); fill by calling
+            // keyFn on each source element, writing keys[i] directly.
+            let keys = self.lower_reserved_list(&keys_type, coll_slot)?;
+            let keys_slot = self.allocate_stack_object("sortby_keys", 8);
+            self.emit(abi::store_u64(
+                &keys.location,
+                abi::stack_pointer(),
+                keys_slot,
+            ));
 
-        let i_slot = self.allocate_stack_object("sortby_i", 8);
-        let k_loop = self.label("sortby_keys_loop");
-        let k_done = self.label("sortby_keys_done");
-        let k_ok = self.label("sortby_keys_ok");
-        self.emit(abi::move_immediate(&r0, "Integer", "0"));
-        self.emit(abi::store_u64(&r0, abi::stack_pointer(), i_slot));
-        self.emit(abi::label(&k_loop));
-        self.emit(abi::load_u64(&r0, abi::stack_pointer(), i_slot));
-        self.emit(abi::load_u64(&r1, abi::stack_pointer(), n_slot));
-        self.emit(abi::compare_registers(&r0, &r1));
-        self.emit(abi::branch_ge(&k_done));
-        // item = source[i] : load_u64(collBase + HEADER + i*8).
-        let addr = self.temporary_vreg();
-        let off = self.temporary_vreg();
-        self.emit(abi::load_u64(&addr, abi::stack_pointer(), coll_slot));
-        self.emit(abi::add_immediate(&addr, &addr, COLLECTION_HEADER_SIZE));
-        self.emit(abi::shift_left_immediate(&off, &r0, 3));
-        self.emit(abi::add_registers(&addr, &addr, &off));
-        let item = self.temporary_vreg();
-        self.emit(abi::load_u64(&item, &addr, 0));
-        self.emit(abi::move_register(&abi::argument_register(0)?, &item));
-        let act = self.temporary_vreg();
-        self.emit(abi::load_u64(&act, abi::stack_pointer(), action_slot));
-        self.emit_direct_callable_branch(&act);
-        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-        self.emit(abi::branch_eq(&k_ok));
-        // keyFn failed: free the partial keys buffer, propagate the raw error.
-        self.emit_callback_failure_exit(Some((keys_slot, keys_type.clone())))?;
-        self.emit(abi::label(&k_ok));
-        // keys[i] = RESULT_VALUE_REGISTER.
-        self.emit(abi::load_u64(&addr, abi::stack_pointer(), keys_slot));
-        self.emit(abi::add_immediate(&addr, &addr, COLLECTION_HEADER_SIZE));
-        self.emit(abi::load_u64(&r0, abi::stack_pointer(), i_slot));
-        self.emit(abi::shift_left_immediate(&off, &r0, 3));
-        self.emit(abi::add_registers(&addr, &addr, &off));
-        self.emit(abi::store_u64(RESULT_VALUE_REGISTER, &addr, 0));
-        self.emit(abi::add_immediate(&r0, &r0, 1));
-        self.emit(abi::store_u64(&r0, abi::stack_pointer(), i_slot));
-        self.emit(abi::branch(&k_loop));
-        self.emit(abi::label(&k_done));
+            let i_slot = self.allocate_stack_object("sortby_i", 8);
+            let k_loop = self.label("sortby_keys_loop");
+            let k_done = self.label("sortby_keys_done");
+            let k_ok = self.label("sortby_keys_ok");
+            self.emit(abi::move_immediate(&r0, "Integer", "0"));
+            self.emit(abi::store_u64(&r0, abi::stack_pointer(), i_slot));
+            self.emit(abi::label(&k_loop));
+            self.emit(abi::load_u64(&r0, abi::stack_pointer(), i_slot));
+            self.emit(abi::load_u64(&r1, abi::stack_pointer(), n_slot));
+            self.emit(abi::compare_registers(&r0, &r1));
+            self.emit(abi::branch_ge(&k_done));
+            // item = source[i] : load_u64(collBase + HEADER + i*8).
+            let addr = self.temporary_vreg();
+            let off = self.temporary_vreg();
+            self.emit(abi::load_u64(&addr, abi::stack_pointer(), coll_slot));
+            self.emit(abi::add_immediate(&addr, &addr, COLLECTION_HEADER_SIZE));
+            self.emit(abi::shift_left_immediate(&off, &r0, 3));
+            self.emit(abi::add_registers(&addr, &addr, &off));
+            let item = self.temporary_vreg();
+            self.emit(abi::load_u64(&item, &addr, 0));
+            self.emit(abi::move_register(&abi::argument_register(0)?, &item));
+            let act = self.temporary_vreg();
+            self.emit(abi::load_u64(&act, abi::stack_pointer(), action_slot));
+            self.emit_direct_callable_branch(&act);
+            self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+            self.emit(abi::branch_eq(&k_ok));
+            // keyFn failed: free the partial keys buffer, propagate the raw error.
+            self.emit_callback_failure_exit(Some((keys_slot, keys_type.clone())))?;
+            self.emit(abi::label(&k_ok));
+            // keys[i] = RESULT_VALUE_REGISTER.
+            self.emit(abi::load_u64(&addr, abi::stack_pointer(), keys_slot));
+            self.emit(abi::add_immediate(&addr, &addr, COLLECTION_HEADER_SIZE));
+            self.emit(abi::load_u64(&r0, abi::stack_pointer(), i_slot));
+            self.emit(abi::shift_left_immediate(&off, &r0, 3));
+            self.emit(abi::add_registers(&addr, &addr, &off));
+            self.emit(abi::store_u64(RESULT_VALUE_REGISTER, &addr, 0));
+            self.emit(abi::add_immediate(&r0, &r0, 1));
+            self.emit(abi::store_u64(&r0, abi::stack_pointer(), i_slot));
+            self.emit(abi::branch(&k_loop));
+            self.emit(abi::label(&k_done));
 
-        // items = a tight, uniquely-owned copy of the source (count == n); two
-        // scratch buffers (itemsB/keysB) for the ping-pong merge.
-        let srcreg = self.temporary_vreg();
-        self.emit(abi::load_u64(&srcreg, abi::stack_pointer(), coll_slot));
-        let items_copy = self.copy_collection_tight(&list_type, &srcreg)?;
-        let items_slot = self.allocate_stack_object("sortby_items", 8);
-        self.emit(abi::store_u64(
-            &items_copy,
-            abi::stack_pointer(),
-            items_slot,
-        ));
-        let itemsb = self.lower_reserved_list(&list_type, coll_slot)?;
-        let itemsb_slot = self.allocate_stack_object("sortby_itemsb", 8);
-        self.emit(abi::store_u64(
-            &itemsb.location,
-            abi::stack_pointer(),
-            itemsb_slot,
-        ));
-        let keysb = self.lower_reserved_list(&keys_type, coll_slot)?;
-        let keysb_slot = self.allocate_stack_object("sortby_keysb", 8);
-        self.emit(abi::store_u64(
-            &keysb.location,
-            abi::stack_pointer(),
-            keysb_slot,
-        ));
+            // items = a tight, uniquely-owned copy of the source (count == n); two
+            // scratch buffers (itemsB/keysB) for the ping-pong merge.
+            let srcreg = self.temporary_vreg();
+            self.emit(abi::load_u64(&srcreg, abi::stack_pointer(), coll_slot));
+            let items_copy = self.copy_collection_tight(&list_type, &srcreg)?;
+            let items_slot = self.allocate_stack_object("sortby_items", 8);
+            self.emit(abi::store_u64(
+                &items_copy,
+                abi::stack_pointer(),
+                items_slot,
+            ));
+            let itemsb = self.lower_reserved_list(&list_type, coll_slot)?;
+            let itemsb_slot = self.allocate_stack_object("sortby_itemsb", 8);
+            self.emit(abi::store_u64(
+                &itemsb.location,
+                abi::stack_pointer(),
+                itemsb_slot,
+            ));
+            let keysb = self.lower_reserved_list(&keys_type, coll_slot)?;
+            let keysb_slot = self.allocate_stack_object("sortby_keysb", 8);
+            self.emit(abi::store_u64(
+                &keysb.location,
+                abi::stack_pointer(),
+                keysb_slot,
+            ));
+            (keys_slot, items_slot, itemsb_slot, keysb_slot)
+        };
 
         // --- Bottom-up stable merge sort, ping-ponging the four buffer slots. ---
         let width_slot = self.allocate_stack_object("sortby_width", 8);
@@ -2435,6 +2489,71 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&width, abi::stack_pointer(), width_slot));
         self.emit(abi::branch(&outer));
         self.emit(abi::label(&outer_done));
+
+        if gather {
+            // plan-86 A1 gather finalize: items_slot now holds the sorted index
+            // permutation. Build the String result by copying source[idx] into it
+            // in sorted order, then free the four Integer index buffers. The result
+            // is pre-sized to the source (same n entries, same total bytes — a
+            // permutation), so no append regrows.
+            let result = self.lower_reserved_list(&list_type, coll_slot)?;
+            let result_slot = self.allocate_stack_object("sortby_result", 8);
+            self.emit(abi::store_u64(&result.location, abi::stack_pointer(), result_slot));
+            let gk_slot = self.allocate_stack_object("sortby_gather_k", 8);
+            let gitem_slot = self.allocate_stack_object("sortby_gather_item", 8);
+            let gloop = self.label("sortby_gather_loop");
+            let gdone = self.label("sortby_gather_done");
+            self.emit(abi::move_immediate(&r0, "Integer", "0"));
+            self.emit(abi::store_u64(&r0, abi::stack_pointer(), gk_slot));
+            self.emit(abi::label(&gloop));
+            self.emit(abi::load_u64(&r0, abi::stack_pointer(), gk_slot));
+            self.emit(abi::load_u64(&r1, abi::stack_pointer(), n_slot));
+            self.emit(abi::compare_registers(&r0, &r1));
+            self.emit(abi::branch_ge(&gdone));
+            // idx = items[k] (word load from the sorted permutation buffer).
+            let gaddr = self.temporary_vreg();
+            let goff = self.temporary_vreg();
+            let gidx = self.temporary_vreg();
+            self.emit(abi::load_u64(&gaddr, abi::stack_pointer(), items_slot));
+            self.emit(abi::add_immediate(&gaddr, &gaddr, COLLECTION_HEADER_SIZE));
+            self.emit(abi::shift_left_immediate(&goff, &r0, 3));
+            self.emit(abi::add_registers(&gaddr, &gaddr, &goff));
+            self.emit(abi::load_u64(&gidx, &gaddr, 0));
+            // (voff, vlen) = source entry[idx]; materialize an owned String from
+            // the source data region, append (copies the bytes), then free it.
+            let gvoff = self.temporary_vreg();
+            let gvlen = self.temporary_vreg();
+            let gscr1 = self.temporary_vreg();
+            let gscr2 = self.temporary_vreg();
+            let gcoll = self.temporary_vreg();
+            self.emit(abi::load_u64(&gcoll, abi::stack_pointer(), coll_slot));
+            self.emit_element_value_offset(&gvoff, &gvlen, &gcoll, &gidx, &gscr1, &gscr2, "String");
+            let gitem = self.emit_load_collection_payload("String", &gcoll, &gvoff, &gvlen)?;
+            self.emit(abi::store_u64(&gitem, abi::stack_pointer(), gitem_slot));
+            self.lower_list_append_in_place(result_slot, gitem_slot, &list_type, "String")?;
+            self.free_collection_loop_item(gitem_slot, "String")?;
+            self.emit(abi::load_u64(&r0, abi::stack_pointer(), gk_slot));
+            self.emit(abi::add_immediate(&r0, &r0, 1));
+            self.emit(abi::store_u64(&r0, abi::stack_pointer(), gk_slot));
+            self.emit(abi::branch(&gloop));
+            self.emit(abi::label(&gdone));
+            let result_reg = self.allocate_register()?;
+            self.emit(abi::load_u64(&result_reg, abi::stack_pointer(), result_slot));
+            let threaded = ValueResult {
+                type_: list_type.clone(),
+                location: result_reg.render(),
+                text: String::new(),
+            };
+            let threaded = self.free_intermediate_collection(items_slot, &keys_type, threaded)?;
+            let threaded = self.free_intermediate_collection(itemsb_slot, &keys_type, threaded)?;
+            let threaded = self.free_intermediate_collection(keys_slot, &keys_type, threaded)?;
+            let threaded = self.free_intermediate_collection(keysb_slot, &keys_type, threaded)?;
+            return Ok(ValueResult {
+                type_: list_type.clone(),
+                location: threaded.location,
+                text: format!("sortBy({list_type})"),
+            });
+        }
 
         // The sorted data is in items_slot (each pass swaps its output back into it).
         // Scratch buffers start count 0, so stamp count = n, dataLength = n*8 to make
