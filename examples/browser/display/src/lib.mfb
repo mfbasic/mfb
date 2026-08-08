@@ -65,12 +65,20 @@ FUNC wrap(s AS String, width AS Integer) AS String
     IF len(line) <= w THEN
       out = collections::append(out, line)
     ELSE
-      MUT start AS Integer = 0
-      DO WHILE start < len(line)
-        LET count AS Integer = minOf(w, len(line) - start)
-        out = collections::append(out, strings::mid(line, start, count))
-        start = start + count
-      LOOP
+      MUT currentLine AS String = ""
+      FOR EACH word IN strings::split(line, " ")
+        IF currentLine = "" THEN
+          currentLine = word
+        ELSEIF len(currentLine) + 1 + len(word) <= w THEN
+          currentLine = currentLine & " " & word
+        ELSE
+          out = collections::append(out, currentLine)
+          currentLine = word
+        END IF
+      NEXT
+      IF currentLine <> "" THEN
+        out = collections::append(out, currentLine)
+      END IF
     END IF
   NEXT
   RETURN strings::join(out, "\n")
