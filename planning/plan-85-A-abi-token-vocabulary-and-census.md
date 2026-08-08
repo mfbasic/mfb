@@ -382,7 +382,7 @@ every site has a target token justified by its callee/boundary; counts carry com
 — MET: `plan-85-worklist.md` (complete per-`file:line` enumeration, all categories, with
 generating commands) + the `@src` sweep (273 divergent sites confirming the byte-changing
 subset) + the deterministic target-token rule + per-file distribution, all in the census.
-Commit: —
+Commit: ebb9afdac
 
 ## Validation Plan
 
