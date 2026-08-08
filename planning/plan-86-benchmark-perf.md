@@ -236,9 +236,22 @@ priority reach (P1s cleared, biggest offenders first). Each gets its own
 > Highest leverage: **B** (biggest single row, cheap), **A** (~11 P1), **C** (7 P1), **D**
 > (map cluster), then **E/F/G/H**.
 
-### Sub-plan A — String-element native collection lowering (split candidate) — **partition + sortBy + sort (String+fixed-width) DONE; rest open**
+### Sub-plan A — String-element native collection lowering (split candidate) — **partition + sortBy + sort + flatten DONE; window/chunks/groupBy/zip/findLastIndex open**
 
-**Status (landed this session):** A1-sort now covers **fixed-width items too**. `collections::sort`
+**Status (landed this session):** A3-flatten complete (String + fixed-width). `collections::flatten`
+(`List OF List OF T` → `List OF T`) is native for a simple `T` (String/Integer/Float/Fixed/Money): each
+inner list is stored **inline** as a self-contained sub-block in the outer's data region (the same block
+`get` copies wholesale), so a pointer to it (`outerDataBase + entry[i].offset`) is a valid list pointer
+that `lower_list_bulk_append_in_place` concatenates into the growing result — **no per-inner
+materialization/copy** (the `.mfb` copies each inner via `get`). Correct + gate-clean (byte-identity
+/collections `.ncodesum` regenerated for all 5 targets, proven by the acceptance suite executing
+`flatten([[1,2],[3],[4,5]])`). **Note:** the scored `flatten` benchmark row barely moves (24.6 → 22.0)
+because it is `flatten(chunks(base,10))` and **`chunks` is still interpreted** (chunks-bound, not
+flatten-bound) — the flatten row will not clear until native String `chunks` lands (a remaining
+nested-block piece). Native flatten does lift `listchurn nested` (Integer flatten on a genuine nested
+list) and any flatten-heavy code. See Corrections.
+
+**A1-sort fixed-width (landed earlier this session):** `collections::sort` now covers **fixed-width items too**. `collections::sort`
 for `Integer`/`Fixed`/`Money` routes to the same index-permutation merge, branching (`if is_string`) to a
 **signed word compare** + **word-copy gather** (the String path stays byte-identical — the merge and gather
 are unchanged for it). `Float` excluded (NaN order). `list (Fixed)`: `sort_rand` **5.07 → 0.99 ms** (~5×),
@@ -677,6 +690,14 @@ sqrt; float leibniz/nbody/mandelbrot; recurse fib; thread sum; io format; crypto
 
 ## Corrections
 
+- **Sub-plan A3: the `flatten` benchmark row is `chunks`-bound, not `flatten`-bound.** The scored row is
+  `len(flatten(chunks(base, 10)))` — it first builds 100 nested String lists via the **interpreted**
+  `collections::chunks` (String `chunks` is not native), then flattens. Native `flatten` (inline-inner
+  pointer + `bulk_append`, no per-inner copy) is correct and taken (min 24.2 → 21.7, beyond noise) but the
+  row barely moves because `chunks` dominates. So `flatten` alone does NOT clear its P1 row — it needs
+  native String `chunks` (a remaining nested-block piece) first. Native flatten still lifts `listchurn
+  nested` (Integer flatten on a genuine nested list) and any flatten-heavy code, and is a correct building
+  block. Recorded so the next session pairs `chunks` + `flatten` rather than re-measuring flatten alone.
 - **Sub-plan A1: `sort` had NO native path for ANY type; native String `sort` now clears G1 for asc/desc.**
   The plan's A note ("`sort_asc/desc/rand` … no native path at all") applied to every element type, not
   just String — `collections::sort` always ran the interpreted `.mfb` merge. Native String `sort` reuses
