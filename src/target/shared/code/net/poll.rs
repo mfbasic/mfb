@@ -40,12 +40,12 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
         // (i64::MIN) → block until readable, i.e. poll() with a -1 timeout. Any
         // other negative value is rejected; a non-negative value is clamped below.
         abi::move_immediate("%v13", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
-        abi::compare_registers(abi::ARG[1], "%v13"),
+        abi::compare_registers(abi::c_arg(1), "%v13"),
         abi::branch_eq(&poll_infinite),
         // x1 = timeoutMs; reject negative timeouts.
-        abi::compare_immediate(abi::ARG[1], "0"),
+        abi::compare_immediate(abi::c_arg(1), "0"),
         abi::branch_lt(&invalid),
-        abi::move_register("%v12", abi::ARG[1]),
+        abi::move_register("%v12", abi::c_arg(1)),
         // Clamp timeoutMs to INT_MAX: poll() takes a C `int`, so a 64-bit value
         // with bit 31 set would be read as a negative timeout (block forever)
         // instead of a long wait (bug-239). Negatives were already rejected above.
@@ -71,8 +71,8 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
         // already on the stack and %v12 holds the timeout) on an EINTR (bug-115).
         abi::label(&poll_retry),
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
-        abi::move_register(abi::ARG[2], "%v12"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::move_register(abi::c_arg(2), "%v12"),
     ]);
     platform.emit_libc_call(
         net_symbol(platform, NetSymbol::Poll),
@@ -206,11 +206,11 @@ pub(in crate::target::shared::code) fn lower_net_poll_list_helper(
     // --- Normalize the timeout (identical policy to the scalar helper) ---
     instructions.extend([
         abi::move_immediate("%v13", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
-        abi::compare_registers(abi::ARG[1], "%v13"),
+        abi::compare_registers(abi::c_arg(1), "%v13"),
         abi::branch_eq(&poll_infinite),
-        abi::compare_immediate(abi::ARG[1], "0"),
+        abi::compare_immediate(abi::c_arg(1), "0"),
         abi::branch_lt(&invalid),
-        abi::move_register("%v12", abi::ARG[1]),
+        abi::move_register("%v12", abi::c_arg(1)),
         abi::move_immediate("%v13", "Integer", "2147483647"),
         abi::compare_registers("%v12", "%v13"),
         abi::branch_le(&timeout_ok),
@@ -241,7 +241,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_list_helper(
         abi::multiply_registers("%v15", "%v10", "%v13"),
         abi::store_u64("%v15", abi::stack_pointer(), SIZE_OFF),
         abi::move_register(abi::return_register(), "%v15"),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
@@ -297,8 +297,8 @@ pub(in crate::target::shared::code) fn lower_net_poll_list_helper(
         // --- poll(buf, count, timeout); EINTR-retry (bug-115) ---
         abi::label(&poll_retry),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), BUF_OFF),
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), COUNT_OFF),
-        abi::load_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFF),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), COUNT_OFF),
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT_OFF),
     ]);
     platform.emit_libc_call(
         net_symbol(platform, NetSymbol::Poll),
@@ -342,7 +342,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_list_helper(
         abi::store_u64("%v9", abi::stack_pointer(), RESULT_OFF),
         // arena_free(buf, size) before returning (no leak).
         abi::load_u64(abi::return_register(), abi::stack_pointer(), BUF_OFF),
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), SIZE_OFF),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), SIZE_OFF),
         abi::branch_link(ARENA_FREE_SYMBOL),
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), RESULT_OFF),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -356,7 +356,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_list_helper(
     instructions.push(abi::label(&expiry));
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), BUF_OFF),
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), SIZE_OFF),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), SIZE_OFF),
         abi::branch_link(ARENA_FREE_SYMBOL),
     ]);
     emit_fail(
@@ -383,7 +383,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_list_helper(
         // Hard error: free the array, then report resource-closed (a stale/closed fd
         // in the set is the realistic cause), matching the scalar helper's class.
         abi::load_u64(abi::return_register(), abi::stack_pointer(), BUF_OFF),
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), SIZE_OFF),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), SIZE_OFF),
         abi::branch_link(ARENA_FREE_SYMBOL),
     ]);
     emit_fail(
@@ -447,7 +447,7 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
         // timeoutMs arrives in the incoming-arg register; copy it to an
         // allocator-placed vreg (plan-34-B Phase 3) so the tv math below is not
         // pinned to a physical register. Reject negatives.
-        abi::move_register("%v14", abi::ARG[1]),
+        abi::move_register("%v14", abi::c_arg(1)),
         abi::compare_immediate("%v14", "0"),
         abi::branch_lt(&invalid),
         abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
@@ -496,9 +496,9 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
     instructions.extend([
         // setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO/SO_SNDTIMEO, &optval, optval_len)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::move_immediate(abi::ARG[1], "Integer", platform.sol_socket()),
+        abi::move_immediate(abi::c_arg(1), "Integer", platform.sol_socket()),
         abi::move_immediate(
-            abi::ARG[2],
+            abi::c_arg(2),
             "Integer",
             if write {
                 platform.so_sndtimeo()
@@ -506,8 +506,8 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
                 platform.so_rcvtimeo()
             },
         ),
-        abi::add_immediate(abi::ARG[3], abi::stack_pointer(), TIMEVAL_OFFSET),
-        abi::move_immediate(abi::ARG[4], "Integer", optval_len),
+        abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), TIMEVAL_OFFSET),
+        abi::move_immediate(abi::c_arg(4), "Integer", optval_len),
     ]);
     // setsockopt has FIVE int args; on Win64 optlen (the 5th) is a stack argument
     // above the shadow, not rdi (bug-384) — a garbage optlen makes

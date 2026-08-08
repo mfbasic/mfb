@@ -131,8 +131,8 @@ fn emit_wait_event(
         abi::load_u64(abi::return_register(), "%v9", W_EVENT),
     ]);
     match ms_off {
-        Some(off) => ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), off)),
-        None => ins.push(abi::bitwise_not(abi::ARG[1], abi::ZERO)), // INFINITE
+        Some(off) => ins.push(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), off)),
+        None => ins.push(abi::bitwise_not(abi::c_arg(1), abi::ZERO)), // INFINITE
     }
     ole_call(symbol, "WaitForSingleObject", 2, platform_imports, platform, ins, rel)
 }
@@ -259,7 +259,7 @@ fn lower_write(
         abi::load_u64("%v10", abi::return_register(), H_BYTES_PER_FRAME),
         abi::store_u64("%v10", abi::stack_pointer(), BPF_OFF),
         // total bytes, frame-alignment
-        abi::load_u64("%v13", abi::ARG[1], COLLECTION_OFFSET_COUNT),
+        abi::load_u64("%v13", abi::c_arg(1), COLLECTION_OFFSET_COUNT),
         abi::compare_immediate("%v13", "0"),
         abi::branch_eq(&invalid),
         abi::subtract_immediate("%v11", "%v10", 1),
@@ -267,7 +267,7 @@ fn lower_write(
         abi::compare_immediate("%v12", "0"),
         abi::branch_ne(&invalid),
     ]);
-    push_collection_data_base_from_capacity(&mut ins, "%v14", abi::ARG[1], "%v12", "%v14", "%v14");
+    push_collection_data_base_from_capacity(&mut ins, "%v14", abi::c_arg(1), "%v12", "%v14", "%v14");
     ins.extend([
         abi::store_u64("%v14", abi::stack_pointer(), SRC_OFF),
         abi::unsigned_divide_registers("%v13", "%v13", "%v10"),
@@ -288,7 +288,7 @@ fn lower_write(
     spill_obj(W_CLIENT, &mut ins);
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::add_immediate(abi::ARG[1], "%v9", W_OUT0),
+        abi::add_immediate(abi::c_arg(1), "%v9", W_OUT0),
     ]);
     com_call(SLOT_AC_GET_CURRENT_PADDING, 2, &mut ins);
     ins.extend([
@@ -311,9 +311,9 @@ fn lower_write(
     // render->GetBuffer(toWrite, &pData)
     spill_obj(W_SERVICE, &mut ins);
     ins.extend([
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), FRAMES_GOT_OFF),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), FRAMES_GOT_OFF),
         abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::add_immediate(abi::ARG[2], "%v9", W_OUT1),
+        abi::add_immediate(abi::c_arg(2), "%v9", W_OUT1),
     ]);
     com_call(SLOT_RENDER_GET_BUFFER, 3, &mut ins);
     ins.extend([
@@ -324,8 +324,8 @@ fn lower_write(
     // render->ReleaseBuffer(toWrite, 0)
     spill_obj(W_SERVICE, &mut ins);
     ins.extend([
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), FRAMES_GOT_OFF),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), FRAMES_GOT_OFF),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
     com_call(SLOT_RENDER_RELEASE_BUFFER, 3, &mut ins);
     ins.extend([
@@ -455,10 +455,10 @@ fn lower_read(
     let mut rel = Vec::new();
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
-        abi::store_u64(abi::ARG[1], abi::stack_pointer(), FRAMES_OFF),
+        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), FRAMES_OFF),
     ]);
     if timeout {
-        ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFF));
+        ins.push(abi::store_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT_OFF));
     }
     ins.extend([
         abi::load_u64("%v9", abi::return_register(), H_CLOSED),
@@ -598,11 +598,11 @@ fn lower_read(
     spill_obj(W_SERVICE, &mut ins);
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::add_immediate(abi::ARG[1], "%v9", W_OUT1),
-        abi::add_immediate(abi::ARG[2], "%v9", W_OUT0),
-        abi::add_immediate(abi::ARG[3], "%v9", W_OUT2),
-        abi::move_register(abi::ARG[4], abi::ZERO),
-        abi::move_register(abi::ARG[5], abi::ZERO),
+        abi::add_immediate(abi::c_arg(1), "%v9", W_OUT1),
+        abi::add_immediate(abi::c_arg(2), "%v9", W_OUT0),
+        abi::add_immediate(abi::c_arg(3), "%v9", W_OUT2),
+        abi::move_register(abi::c_arg(4), abi::ZERO),
+        abi::move_register(abi::c_arg(5), abi::ZERO),
     ]);
     com_call(SLOT_CAPTURE_GET_BUFFER, 6, &mut ins);
     ins.extend([
@@ -657,7 +657,7 @@ fn lower_read(
         abi::store_u64("%v10", abi::stack_pointer(), NAME_OFF),
     ]);
     spill_obj(W_SERVICE, &mut ins);
-    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), NAME_OFF));
+    ins.push(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), NAME_OFF));
     com_call(SLOT_CAPTURE_RELEASE_BUFFER, 2, &mut ins);
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
@@ -705,7 +705,7 @@ fn lower_read(
             abi::multiply_registers("%v11", "%v9", "%v10"),
             abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE),
             abi::add_registers("%v11", "%v11", "%v9"),
-            abi::move_register(abi::ARG[1], "%v11"),
+            abi::move_register(abi::c_arg(1), "%v11"),
             abi::load_u64(abi::return_register(), abi::stack_pointer(), LIST_OFF),
         ]);
         emit_arena_free(symbol, &mut ins, &mut rel);
@@ -746,7 +746,7 @@ fn lower_query(
     let mut rel = Vec::new();
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
-        abi::store_u64(abi::ARG[1], abi::stack_pointer(), TIMEOUT_OFF),
+        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT_OFF),
         abi::load_u64("%v9", abi::return_register(), H_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
@@ -770,7 +770,7 @@ fn lower_query(
             spill_obj(W_CLIENT, &mut ins);
             ins.extend([
                 abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-                abi::add_immediate(abi::ARG[1], "%v9", W_OUT0),
+                abi::add_immediate(abi::c_arg(1), "%v9", W_OUT0),
             ]);
             com_call(SLOT_AC_GET_CURRENT_PADDING, 2, &mut ins);
             let is_input = format!("{symbol}_isin");

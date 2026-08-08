@@ -161,10 +161,10 @@ fn import_key(
     };
     // Open ECDSA provider.
     ins.push(abi::add_immediate(abi::return_register(), abi::stack_pointer(), halg_off));
-    wide_addr(symbol, abi::ARG[1], curve.algo_id(), ins, rel);
+    wide_addr(symbol, abi::c_arg(1), curve.algo_id(), ins, rel);
     ins.extend([
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
-        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
     bcrypt_call(symbol, "BCryptOpenAlgorithmProvider", 4, imports, platform, ins, rel)?;
     ins.push(abi::branch_lt(fail));
@@ -184,14 +184,14 @@ fn import_key(
     // BCryptImportKeyPair(hAlg, NULL, blobId, &hKey, blob, blobLen, 0)
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), halg_off),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
-    wide_addr(symbol, abi::ARG[2], blob_id, ins, rel);
+    wide_addr(symbol, abi::c_arg(2), blob_id, ins, rel);
     ins.extend([
-        abi::add_immediate(abi::ARG[3], abi::stack_pointer(), hkey_off),
-        abi::load_u64(abi::ARG[4], abi::stack_pointer(), blob_off),
-        abi::move_immediate(abi::ARG[5], "Integer", &blob_len.to_string()),
-        abi::move_immediate(abi::ARG[6], "Integer", "0"),
+        abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), hkey_off),
+        abi::load_u64(abi::c_arg(4), abi::stack_pointer(), blob_off),
+        abi::move_immediate(abi::c_arg(5), "Integer", &blob_len.to_string()),
+        abi::move_immediate(abi::c_arg(6), "Integer", "0"),
     ]);
     bcrypt_call(symbol, "BCryptImportKeyPair", 7, imports, platform, ins, rel)?;
     ins.push(abi::branch_lt(import_fail));
@@ -215,22 +215,22 @@ fn hash_message(
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
     ins.push(abi::add_immediate(abi::return_register(), abi::stack_pointer(), hashalg_off));
-    wide_addr(symbol, abi::ARG[1], curve.hash_id(), ins, rel);
+    wide_addr(symbol, abi::c_arg(1), curve.hash_id(), ins, rel);
     ins.extend([
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
-        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
     bcrypt_call(symbol, "BCryptOpenAlgorithmProvider", 4, imports, platform, ins, rel)?;
     ins.push(abi::branch_lt(fail));
     // BCryptHash(hAlg, NULL, 0, msg, msgLen, hash, hashLen)
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), hashalg_off),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
-        abi::load_u64(abi::ARG[3], abi::stack_pointer(), msgbuf_off),
-        abi::load_u64(abi::ARG[4], abi::stack_pointer(), msglen_off),
-        abi::add_immediate(abi::ARG[5], abi::stack_pointer(), hashbuf_off),
-        abi::move_immediate(abi::ARG[6], "Integer", &curve.hash_len().to_string()),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+        abi::load_u64(abi::c_arg(3), abi::stack_pointer(), msgbuf_off),
+        abi::load_u64(abi::c_arg(4), abi::stack_pointer(), msglen_off),
+        abi::add_immediate(abi::c_arg(5), abi::stack_pointer(), hashbuf_off),
+        abi::move_immediate(abi::c_arg(6), "Integer", &curve.hash_len().to_string()),
     ]);
     let hash_fail = format!("{symbol}_hashfail");
     let hash_ok = format!("{symbol}_hashok");
@@ -239,7 +239,7 @@ fn hash_message(
     // Close the hash provider (success path).
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), hashalg_off),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
     bcrypt_call(symbol, "BCryptCloseAlgorithmProvider", 2, imports, platform, ins, rel)?;
     ins.push(abi::branch(&hash_ok));
@@ -249,7 +249,7 @@ fn hash_message(
     ins.push(abi::label(&hash_fail));
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), hashalg_off),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
     bcrypt_call(symbol, "BCryptCloseAlgorithmProvider", 2, imports, platform, ins, rel)?;
     ins.push(abi::branch(fail));
@@ -295,7 +295,7 @@ fn sign(
     let mut rel = Vec::new();
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PRIVCOLL),
-        abi::store_u64(abi::ARG[1], abi::stack_pointer(), MSGCOLL),
+        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MSGCOLL),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HALG),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HKEY),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), BLOB),
@@ -313,7 +313,7 @@ fn sign(
     for (cap, slot) in [(BLOBCAP, BLOB), (2 * 66, RS), (16 + 4 * 66, DERBUF)] {
         ins.extend([
             abi::move_immediate(abi::return_register(), "Integer", &cap.to_string()),
-            abi::move_immediate(abi::ARG[1], "Integer", "8"),
+            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         ]);
         emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
         ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), slot));
@@ -325,13 +325,13 @@ fn sign(
     // BCryptSignHash(hKey, NULL, hash, hashLen, rs, 2*field, &cbResult, 0)
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), HKEY),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), HASHINLINE),
-        abi::move_immediate(abi::ARG[3], "Integer", &curve.hash_len().to_string()),
-        abi::load_u64(abi::ARG[4], abi::stack_pointer(), RS),
-        abi::move_immediate(abi::ARG[5], "Integer", &(2 * field).to_string()),
-        abi::add_immediate(abi::ARG[6], abi::stack_pointer(), CBRES),
-        abi::move_immediate(abi::ARG[7], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), HASHINLINE),
+        abi::move_immediate(abi::c_arg(3), "Integer", &curve.hash_len().to_string()),
+        abi::load_u64(abi::c_arg(4), abi::stack_pointer(), RS),
+        abi::move_immediate(abi::c_arg(5), "Integer", &(2 * field).to_string()),
+        abi::add_immediate(abi::c_arg(6), abi::stack_pointer(), CBRES),
+        abi::move_immediate(abi::c_arg(7), "Integer", "0"),
     ]);
     bcrypt_call(symbol, "BCryptSignHash", 8, imports, platform, &mut ins, &mut rel)?;
     ins.push(abi::branch_lt(&fail));
@@ -455,8 +455,8 @@ fn verify(
     let mut rel = Vec::new();
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PUBCOLL),
-        abi::store_u64(abi::ARG[1], abi::stack_pointer(), MSGCOLL),
-        abi::store_u64(abi::ARG[2], abi::stack_pointer(), SIGCOLL),
+        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MSGCOLL),
+        abi::store_u64(abi::c_arg(2), abi::stack_pointer(), SIGCOLL),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HALG),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HKEY),
     ]);
@@ -474,7 +474,7 @@ fn verify(
     for (cap, slot) in [(BLOBCAP, BLOB), (2 * 66, RS)] {
         ins.extend([
             abi::move_immediate(abi::return_register(), "Integer", &cap.to_string()),
-            abi::move_immediate(abi::ARG[1], "Integer", "8"),
+            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         ]);
         emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
         ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), slot));
@@ -520,12 +520,12 @@ fn verify(
     // BCryptVerifySignature(hKey, NULL, hash, hashLen, rs, 2*field, 0)
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), HKEY),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), HASHINLINE),
-        abi::move_immediate(abi::ARG[3], "Integer", &curve.hash_len().to_string()),
-        abi::load_u64(abi::ARG[4], abi::stack_pointer(), RS),
-        abi::move_immediate(abi::ARG[5], "Integer", &(2 * field).to_string()),
-        abi::move_immediate(abi::ARG[6], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), HASHINLINE),
+        abi::move_immediate(abi::c_arg(3), "Integer", &curve.hash_len().to_string()),
+        abi::load_u64(abi::c_arg(4), abi::stack_pointer(), RS),
+        abi::move_immediate(abi::c_arg(5), "Integer", &(2 * field).to_string()),
+        abi::move_immediate(abi::c_arg(6), "Integer", "0"),
     ]);
     bcrypt_call(symbol, "BCryptVerifySignature", 7, imports, platform, &mut ins, &mut rel)?;
     // Destroy the CNG handles (clobbers result regs) BEFORE recording the verdict.

@@ -30,20 +30,24 @@ pub(super) fn hex_encode_cstring(text: &str) -> String {
 /// Load the address of a read-only data symbol into `dst` (adrp + add).
 pub(super) fn emit_data_address(
     from: &str,
-    dst: &str,
+    // plan-85-B: accept a typed `Operand` (e.g. `abi::c_arg(1)`) as well as a
+    // legacy `&str` token — `&str: Into<Operand>`, so every existing caller is
+    // unchanged and byte-identical.
+    dst: impl Into<Operand>,
     data_symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let dst = dst.into();
     instructions.push(
         CodeInstruction::new("adrp")
-            .field("dst", dst)
+            .field("dst", &dst)
             .field("symbol", data_symbol),
     );
     instructions.push(
         CodeInstruction::new("add_pageoff")
-            .field("dst", dst)
-            .field("src", dst)
+            .field("dst", &dst)
+            .field("src", &dst)
             .field("symbol", data_symbol),
     );
     relocations.extend([
