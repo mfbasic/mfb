@@ -151,7 +151,7 @@ fn marshal_cstring(
     instructions.extend([
         abi::load_u64(&len, src, 0),
         abi::add_immediate(abi::return_register(), &len, 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(symbol, relocations);
@@ -215,7 +215,7 @@ fn build_string_from_cstr(
         abi::label(&count_done),
         // 8-byte length header + bytes + NUL terminator.
         abi::add_immediate(abi::return_register(), &length, 9),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(symbol, relocations);
@@ -280,7 +280,7 @@ fn build_string_from_len(
     let byte = vregs.next();
     instructions.extend([
         abi::add_immediate(abi::return_register(), len, 9),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(symbol, relocations);
