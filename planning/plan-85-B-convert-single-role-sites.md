@@ -257,6 +257,22 @@ the syscall file. On SysV `SYS_ARGS[k]==CALL_ARGS[k]` for k≤2 (all these are i
 bucket is entirely `%argC`. `sys_arg`/`sys_return` accessors remain for the Linux-backend
 conversion (a later scope). `grep -rn 'abi::SYSARG\[' src/target/shared/code/` → empty.
 
+**C3 — the MFB-result move (byte-changing) plan for `_mfb_arena_alloc`.** The
+`arena_alloc` body (`arena.rs` `lower_arena_alloc`) returns `{tag@return_register()=RET[0],
+ptr@RET[1]}` at ~10 return points (OK-tag+ptr stores at `:159/160`, `:180/181`, `:240/241`,
+`:283/284`, `:402/403`; error-tag at `:545/546/549/…`). Under alignment these become
+`%retMFB0` (tag, SysV rax→rdi) and `%retMFB1` (ptr, SysV rdx→rsi) — **byte-CHANGING**. This
+is the cross-file atomic unit (C1): the body's result stores + all ~795 caller reads
+(`RET[1]` = "alloc result → vreg base"; `return_register()`/`RET[0]` = the tag check after
+`bl ARENA_ALLOC`) must convert **together**. **Trap:** the body ALSO uses `return_register()`
+as internal **scratch** (the mmap-grow path `:488-505` stores the fresh block pointer through
+`return_register()` as x0-scratch, NOT a result) — so the conversion is NOT a `return_register`
+sed; it must convert only the final tag/ptr-before-`ret` sites to `%retMFB`, leaving the
+internal x0-scratch uses (better: give them a vreg). Same discipline for every `_mfb_*`
+helper whose own return is read across files. This is the byte-changing grouping, gated on
+rt-behavior (box 2227) + Win64/ARM/RISC-V byte-identity, run AFTER the byte-identical args
+grouping's gate is green.
+
 ## Summary
 
 B converts the single-role bulk to explicit aligned tokens. It is byte-CHANGING on
