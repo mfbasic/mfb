@@ -273,6 +273,37 @@ helper whose own return is read across files. This is the byte-changing grouping
 rt-behavior (box 2227) + Win64/ARM/RISC-V byte-identity, run AFTER the byte-identical args
 grouping's gate is green.
 
+**C4 — the args conversion is NOT byte-identical on x86; the x86 fixpoint has GLOBAL
+dataflow that ANY partial conversion perturbs. This supersedes C1 and revises the plan's
+"Win64 byte-identical" premise.** After converting all `shared/code` `abi::ARG[]`→`c_arg()`
+(args only, no results), the full byte gate on the A-only baselines showed **534 of 1354
+linux-x86_64 executables changed AND windows-x86_64 broadly changed** (both x86 ABIs), while
+the conversion touched NO result tokens. Root cause: `remap_x86_abi` colors every `xN` token
+by a **per-function global dataflow** (`defined_since_boundary`, `staged_live`, `param_home`
+— `select.rs:687-697`). Converting a token makes it a physical register the fixpoint no
+longer tracks, so its dataflow state shifts and it colors the *remaining* legacy tokens
+differently — even where the converted token's own register agrees with the fixpoint (C1's
+premise). The perturbation is broad because runtime helpers (linked into every executable)
+mix converted args + legacy results.
+
+Consequences:
+- **C1 is wrong.** Arg conversion is byte-identical only on AArch64/RISC-V (positional, no
+  fixpoint); on BOTH x86 ABIs it perturbs. The "byte-identical args grouping" does not exist.
+- **The plan's premise "Win64 is byte-identical (the cross-target gate)" is FALSE.** Win64
+  runs the same `select_x86`/`remap_x86_abi`, so it perturbs like SysV; and Win64 result
+  index-0 diverges anyway (`%retMFB0`=rcx vs old `RETS_WIN64[0]`=rax, §2 table). The genuine
+  byte-identity cross-check is **AArch64/RISC-V only**; both x86 ABIs must be verified by
+  **rt-behavior** (SysV box 2227, Win64 box 2230).
+- **Incremental partial conversion cannot be byte-verified on x86 and risks a register
+  COLLISION** (a converted physical token vs a legacy token the fixpoint colors to the same
+  reg → clobber → miscompile). The only perturbation-free conversion is to leave NO legacy
+  tokens for a function's fixpoint pass — but shared results (`arena_alloc`'s `RET[0]/RET[1]`
+  read at ~795 sites) make the atomic unit cascade to "convert everything" = the plan-85-D
+  fixpoint deletion. **Open question (decides B's whole approach): is the SysV perturbation
+  benign (rt-behavior-correct, just different registers) or does it introduce a collision?**
+  Being resolved by rt-behavior on box 2227; the answer decides keep-and-verify-rt-behavior
+  vs revert-and-redesign-B-around-full-conversion.
+
 ## Summary
 
 B converts the single-role bulk to explicit aligned tokens. It is byte-CHANGING on
