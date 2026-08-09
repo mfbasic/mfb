@@ -268,11 +268,19 @@ Deviations / decisions:
 - No Windows/Wine runner was available; the runtime proof is the in-repo byte-scan
   test, matching how the ELF/Mach-O backends are already verified (all three linkers
   are write-only — there is no in-repo signature verifier).
+- **Merge with bug-433 (the sibling `.mfbnote` provenance section).** bug-433 landed
+  on main separately while this fix was in flight; it added an *unconditional*
+  `.mfbnote` PE section via the same trailing-section vehicle. The merge auto-combined
+  both push blocks but left both sections claiming the same post-`.rsrc` slot (a real
+  overlap bug). Resolution: `.mfbnote` (unconditional) is emitted first, and
+  `.mfbsign` is placed after it (`align_up(mfbnote_rva + mfbnote_bytes.len())`), so
+  the two trailing sections are always disjoint. Guarded by the new
+  `signed_build_emits_both_mfbnote_and_mfbsign_disjoint` test.
 
-Verification: `cargo test --bin mfb` 3788 passed / 0 failed;
-`scripts/artifact-gate.sh all` 1201 tests / 1647 goldens / 0 diffs; spec
-drift-guards green. Unsigned builds are byte-identical to before (guarded by
-`unsigned_build_emits_no_mfbsign_section`).
+Verification: `cargo test --bin mfb` 3792 passed / 0 failed (post-merge; +4 from
+bug-433); `scripts/artifact-gate.sh all` 0 diffs (pre-merge run: 1201 tests / 1647
+goldens); spec drift-guards green. Unsigned builds are byte-identical to before
+(guarded by `unsigned_build_emits_no_mfbsign_section`).
 
 ## Summary
 
