@@ -60,6 +60,14 @@ FUNC minOf(a AS Integer, b AS Integer) AS Integer
   RETURN b
 END FUNC
 
+' The minimum width (in columns) a page is laid out to, regardless of the terminal
+' size, so wide multi-column layouts have room to render instead of cramming into a
+' narrow viewport. The visible window is the terminal width; content past it is
+' clipped (a future horizontal scroll would pan across the full canvas).
+FUNC minDisplayWidth() AS Integer
+  RETURN 300
+END FUNC
+
 ' Rows available for page content: everything except the 2 header and 2 footer
 ' rows. At least one row so the arithmetic below never goes negative.
 FUNC contentHeight(size AS TermSize) AS Integer
@@ -375,14 +383,20 @@ FUNC main AS Integer
       END IF
 
       ' Recompute the content lines from the DOM when the page, the mode, or the
-      ' width changed (display:: lays out to the current width). Display Mode paints
-      ' the DOM by its computed Layout straight into positioned lines (no re-wrap);
-      ' Raw Mode and the welcome/error fallback are plain text that still gets
-      ' hard-wrapped to the column width.
-      IF needRecontent OR cols <> lastContentWidth THEN
-        IF haveDom AND NOT rawMode THEN
-          wrapped = display::paint(pageDoc, cols, dom::terminalMetrics())
-          wrapWidth = cols
+      ' width changed. Display Mode paints the DOM by its computed Layout straight
+      ' into positioned lines — laid out to at least minDisplayWidth() columns so
+      ' wide multi-column pages get room instead of cramming; the viewport shows a
+      ' `cols`-wide window into that canvas (drawContent clips each line to `cols`).
+      ' Raw Mode and the welcome/error fallback are plain text hard-wrapped to the
+      ' visible column width.
+      LET paintMode AS Boolean = haveDom AND NOT rawMode
+      LET layoutW AS Integer = maxOf(cols, minDisplayWidth())
+      MUT effWidth AS Integer = cols
+      IF paintMode THEN effWidth = layoutW
+      IF needRecontent OR effWidth <> lastContentWidth THEN
+        IF paintMode THEN
+          wrapped = display::paint(pageDoc, layoutW, dom::terminalMetrics())
+          wrapWidth = layoutW
           needRewrap = FALSE
           contentDirty = TRUE
         ELSE
@@ -393,16 +407,19 @@ FUNC main AS Integer
           END IF
           needRewrap = TRUE
         END IF
-        lastContentWidth = cols
+        lastContentWidth = effWidth
         needRecontent = FALSE
       END IF
 
       ' Re-wrap the text paths (Raw Mode / fallback) when the text or width changed.
-      IF needRewrap OR cols <> wrapWidth THEN
-        wrapped = wrapContent(content, cols)
-        wrapWidth = cols
-        needRewrap = FALSE
-        contentDirty = TRUE
+      ' The paint path already produced positioned lines, so it is left alone.
+      IF NOT paintMode THEN
+        IF needRewrap OR cols <> wrapWidth THEN
+          wrapped = wrapContent(content, cols)
+          wrapWidth = cols
+          needRewrap = FALSE
+          contentDirty = TRUE
+        END IF
       END IF
 
       ' Keep the scroll offset in range; a change repaints the content region.
