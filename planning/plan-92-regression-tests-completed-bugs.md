@@ -39,9 +39,9 @@ Everything below is written against a world where these hold.
 
 | Must be true | Command | Status |
 |---|---|---|
-| Tree builds clean (release) | `cargo build --release --bin mfb` → exit 0 | MET (assumed at start; re-verify) |
-| Full suite green at HEAD | `cargo test` → 0 failed | MET (assumed at start; re-verify) |
-| Acceptance harness runs | `scripts/test-accept.sh target/release/mfb $(mktemp -d)` → runs | MET (assumed) |
+| Tree builds clean (release) | `cargo build --release --bin mfb` → exit 0 | MET (2026-08-09: `Finished release profile` in 1m05s, exit 0) |
+| Full suite green at HEAD | `cargo test` → 0 failed | MET (2026-08-09: `cargo test` exit 0, repository lib 21/0/0) |
+| Acceptance harness runs | `scripts/test-accept.sh target/release/mfb $(mktemp -d)` → runs | MET (2026-08-09: `acceptance tests passed (1 test(s) ran)`) |
 
 > Re-run every command and update every status before continuing and before
 > deciding to stop. A red suite BEFORE any Phase-1 work is a prerequisite
