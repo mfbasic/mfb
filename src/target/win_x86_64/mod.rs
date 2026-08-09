@@ -219,13 +219,23 @@ const RUNTIME_CALLS: &[&str] = &[
     "audio.xruns",
     "audio.closeInput",
     "audio.closeOutput",
-    // plan-90-D: the Windows process lifecycle (CreateProcessA + 3 pipes).
-    // shell/spawnEnv, I/O, and signals land in later D phases.
+    // plan-90-D: the Windows process lifecycle (CreateProcessA + 3 pipes) and I/O
+    // (WriteFile/ReadFile/PeekNamedPipe). shell/spawnEnv and signals land later.
     "process.spawn",
     "process.pid",
     "process.isRunning",
     "process.waitFor",
     "process.close",
+    "process.send",
+    "process.sendTimeout",
+    "process.sendBytes",
+    "process.sendBytesTimeout",
+    "process.receive",
+    "process.receiveFrom",
+    "process.receiveBytes",
+    "process.receiveBytesFrom",
+    "process.poll",
+    "process.pollFrom",
     "process.__drop",
 ];
 

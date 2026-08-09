@@ -206,17 +206,25 @@ Acceptance (execution on box 2230): the spawn/waitFor program, compiled for
 Windows, prints the child's exit code and leaves no orphaned handle; a bogus path
 TRAPs `ErrSpawnFailed`. **MET** — box 2230 prints `TRUE`/`3`/`FALSE`; a bogus
 path TRAPped `ErrSpawnFailed` during bring-up.
-Commit: 019542919 (scaffold) + <this commit> (Win32 lifecycle emission)
+Commit: 019542919 (scaffold) + a6ce3b4b1 (Win32 lifecycle emission)
 
 ### Phase 2 — Windows I/O (send/receive/poll)
 
-- [ ] `process/windows.rs`: `WriteFile`/`ReadFile`/`PeekNamedPipe` over B's
-  buffer/framing/drain logic; register the I/O imports.
-- [ ] Tests: on-box execution of B's `cat`-equivalent round-trip + drain program.
+- [x] `process/windows.rs`: `WriteFile` (send/sendBytes + trailing `\n`),
+  `ReadFile` (receive byte-at-a-time line framing → validated String;
+  receiveBytes one chunk → List OF Byte), `PeekNamedPipe` on a `GetTickCount64`
+  deadline (poll); registered the I/O imports + advertised
+  send/sendTimeout/sendBytes/sendBytesTimeout/receive/receiveFrom/receiveBytes/
+  receiveBytesFrom/poll/pollFrom in the capability list.
+- [x] Tests: `cli_process_windows_build.rs` compiles the I/O surface for
+  `windows-x86_64` + on-box execution on 2230 of a `sort` round-trip
+  (send→close→receive) and an `echo` poll+drain program.
 
 Acceptance (execution): B's send→receive round-trip and drain-on-exit program
-produce the same output on Windows as on Unix.
-Commit: —
+produce the same output on Windows as on Unix. **MET** — box 2230: a `sort`
+round-trip printed `apple`/`banana`/`0`; a `cmd /c echo hello` poll+drain printed
+`TRUE`/`7`/`0`.
+Commit: <this commit>
 
 ### Phase 3 — Windows signals & detach
 
@@ -278,7 +286,15 @@ Commit: —
   would emit the Windows *stub* bodies for any Windows program calling `spawn`,
   failing the build. Gated the force-emit blocks on
   `platform.family() != PlatformFamily::Windows`; the Windows backend emits its
-  own overloads.
+  own overloads. (The overload symbols the NIR names directly — via
+  `builder_values`' `runtime_target` — are still emitted; only the *force*-emit of
+  un-called overloads is gated off.)
+- **`sendTimeout` on Windows is best-effort (Phase 2).** Unix `send(_, _, ms)`
+  polls `POLLOUT` before each write; Windows anonymous pipes have no write-
+  readiness object, so the Windows `sendTimeout`/`sendBytesTimeout` do a blocking
+  `WriteFile`. For a draining reader (the tested case) it returns immediately; it
+  does not preempt a genuinely full pipe with no reader. A documented Windows
+  limit alongside `didSignal`.
 
 ## Summary
 

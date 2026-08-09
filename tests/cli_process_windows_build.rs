@@ -14,9 +14,10 @@ use common::mfb_exe;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Exercises the Phase-1 Windows lifecycle surface: spawn (argv → CreateProcessA
-/// + 3 pipes), pid, waitFor, isRunning, close.
-const LIFECYCLE_SOURCE: &str = "IMPORT process\nIMPORT io\n\nFUNC main AS Integer\n  RES p = process::spawn([\"C:\\\\Windows\\\\System32\\\\cmd.exe\", \"/c\", \"exit 3\"])\n  LET up = process::isRunning(p)\n  io::print(toString(process::pid(p) > 0))\n  LET code = process::waitFor(p)\n  io::print(toString(code))\n  process::close(p)\n  RETURN 0\nEND FUNC\n";
+/// Exercises the Windows process surface: spawn (argv → CreateProcessA + 3 pipes),
+/// pid/isRunning/waitFor/close (lifecycle) plus send/receive/receiveBytes/poll
+/// (I/O over WriteFile/ReadFile/PeekNamedPipe).
+const LIFECYCLE_SOURCE: &str = "IMPORT process\nIMPORT io\n\nFUNC main AS Integer\n  RES p = process::spawn([\"C:\\\\Windows\\\\System32\\\\sort.exe\"])\n  process::send(p, \"hello\")\n  process::close(p)\n  LET up = process::isRunning(p)\n  io::print(toString(process::pid(p) > 0))\n  IF process::poll(p, 100) THEN\n    LET line = process::receive(p)\n    io::print(line)\n    LET raw = process::receiveBytes(p)\n    io::print(toString(len(raw)))\n  END IF\n  LET code = process::waitFor(p)\n  io::print(toString(code))\n  RETURN 0\nEND FUNC\n";
 
 fn temp_project(name: &str, source: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("mfb_proc_win_{name}"));
@@ -57,6 +58,9 @@ fn windows_process_lifecycle_compiles_and_imports_win32() {
         "CreateProcessA",
         "CreatePipe",
         "SetHandleInformation",
+        "WriteFile",
+        "ReadFile",
+        "PeekNamedPipe",
         "WaitForSingleObject",
         "GetExitCodeProcess",
         "TerminateProcess",
