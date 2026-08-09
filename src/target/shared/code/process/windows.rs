@@ -224,7 +224,13 @@ fn emit_write_all(
         abi::add_immediate(abi::mfb_arg(3), sp, written_slot),
         abi::store_u64(abi::ZERO, sp, 0x20),
     ]);
-    platform.emit_libc_call("WriteFile", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_libc_call(
+        "WriteFile",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
         abi::compare_immediate(abi::c_return(0), "0"),
@@ -307,8 +313,18 @@ pub(in crate::target::shared::code) fn lower_process_send_helper(
         ]);
     }
     emit_write_all(
-        symbol, "payload", sp, FD, SRCP, REM, WRITTEN, &closed_l, platform, platform_imports,
-        &mut instructions, &mut relocations,
+        symbol,
+        "payload",
+        sp,
+        FD,
+        SRCP,
+        REM,
+        WRITTEN,
+        &closed_l,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
     )?;
     if !is_bytes {
         // Trailing newline (line framing, matching the Unix send).
@@ -321,8 +337,18 @@ pub(in crate::target::shared::code) fn lower_process_send_helper(
             abi::store_u64(abi::mfb_arg(0), sp, REM),
         ]);
         emit_write_all(
-            symbol, "nl", sp, FD, SRCP, REM, WRITTEN, &closed_l, platform, platform_imports,
-            &mut instructions, &mut relocations,
+            symbol,
+            "nl",
+            sp,
+            FD,
+            SRCP,
+            REM,
+            WRITTEN,
+            &closed_l,
+            platform,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
         )?;
     }
     instructions.extend([
@@ -402,7 +428,11 @@ pub(in crate::target::shared::code) fn lower_process_receive_helper(
             abi::label(&sel_done),
         ]);
     } else {
-        instructions.push(abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDOUT_R));
+        instructions.push(abi::load_u64(
+            abi::mfb_arg(1),
+            abi::mfb_arg(0),
+            PROC_STDOUT_R,
+        ));
     }
     instructions.extend([
         abi::store_u64(abi::mfb_arg(1), sp, FD),
@@ -424,7 +454,13 @@ pub(in crate::target::shared::code) fn lower_process_receive_helper(
         abi::add_immediate(abi::mfb_arg(3), sp, NREAD),
         abi::store_u64(abi::ZERO, sp, 0x20),
     ]);
-    platform.emit_libc_call("ReadFile", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "ReadFile",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
         abi::compare_immediate(abi::c_return(0), "0"),
@@ -582,7 +618,11 @@ pub(in crate::target::shared::code) fn lower_process_receivebytes_helper(
             abi::label(&sel_done),
         ]);
     } else {
-        instructions.push(abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDOUT_R));
+        instructions.push(abi::load_u64(
+            abi::mfb_arg(1),
+            abi::mfb_arg(0),
+            PROC_STDOUT_R,
+        ));
     }
     instructions.extend([
         abi::store_u64(abi::mfb_arg(1), sp, FD),
@@ -600,7 +640,13 @@ pub(in crate::target::shared::code) fn lower_process_receivebytes_helper(
         abi::add_immediate(abi::mfb_arg(3), sp, NREAD),
         abi::store_u64(abi::ZERO, sp, 0x20),
     ]);
-    platform.emit_libc_call("ReadFile", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "ReadFile",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
         abi::compare_immediate(abi::c_return(0), "0"),
@@ -610,7 +656,11 @@ pub(in crate::target::shared::code) fn lower_process_receivebytes_helper(
         abi::branch_eq(&closed_l), // 0 bytes = EOF, nothing buffered
         abi::store_u64(abi::mfb_arg(0), sp, N),
         // result block = arena_alloc(HEADER + n, 8)  (byte-list stride 0)
-        abi::add_immediate(abi::return_register(), abi::mfb_arg(0), COLLECTION_HEADER_SIZE),
+        abi::add_immediate(
+            abi::return_register(),
+            abi::mfb_arg(0),
+            COLLECTION_HEADER_SIZE,
+        ),
         abi::move_immediate(abi::mfb_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
@@ -622,14 +672,30 @@ pub(in crate::target::shared::code) fn lower_process_receivebytes_helper(
         abi::move_immediate(abi::mfb_arg(1), "Byte", &COLLECTION_TYPE_NONE.to_string()),
         abi::store_u8(abi::mfb_arg(1), abi::mfb_arg(0), COLLECTION_OFFSET_KEY_TYPE),
         abi::move_immediate(abi::mfb_arg(1), "Byte", &COLLECTION_TYPE_BYTE.to_string()),
-        abi::store_u8(abi::mfb_arg(1), abi::mfb_arg(0), COLLECTION_OFFSET_VALUE_TYPE),
+        abi::store_u8(
+            abi::mfb_arg(1),
+            abi::mfb_arg(0),
+            COLLECTION_OFFSET_VALUE_TYPE,
+        ),
         abi::move_immediate(abi::mfb_arg(1), "Byte", "1"),
-        abi::store_u8(abi::mfb_arg(1), abi::mfb_arg(0), COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::store_u8(
+            abi::mfb_arg(1),
+            abi::mfb_arg(0),
+            COLLECTION_OFFSET_FLAGS_VERSION,
+        ),
         abi::load_u64(abi::mfb_arg(1), sp, N),
         abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(0), COLLECTION_OFFSET_COUNT),
         abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(0), COLLECTION_OFFSET_CAPACITY),
-        abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(0), COLLECTION_OFFSET_DATA_LENGTH),
-        abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(0), COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::store_u64(
+            abi::mfb_arg(1),
+            abi::mfb_arg(0),
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ),
+        abi::store_u64(
+            abi::mfb_arg(1),
+            abi::mfb_arg(0),
+            COLLECTION_OFFSET_DATA_CAPACITY,
+        ),
         // copy n bytes: dst = block + HEADER (mfb_arg(2)), src = buf (mfb_arg(3))
         abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(0), COLLECTION_HEADER_SIZE),
         abi::load_u64(abi::mfb_arg(3), sp, BUF),
@@ -729,7 +795,11 @@ pub(in crate::target::shared::code) fn lower_process_poll_helper(
             abi::label(&sel_done),
         ]);
     } else {
-        instructions.push(abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDOUT_R));
+        instructions.push(abi::load_u64(
+            abi::mfb_arg(1),
+            abi::mfb_arg(0),
+            PROC_STDOUT_R,
+        ));
     }
     instructions.extend([
         abi::store_u64(abi::mfb_arg(1), sp, FD),
@@ -786,7 +856,13 @@ pub(in crate::target::shared::code) fn lower_process_poll_helper(
         abi::branch_ge(&not_ready),
         abi::move_immediate(abi::mfb_arg(0), "Integer", "1"),
     ]);
-    platform.emit_libc_call("Sleep", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "Sleep",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::branch(&poll_loop),
         abi::label(&ready),
@@ -965,7 +1041,12 @@ pub(in crate::target::shared::code) fn lower_process_detach_helper(
         abi::compare_immediate(abi::mfb_arg(1), "0"),
         abi::branch_ne(&closed_l),
     ];
-    for off in [PROC_STDIN_W, PROC_STDOUT_R, PROC_STDERR_R, RESOURCE_OFFSET_HANDLE] {
+    for off in [
+        PROC_STDIN_W,
+        PROC_STDOUT_R,
+        PROC_STDERR_R,
+        RESOURCE_OFFSET_HANDLE,
+    ] {
         let skip = format!("{symbol}_skip_{off}");
         instructions.extend([
             abi::load_u64(abi::mfb_arg(0), sp, FILE),
