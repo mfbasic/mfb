@@ -1687,3 +1687,154 @@ pub(in crate::target::shared::code) fn lower_process_receivebytes_helper(
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 32);
     Ok((frame, instructions, relocations, stack_slots))
 }
+
+// ---------------------------------------------------------------------------
+// process.receive — return one '\n'-terminated line (including the newline) from
+// the selected stream, as a validated String. Reads a byte at a time into a
+// line accumulator, so it never over-reads past the line boundary (no cross-call
+// buffering is needed). On EOF the accumulated bytes are returned even without a
+// trailing newline (drain-before-close); EOF with an empty line raises
+// ErrResourceClosed. `with_from` selects stderr; the 1-arg form reads stdout.
+// (A byte-at-a-time read trades a syscall per byte for a buffer-free, always-
+// correct line framing; the chunk-oriented `receiveBytes` is the bulk path.)
+// ---------------------------------------------------------------------------
+pub(in crate::target::shared::code) fn lower_process_receive_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    with_from: bool,
+) -> HelperResult {
+    const FD: usize = 0;
+    const LINEP: usize = 8; // accumulator pointer (for the result build)
+    const N: usize = 16; // accumulated length
+    const STR: usize = 24; // built String ptr
+    const CAP: usize = 1048576; // 1 MiB max line
+    const EINTR: &str = "4";
+
+    let closed = format!("{symbol}_closed");
+    let use_stderr = format!("{symbol}_use_stderr");
+    let sel_done = format!("{symbol}_sel_done");
+    let read_loop = format!("{symbol}_read_loop");
+    let read_fail = format!("{symbol}_read_fail");
+    let got_byte = format!("{symbol}_got_byte");
+    let eof_check = format!("{symbol}_eof_check");
+    let build = format!("{symbol}_build");
+    let str_copy = format!("{symbol}_str_copy");
+    let str_done = format!("{symbol}_str_done");
+    let alloc_fail = format!("{symbol}_alloc_fail");
+    let encoding_error = format!("{symbol}_encoding_error");
+    let done = format!("{symbol}_done");
+
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::load_u64("%v9", abi::return_register(), RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&closed),
+    ];
+    if with_from {
+        instructions.extend([
+            abi::compare_immediate(abi::c_arg(1), "0"),
+            abi::branch_ne(&use_stderr),
+            abi::load_u64("%v9", abi::return_register(), PROC_STDOUT_R),
+            abi::branch(&sel_done),
+            abi::label(&use_stderr),
+            abi::load_u64("%v9", abi::return_register(), PROC_STDERR_R),
+            abi::label(&sel_done),
+        ]);
+    } else {
+        instructions.push(abi::load_u64("%v9", abi::return_register(), PROC_STDOUT_R));
+    }
+    instructions.extend([
+        abi::store_u64("%v9", abi::stack_pointer(), FD),
+        // Accumulator buffer.
+        abi::move_immediate(abi::return_register(), "Integer", &CAP.to_string()),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+    ]);
+    let mut relocations = Vec::new();
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    instructions.extend([
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), LINEP),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), N),
+        // read one byte into acc[filled].
+        abi::label(&read_loop),
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), FD),
+        abi::load_u64("%v9", abi::stack_pointer(), LINEP),
+        abi::load_u64("%v10", abi::stack_pointer(), N),
+        abi::add_registers(abi::c_arg(1), "%v9", "%v10"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "1"),
+    ]);
+    platform.emit_libc_call("read", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_lt(&read_fail),
+        abi::branch_gt(&got_byte),
+        // r == 0: EOF.
+        abi::label(&eof_check),
+        abi::load_u64("%v10", abi::stack_pointer(), N),
+        abi::compare_immediate("%v10", "0"),
+        abi::branch_eq(&closed),
+        abi::branch(&build),
+        abi::label(&got_byte),
+        // filled += 1; check the byte just read for '\n'.
+        abi::load_u64("%v9", abi::stack_pointer(), LINEP),
+        abi::load_u64("%v10", abi::stack_pointer(), N),
+        abi::add_registers("%v11", "%v9", "%v10"),
+        abi::load_u8("%v12", "%v11", 0),
+        abi::add_immediate("%v10", "%v10", 1),
+        abi::store_u64("%v10", abi::stack_pointer(), N),
+        abi::compare_immediate("%v12", "10"), // '\n'
+        abi::branch_eq(&build),
+        abi::move_immediate("%v11", "Integer", &CAP.to_string()),
+        abi::compare_registers("%v10", "%v11"),
+        abi::branch_eq(&build), // line too long -> return what we have
+        abi::branch(&read_loop),
+        abi::label(&read_fail),
+    ]);
+    platform.emit_errno(symbol, ("%v9").into(), platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::compare_immediate("%v9", EINTR),
+        abi::branch_eq(&read_loop),
+        abi::branch(&closed),
+        abi::label(&build),
+    ]);
+    super::super::net::emit_string_result_build(
+        symbol, LINEP, N, STR, &str_copy, &str_done, &alloc_fail, &encoding_error,
+        &mut instructions, &mut relocations,
+    );
+    instructions.extend([
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STR),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&encoding_error),
+    ]);
+    emit_fail(
+        symbol,
+        ERR_ENCODING_CODE,
+        ERR_ENCODING_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&closed));
+    emit_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&alloc_fail));
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 48);
+    Ok((frame, instructions, relocations, stack_slots))
+}

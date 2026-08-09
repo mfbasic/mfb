@@ -140,6 +140,8 @@ static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     PROCESS_SEND_BYTES_SPEC,
     PROCESS_SEND_TIMEOUT_SPEC,
     PROCESS_SEND_BYTES_TIMEOUT_SPEC,
+    PROCESS_RECEIVE_SPEC,
+    PROCESS_RECEIVE_FROM_SPEC,
     PROCESS_RECEIVE_BYTES_SPEC,
     PROCESS_RECEIVE_BYTES_FROM_SPEC,
     PROCESS_POLL_SPEC,
@@ -260,6 +262,7 @@ mod tests {
             "process.sendTimeout",
             "process.sendBytesTimeout",
             "process.pollFrom",
+            "process.receiveFrom",
             "process.receiveBytesFrom",
             // plan-76-A: `net.poll(List OF RES Socket)` is rewritten to `net.pollList`
             // in the code layer (`builder_values`), so it never exists at the NIR

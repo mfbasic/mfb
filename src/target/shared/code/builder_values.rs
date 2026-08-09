@@ -2122,7 +2122,15 @@ impl CodeBuilder<'_> {
                     "process.poll"
                 }
             }
-            // `receiveBytes(p, from AS Stream)` routes to the stderr-capable helper.
+            // `receive(p, from AS Stream)` / `receiveBytes(p, from)` route to the
+            // stderr-capable helpers.
+            "process.receive" => {
+                if args.len() >= 2 {
+                    "process.receiveFrom"
+                } else {
+                    "process.receive"
+                }
+            }
             "process.receiveBytes" => {
                 if args.len() >= 2 {
                     "process.receiveBytesFrom"

@@ -1562,6 +1562,10 @@ pub(crate) fn lower_module_for_platform(
             "_mfb_rt_process_process_receiveBytes",
             "_mfb_rt_process_process_receiveBytesFrom",
         ),
+        (
+            "_mfb_rt_process_process_receive",
+            "_mfb_rt_process_process_receiveFrom",
+        ),
     ] {
         if runtime_symbols.iter().any(|symbol| symbol == base)
             && !runtime_symbols.iter().any(|symbol| symbol == timed)
@@ -1655,6 +1659,8 @@ pub(crate) fn lower_module_for_platform(
                     | "_mfb_rt_net_net_readText"
                     | "_mfb_rt_net_net_receiveTextFrom"
                     | "_mfb_rt_tls_tls_readText"
+                    | "_mfb_rt_process_process_receive"
+                    | "_mfb_rt_process_process_receiveFrom"
             )
         })
     {
@@ -2337,6 +2343,18 @@ fn lower_runtime_helper(
                         platform_imports,
                         platform,
                         true,
+                        true,
+                    )?,
+                    "process.receive" => process::lower_process_receive_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
+                    "process.receiveFrom" => process::lower_process_receive_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
                         true,
                     )?,
                     "process.receiveBytes" => process::lower_process_receivebytes_helper(
