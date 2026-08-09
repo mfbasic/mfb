@@ -240,6 +240,12 @@ fn emit_final_path_call(
         instructions,
         relocations,
     );
+    // plan-85: the returned WCHAR count is a C result (`rax`); this helper leaves it in
+    // the aligned MFB result register per its contract.
+    instructions.push(abi::move_register(
+        abi::return_register(),
+        crate::target::shared::abi::c_return(0),
+    ));
 }
 
 /// Fold an ASCII uppercase WCHAR in `reg` to lowercase in place (`A`..=`Z` → +0x20),
@@ -324,6 +330,13 @@ fn emit_wide_to_utf8(
         instructions,
         relocations,
     );
+    // plan-85: WideCharToMultiByte returns the byte count as a C result (`rax`); this
+    // helper's contract is to leave it in the aligned MFB result register, so name the
+    // C-result token explicitly and move it there.
+    instructions.push(abi::move_register(
+        abi::return_register(),
+        crate::target::shared::abi::c_return(0),
+    ));
 }
 
 /// Emit a directory-path query (GetCurrentDirectoryW / GetTempPathW), both of
@@ -366,7 +379,7 @@ fn emit_dir_path_query(
     ]);
     call_external(from, symbol, KERNEL32, instructions, relocations);
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_eq(&fail), // 0 chars written → failure
     ]);
     emit_wide_to_utf8(from, instructions, relocations);
@@ -522,7 +535,8 @@ impl code::CodegenPlatform for Platform {
         instructions.push(abi::subtract_stack(0x70));
         call_external(from, "GetCommandLineW", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::move_register(abi::ARG[0], abi::return_register()), // lpCmdLine
+            // plan-85: GetCommandLineW's `LPWSTR` result is a C result (`rax`).
+            abi::move_register(abi::ARG[0], abi::c_return(0)), // lpCmdLine
             abi::add_immediate(abi::ARG[1], abi::stack_pointer(), ARGC), // &argc
         ]);
         call_external(
@@ -533,7 +547,10 @@ impl code::CodegenPlatform for Platform {
             relocations,
         );
         instructions.extend([
-            abi::store_u64(abi::return_register(), abi::stack_pointer(), WARGV),
+            // plan-85: CommandLineToArgvW's `LPWSTR*` result is a C result (`rax`); the
+            // argc math below reuses `return_register()` as a working register (loaded
+            // from the ARGC slot), which is NOT a C result and stays as-is.
+            abi::store_u64(abi::c_return(0), abi::stack_pointer(), WARGV),
             // arena-alloc the UTF-8 argv array: (argc+1) * 8 bytes.
             abi::load_u32(abi::return_register(), abi::stack_pointer(), ARGC),
             abi::add_immediate(abi::return_register(), abi::return_register(), 1),
@@ -710,10 +727,14 @@ impl code::CodegenPlatform for Platform {
             abi::move_immediate(abi::ARG[2], "Integer", MEM_COMMIT_RESERVE),
             abi::move_immediate(abi::ARG[3], "Integer", PAGE_READWRITE),
             abi::branch_link("VirtualAlloc"),
-            // VirtualAlloc returns NULL(0) on failure; the shared arena caller
-            // routes a *negative* result to the OOM path (the negative-errno
-            // convention the Linux backend returns), so normalize 0 → -1.
-            abi::compare_immediate(abi::return_register(), "0"),
+            // plan-85: VirtualAlloc returns the block pointer as a C result (`rax` =
+            // `%retC`), not the aligned MFB result register — read it via `c_return`
+            // into `return_register()` (this helper's own return). VirtualAlloc returns
+            // NULL(0) on failure; the shared arena caller routes a *negative* result to
+            // the OOM path (the negative-errno convention the Linux backend returns), so
+            // normalize 0 → -1.
+            abi::move_register(abi::return_register(), abi::c_return(0)),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_ne("arena_map_succeeded"),
             abi::bitwise_not(abi::return_register(), abi::ZERO),
             abi::label("arena_map_succeeded"),
@@ -832,7 +853,9 @@ impl code::CodegenPlatform for Platform {
         ]);
         call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::store_u64(abi::return_register(), abi::stack_pointer(), 0x40), // hFile
+            // plan-85: GetStdHandle returns the console HANDLE as a C result (`rax` =
+            // `%retC`), not the aligned MFB result register — read it from `c_return`.
+            abi::store_u64(abi::c_return(0), abi::stack_pointer(), 0x40), // hFile
             abi::branch(&have_handle),
             abi::label(&file_handle),
             abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x40), // hFile = handle directly
@@ -854,7 +877,9 @@ impl code::CodegenPlatform for Platform {
         instructions.extend([
             // WriteFile returns BOOL: nonzero = success (return the bytes written),
             // zero = failure (return -1, routing the caller to its error/retry tail).
-            abi::compare_immediate(abi::return_register(), "0"),
+            // plan-85: the BOOL is a C result (`rax` = `%retC`), read via `c_return`;
+            // the -1 / byte-count below is this helper's own MFB return (`return_register`).
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_ne(&ok),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::subtract_immediate(abi::return_register(), abi::return_register(), 1), // -1
@@ -883,12 +908,17 @@ impl code::CodegenPlatform for Platform {
         ]);
         call_external(from, "GetProcessHeap", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::move_register(abi::ARG[0], abi::return_register()), // hHeap
+            abi::move_register(abi::ARG[0], abi::c_return(0)), // hHeap (C result)
             abi::move_immediate(abi::ARG[1], "Integer", "0"),        // dwFlags
             abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x28),  // dwBytes
         ]);
         call_external(from, "HeapAlloc", KERNEL32, instructions, relocations);
-        instructions.push(abi::add_stack(0x30));
+        instructions.extend([
+            // plan-85: HeapAlloc returns the block pointer as a C result (`rax`); this
+            // helper's `malloc` contract returns it in the aligned MFB result register.
+            abi::move_register(abi::return_register(), abi::c_return(0)),
+            abi::add_stack(0x30),
+        ]);
         Ok(())
     }
 
@@ -906,7 +936,7 @@ impl code::CodegenPlatform for Platform {
         ]);
         call_external(from, "GetProcessHeap", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::move_register(abi::ARG[0], abi::return_register()), // hHeap
+            abi::move_register(abi::ARG[0], abi::c_return(0)), // hHeap (C result)
             abi::move_immediate(abi::ARG[1], "Integer", "0"),        // dwFlags
             abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x28),  // lpMem
         ]);
@@ -964,13 +994,13 @@ impl code::CodegenPlatform for Platform {
         ]);
         call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::store_u64(abi::return_register(), abi::stack_pointer(), 0x38), // hStdin
+            abi::store_u64(abi::c_return(0), abi::stack_pointer(), 0x38), // hStdin (C result)
             // GetFileType(hStdin): FILE_TYPE_PIPE (3) → the app-mode input pipe.
             abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x38),
         ]);
         call_external(from, "GetFileType", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "3"), // FILE_TYPE_PIPE
+            abi::compare_immediate(abi::c_return(0), "3"), // FILE_TYPE_PIPE (C result)
             abi::branch_ne(&console),
             // ---- pipe path: PeekNamedPipe countdown ----
             abi::label(&pipe_loop),
@@ -1021,9 +1051,9 @@ impl code::CodegenPlatform for Platform {
             relocations,
         );
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"), // WAIT_OBJECT_0
+            abi::compare_immediate(abi::c_return(0), "0"), // WAIT_OBJECT_0 (C result)
             abi::branch_eq(&ready),
-            abi::compare_immediate(abi::return_register(), "258"), // WAIT_TIMEOUT
+            abi::compare_immediate(abi::c_return(0), "258"), // WAIT_TIMEOUT (C result)
             abi::branch_eq(&timeout),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::subtract_immediate(abi::return_register(), abi::return_register(), 1), // -1 error
@@ -1061,12 +1091,12 @@ impl code::CodegenPlatform for Platform {
         ]);
         call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::move_register(abi::ARG[0], abi::return_register()), // hConsole
+            abi::move_register(abi::ARG[0], abi::c_return(0)), // hConsole (C result)
             abi::add_immediate(abi::ARG[1], abi::stack_pointer(), 0x28), // &mode
         ]);
         call_external(from, "GetConsoleMode", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"), // GetConsoleMode BOOL (C result)
             abi::branch_ne(&yes),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::branch(&done),
@@ -1107,7 +1137,7 @@ impl code::CodegenPlatform for Platform {
         ]);
         call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::move_register(abi::ARG[0], abi::return_register()), // hConsole
+            abi::move_register(abi::ARG[0], abi::c_return(0)), // hConsole (C result)
             abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CSBI_OFF), // &csbi
         ]);
         call_external(
@@ -1118,7 +1148,7 @@ impl code::CodegenPlatform for Platform {
             relocations,
         );
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"), // Win32 BOOL (C result)
             abi::branch_ne(&ok), // BOOL != 0 → success
             abi::move_immediate(abi::return_register(), "Integer", "1"), // failure (nonzero)
             abi::branch(&done),
@@ -1171,7 +1201,9 @@ impl code::CodegenPlatform for Platform {
             relocations,
         );
         instructions.extend([
-            abi::shift_right_immediate(abi::return_register(), abi::return_register(), 31),
+            // plan-85: GetFileAttributesW's DWORD is a C result (`rax`); `>>31` is bit
+            // 31 (missing=1/exists=0), landing in this helper's MFB return register.
+            abi::shift_right_immediate(abi::return_register(), abi::c_return(0), 31),
             abi::add_stack(MARSHAL_FRAME),
         ]);
         Ok(())
@@ -1214,7 +1246,7 @@ impl code::CodegenPlatform for Platform {
             // is distinct from the return register (rax) that holds the attributes.
             // The SCRATCH pool must not be used — callee-saved on Win64.
             abi::load_u64(abi::ARG[1], abi::stack_pointer(), STATBUF_SLOT),
-            abi::store_u64(abi::return_register(), abi::ARG[1], 0),
+            abi::store_u64(abi::c_return(0), abi::ARG[1], 0), // GetFileAttributesW DWORD (C result)
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::add_stack(FRAME),
         ]);
@@ -1283,8 +1315,9 @@ impl code::CodegenPlatform for Platform {
             relocations,
         );
         instructions.extend([
-            abi::store_u64(abi::return_register(), abi::stack_pointer(), BLOCK),
-            abi::move_register(abi::SCRATCH[0], abi::return_register()), // cursor (entry start)
+            // GetEnvironmentStringsW returns the block pointer as a C result (`rax`).
+            abi::store_u64(abi::c_return(0), abi::stack_pointer(), BLOCK),
+            abi::move_register(abi::SCRATCH[0], abi::c_return(0)), // cursor (entry start)
             abi::move_immediate(abi::SCRATCH[1], "Integer", "0"),        // count
             // --- Pass 1: count non-drive entries (no calls, so ARG regs survive) ---
             abi::label(&count_loop),
@@ -1414,14 +1447,14 @@ impl code::CodegenPlatform for Platform {
         ]);
         call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::store_u64(abi::return_register(), abi::stack_pointer(), 0x28), // save handle
-            abi::move_register(abi::ARG[0], abi::return_register()),
+            abi::store_u64(abi::c_return(0), abi::stack_pointer(), 0x28), // save handle (C result)
+            abi::move_register(abi::ARG[0], abi::c_return(0)),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // zero the DWORD mode slot
             abi::add_immediate(abi::ARG[1], abi::stack_pointer(), 0x20), // &mode
         ]);
         call_external(from, "GetConsoleMode", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_eq(&skip), // not a console → leave stdout untouched
             abi::load_u32(abi::ARG[1], abi::stack_pointer(), 0x20), // current mode
             abi::move_immediate(abi::ARG[2], "Integer", "4"), // ENABLE_VIRTUAL_TERMINAL_PROCESSING
@@ -1525,7 +1558,7 @@ impl code::CodegenPlatform for Platform {
             relocations,
         );
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_eq(&not_found),
             // WideCharToMultiByte(CP_UTF8, 0, wideVal, -1, u8Val, 131072, NULL, NULL).
             abi::move_immediate(abi::c_arg(0), "Integer", CP_UTF8),
@@ -1627,7 +1660,7 @@ impl code::CodegenPlatform for Platform {
         let ok = format!("{from}_env_set_ok_{n}");
         let out = format!("{from}_env_set_out_{n}");
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"), // Win32 BOOL (C result)
             abi::branch_ne(&ok), // BOOL != 0 → success
             abi::move_immediate(abi::return_register(), "Integer", "1"), // failure
             abi::branch(&out),
@@ -1678,7 +1711,7 @@ impl code::CodegenPlatform for Platform {
                     instructions,
                     relocations,
                 );
-                instructions.push(abi::compare_immediate(abi::return_register(), "0"));
+                instructions.push(abi::compare_immediate(abi::c_return(0), "0"));
                 instructions.push(abi::branch_eq(&fail)); // BOOL 0 = failure
             }
             // GetUserNameW(lpBuffer, &pcbBuffer) → BOOL (advapi32).
@@ -1690,7 +1723,7 @@ impl code::CodegenPlatform for Platform {
                     abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), SIZE_SLOT),
                 ]);
                 call_external(from, "GetUserNameW", ADVAPI32, instructions, relocations);
-                instructions.push(abi::compare_immediate(abi::return_register(), "0"));
+                instructions.push(abi::compare_immediate(abi::c_return(0), "0"));
                 instructions.push(abi::branch_eq(&fail));
             }
             // GetModuleFileNameW(NULL, lpFilename, nSize) → char count (0 = failure).
@@ -1707,7 +1740,7 @@ impl code::CodegenPlatform for Platform {
                     instructions,
                     relocations,
                 );
-                instructions.push(abi::compare_immediate(abi::return_register(), "0"));
+                instructions.push(abi::compare_immediate(abi::c_return(0), "0"));
                 instructions.push(abi::branch_eq(&fail));
             }
             other => return Err(format!("unknown os wide-string query '{other}'")),
@@ -1757,7 +1790,7 @@ impl code::CodegenPlatform for Platform {
         }
         call_external(from, symbol, KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"), // Win32 BOOL (C result)
             abi::branch_ne(&ok), // BOOL != 0 → success
             abi::move_immediate(abi::return_register(), "Integer", "1"), // failure
             abi::branch(&done),
@@ -1786,7 +1819,7 @@ impl code::CodegenPlatform for Platform {
         call_external(from, "GetLastError", KERNEL32, instructions, relocations);
         instructions.extend([
             abi::add_stack(0x20),
-            abi::move_register(dst, abi::return_register()),
+            abi::move_register(dst, abi::c_return(0)), // GetLastError DWORD (C result)
         ]);
         Ok(())
     }
@@ -1871,7 +1904,9 @@ impl code::CodegenPlatform for Platform {
         ]);
         call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::store_u64(abi::return_register(), abi::stack_pointer(), 0x40), // hFile
+            // plan-85: GetStdHandle returns the console HANDLE as a C result (`rax` =
+            // `%retC`), not the aligned MFB result register — read it from `c_return`.
+            abi::store_u64(abi::c_return(0), abi::stack_pointer(), 0x40), // hFile
             abi::branch(&have_handle),
             abi::label(&file_handle),
             abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x40), // hFile = handle directly
@@ -1888,7 +1923,7 @@ impl code::CodegenPlatform for Platform {
         ]);
         call_external(from, "ReadFile", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_ne(&ok),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::subtract_immediate(abi::return_register(), abi::return_register(), 1), // -1
@@ -1916,7 +1951,7 @@ impl code::CodegenPlatform for Platform {
         instructions.push(abi::subtract_stack(0x20)); // shadow only
         call_external(from, "CloseHandle", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_ne(&ok),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::subtract_immediate(abi::return_register(), abi::return_register(), 1), // -1
@@ -1950,7 +1985,7 @@ impl code::CodegenPlatform for Platform {
             relocations,
         );
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_ne(&ok),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::subtract_immediate(abi::return_register(), abi::return_register(), 1),
@@ -1992,7 +2027,7 @@ impl code::CodegenPlatform for Platform {
             relocations,
         );
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_ne(&ok),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::subtract_immediate(abi::return_register(), abi::return_register(), 1), // -1
@@ -2041,7 +2076,7 @@ impl code::CodegenPlatform for Platform {
         ]);
         call_external(from, "MoveFileExW", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"), // Win32 BOOL (C result)
             abi::branch_ne(&ok), // BOOL != 0 → success
             abi::move_immediate(abi::return_register(), "Integer", "1"), // failure
             abi::branch(&done),
@@ -2144,7 +2179,7 @@ impl code::CodegenPlatform for Platform {
         call_external(from, "CreateFileW", KERNEL32, instructions, relocations);
         instructions.extend([
             // INVALID_HANDLE_VALUE = -1; a real handle is a small positive value.
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_gt(&success),
             // collision or error: retry up to 100 times, then give up.
             abi::load_u64(abi::ARG[0], abi::stack_pointer(), RETRY),
@@ -2269,10 +2304,10 @@ impl code::CodegenPlatform for Platform {
         instructions.extend([
             // INVALID_HANDLE_VALUE is (HANDLE)-1; a valid search handle is a small
             // positive value, so `<= 0` means failure.
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_le(&fail),
             abi::load_u64(abi::ARG[1], abi::stack_pointer(), DIR_SLOT),
-            abi::store_u64(abi::return_register(), abi::ARG[1], DIR_HANDLE_OFF),
+            abi::store_u64(abi::c_return(0), abi::ARG[1], DIR_HANDLE_OFF), // FindFirstFileW handle (C result)
             abi::move_immediate(abi::ARG[2], "Integer", "1"),
             abi::store_u64(abi::ARG[2], abi::ARG[1], DIR_FIRST_OFF), // first pending
             abi::move_register(abi::return_register(), abi::ARG[1]), // return DIR*
@@ -2315,7 +2350,7 @@ impl code::CodegenPlatform for Platform {
         ]);
         call_external(from, "FindNextFileW", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_eq(&end), // BOOL 0 → no more entries
             abi::branch(&convert),
             abi::label(&have),
@@ -2426,7 +2461,7 @@ impl code::CodegenPlatform for Platform {
             relocations,
         );
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_eq(&fail),
         ]);
         emit_wide_to_utf8(from, instructions, relocations); // wide_out → resolved dst
@@ -2498,12 +2533,12 @@ impl code::CodegenPlatform for Platform {
             relocations,
         );
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_eq(&fail),
         ]);
         emit_final_path_call(from, HANDLE_SLOT, FILE_SLOT, instructions, relocations);
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_eq(&fail),
             // Case-insensitive WCHAR compare: reqOut (C:\...) vs fileFinal+8 bytes
             // (skip the 4-WCHAR \\?\ prefix). A mismatch means a reparse point
@@ -2595,15 +2630,15 @@ impl code::CodegenPlatform for Platform {
         ]);
         call_external(from, "CreateFileW", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::store_u64(abi::return_register(), abi::stack_pointer(), ROOTH_SLOT),
+            abi::store_u64(abi::c_return(0), abi::stack_pointer(), ROOTH_SLOT), // CreateFileW handle (C result)
             // INVALID_HANDLE_VALUE (-1) is negative as i64; a valid kernel handle is
             // a small positive value. A missing/unresolved root → refuse.
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_lt(&fail),
         ]);
         emit_final_path_call(from, ROOTH_SLOT, ROOTFINAL_SLOT, instructions, relocations);
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_eq(&fail_close),
             // Close the root directory handle; the file handle stays open for the
             // caller (which closes it on a containment violation).
@@ -2612,7 +2647,7 @@ impl code::CodegenPlatform for Platform {
         call_external(from, "CloseHandle", KERNEL32, instructions, relocations);
         emit_final_path_call(from, HANDLE_SLOT, FILEFINAL_SLOT, instructions, relocations);
         instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_eq(&fail),
             // Prefix compare: fileFinal must begin with rootFinal, then a '\'.
             abi::load_u64(abi::ARG[0], abi::stack_pointer(), ROOTFINAL_SLOT),
@@ -2729,12 +2764,12 @@ impl code::CodegenPlatform for Platform {
                 ]);
                 call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
                 instructions.extend([
-                    abi::move_register(abi::ARG[0], abi::return_register()), // handle
+                    abi::move_register(abi::ARG[0], abi::c_return(0)), // handle (GetStdHandle C result)
                     abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x28),  // lpMode = &out
                 ]);
                 call_external(from, "GetConsoleMode", KERNEL32, instructions, relocations);
                 instructions.extend([
-                    abi::compare_immediate(abi::return_register(), "0"),
+                    abi::compare_immediate(abi::c_return(0), "0"),
                     abi::branch_ne(&ok),
                     abi::move_immediate(abi::return_register(), "Integer", "0"),
                     abi::subtract_immediate(abi::return_register(), abi::return_register(), 1),
@@ -2761,12 +2796,12 @@ impl code::CodegenPlatform for Platform {
                 ]);
                 call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
                 instructions.extend([
-                    abi::move_register(abi::ARG[0], abi::return_register()), // handle
+                    abi::move_register(abi::ARG[0], abi::c_return(0)), // handle (GetStdHandle C result)
                     abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x28),  // dwMode
                 ]);
                 call_external(from, "SetConsoleMode", KERNEL32, instructions, relocations);
                 instructions.extend([
-                    abi::compare_immediate(abi::return_register(), "0"),
+                    abi::compare_immediate(abi::c_return(0), "0"),
                     abi::branch_ne(&ok),
                     abi::move_immediate(abi::return_register(), "Integer", "0"),
                     abi::subtract_immediate(abi::return_register(), abi::return_register(), 1),
@@ -2829,6 +2864,8 @@ impl code::CodegenPlatform for Platform {
         let name_len_done = format!("{prefix}_name_len_done");
         let done = format!("{prefix}_done");
         instructions.extend([
+            // `emit_readdir` returns the DIR* (or 0 at end) in the MFB result register,
+            // NOT a C result — check `return_register()`, not `c_return`.
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_eq(&done),
             abi::add_immediate(nameptr, abi::return_register(), DIR_NAME_OFF),

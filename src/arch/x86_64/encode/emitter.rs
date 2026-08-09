@@ -1964,15 +1964,38 @@ fn var_shift(instruction: &CodeInstruction, digit: u8) -> Result<Encoded, String
     let dst = reg(field(instruction, "dst")?)?;
     let value = reg(field(instruction, "lhs")?)?;
     let amount = reg(field(instruction, "rhs")?)?;
-    // bug-284 C6: rcx is the architectural shift count, so a `dst` coloured onto
-    // it cannot also carry the result: the count is staged into rcx first, then
-    // `mov dst, value` overwrites it and the shift runs on whatever `value`'s low
-    // byte happened to be. There is no correct expansion for this combination --
-    // reject it rather than emit bytes that shift by the wrong amount.
+    // rcx is the architectural shift count, so when `dst` is coloured onto rcx it
+    // cannot also carry the result directly. plan-85: Win64's aligned MFB result
+    // bank starts at rcx (`%retMFB0`=rcx), so a variable-shifted result legitimately
+    // lands here — do the shift in a scratch register distinct from rcx/value/amount
+    // (preserved via push/pop so a live foreign value survives), then move the result
+    // into rcx. (bug-284 C6 previously rejected this; the fixpoint's context-sensitive
+    // colouring avoided it, but the direct-realization path (plan-85) can produce it.)
     if dst == 1 {
-        return Err(
-            "x86-64 variable shift cannot target rcx: rcx carries the shift count".to_string(),
-        );
+        let scratch = (0u8..16)
+            .find(|&r| r != 1 && r != value && r != amount)
+            .expect("a free scratch exists among 16 registers with rcx/value/amount excluded");
+        let mut bytes = Vec::new();
+        // push scratch (REX.B for r8–r15).
+        if scratch >= 8 {
+            bytes.push(rex(false, false, false, true));
+        }
+        bytes.push(0x50 + (scratch & 7));
+        // mov scratch, value  (reads `value` before `mov rcx,amount` clobbers rcx,
+        // which matters when value aliased rcx).
+        bytes.extend_from_slice(&enc_mov(scratch, value));
+        bytes.extend_from_slice(&enc_mov(1, amount)); // mov rcx, amount
+        // D3 /digit : shift scratch, CL.
+        bytes.push(rex(true, false, false, scratch >= 8));
+        bytes.push(0xD3);
+        bytes.push(modrm(0b11, digit, scratch));
+        bytes.extend_from_slice(&enc_mov(1, scratch)); // mov rcx, scratch (the result)
+        // pop scratch.
+        if scratch >= 8 {
+            bytes.push(rex(false, false, false, true));
+        }
+        bytes.push(0x58 + (scratch & 7));
+        return Ok(Encoded::plain(bytes));
     }
     let save_rcx = dst != 1; // skip when dst==rcx (rcx carries the result)
     let mut bytes = Vec::new();
@@ -2013,16 +2036,6 @@ fn var_shift_w(instruction: &CodeInstruction, digit: u8) -> Result<Encoded, Stri
     let dst = reg(field(instruction, "dst")?)?;
     let value = reg(field(instruction, "lhs")?)?;
     let amount = reg(field(instruction, "rhs")?)?;
-    // bug-284 C6: rcx is the architectural shift count, so a `dst` coloured onto
-    // it cannot also carry the result: the count is staged into rcx first, then
-    // `mov dst, value` overwrites it and the shift runs on whatever `value`'s low
-    // byte happened to be. There is no correct expansion for this combination --
-    // reject it rather than emit bytes that shift by the wrong amount.
-    if dst == 1 {
-        return Err(
-            "x86-64 variable shift cannot target rcx: rcx carries the shift count".to_string(),
-        );
-    }
     // mov r32, r32 : 89 /r (rm = dst, reg = src), REX only for r8–r15.
     let mov32 = |d: u8, s: u8| -> Vec<u8> {
         let mut b = Vec::new();
@@ -2033,6 +2046,32 @@ fn var_shift_w(instruction: &CodeInstruction, digit: u8) -> Result<Encoded, Stri
         b.push(modrm(0b11, s, d));
         b
     };
+    // plan-85: a variable-shifted result may land on rcx (Win64's aligned MFB result
+    // bank starts at rcx). Shift in a scratch distinct from rcx/value/amount and move
+    // the result into rcx — same expansion as the 64-bit `var_shift` (see there).
+    if dst == 1 {
+        let scratch = (0u8..16)
+            .find(|&r| r != 1 && r != value && r != amount)
+            .expect("a free scratch exists among 16 registers with rcx/value/amount excluded");
+        let mut bytes = Vec::new();
+        if scratch >= 8 {
+            bytes.push(rex(false, false, false, true));
+        }
+        bytes.push(0x50 + (scratch & 7)); // push scratch
+        bytes.extend_from_slice(&mov32(scratch, value)); // mov escratch, evalue
+        bytes.extend_from_slice(&mov32(1, amount)); // mov ecx, amount
+        if scratch >= 8 {
+            bytes.push(rex(false, false, false, true));
+        }
+        bytes.push(0xD3); // shift r/m32, CL
+        bytes.push(modrm(0b11, digit, scratch));
+        bytes.extend_from_slice(&mov32(1, scratch)); // mov ecx, escratch (result)
+        if scratch >= 8 {
+            bytes.push(rex(false, false, false, true));
+        }
+        bytes.push(0x58 + (scratch & 7)); // pop scratch
+        return Ok(Encoded::plain(bytes));
+    }
     let save_rcx = dst != 1; // skip when dst==rcx (rcx carries the result)
     let mut bytes = Vec::new();
     if save_rcx {

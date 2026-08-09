@@ -166,24 +166,17 @@ fn realize_abi_operand(
         X86Abi::Win64 => (CALL_ARGS_WIN64, SYS_ARGS),
     };
     let bank: &[&str] = match (convention, role) {
-        // MFB's aligned convention: an MFB argument (and a C-call argument) draws
-        // from the call-argument bank on both ABIs — unchanged from the legacy
-        // realization, so args never move on any target.
-        (AbiConvention::Mfb, AbiRole::Arg) | (AbiConvention::C, AbiRole::Arg) => call_args,
-        // The MFB RESULT alignment is SysV-ONLY: on SysV the result shares the
-        // aligned call bank (`[rdi,rsi,rdx,rcx]`, no `rax`), so an MFB result reused
-        // as an argument is a self-move — the property that lets the fixpoint go.
-        // On Win64 the MFB result uses the `rax`-based bank (`RETS_WIN64`), NOT the
-        // aligned `rcx`, for a hard ENCODING reason: `rcx` is the x86 variable-shift
-        // COUNT register, so an aligned Win64 result feeding a variable shift is
-        // unencodable (the shift guard rejects an `rcx` target). Win64 has no
-        // result→argument reuse needing the aligned self-move, so context-free
-        // realization stays correct without it. (Windows byte-identity is a
-        // non-goal; Win64 correctness is proven by EXECUTION on the Windows box.)
-        (AbiConvention::Mfb, AbiRole::Ret) => match abi {
-            X86Abi::SysV => CALL_ARGS,
-            X86Abi::Win64 => RETS_WIN64,
-        },
+        // MFB's ALIGNED convention (plan-85-A §2): an MFB argument, an MFB result, and
+        // a C-call argument ALL draw from the call-argument bank on BOTH ABIs (SysV
+        // `[rdi,rsi,rdx,rcx]`, Win64 `[rcx,rdx,r8,r9]`). Alignment is the whole point:
+        // an MFB result reused as an argument is the SAME register (a self-move), so
+        // no staging is needed and the CFG fixpoint is deletable. This MUST hold on
+        // Win64 too — the shared lowering relies on result==arg register coincidence
+        // everywhere, so a non-aligned Win64 result (e.g. `rax`) silently corrupts a
+        // result-fed argument (breaks `io` end-to-end). The consequence — a Win64
+        // result landing on `rcx` that then feeds a variable shift — is handled in the
+        // encoder (`var_shift` shifts in a scratch when dst==rcx), NOT by de-aligning.
+        (AbiConvention::Mfb, _) | (AbiConvention::C, AbiRole::Arg) => call_args,
         (AbiConvention::C, AbiRole::Ret) => C_RETS,
         (AbiConvention::Sys, AbiRole::Arg) => match abi {
             X86Abi::SysV => sys_args,
@@ -603,12 +596,12 @@ mod tests {
         ] {
             assert_eq!(s(tok), reg, "SysV {tok}");
         }
-        // Win64: MFB args use the Win64 call bank (rcx,rdx,…); the MFB RESULT keeps
-        // its legacy rax-based bank (byte-identical), and the C return is rax:rdx.
+        // Win64: MFB arg AND result share the aligned Win64 call bank
+        // (rcx,rdx,r8,r9); only the genuine C return is rax:rdx.
         for (tok, reg) in [
             ("%argMFB0", "rcx"),
             ("%argMFB1", "rdx"),
-            ("%retMFB0", "rax"),
+            ("%retMFB0", "rcx"),
             ("%retMFB1", "rdx"),
             ("%retMFB2", "r8"),
             ("%retMFB3", "r9"),
@@ -892,19 +885,17 @@ mod tests {
             realize_abi_operand(AbiConvention::Sys, AbiRole::Ret, 0, X86Abi::SysV),
             "rax"
         );
-        // Win64: MFB args use the Win64 call bank (rcx,rdx,r8,r9); the MFB RESULT
-        // keeps its legacy rax-based bank (RETS_WIN64 = rax,rdx,r8,r9) so Win64
-        // stays byte-identical. %retC still rax:rdx.
-        for (n, arg_reg) in ["rcx", "rdx", "r8", "r9"].into_iter().enumerate() {
+        // Win64: MFB arg AND result share the aligned Win64 call bank
+        // (rcx,rdx,r8,r9); a variable-shifted result landing on rcx is handled by
+        // the encoder, not by de-aligning. %retC still rax:rdx.
+        for (n, reg) in ["rcx", "rdx", "r8", "r9"].into_iter().enumerate() {
             assert_eq!(
                 realize_abi_operand(AbiConvention::Mfb, AbiRole::Arg, n, X86Abi::Win64),
-                arg_reg
+                reg
             );
-        }
-        for (n, ret_reg) in ["rax", "rdx", "r8", "r9"].into_iter().enumerate() {
             assert_eq!(
                 realize_abi_operand(AbiConvention::Mfb, AbiRole::Ret, n, X86Abi::Win64),
-                ret_reg
+                reg
             );
         }
         assert_eq!(

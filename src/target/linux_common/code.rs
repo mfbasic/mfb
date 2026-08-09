@@ -274,11 +274,11 @@ pub(crate) fn emit_linux_c_call(
     // result into the MFB result register here, ONCE, so every downstream consumer is
     // correct whether it reads the result (`return_register()`) or feeds it straight
     // into the next call's first argument (`c_arg(0)`, the `getuid`→`getpwuid` shape).
-    // This is emitted ONLY on `linux-x86_64`: on AArch64/RISC-V the argument and
-    // result banks coincide (both `x0`), so the result is already in
-    // `return_register()` and `c_arg(0)` with no move — emitting the staging there
-    // would be a `mov x0,x0` no-op that changes those byte-identical targets. Win64's
-    // MFB result bank is also `rax`-based, so it needs no staging either.
+    // This is emitted ONLY on `linux-x86_64`: on AArch64/RISC-V the argument and result
+    // banks coincide (both `x0`) so the result is already there. Win64 external calls go
+    // through `win_x86_64::code::call_external`, which stages the C result the same way
+    // (`mov rcx,rax`) for the aligned Win64 result bank; this Linux emitter never runs
+    // for Win64.
     if target == "linux-x86_64" {
         instructions.push(abi::move_register(
             abi::return_register(),
