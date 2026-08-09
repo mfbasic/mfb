@@ -273,6 +273,21 @@ The index table above stays as the one-line overview; open a file for the checkl
 
 ## Corrections
 
+- **Session (worktree-P-86) summary + prioritized roadmap for the resume.** Landed this session (all
+  cargo-test-green + artifact-gate all 0-diff + native/`.mfb` byte-identical): **sub-plan A COMPLETE** —
+  findLastIndex 11.18→5.66 (P3 clear), **groupBy 162→0.366 (~445×, COMPLETE)**, chunks 13.4→12.98 / window
+  88.7→84.5 / zip 24.7→23.1 (correct but MARGINAL/capped — their `.mfb` already uses native slice/append);
+  **D1 removeKey 161.5→21.96 (~7.3×, in-place entry compaction)**. The **META-LESSON**: the two BIG wins
+  (groupBy, removeKey) both came from `.mfb` bodies doing a **per-element whole-CONTAINER copy** (map get/set
+  over a big bucket; fresh-map rebuild) → native inline mutation makes them O(N). **To find the next big wins,
+  look for `.mfb`/lowering paths that copy a whole map/list/record per element** (see the State-Dynamic matrix
+  rows — `set (State-Dynamic) set` 1723, `list (State-Dynamic) reduce` 2984 — the bug-430 whole-record rebuild
+  is exactly this class). Marginal (constant-factor-only) rewrites where the `.mfb` already uses efficient
+  native primitives are NOT worth the surface. **Remaining, prioritized:** D2/D3 DEPRIORITIZED (marginal —
+  `.mfb` in-place set already fires). Band-clearers next: **E** (borrow read-only element, dispatch union 160
+  P2 — escape-analysis, scout running), **F** (string case/slice memchr, 48/36 P1/P2), **G** (bounds-check
+  elim, bignum/memo, correctness-critical), **H** (vector inline, 55/30/20 P2). Capped/track: I (regex floor),
+  J (csv borderline), K (COW — defer until copy volume assessed), L (transcendental ceilings; only L1 live).
 - **Sub-plan C: C2 (in-place set `add`) alone retired all 7 P1 rows; C1 (native builders) is unnecessary.**
   The plan ordered C1 (native one-pass builders) first as "biggest" and C2 (in-place add) second. In
   practice the O(n²) was **entirely** the whole-set copy inside `add` — the interpreted
