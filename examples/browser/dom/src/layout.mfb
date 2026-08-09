@@ -1,0 +1,469 @@
+' dom/layout — compute each element's flex geometry from its resolved Style.
+'
+' After resolveStyles() has filled every ElementNode.style, updateLayout(doc, w)
+' walks the tree and fills each ElementNode.layout: an absolute box (x, y, width,
+' height in terminal cells, measured from the viewport's top-left) laid out by a
+' single flex primitive. Every box is flex: display:flex uses its flex-direction;
+' display:block is a flex column; display:inline is a flex row; display:none is
+' removed (a zero box). Layout depends on the viewport width, so it is recomputed
+' on each render/resize rather than stored once by the worker.
+'
+' Like resolve, this lives in dom so it can recurse over dom's OWN Node union
+' (native lowering is fine inside the defining package); a consumer that imported
+' Node would have to iterate.
+'
+' Supported subset (a terminal text browser, not a conformant CSS engine):
+'   - main axis: flex-direction row / column (reverse falls back to forward)
+'   - flex items: flex-grow, flex-shrink, flex-basis, width, height
+'   - box model: padding + margin on all four sides, gap between items
+'   - justify-content on the main axis (all six keywords)
+'   - single line only (flex-wrap is not honored yet; every line is nowrap)
+'   - cross axis: children start at the cross origin; column children stretch to
+'     the content width, row children keep their measured height (no align yet)
+' Text is measured by strings::displayWidth (terminal columns) and wrapped to the
+' available width to size a leaf box's height.
+
+IMPORT collections
+IMPORT strings
+
+' The computed geometry of one element: an absolute border box in terminal cells,
+' (x, y) is the top-left corner measured from the viewport origin; width/height is
+' the border box (content + padding; there are no borders). Margins position the
+' box within its parent but are not part of these dimensions.
+EXPORT TYPE Layout
+  x AS Integer
+  y AS Integer
+  width AS Integer
+  height AS Integer
+END TYPE
+
+' The initial (unlaid) geometry: a zero box at the origin. The parser and style
+' resolution leave every element here; updateLayout fills it in.
+EXPORT FUNC zeroLayout() AS Layout
+  RETURN Layout[0, 0, 0, 0]
+END FUNC
+
+' ----- internal results ---------------------------------------------------------
+
+' One node laid out: the rebuilt node plus its OUTER (margin box) size, which is
+' what a parent's flow advances by.
+TYPE Sized
+  node AS Node
+  width AS Integer
+  height AS Integer
+END TYPE
+
+' The result of laying out a container's children: the rebuilt child list and the
+' content box extent they occupied.
+TYPE Flow
+  kids AS List OF Node
+  usedW AS Integer
+  usedH AS Integer
+END TYPE
+
+' ----- small numeric + text helpers --------------------------------------------
+
+FUNC maxI(a AS Integer, b AS Integer) AS Integer
+  IF a > b THEN RETURN a
+  RETURN b
+END FUNC
+
+FUNC minI(a AS Integer, b AS Integer) AS Integer
+  IF a < b THEN RETURN a
+  RETURN b
+END FUNC
+
+FUNC sumList(xs AS List OF Integer) AS Integer
+  MUT total AS Integer = 0
+  FOR EACH x IN xs
+    total = total + x
+  NEXT
+  RETURN total
+END FUNC
+
+' Collapse every run of whitespace to a single space and trim, matching how the
+' renderer flows inline text — so measurement lines up with what is drawn.
+FUNC collapseWs(s AS String) AS String
+  MUT t AS String = strings::replace(s, "\n", " ")
+  t = strings::replace(t, "\t", " ")
+  t = strings::replace(t, "\r", " ")
+  MUT words AS List OF String = []
+  FOR EACH w IN strings::split(t, " ")
+    IF w <> "" THEN words = collections::append(words, w)
+  NEXT
+  RETURN strings::join(words, " ")
+END FUNC
+
+' The one-line display width of a text run, in terminal columns.
+FUNC textWidth(s AS String) AS Integer
+  RETURN strings::displayWidth(collapseWs(s))
+END FUNC
+
+' The number of lines a text run occupies when word-wrapped to `width` columns
+' (matching display::wrap: a single word wider than the width is left whole).
+FUNC textHeight(s AS String, width AS Integer) AS Integer
+  LET t AS String = collapseWs(s)
+  IF t = "" THEN RETURN 0
+  LET w AS Integer = maxI(1, width)
+  MUT lines AS Integer = 1
+  MUT cur AS Integer = 0
+  FOR EACH word IN strings::split(t, " ")
+    LET ww AS Integer = strings::displayWidth(word)
+    IF cur = 0 THEN
+      cur = ww
+    ELSEIF cur + 1 + ww <= w THEN
+      cur = cur + 1 + ww
+    ELSE
+      lines = lines + 1
+      cur = ww
+    END IF
+  NEXT
+  RETURN lines
+END FUNC
+
+' ----- per-child flex inputs ---------------------------------------------------
+
+FUNC isNone(n AS Node) AS Boolean
+  MATCH n
+    CASE ElementNode(e)
+      RETURN e.style.display = Display.None
+    CASE ELSE
+      RETURN FALSE
+  END MATCH
+END FUNC
+
+FUNC childGrow(n AS Node) AS Integer
+  MATCH n
+    CASE ElementNode(e)
+      RETURN maxI(0, e.style.flexGrow)
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+
+FUNC childShrink(n AS Node) AS Integer
+  MATCH n
+    CASE ElementNode(e)
+      RETURN maxI(0, e.style.flexShrink)
+    CASE ELSE
+      RETURN 1
+  END MATCH
+END FUNC
+
+' The natural (pre-grow/shrink) main-axis OUTER size of a child (its border box
+' plus horizontal margins): flex-basis if set, else an explicit width, else its
+' max-content width. Text measures to its one-line display width, capped at the
+' available width so one very long word never forces the whole line to overflow.
+FUNC childBaseMain(n AS Node, contentW AS Integer) AS Integer
+  MATCH n
+    CASE ElementNode(e)
+      IF e.style.flexBasis >= 0 THEN RETURN e.style.flexBasis + maxI(0, e.style.marginLeft) + maxI(0, e.style.marginRight)
+      IF e.style.width >= 0 THEN RETURN e.style.width + maxI(0, e.style.marginLeft) + maxI(0, e.style.marginRight)
+      RETURN maxContentOuterW(n)
+    CASE TextNode(t)
+      RETURN minI(contentW, textWidth(t.text))
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+
+' The max-content OUTER width of a node: how wide it wants to be with unlimited
+' room. Structural (no trial layout, no fill): a leaf's is its text width; a
+' container's is the row-sum or column-max of its children's max-content widths.
+' Used to give an auto-sized row item its natural base size.
+FUNC maxContentOuterW(n AS Node) AS Integer
+  MATCH n
+    CASE ElementNode(e)
+      RETURN elementMaxContentOuterW(e)
+    CASE TextNode(t)
+      RETURN textWidth(t.text)
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+
+FUNC elementMaxContentOuterW(e AS ElementNode) AS Integer
+  LET st AS Style = e.style
+  IF st.display = Display.None THEN RETURN 0
+  LET ml AS Integer = maxI(0, st.marginLeft)
+  LET mr AS Integer = maxI(0, st.marginRight)
+  LET pl AS Integer = maxI(0, st.paddingLeft)
+  LET pr AS Integer = maxI(0, st.paddingRight)
+  IF st.width >= 0 THEN RETURN st.width + ml + mr
+  MUT inner AS Integer = 0
+  LET dir AS FlexDirection = effectiveDirection(st)
+  IF dir = FlexDirection.Column OR dir = FlexDirection.ColumnReverse THEN
+    ' cross axis is horizontal: the widest child wins
+    FOR EACH k IN e.children
+      inner = maxI(inner, maxContentOuterW(k))
+    NEXT
+  ELSE
+    ' main axis is horizontal: children lay side by side, plus the gaps
+    LET gap AS Integer = maxI(0, st.gap)
+    MUT n AS Integer = 0
+    FOR EACH k IN e.children
+      IF isNone(k) = FALSE THEN
+        inner = inner + maxContentOuterW(k)
+        n = n + 1
+      END IF
+    NEXT
+    inner = inner + gap * maxI(0, n - 1)
+  END IF
+  RETURN maxI(0, inner) + pl + pr + ml + mr
+END FUNC
+
+' ----- main-axis size distribution (flex-grow / flex-shrink) --------------------
+
+' Given each item's base main size and its grow/shrink factors, return the final
+' main sizes after distributing the free space `free` (positive: grow; negative:
+' shrink). Rounding remainder goes to the first growing/shrinking item so the line
+' fills the container exactly.
+FUNC distributeMain(bases AS List OF Integer, grows AS List OF Integer, shrinks AS List OF Integer, free AS Integer) AS List OF Integer
+  LET n AS Integer = len(bases)
+  MUT finals AS List OF Integer = []
+  IF n = 0 THEN RETURN finals
+
+  IF free >= 0 THEN
+    LET sumGrow AS Integer = sumList(grows)
+    IF sumGrow <= 0 THEN
+      FOR EACH b IN bases
+        finals = collections::append(finals, b)
+      NEXT
+      RETURN finals
+    END IF
+    MUT adds AS List OF Integer = []
+    MUT i AS Integer = 0
+    DO WHILE i < n
+      adds = collections::append(adds, (free * collections::get(grows, i)) / sumGrow)
+      i = i + 1
+    LOOP
+    MUT leftover AS Integer = free - sumList(adds)
+    MUT given AS Boolean = FALSE
+    i = 0
+    DO WHILE i < n
+      MUT extra AS Integer = 0
+      IF given = FALSE AND collections::get(grows, i) > 0 THEN
+        extra = leftover
+        given = TRUE
+      END IF
+      finals = collections::append(finals, collections::get(bases, i) + collections::get(adds, i) + extra)
+      i = i + 1
+    LOOP
+    RETURN finals
+  END IF
+
+  ' free < 0: shrink, weighted by shrink-factor * base size.
+  LET deficit AS Integer = -free
+  MUT sumW AS Integer = 0
+  MUT j AS Integer = 0
+  DO WHILE j < n
+    sumW = sumW + collections::get(shrinks, j) * collections::get(bases, j)
+    j = j + 1
+  LOOP
+  IF sumW <= 0 THEN
+    FOR EACH b IN bases
+      finals = collections::append(finals, b)
+    NEXT
+    RETURN finals
+  END IF
+  MUT cuts AS List OF Integer = []
+  MUT k AS Integer = 0
+  DO WHILE k < n
+    LET w AS Integer = collections::get(shrinks, k) * collections::get(bases, k)
+    cuts = collections::append(cuts, (deficit * w) / sumW)
+    k = k + 1
+  LOOP
+  MUT leftDef AS Integer = deficit - sumList(cuts)
+  MUT gave AS Boolean = FALSE
+  k = 0
+  DO WHILE k < n
+    MUT c AS Integer = collections::get(cuts, k)
+    IF gave = FALSE AND collections::get(shrinks, k) > 0 AND collections::get(bases, k) > 0 THEN
+      c = c + leftDef
+      gave = TRUE
+    END IF
+    finals = collections::append(finals, maxI(0, collections::get(bases, k) - c))
+    k = k + 1
+  LOOP
+  RETURN finals
+END FUNC
+
+' ----- laying out a container's children ---------------------------------------
+
+' The direction the box lays its children along: an explicit flex-direction for a
+' flex box, column for a block, row for inline.
+FUNC effectiveDirection(st AS Style) AS FlexDirection
+  IF st.display = Display.Flex THEN RETURN st.direction
+  IF st.display = Display.Block THEN RETURN FlexDirection.Column
+  RETURN FlexDirection.Row
+END FUNC
+
+' Column: stack children vertically, each stretched to the content width, with a
+' gap between visible items. Content height is the total stacked height.
+FUNC layoutColumn(kids AS List OF Node, st AS Style, originX AS Integer, originY AS Integer, contentW AS Integer) AS Flow
+  LET gap AS Integer = maxI(0, st.gap)
+  MUT outKids AS List OF Node = []
+  MUT curY AS Integer = originY
+  MUT anyPlaced AS Boolean = FALSE
+  FOR EACH k IN kids
+    IF isNone(k) THEN
+      LET rn AS Sized = layoutNode(k, originX, curY, 0, FALSE)
+      outKids = collections::append(outKids, rn.node)
+    ELSE
+      IF anyPlaced THEN curY = curY + gap
+      ' Cross axis (width): self-size — explicit width honored, else stretch to fill.
+      LET r AS Sized = layoutNode(k, originX, curY, contentW, FALSE)
+      outKids = collections::append(outKids, r.node)
+      curY = curY + r.height
+      anyPlaced = TRUE
+    END IF
+  NEXT
+  RETURN Flow[outKids, contentW, curY - originY]
+END FUNC
+
+' Row: size items along the main (horizontal) axis with flex-grow/shrink/basis,
+' distribute leftover space per justify-content, and place them left to right. The
+' content height is the tallest item.
+FUNC layoutRow(kids AS List OF Node, st AS Style, originX AS Integer, originY AS Integer, contentW AS Integer) AS Flow
+  LET gap AS Integer = maxI(0, st.gap)
+
+  MUT bases AS List OF Integer = []
+  MUT grows AS List OF Integer = []
+  MUT shrinks AS List OF Integer = []
+  FOR EACH k IN kids
+    IF isNone(k) = FALSE THEN
+      bases = collections::append(bases, childBaseMain(k, contentW))
+      grows = collections::append(grows, childGrow(k))
+      shrinks = collections::append(shrinks, childShrink(k))
+    END IF
+  NEXT
+  LET nParts AS Integer = len(bases)
+  LET gapsTotal AS Integer = gap * maxI(0, nParts - 1)
+  LET free AS Integer = contentW - sumList(bases) - gapsTotal
+  LET finals AS List OF Integer = distributeMain(bases, grows, shrinks, free)
+
+  LET usedMain AS Integer = sumList(finals) + gapsTotal
+  LET leftover AS Integer = maxI(0, contentW - usedMain)
+  MUT leadOffset AS Integer = 0
+  MUT betweenExtra AS Integer = 0
+  IF st.justify = Justify.FlexEnd THEN
+    leadOffset = leftover
+  ELSEIF st.justify = Justify.Center THEN
+    leadOffset = leftover / 2
+  ELSEIF st.justify = Justify.SpaceBetween THEN
+    IF nParts > 1 THEN betweenExtra = leftover / (nParts - 1)
+  ELSEIF st.justify = Justify.SpaceAround THEN
+    IF nParts > 0 THEN
+      betweenExtra = leftover / nParts
+      leadOffset = betweenExtra / 2
+    END IF
+  ELSEIF st.justify = Justify.SpaceEvenly THEN
+    IF nParts > 0 THEN
+      betweenExtra = leftover / (nParts + 1)
+      leadOffset = betweenExtra
+    END IF
+  END IF
+
+  MUT outKids AS List OF Node = []
+  MUT curX AS Integer = originX + leadOffset
+  MUT crossH AS Integer = 0
+  MUT pIdx AS Integer = 0
+  MUT placed AS Integer = 0
+  FOR EACH k IN kids
+    IF isNone(k) THEN
+      LET rn AS Sized = layoutNode(k, curX, originY, 0, FALSE)
+      outKids = collections::append(outKids, rn.node)
+    ELSE
+      ' Main axis: impose the flex-computed outer size so the drawn box exactly
+      ' fills the slot the flow reserved (no overlap, no gaps).
+      LET fw AS Integer = collections::get(finals, pIdx)
+      LET r AS Sized = layoutNode(k, curX, originY, fw, TRUE)
+      outKids = collections::append(outKids, r.node)
+      crossH = maxI(crossH, r.height)
+      curX = curX + fw + gap
+      IF placed < nParts - 1 THEN curX = curX + betweenExtra
+      placed = placed + 1
+      pIdx = pIdx + 1
+    END IF
+  NEXT
+  RETURN Flow[outKids, contentW, crossH]
+END FUNC
+
+FUNC layoutChildren(kids AS List OF Node, st AS Style, originX AS Integer, originY AS Integer, contentW AS Integer) AS Flow
+  LET dir AS FlexDirection = effectiveDirection(st)
+  IF dir = FlexDirection.Column OR dir = FlexDirection.ColumnReverse THEN
+    RETURN layoutColumn(kids, st, originX, originY, contentW)
+  END IF
+  RETURN layoutRow(kids, st, originX, originY, contentW)
+END FUNC
+
+' ----- per-node layout ---------------------------------------------------------
+
+' Lay out one element at (x, y) given the width available to its margin box, and
+' return the rebuilt element (with its Layout set) plus its outer size. When
+' `imposeWidth` is TRUE the border box is forced to fill the available width less
+' margins (a flex row item, whose main size the container already computed);
+' otherwise the element self-sizes (explicit width, else fill — block stretch).
+FUNC layoutElement(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integer, imposeWidth AS Boolean) AS Sized
+  LET st AS Style = e.style
+  IF st.display = Display.None THEN
+    RETURN Sized[elementLaid(e.tag, e.attrs, e.children, st, Layout[x, y, 0, 0]), 0, 0]
+  END IF
+
+  LET ml AS Integer = maxI(0, st.marginLeft)
+  LET mr AS Integer = maxI(0, st.marginRight)
+  LET mt AS Integer = maxI(0, st.marginTop)
+  LET mb AS Integer = maxI(0, st.marginBottom)
+  LET pl AS Integer = maxI(0, st.paddingLeft)
+  LET pr AS Integer = maxI(0, st.paddingRight)
+  LET pt AS Integer = maxI(0, st.paddingTop)
+  LET pb AS Integer = maxI(0, st.paddingBottom)
+
+  ' Border-box width: imposed → fill available less margins; else explicit width,
+  ' else fill available less margins.
+  MUT borderW AS Integer = availW - ml - mr
+  IF imposeWidth = FALSE AND st.width >= 0 THEN borderW = st.width
+  borderW = maxI(0, borderW)
+  LET contentW AS Integer = maxI(0, borderW - pl - pr)
+
+  LET originX AS Integer = x + ml + pl
+  LET originY AS Integer = y + mt + pt
+  LET flow AS Flow = layoutChildren(e.children, st, originX, originY, contentW)
+
+  ' Border-box height: an explicit height, else the content height plus padding.
+  MUT borderH AS Integer = flow.usedH + pt + pb
+  IF st.height >= 0 THEN borderH = st.height
+  borderH = maxI(0, borderH)
+
+  LET box AS Layout = Layout[x + ml, y + mt, borderW, borderH]
+  RETURN Sized[elementLaid(e.tag, e.attrs, flow.kids, st, box), borderW + ml + mr, borderH + mt + mb]
+END FUNC
+
+' Measure a text node at the available width (no Layout is stored on text — its
+' parent element's box positions it during flow).
+FUNC measuredText(n AS Node, s AS String, availW AS Integer) AS Sized
+  RETURN Sized[n, minI(availW, textWidth(s)), textHeight(s, availW)]
+END FUNC
+
+' Lay out any node, returning the rebuilt node and its outer size.
+FUNC layoutNode(n AS Node, x AS Integer, y AS Integer, availW AS Integer, imposeWidth AS Boolean) AS Sized
+  MUT result AS Sized = Sized[n, 0, 0]
+  MATCH n
+    CASE ElementNode(e)
+      result = layoutElement(e, x, y, availW, imposeWidth)
+    CASE TextNode(t)
+      result = measuredText(n, t.text, availW)
+    CASE HeaderNode(h)
+      result = Sized[n, 0, 0]
+    CASE ELSE
+  END MATCH
+  RETURN result
+END FUNC
+
+' Fill in every ElementNode.layout across the document by laying the tree out to
+' `viewportWidth` columns. Call after resolveStyles(); re-call when the width
+' changes. Returns the rebuilt document (records are immutable).
+EXPORT FUNC updateLayout(doc AS Node, viewportWidth AS Integer) AS Node
+  LET r AS Sized = layoutNode(doc, 0, 0, maxI(0, viewportWidth), FALSE)
+  RETURN r.node
+END FUNC

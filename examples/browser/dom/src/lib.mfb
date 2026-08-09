@@ -14,15 +14,18 @@
 IMPORT collections
 IMPORT strings
 
-' A tag with its HTML attributes, child nodes, and resolved layout Style. `style`
-' is the CSS resolved for this element (see style.mfb); the parser fills it with
-' defaultStyle() and a later style-resolution pass rebuilds elements with their
-' cascaded styles. It is the input the flex layout pass reads.
+' A tag with its HTML attributes, child nodes, resolved layout Style, and computed
+' Layout. `style` is the CSS resolved for this element (see style.mfb); the parser
+' fills it with defaultStyle() and a later style-resolution pass rebuilds elements
+' with their cascaded styles. `layout` is the flex geometry computed *from* style by
+' updateLayout (see layout.mfb) for a given viewport width; the parser and style
+' resolution leave it at zeroLayout() and it is recomputed on each render/resize.
 EXPORT TYPE ElementNode
   tag AS String
   attrs AS Map OF String TO String
   children AS List OF Node
   style AS Style
+  layout AS Layout
 END TYPE
 
 EXPORT TYPE TextNode
@@ -59,17 +62,26 @@ FUNC emptyAttrs() AS Map OF String TO String
   RETURN Map OF String TO String {}
 END FUNC
 
-' Build an element with the initial (unresolved) style. Every element enters the
-' tree this way during parsing; styles are resolved in a later pass.
+' Build an element with the initial (unresolved) style and zero layout. Every
+' element enters the tree this way during parsing; styles are resolved and layout
+' is computed in later passes.
 EXPORT FUNC element(tag AS String, attrs AS Map OF String TO String, children AS List OF Node) AS Node
-  LET n AS Node = ElementNode[tag, attrs, children, defaultStyle()]
+  LET n AS Node = ElementNode[tag, attrs, children, defaultStyle(), zeroLayout()]
   RETURN n
 END FUNC
 
-' Build an element carrying an explicit resolved style. Used by style resolution
-' and by rebuilds that must preserve an element's already-resolved style.
+' Build an element carrying an explicit resolved style (layout defaults to zero;
+' it is recomputed by updateLayout). Used by style resolution and by rebuilds that
+' must preserve an element's already-resolved style.
 EXPORT FUNC elementStyled(tag AS String, attrs AS Map OF String TO String, children AS List OF Node, s AS Style) AS Node
-  LET n AS Node = ElementNode[tag, attrs, children, s]
+  LET n AS Node = ElementNode[tag, attrs, children, s, zeroLayout()]
+  RETURN n
+END FUNC
+
+' Build an element carrying both a resolved style and a computed layout. Used by
+' the layout pass (updateLayout) to rebuild each element with its flex geometry.
+EXPORT FUNC elementLaid(tag AS String, attrs AS Map OF String TO String, children AS List OF Node, s AS Style, box AS Layout) AS Node
+  LET n AS Node = ElementNode[tag, attrs, children, s, box]
   RETURN n
 END FUNC
 

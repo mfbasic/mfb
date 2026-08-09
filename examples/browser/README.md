@@ -11,7 +11,7 @@ the loading spinner keeps spinning while a page loads *and* parses:
 
 | Project     | Kind       | What it is                                                                    |
 | ----------- | ---------- | ----------------------------------------------------------------------------- |
-| `dom/`      | package    | The DOM: `Node` (`ElementNode`/`TextNode`/`HeaderNode`) + `StyleNode` (a CSS rule) + an HTML **and** CSS parser. |
+| `dom/`      | package    | The DOM: `Node` (`ElementNode`/`TextNode`/`HeaderNode`) + `StyleNode` (a CSS rule) + an HTML **and** CSS parser, plus `Style`/`Layout` resolution (`resolveStyles`, `updateLayout`). |
 | `fetch/`    | package    | The network worker: blocking `http::` fetch, redirects, `dom::parse`, **and loading external stylesheets**. |
 | `display/`  | package    | Renders a `dom::Node`: `render(node, width)` → text, `tree(node, width)` → an indented DOM tree. |
 | `app/`      | executable | The TUI: layout, input, scrolling, the three modes.                          |
@@ -117,3 +117,31 @@ cross-package transitive read used to be opaque to a consumer's codegen — so t
 was formerly a `Node` variant with all iteration living in `dom` (`dom::styleLines`
 returning pre-formatted strings) — until the `bug-435` fix made a re-exported
 union carry the full type closure of its variants' fields.
+
+## Style & layout
+
+Every `ElementNode` carries a resolved **`Style`** and a computed **`Layout`**,
+filled by two passes over the tree that live *inside* `dom` (so they may recurse
+over `dom`'s own `Node` union — the "must be iterative" rule only binds a consumer
+recursing over an *imported* union):
+
+- **`Style`** (`style.mfb`) is the CSS a single element resolves to — a closed
+  record with one typed field per supported property (a `Display` / `FlexDirection`
+  / `FlexWrap` / `Justify` / `Align` enum, or an Integer length in terminal cells,
+  with `-1` meaning `auto`), not an open string bag. `dom::resolveStyles(doc)`
+  (`resolve.mfb`) walks the tree and for each element applies the user-agent default
+  for its tag, then every matching `StyleNode` rule in document order, then the
+  inline `style="…"` attribute. Layout properties do not inherit, so each element
+  resolves from only its own tag/attrs and the global rule set. The `fetch` worker
+  runs this once, on its thread, so the fully-styled document is what crosses back.
+
+- **`Layout`** (`layout.mfb`) is the computed flex geometry: an absolute border box
+  (`x, y, width, height` in cells, from the viewport's top-left).
+  `dom::updateLayout(doc, width)` derives it from `Style` with a single flex
+  primitive — `display:flex` uses its `flex-direction`, `block` is a flex column,
+  `inline` a flex row, `none` a zero box — honoring `flex-grow`/`shrink`/`basis`,
+  `width`/`height`, padding, margin, `gap`, and `justify-content`. Text is measured
+  by `strings::displayWidth` and wrapped to size leaf boxes. Because layout depends
+  on the viewport width, it is recomputed on each render/resize (in the app), not
+  stored by the worker. (Current subset: single line — `flex-wrap` falls back to
+  nowrap — and cross-axis `align-items` is not applied yet.)
