@@ -44,6 +44,16 @@ removeKey matrix rows (`map (State-Dynamic) removeKey` 62.6, `State-Fixed` 17.3)
   `i` reuses `emit_collection_payload_matches_value_branch` (`map_mutate.rs:1292`); the header-field offsets are
   COUNT+8 / DATA_LENGTH+24 / BUCKETS_READY+4 / entry stride 40 (`error_constants.rs:984-1019`). Trimmed
   measurement harness ready: `/tmp/bench-ld` main includes `test_mapchurn_churn`/`_iterate`/`test_map_str_ops`.
+  **DESIGN NUANCE (decide + MEASURE both):** the simplest compaction shifts ONLY the entry table
+  `[i+1..count)` down one 40-byte slot and leaves the removed entry's key/value bytes as DATA slack (shifted
+  entries keep their absolute KEY/VALUE_OFFSETs — data isn't moved, so no offset fixup; matches how `set`
+  leaves dead value slack). Correct + O(N)-entry-shift only. BUT under the 4000-cycle churn the slack grows
+  (~2-4 B/removeKey) → `DATA_LENGTH` climbs toward `DATA_CAPACITY` → earlier reallocs, which may erode the ~2×.
+  The alternative (shift the data tail too + fix the shifted entries' offsets) reclaims the slack at an extra
+  O(dataLen) copy. Implement entry-only first (simplest), measure churn; if reallocs dominate, add data
+  compaction. Either way COUNT-=1, BUCKETS_READY=0. The scan/match reuses
+  `emit_collection_payload_matches_value_branch(key_type,"",map_ptr,key_off,key_len,query_key,no_match,match)`
+  (`map_mutate.rs:1292`).
 - [ ] **D2 — native String-value `mapValues`** (variable-width same-type path: copy the key/bucket structure,
   rebuild only value payloads keeping `ready=1`). Helps map str_ops. **NOTE (plan-86-A session) — MEASURE
   first; likely MODEST, not groupBy-class.** The scored row is `map str_ops` at only ~5.97 ms (py 2.82), NOT
