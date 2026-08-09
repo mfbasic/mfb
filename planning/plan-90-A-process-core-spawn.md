@@ -329,35 +329,40 @@ The mechanism. Highest blast radius; lands behind runtime tests.
 - [x] `RuntimeHelper::Process` + `runtime/process_specs.rs` + `catalog.rs` wiring.
   (Commit `4f283bc3a`: `Process` variant, `is_process_runtime_call`, 8 specs
   incl. code-layer-only `spawnEnv`, `catalog_is_consistent` green.)
-- [~] `src/target/shared/code/process/{mod,unix}.rs`: the native lowering. NOT
-  YET DONE — the emit dispatch (`code/mod.rs` `call if call.starts_with("process.")`
-  arm), the `mod process;` declaration, and the helper bodies remain. Design is
-  fully specified below and in memory `new-builtin-package-registration-seams`
-  (record tail: stdin-w@32/stdout-r@40/stderr-r@48/reaped@56/status@64/exitcode@72;
-  waitpid decode `termsig=status&0x7f`, `WEXITSTATUS=(status>>8)&0xff`, signal→-1).
-  A first draft was written and discarded — it used invalid NAMED vregs (`%vfile`);
-  register operands MUST be numeric `%vN` (`Vregs::next()`), else
-  `finalize_vreg_body` panics on the physical-register guard (see Corrections).
+- [~] `src/target/shared/code/process/{mod,unix}.rs`: native lowering. DONE for
+  the argv-only `spawn` + `pid`/`isRunning`/`waitFor`/`close`/`__drop` (commit
+  `145c946ae`), with numeric `Vregs`. Record tail: stdin-w@32/stdout-r@40/
+  stderr-r@48/reaped@56/status@64/exitcode@72; waitpid decode
+  `termsig=status&0x7f`, `WEXITSTATUS=(status>>8)&0xff`, signal→-1 (via
+  `bitwise_not(ZERO)` — `-1` is not a valid `move_immediate`). spawn = argv build
+  from the `List OF String` entry array + 3 stdio pipes + O_CLOEXEC self-pipe +
+  fork/execvp + exec-failure-over-self-pipe. REMAINING: `spawnEnv` (child chdir +
+  environment application) and `shell` (their dispatch/capability arms are
+  intentionally absent → a call errors at codegen until implemented).
 - [x] Error block 7708 (`ERR_SPAWN_FAILED_*`) + `RESOURCE_TAG_PROCESS=10` +
-  `02_error-codes.md` row landed in `4f283bc3a`. Raising `ErrSpawnFailed` at the
-  self-pipe site + `ErrResourceClosed`/`ErrInvalidArgument` is part of the pending
-  lowering + `data_objects.rs` per-package error-string gate.
-- [ ] Register libc imports (`fork`/`execvp`/`pipe`/`waitpid`/`kill`/`chdir`/
-  `dup2`/`close`/`fcntl`/`read`/`write`/`_exit` + errno accessor) in each Unix
-  target's `plan.rs` `runtime_imports(spec)` (macOS `libSystem` `_`-prefixed;
-  3 linux arches share `linux_common`).
-- [ ] Wire `process.__drop` through `builder_resource_cleanup.rs` (close op).
-- [ ] Tests: `tests/rt-behavior/process/…` runtime fixtures (spawn `echo`,
-  waitFor==0; scope-drop reap / no zombie; spawn bogus path → TRAP
-  `ErrSpawnFailed`; isRunning true→false). (Note: new-layout `tests/rt-behavior/`,
-  NOT the `tests/rt_*.rs` cargo-integration path the plan named.)
+  `02_error-codes.md` row (`4f283bc3a`); `data_objects.rs` per-package error-string
+  gate + `standard_error_messages` `ErrSpawnFailed` row + raising at the self-pipe
+  site / empty-argv `ErrInvalidArgument` / dropped-handle `ErrResourceClosed`
+  (`145c946ae`).
+- [~] libc imports + capabilities: macOS `libSystem` (`_pipe`/`_fork`/`_dup2`/
+  `_execvp`/`_close`/`_waitpid`/`_kill`/`_read`/`_write`/`_fcntl`/`__exit`/
+  `___error`) + `macos_aarch64` `runtime_calls` DONE (`145c946ae`). The 3 Linux
+  arches (`linux_common` imports + each `mod.rs` capability list) REMAIN.
+- [x] `process.__drop` scope-drop wiring: works via `resource.rs`'s
+  `close_function="process.__drop"` — the drop-reap fixture confirms scope exit
+  emits `__drop` (no extra `builder_resource_cleanup.rs` edit was needed).
+- [~] Tests: `tests/rt-behavior/process/{spawn-waitfor,spawn-fail-trap,drop-reap}`
+  runtime fixtures pass on macOS (`test-accept` green, 3 tests). REMAINING: an
+  `isRunning`-only fixture (covered incidentally by drop-reap) and Linux/rv64 runs.
+  (New-layout `tests/rt-behavior/`, NOT the `tests/rt_*.rs` path the plan named.)
 
-Acceptance (runtime proof): on macOS + Linux x86_64/aarch64 locally, a compiled
-program spawns `["echo","hi"]`, `waitFor` returns `0`, `pid` is plausible,
-`isRunning` flips true→false, and a dropped live child leaves no zombie
-(`ps`/`waitpid` confirms reap). Spawn of a bogus path TRAPs. `cargo test`
-green.
-Commit: 4f283bc3a (infra only; lowering pending)
+Acceptance (runtime proof): on macOS a compiled program spawns `["echo","hi"]`,
+`waitFor` returns `0`, `pid` is plausible, `isRunning` flips true→false, and a
+dropped live `sleep 30` child is SIGKILL'd + reaped (program exits in 0.16s, no
+hang, no zombie). Spawn of a bogus path TRAPs `ErrSpawnFailed` (7-708-0001).
+`cargo test --bin mfb` green (3795). ⚠️ Linux x86_64/aarch64 + rv64 runtime proof
+REMAINS (imports/capabilities not yet added for those targets).
+Commit: 145c946ae (macOS argv-spawn + lifecycle + drop-reap; env/shell/Linux pending)
 
 ### Phase 4 — riscv64 backend parity + runtime proof
 
