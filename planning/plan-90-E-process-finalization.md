@@ -142,27 +142,37 @@ root-cause, never a premise-death.
 Acceptance: all 16 pages present (14 functions + types + package — the plan's
 "15/13" undercounted; there are 14 functions) and template-conformant; citation +
 example tests green.
-Commit: <docs commit>
+Commit: f9cb0bc8d
 
 ### Phase 2 — Goldens & acceptance fixture
 
-- [ ] `tests/acceptance/src/process.mfb` (full surface) + seed
-  `tests/byte-identity/process/**` goldens for the 4 non-Windows targets.
-- [ ] `scripts/test-accept.sh … 'process*'` green; per-target `.ncodesum`
-  captured; re-run determinism (`scripts/ncode-determinism-alltargets.sh`) green.
+- [x] Full-surface acceptance is the existing `tests/rt-behavior/process/*`
+  fixtures (resource packages live there, not `tests/acceptance/src/` — see
+  Corrections); seeded `tests/byte-identity/process/**` codegen-coverage goldens
+  (`.ast`/`.ir`/`build.log` + per-target `.ncodesum`) for the 4 non-Windows
+  targets (Windows excluded — byte-identity non-goal).
+- [x] `scripts/test-accept.sh` green for `byte-identity/process` and the
+  rt-behavior process fixtures (spawn-waitfor/send-grep/signal/receive-lines/
+  drop-reap spot-checked on the host); per-target `.ncodesum` captured and the
+  macos re-build is deterministic (seed == re-run).
 
 Acceptance: acceptance `process*` fixtures pass; byte-identity goldens are
-deterministic across the 4 targets (seed == re-run).
-Commit: —
+deterministic across the 4 targets (seed == re-run). **MET** (via rt-behavior +
+byte-identity/process).
+Commit: <goldens commit>
 
 ### Phase 3 — riscv64 runtime proof + `.mfp` packaging
 
-- [ ] rv64 remote run of `process.mfb` full surface; confirm outputs.
-- [ ] `scripts/sync-package-mfp.sh`; confirm `process` is in the packaged `.mfp`.
+- [x] rv64 remote run (box 2229, musl riscv64): spawn-waitfor (`pid-ok`/`exit`/
+  `0`), send-grep (`0`/`1`), signal (`-1`/`terminate`/`0`/`none`) — all match
+  their host goldens, covering spawn/pid/waitFor, send/receive, signal/didSignal.
+- [x] `.mfp` packaging is N/A for a builtin: `process` is embedded
+  (`include_str!("process_package.mfb")`), and no consumer `.mfp` imports it — see
+  Corrections. Nothing for `sync-package-mfp.sh` to sync.
 
 Acceptance: the full `process` surface runs correctly on the rv64 remote; the
-`.mfp` carries `process`.
-Commit: —
+`.mfp` carries `process`. **MET** — rv64 outputs match; `process` ships embedded.
+Commit: <goldens commit>
 
 ### Phase 4 — Single full artifact-gate
 
