@@ -169,7 +169,25 @@ Commit: 10e150d18
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **Tier-B is `.mfb` source-companion bodies over B's bridge, not native-direct overloads (§4).**
+  Each `strings::<t>(AttributedString, …)` routes to a `__astrings_<t>` companion body (dispatch: a
+  `StringsResolver` return-type override yields `AttributedString`; an IR-lowering
+  `implementation_name` split — `strings::tier_b_transform_impl` — targets the companion when arg0 is
+  `AttributedString`). The body runs the existing `String` transform for the text (so the text
+  invariant holds by construction) and remaps spans with `readSpans`/`writeSpans`. This keeps the
+  risky inclusive-bound clip/shift and `replace` piecewise arithmetic in `.mfb`, consistent with B.
+- **padLeft/padRight's optional `padChar`.** The companion bodies take a required `padChar`; the
+  2-arg form is handled by (a) an `.mfb` default `padChar AS String = " "` and (b) an IR-lowering fill
+  of `" "` for the 2-arg `AttributedString` call (so the routed companion always receives 3 args).
+  The native `String` forms are untouched (they default `padChar` in codegen), so no `String` IR/
+  golden churns.
+- **Concatenation (Open Decision 2) implemented.** `AttributedString & AttributedString` types as
+  `AttributedString` (frontend `infer_binary`), and the IR lowering rewrites the `Binary "&"` to a
+  `__astrings_concat` companion call (text concatenated, right operand's spans shifted by the left's
+  scalar length). `String & String` is unchanged.
+- **The window origin for trim/trimChars** is computed from scalar counts of the `String` results
+  (`leading = scalarCount(text) − scalarCount(trimStart(text))`; trimChars counts leading in-set
+  scalars) — there is no `trimCharsStart`, so trimChars counts the leading run directly.
 
 ## Summary
 
