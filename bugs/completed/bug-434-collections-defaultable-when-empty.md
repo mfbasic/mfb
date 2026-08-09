@@ -7,8 +7,42 @@ Effort: medium (1h–2h)
 Severity: LOW
 Class: Footgun (over-restrictive rule — blocks valid programs; no wrong runtime output)
 
-Status: Open
+Status: FIXED (6ff17fd39, 3df1d5d6f)
 Regression Test: tests/syntax/types/mut-default-collection-of-nondefaultable-valid/ (new); ir/verify unit tests (new)
+
+STATUS: FIXED (6ff17fd39 fix+tests+fixture, 3df1d5d6f spec sync)
+
+The core fix was exactly as designed: the three collection arms of
+`is_defaultable` (`src/ir/verify/resources.rs`) now `return true`
+unconditionally. Full validation green: `cargo test --bin mfb` (3790 passed),
+artifact-gate `all` (1202 tests, 0 diffs), test-accept `tests/syntax/*` (594
+tests), original reproduction compiles+links+runs (exit 0), and a runtime proof
+(`MUT xs AS List OF <union>`, append, `len(xs)==1`).
+
+Two deviations from the plan, both because the plan was wrong on a detail:
+
+1. **`Set OF File` does NOT become accepted** (Phase 2 said to update
+   `rejects_mut_set_of_resource_not_defaultable` to "assert acceptance"). The
+   fix does make `Set OF T` defaultable, but `Set OF File` stays rejected on two
+   INDEPENDENT axes the bug's own Non-goals kept: `TYPE_COLLECTION_OWNERSHIP_VIOLATION`
+   (an ordinary collection cannot own a resource) and `TYPE_REQUIRES_COMPARABLE`
+   (File is not comparable). Verified against the release binary that
+   `MUT s AS Set OF File = []` is likewise rejected on those axes — disproving the
+   Open-Decision premise that "`= []` is already legal, so it is safe." The test
+   was therefore renamed `rejects_mut_set_of_resource_ownership_and_comparable`
+   and asserts (a) the defaultability rule no longer fires and (b) the ownership
+   rule still does — preserving the "Set OF File is rejected" protection.
+
+2. **`accepts_recursive_record_through_list` needed no change** (Phase 2 flagged
+   it "may need adjustment"): it only declares the recursive-through-`List`
+   record and never binds a `MUT` of it, so it never exercised defaultability and
+   stays green untouched.
+
+Tree-wide `cargo fmt --all` (skill §9) was NOT run: main carries pre-existing
+unformatted files (e.g. `src/target/win_x86_64/app/mod.rs` fails
+`rustfmt --check` at HEAD, untouched by this fix), so a full-repo format would
+sweep unrelated churn into this bug. The two changed Rust files pass
+`rustfmt --check` individually, satisfying §9's intent.
 
 A `MUT` binding may omit its initializer only when its type has a defined default value. The
 current rule makes a `List OF T` defaultable **only when `T` is defaultable** (same for `Set OF T`
@@ -178,42 +212,49 @@ Rejected alternatives:
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add a new valid golden `tests/syntax/types/mut-default-collection-of-nondefaultable-valid/`
+- [x] Add a new valid golden `tests/syntax/types/mut-default-collection-of-nondefaultable-valid/`
       binding `MUT` of `List OF <union>`, `Map OF String TO <union>`, and a record embedding a
-      `List OF <union>` field; confirm it currently FAILS with `2-203-0060`.
-- [ ] Add ir/verify unit tests (`src/ir/verify/tests.rs`) for the same, plus a `STATE List OF
-      <non-defaultable>` case; confirm current failures.
-- [ ] Confirm the existing diagnostic golden `mut-default-eligibility-invalid` and unit tests
+      `List OF <union>` field; confirm it currently FAILS with `2-203-0060`. (Dropped a `Set OF
+      <union>` binding: a Set element must be comparable, so it fails on `2-203-0061`, not `-0060`.)
+- [x] Add ir/verify unit tests (`src/ir/verify/tests.rs`) for the same, plus a `STATE List OF
+      <non-defaultable>` case; confirm current failures. (All 4 RED on `2-203-0060` / `TYPE_STATE_INVALID`.)
+- [x] Confirm the existing diagnostic golden `mut-default-eligibility-invalid` and unit tests
       `rejects_mut_enum_not_defaultable`, `rejects_mut_func_not_defaultable` (bare FUNC),
       `rejects_mut_record_with_nondefaultable_field` (direct field) still red for the right reasons.
 
 Acceptance: new tests fail with `2-203-0060`; the untouched-behavior tests documented.
-Commit: —
+Commit: 6ff17fd39 (tests landed with the fix)
 
 ### Phase 2 — the fix
 
-- [ ] Edit `src/ir/verify/resources.rs:is_defaultable` — List/Set/Map arms `return true`.
-- [ ] Update `rejects_mut_set_of_resource_not_defaultable` (`tests.rs:6249`) to assert acceptance
-      (uniform decision — `Set OF File` is now defaultable to the empty set; no element guard).
-- [ ] Re-check `accepts_recursive_record_through_list` (`tests.rs:3111`): the record now becomes
-      defaultable — adjust any assertion that relied on it being non-defaultable.
+- [x] Edit `src/ir/verify/resources.rs:is_defaultable` — List/Set/Map arms `return true`.
+- [x] Update `rejects_mut_set_of_resource_not_defaultable` — renamed
+      `rejects_mut_set_of_resource_ownership_and_comparable`. NOT "assert acceptance" (the plan was
+      wrong): `Set OF File` stays rejected on the independent ownership + comparability axes; the
+      test now asserts the defaultability rule no longer fires AND the ownership rule still does.
+- [x] Re-check `accepts_recursive_record_through_list` (`tests.rs:3111`): no change needed — it only
+      declares the record, never binds a `MUT` of it, so it never exercised defaultability; stays green.
 
 Acceptance: Phase 1 tests pass; the Non-goals tests remain red; `cargo test --bin mfb` green.
-Commit: —
+Commit: 6ff17fd39
 
 ### Phase 3 — spec sync + regenerate goldens + full validation
 
-- [ ] Update `src/docs/spec/language/04_types.md`: §4.10 predicate prose (line 426) and table (419-421)
-      to "always defaultable (empty)"; the §4.7 `List OF FUNC` note (373-381); §4.5 Partition (371).
-      Update `05_bindings-and-scope.md:41-43` if it restates the rule. (`2-203-0060` code unchanged.)
-- [ ] Regenerate the affected syntax goldens (`sync-goldens.sh`); diff and confirm the delta is only
-      the new positive fixture (the invalid goldens must NOT change).
-- [ ] Full suite: `cargo test --bin mfb`, artifact-gate, and test-accept for `tests/syntax/**`.
-- [ ] Re-run the original reproduction end-to-end; both bindings compile and link.
+- [x] Update `src/docs/spec/language/04_types.md`: §4.10 predicate prose and table to "always
+      defaultable (empty)"; the §4.7 `List OF FUNC` note; §4.5 Partition. Updated
+      `05_bindings-and-scope.md` with a collection-always-defaultable note. (`2-203-0060` unchanged.)
+- [x] Generated the new positive fixture's goldens (`sync-goldens.sh` refreshes existing files; the
+      three golden files were seeded empty then populated). The two invalid goldens
+      (`mut-default-eligibility-invalid`, `types-declaration-shapes-invalid`) are byte-unchanged
+      (neither references a collection; test-accept `syntax/*` = 594 pass).
+- [x] Full suite: `cargo test --bin mfb` (3790 passed), artifact-gate `all` (1202 tests, 0 diffs),
+      test-accept `syntax/*` (594 pass).
+- [x] Re-ran the original reproduction end-to-end; both bindings compile, link, and run (exit 0).
+      Plus a runtime proof: `MUT xs AS List OF <union>`, append, `len(xs)==1`.
 
 Acceptance: full suite green; the invalid diagnostic goldens are byte-unchanged; the reproduction
 passes.
-Commit: —
+Commit: 3df1d5d6f (spec sync); goldens+fixture in 6ff17fd39
 
 ## Validation Plan
 
