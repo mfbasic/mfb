@@ -38,6 +38,12 @@ removeKey matrix rows (`map (State-Dynamic) removeKey` 62.6, `State-Fixed` 17.3)
   Set `remove` comes free (routes through `lower_map_remove_key`, `collection_mutate.rs:464`). Baselines:
   churn 161.5 ms, checksum `2128750` (order-independent sum — compaction reorder is checksum-safe, but keys()/
   values() order IS observable elsewhere so PRESERVE insertion order: shift the tail, never swap-with-last).
+  **NOTE:** `lower_list_remove_at` (`list_mutate.rs:2094`) is itself OUT-OF-PLACE (it allocs a result), so the
+  in-place entry-table + data-tail shift is FRESH code — model it on the in-place shift in
+  `lower_list_prepend_in_place` (`list_mutate.rs:1574-1610`), not on `remove_at`. The scan/match to find entry
+  `i` reuses `emit_collection_payload_matches_value_branch` (`map_mutate.rs:1292`); the header-field offsets are
+  COUNT+8 / DATA_LENGTH+24 / BUCKETS_READY+4 / entry stride 40 (`error_constants.rs:984-1019`). Trimmed
+  measurement harness ready: `/tmp/bench-ld` main includes `test_mapchurn_churn`/`_iterate`/`test_map_str_ops`.
 - [ ] **D2 — native String-value `mapValues`** (variable-width same-type path: copy the key/bucket structure,
   rebuild only value payloads keeping `ready=1`). Helps map str_ops. **NOTE (plan-86-A session) — MEASURE
   first; likely MODEST, not groupBy-class.** The scored row is `map str_ops` at only ~5.97 ms (py 2.82), NOT
