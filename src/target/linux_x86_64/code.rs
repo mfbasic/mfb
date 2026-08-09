@@ -137,6 +137,13 @@ impl LinuxArch for X86_64 {
         instructions.extend([
             abi::move_immediate(abi::syscall_register(), "Integer", SYS_WRITE),
             abi::syscall(),
+            // plan-85: the SysV syscall RESULT comes back in `rax` (`%retSys`), but
+            // the aligned MFB convention reads a call result in the aligned bank
+            // (`return_register()` → `rdi`). Stage the kernel return into the MFB
+            // result register so the shared caller's `return_register()` read is
+            // correct. (On AArch64/RISC-V both are `x0`, so those backends never
+            // reach this x86-only method and need no staging.)
+            abi::move_register(abi::return_register(), abi::sys_return()),
         ]);
         Ok(())
     }
@@ -155,6 +162,9 @@ impl LinuxArch for X86_64 {
             abi::move_immediate(abi::SYSARG[2], "Integer", "0"),
             abi::move_immediate(abi::syscall_register(), "Integer", SYS_GETRANDOM),
             abi::syscall(),
+            // plan-85: stage the kernel return (`rax`) into the aligned MFB result
+            // register (`rdi`) — see `emit_write`.
+            abi::move_register(abi::return_register(), abi::sys_return()),
         ]);
         Ok(())
     }
@@ -176,6 +186,9 @@ impl LinuxArch for X86_64 {
             abi::move_immediate(abi::SYSARG[5], "Integer", "0"),
             abi::move_immediate(abi::syscall_register(), "Integer", SYS_MMAP),
             abi::syscall(),
+            // plan-85: stage the mmap return (`rax`, the arena base) into the aligned
+            // MFB result register (`rdi`) — see `emit_write`.
+            abi::move_register(abi::return_register(), abi::sys_return()),
         ]);
         Ok(())
     }
