@@ -259,7 +259,13 @@ The index table above stays as the one-line overview; open a file for the checkl
   scan — 8-byte word high-bit test, byte-exact, 49 codegen goldens regenerated, gate 0-diff; the full
   two-pass→one-pass fusion deferred with evidence — string case is alloc/call-bound, non-clearing). F1 landed
   plan-64. **Sub-plan F COMPLETE (F1+F2+F3).**
-- **G** → [plan-86-G-bounds-check-elim.md](plan-86-G-bounds-check-elim.md) — open, **fully mapped** (correctness-critical, UAF if unsound). **HONEST SCOPING: the SAFE minimal G1 cut helps ONLY scalar listchurn (1 P1, 10.6ms)** — memo/bignum do NOT match the `FOR i=0..len(L)-1`/un-reassigned-L shape (memo bound is a const + `ways` reassigned by `set`; bignum uses WHILE + `set`-reassigned) and need a strictly larger symbolic-range pass. Reuse plan-39 I1's range-fact substrate + `scan_loop_locals` + conservative-default-false; MANDATORY negative fixtures.
+- **G** → [plan-86-G-bounds-check-elim.md](plan-86-G-bounds-check-elim.md) — **G1 SAFE CUT DONE** (`b6bf966fb`):
+  sound get-elision for `FOR i=0 TO len(L)-k` (listchurn 10.6→10.36ms ~2% marginal; the bounds checks are a
+  small fraction, toScalars dominates), gated by 3 mandatory negative fixtures (reassigned-L / i+1-k1 /
+  non-induction all trap 7-705-0001), gate 0-diff (narrow pattern). **REMAINING: the larger G1 symbolic-range
+  pass (bignum modmul 19.5 P2 / memo 11.5 P3 — WHILE + set-reassigned lists, const bounds) + set elision; G2
+  (memo MOD strength-reduce).** These need a `<len(L)` range fact + proving in-place set preserves len —
+  correctness-critical, separately justified.
 - **H** → [plan-86-H-vector-inline.md](plan-86-H-vector-inline.md) — **DONE (H1+H2).** **H1 (normalize inline,
   Float)** = the big win: **vector math 30.95→8.37ms (~3.7×), vector float 20.90→18.9ms (~10%)**; the guard
   (`IF len=0 THEN FAIL 77050002`) composed from existing `label`/`compare`/`branch_eq`/`emit_error_code_return`

@@ -26,7 +26,7 @@ bounds-check row, not an algorithm swap — the C mirror `benchmark/c/main.c:365
   induction var) — plus positive `bounds-elim-rt` (elision fires 9→3 `list_get_invalid` refs, output identical:
   s2=800/s1=450/tot=10). 3776 unit tests green. **Measured listchurn 10.6 → 10.36ms (~2%, MARGINAL): the two
   bounds checks are a small fraction of the per-pass cost (`toScalars(base)` dominates each of the 2000
-  passes).** Commit: `<pending-G1>`. **REMAINING (the larger G1 half — bignum modmul 19.5 P2 / modexp 10.9 P3 /
+  passes).** Commit: `b6bf966fb`. **REMAINING (the larger G1 half — bignum modmul 19.5 P2 / modexp 10.9 P3 /
   memo 11.5 P3):** they do NOT match the safe shape (WHILE loops with `r = set(r, …)` reassigning the list; memo
   bound is a const not `len`), so they need the symbolic-upper-bound range pass (extend `integer_strict_upper`
   to carry `< len(L)` + prove in-place `set` preserves `len`) + `set` elision — separately justified,
