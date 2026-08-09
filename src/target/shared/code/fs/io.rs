@@ -1132,7 +1132,10 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
             &mut relocations,
         )?;
         instructions.extend([
-            abi::sign_extend_word(abi::return_register(), abi::return_register()),
+            // plan-85: the `syscall()`/openat2 return is a C-call result (`rax`,
+            // `%retC`); read it from the C-return register and land it in the aligned
+            // MFB result register. Byte-identical on AArch64/RISC-V (both are `x0`).
+            abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_ge(&open_ok),
         ]);
@@ -1160,7 +1163,9 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        // plan-85: the `open` return is a C-call result (`rax`, `%retC`); read it
+        // from the C-return register into the aligned MFB result register.
+        abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge(&open_ok),
         abi::branch(&open_error),
