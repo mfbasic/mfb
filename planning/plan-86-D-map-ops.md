@@ -109,8 +109,22 @@ removeKey matrix rows (`map (State-Dynamic) removeKey` 62.6, `State-Fixed` 17.3)
   `emit_collection_payload_matches_value_branch`) and skip on hit; else `lower_map_set_in_place(result, key,
   value)`; (4) dispatch gate `#collections_merge$K$V` in `builder_values.rs`. Checksum-verified, no UAF.
   **Also worth checking (higher leverage, may subsume D3):** WHY `x = set(x,…)` reallocs/rehashes per insert
-  when `x` is a copy — if the tight-copy path can carry capacity headroom or the grow can incrementally insert
-  into the existing bucket index instead of rebuilding, that fixes merge AND every copy-then-grow map loop.
+  when `x` is a copy — CONFIRMED root cause: `copy_collection_tight` (`builder_collection_layout.rs:430`) always
+  sizes the copy TIGHT (`capacity==count`, `dataCapacity==dataLength`, via
+  `emit_write_list_header_from_registers:516`), so the first insert of a NEW key forces a geometric grow
+  (entry+data realloc + bucket re-reserve). A plain owning copy MUST stay tight (value semantics — the caller
+  may never insert), so this can't be fixed generally; it's merge-specific. **PRESIZE RECIPE (the missing
+  ~100-line piece):** write a `copy_collection_with_capacity(a, extraEntries, extraData)` variant of
+  `copy_collection_tight` — alloc `HEADER + (a.count+extraEntries)*ENTRY + (a.dataLength+extraData) +
+  buckets(a.count+extraEntries)` (reuse the `emit_checked_size_*` + `emit_reserve_map_buckets` sizing), copy
+  a's entries+data verbatim (the `emit_block_copy_advance` blocks at `:543`/`:565`), but store CAPACITY :=
+  `a.count+extraEntries` and DATA_CAPACITY := `a.dataLength+extraData` EXPLICITLY (the tight header helper
+  writes `capacity==count`; override the two fields, or thread capacity/dataCapacity params into a shared
+  header write — `emit_write_collection_header:1512` is compile-time-count only, so it does NOT fit). For merge,
+  `extraEntries = b.COUNT`, `extraData = b.DATA_LENGTH` (both loaded from b's header @8/@24). Then loop b's
+  entries with `lower_map_set_in_place` (no grow now — presized), guarded by `hasKey` when `!preferB`. Verify
+  with a targeted `artifact-gate <map-byte-identity-sel>` (not the full 18-min gate) + map checksums + a
+  `merge` fixture (overlapping keys with preferB true/false, disjoint keys, empty a / empty b).
 
 ## Acceptance
 map/mapchurn checksums (catch bucket corruption as a wrong lookup) + `cargo test` + map fixtures +
