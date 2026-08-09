@@ -1,0 +1,18 @@
+IMPORT io
+
+' bug-196: the monomorphizer must bind template type-params by DECLARED-parameter
+' order after resolving named arguments, not by source call order. Calling the
+' generic with named args out of order (y first, x second) must still bind
+' A=Integer (from x:=1), B=String (from y:="s"). Pre-fix, arg types were zipped in
+' call order (A=String, B=Integer), producing a spurious post-monomorph type error
+' on this valid program. `r + 1 == 2` only typechecks when A=Integer.
+FUNC f OF A, B(x AS A, y AS B) AS A
+  RETURN x
+END FUNC
+
+FUNC main() AS Integer
+  LET r = f(y := "s", x := 1)
+  io::print(toString(r))
+  io::print(toString(r + 1))
+  RETURN 0
+END FUNC

@@ -1,0 +1,43 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug196_named_arg_reorder_instantiation",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 14, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "f$Integer$String", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "String", "value": "s" }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r" }] }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "r" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] }] } },
+    { "op": "return", "line": 17, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "f$Integer$String",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 9, "type": "Integer", "default": null },
+    { "name": "y", "line": 9, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 10, "value": { "kind": "local", "name": "x" } }
+    ]
+  }
+  ]
+}
