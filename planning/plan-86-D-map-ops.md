@@ -15,14 +15,29 @@ removeKey matrix rows (`map (State-Dynamic) removeKey` 62.6, `State-Fixed` 17.3)
 - **String `mapValues` not native:** gate `builder_values.rs:788-790` allows only 8-byte values.
 
 ## Fixes
-- [ ] **D1 — `try_inplace_remove_key_assign`** (mirrors C2/list-append-in-place): delete the entry in place
-  (compact the data tail + unlink from its bucket incrementally), keep `BUCKETS_READY=1`, no alloc/copy.
-  ~80-120 LOC; register-spill discipline (`[[arena-alloc-clobbers-x14-x15]]`). **Measure behind a toggle
-  first** — the incremental bucket unlink must not cost more than it saves. **NOTE (this session's
-  analysis):** insertion-order preservation forces O(N) data compaction, so D1 is a ~2× constant-factor win
-  that still loses to Python's O(1) dict delete (mapchurn churn stays P1) — clearing the row likely needs a
-  **tombstone-based delete** (O(1) + periodic compaction), a bigger design than "compact the data tail".
-  Reconsider the approach before implementing.
+- [ ] **D1 — `try_inplace_remove_key_assign`** (in-place compaction removeKey). **TOMBSTONE CONFIRMED
+  INFEASIBLE as reuse (plan-86-A session scout); compaction is the viable ~2× win, NOT band-clearing.**
+  Why no tombstone: the map index is **open addressing storing absolute entry indices** (`mod.rs:2407-2703`),
+  the probe halts on `bucket==0` with **no DELETED sentinel**, the entry `FLAGS` bit is **read nowhere**
+  (`builder_arena_transfer.rs:941-955` — the only former reader was deleted), and every `0..count` consumer
+  (`keys`/`values`/`mapValues`/`merge`/transfer/build_buckets) assumes all entries live. A tombstone would need
+  a DELETED bucket sentinel + probe change + bucket_put reuse + a live-count separate from array-COUNT + a
+  USED-skip in every consumer + a compaction trigger — a structural project, out of scope.
+  **Viable path = in-place COMPACTION** (mapchurn churn ~165 → ~80 ms, ~2×, stays P1 vs py O(1) dict delete;
+  removes the alloc + the second O(N) copy pass + the fresh-map overhead, but STILL resets `BUCKETS_READY=0`
+  so the next probe rebuilds — unavoidable given the index). **Edit points:** (1) new
+  `try_inplace_remove_key_assign` in `builder_inplace_assign.rs` cloned from `try_inplace_set_add_assign:112-174`
+  (match `native_builtin_target==Some("removeKey")`, `args[0]==name`; KEEP the `by_ref` guard + the live-FOR-EACH
+  exclusion — a compaction shift IS observable to an iterator; require `map_type_parts` + probe-eligible key;
+  materialize key to a slot); (2) wire into the assign chain `builder_control.rs:579-599`; (3) new
+  `lower_map_remove_key_in_place` in `map_mutate.rs` (sibling of `lower_map_remove_key:1219`): single scan to
+  find entry `i` via `emit_collection_payload_matches_value_branch:1292`; if found, shift entry table
+  `[i+1..count)` down one 40-byte slot (pattern from `lower_list_prepend_in_place`, `list_mutate.rs:1574-1610`),
+  optionally compact the data tail + fix shifted KEY/VALUE_OFFSETs (or leave data slack like `set` does),
+  decrement COUNT(+8)/DATA_LENGTH(+24), store 0 into BUCKETS_READY(+4); no arena_alloc; (4) `local.constant=None`.
+  Set `remove` comes free (routes through `lower_map_remove_key`, `collection_mutate.rs:464`). Baselines:
+  churn 161.5 ms, checksum `2128750` (order-independent sum — compaction reorder is checksum-safe, but keys()/
+  values() order IS observable elsewhere so PRESERVE insertion order: shift the tail, never swap-with-last).
 - [ ] **D2 — native String-value `mapValues`** (variable-width same-type path: copy the key/bucket structure,
   rebuild only value payloads keeping `ready=1`). Helps map str_ops. **NOTE (plan-86-A session) — MEASURE
   first; likely MODEST, not groupBy-class.** The scored row is `map str_ops` at only ~5.97 ms (py 2.82), NOT
