@@ -34,8 +34,22 @@ element move**, not an 8-byte word copy. Gates: `builder_values.rs` sortBy/windo
   per-inner copy) for simple T. Correct; **the scored `flatten` row stays ~22 ms because it is
   `flatten(chunks(base,10))` and chunks is still interpreted (chunks-bound)** — blocked on A-chunks below.
   Lifts `listchurn nested` (Integer flatten). Commit: `14aed9249`.
-- [ ] **A2-groupBy (String)** — native String `groupBy` → `Map OF K TO List OF String`. Needs the
-  String-value bucket append + map-of-String-lists nested-value handling. Clears groupby (166).
+- [ ] **A2-groupBy (String)** — native `groupBy` with a **String VALUE** (the benchmark is
+  `Map OF Integer TO List OF String`: Integer key `strLenKey`, String value `strIdentity`, over a
+  `List OF String` source). **Highest-ROI remaining A item** (166 ms → likely single-digit; the `.mfb` does
+  O(bucket) map get/set per element — see Corrections). **Approach (Integer-key/String-value first):** reuse
+  `lower_collection_group_by_call`'s Integer-key inline hash table UNCHANGED; change only VALUE handling —
+  (a) relax the `builder_values.rs` gate (`#collections_groupBy$T$K$V`) to allow `parts[0]`(T, source elem)
+  and `parts[2]`(V) == `"String"` while keeping `parts[1]`(K) == `"Integer"`; (b) the `vals` list is already
+  built by native `transform` (handles String output); (c) the **found-path bucket append**
+  `lower_list_append_in_place(bucket_slot, val_slot, "List OF String", "String")` already works for String
+  (confirm the val is READ as a materialized String, not a word at `+HEADER` — that read site is the
+  fixed-width assumption to fix, via `load_collection_loop_item`/`emit_element_value_offset`); (d) the
+  **insert-path 1-element bucket** currently allocs `HEADER+8` + word-store — replace with a growable
+  `lower_empty_collection("List OF String")` + `lower_list_append_in_place`, or a 1-element
+  `emit_string_list_slice_block`; (e) the final map materialization stores bucket POINTERS (value =
+  `List OF String` nested block), so it should be value-agnostic — confirm. Detailed edit-point map was
+  produced by a scout (fold its findings in). String-KEY groupBy is a later extension. Do NOT skip as marginal.
 - [x] **A2-window (String)** — native String `window` via the shared `emit_string_list_slice_block` helper:
   `lower_collection_window_string_call` slices each (overlapping/strided) `source[i .. i+size]` into one TIGHT
   `List OF String`, inlines it into a growable outer, and frees it, mirroring the `.mfb __collections_window`
