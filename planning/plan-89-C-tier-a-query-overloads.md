@@ -75,10 +75,20 @@ surface intentional and let Tier-B diverge (returning `AttributedString`, not `S
 ## 4. Detailed Design
 
 ### 4.1 Tier assignment (Phase 1)
-Read `STRINGS_FUNCTIONS` (`strings.rs:235`); classify each by return type and role:
-- **Tier-A** = returns non-string OR returns a `String`/list that is a *pure read* of the text
-  (`graphemes`, `split`, `toBytes`, `toScalars`, `graphemeAt?`).
-- **Tier-B** (defer to D) = returns a transformed *string* meant to carry attributes.
+Read `STRINGS_FUNCTIONS` (`strings.rs:235`); classify each by the **hard rule**: *if a function
+**modifies** the string (its result re-expresses the input's text — narrowed, extended, or rewritten),
+it MUST return `AttributedString`; if it **interrogates** the string (returns a measurement, a
+position, or a decomposition into a collection), it may return whatever the `String` overload
+returns.* Operational test: does the result re-express the input's text, or answer a question about it?
+- **Tier-B** (defer to D, → `AttributedString`) = *modifiers*: `mid`/`left`/`right` (window),
+  `trim*`/`stripPrefix`/`stripSuffix` (trim), `padLeft`/`padRight` (extend), `repeat`, `replace`, and
+  `upper`/`lower`/`caseFold`/`normalizeNfc` (recase). The case/normalize four return `AttributedString`
+  to satisfy the rule but carry an **empty** overlay — the rule governs the return *type*, not span
+  preservation (they cannot map spans; see D §3).
+- **Tier-A** (→ plain) = *interrogators*: returns non-string (`byteLen`, `contains`, `find`, `count`,
+  `displayWidth`, `endsWith*`, `startsWith*`, …) OR a decomposition into a collection (`split`,
+  `graphemes`, `toBytes`, `toScalars`). An indexed pluck (`graphemeAt`) is an interrogation
+  (array-index semantics), plain in v1 — see Open Decisions.
 - **N/A** = no `String` primary arg.
 Record the final table in this plan's Corrections/Detailed Design as the authority D also reads.
 
@@ -123,10 +133,13 @@ Commit: —
 ## Open Decisions
 
 1. **`graphemeAt`.** Returns a single grapheme as `String`. Tier-A (plain `String` result) vs Tier-B
-   (return an `AttributedString` carrying that grapheme's attributes). Recommended **Tier-A** in v1
-   (queries stay plain); revisit if a caller needs the styled grapheme.
+   (return an `AttributedString` carrying that grapheme's attributes). Under §4.1's hard rule this is
+   the one boundary case: an indexed pluck reads like `mid` but is really array-index semantics = an
+   interrogation, so it stays plain.
+   Decision: Tier-A (v1; revisit if a caller needs the styled grapheme)
 2. **`graphemes`/`split`/`toScalars` (list results).** Recommended Tier-A returning plain `List OF
    String`/… — attribute-preserving splitting is out of scope for v1.
+   Decision: Tier-A
 
 ## Corrections
 

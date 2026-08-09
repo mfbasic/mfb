@@ -190,9 +190,11 @@ Commit: —
 1. **Model home: source companion vs `ast/manifest.rs` prelude.** Recommended source companion
    (exported `.mfb`) — matches `strings`/`json`; fall back to a prelude template only if the resolver
    needs the types before source injection.
+   Decision: source companion
 2. **`getAttributes` in v1.** Recommended **yes** (a reader) — it is B's only observable and unblocks
    user-authored renderers; the earlier "no reader" note is overridden by the need for a headless
    test seam.
+   Decision: Yes
 
 ## Corrections
 

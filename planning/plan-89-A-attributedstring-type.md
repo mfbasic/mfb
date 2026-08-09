@@ -273,9 +273,11 @@ Commit: —
 1. **Opaque primitive vs opaque record.** Recommended **primitive-like** (this plan) — full record
    opacity doesn't exist and the primitive path reuses `Error`'s wiring. Alternative (record + new
    field-hiding machinery) is larger and still needs a granted default.
+   Decision: primitive-like
 2. **Wire id: reserved primitive band (11–19) vs `FIRST_TABLE_TYPE_ID` (≥20).** Recommended the
    reserved primitive band, matching the type's primitive-like modeling; falls back to a table id if
    the band is contested.
+   Decision: 11
 
 ## Corrections
 

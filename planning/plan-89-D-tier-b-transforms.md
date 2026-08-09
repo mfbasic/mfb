@@ -150,11 +150,14 @@ Commit: —
 
 ## Open Decisions
 
-1. **`stripPrefix`/`stripSuffix` tier.** Treated as slice here (they remove a leading/trailing run).
-   Confirm against C's table; if C tiered them A, drop from D.
+1. **`stripPrefix`/`stripSuffix` tier.** **Resolved: Tier-B (slice/trim group).** By the hard rule
+   (C §4.1) a function whose result re-expresses the input's text returns `AttributedString`; strip*
+   returns the text with a leading/trailing run removed (a contiguous window), so it modifies and
+   stays in D. C's Phase-1 table must list them Tier-B to stay consistent.
 2. **Concatenation.** If a string `&`/`concat` exists for `AttributedString`, its remap (keep both
    sides, shift the right operand) belongs in Phase 1; the map found no `strings::` `&` operator, so
    it is out unless C/B surface a `concat`. Recommended: out of v1 unless already present.
+   Decision: AttributedString & AttributedString (both sides, no mixing)
 
 ## Corrections
 
