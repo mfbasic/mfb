@@ -1,0 +1,39 @@
+{
+  "project": "process_drop_reap",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "process", "line": 4 },
+    { "module": "io", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "p", "type": null, "value": { "kind": "call", "callee": "process.spawn", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "sleep" }, { "kind": "string", "value": "30" }] }] }, "line": 8 },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "process.isRunning", "arguments": [{ "kind": "identifier", "value": "p" }] },
+        "line": 9,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "running" }] }, "line": 10 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "not-running" }] }, "line": 12 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
+      ]
+    }
+    ]
+  }
+  ]
+}

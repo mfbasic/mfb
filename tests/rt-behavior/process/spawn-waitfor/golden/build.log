@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-behavior/process/spawn-waitfor
+Wrote AST to tests/rt-behavior/process/spawn-waitfor/process_spawn_waitfor.ast
+Wrote IR to tests/rt-behavior/process/spawn-waitfor/process_spawn_waitfor.ir
+[exit 0]
+$ mfb build tests/rt-behavior/process/spawn-waitfor
+Wrote executable to tests/rt-behavior/process/spawn-waitfor/build/process_spawn_waitfor.out
+[exit 0]
+$ tests/rt-behavior/process/spawn-waitfor/build/process_spawn_waitfor.out
+pid-ok
+exit
+0
+[exit 0]

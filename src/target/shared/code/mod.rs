@@ -123,6 +123,7 @@ mod list_mutate;
 mod map_mutate;
 mod net;
 mod os;
+mod process;
 mod perf;
 mod private;
 mod simd_kernel_coeffs;
@@ -2252,6 +2253,34 @@ fn lower_runtime_helper(
                 call if call.starts_with("audio.") => {
                     audio::lower_audio_helper(call, symbol, platform_imports, platform)?
                 }
+                call if call.starts_with("process.") => match call {
+                    "process.spawn" => {
+                        process::lower_process_spawn_helper(symbol, platform_imports, platform, false)?
+                    }
+                    // "process.spawnEnv" (the cwd+env form) is not yet emitted —
+                    // it falls to the error arm below until plan-90-A implements
+                    // the child-side chdir + environment application.
+                    "process.pid" => {
+                        process::lower_process_pid_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.isRunning" => {
+                        process::lower_process_isrunning_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.waitFor" => {
+                        process::lower_process_waitfor_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.close" => {
+                        process::lower_process_close_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.__drop" => {
+                        process::lower_process_drop_helper(symbol, platform_imports, platform)?
+                    }
+                    other => {
+                        return Err(format!(
+                            "native code plan does not emit runtime call '{other}'"
+                        ));
+                    }
+                },
                 call if call.starts_with("tls.") => match call {
                     "tls.connect" => {
                         tls::lower_tls_connect_helper(symbol, platform_imports, platform)?
@@ -3034,6 +3063,11 @@ fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static 
             ERR_AUDIO_DEVICE_CODE,
             ERR_AUDIO_DEVICE_MESSAGE,
             ERR_AUDIO_DEVICE_SYMBOL,
+        ),
+        (
+            ERR_SPAWN_FAILED_CODE,
+            ERR_SPAWN_FAILED_MESSAGE,
+            ERR_SPAWN_FAILED_SYMBOL,
         ),
     ]
 }

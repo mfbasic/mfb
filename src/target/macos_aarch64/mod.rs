@@ -193,6 +193,12 @@ impl NativeBackend for Backend {
                 "audio.xruns",
                 "audio.closeInput",
                 "audio.closeOutput",
+                "process.spawn",
+                "process.pid",
+                "process.isRunning",
+                "process.waitFor",
+                "process.close",
+                "process.__drop",
             ],
         }
     }

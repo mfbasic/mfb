@@ -646,6 +646,22 @@ impl plan::NativePlanPlatform for Platform {
                 required_by: required_by.clone(),
             })
             .collect(),
+            call if crate::builtins::process::is_process_runtime_call(call) => {
+                // plan-90: fork/exec/pipe/wait + the errno accessor. Over-importing
+                // is harmless (the merged table dedups; unused imports are inert),
+                // so every process helper pulls the shared set.
+                [
+                    "_pipe", "_fork", "_dup2", "_execvp", "_close", "_waitpid", "_kill", "_read",
+                    "_write", "_fcntl", "__exit", "___error",
+                ]
+                .into_iter()
+                .map(|symbol| PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: symbol.to_string(),
+                    required_by: required_by.clone(),
+                })
+                .collect()
+            }
             call if crate::builtins::net::is_net_call(call) => {
                 let mut imports = plan::net_libc_symbols(call)
                     .iter()

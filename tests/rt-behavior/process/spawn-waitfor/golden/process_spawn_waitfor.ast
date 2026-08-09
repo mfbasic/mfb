@@ -1,0 +1,43 @@
+{
+  "project": "process_spawn_waitfor",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "process", "line": 2 },
+    { "module": "io", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "p", "type": null, "value": { "kind": "call", "callee": "process.spawn", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "echo" }, { "kind": "string", "value": "hi" }] }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "id", "type": null, "value": { "kind": "call", "callee": "process.pid", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 7 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "id" }, "right": { "kind": "number", "value": "0" } },
+        "line": 8,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "pid-ok" }] }, "line": 9 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "pid-bad" }] }, "line": 11 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "code", "type": null, "value": { "kind": "call", "callee": "process.waitFor", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "exit" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "code" }] }] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
+      ]
+    }
+    ]
+  }
+  ]
+}

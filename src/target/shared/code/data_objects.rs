@@ -379,6 +379,32 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             push_string_value(&mut values, value.to_string());
         }
     }
+    // plan-90: `process::spawn`/`shell` raise ErrSpawnFailed; lifecycle ops raise
+    // ErrResourceClosed on a dropped handle; spawn raises ErrInvalidArgument on an
+    // empty argv and ErrAllocation on OOM. `__drop` is emitted by scope-drop, so a
+    // program that only spawns still needs the close-path strings.
+    if module_uses_any_call(
+        module,
+        &[
+            "process.spawn",
+            "process.spawnEnv",
+            "process.shell",
+            "process.pid",
+            "process.isRunning",
+            "process.waitFor",
+            "process.close",
+            "process.__drop",
+        ],
+    ) {
+        for value in [
+            ERR_SPAWN_FAILED_MESSAGE,
+            ERR_RESOURCE_CLOSED_MESSAGE,
+            ERR_INVALID_ARGUMENT_MESSAGE,
+            ERR_ALLOCATION_MESSAGE,
+        ] {
+            push_string_value(&mut values, value.to_string());
+        }
+    }
     if module_uses_migrated(module, "find")
         || module_uses_migrated(module, "mid")
         || module_uses_migrated(module, "get")
