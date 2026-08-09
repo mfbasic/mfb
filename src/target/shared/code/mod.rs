@@ -1539,9 +1539,14 @@ pub(crate) fn lower_module_for_platform(
     // `process.spawnEnv`, a synthesized target the NIR never names (it carries only
     // `process.spawn`), so emit its helper body whenever `spawn` is present —
     // mirroring `connectTcpAddr`. It shares the process libc imports.
-    if runtime_symbols
-        .iter()
-        .any(|symbol| symbol == "_mfb_rt_process_process_spawn")
+    // plan-90-D: these synthesized overload helpers (spawnEnv / *Timeout / *From)
+    // are Unix-only; the Windows backend handles overloads in its own emission, so
+    // do NOT force-emit the Unix helper bodies on Windows (they are stubs there).
+    let process_synth = platform.family() != PlatformFamily::Windows;
+    if process_synth
+        && runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_process_process_spawn")
         && !runtime_symbols
             .iter()
             .any(|symbol| symbol == "_mfb_rt_process_process_spawnEnv")
@@ -1567,7 +1572,8 @@ pub(crate) fn lower_module_for_platform(
             "_mfb_rt_process_process_receiveFrom",
         ),
     ] {
-        if runtime_symbols.iter().any(|symbol| symbol == base)
+        if process_synth
+            && runtime_symbols.iter().any(|symbol| symbol == base)
             && !runtime_symbols.iter().any(|symbol| symbol == timed)
         {
             runtime_symbols.push(timed.to_string());

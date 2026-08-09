@@ -173,10 +173,10 @@ constraints.
 > list, which advertises no `process.*` yet). The Win32 emission below replaces
 > those arms and adds the capability entries + imports.
 
-- [~] `process/windows.rs`: `CreateProcessA` + 3 anonymous pipes + record
+- [x] `process/windows.rs`: `CreateProcessA` + 3 anonymous pipes + record
   alloc/stamp; `WaitForSingleObject`/`GetExitCodeProcess` cache;
-  `TerminateProcess`+`CloseHandle` drop; `ErrSpawnFailed` TRAP. **Dispatch scaffold
-  done (`019542919`); the Win32 emission is the remaining work.** Design: build a
+  `TerminateProcess`+`CloseHandle` drop; `ErrSpawnFailed` TRAP. **Emitted +
+  runtime-verified on box 2230 (spawn/pid/waitFor/isRunning/close/drop).** Design: build a
   command line from the argv `List OF String` (space-joined, quote args with
   spaces); `CreatePipe` ×3 with `SECURITY_ATTRIBUTES{nLength=12, lpSD=0,
   bInheritHandle=1}`; `SetHandleInformation(parent-end, HANDLE_FLAG_INHERIT, 0)`;
@@ -190,19 +190,23 @@ constraints.
   `isRunning` = `GetExitCodeProcess`==`STILL_ACTIVE(259)`; `close` = `CloseHandle`
   the stdin write handle; `__drop` = `TerminateProcess(hProcess,1)` +
   `CloseHandle`. `pid` = `pi.dwProcessId` (cache in a tail slot at spawn).
-- [ ] Register the lifecycle Win32 imports (kernel32: `CreateProcessA`,
+- [x] Register the lifecycle Win32 imports (kernel32: `CreateProcessA`,
   `CreatePipe`, `SetHandleInformation`, `WaitForSingleObject`,
-  `GetExitCodeProcess`, `TerminateProcess`, `CloseHandle`, `GetLastError`) in
-  `src/target/win_x86_64/plan.rs` + add the lifecycle calls to the `win_x86_64`
-  capability list.
-- [ ] Tests: `cli_process_windows_spawn_build.rs` (emit-inspection on macOS) +
-  on-box execution on 2230 of A's spawn/waitFor program (`["cmd","/c","echo hi"]`
-  → exit 0; bogus path → TRAP `ErrSpawnFailed`).
+  `GetExitCodeProcess`, `TerminateProcess`, `CloseHandle`, `GetLastError` — plus
+  `WriteFile`/`ReadFile`/`PeekNamedPipe` pre-registered for Phase 2) in
+  `src/target/win_x86_64/plan.rs` + added spawn/pid/isRunning/waitFor/close/__drop
+  to the `win_x86_64` capability list.
+- [x] Tests: `cli_process_windows_build.rs` (emit-inspection on macOS: compiles
+  the lifecycle program for `windows-x86_64`, asserts the Win32 imports; POSIX
+  build must NOT import them) + on-box execution on 2230 of the lifecycle program
+  (`["cmd","/c","exit 3"]` → `pid>0`=TRUE, `waitFor`=3, `isRunning`=FALSE; bogus
+  path → TRAP `ErrSpawnFailed`).
 
-Acceptance (execution on box 2230): the A spawn/waitFor program, compiled for
-Windows, prints exit code `0` for `["cmd","/c","echo hi"]` and leaves no orphaned
-handle; a bogus path TRAPs `ErrSpawnFailed`.
-Commit: 019542919 (scaffold; Win32 emission pending)
+Acceptance (execution on box 2230): the spawn/waitFor program, compiled for
+Windows, prints the child's exit code and leaves no orphaned handle; a bogus path
+TRAPs `ErrSpawnFailed`. **MET** — box 2230 prints `TRUE`/`3`/`FALSE`; a bogus
+path TRAPped `ErrSpawnFailed` during bring-up.
+Commit: 019542919 (scaffold) + <this commit> (Win32 lifecycle emission)
 
 ### Phase 2 — Windows I/O (send/receive/poll)
 
@@ -253,7 +257,28 @@ Commit: —
 
 ## Corrections
 
-<filled during execution>
+- **Win64 helper frame discipline (Phase 1).** The plan's `emit_external_int_call`
+  / `outgoing_stack_arg_store` sketch for the 10-arg `CreateProcessA` did not
+  survive contact with `finalize_frame`: a shared-code helper that mixes numeric
+  `Vregs` (spilled by `finalize`) with hand-placed `sp+0x20..` outgoing stack args
+  gets those args SHIFTED off the real slot the callee reads (garbage `lpSI`/`lpPI`
+  → crash), and `emit_libc_call` does not reserve the 32-byte shadow. Fix: the
+  Windows spawn/waitFor/isRunning/close/drop helpers are written fully-explicit —
+  one `subtract_stack(FRAME)`/`add_stack(FRAME)` bracket (depth-1, so nothing is
+  shifted), NO abstract vregs (so nothing spills), all state in `sp`-relative slots,
+  `mfb_arg(0..3)` as transient scratch. This mirrors the proven fs
+  `emit_build_argv_utf8` pattern. Recorded in memory `win64-helper-frame-and-zero-reg`.
+- **`move_register(_, ZERO)` does not zero on x86-64 (Phase 1).** There is no
+  hardware zero register; `ZERO` maps to a GPR holding garbage. CreateProcessA's
+  NULL args came out as loop-leftover pointers → returned FALSE (`ErrSpawnFailed`).
+  Fix: zero a register arg with `move_immediate(reg, "Integer", "0")` (only
+  `store_*` special-cases `ZERO` to an immediate). Same memory note.
+- **`process_synth` gate (Phase 1).** The Unix overload force-emit in
+  `lower_module_for_platform` (spawnEnv / *Timeout / *From synthesized helpers)
+  would emit the Windows *stub* bodies for any Windows program calling `spawn`,
+  failing the build. Gated the force-emit blocks on
+  `platform.family() != PlatformFamily::Windows`; the Windows backend emits its
+  own overloads.
 
 ## Summary
 

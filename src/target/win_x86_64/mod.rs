@@ -219,6 +219,14 @@ const RUNTIME_CALLS: &[&str] = &[
     "audio.xruns",
     "audio.closeInput",
     "audio.closeOutput",
+    // plan-90-D: the Windows process lifecycle (CreateProcessA + 3 pipes).
+    // shell/spawnEnv, I/O, and signals land in later D phases.
+    "process.spawn",
+    "process.pid",
+    "process.isRunning",
+    "process.waitFor",
+    "process.close",
+    "process.__drop",
 ];
 
 impl NativeBackend for Backend {
