@@ -2689,6 +2689,28 @@ fn lower_expression_with_expected(
             // empty list literal and a `Map OF ...` default (http's `headers`) to an
             // empty map literal, not a scalar const; every other default is a const.
             let mut args = args;
+            // plan-89-C: a Tier-A `strings::` query whose text argument is an
+            // `AttributedString` reads its visible text. Wrap the leading argument
+            // in `toString(a)` here — before the native vs source-companion-rewrite
+            // split — so both lowerings receive a `String` and the result equals
+            // `strings::q(toString(a))`. (Tier-B transforms are plan-89-D and return
+            // `AttributedString` instead.)
+            if builtins::strings::is_tier_a_query(&canonical_callee)
+                && !args.is_empty()
+                && normalized_builtin
+                    .first()
+                    .and_then(|arg| expression_type(arg, locals, context))
+                    .as_deref()
+                    == Some("AttributedString")
+            {
+                let inner = args[0].clone();
+                args[0] = IrValue::Call {
+                    target: "toString".to_string(),
+                    args: vec![inner],
+                    type_: "String".to_string(),
+                    loc,
+                };
+            }
             for (type_, value) in builtins::default_argument_padding(&canonical_callee, args.len())
             {
                 if type_.starts_with("List OF ") {

@@ -52,6 +52,14 @@ be exactly one Unicode scalar value.
 
 `strings` is a built-in package: `IMPORT strings` needs no manifest dependency.
 
+The Tier-A query functions — `byteLen`, `contains`, `count`, `displayWidth`,
+`startsWith`, `endsWith`, `startsWithAny`, `endsWithAny`, `find`, `graphemes`,
+`graphemesCount`, `graphemeAt`, `split`, `toBytes`, and `toScalars` — also accept
+an `astrings::AttributedString` at the text position: they operate on its visible
+text and return exactly what the `String` overload returns (same value, type, and
+errors). The text-modifying functions gain attribute-preserving `AttributedString`
+overloads separately (see the `astrings` package). [[src/builtins/strings.rs:is_tier_a_query]]
+
 ## Errors
 
 | Code | Name | Raised when |

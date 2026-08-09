@@ -105,21 +105,47 @@ codegen preamble that loads the text slot, then reuses the `String` arm. No new 
 
 ### Phase 1 — freeze the Tier-A/B/N-A partition
 
-- [ ] Classify all 39 `STRINGS_FUNCTIONS` into Tier-A / Tier-B / N-A by reading their signatures;
-      record the table here.
-- [ ] Tests: none (analysis) — but the table is the acceptance artifact D depends on.
+- [x] Classified all 39 `STRINGS_FUNCTIONS` by reading their `STRINGS_FUNCTIONS`/OV signatures. The
+      frozen partition (the authority plan-89-D consumes; codified as
+      `builtins::strings::is_tier_a_query`):
 
-Acceptance: a complete, per-function tier table covering all 39, committed in this plan.
+      **Tier-A (15) — interrogators → plain result on visible text:** `byteLen`, `contains`, `count`,
+      `displayWidth`, `endsWith`, `endsWithAny`, `find`, `graphemes`, `graphemesCount`, `split`,
+      `startsWith`, `startsWithAny`, `toBytes`, `toScalars`, `graphemeAt` (indexed pluck = array-index
+      interrogation → plain `String`, per Open Decision 1).
+
+      **Tier-B (17) — modifiers → `AttributedString` (plan-89-D):** `left`, `right`, `mid`, `trim`,
+      `trimStart`, `trimEnd`, `trimChars`, `stripPrefix`, `stripSuffix`, `padLeft`, `padRight`,
+      `repeat`, `replace`, `upper`, `lower`, `caseFold`, `normalizeNfc` (the last four drop attributes,
+      D §3).
+
+      **N-A (7) — no `String` primary arg:** `fromScalars` (`List OF Scalar`→String), `join`
+      (`List OF String`), `isLetter`, `isDigit`, `isWhitespace`, `isUpper`, `isLower` (all take a
+      `Scalar`).
+
+      15 + 17 + 7 = 39. Tier-A and Tier-B use disjoint OV tables (interrogators return non-String or a
+      collection; modifiers return `String`), so C touches no Tier-B overload.
+- [x] Tests: none (analysis) — the table above is the acceptance artifact D depends on.
+
+Acceptance: MET. Complete per-function tier table covering all 39, committed here and codified as
+`is_tier_a_query`.
 Commit: —
 
 ### Phase 2 — implement Tier-A overloads
 
-- [ ] Add the `AttributedString` overload + text-slot codegen preamble for each Tier-A function.
-- [ ] Tests: `tests/rt-behavior/astrings/tier-a-queries-rt/` — for a styled `AttributedString`,
-      assert each Tier-A function equals its `strings::q(toString(a))` counterpart (same value/type),
-      including an error case (e.g. `find` not-found propagates identically).
+- [x] Accept an `AttributedString` at the text position for each Tier-A function. Implemented as a
+      resolver override (`StringsResolver::resolve_return_type` substitutes `String` for a leading
+      `AttributedString` and reuses the `String` resolution) plus a single IR-lowering rewrite
+      (`ir/lower.rs`: wrap the leading arg in `toString(a)` for a Tier-A query) — so BOTH the native
+      arms (`contains`/`byteLen`/…) AND the source-companion rewrite arms (`toScalars`) receive a
+      `String`. (Corrections: the plan's "codegen preamble" is realized at IR lowering, which is the
+      only point before the native-vs-rewrite split; a codegen-only preamble missed `toScalars`.)
+- [x] Tests: `tests/rt-behavior/astrings/tier-a-queries-rt/` — every Tier-A function on a styled
+      `AttributedString` equals its `strings::q(toString(a))` counterpart (all `X/X`), plus `find`
+      not-found error parity (`trap:77050004/77050004`).
 
-Acceptance: every Tier-A overload equals the `String`-of-plaintext result and matches error behavior.
+Acceptance: MET. Every Tier-A overload equals the `String`-of-plaintext result and matches error
+behavior.
 Commit: —
 
 ## Validation Plan

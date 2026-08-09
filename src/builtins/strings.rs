@@ -392,16 +392,55 @@ impl BuiltinResolver for StringsResolver {
     /// `DefaultResolver` resolution). Exposed so plan-72-BB can drive `strings::`
     /// return types uniformly through the registry resolver for every
     /// resolver-backed package.
+    ///
+    /// plan-89-C: the Tier-A query members also accept an `AttributedString` at the
+    /// text position, returning exactly what the `String` overload returns
+    /// (computed on the visible text). Substituting `String` for a leading
+    /// `AttributedString` reuses the `String` resolution unchanged; codegen rewrites
+    /// the argument to `toString(a)` so the existing `String` lowering runs.
     fn resolve_return_type(
         &self,
         _module: &BuiltinModule,
         name: &str,
         arg_types: &[String],
     ) -> Option<String> {
+        if is_tier_a_query(name) && arg_types.first().map(String::as_str) == Some("AttributedString")
+        {
+            let mut substituted = arg_types.to_vec();
+            substituted[0] = "String".to_string();
+            return resolve_call(name, &substituted).map(|resolved| resolved.return_type.into_owned());
+        }
         resolve_call(name, arg_types).map(|resolved| resolved.return_type.into_owned())
     }
 }
 static STRINGS_RESOLVER: StringsResolver = StringsResolver;
+
+/// The Tier-A `strings::` query members (plan-89-C): they *interrogate* the text
+/// (returning a measurement, a position, or a decomposition into a collection)
+/// rather than re-expressing it, so an `AttributedString` argument is answered on
+/// its visible text and the result type matches the `String` overload. The
+/// text-modifying members (Tier-B) return `AttributedString` and are handled in
+/// plan-89-D. The frozen partition is recorded in plan-89-C §4.1.
+pub(crate) fn is_tier_a_query(name: &str) -> bool {
+    matches!(
+        name,
+        BYTE_LEN
+            | CONTAINS
+            | COUNT
+            | DISPLAY_WIDTH
+            | ENDS_WITH
+            | ENDS_WITH_ANY
+            | FIND
+            | GRAPHEMES
+            | GRAPHEMES_COUNT
+            | SPLIT
+            | STARTS_WITH
+            | STARTS_WITH_ANY
+            | TO_BYTES
+            | TO_SCALARS
+            | GRAPHEME_AT
+    )
+}
 
 pub(crate) static STRINGS: BuiltinModule = BuiltinModule {
     name: "strings",
