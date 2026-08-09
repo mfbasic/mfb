@@ -226,6 +226,33 @@ Commit: —
 
 ## Corrections
 
+**C5 (DEFINITIVE, measured) — the x86 conversion spans the PLATFORM BACKENDS per-site;
+the census under-counted, and this is the plan-85-D all-at-once scope, not an incremental
+byte-identical B step.** After the fused-op fix (`f4509c534`), converting all shared/code
+args gave: **riscv64 + aarch64 byte-identical (gate OK: 1352 / 1354)**, but **both x86 ABIs
+still diff** — localized to platform-wrapper-boundary functions. Root cause (objdump'd, not
+theorized): the platform backends (`win_x86_64/code.rs` = 1281 arg-token sites, plus
+`linux_*`, `macos_*`) INLINE arg-remapping wrappers into shared/code functions AND use the
+`abi::ARG[0..3]` tokens as **general `x0`–`x3` scratch** (e.g. `emit_environ_pointer`'s
+wide-char scan loop), colored by the fixpoint by context. So:
+- Converting a shared/code staging (`c_arg`, seam-realized) while the inlined wrapper reads
+  the same value via a legacy `ARG` token (fixpoint) mis-colors it on Win64 (rcx↔rax at
+  index 0) — a real correctness break, not just a byte diff (`emit_random_bytes`: the buffer
+  read moved rcx→rax).
+- The platform backends CANNOT be sed-converted (a whole-file sed of `win_x86_64` went 32→196
+  diffs, because it wrongly converted the `x0`-scratch uses). It is per-site classification.
+
+Consequence: plan-85's real work (deleting the x86 fixpoint) is an **all-at-once per-site
+conversion** of shared/code AND every platform backend (arg vs scratch vs result at each
+site), converted together with the fixpoint deletion — i.e. B/C/D collapse into one x86
+conversion, verified by rt-behavior (SysV 2227 + Win64 2230) with ARM/RISC-V byte-identity as
+the cross-check. ARM/RISC-V are trivially byte-identical (positional, no fixpoint) and don't
+advance the goal. WIP so far: shared/code args (`4db1e05a1`) + the pure-arg remap wrappers
+`emit_random_bytes`/`emit_env_get`/`emit_env_set` (`5859605b5`), proven to remove their
+boundary diffs. This is a genuine, measured re-scope of B's incremental structure — recorded
+so the next session builds the x86 conversion as one per-site pass, not a sed.
+
+
 **C1 (plan-85-A, source analysis) — the byte change is ONLY the MFB-result move; arg
 conversions are byte-identical; shared-helper results are cross-file-atomic.**
 
