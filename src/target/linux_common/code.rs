@@ -728,7 +728,10 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
             instructions,
             relocations,
         )?;
-        instructions.push(abi::load_u32(dst, abi::return_register(), 0));
+        // plan-85: `__errno_location` returns the errno ADDRESS as a C-call result
+        // (`rax`, `%retC`), not the aligned MFB result register. Read the pointer
+        // from the C-return register. Byte-identical on AArch64/RISC-V (both `x0`).
+        instructions.push(abi::load_u32(dst, abi::c_return(0), 0));
         Ok(())
     }
 
