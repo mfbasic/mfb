@@ -261,7 +261,9 @@ The index table above stays as the one-line overview; open a file for the checkl
   `out & …` accumulation is already O(n) in-place append (premise false). Root cause: the prefilter-less CPS
   matcher (`searchFrom` per position for Class/Alt, `requiredFirstCp=-1`) is ~24.6ms of the 25ms — the capped
   structural floor the plan accepted; the only real lever is a Class/Alt first-scalar prefilter, bounded out.
-- **J** → [plan-86-J-csv-parse.md](plan-86-J-csv-parse.md) — open (borderline, low priority)
+- **J** → [plan-86-J-csv-parse.md](plan-86-J-csv-parse.md) — **DONE (J1 moot).** Measured `parse csv` min 4.82 /
+  med ~5.0ms — at the ≤5ms complete boundary, not regressed; the plan's "pursue only if it regresses" condition
+  is not met. A native csv-parse builtin is unjustified for a boundary-complete row.
 - **K** → [plan-86-K-cow-layout.md](plan-86-K-cow-layout.md) — open (K1/K2/K3; also owns B3)
 - **L** → [plan-86-L-transcendental-capped.md](plan-86-L-transcendental-capped.md) — capped (only L1 is a live lever)
 
