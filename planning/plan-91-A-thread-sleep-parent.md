@@ -333,7 +333,7 @@ Commit: 2aacef7eb
 Acceptance: `mfb man thread sleep` renders; man-coverage (261) + spec (42) +
 citations (2) tests green; scoped artifact-gate for `thread` = 0 diffs; full
 `cargo test` green (0 failures).
-Commit: —
+Commit: 45df734df
 
 ## Validation Plan
 
@@ -354,6 +354,10 @@ Commit: —
   byte-identity + acceptance goldens); rustfmt/clippy per `.ai/build-tooling.md`.
 
 ## Open Decisions
+
+> RESOLVED during execution: (1) the handle-state check is DONE — the helper
+> returns `ErrResourceClosed` on a closed handle (poll parity); (2) `sleep.md`
+> documents ONLY the parent overload (plan-91-B revises it for the worker form).
 
 - **Parent-side handle-state check.** Recommended: parent `thread::sleep` returns
   `ErrResourceClosed` on an already-closed `Thread` handle, matching `poll`'s
