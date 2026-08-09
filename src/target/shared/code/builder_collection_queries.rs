@@ -4568,11 +4568,30 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(&addr, &base, &t));
         self.emit(abi::load_u64(&key, &addr, 0));
         self.emit(abi::store_u64(&key, abi::stack_pointer(), key_slot));
-        self.emit(abi::load_u64(&base, abi::stack_pointer(), vals_slot));
-        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
-        self.emit(abi::add_registers(&addr, &base, &t));
-        self.emit(abi::load_u64(&p, &addr, 0));
-        self.emit(abi::store_u64(&p, abi::stack_pointer(), val_slot));
+        if value_type == "String" {
+            // vals[i] is a kind-0 String entry: materialize a fresh owned String
+            // block (freed at el_next after it is copied into the bucket). `i` is
+            // reloaded from i_slot because the fixed-width path's registers are not
+            // used here.
+            let idx = self.temporary_vreg();
+            let voff = self.temporary_vreg();
+            let vlen = self.temporary_vreg();
+            let eoff = self.temporary_vreg();
+            let entry = self.temporary_vreg();
+            let vptr = self.temporary_vreg();
+            self.emit(abi::load_u64(&idx, abi::stack_pointer(), i_slot));
+            self.emit(abi::load_u64(&vptr, abi::stack_pointer(), vals_slot));
+            self.emit_element_value_offset(&voff, &vlen, &vptr, &idx, &eoff, &entry, "String");
+            self.emit(abi::load_u64(&vptr, abi::stack_pointer(), vals_slot));
+            let materialized = self.emit_load_collection_payload("String", &vptr, &voff, &vlen)?;
+            self.emit(abi::store_u64(&materialized, abi::stack_pointer(), val_slot));
+        } else {
+            self.emit(abi::load_u64(&base, abi::stack_pointer(), vals_slot));
+            self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
+            self.emit(abi::add_registers(&addr, &base, &t));
+            self.emit(abi::load_u64(&p, &addr, 0));
+            self.emit(abi::store_u64(&p, abi::stack_pointer(), val_slot));
+        }
         // probe: slot = key & mask
         self.emit(abi::load_u64(&mask, abi::stack_pointer(), mask_slot));
         self.emit(abi::and_registers(&slot, &key, &mask));
@@ -4615,29 +4634,42 @@ impl CodeBuilder<'_> {
         // insert: new 1-element bucket; register in arrays + hash (spill slot across alloc)
         self.emit(abi::label(&insert));
         self.emit(abi::store_u64(&slot, abi::stack_pointer(), slot_save));
-        self.emit(abi::move_immediate(
-            abi::return_register(),
-            "Integer",
-            &(COLLECTION_HEADER_SIZE + 8).to_string(),
-        ));
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
-        self.emit_arena_alloc_call();
-        let ins_ok = self.label("gb_ins_ok");
-        self.emit(abi::branch_eq(&ins_ok));
-        self.emit_allocation_error_return()?;
-        self.emit(abi::label(&ins_ok));
-        self.emit(abi::store_u64(
-            abi::mfb_return(1),
-            abi::stack_pointer(),
-            bucket_slot,
-        ));
-        // bucket header: count=cap=1, dataLen=dataCap=8; store val at +HEADER
-        self.emit(abi::move_immediate(&r, "Integer", "1"));
-        self.emit(abi::move_immediate(&t, "Integer", "8"));
-        self.emit(abi::load_u64(&p, abi::stack_pointer(), bucket_slot));
-        self.emit_write_list_header_from_registers(&v_layout, &p, &r, &t);
-        self.emit(abi::load_u64(&t, abi::stack_pointer(), val_slot));
-        self.emit(abi::store_u64(&t, &p, COLLECTION_HEADER_SIZE));
+        if value_type == "String" {
+            // A String bucket is a kind-0 `List OF String`: build an empty growable
+            // list and append the materialized value (String-correct byte copy),
+            // instead of the fixed-width `HEADER+8` word store.
+            let bucket = self.lower_empty_collection(&list_v)?;
+            self.emit(abi::store_u64(
+                &bucket.location,
+                abi::stack_pointer(),
+                bucket_slot,
+            ));
+            self.lower_list_append_in_place(bucket_slot, val_slot, &list_v, value_type)?;
+        } else {
+            self.emit(abi::move_immediate(
+                abi::return_register(),
+                "Integer",
+                &(COLLECTION_HEADER_SIZE + 8).to_string(),
+            ));
+            self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+            self.emit_arena_alloc_call();
+            let ins_ok = self.label("gb_ins_ok");
+            self.emit(abi::branch_eq(&ins_ok));
+            self.emit_allocation_error_return()?;
+            self.emit(abi::label(&ins_ok));
+            self.emit(abi::store_u64(
+                abi::mfb_return(1),
+                abi::stack_pointer(),
+                bucket_slot,
+            ));
+            // bucket header: count=cap=1, dataLen=dataCap=8; store val at +HEADER
+            self.emit(abi::move_immediate(&r, "Integer", "1"));
+            self.emit(abi::move_immediate(&t, "Integer", "8"));
+            self.emit(abi::load_u64(&p, abi::stack_pointer(), bucket_slot));
+            self.emit_write_list_header_from_registers(&v_layout, &p, &r, &t);
+            self.emit(abi::load_u64(&t, abi::stack_pointer(), val_slot));
+            self.emit(abi::store_u64(&t, &p, COLLECTION_HEADER_SIZE));
+        }
         // nb = load; bucketPtrs[nb]=bucket; keyOrder[nb]=key; hashKeys[slot]=key; hashOcc[slot]=nb+1
         self.emit(abi::load_u64(&r, abi::stack_pointer(), nb_slot)); // nb
         self.emit(abi::shift_left_immediate(&t, &r, 3));
@@ -4665,6 +4697,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(&r, &r, 1));
         self.emit(abi::store_u64(&r, abi::stack_pointer(), nb_slot));
         self.emit(abi::label(&el_next));
+        // Release the materialized String value — the found/insert append both COPY
+        // its bytes into the bucket, so it is dead here (no-op for fixed-width).
+        self.free_collection_loop_item(val_slot, value_type)?;
         self.emit(abi::load_u64(&r, abi::stack_pointer(), i_slot));
         self.emit(abi::add_immediate(&r, &r, 1));
         self.emit(abi::store_u64(&r, abi::stack_pointer(), i_slot));

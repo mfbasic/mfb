@@ -877,10 +877,16 @@ impl CodeBuilder<'_> {
                                 | NirValue::Global { .. }
                                 | NirValue::LocalRef { .. }
                         );
+                        // plan-86 A2: Integer-key groupBy with a String VALUE (and a
+                        // String source T) now lowers natively — the Integer-key hash
+                        // table is unchanged; only the per-element value read + the
+                        // 1-element-bucket build handle the kind-0 String bucket
+                        // (`lower_collection_group_by_call`). Retires the O(bucket)
+                        // map-churn of the `.mfb` body (list (Dynamic) groupby 166 ms).
                         let ok = parts.len() == 3
-                            && matches!(parts[0], "Integer" | "Float" | "Fixed" | "Money")
+                            && matches!(parts[0], "Integer" | "Float" | "Fixed" | "Money" | "String")
                             && parts[1] == "Integer"
-                            && matches!(parts[2], "Integer" | "Float" | "Fixed" | "Money")
+                            && matches!(parts[2], "Integer" | "Float" | "Fixed" | "Money" | "String")
                             && reeval_safe;
                         if ok {
                             let (kt, vt) = (parts[1].to_string(), parts[2].to_string());

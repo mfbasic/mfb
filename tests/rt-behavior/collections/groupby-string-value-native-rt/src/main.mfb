@@ -1,0 +1,49 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 A2: native `collections::groupBy` with an Integer KEY and a String VALUE
+' (`#collections_groupBy$String$Integer$String`) → `Map OF Integer TO List OF String`.
+' Reuses the Integer-key inline hash table; only the per-element value read
+' (materialize the kind-0 String element) and the 1-element-bucket build (a growable
+' `List OF String` via lower_empty_collection + append) differ, with the materialized
+' String freed each iteration. This replaces the `.mfb` body's O(bucket) map get/set
+' churn. Output must be byte-identical to the interpreted `.mfb` groupBy, with bucket
+' insertion order preserved, and must not leak/UAF across churn.
+
+FUNC lenKey(s AS String) AS Integer
+  RETURN len(s)
+END FUNC
+FUNC ident(s AS String) AS String
+  RETURN s
+END FUNC
+
+FUNC showGroup(m AS Map OF Integer TO List OF String) AS String
+  MUT out AS String = ""
+  LET sk AS List OF Integer = collections::sort(collections::keys(m))
+  FOR i = 0 TO len(sk) - 1
+    LET k AS Integer = collections::get(sk, i)
+    LET bucket AS List OF String = collections::get(m, k)
+    out = out & toString(k) & ":["
+    FOR j = 0 TO len(bucket) - 1
+      out = out & collections::get(bucket, j) & ","
+    NEXT
+    out = out & "] "
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main AS Integer
+  LET xs AS List OF String = ["a", "bb", "cc", "d", "eee", "ff", "g"]
+  io::print("g1: " & showGroup(collections::groupBy(xs, lenKey, ident)))
+  io::print("one: " & showGroup(collections::groupBy(["z"], lenKey, ident)))
+  LET es AS List OF String = []
+  io::print("empty: " & toString(len(collections::groupBy(es, lenKey, ident))))
+  io::print("same: " & showGroup(collections::groupBy(["a", "b", "c", "d"], lenKey, ident)))
+  io::print("estr: " & showGroup(collections::groupBy(["", "x", ""], lenKey, ident)))
+  MUT acc AS Integer = 0
+  FOR r = 0 TO 999
+    acc = acc + len(collections::groupBy(xs, lenKey, ident))
+  NEXT
+  io::print("stress: " & toString(acc))
+  RETURN 0
+END FUNC
