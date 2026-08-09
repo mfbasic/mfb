@@ -794,6 +794,12 @@ impl CodeBuilder<'_> {
                 "Integer" | "Float" | "Fixed" | "Byte" | "Boolean" | "Scalar"
             )
         };
+        // plan-86 A3: both-String zip builds a variable-width `Pair$String$String`
+        // per element (get + inlined-record build + append), since the flat
+        // 16-byte-record path only fits fixed-width fields.
+        if parts[0] == "String" && parts[1] == "String" {
+            return Ok(Some(self.lower_list_zip_string(args)?));
+        }
         if !is_fixed(parts[0]) || !is_fixed(parts[1]) {
             return Ok(None);
         }
@@ -1098,6 +1104,122 @@ impl CodeBuilder<'_> {
             type_: list_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("zip({list_type})"),
+        })
+    }
+
+    /// Free a uniquely-owned inlined block (String / record / nested collection) by
+    /// its tight size (`emit_inlined_block_size_from_ptr_slot`), which for a
+    /// no-headroom block (e.g. one built by `emit_build_inlined_record`) is exactly
+    /// the allocated size.
+    pub(super) fn emit_free_owned_inlined_block(
+        &mut self,
+        ptr_slot: usize,
+        type_: &str,
+    ) -> Result<(), String> {
+        let size_slot = self.allocate_stack_object("free_inlined_size", 8);
+        self.emit_inlined_block_size_from_ptr_slot(type_, ptr_slot, size_slot)?;
+        self.emit(abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            ptr_slot,
+        ));
+        self.emit(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), size_slot));
+        self.emit_arena_free_call();
+        Ok(())
+    }
+
+    /// plan-86 A3: native `collections::zip` for two **String** lists →
+    /// `List OF Pair$String$String`. A Pair-of-Strings is a variable-width record
+    /// (two inlined String fields), so the fixed-width 16-byte-record path
+    /// (`lower_list_zip_fixed`) does not apply. This mirrors the `.mfb __collections_zip`
+    /// per-element shape — build each `Pair[a[i], b[i]]` and append it — but natively
+    /// (no interpreted loop): walk both sources with in-lockstep cursors, materialize
+    /// each String element, build the inlined Pair record, append it into a growable
+    /// outer, and free the two materialized items + the copied record each iteration.
+    /// Marginal (the `.mfb` is already native get+append), capped vs Python.
+    pub(super) fn lower_list_zip_string(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
+        let scratch = self.temporary_vreg();
+        let scratch2 = self.temporary_vreg();
+        let record_type = "Pair$String$String";
+        let list_type = "List OF Pair$String$String";
+        let a = self.lower_value(&args[0])?;
+        let a_slot = self.allocate_stack_object("zips_a", 8);
+        self.emit(abi::store_u64(&a.location, abi::stack_pointer(), a_slot));
+        let b = self.lower_value(&args[1])?;
+        let b_slot = self.allocate_stack_object("zips_b", 8);
+        self.emit(abi::store_u64(&b.location, abi::stack_pointer(), b_slot));
+        let outer = self.lower_empty_collection(list_type)?;
+        let outer_slot = self.allocate_stack_object("zips_outer", 8);
+        self.emit(abi::store_u64(&outer.location, abi::stack_pointer(), outer_slot));
+
+        let n_slot = self.allocate_stack_object("zips_n", 8);
+        let i_slot = self.allocate_stack_object("zips_i", 8);
+        let a_cur_slot = self.allocate_stack_object("zips_acur", 8);
+        let a_rem_slot = self.allocate_stack_object("zips_arem", 8);
+        let b_cur_slot = self.allocate_stack_object("zips_bcur", 8);
+        let b_rem_slot = self.allocate_stack_object("zips_brem", 8);
+        let av_slot = self.allocate_stack_object("zips_av", 8);
+        let bv_slot = self.allocate_stack_object("zips_bv", 8);
+        let pair_slot = self.allocate_stack_object("zips_pair", 8);
+
+        // n = min(count_a, count_b)
+        self.emit(abi::load_u64(&scratch, abi::stack_pointer(), a_slot));
+        self.emit(abi::load_u64(&scratch, &scratch, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(&scratch2, abi::stack_pointer(), b_slot));
+        self.emit(abi::load_u64(&scratch2, &scratch2, COLLECTION_OFFSET_COUNT));
+        let n_done = self.label("zips_n_done");
+        self.emit(abi::compare_registers(&scratch, &scratch2));
+        self.emit(abi::branch_le(&n_done));
+        self.emit(abi::move_register(&scratch, &scratch2));
+        self.emit(abi::label(&n_done));
+        self.emit(abi::store_u64(&scratch, abi::stack_pointer(), n_slot));
+
+        self.initialize_collection_loop_slots(a_slot, a_cur_slot, a_rem_slot, "String");
+        self.initialize_collection_loop_slots(b_slot, b_cur_slot, b_rem_slot, "String");
+        self.emit(abi::move_immediate(&scratch, "Integer", "0"));
+        self.emit(abi::store_u64(&scratch, abi::stack_pointer(), i_slot));
+
+        let loop_l = self.label("zips_loop");
+        let done_l = self.label("zips_done");
+        self.emit(abi::label(&loop_l));
+        self.emit(abi::load_u64(&scratch, abi::stack_pointer(), i_slot));
+        self.emit(abi::load_u64(&scratch2, abi::stack_pointer(), n_slot));
+        self.emit(abi::compare_registers(&scratch, &scratch2));
+        self.emit(abi::branch_ge(&done_l));
+        // av = a[cursor], bv = b[cursor] (fresh materialized String blocks)
+        let av = self.load_collection_loop_item(a_slot, a_cur_slot, "String")?;
+        self.emit(abi::store_u64(&av, abi::stack_pointer(), av_slot));
+        let bv = self.load_collection_loop_item(b_slot, b_cur_slot, "String")?;
+        self.emit(abi::store_u64(&bv, abi::stack_pointer(), bv_slot));
+        // pair = Pair[av, bv]; append into outer (copies the record bytes).
+        let pair = self.emit_build_inlined_record(record_type, &[av_slot, bv_slot])?;
+        self.emit(abi::store_u64(&pair, abi::stack_pointer(), pair_slot));
+        self.lower_list_append_in_place(outer_slot, pair_slot, list_type, record_type)?;
+        // Reclaim the two materialized items and the copied Pair record.
+        self.free_collection_loop_item(av_slot, "String")?;
+        self.free_collection_loop_item(bv_slot, "String")?;
+        self.emit_free_owned_inlined_block(pair_slot, record_type)?;
+        // Advance both cursors one entry; i++.
+        self.emit(abi::load_u64(&scratch, abi::stack_pointer(), a_cur_slot));
+        self.emit(abi::add_immediate(&scratch, &scratch, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::store_u64(&scratch, abi::stack_pointer(), a_cur_slot));
+        self.emit(abi::load_u64(&scratch, abi::stack_pointer(), b_cur_slot));
+        self.emit(abi::add_immediate(&scratch, &scratch, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::store_u64(&scratch, abi::stack_pointer(), b_cur_slot));
+        self.emit(abi::load_u64(&scratch, abi::stack_pointer(), i_slot));
+        self.emit(abi::add_immediate(&scratch, &scratch, 1));
+        self.emit(abi::store_u64(&scratch, abi::stack_pointer(), i_slot));
+        self.emit(abi::branch(&loop_l));
+        self.emit(abi::label(&done_l));
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), outer_slot));
+        Ok(ValueResult {
+            type_: list_type.to_string(),
+            location: Operand::from(result.render()),
+            text: format!("zip({list_type} String)"),
         })
     }
 

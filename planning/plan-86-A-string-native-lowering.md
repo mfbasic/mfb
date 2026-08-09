@@ -57,8 +57,16 @@ element move**, not an 8-byte word copy. Gates: `builder_values.rs` sortBy/windo
   churn. Value is mainly the reusable `emit_string_list_slice_block` primitive (window will reuse it). ATTEMPT 1
   (reserve+append) regressed ~2.3× and was reverted (see Corrections). Fixture: `chunks-string-native-rt`.
   Commit: `6e5ab2eb6`.
-- [ ] **A3-zip (String)** — native String `zip` → `List OF Pair OF A, B`. Needs Pair-of-Strings
-  variable-width fields (the fixed-width `try_inline_zip_op` hard-codes `REC=16`). Clears zip (26).
+- [x] **A3-zip (String)** — native both-String `zip` → `List OF Pair$String$String`
+  (`lower_list_zip_string`, gated in `try_inline_zip_op`). A Pair-of-Strings is a variable-width record, so
+  the fixed-width `REC=16` path doesn't apply; instead this mirrors the `.mfb` per-element shape natively:
+  walk both sources with lockstep cursors, materialize each String element, build the inlined Pair via
+  `emit_build_inlined_record`, append it into a growable outer (`lower_list_append_in_place` handles the
+  record element via `emit_payload_length_to_stack`'s inline-record arm), then free the two items + the
+  copied record (`emit_free_owned_inlined_block`). **zip 24.7 → 23.14 ms** (~6% marginal, checksum `100000`
+  unchanged); **NOT a G1 clear** (capped vs Python 1.77 — same String-copy pattern as the `.mfb`'s
+  get+append). Native/`.mfb` byte-identical across equal/uneven/empty/empty-string + 1000-round churn.
+  Fixture: `zip-string-native-rt`. Commit: `PENDING`.
 - [x] **A3-findLastIndex** — native reverse-scan lowering (`lower_collection_find_last_index_call`,
   gated on `#collections_findLastIndex$String`) reusing B2's `initialize_collection_loop_slots_reverse`/
   `advance_collection_loop_reverse`; predicate scan + two FAIL error paths (bounds `77050001`, not-found
@@ -106,3 +114,28 @@ Per-op `list (Dynamic)` checksums unchanged (order-sensitive for sort rows) + `s
   reorders vregs and churns the slice goldens (`[[vreg-alloc-order-load-bearing]]`); write a standalone helper
   (which window will reuse). Lesson: **byte-identical output did NOT prove the native path was worthwhile — only
   the benchmark did** (cf. the A1 sortBy gotcha above).
+- **The chunks/window/zip String rewrites are MARGINAL/CAPPED, not the "P1 clear" the master plan projected
+  (but groupBy is NOT — see the next bullet).**
+  The `.mfb __collections_*` HOF bodies for chunks/window/zip are already built on **native**
+  primitives — `__collections_slice` (itself `lower_list_slice_range`), `collections::append`,
+  `collections::get`. So a native-codegen rewrite only removes the interpreted per-iteration dispatch; the
+  dominant cost (copying variable-length String **bytes**) is unchanged and cannot beat Python's C-backed
+  slicing/hashing which share string refs. Measured (aarch64, `--run 10`, all with unchanged checksums):
+  chunks 13.4→**12.98**, window 88.66→**84.53**, zip 24.7→**23.14** — correct, non-regressing, but **~3–6% and
+  NONE clear G1** (py chunks 1.69 / window 8.68 / zip 1.77). Same class as `partition` (G2). Net: findLastIndex
+  (A3) was the only A-tail item that cleared its band (P3, 11.18→5.66, because the interpreted body did N
+  `collections::get` copies the native reverse scan avoids).
+- **groupBy (A2, still open) is NOT marginal — it is potentially the BIGGEST A-tail win.** Unlike
+  chunks/window/zip, `__collections_groupBy` inserts into a `Map OF K TO List OF V` with
+  `bucket = get(result,k); bucket = append(bucket,v); result = set(result,k,bucket)` per element — each `get`
+  and `set` **copies the whole bucket** (O(bucket)). The benchmark groups **2000** strings into ~4
+  length-buckets (~500 each), so ~2000 × 2 copies of ~250-avg-element String buckets ≈ 500K String copies =
+  the 166 ms. A native inline-hash-table groupBy (the fixed-width `lower_collection_group_by_call` shape:
+  buckets as top-level lists appended in place, no per-element map copy) makes it O(N) → a large drop (the
+  Integer `list (Fixed) groupby` is already **0.19 ms** native). String keys + String buckets add variable-width
+  handling (growable `List OF String` buckets via the append/`emit_string_list_slice_block` primitives; keys via
+  native `transform`), so it is the **hardest** A item but the **highest-ROI remaining** one. **Do it; do NOT
+  skip it as marginal.**
+- **Strategic upshot for the resume:** do groupBy-String (big win, hard), then the band-clearers E (borrow
+  read-only element, dispatch union 160 P2), F (memchr), G (bounds-check-elim), H (vector inline).
+  `[[native-string-hof-rewrites-are-marginal]]` applies to chunks/window/zip, NOT groupBy.
