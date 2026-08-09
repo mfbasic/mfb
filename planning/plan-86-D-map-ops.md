@@ -79,6 +79,14 @@ removeKey matrix rows (`map (State-Dynamic) removeKey` 62.6, `State-Fixed` 17.3)
   PLACE — but that only works because fixed-width values are same-size; a String `f(value)` changes size, so
   the in-place rewrite does NOT apply and a String D2 must rebuild the value data region (build a new map,
   `lower_map_set_in_place(result, key, f(value))` per entry). Expect a few-ms win, not a 445× drop.
+  **FURTHER (plan-86-A session, confirmed by reading `lower_collection_map_values_call:3463`):** the
+  fixed-width path only works via `copy_collection_tight` + same-size in-place value rewrite, which String
+  cannot use. A String rebuild via per-entry `lower_map_set_in_place` is the SAME loop the `.mfb` already runs
+  (`result = set(result, e.key, f(e.value))`), and that `set` almost certainly already fires the C2-style
+  in-place set on the uniquely-owned MUT `result` — so native D2's only gain is the interpreted-loop overhead,
+  i.e. MARGINAL like chunks/window/zip (`[[native-string-hof-rewrites-are-marginal]]`), NOT a groupBy-class
+  win. **DEPRIORITIZE: measure the interpreted map str_ops loop first; likely not worth a ~100-line native
+  lowering.** The valuable part of sub-plan D was D1 (removeKey, 7.3×, LANDED). D2/D3 are marginal/modest.
 - [ ] **D3 — native `merge`** (size to `|a|+|b|`, copy `a` once with buckets built, bulk-insert both). Modest
   (base copy inherent to value semantics) — lowest ROI. Helps mapchurn iterate.
 
