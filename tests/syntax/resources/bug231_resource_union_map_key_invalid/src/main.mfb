@@ -1,0 +1,17 @@
+IMPORT fs
+
+' bug-231: a UNION whose variants are registered resources (File) still carries a
+' resource handle, so using it as a Map key must be rejected by SYNTAXCHECK with
+' TYPE_COLLECTION_OWNERSHIP_VIOLATION. Pre-fix, syntaxcheck's
+' contains_resource_or_thread_with_seen / is_copyable_type_with_seen iterated the
+' always-empty variant.fields and misclassified the union as copyable/non-resource,
+' so the ownership violation was only caught later by ir::verify. The fix
+' short-circuits each Union variant on resource_registry.is_resource(variant.name).
+UNION Handle
+  File
+END UNION
+
+FUNC main AS Integer
+  LET m AS Map OF Handle TO Integer = Map OF Handle TO Integer { }
+  RETURN len(m)
+END FUNC
