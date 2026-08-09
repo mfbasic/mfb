@@ -225,7 +225,7 @@
     "returns": "Integer",
     "frame": { "stackSize": 32, "calleeSaved": [] },
     "params": [
-    { "name": "color", "type": "Color", "location": "%arg0" }
+    { "name": "color", "type": "Color", "location": "%argMFB0" }
     ],
     "stackSlots": [
     { "name": "color_0", "type": "color", "offset": 0 },
@@ -276,7 +276,7 @@
     "returns": "Integer",
     "frame": { "stackSize": 32, "calleeSaved": [] },
     "params": [
-    { "name": "color", "type": "Color", "location": "%arg0" }
+    { "name": "color", "type": "Color", "location": "%argMFB0" }
     ],
     "stackSlots": [
     { "name": "color_0", "type": "color", "offset": 0 },
@@ -323,7 +323,7 @@
     "returns": "Integer",
     "frame": { "stackSize": 256, "calleeSaved": ["lr"] },
     "params": [
-    { "name": "shape", "type": "Shape", "location": "%arg0" }
+    { "name": "shape", "type": "Shape", "location": "%argMFB0" }
     ],
     "stackSlots": [
     { "name": "shape_0", "type": "shape", "offset": 16 },
@@ -704,7 +704,7 @@
     "returns": "Integer",
     "frame": { "stackSize": 256, "calleeSaved": ["lr"] },
     "params": [
-    { "name": "shape", "type": "Shape", "location": "%arg0" }
+    { "name": "shape", "type": "Shape", "location": "%argMFB0" }
     ],
     "stackSlots": [
     { "name": "shape_0", "type": "shape", "offset": 16 },
