@@ -150,6 +150,9 @@ FUNC pageResult(resp AS http::Response, u AS net::Url, secure AS Boolean) AS Loa
   LET loaded AS Integer = 1 + len(cssTexts)
   LET total AS Integer = 1 + len(links)
   document = dom::attachCss(document, cssTexts)
+  ' Resolve each element's Style from the parsed rules + inline styles now, on the
+  ' worker thread, so the fully-styled document is deep-copied back to the UI.
+  document = dom::resolveStyles(document)
   RETURN LoadResult[TRUE, document, dom::title(document), "", secure, loaded, total]
 END FUNC
 

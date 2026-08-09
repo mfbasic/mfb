@@ -1,0 +1,330 @@
+' dom/resolve — compute each element's resolved Style from the parsed CSS.
+'
+' After parse() builds the document and attachCss() has folded in every external
+' stylesheet's rules, resolveStyles(doc) walks the tree and fills each
+' ElementNode.style: for every element it starts from a user-agent default (per
+' tag), applies each matching StyleNode rule in document order, then applies the
+' element's inline `style="…"` attribute (highest priority). Layout properties do
+' not inherit, so each element's Style depends only on its own tag/attrs and the
+' global rule set — no ancestor context is threaded.
+'
+' This lives in dom (not display) so it can read the StyleNode records and rebuild
+' the Node tree by recursion over dom's OWN union — the "must be iterative" rule
+' only binds a consumer recursing over an imported union.
+
+IMPORT collections
+IMPORT strings
+
+' ----- value parsers (raw CSS string -> typed field, falling back to `fb`) -----
+
+FUNC normalize(v AS String) AS String
+  RETURN strings::lower(strings::trim(v))
+END FUNC
+
+' Integer from a trimmed numeric string, or `fb` if it will not parse.
+FUNC parseIntOr(s AS String, fb AS Integer) AS Integer
+  LET r AS Integer = toInt(strings::trim(s), 10) TRAP(e)
+    RECOVER fb
+  END TRAP
+  RETURN r
+END FUNC
+
+' The leading integer text of `v` (an optional '-' then digits), e.g. "20px" ->
+' "20", "-3" -> "-3", "auto" -> "".
+FUNC leadingInt(v AS String) AS String
+  LET t AS String = strings::trim(v)
+  MUT out AS String = ""
+  MUT i AS Integer = 0
+  LET n AS Integer = len(t)
+  DO WHILE i < n
+    LET ch AS String = strings::mid(t, i, 1)
+    IF i = 0 AND ch = "-" THEN
+      out = out & ch
+    ELSEIF strings::contains("0123456789", ch) THEN
+      out = out & ch
+    ELSE
+      EXIT DO
+    END IF
+    i = i + 1
+  LOOP
+  RETURN out
+END FUNC
+
+' A CSS length in terminal cells: "auto" -> -1, "20px"/"20" -> 20, else `fb`.
+FUNC lengthOf(v AS String, fb AS Integer) AS Integer
+  LET t AS String = normalize(v)
+  IF t = "auto" THEN RETURN -1
+  LET num AS String = leadingInt(t)
+  IF num = "" OR num = "-" THEN RETURN fb
+  RETURN parseIntOr(num, fb)
+END FUNC
+
+' A plain integer value (flex-grow/shrink), or `fb`.
+FUNC intOf(v AS String, fb AS Integer) AS Integer
+  LET num AS String = leadingInt(v)
+  IF num = "" OR num = "-" THEN RETURN fb
+  RETURN parseIntOr(num, fb)
+END FUNC
+
+FUNC displayOf(v AS String, fb AS Display) AS Display
+  LET t AS String = normalize(v)
+  IF t = "none" THEN RETURN Display.None
+  IF t = "inline" THEN RETURN Display.Inline
+  IF t = "block" THEN RETURN Display.Block
+  IF t = "flex" THEN RETURN Display.Flex
+  IF t = "inline-flex" THEN RETURN Display.Flex
+  IF t = "inline-block" THEN RETURN Display.Block
+  RETURN fb
+END FUNC
+
+FUNC directionOf(v AS String, fb AS FlexDirection) AS FlexDirection
+  LET t AS String = normalize(v)
+  IF t = "row" THEN RETURN FlexDirection.Row
+  IF t = "column" THEN RETURN FlexDirection.Column
+  IF t = "row-reverse" THEN RETURN FlexDirection.RowReverse
+  IF t = "column-reverse" THEN RETURN FlexDirection.ColumnReverse
+  RETURN fb
+END FUNC
+
+FUNC wrapOf(v AS String, fb AS FlexWrap) AS FlexWrap
+  LET t AS String = normalize(v)
+  IF t = "nowrap" THEN RETURN FlexWrap.NoWrap
+  IF t = "wrap" THEN RETURN FlexWrap.Wrap
+  IF t = "wrap-reverse" THEN RETURN FlexWrap.WrapReverse
+  RETURN fb
+END FUNC
+
+FUNC justifyOf(v AS String, fb AS Justify) AS Justify
+  LET t AS String = normalize(v)
+  IF t = "flex-start" OR t = "start" THEN RETURN Justify.FlexStart
+  IF t = "flex-end" OR t = "end" THEN RETURN Justify.FlexEnd
+  IF t = "center" THEN RETURN Justify.Center
+  IF t = "space-between" THEN RETURN Justify.SpaceBetween
+  IF t = "space-around" THEN RETURN Justify.SpaceAround
+  IF t = "space-evenly" THEN RETURN Justify.SpaceEvenly
+  RETURN fb
+END FUNC
+
+FUNC alignOf(v AS String, fb AS Align) AS Align
+  LET t AS String = normalize(v)
+  IF t = "stretch" THEN RETURN Align.Stretch
+  IF t = "flex-start" OR t = "start" THEN RETURN Align.FlexStart
+  IF t = "flex-end" OR t = "end" THEN RETURN Align.FlexEnd
+  IF t = "center" THEN RETURN Align.Center
+  RETURN fb
+END FUNC
+
+' Split a whitespace-separated value list, dropping empty runs.
+FUNC splitWs(v AS String) AS List OF String
+  MUT out AS List OF String = []
+  FOR EACH p IN strings::split(strings::trim(v), " ")
+    LET q AS String = strings::trim(p)
+    IF q <> "" THEN out = collections::append(out, q)
+  NEXT
+  RETURN out
+END FUNC
+
+' ----- applying a declaration map onto a Style -----
+
+' Apply the four sides of a padding/margin shorthand ("0", "1 2", "1 2 3 4") plus
+' their longhands. Called twice (padding, margin) via the two helpers below.
+FUNC applyPadding(base AS Style, props AS Map OF String TO String) AS Style
+  MUT s AS Style = base
+  LET sh AS String = collections::getOr(props, "padding", "")
+  IF sh <> "" THEN
+    LET p AS List OF String = splitWs(sh)
+    LET c AS Integer = len(p)
+    IF c >= 1 THEN
+      MUT top AS Integer = lengthOf(collections::get(p, 0), 0)
+      MUT right AS Integer = top
+      MUT bottom AS Integer = top
+      MUT left AS Integer = top
+      IF c >= 2 THEN
+        right = lengthOf(collections::get(p, 1), 0)
+        left = right
+      END IF
+      IF c >= 3 THEN bottom = lengthOf(collections::get(p, 2), 0)
+      IF c >= 4 THEN left = lengthOf(collections::get(p, 3), 0)
+      s = WITH s { paddingTop := top }
+      s = WITH s { paddingRight := right }
+      s = WITH s { paddingBottom := bottom }
+      s = WITH s { paddingLeft := left }
+    END IF
+  END IF
+  LET pt AS String = collections::getOr(props, "padding-top", "")
+  IF pt <> "" THEN s = WITH s { paddingTop := lengthOf(pt, s.paddingTop) }
+  LET pr AS String = collections::getOr(props, "padding-right", "")
+  IF pr <> "" THEN s = WITH s { paddingRight := lengthOf(pr, s.paddingRight) }
+  LET pb AS String = collections::getOr(props, "padding-bottom", "")
+  IF pb <> "" THEN s = WITH s { paddingBottom := lengthOf(pb, s.paddingBottom) }
+  LET pl AS String = collections::getOr(props, "padding-left", "")
+  IF pl <> "" THEN s = WITH s { paddingLeft := lengthOf(pl, s.paddingLeft) }
+  RETURN s
+END FUNC
+
+FUNC applyMargin(base AS Style, props AS Map OF String TO String) AS Style
+  MUT s AS Style = base
+  LET sh AS String = collections::getOr(props, "margin", "")
+  IF sh <> "" THEN
+    LET p AS List OF String = splitWs(sh)
+    LET c AS Integer = len(p)
+    IF c >= 1 THEN
+      MUT top AS Integer = lengthOf(collections::get(p, 0), 0)
+      MUT right AS Integer = top
+      MUT bottom AS Integer = top
+      MUT left AS Integer = top
+      IF c >= 2 THEN
+        right = lengthOf(collections::get(p, 1), 0)
+        left = right
+      END IF
+      IF c >= 3 THEN bottom = lengthOf(collections::get(p, 2), 0)
+      IF c >= 4 THEN left = lengthOf(collections::get(p, 3), 0)
+      s = WITH s { marginTop := top }
+      s = WITH s { marginRight := right }
+      s = WITH s { marginBottom := bottom }
+      s = WITH s { marginLeft := left }
+    END IF
+  END IF
+  LET mt AS String = collections::getOr(props, "margin-top", "")
+  IF mt <> "" THEN s = WITH s { marginTop := lengthOf(mt, s.marginTop) }
+  LET mr AS String = collections::getOr(props, "margin-right", "")
+  IF mr <> "" THEN s = WITH s { marginRight := lengthOf(mr, s.marginRight) }
+  LET mb AS String = collections::getOr(props, "margin-bottom", "")
+  IF mb <> "" THEN s = WITH s { marginBottom := lengthOf(mb, s.marginBottom) }
+  LET ml AS String = collections::getOr(props, "margin-left", "")
+  IF ml <> "" THEN s = WITH s { marginLeft := lengthOf(ml, s.marginLeft) }
+  RETURN s
+END FUNC
+
+' Fold a resolved declaration map onto `base`, overriding only the properties the
+' map actually carries (an absent or empty value leaves the base field intact).
+EXPORT FUNC applyDeclarations(base AS Style, props AS Map OF String TO String) AS Style
+  MUT s AS Style = base
+  LET disp AS String = collections::getOr(props, "display", "")
+  IF disp <> "" THEN s = WITH s { display := displayOf(disp, s.display) }
+  LET dir AS String = collections::getOr(props, "flex-direction", "")
+  IF dir <> "" THEN s = WITH s { direction := directionOf(dir, s.direction) }
+  LET wr AS String = collections::getOr(props, "flex-wrap", "")
+  IF wr <> "" THEN s = WITH s { wrap := wrapOf(wr, s.wrap) }
+  LET jc AS String = collections::getOr(props, "justify-content", "")
+  IF jc <> "" THEN s = WITH s { justify := justifyOf(jc, s.justify) }
+  LET ai AS String = collections::getOr(props, "align-items", "")
+  IF ai <> "" THEN s = WITH s { align := alignOf(ai, s.align) }
+  LET fg AS String = collections::getOr(props, "flex-grow", "")
+  IF fg <> "" THEN s = WITH s { flexGrow := intOf(fg, s.flexGrow) }
+  LET fsh AS String = collections::getOr(props, "flex-shrink", "")
+  IF fsh <> "" THEN s = WITH s { flexShrink := intOf(fsh, s.flexShrink) }
+  LET basis AS String = collections::getOr(props, "flex-basis", "")
+  IF basis <> "" THEN s = WITH s { flexBasis := lengthOf(basis, s.flexBasis) }
+  LET wd AS String = collections::getOr(props, "width", "")
+  IF wd <> "" THEN s = WITH s { width := lengthOf(wd, s.width) }
+  LET ht AS String = collections::getOr(props, "height", "")
+  IF ht <> "" THEN s = WITH s { height := lengthOf(ht, s.height) }
+  LET gp AS String = collections::getOr(props, "gap", "")
+  IF gp <> "" THEN s = WITH s { gap := lengthOf(gp, s.gap) }
+  s = applyPadding(s, props)
+  s = applyMargin(s, props)
+  RETURN s
+END FUNC
+
+' ----- selector matching + the user-agent default sheet -----
+
+FUNC classListHas(classAttr AS String, name AS String) AS Boolean
+  FOR EACH c IN strings::split(classAttr, " ")
+    IF strings::trim(c) = name THEN RETURN TRUE
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' Does a single simple selector match this element? Supported: "*", ".class",
+' "#id", and a bare tag name (case-insensitive). Compound ("div.box") and
+' descendant ("ul li") selectors do not match yet — they never apply rather than
+' matching wrongly.
+FUNC selectorMatches(sel AS String, tag AS String, attrs AS Map OF String TO String) AS Boolean
+  LET s AS String = strings::trim(sel)
+  IF s = "" THEN RETURN FALSE
+  IF s = "*" THEN RETURN TRUE
+  IF strings::startsWith(s, ".") THEN
+    RETURN classListHas(collections::getOr(attrs, "class", ""), strings::mid(s, 1, len(s) - 1))
+  END IF
+  IF strings::startsWith(s, "#") THEN
+    RETURN collections::getOr(attrs, "id", "") = strings::mid(s, 1, len(s) - 1)
+  END IF
+  RETURN strings::lower(s) = tag
+END FUNC
+
+FUNC isBlockTag(tag AS String) AS Boolean
+  RETURN tag = "#document" OR tag = "html" OR tag = "body" OR tag = "div" OR tag = "p" OR tag = "section" OR tag = "article" OR tag = "header" OR tag = "footer" OR tag = "nav" OR tag = "aside" OR tag = "main" OR tag = "ul" OR tag = "ol" OR tag = "li" OR tag = "table" OR tag = "tr" OR tag = "blockquote" OR tag = "pre" OR tag = "figure" OR tag = "figcaption" OR tag = "dl" OR tag = "dd" OR tag = "dt" OR tag = "form" OR tag = "h1" OR tag = "h2" OR tag = "h3" OR tag = "h4" OR tag = "h5" OR tag = "h6" OR tag = "hr"
+END FUNC
+
+' The user-agent default Style for a tag: display None for non-visual elements,
+' Block for block-level tags, Inline otherwise. Everything else stays at the CSS
+' initial value from defaultStyle().
+FUNC uaStyle(tag AS String) AS Style
+  LET base AS Style = defaultStyle()
+  IF tag = "head" OR tag = "script" OR tag = "style" OR tag = "meta" OR tag = "link" OR tag = "title" OR tag = "noscript" THEN
+    RETURN WITH base { display := Display.None }
+  END IF
+  IF isBlockTag(tag) THEN
+    RETURN WITH base { display := Display.Block }
+  END IF
+  RETURN base
+END FUNC
+
+' The resolved Style for one element: UA default, then each matching rule in
+' document order, then the inline `style="…"` attribute.
+FUNC resolveOne(tag AS String, attrs AS Map OF String TO String, rules AS List OF StyleNode) AS Style
+  MUT s AS Style = uaStyle(tag)
+  FOR EACH r IN rules
+    IF selectorMatches(r.selector, tag, attrs) THEN
+      s = applyDeclarations(s, r.props)
+    END IF
+  NEXT
+  LET inline AS String = collections::getOr(attrs, "style", "")
+  IF inline <> "" THEN
+    s = applyDeclarations(s, parseDeclarations(inline))
+  END IF
+  RETURN s
+END FUNC
+
+' ----- the tree rewrite -----
+
+' The parsed CSS rules hanging off the document's HeaderNode.
+FUNC docRules(doc AS Node) AS List OF StyleNode
+  MATCH doc
+    CASE ElementNode(e)
+      FOR EACH child IN e.children
+        MATCH child
+          CASE HeaderNode(h)
+            RETURN h.rules
+          CASE ELSE
+        END MATCH
+      NEXT
+      RETURN []
+    CASE ELSE
+      RETURN []
+  END MATCH
+END FUNC
+
+' Rebuild a node with its resolved style, recursing into element children. Text
+' and header nodes are returned unchanged. Recursion over dom's own Node union is
+' fine (this is inside dom, not a consumer).
+FUNC rebuild(n AS Node, rules AS List OF StyleNode) AS Node
+  MATCH n
+    CASE ElementNode(e)
+      MUT kids AS List OF Node = []
+      FOR EACH c IN e.children
+        kids = collections::append(kids, rebuild(c, rules))
+      NEXT
+      RETURN elementStyled(e.tag, e.attrs, kids, resolveOne(e.tag, e.attrs, rules))
+    CASE ELSE
+      RETURN n
+  END MATCH
+END FUNC
+
+' Fill in every ElementNode.style across the document from the parsed CSS rules
+' and inline styles. Call after parse() and attachCss().
+EXPORT FUNC resolveStyles(doc AS Node) AS Node
+  LET rules AS List OF StyleNode = docRules(doc)
+  RETURN rebuild(doc, rules)
+END FUNC
