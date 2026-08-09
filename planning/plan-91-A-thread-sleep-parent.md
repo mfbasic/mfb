@@ -35,8 +35,8 @@ These are a precondition on the whole feature, not a dependency to negotiate.
 
 | Must be true | Command | Status |
 |---|---|---|
-| Working tree builds & thread tests green at HEAD | `cargo test builtins::thread` | UNVERIFIED — run before starting |
-| No half-landed `thread::sleep` already present | `rg -n 'thread\.sleep' src/ → no matches` | MET (rg returned nothing 2026-08-09) |
+| Working tree builds & thread tests green at HEAD | `cargo test builtins::thread` | MET — 23 passed; 0 failed (2026-08-09, worktree P-91) |
+| No half-landed `thread::sleep` already present | `rg -n 'thread\.sleep' src/ → no matches` | MET (rg returned nothing 2026-08-09, worktree P-91) |
 
 Everything below is written against the world where these hold.
 
@@ -254,23 +254,22 @@ hardcoding.
 Register the name and parent signature; prove it type-checks and that a
 worker-side call and a bad-arity/negative-arg call are rejected.
 
-- [ ] `src/builtins/thread.rs`: add `const SLEEP: &str = "thread.sleep";`; add
+- [x] `src/builtins/thread.rs`: add `const SLEEP: &str = "thread.sleep";`; add
       `P_SLEEP` param array `[req("t", Thread-handle), req("ms", "Integer")]`
       modeled on `thread::poll`'s parent-handle-first params; add
       `tf(SLEEP, "sleep", &[ov(P_SLEEP)])` to `THREAD_FUNCTIONS`.
-- [ ] Add `thread.sleep` arms to `resolve_call` (→ `"Nothing"`),
-      `call_param_names`, and `expected_arguments`.
-- [ ] Update `is_thread_call_covers_every_name` (line 611) to include the new
-      name.
-- [ ] Tests: `tests/syntax/threads/func_thread_sleep_valid` (parent handle + ms),
-      `func_thread_sleep_worker_invalid` (ThreadWorker handle rejected — this
-      case flips to valid in plan-91-B), `func_thread_sleep_negative_arity` /
-      wrong-type-ms invalid. Add/adjust the inline descriptor unit tests
-      (`src/builtins/thread.rs:599-1026`).
+- [x] Add `thread.sleep` arms to `resolve_call` (→ `"Nothing"`, parent handle
+      only), `call_param_names`, and `expected_arguments`.
+- [x] Update `is_thread_call_covers_every_name` to include the new name.
+- [x] Tests: `tests/syntax/threads/func_thread_sleep_valid` (parent handle + ms
+      + ms=0), `func_thread_sleep_worker_invalid` (ThreadWorker handle rejected —
+      this case flips to valid in plan-91-B), `func_thread_sleep_invalid`
+      (missing/extra args + wrong-type-ms). Added inline descriptor unit tests
+      (`resolve_sleep_parent_only`, plus SLEEP in the three coverage tests).
 
-Acceptance: `cargo test builtins::thread` green AND the three new syntax tests
-pass (parent-valid resolves to `Nothing`; worker call and mistyped `ms` are
-compile errors).
+Acceptance: `cargo test --bin mfb builtins::thread` green (24 passed) AND the
+three new syntax tests pass via `test-accept.sh` (parent-valid resolves to
+`Nothing`; worker call and mistyped `ms` are compile errors).
 Commit: —
 
 ### Phase 2 — Parent runtime helper + target wiring (largest blast radius)

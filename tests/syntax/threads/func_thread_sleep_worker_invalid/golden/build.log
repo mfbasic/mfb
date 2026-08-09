@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/threads/func_thread_sleep_worker_invalid
+   2 | 
+   3 | ISOLATED FUNC worker(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer
+   4 |   thread::sleep(t, 50)
+     | ^
+tests/syntax/threads/func_thread_sleep_worker_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `thread.sleep` has argument type(s) (ThreadWorker OF Nothing TO Integer, Integer), expected Thread OF Msg TO Out, Integer.
+[exit 1]
