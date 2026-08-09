@@ -226,6 +226,60 @@ Commit: —
 
 ## Corrections
 
+**C6 (EXECUTION-PROVEN approach — the monolithic conversion that works, with the exact
+remaining recipe).** The A→B→C→D incremental split was replaced (user-authorized) by a
+**monolithic** conversion that is proven correct on real SysV hardware (box 2228):
+
+### What landed (committed, `cargo test` 3794/0, byte-identical AArch64/RISC-V by construction)
+1. **`map_convention_token(value, abi)`** (`arch/x86_64/select.rs`) — realizes a convention
+   STRING (`%argMFB`/`%retMFB`/`%argC`/`%retC`/`%argSys`/`%retSys`) directly to its aligned
+   x86 register (plan-85-A §2 table; unit-tested SysV+Win64).
+2. **`select_x86` realizes every token DIRECTLY in stage 1** (convention tokens via
+   `map_convention_token`, legacy role tokens via `map_token_direct`); `remap_x86_abi` still
+   runs but is now a mechanical no-op on the realized stream (delete it in D).
+3. **`abi::ARG`/`RET`/`SYSARG` redefined to emit the convention tokens** (`%argMFB`/`%retMFB`/
+   `%argSys`) — converts all ~3300 result + 886 error-Result + arg sites at once, no call-site
+   edits. `return_register()`/`RESULT_*_REGISTER` inherit.
+4. **`realize_abi_operand`: MFB-result alignment is SysV-ONLY.** SysV `%retMFB`→`CALL_ARGS`
+   (rdi…); **Win64 `%retMFB`→`RETS_WIN64` (rax-based)** because aligned `rcx` is the x86
+   variable-shift COUNT register (unencodable). **Windows byte-identity is a NON-GOAL** —
+   verify Win64 by execution (box 2230), never bytes.
+
+### The C-return correctness rule (the one hard part) — TWO categories
+A syscall/libc result comes back in **rax** (`%retC`/`%retSys`), but the aligned MFB
+`return_register()` is **rdi** on SysV. So every place that CONSUMES an external result via
+`return_register()`/`RET[k]`/`RESULT_*_REGISTER` is wrong on SysV (invisible on AArch64/RISC-V,
+where both are `x0` — so all these fixes are byte-identical there):
+- **Category 1 — read a result:** change the READ **source** to `abi::c_return(k)` (or
+  `sys_return()` only for a raw `svc`, but `c_return` works for both x86 ABIs). Byte-identical
+  on ARM. DONE: `emit_errno`, fs `open`/`openat2`/`close`, datetime `localtime_r`, os
+  `sysconf`/`getpid`/`gethostname`; raw syscalls staged in-method in `linux_x86_64` (write/
+  getrandom/mmap: `move_register(return_register(), sys_return())` after the `svc`).
+- **Category 2 — a result FEEDS the next call's arg with no explicit move** (relied on the
+  fixpoint's context coloring, e.g. `getuid`→`getpwuid` in os::userName): INSERT
+  `move_register(c_arg(0), c_return(0))` between them. This is a `mov x0,x0` self-move on
+  AArch64/RISC-V → needs the **`elide_redundant_self_moves` pass (plan-85-D Phase 1)** to stay
+  byte-identical there. NOT yet done.
+
+### Proven on box 2228 (`scripts/p85-sysv-verify.sh <dir>…`): 
+arithmetic, bits, conversions, math, money, operators, types, general, collections×2, fs
+(open/close), datetime — 13+ fixtures byte-for-byte match their goldens.
+
+### Remaining (mechanical sweep + D)
+- Sweep the Category-1/2 reads across the other libc subsystems: **os** (getpwuid/getuid,
+  readlink, getcwd, uname, env), **net**, **tls**, **crypto**, **audio**, **io_stdin**, **perf**,
+  **term**, **http**, **entry**, **random**. Census: ~225 `emit_libc_call`/`emit_variadic_call`/
+  `emit_read_file`/`call_external` sites across ~37 files (`grep -rn` those symbols in
+  `src/target/shared/code/`); only the ones that READ the return via `return_register`/`RET`
+  are bugs (many write to memory or ignore it). Verify each subsystem on box 2228 (compute)
+  / with a real file or socket where needed.
+- Add `elide_redundant_self_moves` (plan-85-D Phase 1) for Category-2 + any staging.
+- **Delete `remap_x86_abi`/`remap_x86_abi_inner`** + the CFG helpers + their tests (plan-85-D
+  Phase 2); `select_x86` is already one-pass direct so this is now a pure deletion.
+- Full gate: `cargo test`; AArch64+RISC-V exe-oracle byte-identical; SysV-x86 (2227/2228) +
+  Win64 (2230) execution; artifact-gate regenerate SysV goldens; close bug-387; spec.
+
+
 **C5 (DEFINITIVE, measured) — the x86 conversion spans the PLATFORM BACKENDS per-site;
 the census under-counted, and this is the plan-85-D all-at-once scope, not an incremental
 byte-identical B step.** After the fused-op fix (`f4509c534`), converting all shared/code
