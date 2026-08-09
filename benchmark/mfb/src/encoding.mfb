@@ -35,10 +35,11 @@ FUNC encSumBytes(data AS List OF Byte) AS Integer
 END FUNC
 
 ' base64 round-trip. Arena-gated (plan-44-J): allocates a fresh byte list + String
-' per call, so authored tiny — raise BUF/REPS in the commit that lands plan-44-J.
+' per call; arena quadratic fixed by plan-64-A1 (successor to plan-44-J) — BUF/REPS
+' raised to target.
 FUNC test_encoding_base64(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET buf AS List OF Byte = encMakeBuf(64)   ' TODO(plan-44-J): raise to 4096
-  LET reps AS Integer = 4                     ' TODO(plan-44-J): raise to 200
+  LET buf AS List OF Byte = encMakeBuf(4096)
+  LET reps AS Integer = 200
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1

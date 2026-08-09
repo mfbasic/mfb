@@ -34,9 +34,10 @@ fn available_returns_frames_not_bytes() {
     let (_frame, ins, _rel, _slots) =
         lower_query("t_avail", Query::Available, &imports, &TestPlatform)
             .expect("lower audio::available");
-    let scales_result = ins
-        .iter()
-        .any(|i| i.op == CodeOp::Mul && i.get("dst").as_deref() == Some(RESULT_VALUE_REGISTER.render().as_str()));
+    let scales_result = ins.iter().any(|i| {
+        i.op == CodeOp::Mul
+            && i.get("dst").as_deref() == Some(RESULT_VALUE_REGISTER.render().as_str())
+    });
     assert!(
         !scales_result,
         "bug-416 (1): audio::available must return frames, not frames*bpf \

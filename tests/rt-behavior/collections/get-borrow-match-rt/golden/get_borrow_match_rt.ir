@@ -1,0 +1,275 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "get_borrow_match_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 14,
+    "visibility": "public",
+    "name": "Num",
+    "fields": [
+    { "visibility": null, "line": 15, "name": "value", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 17,
+    "visibility": "public",
+    "name": "Add",
+    "fields": [
+    { "visibility": null, "line": 18, "name": "left", "type": "Integer" },
+    { "visibility": null, "line": 19, "name": "right", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 21,
+    "visibility": "public",
+    "name": "Mul",
+    "fields": [
+    { "visibility": null, "line": 22, "name": "left", "type": "Integer" },
+    { "visibility": null, "line": 23, "name": "right", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "union",
+    "line": 25,
+    "visibility": "public",
+    "name": "Expr",
+    "includes": [],
+    "variants": [
+    {
+      "name": "Num",
+      "line": 26,
+      "fields": [
+      { "visibility": null, "line": 15, "name": "value", "type": "Integer" }
+      ]
+    },
+    {
+      "name": "Add",
+      "line": 27,
+      "fields": [
+      { "visibility": null, "line": 18, "name": "left", "type": "Integer" },
+      { "visibility": null, "line": 19, "name": "right", "type": "Integer" }
+      ]
+    },
+    {
+      "name": "Mul",
+      "line": 28,
+      "fields": [
+      { "visibility": null, "line": 22, "name": "left", "type": "Integer" },
+      { "visibility": null, "line": 23, "name": "right", "type": "Integer" }
+      ]
+    }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "evalAt",
+    "line": 32,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "nodes", "line": 32, "type": "List OF Expr", "default": null },
+    { "name": "i", "line": 32, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 33, "mutable": false, "name": "e", "type": "Expr", "value": { "kind": "call", "type": "Expr", "target": "collections.get", "args": [{ "kind": "local", "name": "nodes" }, { "kind": "local", "name": "i" }] } },
+    { "op": "bind", "line": 34, "mutable": false, "name": "$match0", "type": "Expr", "value": { "kind": "local", "name": "e" } },
+    {
+      "op": "match",
+      "line": 34,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 35,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Num" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 35, "mutable": false, "name": "n", "type": "Num", "value": { "kind": "unionExtract", "type": "Num", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "line": 36, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "n" }, "member": "value" } }
+        ]
+      },
+      {
+        "line": 37,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Add" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 37, "mutable": false, "name": "a", "type": "Add", "value": { "kind": "unionExtract", "type": "Add", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "line": 38, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "left" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "right" } } }
+        ]
+      },
+      {
+        "line": 39,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Mul" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 39, "mutable": false, "name": "m", "type": "Mul", "value": { "kind": "unionExtract", "type": "Mul", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "line": 40, "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "m" }, "member": "left" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "m" }, "member": "right" } } }
+        ]
+      }
+      ]
+    },
+    { "op": "return", "line": 42, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "firstElem",
+    "line": 46,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "nodes", "line": 46, "type": "List OF Expr", "default": null }
+    ],
+    "returns": "Expr",
+    "body": [
+    { "op": "bind", "line": 47, "mutable": false, "name": "e", "type": "Expr", "value": { "kind": "call", "type": "Expr", "target": "collections.get", "args": [{ "kind": "local", "name": "nodes" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "return", "line": 48, "value": { "kind": "local", "name": "e" } }
+    ]
+  },
+  {
+    "name": "reassignCase",
+    "line": 52,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "seed", "line": 52, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 53, "mutable": true, "name": "nodes", "type": "List OF Expr", "value": { "kind": "list", "type": "List OF Expr", "values": [] } },
+    { "op": "bind", "line": 54, "mutable": false, "name": "a", "type": "Expr", "value": { "kind": "unionWrap", "union": "Expr", "member": "Add", "value": { "kind": "constructor", "type": "Add", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } } },
+    { "op": "assign", "line": 55, "name": "nodes", "value": { "kind": "call", "type": "List OF Expr", "target": "collections.append", "args": [{ "kind": "local", "name": "nodes" }, { "kind": "local", "name": "a" }] } },
+    { "op": "bind", "line": 56, "mutable": false, "name": "e", "type": "Expr", "value": { "kind": "call", "type": "Expr", "target": "collections.get", "args": [{ "kind": "local", "name": "nodes" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 57, "mutable": false, "name": "b", "type": "Expr", "value": { "kind": "unionWrap", "union": "Expr", "member": "Num", "value": { "kind": "constructor", "type": "Num", "args": [{ "kind": "local", "name": "seed" }] } } },
+    { "op": "assign", "line": 58, "name": "nodes", "value": { "kind": "call", "type": "List OF Expr", "target": "collections.append", "args": [{ "kind": "local", "name": "nodes" }, { "kind": "local", "name": "b" }] } },
+    { "op": "bind", "line": 59, "mutable": false, "name": "$match1", "type": "Expr", "value": { "kind": "local", "name": "e" } },
+    {
+      "op": "match",
+      "line": 59,
+      "value": { "kind": "local", "name": "$match1" },
+      "cases": [
+      {
+        "line": 60,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Add" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 60, "mutable": false, "name": "x", "type": "Add", "value": { "kind": "unionExtract", "type": "Add", "value": { "kind": "local", "name": "$match1" } } },
+        { "op": "return", "line": 61, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "x" }, "member": "left" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "x" }, "member": "right" } } }
+        ]
+      },
+      {
+        "line": 62,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Num" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 62, "mutable": false, "name": "n", "type": "Num", "value": { "kind": "unionExtract", "type": "Num", "value": { "kind": "local", "name": "$match1" } } },
+        { "op": "return", "line": 63, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "n" }, "member": "value" } }
+        ]
+      },
+      {
+        "line": 64,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Mul" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 64, "mutable": false, "name": "m", "type": "Mul", "value": { "kind": "unionExtract", "type": "Mul", "value": { "kind": "local", "name": "$match1" } } },
+        { "op": "return", "line": 65, "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "m" }, "member": "left" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "m" }, "member": "right" } } }
+        ]
+      }
+      ]
+    },
+    { "op": "return", "line": 67, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 70,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 71, "mutable": true, "name": "nodes", "type": "List OF Expr", "value": { "kind": "list", "type": "List OF Expr", "values": [] } },
+    { "op": "bind", "line": 72, "mutable": false, "name": "x0", "type": "Expr", "value": { "kind": "unionWrap", "union": "Expr", "member": "Num", "value": { "kind": "constructor", "type": "Num", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } } },
+    { "op": "assign", "line": 73, "name": "nodes", "value": { "kind": "call", "type": "List OF Expr", "target": "collections.append", "args": [{ "kind": "local", "name": "nodes" }, { "kind": "local", "name": "x0" }] } },
+    { "op": "bind", "line": 74, "mutable": false, "name": "x1", "type": "Expr", "value": { "kind": "unionWrap", "union": "Expr", "member": "Add", "value": { "kind": "constructor", "type": "Add", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }] } } },
+    { "op": "assign", "line": 75, "name": "nodes", "value": { "kind": "call", "type": "List OF Expr", "target": "collections.append", "args": [{ "kind": "local", "name": "nodes" }, { "kind": "local", "name": "x1" }] } },
+    { "op": "bind", "line": 76, "mutable": false, "name": "x2", "type": "Expr", "value": { "kind": "unionWrap", "union": "Expr", "member": "Mul", "value": { "kind": "constructor", "type": "Mul", "args": [{ "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "6" }] } } },
+    { "op": "assign", "line": 77, "name": "nodes", "value": { "kind": "call", "type": "List OF Expr", "target": "collections.append", "args": [{ "kind": "local", "name": "nodes" }, { "kind": "local", "name": "x2" }] } },
+    { "op": "bind", "line": 78, "mutable": false, "name": "x3", "type": "Expr", "value": { "kind": "unionWrap", "union": "Expr", "member": "Num", "value": { "kind": "constructor", "type": "Num", "args": [{ "kind": "const", "type": "Integer", "value": "100" }] } } },
+    { "op": "assign", "line": 79, "name": "nodes", "value": { "kind": "call", "type": "List OF Expr", "target": "collections.append", "args": [{ "kind": "local", "name": "nodes" }, { "kind": "local", "name": "x3" }] } },
+    { "op": "eval", "line": 80, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "v0=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "evalAt", "args": [{ "kind": "local", "name": "nodes" }, { "kind": "const", "type": "Integer", "value": "0" }] }] } }] } },
+    { "op": "eval", "line": 81, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "v1=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "evalAt", "args": [{ "kind": "local", "name": "nodes" }, { "kind": "const", "type": "Integer", "value": "1" }] }] } }] } },
+    { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "v2=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "evalAt", "args": [{ "kind": "local", "name": "nodes" }, { "kind": "const", "type": "Integer", "value": "2" }] }] } }] } },
+    { "op": "eval", "line": 83, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "v3=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "evalAt", "args": [{ "kind": "local", "name": "nodes" }, { "kind": "const", "type": "Integer", "value": "3" }] }] } }] } },
+    { "op": "bind", "line": 85, "mutable": false, "name": "got", "type": "Expr", "value": { "kind": "call", "type": "Expr", "target": "firstElem", "args": [{ "kind": "local", "name": "nodes" }] } },
+    { "op": "bind", "line": 86, "mutable": false, "name": "$match2", "type": "Expr", "value": { "kind": "local", "name": "got" } },
+    {
+      "op": "match",
+      "line": 86,
+      "value": { "kind": "local", "name": "$match2" },
+      "cases": [
+      {
+        "line": 87,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Num" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 87, "mutable": false, "name": "n", "type": "Num", "value": { "kind": "unionExtract", "type": "Num", "value": { "kind": "local", "name": "$match2" } } },
+        { "op": "eval", "line": 88, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "escape=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "n" }, "member": "value" }] } }] } }
+        ]
+      },
+      {
+        "line": 89,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Add" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 89, "mutable": false, "name": "x", "type": "Add", "value": { "kind": "unionExtract", "type": "Add", "value": { "kind": "local", "name": "$match2" } } },
+        { "op": "eval", "line": 90, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "escape=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "x" }, "member": "left" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "x" }, "member": "right" } }] } }] } }
+        ]
+      },
+      {
+        "line": 91,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Mul" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 91, "mutable": false, "name": "m", "type": "Mul", "value": { "kind": "unionExtract", "type": "Mul", "value": { "kind": "local", "name": "$match2" } } },
+        { "op": "eval", "line": 92, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "escape=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "m" }, "member": "left" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "m" }, "member": "right" } }] } }] } }
+        ]
+      }
+      ]
+    },
+    { "op": "eval", "line": 94, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "reassign=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "reassignCase", "args": [{ "kind": "const", "type": "Integer", "value": "99" }] }] } }] } },
+    { "op": "bind", "line": 97, "mutable": true, "name": "acc", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 98, "mutable": false, "name": "$for_end4", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "4999" } },
+    { "op": "bind", "line": 98, "mutable": false, "name": "$for_step5", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 98,
+      "name": "$for_iter3",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "0" },
+      "end": { "kind": "local", "name": "$for_end4" },
+      "step": { "kind": "local", "name": "$for_step5" },
+      "body": [
+      { "op": "bind", "line": 98, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "local", "name": "$for_iter3" } },
+      { "op": "assign", "line": 99, "name": "acc", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc" }, "right": { "kind": "call", "type": "Integer", "target": "evalAt", "args": [{ "kind": "local", "name": "nodes" }, { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "r" }, "right": { "kind": "const", "type": "Integer", "value": "4" } }] } } },
+      { "op": "assign", "line": 100, "name": "acc", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc" }, "right": { "kind": "call", "type": "Integer", "target": "reassignCase", "args": [{ "kind": "local", "name": "r" }] } } },
+      { "op": "bind", "line": 101, "mutable": false, "name": "junk", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "local", "name": "r" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "r" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "r" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }] } },
+      { "op": "assign", "line": 102, "name": "acc", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "junk" }] } } }
+      ]
+    },
+    { "op": "eval", "line": 104, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "stress=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "acc" }] } }] } },
+    { "op": "return", "line": 105, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

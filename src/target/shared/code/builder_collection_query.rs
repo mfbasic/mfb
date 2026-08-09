@@ -73,6 +73,7 @@ impl CodeBuilder<'_> {
         key_slot: usize,
         collection_type: &str,
         element_type: &str,
+        unchecked: bool,
     ) -> Result<ValueResult, String> {
         self.lower_list_get_common(
             collection_slot,
@@ -80,6 +81,7 @@ impl CodeBuilder<'_> {
             None,
             collection_type,
             element_type,
+            unchecked,
         )
     }
 
@@ -95,6 +97,7 @@ impl CodeBuilder<'_> {
         default_slot: Option<usize>,
         collection_type: &str,
         element_type: &str,
+        unchecked: bool,
     ) -> Result<ValueResult, String> {
         self.reset_temporary_registers();
         let collection = self.allocate_register()?;
@@ -118,11 +121,16 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         self.emit(abi::load_u64(&index, abi::stack_pointer(), key_slot));
-        self.emit(abi::compare_immediate(&index, "0"));
-        self.emit(abi::branch_lt(&miss));
-        self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::compare_registers(&index, &count));
-        self.emit(abi::branch_ge(&miss));
+        // plan-86 G1: skip the `0 <= index < count` bounds check when the caller has
+        // PROVEN the index in range (induction var over `len(L)-k`, L unmodified).
+        // `count` is still loaded below by `emit_element_value_offset` as needed.
+        if !unchecked {
+            self.emit(abi::compare_immediate(&index, "0"));
+            self.emit(abi::branch_lt(&miss));
+            self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::compare_registers(&index, &count));
+            self.emit(abi::branch_ge(&miss));
+        }
         self.emit_element_value_offset(
             &value_offset,
             &value_length,
@@ -415,7 +423,11 @@ impl CodeBuilder<'_> {
         let fb_map = self.temporary_vreg();
         let fb_entry = self.temporary_vreg();
         self.emit(abi::move_immediate(&fb_scratch, "Integer", &entry_size));
-        self.emit(abi::multiply_registers(&fb_entry, abi::mfb_return(0), &fb_scratch));
+        self.emit(abi::multiply_registers(
+            &fb_entry,
+            abi::mfb_return(0),
+            &fb_scratch,
+        ));
         self.emit(abi::load_u64(
             &fb_map,
             abi::stack_pointer(),
@@ -566,6 +578,8 @@ impl CodeBuilder<'_> {
             Some(default_slot),
             collection_type,
             element_type,
+            // getOr returns a default on OOB (no trap), so the elision does not apply.
+            false,
         )
     }
 

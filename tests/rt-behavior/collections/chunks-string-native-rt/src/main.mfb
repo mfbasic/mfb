@@ -1,0 +1,49 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 A2: native `collections::chunks` for a `List OF String`
+' (`#collections_chunks$String`). String inner lists are variable-size kind-0
+' blocks, so chunks uses direct slice-per-chunk construction: each chunk is built
+' as one TIGHT `List OF String` via `emit_string_list_slice_block` (length pass +
+' tight alloc + byte copy, one alloc/chunk), inlined into a growable outer via
+' append-in-place, then freed. Output must be byte-identical to the interpreted
+' `.mfb` chunks across exact/remainder/size-1/oversize/empty/empty-string inputs
+' and must not leak/UAF across repeated churn.
+
+FUNC showChunks(cs AS List OF List OF String) AS String
+  MUT out AS String = ""
+  FOR i = 0 TO len(cs) - 1
+    LET inner AS List OF String = collections::get(cs, i)
+    out = out & "["
+    FOR j = 0 TO len(inner) - 1
+      out = out & collections::get(inner, j) & ","
+    NEXT
+    out = out & "]"
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main AS Integer
+  LET xs AS List OF String = ["a", "bb", "ccc", "dddd", "e", "ff", "ggg"]
+  io::print("s2: " & showChunks(collections::chunks(xs, 2)))
+  io::print("s3: " & showChunks(collections::chunks(xs, 3)))
+  io::print("s1: " & showChunks(collections::chunks(xs, 1)))
+  io::print("s7: " & showChunks(collections::chunks(xs, 7)))
+  io::print("s10: " & showChunks(collections::chunks(xs, 10)))
+  LET es AS List OF String = []
+  io::print("empty: " & toString(len(collections::chunks(es, 3))))
+  io::print("one: " & showChunks(collections::chunks(["z"], 3)))
+  ' Empty-string (zero-length payload) elements.
+  io::print("estr: " & showChunks(collections::chunks(["", "x", ""], 2)))
+  ' Source is not mutated.
+  io::print("src: " & toString(len(xs)))
+  ' Churn: a leak/UAF of the per-chunk inner lists would grow the arena
+  ' unboundedly or corrupt output across 1000 iterations.
+  MUT acc AS Integer = 0
+  FOR r = 0 TO 999
+    LET c AS List OF List OF String = collections::chunks(xs, 2)
+    acc = acc + len(c)
+  NEXT
+  io::print("stress: " & toString(acc))
+  RETURN 0
+END FUNC

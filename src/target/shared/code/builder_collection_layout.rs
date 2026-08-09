@@ -2276,8 +2276,6 @@ impl CodeBuilder<'_> {
         let length_slot = self.allocate_stack_object("collection_string_length", 8);
         let result_slot = self.allocate_stack_object("collection_string_result", 8);
         let alloc_ok = self.label("collection_string_alloc_ok");
-        let copy_loop = self.label("collection_string_copy_loop");
-        let copy_done = self.label("collection_string_copy_done");
 
         self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
         self.emit(abi::store_u64(
@@ -2300,16 +2298,16 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&scratch12, abi::mfb_return(1), 0));
         self.emit(abi::add_immediate(&scratch13, abi::mfb_return(1), 8));
         self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), source_slot));
-        self.emit(abi::label(&copy_loop));
-        self.emit(abi::compare_immediate(&scratch12, "0"));
-        self.emit(abi::branch_eq(&copy_done));
-        self.emit(abi::load_u8(&scratch15, &scratch14, 0));
-        self.emit(abi::store_u8(&scratch15, &scratch13, 0));
-        self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
-        self.emit(abi::add_immediate(&scratch13, &scratch13, 1));
-        self.emit(abi::subtract_immediate(&scratch12, &scratch12, 1));
-        self.emit(abi::branch(&copy_loop));
-        self.emit(abi::label(&copy_done));
+        // plan-86 F2: 8-byte word-copy (+ byte tail) instead of a byte-at-a-time
+        // loop — byte-exact, advances scratch13/scratch14 past the copied bytes so
+        // the NUL terminator lands at result+8+length.
+        self.emit_block_copy_advance(
+            &scratch13,
+            &scratch14,
+            &scratch12,
+            &scratch15,
+            "collection_string_copy",
+        );
         self.emit(abi::move_immediate(&scratch15, "Integer", "0"));
         self.emit(abi::store_u8(&scratch15, &scratch13, 0));
         let result = self.allocate_register()?;

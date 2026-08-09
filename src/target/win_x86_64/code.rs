@@ -33,7 +33,13 @@ use crate::target::win_x86_64::app;
 const KERNEL32: &str = "kernel32.dll";
 const ADVAPI32: &str = "advapi32.dll";
 const SHELL32: &str = "shell32.dll";
+const SHLWAPI: &str = "shlwapi.dll"; // bug-431: PathRemoveFileSpecA for the vendored-DLL path
 const WS2_32: &str = "ws2_32.dll";
+/// bug-431: `LoadLibraryExA` flag — resolve the library (and its own
+/// dependencies) from the directory of the absolute path passed, rather than the
+/// default search order. Requires an absolute path, which the vendored loader
+/// builds as `<exe_dir>\vendor\<name>`.
+const LOAD_WITH_ALTERED_SEARCH_PATH: &str = "8";
 // ioctlsocket command to toggle blocking mode: FIONBIO = 0x8004667E
 // (_IOW('f', 126, u_long); the 'f' magic byte is 0x66 — bug-417).
 const FIONBIO: &str = "2147772030";
@@ -93,7 +99,11 @@ fn arena_alloc_to_slot(
         binding: "internal".to_string(),
         library: None,
     });
-    instructions.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), slot));
+    instructions.push(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        slot,
+    ));
 }
 
 /// Emit `WideCharToMultiByte(CP_UTF8, 0, [wide_slot], -1, [u8_slot], u8_cap, NULL,
@@ -196,7 +206,7 @@ fn emit_marshal_path(
         // realize to callee-saved rbx/rsi/rdi, so writing them corrupts registers
         // the caller keeps live (map_scratch_register's documented Win64 hazard).
         abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), MARSHAL_WBUF_SLOT), // wbuf (temp)
-        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20),             // lpWideCharStr (5th)
+        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20), // lpWideCharStr (5th)
         abi::move_immediate(abi::mfb_arg(2), "Integer", "32768"),
         abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28), // cchWideChar (6th)
         abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x30),  // lpMultiByteStr = path
@@ -318,8 +328,8 @@ fn emit_wide_to_utf8(
         abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20), // lpMultiByteStr (5th)
         abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), RMARSHAL_CAP_SLOT),
         abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28), // cbMultiByte (6th)
-        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),   // lpDefaultChar (7th)
-        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38),   // lpUsedDefaultChar (8th)
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),       // lpDefaultChar (7th)
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38),       // lpUsedDefaultChar (8th)
         abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), RMARSHAL_WBUF_SLOT), // lpWideCharStr
         abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),
         abi::subtract_immediate(abi::mfb_arg(3), abi::mfb_arg(3), 1), // cchWideChar = -1
@@ -427,7 +437,7 @@ pub(crate) fn lower_module_mir(
     code::lower_module_mir_for_platform(module, native_plan, packages, &Platform)
 }
 
-struct Platform;
+pub(crate) struct Platform;
 
 /// Push an external `kernel32`-style call whose reloc names the DLL directly
 /// (the trait methods that need it carry no `platform_imports`, exactly like the
@@ -466,11 +476,19 @@ fn emit_ioctl_fionbio(
 ) {
     const FRAME: usize = 0x30;
     const ARGP_SLOT: usize = 0x28; // above the 0x20 shadow space
-    instructions.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), fd_offset));
+    instructions.push(abi::load_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        fd_offset,
+    ));
     instructions.push(abi::subtract_stack(FRAME));
     if nonblocking {
         instructions.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "1"));
-        instructions.push(abi::store_u64(abi::mfb_arg(3), abi::stack_pointer(), ARGP_SLOT));
+        instructions.push(abi::store_u64(
+            abi::mfb_arg(3),
+            abi::stack_pointer(),
+            ARGP_SLOT,
+        ));
     } else {
         instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), ARGP_SLOT));
     }
@@ -797,6 +815,154 @@ impl code::CodegenPlatform for Platform {
         self.emit_libc_call(base, from, platform_imports, instructions, relocations)
     }
 
+    fn emit_link_dlopen(
+        &self,
+        filename_symbol: &str,
+        vendored: bool,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // bug-431: Windows has no `dlopen`. Load the DLL with `LoadLibraryExA`,
+        // leaving the module handle in `return_register()` (0 on failure) so the
+        // shared initializer's failure check and slot store are unchanged.
+        //
+        // `filename_symbol` names a read-only C string holding the resolved
+        // `dlopen` filename — a bare DLL name. For a **vendored** library that
+        // file lives in the exe-relative `vendor/` directory, which the default
+        // DLL search never consults, so build the absolute path
+        // `<exe_dir>\vendor\<name>` at load time and pass
+        // `LOAD_WITH_ALTERED_SEARCH_PATH` (which requires an absolute path and
+        // also resolves the DLL's own dependencies from `vendor/`). A **system**
+        // library is loaded by bare name through the default search.
+        //
+        // This runs once at startup, single-threaded, so the shared writable
+        // `WIN_LINK_PATHBUF` scratch is safe to reuse across libraries. The buffer
+        // address is re-materialized (a RIP-relative `lea`) before each call, so
+        // no register needs to survive one — only the buffer's memory does.
+        use crate::target::shared::code::link_thunk::{
+            emit_data_address, WIN_LINK_PATHBUF_BYTES, WIN_LINK_PATHBUF_SYMBOL,
+            WIN_LINK_VENDORSEP_SYMBOL,
+        };
+        if vendored {
+            // GetModuleFileNameA(NULL, buf, WIN_LINK_PATHBUF_BYTES) -> full exe path.
+            emit_data_address(
+                from,
+                abi::mfb_arg(1),
+                WIN_LINK_PATHBUF_SYMBOL,
+                instructions,
+                relocations,
+            );
+            instructions.extend([
+                abi::move_immediate(abi::mfb_arg(0), "Integer", "0"),
+                abi::move_immediate(
+                    abi::mfb_arg(2),
+                    "Integer",
+                    &WIN_LINK_PATHBUF_BYTES.to_string(),
+                ),
+            ]);
+            call_external(
+                from,
+                "GetModuleFileNameA",
+                KERNEL32,
+                instructions,
+                relocations,
+            );
+            // PathRemoveFileSpecA(buf) -> strip the trailing `\<exe>`, leaving <exe_dir>.
+            emit_data_address(
+                from,
+                abi::mfb_arg(0),
+                WIN_LINK_PATHBUF_SYMBOL,
+                instructions,
+                relocations,
+            );
+            call_external(
+                from,
+                "PathRemoveFileSpecA",
+                SHLWAPI,
+                instructions,
+                relocations,
+            );
+            // lstrcatA(buf, "\vendor\") then lstrcatA(buf, name).
+            for append_symbol in [WIN_LINK_VENDORSEP_SYMBOL, filename_symbol] {
+                emit_data_address(
+                    from,
+                    abi::mfb_arg(0),
+                    WIN_LINK_PATHBUF_SYMBOL,
+                    instructions,
+                    relocations,
+                );
+                emit_data_address(
+                    from,
+                    abi::mfb_arg(1),
+                    append_symbol,
+                    instructions,
+                    relocations,
+                );
+                call_external(from, "lstrcatA", KERNEL32, instructions, relocations);
+            }
+            // LoadLibraryExA(buf, NULL, LOAD_WITH_ALTERED_SEARCH_PATH).
+            emit_data_address(
+                from,
+                abi::mfb_arg(0),
+                WIN_LINK_PATHBUF_SYMBOL,
+                instructions,
+                relocations,
+            );
+            instructions.extend([
+                abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
+                abi::move_immediate(abi::mfb_arg(2), "Integer", LOAD_WITH_ALTERED_SEARCH_PATH),
+            ]);
+            call_external(from, "LoadLibraryExA", KERNEL32, instructions, relocations);
+        } else {
+            // System DLL: LoadLibraryExA(name, NULL, 0) — resolved by the default
+            // search order (no `vendor/` involvement).
+            emit_data_address(
+                from,
+                abi::mfb_arg(0),
+                filename_symbol,
+                instructions,
+                relocations,
+            );
+            instructions.extend([
+                abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
+                abi::move_immediate(abi::mfb_arg(2), "Integer", "0"),
+            ]);
+            call_external(from, "LoadLibraryExA", KERNEL32, instructions, relocations);
+        }
+        // Stage the C return (`rax`) into the aligned MFB result register the
+        // shared loop reads, exactly like `emit_arena_map` (plan-85).
+        instructions.push(abi::move_register(abi::return_register(), abi::c_return(0)));
+        Ok(())
+    }
+
+    fn emit_link_dlsym(
+        &self,
+        handle_reg: &str,
+        symbol_symbol: &str,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // bug-431: GetProcAddress(handle, symbolName) — the Windows `dlsym`. The
+        // handle is a callee-saved vreg the shared loop keeps live across these
+        // calls; the resolved address lands in `return_register()`.
+        use crate::target::shared::code::link_thunk::emit_data_address;
+        instructions.push(abi::move_register(abi::mfb_arg(0), handle_reg));
+        emit_data_address(
+            from,
+            abi::mfb_arg(1),
+            symbol_symbol,
+            instructions,
+            relocations,
+        );
+        call_external(from, "GetProcAddress", KERNEL32, instructions, relocations);
+        instructions.push(abi::move_register(abi::return_register(), abi::c_return(0)));
+        Ok(())
+    }
+
     fn emit_write(
         &self,
         from: &str,
@@ -910,8 +1076,8 @@ impl code::CodegenPlatform for Platform {
         call_external(from, "GetProcessHeap", KERNEL32, instructions, relocations);
         instructions.extend([
             abi::move_register(abi::mfb_arg(0), abi::c_return(0)), // hHeap (C result)
-            abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),        // dwFlags
-            abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28),  // dwBytes
+            abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),  // dwFlags
+            abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28), // dwBytes
         ]);
         call_external(from, "HeapAlloc", KERNEL32, instructions, relocations);
         instructions.extend([
@@ -938,8 +1104,8 @@ impl code::CodegenPlatform for Platform {
         call_external(from, "GetProcessHeap", KERNEL32, instructions, relocations);
         instructions.extend([
             abi::move_register(abi::mfb_arg(0), abi::c_return(0)), // hHeap (C result)
-            abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),        // dwFlags
-            abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28),  // lpMem
+            abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),  // dwFlags
+            abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28), // lpMem
         ]);
         call_external(from, "HeapFree", KERNEL32, instructions, relocations);
         instructions.push(abi::add_stack(0x30));
@@ -1008,11 +1174,11 @@ impl code::CodegenPlatform for Platform {
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // avail = 0
             abi::add_immediate(abi::mfb_arg(0), abi::stack_pointer(), 0x30), // &avail
             abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20), // 5th arg lpTotalBytesAvail
-            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28), // 6th arg NULL
-            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x38), // hStdin
-            abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),      // lpBuffer NULL
-            abi::move_immediate(abi::mfb_arg(2), "Integer", "0"),      // nBufferSize 0
-            abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),      // lpBytesRead NULL
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28),       // 6th arg NULL
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x38),  // hStdin
+            abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),        // lpBuffer NULL
+            abi::move_immediate(abi::mfb_arg(2), "Integer", "0"),        // nBufferSize 0
+            abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),        // lpBytesRead NULL
         ]);
         call_external(from, "PeekNamedPipe", KERNEL32, instructions, relocations);
         instructions.extend([
@@ -1150,7 +1316,7 @@ impl code::CodegenPlatform for Platform {
         );
         instructions.extend([
             abi::compare_immediate(abi::c_return(0), "0"), // Win32 BOOL (C result)
-            abi::branch_ne(&ok), // BOOL != 0 → success
+            abi::branch_ne(&ok),                           // BOOL != 0 → success
             abi::move_immediate(abi::return_register(), "Integer", "1"), // failure (nonzero)
             abi::branch(&done),
             abi::label(&ok),
@@ -1319,7 +1485,7 @@ impl code::CodegenPlatform for Platform {
             // GetEnvironmentStringsW returns the block pointer as a C result (`rax`).
             abi::store_u64(abi::c_return(0), abi::stack_pointer(), BLOCK),
             abi::move_register(abi::SCRATCH[0], abi::c_return(0)), // cursor (entry start)
-            abi::move_immediate(abi::SCRATCH[1], "Integer", "0"),        // count
+            abi::move_immediate(abi::SCRATCH[1], "Integer", "0"),  // count
             // --- Pass 1: count non-drive entries (no calls, so ARG regs survive) ---
             abi::label(&count_loop),
             abi::load_u16(abi::SCRATCH[3], abi::SCRATCH[0], 0), // first wide char
@@ -1662,7 +1828,7 @@ impl code::CodegenPlatform for Platform {
         let out = format!("{from}_env_set_out_{n}");
         instructions.extend([
             abi::compare_immediate(abi::c_return(0), "0"), // Win32 BOOL (C result)
-            abi::branch_ne(&ok), // BOOL != 0 → success
+            abi::branch_ne(&ok),                           // BOOL != 0 → success
             abi::move_immediate(abi::return_register(), "Integer", "1"), // failure
             abi::branch(&out),
             abi::label(&ok),
@@ -1792,7 +1958,7 @@ impl code::CodegenPlatform for Platform {
         call_external(from, symbol, KERNEL32, instructions, relocations);
         instructions.extend([
             abi::compare_immediate(abi::c_return(0), "0"), // Win32 BOOL (C result)
-            abi::branch_ne(&ok), // BOOL != 0 → success
+            abi::branch_ne(&ok),                           // BOOL != 0 → success
             abi::move_immediate(abi::return_register(), "Integer", "1"), // failure
             abi::branch(&done),
             abi::label(&ok),
@@ -1860,7 +2026,7 @@ impl code::CodegenPlatform for Platform {
             abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20),
             abi::move_immediate(abi::mfb_arg(2), "Integer", "128"), // FILE_ATTRIBUTE_NORMAL
             abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28), // 6th (stack)
-            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // 7th hTemplateFile = NULL
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),  // 7th hTemplateFile = NULL
             // dwDesiredAccess: CreateFileW reads it as the low 32 bits of rdx, so
             // the packed value in ARG[1] goes straight in — the disposition in the
             // high half is ignored by the DWORD parameter.
@@ -2078,7 +2244,7 @@ impl code::CodegenPlatform for Platform {
         call_external(from, "MoveFileExW", KERNEL32, instructions, relocations);
         instructions.extend([
             abi::compare_immediate(abi::c_return(0), "0"), // Win32 BOOL (C result)
-            abi::branch_ne(&ok), // BOOL != 0 → success
+            abi::branch_ne(&ok),                           // BOOL != 0 → success
             abi::move_immediate(abi::return_register(), "Integer", "1"), // failure
             abi::branch(&done),
             abi::label(&ok),
@@ -2130,7 +2296,7 @@ impl code::CodegenPlatform for Platform {
             abi::branch(&strlen_loop),
             abi::label(&strlen_done),
             abi::subtract_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(1)), // - suffix_len
-            abi::subtract_immediate(abi::mfb_arg(0), abi::mfb_arg(0), X_MARKER_COUNT), // - 6
+            abi::subtract_immediate(abi::mfb_arg(0), abi::mfb_arg(0), X_MARKER_COUNT),  // - 6
             abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), XSTART),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), RETRY),
         ]);
@@ -2152,7 +2318,12 @@ impl code::CodegenPlatform for Platform {
             abi::load_u8(abi::mfb_arg(2), abi::mfb_arg(1), 0), // random byte
             abi::move_immediate(abi::mfb_arg(3), "Integer", "26"),
             abi::unsigned_divide_registers(abi::mfb_arg(1), abi::mfb_arg(2), abi::mfb_arg(3)), // q
-            abi::multiply_subtract_registers(abi::mfb_arg(2), abi::mfb_arg(1), abi::mfb_arg(3), abi::mfb_arg(2)), // r = b - q*26
+            abi::multiply_subtract_registers(
+                abi::mfb_arg(2),
+                abi::mfb_arg(1),
+                abi::mfb_arg(3),
+                abi::mfb_arg(2),
+            ), // r = b - q*26
             abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 97), // 'a' + r
             abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), XSTART),
             abi::add_registers(abi::mfb_arg(1), abi::mfb_arg(1), abi::mfb_arg(0)),
@@ -2174,8 +2345,8 @@ impl code::CodegenPlatform for Platform {
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // hTemplateFile = NULL
             abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), WIDE), // lpFileName
             abi::move_immediate(abi::mfb_arg(1), "Integer", "3221225472"), // GENERIC_READ|GENERIC_WRITE
-            abi::move_immediate(abi::mfb_arg(2), "Integer", "0"),      // dwShareMode
-            abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),      // lpSecurityAttributes NULL
+            abi::move_immediate(abi::mfb_arg(2), "Integer", "0"),          // dwShareMode
+            abi::move_immediate(abi::mfb_arg(3), "Integer", "0"), // lpSecurityAttributes NULL
         ]);
         call_external(from, "CreateFileW", KERNEL32, instructions, relocations);
         instructions.extend([
@@ -2311,7 +2482,7 @@ impl code::CodegenPlatform for Platform {
             abi::store_u64(abi::c_return(0), abi::mfb_arg(1), DIR_HANDLE_OFF), // FindFirstFileW handle (C result)
             abi::move_immediate(abi::mfb_arg(2), "Integer", "1"),
             abi::store_u64(abi::mfb_arg(2), abi::mfb_arg(1), DIR_FIRST_OFF), // first pending
-            abi::move_register(abi::return_register(), abi::mfb_arg(1)), // return DIR*
+            abi::move_register(abi::return_register(), abi::mfb_arg(1)),     // return DIR*
             abi::branch(&done),
             abi::label(&fail),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
@@ -2366,8 +2537,8 @@ impl code::CodegenPlatform for Platform {
             abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20), // lpMultiByteStr (5th)
             abi::move_immediate(abi::mfb_arg(2), "Integer", DIR_NAME_CAP),
             abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28), // cbMultiByte (6th)
-            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),   // 7th NULL
-            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38),   // 8th NULL
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),       // 7th NULL
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38),       // 8th NULL
             abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), DIR_SLOT),
             abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), DIR_CFILENAME_OFF), // lpWideCharStr
             abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),
@@ -2730,7 +2901,11 @@ impl code::CodegenPlatform for Platform {
                 abi::or_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(1)),
             ]);
         }
-        instructions.push(abi::store_u32(abi::mfb_arg(0), base_register, modified_offset));
+        instructions.push(abi::store_u32(
+            abi::mfb_arg(0),
+            base_register,
+            modified_offset,
+        ));
     }
 
     fn emit_terminal_control_call(
@@ -2766,7 +2941,7 @@ impl code::CodegenPlatform for Platform {
                 call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
                 instructions.extend([
                     abi::move_register(abi::mfb_arg(0), abi::c_return(0)), // handle (GetStdHandle C result)
-                    abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), 0x28),  // lpMode = &out
+                    abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), 0x28), // lpMode = &out
                 ]);
                 call_external(from, "GetConsoleMode", KERNEL32, instructions, relocations);
                 instructions.extend([
@@ -2798,7 +2973,7 @@ impl code::CodegenPlatform for Platform {
                 call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
                 instructions.extend([
                     abi::move_register(abi::mfb_arg(0), abi::c_return(0)), // handle (GetStdHandle C result)
-                    abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), 0x28),  // dwMode
+                    abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), 0x28), // dwMode
                 ]);
                 call_external(from, "SetConsoleMode", KERNEL32, instructions, relocations);
                 instructions.extend([

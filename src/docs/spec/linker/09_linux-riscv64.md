@@ -207,7 +207,7 @@ A build mode other than console — or the internal Linux-app mode — is reject
 ## Executable signing metadata
 
 When the build supplies executable signing metadata, the linker emits it as a
-`.mfb_sign` ELF section (shared with the other Linux targets). Unlike macOS, Linux
+`.mfbsign` ELF section (shared with the other Linux targets). Unlike macOS, Linux
 executables are not otherwise signed by the linker.
 [[src/os/linux/link/elf.rs:append_elf_signing_section]]
 

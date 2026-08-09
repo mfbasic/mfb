@@ -18,6 +18,7 @@ const BCRYPT: &str = "bcrypt.dll";
 const SECUR32: &str = "secur32.dll";
 const CRYPT32: &str = "crypt32.dll";
 const ADVAPI32: &str = "advapi32.dll";
+const SHLWAPI: &str = "shlwapi.dll"; // bug-431: PathRemoveFileSpecA for the vendored-DLL path
 const SHELL32: &str = "shell32.dll"; // os.args: CommandLineToArgvW (plan-66-B)
                                      // WASAPI audio (plan-66 G+H): the COM runtime (object activation) rides ole32; the
                                      // endpoint objects themselves are called through their vtables (no import).
@@ -586,7 +587,52 @@ impl NativePlanPlatform for Platform {
         Vec::new()
     }
 
-    fn link_imports(&self, _required_by: &str) -> Vec<PlatformImport> {
-        Vec::new()
+    fn link_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+        // bug-431: the runtime loader `_mfb_linker_init` emits `LoadLibraryExA`
+        // + `GetProcAddress` (kernel32) instead of the POSIX `dlopen`/`dlsym`, and
+        // resolves a vendored DLL from the exe-relative `vendor/` directory by
+        // building `<exe_dir>\vendor\<name>` with `GetModuleFileNameA` +
+        // `PathRemoveFileSpecA` (shlwapi) + `lstrcatA` (kernel32). Declared
+        // unconditionally alongside the LINK support, which is itself only emitted
+        // when the program has `LINK` bindings — a non-LINK Windows build declares
+        // none of these and stays byte-identical.
+        [
+            ("LoadLibraryExA", KERNEL32),
+            ("GetProcAddress", KERNEL32),
+            ("GetModuleFileNameA", KERNEL32),
+            ("lstrcatA", KERNEL32),
+            ("PathRemoveFileSpecA", SHLWAPI),
+        ]
+        .into_iter()
+        .map(|(symbol, library)| import(symbol, library, required_by))
+        .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// bug-431: a Windows build that vendors a native `LINK` library needs the
+    /// kernel32/shlwapi loader imports so `_mfb_linker_init` can resolve the DLL
+    /// at runtime. Before the fix `link_imports` returned nothing, leaving the
+    /// loader unbindable (there was not even a `dlopen` symbol to reference).
+    #[test]
+    fn link_imports_declare_the_win32_loader() {
+        let imports = Platform.link_imports("_main");
+        let symbols: std::collections::HashSet<&str> =
+            imports.iter().map(|i| i.symbol.as_str()).collect();
+        for required in [
+            "LoadLibraryExA",
+            "GetProcAddress",
+            "GetModuleFileNameA",
+            "lstrcatA",
+            "PathRemoveFileSpecA",
+        ] {
+            assert!(
+                symbols.contains(required),
+                "win link_imports missing {required}; got {symbols:?}"
+            );
+        }
     }
 }

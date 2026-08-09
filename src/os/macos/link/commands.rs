@@ -166,7 +166,11 @@ pub(super) fn mfb_sign_segment(bytes: &mut Vec<u8>, file_offset: usize, metadata
     put_u32(bytes, 0);
     section_with_segment(
         bytes,
-        "__sign",
+        // bug-432: the section name is unified to `.mfbsign` across all three
+        // backends so one reader locates the blob by a single name. The segment
+        // stays `__MFB` (the natural grouping; `__`-prefixed is the Mach-O
+        // convention) — only the section name changed.
+        ".mfbsign",
         "__MFB",
         VM_BASE + file_offset as u64,
         metadata_len as u64,

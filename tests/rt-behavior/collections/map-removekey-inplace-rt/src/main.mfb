@@ -1,0 +1,67 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 D1: in-place `m = collections::removeKey(m, k)` on a uniquely-owned MUT
+' map local (try_inplace_remove_key_assign → lower_map_remove_key_in_place). The
+' entry table is compacted in place (shift [i+1..count) down one slot), COUNT
+' decremented, BUCKETS_READY reset so the next probe rebuilds — no arena_alloc, no
+' fresh-map copy. Output must be byte-identical to the interpreted out-of-place
+' removeKey across middle/first/last removal, no-op on a missing key, hasKey/get and
+' re-add (bucket rebuild), preserved insertion order, and the churn pattern.
+
+FUNC showMap(m AS Map OF String TO Integer) AS String
+  MUT out AS String = ""
+  LET ks AS List OF String = collections::keys(m)
+  FOR i = 0 TO len(ks) - 1
+    LET k AS String = collections::get(ks, i)
+    out = out & k & "=" & toString(collections::get(m, k)) & " "
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main AS Integer
+  MUT m AS Map OF String TO Integer = Map OF String TO Integer {}
+  FOR i = 0 TO 5
+    m = collections::set(m, toString(i), i * 10)
+  NEXT
+  io::print("init: " & showMap(m))
+  m = collections::removeKey(m, "2")
+  io::print("rm2: " & showMap(m))
+  m = collections::removeKey(m, "0")
+  io::print("rm0: " & showMap(m))
+  m = collections::removeKey(m, "5")
+  io::print("rm5: " & showMap(m))
+  m = collections::removeKey(m, "99")
+  io::print("rm99: " & showMap(m))
+  io::print("has1: " & toString(collections::hasKey(m, "1")))
+  io::print("has2: " & toString(collections::hasKey(m, "2")))
+  m = collections::set(m, "2", 222)
+  io::print("readd2: " & showMap(m) & " get2=" & toString(collections::get(m, "2")))
+  ' Integer-keyed map removeKey too.
+  MUT mi AS Map OF Integer TO Integer = Map OF Integer TO Integer {}
+  FOR i = 0 TO 4
+    mi = collections::set(mi, i, i)
+  NEXT
+  mi = collections::removeKey(mi, 2)
+  io::print("int_rm2: keys=" & toString(len(collections::keys(mi))) & " has2=" & toString(collections::hasKey(mi, 2)) & " has3=" & toString(collections::hasKey(mi, 3)))
+  ' Churn: add + removeKey in a loop (the benchmark pattern) — a leak/UAF or index
+  ' corruption would diverge the size/sum.
+  MUT c AS Map OF String TO Integer = Map OF String TO Integer {}
+  FOR i = 0 TO 99
+    c = collections::set(c, toString(i), i)
+  NEXT
+  MUT removed AS Integer = 0
+  FOR stp = 0 TO 199
+    c = collections::set(c, toString(100 + stp), 100 + stp)
+    IF collections::hasKey(c, toString(stp)) THEN
+      c = collections::removeKey(c, toString(stp))
+      removed = removed + 1
+    END IF
+  NEXT
+  MUT sumv AS Integer = 0
+  FOR EACH v IN collections::values(c)
+    sumv = sumv + v
+  NEXT
+  io::print("churn: size=" & toString(len(c)) & " sum=" & toString(sumv) & " removed=" & toString(removed))
+  RETURN 0
+END FUNC

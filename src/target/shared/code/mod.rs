@@ -118,7 +118,7 @@ mod datetime;
 /// plan-46-D's vendor copy via `dlopen_name`, so the emitted string and the
 /// copied filename cannot diverge.
 pub(crate) mod link_locator;
-mod link_thunk;
+pub(crate) mod link_thunk;
 mod list_mutate;
 mod map_mutate;
 mod net;
@@ -251,6 +251,30 @@ struct CodeBuilder<'a> {
     /// here is only ever a direct invoke target and never escapes, so it is freed
     /// at scope end.
     value_used_locals: HashSet<String>,
+    /// plan-86 E: LET bindings `e = collections::get(L, i)` whose result is consumed
+    /// READ-ONLY (only a `MATCH` scrutinee) over an immutable container `L`. Such a
+    /// `get` returns an aliasing borrow into `L`'s inline element instead of a fresh
+    /// `copy_flat_block`, and the binding registers no scope-drop free (the container
+    /// owns the element). The copy-skip AND the free-skip are BOTH gated on this set
+    /// (a freed borrow is a double-free into the container).
+    borrow_get_locals: HashSet<String>,
+    /// plan-86 E: set while lowering the initializer of a `borrow_get_locals`
+    /// binding, so `materialize_owned_element` returns the aliasing borrow instead of
+    /// copying it. Scoped to the one initializer (reset immediately after).
+    borrow_get_result: bool,
+    /// plan-86 K1: true while lowering a function whose every value-return is a bare
+    /// parameter (`function_returns_param_borrow`). Its `RETURN <param>` returns the
+    /// argument pointer uncopied (a borrow); callers deep-copy the result only at an
+    /// owning store, so the copy moves to the caller's ownership boundary with
+    /// identical value semantics. Consistent with the caller side because both key
+    /// off the same predicate.
+    current_returns_param_borrow: bool,
+    /// plan-86 K1: names of every function used as a `FunctionRef` (callback) in the
+    /// module. Such a function is invoked through an owning ABI, so it is excluded
+    /// from the parameter-passthrough borrow elision (`function_returns_param_borrow`)
+    /// — both here (callee) and at every call site (caller) — keeping the two sides
+    /// consistent. Shared verbatim across all functions in the build.
+    callback_referenced_functions: HashSet<String>,
     /// The register-allocation strategy selected for this build (`-regalloc`).
     regalloc_kind: regalloc::RegallocKind,
     /// First scratch-register-exhaustion error recorded by an infallible vreg
@@ -429,6 +453,24 @@ struct CodeBuilder<'a> {
     /// to elide the overflow check on `local + 1`; dropped on any assignment to the
     /// local and cleared at every loop/Match/Trap boundary.
     integer_strict_upper: std::collections::HashSet<String>,
+    /// plan-86 G1: value expr of each synthetic `$for_end*` / `$for_step*` binding
+    /// the IR emits for a `FOR` bound/step, so the loop's `end`/`step` (which reach
+    /// `lower_numeric_for` as `Local($for_endN)`) can be resolved back to their
+    /// `n - k` / `1` exprs. These synthetics are write-once and unique per loop.
+    for_bound_expr: HashMap<String, NirValue>,
+    /// plan-86 G1: `n -> L` for a binding `LET n = len(L)` (both locals). Lets a
+    /// loop bound written as `n - k` resolve to `len(L) - k`. Dropped when `n` or
+    /// `L` is reassigned.
+    len_of_local: HashMap<String, String>,
+    /// plan-86 G1: induction var `i -> (L, headroom k)` for a `FOR i = 0 TO
+    /// len(L) - k` loop (`k >= 1`, step 1) where BOTH `i` and `L` are provably NOT
+    /// reassigned anywhere in the loop body. Then `get/set(L, i)` is in-range
+    /// (`i <= len-k < len`), and `get/set(L, i+1)` too when `k >= 2` — so the
+    /// per-access bounds check is elided. Set for the duration of the body and
+    /// removed after; because `i`/`L` are unmodified across the WHOLE body, the fact
+    /// stays sound throughout (no mid-body clear needed). UNSOUND elision = silent
+    /// OOB — gated by the whole-body-unmodified proof AND mandatory negative fixtures.
+    provable_index_locals: HashMap<String, (String, i64)>,
 }
 
 #[derive(Clone)]
@@ -1300,6 +1342,10 @@ pub(crate) fn lower_module_for_platform(
             )?);
         }
     }
+    // plan-86 K1: functions used as callbacks (FunctionRef) are invoked through an
+    // owning ABI, so they are excluded from the parameter-passthrough borrow elision.
+    // Computed once for the whole module and shared by every function's lowering.
+    let callback_referenced_functions = collect_function_ref_names(module);
     for function in &module.functions {
         code_functions.push(lower_function(
             function,
@@ -1309,6 +1355,7 @@ pub(crate) fn lower_module_for_platform(
             &platform_imports,
             &globals,
             &string_symbols,
+            &callback_referenced_functions,
             type_model.clone(),
         )?);
     }

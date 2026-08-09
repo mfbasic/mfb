@@ -67,17 +67,17 @@ static void make_buf(unsigned char *buf, int n) {
 /* base64 round-trip. Arena-gated in mfb (plan-44-J); the C mirror keeps the same
  * tiny counts so the table lines up. */
 static void test_encoding_base64(void) {
-  unsigned char buf[64], back[64];
-  char enc[128];
-  make_buf(buf, 64);
-  int reps = 4;
+  unsigned char buf[4096], back[4096];
+  char enc[8192];
+  make_buf(buf, 4096);
+  int reps = 200;
   long long *t = alloc_times();
   long checksum = 0;
   for (int r = 0; r < RUN; r++) {
     long long t0 = now_ns();
     long acc = 0;
     for (int rep = 0; rep < reps; rep++) {
-      int el = b64_encode(buf, 64, enc);
+      int el = b64_encode(buf, 4096, enc);
       int dl = b64_decode(enc, back);
       long sb = 0;
       for (int k = 0; k < dl; k++) sb += back[k];

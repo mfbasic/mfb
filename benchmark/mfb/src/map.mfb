@@ -166,10 +166,14 @@ END FUNC
 
 ' Integer-keyed steady-state churn: slide a fixed-width window forward, inserting
 ' a new key and removing the oldest each step (exercises plan-44-A's in-place
-' removeKey on Integer keys). Arena-gated (plan-44-J): author tiny, raise on land.
+' removeKey on Integer keys). Held tiny (NOT raised to the plan-44-J 2000/20000
+' target): measured 8.25 s median and super-linear across --run 3 even after the
+' plan-64-A1 arena fix — each in-place removeKey invalidates the bucket index, so
+' the churn stays O(steps*w) rebuild + arena degradation. Raise only once that is
+' fixed (incremental index repair on delete).
 FUNC test_map_intchurn(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET w AS Integer = 32       ' TODO(plan-44-J): raise to 2000
-  LET steps AS Integer = 64   ' TODO(plan-44-J): raise to 20000
+  LET w AS Integer = 32
+  LET steps AS Integer = 64
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1

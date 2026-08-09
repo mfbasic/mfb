@@ -88,11 +88,11 @@ fn ops(instructions: &[serde_json::Value]) -> Vec<&str> {
         .collect()
 }
 
-/// The runtime state carries three live grids and three snapshot grids. With a
-/// u32 char cell, chars costs the same as fg/bg — so `_mfb_gtkapp_state` grows by
-/// exactly 2 * 160 * 48 * 3 bytes (live + snapshot) over the 1-byte layout.
-/// Pinning the size catches a stride/offset constant drifting out of sync with
-/// the memset/memcpy sizes, which would silently corrupt neighbouring state.
+/// The runtime state carries three live grids and three snapshot grids (chars/fg/bg
+/// at a u32 per cell), plus the plan-70-E EGC pool — a live + snapshot per-cell slot
+/// of `GTK_POOL_BYTES` (32) holding multi-scalar grapheme clusters. Pinning the size
+/// catches a stride/offset constant drifting out of sync with the memset/memcpy
+/// sizes, which would silently corrupt neighbouring state.
 #[test]
 fn gtk_state_sizes_the_char_grid_at_four_bytes_per_cell() {
     let plan = build_ncode("gtk_term_state");
@@ -109,9 +109,10 @@ fn gtk_state_sizes_the_char_grid_at_four_bytes_per_cell() {
     const CELLS: u64 = 160 * 48;
     // handles(7) + argc/argv + mode + lineLen = 11 u64, then the 1024B line
     // buffer, 13 u64 of term geometry, then chars/fg/bg live + snapshot at 4B,
-    // then one u64 `ST_HELD` flag (plan-62-D: the windowless-mode hold tracker).
-    // The grid is still 4 bytes/cell (bug-203); the +8 is only the new scalar.
-    let expected = 11 * 8 + 1024 + 13 * 8 + 6 * CELLS * 4 + 8;
+    // then the plan-70-E EGC pool live + snapshot at GTK_POOL_BYTES=32B/cell, then
+    // one u64 `ST_HELD` flag (plan-62-D: the windowless-mode hold tracker). The char
+    // grid is still 4 bytes/cell (bug-203); the pools are separate per-cell arrays.
+    let expected = 11 * 8 + 1024 + 13 * 8 + 6 * CELLS * 4 + 2 * CELLS * 32 + 8;
     assert_eq!(
         size, expected,
         "the char grid should be 4 bytes/cell like fg/bg (bug-203); \
@@ -146,17 +147,20 @@ fn gtk_term_write_decodes_a_code_point_per_cell() {
         );
     }
 
-    // The cell is written as a 32-bit glyph, never as a lone byte.
+    // The CHAR grid cell is written as a 32-bit glyph, never as a lone byte — this
+    // (plus the decode ladder + `u8_*` labels above) is the live bug-203 guard: a
+    // regression back to byte-per-cell would drop the pack-and-`str_u32` cell store.
     assert!(
         ops(write).contains(&"str_u32"),
         "term_write should store a packed u32 glyph per cell"
     );
-    assert!(
-        !write
-            .iter()
-            .any(|i| i["op"] == "str_u8" && i["offset"] == "0"),
-        "term_write must not store a bare byte into a grid cell (bug-203)"
-    );
+    // NOTE: an `str_u8` at offset 0 is NO LONGER a bug-203 signal. plan-70-E Phase 3
+    // added the per-cell EGC pool (`ST_TERM_POOL`), whose slots are length-prefixed:
+    // `emit_gtk_pool_append` writes `pool[0] = len` via `str_u8` at offset 0 of the
+    // pool-slot base (src/target/linux_gtk/term_draw.rs:207,222). That store targets
+    // the pool region, not a CHAR grid cell (cells remain `str_u32` only), so the old
+    // blanket `!str_u8@0` assertion would false-flag legitimate codegen and was
+    // removed. The CHAR-cell-is-u32 assertion above carries the bug-203 invariant.
 }
 
 /// The draw path must hand cairo the whole cell, NUL-terminated.

@@ -924,7 +924,11 @@ pub(in crate::target::shared::code::tls) fn lower_tls_listen_macos(
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), LCTX));
+    ins.push(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        LCTX,
+    ));
     dlsym(
         &mut EmitCtx {
             symbol,
@@ -1439,7 +1443,11 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), CCTX));
+    ins.push(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        CCTX,
+    ));
     dlsym(
         &mut EmitCtx {
             symbol,

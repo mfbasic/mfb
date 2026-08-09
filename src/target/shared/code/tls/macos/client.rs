@@ -108,7 +108,11 @@ pub(in crate::target::shared::code::tls) fn lower_tls_connect_macos(
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), CTX));
+    ins.push(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        CTX,
+    ));
     // endpoint = nw_endpoint_create_host(host, port)
     dlsym(
         &mut EmitCtx {

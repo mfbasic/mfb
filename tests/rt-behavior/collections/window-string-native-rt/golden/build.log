@@ -1,0 +1,19 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/window-string-native-rt
+Wrote AST to tests/rt-behavior/collections/window-string-native-rt/window_string_native_rt.ast
+Wrote IR to tests/rt-behavior/collections/window-string-native-rt/window_string_native_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/window-string-native-rt
+Wrote executable to tests/rt-behavior/collections/window-string-native-rt/build/window_string_native_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/window-string-native-rt/build/window_string_native_rt.out
+w2: [a,bb,][bb,ccc,][ccc,dddd,][dddd,e,][e,ff,]
+w3: [a,bb,ccc,][bb,ccc,dddd,][ccc,dddd,e,][dddd,e,ff,]
+w2s2: [a,bb,][ccc,dddd,][e,ff,]
+w4s3: [a,bb,ccc,dddd,]
+w6: [a,bb,ccc,dddd,e,ff,]
+w7: 0
+empty: 0
+one: [z,]
+estr: [,x,][x,,]
+stress: 5000
+[exit 0]

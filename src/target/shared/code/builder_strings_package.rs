@@ -264,8 +264,6 @@ impl CodeBuilder<'_> {
         let dst = self.temporary_vreg();
         let src = self.temporary_vreg();
         let byte = self.temporary_vreg();
-        let copy_segment_loop = self.label("strings_split_copy_segment_loop");
-        let copy_segment_done = self.label("strings_split_copy_segment_done");
         self.emit(abi::move_immediate(
             &tmp,
             "Byte",
@@ -304,16 +302,9 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::add_registers(&dst, data, data_offset.clone()));
         self.emit(abi::add_registers(&src, source_data, segment_start.clone()));
-        self.emit(abi::label(&copy_segment_loop));
-        self.emit(abi::compare_immediate(&tmp, "0"));
-        self.emit(abi::branch_eq(&copy_segment_done));
-        self.emit(abi::load_u8(&byte, &src, 0));
-        self.emit(abi::store_u8(&byte, &dst, 0));
-        self.emit(abi::add_immediate(&src, &src, 1));
-        self.emit(abi::add_immediate(&dst, &dst, 1));
-        self.emit(abi::subtract_immediate(&tmp, &tmp, 1));
-        self.emit(abi::branch(&copy_segment_loop));
-        self.emit(abi::label(&copy_segment_done));
+        // plan-86 F2: 8-byte word-copy (+ byte tail) of the segment (tmp bytes);
+        // `tmp` is recomputed just below, so its post-copy value does not matter.
+        self.emit_block_copy_advance(&dst, &src, &tmp, &byte, "strings_split_copy_segment");
         self.emit(abi::subtract_registers(&tmp, segment_end, segment_start));
         self.emit(abi::add_registers(data_offset.clone(), data_offset, &tmp));
         self.emit(abi::add_immediate(

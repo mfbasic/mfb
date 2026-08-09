@@ -1,0 +1,77 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 K1 VALUE-SEMANTICS GUARD: a function whose every return is a bare
+' parameter (`passStr`/`passInt`/`pick`) returns a BORROW of the caller's argument
+' instead of a fresh deep copy — the copy moves to the caller's owning-store
+' boundary. This fixture pins that value semantics is UNCHANGED by that move: a
+' mutation of the returned value must NEVER be observable through the original
+' argument, and a read-only-and-discarded result must not corrupt or free anything.
+' It must produce identical output before and after K1 lands (it is the regression
+' guard, not a post-change tautology).
+
+' every return is a bare parameter -> borrow of the caller's arg
+FUNC passStr(xs AS List OF String) AS List OF String
+  RETURN xs
+END FUNC
+
+FUNC passInt(xs AS List OF Integer) AS List OF Integer
+  RETURN xs
+END FUNC
+
+' multi-parameter passthrough: result borrows a OR b; mutating it must leave BOTH intact
+FUNC pick(a AS List OF Integer, b AS List OF Integer, useA AS Boolean) AS List OF Integer
+  IF useA THEN
+    RETURN a
+  ELSE
+    RETURN b
+  END IF
+END FUNC
+
+' CONTRAST: returns a FRESH block (a Call, not a bare param) -> NOT param-borrow,
+' normal ownership; proves the summary does not over-fire.
+FUNC grow(xs AS List OF Integer) AS List OF Integer
+  RETURN collections::append(xs, 999)
+END FUNC
+
+FUNC main() AS Integer
+  ' 1. read-only + discard: len(passthrough(base)) == len(base); base untouched.
+  LET base AS List OF String = ["a", "bb", "ccc"]
+  io::print("ro=" & toString(len(passStr(base))))
+  io::print("base_after_ro_len=" & toString(len(base)))
+  io::print("base_after_ro_0=" & collections::get(base, 0))
+
+  ' 2. owning store + mutation: the copy diverges, base is PRESERVED.
+  LET copy AS List OF String = passStr(base)
+  LET copy2 AS List OF String = collections::append(copy, "z")
+  LET copy3 AS List OF String = collections::set(copy2, 0, "X")
+  io::print("copy_len=" & toString(len(copy3)))
+  io::print("copy_0=" & collections::get(copy3, 0))
+  io::print("base_len=" & toString(len(base)))
+  io::print("base_0=" & collections::get(base, 0))
+
+  ' 3. multi-param passthrough: mutate the picked result, both p and q intact.
+  LET p AS List OF Integer = [1, 2, 3]
+  LET q AS List OF Integer = [7, 8]
+  LET picked AS List OF Integer = pick(p, q, true)
+  LET picked2 AS List OF Integer = collections::append(picked, 100)
+  io::print("picked_len=" & toString(len(picked2)))
+  io::print("p_len=" & toString(len(p)))
+  io::print("p_0=" & toString(collections::get(p, 0)))
+  io::print("q_len=" & toString(len(q)))
+
+  ' 4. integer passthrough, read-only.
+  LET ints AS List OF Integer = [5, 6, 7, 8]
+  io::print("ints_ro=" & toString(len(passInt(ints))))
+
+  ' 5. contrast: fresh-returning function still owns correctly, base intact.
+  LET g AS List OF Integer = grow(ints)
+  io::print("g_len=" & toString(len(g)))
+  io::print("ints_len=" & toString(len(ints)))
+  ' NOTE: the CALLBACK-exclusion soundness (a passthrough used as a functionRef must
+  ' NOT be elided, or the owning higher-order ABI double-frees the per-element temp)
+  ' is guarded by tests/rt-behavior/collections/groupby-string-value-native-rt, which
+  ' passes `ident` (FUNC(String) AS String, `RETURN s`) as a groupBy value-mapper and
+  ' pins the grouped String values — they came back EMPTY before the exclusion landed.
+  RETURN 0
+END FUNC

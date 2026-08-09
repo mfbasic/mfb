@@ -1,0 +1,41 @@
+{
+  "project": "func_collection_findLastIndex_not_found",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "never",
+      "line": 5,
+      "params": [
+      { "name": "s", "type": "String", "default": null, "line": 5 }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "boolean", "value": false }, "line": 6 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "xs", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "aa" }, { "kind": "string", "value": "bb" }, { "kind": "string", "value": "cc" }] }, "line": 10 },
+      { "kind": "return", "value": { "kind": "call", "callee": "collections.findLastIndex", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "identifier", "value": "never" }] }, "line": 11 }
+      ]
+    }
+    ]
+  }
+  ]
+}

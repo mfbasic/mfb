@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/bounds-elim-rt
+Wrote AST to tests/rt-behavior/collections/bounds-elim-rt/bounds_elim_rt.ast
+Wrote IR to tests/rt-behavior/collections/bounds-elim-rt/bounds_elim_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/bounds-elim-rt
+Wrote executable to tests/rt-behavior/collections/bounds-elim-rt/build/bounds_elim_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/bounds-elim-rt/build/bounds_elim_rt.out
+s2=800
+s1=450
+tot=10
+[exit 0]
