@@ -1,0 +1,76 @@
+' dom/style — the resolved layout/display state of an element.
+'
+' Style is what one element's CSS resolves to after the cascade — the *input* to
+' layout. Rather than an open property bag it is a closed record with one typed
+' field per property we support, so the layout pass reads concrete values (no
+' string parsing, no "is it set?" branching) and every element carries the whole
+' set, defaulted. The computed flex geometry (a separate Layout record) is derived
+' from Style. This is distinct from ElementNode.attrs, which holds the element's
+' raw HTML attributes; Style holds the CSS resolved *from* them.
+'
+' The supported set covers display, the flex container properties, the flex item
+' properties, box sizing, and spacing. Categorical properties are enums (grouped
+' here as the layout vocabulary grows); lengths are Integers in terminal cells,
+' with -1 meaning "auto".
+
+' The outer display type of a box. `Flex` is the one two-dimensional mode; `Block`
+' and `Inline` are modelled as flex column / flex row when laid out; `None`
+' removes the box entirely.
+EXPORT ENUM Display
+  None, Inline, Block, Flex
+END ENUM
+
+' Main-axis direction of a flex container (flex-direction).
+EXPORT ENUM FlexDirection
+  Row, Column, RowReverse, ColumnReverse
+END ENUM
+
+' Whether flex items wrap onto multiple lines (flex-wrap).
+EXPORT ENUM FlexWrap
+  NoWrap, Wrap, WrapReverse
+END ENUM
+
+' Main-axis distribution of free space (justify-content). FlexStart/FlexEnd mirror
+' the CSS `flex-start`/`flex-end` keywords (and avoid the reserved word END).
+EXPORT ENUM Justify
+  FlexStart, FlexEnd, Center, SpaceBetween, SpaceAround, SpaceEvenly
+END ENUM
+
+' Cross-axis alignment of items within a line (align-items).
+EXPORT ENUM Align
+  Stretch, FlexStart, FlexEnd, Center
+END ENUM
+
+EXPORT TYPE Style
+  ' display + flex container
+  display AS Display
+  direction AS FlexDirection
+  wrap AS FlexWrap
+  justify AS Justify
+  align AS Align
+  ' flex item
+  flexGrow AS Integer
+  flexShrink AS Integer
+  flexBasis AS Integer
+  ' box sizing (cells; -1 = auto)
+  width AS Integer
+  height AS Integer
+  ' spacing (cells)
+  paddingTop AS Integer
+  paddingRight AS Integer
+  paddingBottom AS Integer
+  paddingLeft AS Integer
+  marginTop AS Integer
+  marginRight AS Integer
+  marginBottom AS Integer
+  marginLeft AS Integer
+  gap AS Integer
+END TYPE
+
+' The initial style: every property at its CSS initial value (display:inline,
+' flex-direction:row, flex-wrap:nowrap, justify-content:flex-start,
+' align-items:stretch, flex-grow:0, flex-shrink:1, everything else auto/zero).
+' Callers start here and override with WITH for the declarations they resolved.
+EXPORT FUNC defaultStyle() AS Style
+  RETURN Style[Display.Inline, FlexDirection.Row, FlexWrap.NoWrap, Justify.FlexStart, Align.Stretch, 0, 1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+END FUNC
