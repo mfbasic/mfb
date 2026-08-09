@@ -43,7 +43,7 @@ element move**, not an 8-byte word copy. Gates: `builder_values.rs` sortBy/windo
   still stride-1 only). **window 88.66 → 84.53 ms** — a correct, non-regressing **marginal** win (~4.7%; the
   `.mfb` was already per-window native `slice`), **NOT a G1 clear** (capped vs Python's C-backed slicing, py
   8.68). Checksum `99100` unchanged; native/`.mfb` byte-identical across overlapping/strided/whole/oversize/
-  empty/empty-string + 1000-round churn. Fixture: `window-string-native-rt`. Commit: `PENDING`.
+  empty/empty-string + 1000-round churn. Fixture: `window-string-native-rt`. Commit: `6e5ab2eb6`.
 - [x] **A2-chunks (String)** — native String `chunks` via **direct slice-per-chunk construction**: new
   `emit_string_list_slice_block(source_slot, start_slot, count_slot)` builds one TIGHT `List OF String` per
   chunk (length pass + overflow-guarded tight alloc + per-entry byte copy, mirroring `lower_list_slice_range`'s
@@ -56,7 +56,7 @@ element move**, not an 8-byte word copy. Gates: `builder_values.rs` sortBy/windo
   unchanged; native/`.mfb` byte-identical across exact/remainder/size-1/oversize/empty/empty-string + 1000-round
   churn. Value is mainly the reusable `emit_string_list_slice_block` primitive (window will reuse it). ATTEMPT 1
   (reserve+append) regressed ~2.3× and was reverted (see Corrections). Fixture: `chunks-string-native-rt`.
-  Commit: `PENDING`.
+  Commit: `6e5ab2eb6`.
 - [ ] **A3-zip (String)** — native String `zip` → `List OF Pair OF A, B`. Needs Pair-of-Strings
   variable-width fields (the fixed-width `try_inline_zip_op` hard-codes `REC=16`). Clears zip (26).
 - [x] **A3-findLastIndex** — native reverse-scan lowering (`lower_collection_find_last_index_call`,
