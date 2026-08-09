@@ -1493,7 +1493,7 @@ impl code::CodegenPlatform for Platform {
         let done = format!("{from}_env_get_done_{n}");
         instructions.extend([
             abi::subtract_stack(0x60),
-            abi::store_u64(abi::ARG[0], abi::stack_pointer(), NAME_SLOT), // save name (arena_alloc clobbers)
+            abi::store_u64(abi::c_arg(0), abi::stack_pointer(), NAME_SLOT), // save name (arena_alloc clobbers)
         ]);
         arena_alloc_to_slot(from, "65536", WNAME_SLOT, instructions, relocations);
         arena_alloc_to_slot(from, "65536", WVAL_SLOT, instructions, relocations);
@@ -1509,9 +1509,9 @@ impl code::CodegenPlatform for Platform {
         );
         // GetEnvironmentVariableW(wideName, wideVal, 32768) -> char count (0 = unset).
         instructions.extend([
-            abi::load_u64(abi::ARG[0], abi::stack_pointer(), WNAME_SLOT),
-            abi::load_u64(abi::ARG[1], abi::stack_pointer(), WVAL_SLOT),
-            abi::move_immediate(abi::ARG[2], "Integer", "32768"),
+            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), WNAME_SLOT),
+            abi::load_u64(abi::c_arg(1), abi::stack_pointer(), WVAL_SLOT),
+            abi::move_immediate(abi::c_arg(2), "Integer", "32768"),
         ]);
         call_external(
             from,
@@ -1524,17 +1524,17 @@ impl code::CodegenPlatform for Platform {
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_eq(&not_found),
             // WideCharToMultiByte(CP_UTF8, 0, wideVal, -1, u8Val, 131072, NULL, NULL).
-            abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8),
-            abi::move_immediate(abi::ARG[1], "Integer", "0"),
-            abi::load_u64(abi::ARG[2], abi::stack_pointer(), U8VAL_SLOT), // lpMultiByteStr (5th)
-            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20),
-            abi::move_immediate(abi::ARG[2], "Integer", "131072"), // cbMultiByte (6th)
-            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28),
+            abi::move_immediate(abi::c_arg(0), "Integer", CP_UTF8),
+            abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+            abi::load_u64(abi::c_arg(2), abi::stack_pointer(), U8VAL_SLOT), // lpMultiByteStr (5th)
+            abi::store_u64(abi::c_arg(2), abi::stack_pointer(), 0x20),
+            abi::move_immediate(abi::c_arg(2), "Integer", "131072"), // cbMultiByte (6th)
+            abi::store_u64(abi::c_arg(2), abi::stack_pointer(), 0x28),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // lpDefaultChar (7th) = NULL
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38), // lpUsedDefaultChar (8th) = NULL
-            abi::load_u64(abi::ARG[2], abi::stack_pointer(), WVAL_SLOT), // lpWideCharStr (3rd)
-            abi::move_immediate(abi::ARG[3], "Integer", "0"),
-            abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1), // cchWideChar = -1
+            abi::load_u64(abi::c_arg(2), abi::stack_pointer(), WVAL_SLOT), // lpWideCharStr (3rd)
+            abi::move_immediate(abi::c_arg(3), "Integer", "0"),
+            abi::subtract_immediate(abi::c_arg(3), abi::c_arg(3), 1), // cchWideChar = -1
         ]);
         call_external(
             from,
@@ -1575,8 +1575,8 @@ impl code::CodegenPlatform for Platform {
         let do_set = format!("{from}_env_set_do_{n}");
         instructions.extend([
             abi::subtract_stack(0x50),
-            abi::store_u64(abi::ARG[0], abi::stack_pointer(), NAME_SLOT),
-            abi::store_u64(abi::ARG[1], abi::stack_pointer(), VAL_SLOT),
+            abi::store_u64(abi::c_arg(0), abi::stack_pointer(), NAME_SLOT),
+            abi::store_u64(abi::c_arg(1), abi::stack_pointer(), VAL_SLOT),
         ]);
         arena_alloc_to_slot(from, "65536", WNAME_SLOT, instructions, relocations);
         emit_utf8_slot_to_wide(
@@ -1589,8 +1589,8 @@ impl code::CodegenPlatform for Platform {
         );
         // value == 0 → delete (wideValue = NULL); else marshal the value.
         instructions.extend([
-            abi::load_u64(abi::ARG[0], abi::stack_pointer(), VAL_SLOT),
-            abi::compare_immediate(abi::ARG[0], "0"),
+            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), VAL_SLOT),
+            abi::compare_immediate(abi::c_arg(0), "0"),
             abi::branch_eq(&set_null),
         ]);
         arena_alloc_to_slot(from, "131072", WVAL_SLOT, instructions, relocations);
@@ -1607,8 +1607,8 @@ impl code::CodegenPlatform for Platform {
             abi::label(&set_null),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), WVAL_SLOT), // lpValue = NULL → delete
             abi::label(&do_set),
-            abi::load_u64(abi::ARG[0], abi::stack_pointer(), WNAME_SLOT),
-            abi::load_u64(abi::ARG[1], abi::stack_pointer(), WVAL_SLOT),
+            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), WNAME_SLOT),
+            abi::load_u64(abi::c_arg(1), abi::stack_pointer(), WVAL_SLOT),
         ]);
         call_external(
             from,
@@ -2180,10 +2180,10 @@ impl code::CodegenPlatform for Platform {
             // scratch: copy len up to ARG[2] before ARG[1] is overwritten, then buf
             // into ARG[1], then NULL into ARG[0]. The SCRATCH pool must not be used —
             // callee-saved on Win64.
-            abi::move_register(abi::ARG[2], abi::ARG[1]), // cbBuffer = len
-            abi::move_register(abi::ARG[1], abi::ARG[0]), // pbBuffer = buf
-            abi::move_immediate(abi::ARG[0], "Integer", "0"), // hAlgorithm = NULL
-            abi::move_immediate(abi::ARG[3], "Integer", BCRYPT_USE_SYSTEM_PREFERRED_RNG),
+            abi::move_register(abi::c_arg(2), abi::c_arg(1)), // cbBuffer = len
+            abi::move_register(abi::c_arg(1), abi::c_arg(0)), // pbBuffer = buf
+            abi::move_immediate(abi::c_arg(0), "Integer", "0"), // hAlgorithm = NULL
+            abi::move_immediate(abi::c_arg(3), "Integer", BCRYPT_USE_SYSTEM_PREFERRED_RNG),
         ]);
         call_external(from, "BCryptGenRandom", BCRYPT, instructions, relocations);
         Ok(())
