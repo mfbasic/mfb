@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/rt-behavior/vector/vector-normalize-inline-rt
+Wrote AST to tests/rt-behavior/vector/vector-normalize-inline-rt/vector_normalize_inline_rt.ast
+Wrote IR to tests/rt-behavior/vector/vector-normalize-inline-rt/vector_normalize_inline_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/vector/vector-normalize-inline-rt
+Wrote executable to tests/rt-behavior/vector/vector-normalize-inline-rt/build/vector_normalize_inline_rt.out
+[exit 0]
+$ tests/rt-behavior/vector/vector-normalize-inline-rt/build/vector_normalize_inline_rt.out
+na=0.60,0.80,0.00
+nb=0.60,0.80
+nc=0.20,0.40,0.40,0.80
+ulen=1.00
+acc=86.54
+[exit 0]

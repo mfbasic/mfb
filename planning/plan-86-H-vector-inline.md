@@ -12,7 +12,26 @@ fresh N×8 arena block; Integer/Fixed `length` also runs software isqrt. `vector
 `normalize` ×2/iter.
 
 ## Fixes
-- [ ] **H1 (vector math — the biggest single lever, but HARDER)** — inline `normalize`. **Scout
+- [x] **H1 (vector math — the biggest single lever, but HARDER)** — **LANDED. vector math 30.95 → 8.37 ms
+  (~3.7×, clears G2/G3 bands: 8.37 − c-O0 4.53 = +3.84 < 5); vector float 20.90 → 18.9 ms (~10 %, normalize is
+  a smaller fraction of float's op mix — still improved).** Implemented `inline_vector_normalize`
+  (`builder_vector_inline.rs`, Float only; gate `("normalize", 1) => element == "Float"`): lowers `sum = Σf²`
+  then `len = math::sqrt(sum)` to a register (observed finite, exactly as the FUNC's `LET len`), stores `len`
+  to a stack slot BOUND AS A SYNTHETIC FLOAT LOCAL `$vecnorm_len` so the per-lane divides reuse it once
+  (matching the FUNC's single `LET len`), emits the guard `IF len = 0.0 THEN emit_error_code_return(77050002,
+  "vector::normalize of a zero-length vector")` via a lowered float-compare + `branch_eq(ok)` +
+  `emit_error_code_return` (terminal, branches to the function exit), then builds `Float_N[f/$len,…]` and
+  restores the shadowed local. The guard/FAIL needed no NEW machinery — `self.label` + `abi::compare_immediate`
+  /`branch_eq` + the existing `emit_error_code_return` compose it; the len-reuse rides the ordinary
+  synthetic-local mechanism (`self.locals.insert`/`remove`, same as a loop counter). Bit-identity: same
+  `sqrt`/divide NIR nodes in the same order as the FUNC → identical by construction; verified against a no-H1
+  oracle (na=0.60,0.80,0.00 / nb=0.60,0.80 / nc=0.20,0.40,0.40,0.80 / ulen=1.00 / acc=86.54 over 50 varied
+  normalizes — IDENTICAL). Zero-length still traps `Error: 7-705-0002` + message + exit 255 (matches
+  `rt-error/vector/normalize_zero_rt`; the source-location shift to the call site is not observable). Byte
+  identity: `vector_codegen_cover_rt` .ncode churned on all 5 targets (expected — Float normalize now inlines)
+  → regenerated .ncodesum; `normalize_zero_rt` .ir/.run regenerated; new fixture `vector-normalize-inline-rt`.
+  3776 unit tests green. `normalize(Constructor[…])` (e.g. acceptance/vector.mfb) is NOT re-eval-safe so it
+  keeps the FUNC path (no churn there). Commit: `<pending>`. Original scout note (kept): **Scout
   (plan-86-A session): needs NEW statement-emitting inline machinery with no precedent in the module.** The
   `.mfb` body (`vector_package.mfb:367-376`) is `len=sqrt(Σx²); IF len=0.0 THEN FAIL error(77050002); RETURN
   Float_N[x/len,…]` (divide each lane by len, NOT `scale(v,1/len)`). `try_inline_vector_op`
