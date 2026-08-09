@@ -184,7 +184,7 @@ Commit: e7fdb63d3
 
 Acceptance: `artifact-gate.sh` green; no unexpected non-`process` golden diff.
 **MET** — `artifact-gate [all]: 1647 golden(s) checked, 0 diff(s)`.
-Commit: <gate commit>
+Commit: e5c959871
 
 ## Validation Plan
 
