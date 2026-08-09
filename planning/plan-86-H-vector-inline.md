@@ -29,9 +29,11 @@ fresh N×8 arena block; Integer/Fixed `length` also runs software isqrt. `vector
   normalizes — IDENTICAL). Zero-length still traps `Error: 7-705-0002` + message + exit 255 (matches
   `rt-error/vector/normalize_zero_rt`; the source-location shift to the call site is not observable). Byte
   identity: `vector_codegen_cover_rt` .ncode churned on all 5 targets (expected — Float normalize now inlines)
-  → regenerated .ncodesum; `normalize_zero_rt` .ir/.run regenerated; new fixture `vector-normalize-inline-rt`.
-  3776 unit tests green. `normalize(Constructor[…])` (e.g. acceptance/vector.mfb) is NOT re-eval-safe so it
-  keeps the FUNC path (no churn there). Commit: `<pending>`. Original scout note (kept): **Scout
+  → regenerated .ncodesum; full artifact-gate `all` 0 diffs. New fixtures `vector-normalize-inline-rt` (normal
+  path) + `normalize_zero_inline_rt` (inlined guard). 3776 unit tests green. `normalize(Constructor[…])` (e.g.
+  `normalize_zero_rt`, acceptance/vector.mfb) is NOT re-eval-safe so it keeps the FUNC path and does NOT churn
+  — which is why the inlined guard needed its OWN fixture (`normalize_zero_inline_rt`, a Local zero vector) for
+  coverage. Commit: `12213a782`. Original scout note (kept): **Scout
   (plan-86-A session): needs NEW statement-emitting inline machinery with no precedent in the module.** The
   `.mfb` body (`vector_package.mfb:367-376`) is `len=sqrt(Σx²); IF len=0.0 THEN FAIL error(77050002); RETURN
   Float_N[x/len,…]` (divide each lane by len, NOT `scale(v,1/len)`). `try_inline_vector_op`
