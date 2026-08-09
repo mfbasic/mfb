@@ -41,6 +41,9 @@ IMPORT thread
 '                    URL and returns to Display Mode, Esc cancels.
 '   Up / Down  scroll the content one line at a time.
 '   Left/Right pan a wider-than-screen page horizontally one column at a time.
+'   M / m      cycle the display width: (s)tandard=terminal width, (w)ide=300,
+'              (e)xtra-wide=600 columns (shown as (s)/(w)/(e) before Files). A new
+'              page load resets to standard.
 '
 ' On a load error of any kind the error message is shown in the content area.
 '
@@ -61,12 +64,22 @@ FUNC minOf(a AS Integer, b AS Integer) AS Integer
   RETURN b
 END FUNC
 
-' The minimum width (in columns) a page is laid out to, regardless of the terminal
-' size, so wide multi-column layouts have room to render instead of cramming into a
-' narrow viewport. The visible window is the terminal width; content past it is
-' clipped until you pan to it with Left / Right (horizontal scroll).
-FUNC minDisplayWidth() AS Integer
-  RETURN 300
+' The width (in columns) a page is laid out to, by the display width mode. Standard
+' ("s") uses the actual terminal width; wide ("w") lays out to at least 300 columns
+' and extra-wide ("e") to at least 600, so wide multi-column layouts get room instead
+' of cramming. When wider than the terminal the viewport shows a `cols`-wide window;
+' Left/Right pan across the rest.
+FUNC layoutWidthFor(mode AS String, cols AS Integer) AS Integer
+  IF mode = "w" THEN RETURN maxOf(cols, 300)
+  IF mode = "e" THEN RETURN maxOf(cols, 600)
+  RETURN cols
+END FUNC
+
+' The next width mode in the toggle cycle: standard -> wide -> extra-wide -> standard.
+FUNC nextWidthMode(mode AS String) AS String
+  IF mode = "s" THEN RETURN "w"
+  IF mode = "w" THEN RETURN "e"
+  RETURN "s"
 END FUNC
 
 ' Rows available for page content: everything except the 2 header and 2 footer
@@ -266,7 +279,7 @@ END FUNC
 ' Draw the top bar, both rules, the footer, and place the cursor. The top bar
 ' shows the URL being edited in Address Mode ("[ind] HREF: <url>") and the page
 ' title, right-aligned, in Display Mode ("[ind]            <title>").
-SUB drawChrome(size AS TermSize, addressMode AS Boolean, rawMode AS Boolean, url AS String, title AS String, loadState AS String, secure AS Boolean, spinner AS Integer, filesLoaded AS Integer, filesTotal AS Integer)
+SUB drawChrome(size AS TermSize, addressMode AS Boolean, rawMode AS Boolean, url AS String, title AS String, loadState AS String, secure AS Boolean, spinner AS Integer, widthMode AS String, filesLoaded AS Integer, filesTotal AS Integer)
   LET cols AS Integer = size.columns
   LET rows AS Integer = size.rows
   LET ind AS String = indicatorText(loadState, secure, spinner)
@@ -290,10 +303,11 @@ SUB drawChrome(size AS TermSize, addressMode AS Boolean, rawMode AS Boolean, url
   term::drawHLine(LineStyle.Light, 1, 0, cols - 1)
   term::drawHLine(LineStyle.Light, rows - 2, 0, cols - 1)
 
-  ' Row H-1: footer controls.
-  LET rightPart AS String = "Files: " & toString(filesLoaded) & "/" & toString(filesTotal)
-  MUT leftPart AS String = "[Q]uit  [G]o  [R]aw"
-  IF rawMode THEN leftPart = "[Q]uit  [G]o  [D]ocument"
+  ' Row H-1: footer controls. The width-mode indicator (s)tandard / (w)ide /
+  ' (e)xtra-wide sits just before the file count on the right.
+  LET rightPart AS String = "(" & widthMode & ") Files: " & toString(filesLoaded) & "/" & toString(filesTotal)
+  MUT leftPart AS String = "[Q]uit  [G]o  [R]aw  [M]ode"
+  IF rawMode THEN leftPart = "[Q]uit  [G]o  [D]ocument  [M]ode"
   IF addressMode THEN leftPart = "[Esc] Cancel  [Enter] Go"
   term::setBackground(30, 40, 60)
   term::setForeground(225, 233, 255)
@@ -358,6 +372,9 @@ FUNC main AS Integer
   MUT pageTitle AS String = ""
   MUT scroll AS Integer = 0
   MUT hscroll AS Integer = 0
+  ' Display width mode: "s" standard (terminal width), "w" wide (>=300), "e"
+  ' extra-wide (>=600). [M] cycles it; a new page load resets it to standard.
+  MUT widthMode AS String = "s"
   MUT loadState AS String = "idle"
   MUT secure AS Boolean = FALSE
   MUT spinner AS Integer = 0
@@ -385,7 +402,7 @@ FUNC main AS Integer
   MUT wrapped AS List OF String = []
   MUT wrapWidth AS Integer = -1
   ' The widest painted line, for clamping the horizontal scroll (Left/Right). The
-  ' page can be laid out wider than the terminal (see minDisplayWidth), and the
+  ' page can be laid out wider than the terminal (see the display width mode, layoutWidthFor), and the
   ' viewport shows a `cols`-wide window starting at `hscroll`.
   MUT contentPixWidth AS Integer = 0
   MUT needRewrap AS Boolean = TRUE
@@ -421,13 +438,13 @@ FUNC main AS Integer
 
       ' Recompute the content lines from the DOM when the page, the mode, or the
       ' width changed. Display Mode paints the DOM by its computed Layout straight
-      ' into positioned lines — laid out to at least minDisplayWidth() columns so
+      ' into positioned lines — laid out to the display width mode's width so
       ' wide multi-column pages get room instead of cramming; the viewport shows a
       ' `cols`-wide window into that canvas (drawContent clips each line to `cols`).
       ' Raw Mode and the welcome/error fallback are plain text hard-wrapped to the
       ' visible column width.
       LET paintMode AS Boolean = haveDom AND NOT rawMode
-      LET layoutW AS Integer = maxOf(cols, minDisplayWidth())
+      LET layoutW AS Integer = layoutWidthFor(widthMode, cols)
       MUT effWidth AS Integer = cols
       IF paintMode THEN effWidth = layoutW
       IF needRecontent OR effWidth <> lastContentWidth THEN
@@ -483,7 +500,7 @@ FUNC main AS Integer
         contentDirty = TRUE
       END IF
 
-      drawChrome(size, addressMode, rawMode, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
+      drawChrome(size, addressMode, rawMode, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
       IF contentDirty THEN
         drawContent(size, wrapped, scroll, hscroll)
         contentDirty = FALSE
@@ -505,14 +522,14 @@ FUNC main AS Integer
         pageTitle = ""
         LET target AS String = strings::trim(url)
         LET loadingLines AS List OF String = wrapContent("Loading " & target & " ...", cols)
-        drawChrome(size, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
+        drawChrome(size, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
         drawContent(size, loadingLines, 0, 0)
         term::sync()
 
         LET worker AS Thread OF String TO LoadResult = thread::start(fetch::fetch, target)
         DO WHILE thread::isRunning(worker)
           spinner = spinner + 1
-          drawChrome(size, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
+          drawChrome(size, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
           term::sync()
           ' Wait up to one frame for a key; Q aborts the load and quits.
           IF ready(100) THEN
@@ -547,6 +564,7 @@ FUNC main AS Integer
           filesTotal = page.filesTotal
           scroll = 0
           hscroll = 0
+          widthMode = "s"
           needRecontent = TRUE
           contentDirty = TRUE
           IF page.ok THEN
@@ -595,6 +613,13 @@ FUNC main AS Integer
         END IF
       ELSEIF key = "RIGHT" THEN
         hscroll = hscroll + 1
+        contentDirty = TRUE
+      ELSEIF key = "m" OR key = "M" THEN
+        ' Cycle the display width mode (standard -> wide -> extra-wide) and re-lay
+        ' out; reset the horizontal pan since the canvas width changed.
+        widthMode = nextWidthMode(widthMode)
+        hscroll = 0
+        needRecontent = TRUE
         contentDirty = TRUE
       END IF
     END IF
