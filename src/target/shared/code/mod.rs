@@ -2257,6 +2257,9 @@ fn lower_runtime_helper(
                     "process.spawn" => {
                         process::lower_process_spawn_helper(symbol, platform_imports, platform, false)?
                     }
+                    "process.shell" => {
+                        process::lower_process_shell_helper(symbol, platform_imports, platform)?
+                    }
                     // "process.spawnEnv" (the cwd+env form) is not yet emitted —
                     // it falls to the error arm below until plan-90-A implements
                     // the child-side chdir + environment application.
