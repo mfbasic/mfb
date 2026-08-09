@@ -272,9 +272,10 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         // wall-clock delay (91-A); a `ThreadWorker` is cancellation-aware (91-B).
         // The direction split (thread.sleep vs thread.sleepWorker) is applied at
         // codegen in `builder_values`. Returns Nothing after blocking `ms` ms.
-        SLEEP if arg_types.len() == 2
-            && is_thread_type(&arg_types[0])
-            && arg_types[1] == "Integer" =>
+        SLEEP
+            if arg_types.len() == 2
+                && is_thread_type(&arg_types[0])
+                && arg_types[1] == "Integer" =>
         {
             Cow::Borrowed("Nothing")
         }
