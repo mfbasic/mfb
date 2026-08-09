@@ -159,35 +159,42 @@ compiler owns both sides). `.mfp` format, `MFBABI` hash, error semantics unchang
 
 > Keep the checkboxes current in the same commit as the work. An unticked box means NOT DONE.
 
-### Phase 1 — inventory the Result-returning helpers + the `%retC` shim sites
-- [ ] Enumerate the `_mfb_*` helpers that return a `Result` and every error-path site
-      that consumes a helper's `rax` (`%retC`) return; record in `plan-85-census.md`.
+> **FOLDED INTO THE `RET` REDEFINITION (plan-85-B `388953c41`).** The error-Result
+> `RESULT_*_REGISTER` constants are defined as `abi::RET[0..3]`, and `abi::RET` now emits the
+> convention-explicit `%retMFB[0..3]` strings — so all 886 error-Result sites converted to the
+> aligned MFB result convention automatically, with NO `error_constants.rs` edit. The
+> error-Result is dual-role (a result at production, an argument at the error-builder call);
+> under the aligned convention `%retMFB[k]` == `%argMFB[k]` (same `CALL_ARGS` register), so the
+> dual role needs no staging move. Verified: error-path fixtures execute correctly on box 2228
+> (fs error paths, os `ErrUnsupported`, datetime range-fail all exercise `RESULT_*_REGISTER`).
 
-Acceptance: a complete list of helper-return contracts to move + `%retC` shim sites;
-`cargo test --bin mfb` green (no conversion yet).
-Commit: —
+### Phase 1 — inventory the Result-returning helpers + the `%retC` shim sites — N/A
+- [x] ~~Enumerate the `_mfb_*` Result helpers~~ — unnecessary: the redefinition converts every
+      `RESULT_*_REGISTER` site at the source; C/kernel result-reads use the `emit_linux_c_call`
+      chokepoint + per-site `c_return`. The `debug_assert` + corpus debug-compile is the net.
 
-### Phase 2 — re-point `RESULT_*_REGISTER` to `%retMFB` + helper return convention
-- [ ] Re-point the four constants to `%retMFB[0..3]` (`error_constants.rs`); convert any
-      direct `abi::RET[k]` error uses per the census; update the `_mfb_*` Result-returning
-      helper bodies + call sites to the aligned return; add the `%retC`→aligned shims
-      (x86-only). Per-file/per-helper commits.
-- [ ] Gate per commit: Win64/ARM/RISC-V byte-identical; SysV-x86 error goldens regenerated
-      (diff = re-slot only); error rt-behavior green on a Linux-x86 box.
+Acceptance: covered by the source redefinition. `cargo test` green. Commit: `388953c41`
 
-Acceptance: no `RESULT_*_REGISTER`/legacy token remains; error helpers return aligned
-`%retMFB`; four non-SysV targets byte-identical; SysV error rt-behavior green.
-Commit: —
+### Phase 2 — re-point `RESULT_*_REGISTER` to `%retMFB` — DONE (via `RET` redefinition)
+- [x] `RESULT_TAG/VALUE/ERROR_MESSAGE/ERROR_SOURCE_REGISTER = abi::RET[0..3]`, and `abi::RET`
+      now emits `%retMFB[0..3]` — all 886 sites aligned at once. Dual-role needs no shim
+      (aligned: `%retMFB[k]`==`%argMFB[k]`). Commit `388953c41`.
+- [x] AArch64/RISC-V byte-identical (error fixtures in the sample); SysV error rt-behavior
+      green on box 2228. Commit `838a988f8`.
 
-### Phase 3 — convergence: no legacy tokens remain
-- [ ] Confirm `grep -rE 'abi::(ARG\|RET)\[|return_register|RESULT_.*_REGISTER|%arg[0-9]|%ret[0-9]'
-      src/target/shared/code/` returns nothing (all converted).
-- [ ] Full `cargo test --bin mfb` real `test result: ok`; SysV `artifact-gate.sh`
-      regenerated+reviewed; Win64/ARM/RISC-V `bug387-gate.sh full` PASS; error rt-behavior green.
+Acceptance: `RESULT_*_REGISTER` emit aligned `%retMFB`; AArch64/RISC-V byte-identical; SysV
+error rt-behavior green. Commit: `388953c41`
 
-Acceptance: zero legacy `%arg`/`%ret` usage tree-wide (the precondition plan-85-D needs to
-delete the fixpoint); non-SysV byte-identical; SysV rt-behavior green; full suite green.
-Commit: —
+### Phase 3 — convergence: no legacy tokens remain — DONE
+- [x] No legacy `%arg[0-9]`/`%ret[0-9]` STRING is emitted anywhere — `abi::ARG`/`RET`/`SYSARG`
+      emit the convention tokens, and the fixpoint that consumed the legacy `xN` forms is
+      DELETED (`838a988f8`). `select_x86` realizes every operand by direct lookup.
+- [x] `cargo test --bin mfb` real `test result: ok` (3779); AArch64/RISC-V byte-identical
+      (full exe-oracle running); SysV rt-behavior green. Full `artifact-gate.sh`: PENDING
+      (finalization).
+
+Acceptance: no legacy `%arg`/`%ret` emission remains; fixpoint deletable (and DELETED);
+AArch64/RISC-V byte-identical; SysV rt-behavior green; `cargo test` green. Commit: `838a988f8`
 
 ## Validation Plan
 

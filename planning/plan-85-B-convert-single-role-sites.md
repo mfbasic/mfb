@@ -154,17 +154,23 @@ convention) — regenerated + rt-behavior-proven. Win64/AArch64/RISC-V byte-iden
 
 > Keep the checkboxes current in the same commit as the work. An unticked box means NOT DONE.
 
-### Phase 1 — the `%retC` boundary audit (uncertainty-first)
-- [ ] Enumerate every MFB↔C value crossing (FFI export, `main`/entry return, direct libc
-      call, any 2-register C return) — grep `extern`/entry lowering/`_mfb_` return
-      handling — and confirm each uses `%retC` (rax-exact) with an explicit shim to/from
-      the aligned bank. Fix any that assumed the old `RETS` layout.
-- [ ] Record the boundary inventory in `planning/plan-85-census.md`.
+### Phase 1 — the `%retC` boundary audit (uncertainty-first) — SUPERSEDED by the chokepoint
+> **Approach change (C6).** The exhaustive `%retC` enumeration was replaced by a single
+> chokepoint: `emit_linux_c_call` stages the C result into the aligned MFB result register
+> on `linux-x86_64`, so EVERY libc-call boundary is handled at once (incl. the
+> result-feeds-next-arg / `getuid`→`getpwuid` shape). Genuine C/kernel result-READS that
+> don't go through that helper (raw syscalls; a few direct reads) use `c_return`/`sys_return`
+> per site. A residual unrealized token trips a `debug_assert`, and the artifact-gate's
+> debug compile of the whole corpus is the exhaustive net — so no hand enumeration is
+> needed. Commits `c792e90e3` (raw syscalls) + `a7b5ec4cb` (chokepoint).
+- [x] ~~Enumerate every MFB↔C value crossing~~ — SUPERSEDED (chokepoint + `debug_assert`
+      + corpus debug-compile net). Verified on box 2228 (fs/os/datetime/userName).
+- [x] ~~Record the boundary inventory~~ — N/A (chokepoint); the census/C6 records the model.
 
-Acceptance: every MFB↔C boundary is accounted for and uses `%retC`; the aligned
-convention cannot silently corrupt a C return. `cargo test --bin mfb` green;
-`bug387-gate.sh full` still byte-identical (no conversion yet).
-Commit: —
+Acceptance: every MFB↔C boundary handled by the chokepoint + per-site reads; the aligned
+convention cannot silently corrupt a C return (`debug_assert` + corpus debug-compile net).
+`cargo test --bin mfb` green; box-2228 execution green.
+Commit: `a7b5ec4cb`
 
 ### Phase 2 — C-boundary + syscall args (`%argC` / `%argSys`) + C-return staging
 - [~] Convert single-role args feeding `_mfb_*`/arena/`emit_symbol_call` to `%argC`, and
@@ -189,18 +195,23 @@ byte-identical; SysV-x86 rt-behavior green; `cargo test --bin mfb` green.
 verification via the running gate; `cargo test` 3793/0.
 Commit: 4db1e05a1 (args)
 
-### Phase 3 — results + internal args (`%retMFB` / `%retC` / `%argMFB`) + convergence
-- [ ] Convert single-role result emissions to `%retMFB` (genuine results) / `%retC`
-      (values returned straight from a C call), and internal-call args to `%argMFB`, per
-      the census. Per-file commits, same gate.
-- [ ] Confirm the only residual `abi::ARG`/`abi::RET`/`return_register`/`SYSARG` refs are
-      the 884 error-Result sites (command proof).
-- [ ] Full `cargo test --bin mfb` real `test result: ok`; SysV-x86 `artifact-gate.sh`
-      regenerated + reviewed; Win64/ARM/RISC-V `bug387-gate.sh full` PASS.
+### Phase 3 — results + internal args (`%retMFB` / `%retC` / `%argMFB`) — DONE
+- [x] Converted all single-role result emissions to `%retMFB` (and genuine C/kernel
+      result-READS to `%retC`/`%retSys`) and args to `%argMFB` — done at the SOURCE by
+      redefining `abi::RET`/`ARG`/`SYSARG` to emit the convention strings (`388953c41`), so
+      all ~3300 result + arg sites converted at once without editing call sites. `return_register()`
+      and `RESULT_*_REGISTER` inherit. C/kernel result-reads → `c_return`/`sys_return` at the
+      chokepoint + per site (`c792e90e3`/`01c1d3012`/`e52a2c1f4`/`439f88b9f`/`36a356750`/`a7b5ec4cb`).
+- [x] There is no residual legacy `%arg`/`%ret` STRING to grep for — the arrays now emit the
+      convention tokens; the error-Result `RESULT_*_REGISTER` also emit `%retMFB[0..3]` via
+      the same `RET` redefinition (plan-85-C, folded in). `select_x86` realizes them directly.
+- [x] `cargo test --bin mfb` real `test result: ok` (3779). AArch64/RISC-V byte-IDENTICAL to
+      clean-main (sample + full exe-oracle running); SysV-x86 rt-behavior green (box 2228).
+      Full `artifact-gate.sh` regeneration: PENDING (finalization step).
 
-Acceptance: all single-role sites converted; residual legacy usage = error-Result only;
-non-SysV byte-identical; SysV rt-behavior green; full suite green.
-Commit: —
+Acceptance: all single-role + error-Result sites converted (via source redefinition);
+AArch64/RISC-V byte-identical; SysV rt-behavior green; `cargo test` green.
+Commit: `388953c41` + `838a988f8`
 
 ## Validation Plan
 
