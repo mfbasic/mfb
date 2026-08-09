@@ -188,7 +188,7 @@ fix, per the per-bug workflow. The evidence names the fixed file/behavior.
 - [x] **bug-197** (monomorph-assign-rhs-expected-type) — Added `tests/rt-behavior/functions/bug197_assign_rhs_expected_type/` (return-type-overloaded `make()`; `n = make()` with `MUT n AS Integer` prints 42). GREEN via test-accept. RED proof: reverted the Assign-arm expected-type at lower.rs:935 to `None`, rebuilt release → `error[2-203-0101 TYPE_OVERLOAD_AMBIGUOUS]`. Restored.
 - [x] **bug-198** (resolver-global-func-value-callee) — Added `tests/rt-behavior/functions/bug198_global_func_value_callee/` (global FUNC-valued binding in CALL position prints 6, plus value-position g(41)=42). GREEN via `test-accept.sh target/release/mfb`. RED proof: reverted the `&& !top_level_visible_in_file` clause at src/resolver/resolution.rs:1228, rebuilt release, fixture fails to compile with `error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: Callable \`GLOBAL_ADDER\` is not a top-level function.` — restored.
 - [ ] **bug-199** (macos-thread-resource-pthread-imports) — Fix confirmed applied: src/target/macos_aarch64/plan.rs:626-627 now includes "thread.transferResource"|"thread.acceptResource" in the pthread-import arm. Doc...
-- [ ] **bug-200** (money-round-register-clobber) — Fix commit e4673f8b4 (spill Money raw across money::round decimals lowering) touched only builder_money.rs and the bug doc; doc says 'verified at runtime' on...
+- [x] **bug-200** (money-round-register-clobber) — RESOLVED via outcome (b): a verified, objdump-backed reason no host `tests/*` test can guard this fix (see Corrections). Reverting the manual spill leaves BOTH runtime output (`3.14`) AND `.ncode` structure unchanged on macos-aarch64 — the register allocator already spills the live Money raw across the `bl _mfb_fn_decimalsFor` call (`str_u64 x8->sp+608` present with the fix reverted), making the manual spill redundant here. No RED-able host guard exists at runtime or codegen level; a cross-target (x86/riscv) objdump would be the only possible observer.
 - [ ] **bug-201** (fs-readtext-close-uninitialized-fd) — No test guards the alloc_error-tail fix in src/target/shared/code/fs/atomic.rs::lower_fs_read_text_path_helper. The file (and its siblings io.rs, mod.rs, pat...
 - [ ] **bug-202** (tls-accept-handshake-no-timeout) — Fix confirmed (src/target/shared/code/tls/openssl.rs:1556 TIMEVAL_OFFSET + emit_set_sock_timeouts wired into lower_tls_accept_openssl), but no dedicated test...
 - [ ] **bug-205** (thread-cancel-drop-resource-plane-wake) — Fix confirmed: emit_close_resource_queues (src/target/shared/code/runtime_helpers_thread.rs:1483, wired at :439 Cancel and :641 Drop). No dedicated fixture e...
@@ -417,10 +417,18 @@ Commit: (this commit)
   the macOS-aarch64 host — reclassified to codegen-inspection (Design §3 shape #4).**
   A runnable `.mfb` fixture built for each and then RED-checked (fix reverted +
   release rebuilt) still passed, so the fixture would be a *vacuous* guard:
-  - **bug-200** (money::round register clobber): reverting the spill (read
-    `value.location` directly across the decimals-arg call) still printed the
-    correct `3.14` — the register allocator keeps the Money raw live across the
-    call on this host. Guard must inspect the `.ncode` spill store/load.
+  - **bug-200** (money::round register clobber): RESOLVED as outcome (b) — a
+    verified reason no host `tests/*` test can guard it (ticked in Phase 1 on that
+    basis). Decisive objdump: with the manual spill reverted, `_mfb_fn_main`'s
+    `.ncode` STILL carries `str_u64 x8 -> sp+608` immediately before
+    `bl _mfb_fn_decimalsFor` (vs the fixed build's `sp+24`) — the register
+    allocator independently spills the live Money raw across the call on
+    macos-aarch64, so neither runtime output (`3.14` either way) NOR `.ncode`
+    structure (a spill/reload is present either way) changes when the fix is
+    reverted. The manual spill is redundant with regalloc here; the fix can only
+    matter on a target/regalloc-state that leaves the raw in a call-clobbered
+    register (not observable on this host, at any level). No RED-able host guard
+    exists.
   - **bug-148** (inline-TRAP slot desync): a loop-FAIL + dead inline `TRAP(e)` +
     function-level `TRAP(e)` program still printed `caught: loop failure` with the
     handler re-pin (builder_control.rs:1109-1117) removed — this program's inline
