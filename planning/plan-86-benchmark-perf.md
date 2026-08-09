@@ -281,7 +281,10 @@ The index table above stays as the one-line overview; open a file for the checkl
 - **J** → [plan-86-J-csv-parse.md](plan-86-J-csv-parse.md) — **DONE (J1 moot).** Measured `parse csv` min 4.82 /
   med ~5.0ms — at the ≤5ms complete boundary, not regressed; the plan's "pursue only if it regresses" condition
   is not met. A native csv-parse builtin is unjustified for a boundary-complete row.
-- **K** → [plan-86-K-cow-layout.md](plan-86-K-cow-layout.md) — open (K1/K2/K3; also owns B3)
+- **K** → [plan-86-K-cow-layout.md](plan-86-K-cow-layout.md) — **RESOLVED. K1 LANDED** (param-passthrough
+  borrow; retired ALL 6 list `copy` rows, ~43ms→~0.03ms, `ba268da6c`). K2 (refcount/COW) `[~]` deferred by
+  user (too high-risk). K3 (out-of-line String-element layout) `[~]` deferred to its own plan (x-large, target
+  confirmed real — `set` still ~14ms). B3 `[~]` blocked on K2.
 - **L** → [plan-86-L-transcendental-capped.md](plan-86-L-transcendental-capped.md) — **DONE (L1 moot, rest capped).**
   L1 examined concretely: nbody has NO nzr/nzi (unrolled scalars); only mandelbrot does; and the plan's
   `fmax(|nzr|,|nzi|)` design is UNSOUND (3-way finite/Inf/NaN check with distinct errors — `fmax(NaN,x)=x`

@@ -50,8 +50,18 @@ within noise (e.g. `set` 13.995→14.131). Commit: `ba268da6c`.
   refcount-free — so K2's remaining upside is likely small. If ever pursued, it must be a standalone plan with
   an exhaustive value-semantics/aliasing fixture matrix authored BEFORE any mutation path is touched. Left
   `[~]` deferred, not `[ ]`.
-- [ ] **K3** — out-of-line String-element list layout so a growing String `set` need not rebuild the whole
-  list (the bug-430 in-place-mutation follow-up). Retires `list (Dynamic) set`. Do with A.
+- [~] **K3 — DEFERRED to its own dedicated plan by user decision (2026-08-09); target confirmed real.** —
+  out-of-line String-element list layout so a growing String `set` need not rebuild the whole list (the
+  bug-430 in-place-mutation follow-up). Retires `list (Dynamic) set`. Do with A. **Scope finding (this
+  session): NO contained version exists** — the `set` rebuild (`list_mutate.rs:1906-2035`) reflows the whole
+  data region on ANY element size change, so the only fix is storing String elements OUT OF LINE (each element
+  a pointer to its own block). That is a fundamental representation change touching ~22 files across
+  `list_mutate` / `builder_collection_query` / `builder_collection_layout` (get/set/append/copy/insert/removeAt/
+  sort/serialize/iterate) with heavy golden churn — bug-430 rates this class **x-large (1d–3d)**. **Target
+  confirmed real by measurement:** after K1, `list (Dynamic) set` is still **~14.1ms** (the single biggest
+  list-op cost), untouched. Deferred (not dropped) because rushing an x-large value-model layout change at deep
+  context is the exact corruption risk flagged for K2; it should be its own plan with an exhaustive
+  value-semantics/aliasing + layout fixture matrix authored BEFORE any mutation path is touched. Left `[~]`.
 - [~] **B3 (from [plan-86-B](plan-86-B-reduce-accumulator.md)) — BLOCKED on K2 (its stated prerequisite) +
   conditional-not-met.** — in-place growing reducer accumulator, needs K's uniquely-owned-mutation analysis.
   Pursue only if B1 left a gap; do not gate B on parity. **Both of B3's own gates are unmet:** (1) it explicitly
