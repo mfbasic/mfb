@@ -2532,7 +2532,11 @@ fn marshal_struct_out(
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
-    instructions.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), REC_OFF));
+    instructions.push(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        REC_OFF,
+    ));
 
     // Pass 2: write each field. The record pointer is reloaded per field — it did
     // not survive the allocation (`_mfb_arena_alloc` destroys x0-x17).

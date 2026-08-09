@@ -279,7 +279,11 @@ fn generate(
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BLOB));
+    ins.push(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        BLOB,
+    ));
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", &raw_len.to_string()),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),

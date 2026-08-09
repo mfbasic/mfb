@@ -925,9 +925,17 @@ fn emit_entry_args_list_materialization(
         abi::move_immediate(abi::SCRATCH[8], "Byte", &COLLECTION_KIND_LIST.to_string()),
         abi::store_u8(abi::SCRATCH[8], abi::mfb_return(1), COLLECTION_OFFSET_KIND),
         abi::move_immediate(abi::SCRATCH[8], "Byte", &COLLECTION_TYPE_NONE.to_string()),
-        abi::store_u8(abi::SCRATCH[8], abi::mfb_return(1), COLLECTION_OFFSET_KEY_TYPE),
+        abi::store_u8(
+            abi::SCRATCH[8],
+            abi::mfb_return(1),
+            COLLECTION_OFFSET_KEY_TYPE,
+        ),
         abi::move_immediate(abi::SCRATCH[8], "Byte", &COLLECTION_TYPE_STRING.to_string()),
-        abi::store_u8(abi::SCRATCH[8], abi::mfb_return(1), COLLECTION_OFFSET_VALUE_TYPE),
+        abi::store_u8(
+            abi::SCRATCH[8],
+            abi::mfb_return(1),
+            COLLECTION_OFFSET_VALUE_TYPE,
+        ),
         abi::move_immediate(abi::SCRATCH[8], "Byte", "1"),
         abi::store_u8(
             abi::SCRATCH[8],
@@ -935,8 +943,16 @@ fn emit_entry_args_list_materialization(
             COLLECTION_OFFSET_FLAGS_VERSION,
         ),
         abi::store_u64(abi::SCRATCH[0], abi::mfb_return(1), COLLECTION_OFFSET_COUNT),
-        abi::store_u64(abi::SCRATCH[0], abi::mfb_return(1), COLLECTION_OFFSET_CAPACITY),
-        abi::store_u64(abi::SCRATCH[7], abi::mfb_return(1), COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64(
+            abi::SCRATCH[0],
+            abi::mfb_return(1),
+            COLLECTION_OFFSET_CAPACITY,
+        ),
+        abi::store_u64(
+            abi::SCRATCH[7],
+            abi::mfb_return(1),
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ),
         abi::store_u64(
             abi::SCRATCH[7],
             abi::mfb_return(1),
