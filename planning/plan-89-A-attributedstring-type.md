@@ -266,7 +266,7 @@ Commit: 006d75d69
 Acceptance: MET. `fromString` builds an `AttributedString`; copy-into-collection leaves each copy
 valid after scope-drop of the source; MUT reassignment drops the old value; no leak/UAF (clean exit
 under the rt-behavior run). `cargo test --bin mfb` green (3782 tests).
-Commit: —
+Commit: a33fe2a07
 
 ### Phase 3 — text seams (`toString`, `io::print`, `io::write`)
 
@@ -282,7 +282,7 @@ Commit: —
 
 Acceptance: MET. The rt-behavior fixture prints exactly the visible text and `toString` round-trips;
 the default's text is empty.
-Commit: —
+Commit: a33fe2a07
 
 ## Validation Plan
 
@@ -309,7 +309,30 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **"12 Family-B sites" undercounted the compiler-enforced `match Type` arms.** A dedicated
+  `Type::AttributedString` variant forced arms in many exhaustive matches beyond the 12 the map listed
+  (frontend walk/comparable/copyable/sendable/display/parse, construct + WITH-update guards, ir/verify
+  read-only-update + provably_data). The Rust compiler is the census tool here: adding the variant and
+  running `cargo build` surfaced every required arm. No arm was missed (clean build).
+- **Defaultable-but-not-comparable needed a split predicate.** `is_comparable_defaultable_primitive`
+  conflates the two sets, so adding `AttributedString` there would have made it comparable. Instead a
+  defaultable-only delta was added to `ir/verify/resources.rs::is_defaultable`, leaving
+  `is_comparable_seen` (frontend + ir/verify) to reject comparison. Verified: `a = b` fails to type.
+- **Opacity of `a.text` is via `TYPE_UNKNOWN_VALUE`, not a bespoke diagnostic.** Member access on the
+  fieldless type returns `Unknown` (the same path `Error.badfield` takes); a typed binding then fails
+  with `TYPE_UNKNOWN_VALUE`. This is the established codebase behavior and satisfies "must not compile".
+- **`runtime::usage.rs::is_native_direct_call` was an unlisted required site.** The plan's "10 sites"
+  package-shell list omitted it; without registering `astrings.fromString` there, NIR validation
+  rejected the call ("NIR call target does not resolve"). Added it.
+- **The `.mfp` round-trip fixture commits no binary `.mfp` golden's decode via `.info` only** — a
+  debug-built `.mfp` golden risks drift vs a release rebuild (`sync-package-mfp.sh`), so the fixture
+  relies on the codegen-independent `.info` decode dump plus build.log; the full consumer round-trip
+  (package → consumer executable importing it → run) was verified manually.
+- **Three existing assertions/docs updated for the additive change** (not weakened): the reserved-band
+  wire-id test (id 11 now → `AttributedString`, band is 12–19), the descriptor package count (26 → 27),
+  and the spec §18 package list (added `astrings`).
+- **Minor scope note:** `io::print`/`io::write` got the `AttributedString` overload per the plan;
+  `io::printError`/`io::writeError` were left String-only (kept in scope).
 
 ## Summary
 
