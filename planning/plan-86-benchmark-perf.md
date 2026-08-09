@@ -253,7 +253,10 @@ The index table above stays as the one-line overview; open a file for the checkl
   native is constant-factor-only (won't clear the row) and the tractable copy-then-overwrite path would REGRESS
   (dead-slack). **Sub-plan D COMPLETE (D1+D3 landed, D2 moot).**
 - **E** → [plan-86-E-borrow-element.md](plan-86-E-borrow-element.md) — **DONE** (E1 read-only get-borrow: **dispatch union 160.9 → 43.2 ms, ~3.7×**; classifier follows the `MATCH e` → `$matchN=e; MATCH $matchN` desugar, borrows both; fixed the plan-25 pending-temp free-into-container corruption; E2 moot/subsumed). Still P2 (interpreted MATCH/tree-eval residual).
-- **F** → [plan-86-F-string-single-pass.md](plan-86-F-string-single-pass.md) — open, **fully mapped** (F2 word-copy via existing `emit_block_copy_advance` + SWAR memchr = tractable/near-zero-risk but MARGINAL ~1.3–1.8×, short strings are alloc/call-bound; F3 case_map single-pass higher-risk). F1 landed plan-64.
+- **F** → [plan-86-F-string-single-pass.md](plan-86-F-string-single-pass.md) — **F1+F2 DONE** (F2: the 4 byte-copy
+  loops → `emit_block_copy_advance` 8-byte word-copy, byte-exact, 74 codegen goldens regenerated, gate 0-diff;
+  SWAR memchr deferred with evidence — marginal-on-marginal). F3 (case_map single-pass) open, higher-risk +
+  marginal (measured: string case is alloc/call-bound, ~118ns/op, copy <10%). F1 landed plan-64.
 - **G** → [plan-86-G-bounds-check-elim.md](plan-86-G-bounds-check-elim.md) — open, **fully mapped** (correctness-critical, UAF if unsound). **HONEST SCOPING: the SAFE minimal G1 cut helps ONLY scalar listchurn (1 P1, 10.6ms)** — memo/bignum do NOT match the `FOR i=0..len(L)-1`/un-reassigned-L shape (memo bound is a const + `ways` reassigned by `set`; bignum uses WHILE + `set`-reassigned) and need a strictly larger symbolic-range pass. Reuse plan-39 I1's range-fact substrate + `scan_loop_locals` + conservative-default-false; MANDATORY negative fixtures.
 - **H** → [plan-86-H-vector-inline.md](plan-86-H-vector-inline.md) — **DONE (H1+H2).** **H1 (normalize inline,
   Float)** = the big win: **vector math 30.95→8.37ms (~3.7×), vector float 20.90→18.9ms (~10%)**; the guard

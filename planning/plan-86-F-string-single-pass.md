@@ -41,7 +41,7 @@ The strings family copies **byte-at-a-time** through `emit_materialize_string_fr
 > Given F2 is measured non-clearing (~+6%), this is genuinely LOW priority vs the real remaining levers G1/K1.
 - [x] **F1** — case_map ASCII quick-check (landed plan-64).
 - [x] **F2** — 8-byte word-copy (+ SWAR memchr, deferred — see below). **LANDED the 4 word-copy swaps** —
-  byte-exact, `artifact-gate all` 0-diff after regen, 3776 unit tests green. Commit: `<pending-F2>`. Swapped the
+  byte-exact, `artifact-gate all` 0-diff after regen, 3776 unit tests green. Commit: `fe01c7408`. Swapped the
   4 byte-at-a-time string-copy loops to `emit_block_copy_advance`: (1) `emit_materialize_string_from_bytes`, (2)
   `mid`/slice (`builder_search.rs`), (3) split segment (`builder_strings_package.rs`), (4) join delim+value
   (`builder_strings_builtins.rs`), each dropping its now-unused `copy_loop`/`copy_done` labels. Verified
