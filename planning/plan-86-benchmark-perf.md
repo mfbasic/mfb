@@ -285,6 +285,33 @@ The index table above stays as the one-line overview; open a file for the checkl
 
 ## Corrections
 
+- **SESSION 2 (worktree-P-86) summary + accurate remaining state.** Landed this session (all
+  cargo-test-green + full artifact-gate `all` 0-diff + native/oracle bit-identical):
+  **H COMPLETE** — **H1 (normalize inline, Float): vector math 30.95→8.37ms (~3.7×, the big win),
+  vector float 20.90→18.9ms (~10%)**; H2 (length/distance Integer/Fixed) correct but MARGINAL (isqrt
+  dominates). **I DONE (both moot, measured):** the CPS matcher (`searchFrom` per position, `requiredFirstCp=-1`
+  for Class/Alt) is ~24.6ms of the 25ms replace row — I1 (compile) ~1% and I2 (output slice-build, implemented
+  then REVERTED: measured 24.8→26.1ms, no win, its "O(n²) concat" premise is false since `out & …` is already
+  O(n) in-place append) both miss it; the real lever is a Class/Alt first-scalar prefilter, bounded out.
+  **J DONE (J1 moot):** `parse csv` measured min 4.82/med ~5.0ms — at the ≤5ms complete boundary, not regressed;
+  the plan's "pursue only if it regresses" condition is unmet. **META-LESSON reinforced: MEASURE by decomposing
+  the benchmark before calling a box marginal.** Doing so this session CORRECTED a wrong "D3 marginal" lean →
+  **D3 is a real ~5ms P1 opportunity** (see plan-86-D): `mapchurn iterate` merge is 7.2ms = 2ms base copy +
+  ~5ms of inserts, because inserting new keys into a *tight copy* of a 1000-entry map pays geometric
+  grows/rehashes; native merge must PRESIZE to |a|+|b| (needs a new copy-with-capacity primitive —
+  `copy_collection_tight` always sizes tight; ~150 LOC). **Remaining open boxes (all substantial, prioritized
+  by measured value):** **D3** (native merge presize, ~5ms on iterate P1 — highest-value tractable, edit points
+  in plan-86-D; ALSO investigate why copy-then-grow reallocs per insert — may be broader); **G1** (bounds-check
+  elim: safe listchurn cut needs `n=len(L)` binding-tracking + unchecked plumbing, correctness-critical UAF,
+  mandatory negative fixtures; bignum/memo need a bigger symbolic-range pass); **K1** (list copy 12.5 P1:
+  `plan_returned_move` already move-elides owned locals but NOT params — `copyStrs(xs) RETURN xs` needs
+  caller-side read-only/liveness analysis, aliasing-risk); **F2/F3** (string word-copy/memchr: tractable via the
+  existing `emit_block_copy_advance` but MARGINAL ~1.3-1.8× AND broad `.ncode` gate churn); **D2** (String
+  mapValues, marginal per its note); **L1** (finiteness coalescing, bounded ~tens%, only if cheap); **G2** (memo
+  MOD strength-reduce); **K2** (COW refcount — LARGE, plan defers "until A/B/C/D cut copy volume"), **K3**
+  (out-of-line String layout, bug-430), **B3** (in-place reducer accumulator, needs K). **Recommended resume
+  order:** D3 → G1(listchurn) → K1 → F2 → L1 → G2 → D2 → K3 → K2 → B3.
+
 - **Session (worktree-P-86) summary + prioritized roadmap for the resume.** Landed this session (all
   cargo-test-green + artifact-gate all 0-diff + native/`.mfb` byte-identical): **sub-plan A COMPLETE** —
   findLastIndex 11.18→5.66 (P3 clear), **groupBy 162→0.366 (~445×, COMPLETE)**, chunks 13.4→12.98 / window
