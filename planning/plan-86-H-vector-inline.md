@@ -22,7 +22,7 @@ fresh N×8 arena block; Integer/Fixed `length` also runs software isqrt. `vector
   register, emit `compare_immediate`/`branch_eq` to a fail label emitting the same `FAIL error(77050002)` NIR,
   then lower the per-lane divides into a constructor. **Only lever for vector math (30.9ms, normalize ×2/iter)
   AND vector float (20.9, already fully inlined except normalize).** Higher-risk; do 2nd.
-- [x] **H2 (vector int/fixed — TRACTABLE, do FIRST)** — relax the `element=="Float"` clause
+- [x] **H2 (vector int/fixed — TRACTABLE, do FIRST)** — Commit: `89e5a8b7c`. relax the `element=="Float"` clause
   (`builder_vector_inline.rs:108`) for **length/distance ONLY** (KEEP `lerp`/`lerp_unclamped` Float-gated —
   their Fixed/Integer `.mfb` bodies genuinely differ via `toFixed`/`toFloat`/`round`, `vector_package.mfb:981`/
   `:1122`, so they'd need type-specific rewrite branches, not just the gate drop). `vector_call_is_inlined`

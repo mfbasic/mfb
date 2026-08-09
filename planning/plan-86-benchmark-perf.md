@@ -250,7 +250,12 @@ The index table above stays as the one-line overview; open a file for the checkl
 - **F** → [plan-86-F-string-single-pass.md](plan-86-F-string-single-pass.md) — open, **fully mapped** (F2 word-copy via existing `emit_block_copy_advance` + SWAR memchr = tractable/near-zero-risk but MARGINAL ~1.3–1.8×, short strings are alloc/call-bound; F3 case_map single-pass higher-risk). F1 landed plan-64.
 - **G** → [plan-86-G-bounds-check-elim.md](plan-86-G-bounds-check-elim.md) — open, **fully mapped** (correctness-critical, UAF if unsound). **HONEST SCOPING: the SAFE minimal G1 cut helps ONLY scalar listchurn (1 P1, 10.6ms)** — memo/bignum do NOT match the `FOR i=0..len(L)-1`/un-reassigned-L shape (memo bound is a const + `ways` reassigned by `set`; bignum uses WHILE + `set`-reassigned) and need a strictly larger symbolic-range pass. Reuse plan-39 I1's range-fact substrate + `scan_loop_locals` + conservative-default-false; MANDATORY negative fixtures.
 - **H** → [plan-86-H-vector-inline.md](plan-86-H-vector-inline.md) — open, **fully mapped**. **H2 TRACTABLE (do first)**: relax the Float-only gate (`builder_vector_inline.rs:108`) for length/distance ONLY (keep lerp Float-gated), extend the rewrite branches (Fixed→math.sqrt, Integer→`__vector_isqrtRound` call) → removes operand block-materialize, helps vector int (55.7ms, double-digit-% cut) + vector fixed. **H1 HARDER (guard-capable normalize inline, new statement-emitting machinery)**: the only lever for vector math (30.9) + vector float (20.9). Bit-identity mandatory.
-- **I** → [plan-86-I-regex.md](plan-86-I-regex.md) — open (capped floor)
+- **I** → [plan-86-I-regex.md](plan-86-I-regex.md) — **DONE (both moot, measured).** I1 (compile handle) negligible
+  (~0.03ms/compile → ~1% of the 25ms replace row; `compile` row already complete) + a public-API change; I2
+  (replace output slice-build) implemented→measured 24.8→26.1ms (no win, slightly worse) → REVERTED: the
+  `out & …` accumulation is already O(n) in-place append (premise false). Root cause: the prefilter-less CPS
+  matcher (`searchFrom` per position for Class/Alt, `requiredFirstCp=-1`) is ~24.6ms of the 25ms — the capped
+  structural floor the plan accepted; the only real lever is a Class/Alt first-scalar prefilter, bounded out.
 - **J** → [plan-86-J-csv-parse.md](plan-86-J-csv-parse.md) — open (borderline, low priority)
 - **K** → [plan-86-K-cow-layout.md](plan-86-K-cow-layout.md) — open (K1/K2/K3; also owns B3)
 - **L** → [plan-86-L-transcendental-capped.md](plan-86-L-transcendental-capped.md) — capped (only L1 is a live lever)
