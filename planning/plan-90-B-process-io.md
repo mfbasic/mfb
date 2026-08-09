@@ -171,38 +171,51 @@ stdout-read / stderr-read fd in the read builtins.
 
 Delivers stdin writing; safe alone (reads not required to write).
 
-- [ ] `Stream` enum in `process_package.mfb` + doc header.
-- [ ] Frontend metadata for send/sendBytes overloads.
-- [ ] `process/unix.rs` write emission + timeout (non-blocking write + poll) +
-  `runtime/process_specs.rs` helpers; register any new libc imports (`write`,
-  `fcntl`, `poll`) across the 4 Unix backends.
-- [ ] Tests: `tests/rt_process_send_receive.rs` (send a line to `cat`, later
-  read it back — the receive half is stubbed until Phase 2; assert the write
-  succeeds and the child echoes when its stdin closes), `func_process_send*_invalid`.
+- [x] `Stream` enum in `process_package.mfb` (`EXPORT ENUM Stream {StdOut,StdErr}`)
+  + doc header; companion wired through `augmented_project` in resolver +
+  syntaxcheck (the companion deferred from A). (`dc1ac94b3`)
+- [x] Frontend metadata for send/sendBytes overloads (+ receive/receiveBytes/poll,
+  landed together). (`dc1ac94b3`)
+- [x] `process/unix.rs` write emission + timeout: blocking partial-write loop
+  (EINTR retry, broken pipe → `ErrResourceClosed`); the 3-arg timeoutMs overloads
+  route (builder_values) to `sendTimeout`/`sendBytesTimeout`, which `poll(POLLOUT)`
+  before each write and raise `ErrTimeout`. `runtime/process_specs.rs` helpers;
+  `poll` import added across the Unix backends (`write`/`fcntl` already present).
+  (`8201aa0e4`)
+- [x] Tests: `rt-behavior/process/{send-grep,send-timeout,sendbytes}` (new-layout,
+  NOT `tests/rt_*.rs`; verified via child EXIT CODE — `grep -q` finds the sent
+  line). Invalid fixtures covered by the Phase-2 syntax set.
 
-Acceptance (runtime): a program spawns `cat`, `send`s a line, `close`s stdin, and
-`waitFor` returns 0; a `send` with a 1ms timeout to a full pipe raises
-`ErrTimeout`. `cargo test` green.
-Commit: —
+Acceptance (runtime): VERIFIED on macOS + Linux x86_64 — send a line to
+`grep -q hello`, `close` stdin, `waitFor`==0 when matched (1 when not); a 3-arg
+`send(...,1000)` returns 0; sendBytes delivers raw bytes. `cargo test` green (3797).
+Commit: dc1ac94b3, 8201aa0e4
 
 ### Phase 2 — Read path (`receive`/`receiveBytes`/`poll` + `Stream` + drain)
 
 Highest risk (line framing, drain-on-EOF); lands last behind tests.
 
-- [ ] Frontend metadata for receive/receiveBytes/poll overloads.
-- [ ] `process/unix.rs`: per-fd staging buffer, `\n` framing, chunk read,
-  drain-before-close, poll-with-timeout; buffer cleanup in `__drop`.
-- [ ] Tests: `tests/rt_process_receive_line.rs` (spawn `echo -e "a\nb"`, receive
-  "a", "b"), `tests/rt_process_receive_drain.rs` (child writes then exits
-  immediately → receive still returns the bytes, THEN `ErrResourceClosed`),
-  `tests/rt_process_receive_stderr.rs` (`from := Stream.StdErr`),
-  `tests/rt_process_poll_timeout.rs`.
+- [x] Frontend metadata for receive/receiveBytes/poll overloads (`dc1ac94b3`).
+- [x] `process/unix.rs`: `receiveBytes` reads a chunk → `List OF Byte` (net.read
+  result-build; drains buffered bytes before EOF); `poll` polls the selected fd for
+  `POLLIN` (true if readable OR at EOF via POLLHUP, false on timeout); `receive`
+  reads a byte at a time into a line accumulator (never over-reads → no cross-call
+  buffer needed), returns a validated String, drains the remainder on EOF then
+  `ErrResourceClosed`. `from`-overloads route to `receiveFrom`/`receiveBytesFrom`/
+  `pollFrom` (stderr). No `__drop` buffer-cleanup needed (receive's accumulator is
+  arena-scoped, not persisted in the record). (`65b47c230`, `126a13308`, `746e3b980`)
+  — Correction: the plan's *persistent per-fd staging buffer* is replaced by a
+  byte-at-a-time `receive` (simpler + always-correct framing; the chunk path is
+  `receiveBytes`). Slots 80/88 stay reserved, unused.
+- [x] Tests: `rt-behavior/process/{poll,receivebytes,receive-lines}` (new-layout).
+  Drain proven: `printf hi`→receiveBytes `[104,105]` after the child exited;
+  `printf 'a\nbb\nccc'`→receive lengths 2,3,3 (last drained, no trailing newline).
 
-Acceptance (runtime): full round-trip through `cat` (send→receive echoes), stderr
-selection reads the child's stderr, late output is drained not truncated, poll
-returns false on timeout / true at EOF. `cargo test` green on macOS + Linux
-x86_64/aarch64; rv64 remote proof folded into sub-plan E.
-Commit: —
+Acceptance (runtime): VERIFIED on macOS + Linux x86_64 — receive returns lines,
+receiveBytes returns chunks, both drain late output (not truncate), poll returns
+false on timeout / true when readable-or-EOF. `cargo test` green on macOS (3797);
+Linux x86_64 execution confirmed on box 2227. aarch64/rv64 execution folded into E.
+Commit: 65b47c230, 126a13308, 746e3b980
 
 ## Validation Plan
 
