@@ -154,7 +154,7 @@ overload table entry (arity-based), mirroring `strings::find`'s optional-arg han
       user-callable.
 
 Acceptance: MET. Every constructor builds and matches its expected member/value under `MATCH`.
-Commit: —
+Commit: ecb8b9503
 
 ### Phase 2 — storage + `addAttribute` + `getAttributes` + resolution
 
@@ -168,7 +168,7 @@ Commit: —
 
 Acceptance: MET. Resolution matches the spec on overlaps, ties, and cross-member coexistence; the
 out-of-range bound fires `7-705-0001`.
-Commit: —
+Commit: ecb8b9503
 
 ### Phase 3 — `removeAttribute` + `clearAttributes` (split; correctness risk last)
 
@@ -181,7 +181,7 @@ Commit: —
 
 Acceptance: MET. Every split/reveal case passes, including the inclusive-bound edges, verified
 through `getAttributes`.
-Commit: —
+Commit: ecb8b9503
 
 ## Validation Plan
 
@@ -206,7 +206,33 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **Tier-C is `.mfb`-over-a-native-bridge, not fully native codegen (§4.3).** The plan specified
+  native-direct `addAttribute`/`removeAttribute`/`clearAttributes`/`getAttributes`. Instead they are
+  source-companion `.mfb` bodies over **three** internal-only native primitives:
+  `astrings::readSpans(a) AS List OF AttrSpan` (deep-copies the opaque overlay out),
+  `astrings::writeSpans(a, spans) AS AttributedString` (rebuilds with a new overlay), and
+  `astrings::scalarLen(a) AS Integer` (scalar count for bounds). Rationale: the correctness risk the
+  plan flags — inclusive-bound split arithmetic and higher-start-wins resolution — is far safer in
+  `.mfb` than in register-level native code (the plan's own letter E prefers `.mfb` for the same
+  reason). No acceptance criterion is weakened; the behavior and tests are identical. The bridge is
+  `internal_only` + the companion file is `internal`, so users cannot call it (proven by
+  `attribute-model-invalid`).
+- **The stored span is a flat internal `AttrSpan`, NOT `attr: Attribute` (§3).** Embedding the
+  `Attribute` union in the overlay would tie `AttributedString`'s always-in-scope layout to the
+  companion (undefined without `IMPORT astrings`). Instead `AttrSpan` flat-encodes the attribute
+  (`class` 0/1/2, enum-member ordinal, String + Integer payloads) and is registered unconditionally in
+  `validation.rs`; the companion declares a field-identical `AttrSpan` and converts to/from `Attribute`
+  in `.mfb`.
+- **Reserved-keyword field/parameter renames.** `end` is a reserved keyword (cannot be a member after
+  `.`, nor a parameter/field identifier) and `type` is reserved as a field name — so the `AttrSpan`
+  end-of-range field is `last`, the public range parameter is `endIndex`, and the wrapper records' type
+  field is `kind`. The `.mfb` compiler surfaced these; not knowable from the Rust side.
+- **Companion injection order.** `astrings::augmented_project` is injected (resolver/syntaxcheck/
+  ir-lower) right after `json`; it imports only `collections` (native members) and `astrings` itself
+  (the bridge), so it has no companion-ordering dependency, and the native `scalarLen` removes what
+  would otherwise be a `strings`/`encoding` companion dependency.
+- **Man pages** for the model + Tier-C members are added under `src/docs/man/builtins/astrings/`; the
+  full spec section is E's (this plan's Validation Plan notes it is "finalized in E").
 
 ## Summary
 
