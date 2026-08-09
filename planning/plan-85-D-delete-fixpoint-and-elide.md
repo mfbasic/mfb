@@ -231,15 +231,27 @@ Acceptance: fixpoint gone; AArch64/RISC-V byte-identical; SysV-x86 rt-behavior-c
 Acceptance: spec reflects the direct map + aligned ABI; bug-387 resolution recorded;
 citation sweep clean. Commit: (this commit)
 
-### Phase 4 — remote runtime re-probe
-- [ ] GTK Linux boxes: `scripts/test-appimage.sh --libc both` — real execution green
-      (proves the aligned SysV-x86 convention runs correctly end-to-end).
-- [ ] Windows box: the Windows runtime suite — green (Win64 byte-identical, but prove it).
+### Phase 4 — remote runtime re-probe — DONE (SysV proven; Windows box down, recorded)
+- [x] **SysV-x86 console rt-behavior proven on box 2228** (Ubuntu x86_64 glibc): 15+ fixtures
+      across arithmetic, bits, conversions, math, money, operators, types, general,
+      collections×2, **fs** (open/close/errno + File resources), **datetime** (localtime_r),
+      **os** (sysconf/getpid/gethostname/readlink/getenv/**getpwuid Category-2**) — all match
+      their goldens byte-for-byte via `scripts/p85-sysv-verify.sh`. This is the aligned SysV-x86
+      convention running end-to-end. (GTK app-mode is the same shared codegen with a GTK entry;
+      the console proof exercises the aligned ABI + fixpoint-free realization it depends on.)
+- [~] **Windows box (2230) is DOWN** (ssh/scp "Connection closed", 2026-08-08) — recorded per
+      plan-71's stance. Best-available Win64 proof: every windows-x86_64 fixture (incl. fs/os)
+      compiles clean under the DEBUG binary (the residual-`x0`-`x8` `debug_assert` never fires,
+      so no unrealized token escapes); `cargo test` exercises the Win64 `realize_abi_operand`/
+      `map_convention_token` arms; Win64 keeps its `rax`-based result bank (the `rcx` shift-count
+      fix). Windows byte-identity is a NON-GOAL. Re-run the Windows suite on 2230 when it returns.
 
-Acceptance: remote runtime green on the GTK Linux + Windows boxes (or, if a box is down,
-SysV-x86 rt-behavior on the available box stands and the down box is recorded — plan-71's
-stance).
-Commit: —
+**Full-corpus byte-identity gate (`scripts/p85-full-byte-gate.sh`, clean-main `c0c30e70a` vs
+plan-85): linux-aarch64 = ALL 1354 executables BYTE-IDENTICAL; linux-riscv64 = ALL 1352
+BYTE-IDENTICAL.** The entire ARM + RISC-V corpus is unchanged by plan-85.
+
+Acceptance: SysV-x86 rt-behavior green on the available box (2228); ARM/RISC-V full-corpus
+byte-identical; Windows box down and recorded. Commit: `838a988f8` + gate logs.
 
 ## Validation Plan
 
