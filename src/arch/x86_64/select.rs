@@ -146,33 +146,6 @@ fn realize_abi_operand(
     })
 }
 
-/// Realize a convention-explicit ABI token in its **rendered string** form
-/// (`%argMFB{k}`/`%retMFB{k}`/`%argC{k}`/`%retC{k}`/`%argSys{k}`/`%retSys`) directly
-/// to its aligned x86-64 register under `abi` — the string counterpart of
-/// [`realize_abi_operand`], used once the tokens flow as `Raw` strings (the shared
-/// `RET`/`ARG`/`SYSARG` arrays and the fused compare-branch `expand_fused` erasure).
-/// This is the whole map after `remap_x86_abi`'s deletion (plan-85-D): no CFG role
-/// inference — parse the convention+role+index and table-look-up. `None` for any
-/// non-convention string (a physical register, immediate, symbol, label, or vreg).
-fn map_convention_token(value: &str, abi: X86Abi) -> Option<String> {
-    let (convention, role, index): (AbiConvention, AbiRole, usize) =
-        if let Some(rest) = value.strip_prefix("%argMFB") {
-            (AbiConvention::Mfb, AbiRole::Arg, rest.parse().ok()?)
-        } else if let Some(rest) = value.strip_prefix("%retMFB") {
-            (AbiConvention::Mfb, AbiRole::Ret, rest.parse().ok()?)
-        } else if let Some(rest) = value.strip_prefix("%argSys") {
-            (AbiConvention::Sys, AbiRole::Arg, rest.parse().ok()?)
-        } else if let Some(rest) = value.strip_prefix("%argC") {
-            (AbiConvention::C, AbiRole::Arg, rest.parse().ok()?)
-        } else if let Some(rest) = value.strip_prefix("%retC") {
-            (AbiConvention::C, AbiRole::Ret, rest.parse().ok()?)
-        } else if value == "%retSys" {
-            (AbiConvention::Sys, AbiRole::Ret, 0)
-        } else {
-            return None;
-        };
-    Some(realize_abi_operand(convention, role, index, abi).to_string())
-}
 
 /// Map the MECHANICAL residual an already-ABI-realized x86 stream still carries
 /// (plan-85-D — the replacement for the deleted `remap_x86_abi` CFG fixpoint). By
@@ -398,12 +371,13 @@ pub(crate) fn select_x86(instructions: Vec<MirInstruction>, abi: X86Abi) -> Vec<
         // plan-85-D direct-realize seam: every ABI token is realized to its final
         // x86 register HERE, directly — there is no `remap_x86_abi` CFG inference
         // anymore (deleted). A typed `Operand::Abi` (the six-token convention
-        // vocabulary) realizes to its ALIGNED register; the string forms flow
-        // through `map_convention_token`; the syscall-number register `%sysnr`
-        // realizes to `rax`; and the remaining neutral tokens (`%scratchN`,
-        // `%localN`, `%mathpool`, `%sysnr_darwin`, …) realize via the shared
-        // `realize_abi_token` to their `xN` spelling for the mechanical residual
-        // pass below.
+        // vocabulary) realizes to its ALIGNED register directly; convention tokens
+        // are ALWAYS typed now (plan-85-D typed every emission, every parameter/result
+        // `location`, and the fused compare-branch expansion — none ever reach here as
+        // a `Raw` string). The syscall-number register `%sysnr` realizes to `rax`; the
+        // remaining neutral tokens (`%scratchN`, `%localN`, `%mathpool`,
+        // `%sysnr_darwin`, …) realize via the shared `realize_abi_token` to their `xN`
+        // spelling for the mechanical residual pass below.
         for (_, value) in instruction.fields.iter_mut() {
             if let Operand::Abi {
                 convention,
@@ -416,10 +390,6 @@ pub(crate) fn select_x86(instructions: Vec<MirInstruction>, abi: X86Abi) -> Vec<
                 continue;
             }
             let rendered = value.render();
-            if let Some(reg) = map_convention_token(&rendered, abi) {
-                *value = Operand::from(reg);
-                continue;
-            }
             // The syscall-number register lives in `rax` on x86-64 (the one
             // intentionally-kept neutral ABI token with no convention spelling; its
             // positional `x8` would otherwise fall through to the residual pass).
@@ -511,53 +481,6 @@ mod tests {
         assert_eq!(map_scratch_register(9), "rbx");
     }
 
-    /// The string-form convention-token realizer reproduces the plan-85-A §2 table
-    /// exactly — the aligned MFB bank on SysV (`[rdi,rsi,rdx,rcx]` for MFB arg AND
-    /// result), `rax:rdx` for the genuine C return, the syscall file for `%argSys`,
-    /// and the Win64 homes. This is the whole x86 realization after the fixpoint is
-    /// deleted, so its correctness is the deletion's correctness.
-    #[test]
-    fn map_convention_token_matches_aligned_table() {
-        let s = |v: &str| map_convention_token(v, X86Abi::SysV).unwrap();
-        let w = |v: &str| map_convention_token(v, X86Abi::Win64).unwrap();
-        // SysV: one aligned bank for MFB arg, MFB return, and C-call arg.
-        for (tok, reg) in [
-            ("%argMFB0", "rdi"),
-            ("%argMFB3", "rcx"),
-            ("%retMFB0", "rdi"),
-            ("%retMFB1", "rsi"),
-            ("%retMFB2", "rdx"),
-            ("%retMFB3", "rcx"),
-            ("%argC0", "rdi"),
-            ("%argC1", "rsi"),
-            ("%retC0", "rax"),
-            ("%retC1", "rdx"),
-            ("%argSys0", "rdi"),
-            ("%argSys3", "r10"),
-            ("%retSys", "rax"),
-        ] {
-            assert_eq!(s(tok), reg, "SysV {tok}");
-        }
-        // Win64: MFB arg AND result share the aligned Win64 call bank
-        // (rcx,rdx,r8,r9); only the genuine C return is rax:rdx.
-        for (tok, reg) in [
-            ("%argMFB0", "rcx"),
-            ("%argMFB1", "rdx"),
-            ("%retMFB0", "rcx"),
-            ("%retMFB1", "rdx"),
-            ("%retMFB2", "r8"),
-            ("%retMFB3", "r9"),
-            ("%argC0", "rcx"),
-            ("%retC0", "rax"),
-            ("%retC1", "rdx"),
-        ] {
-            assert_eq!(w(tok), reg, "Win64 {tok}");
-        }
-        // Non-convention strings are passed through (None).
-        assert!(map_convention_token("rax", X86Abi::SysV).is_none());
-        assert!(map_convention_token("x5", X86Abi::SysV).is_none());
-        assert!(map_convention_token("%v3", X86Abi::SysV).is_none());
-    }
 
     #[test]
     fn x30_link_register_is_dropped() {
