@@ -850,7 +850,13 @@ impl code::CodegenPlatform for Platform {
                     &WIN_LINK_PATHBUF_BYTES.to_string(),
                 ),
             ]);
-            call_external(from, "GetModuleFileNameA", KERNEL32, instructions, relocations);
+            call_external(
+                from,
+                "GetModuleFileNameA",
+                KERNEL32,
+                instructions,
+                relocations,
+            );
             // PathRemoveFileSpecA(buf) -> strip the trailing `\<exe>`, leaving <exe_dir>.
             emit_data_address(
                 from,
@@ -859,7 +865,13 @@ impl code::CodegenPlatform for Platform {
                 instructions,
                 relocations,
             );
-            call_external(from, "PathRemoveFileSpecA", SHLWAPI, instructions, relocations);
+            call_external(
+                from,
+                "PathRemoveFileSpecA",
+                SHLWAPI,
+                instructions,
+                relocations,
+            );
             // lstrcatA(buf, "\vendor\") then lstrcatA(buf, name).
             for append_symbol in [WIN_LINK_VENDORSEP_SYMBOL, filename_symbol] {
                 emit_data_address(
@@ -869,7 +881,13 @@ impl code::CodegenPlatform for Platform {
                     instructions,
                     relocations,
                 );
-                emit_data_address(from, abi::mfb_arg(1), append_symbol, instructions, relocations);
+                emit_data_address(
+                    from,
+                    abi::mfb_arg(1),
+                    append_symbol,
+                    instructions,
+                    relocations,
+                );
                 call_external(from, "lstrcatA", KERNEL32, instructions, relocations);
             }
             // LoadLibraryExA(buf, NULL, LOAD_WITH_ALTERED_SEARCH_PATH).
@@ -882,17 +900,19 @@ impl code::CodegenPlatform for Platform {
             );
             instructions.extend([
                 abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
-                abi::move_immediate(
-                    abi::mfb_arg(2),
-                    "Integer",
-                    LOAD_WITH_ALTERED_SEARCH_PATH,
-                ),
+                abi::move_immediate(abi::mfb_arg(2), "Integer", LOAD_WITH_ALTERED_SEARCH_PATH),
             ]);
             call_external(from, "LoadLibraryExA", KERNEL32, instructions, relocations);
         } else {
             // System DLL: LoadLibraryExA(name, NULL, 0) — resolved by the default
             // search order (no `vendor/` involvement).
-            emit_data_address(from, abi::mfb_arg(0), filename_symbol, instructions, relocations);
+            emit_data_address(
+                from,
+                abi::mfb_arg(0),
+                filename_symbol,
+                instructions,
+                relocations,
+            );
             instructions.extend([
                 abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
                 abi::move_immediate(abi::mfb_arg(2), "Integer", "0"),
@@ -919,7 +939,13 @@ impl code::CodegenPlatform for Platform {
         // calls; the resolved address lands in `return_register()`.
         use crate::target::shared::code::link_thunk::emit_data_address;
         instructions.push(abi::move_register(abi::mfb_arg(0), handle_reg));
-        emit_data_address(from, abi::mfb_arg(1), symbol_symbol, instructions, relocations);
+        emit_data_address(
+            from,
+            abi::mfb_arg(1),
+            symbol_symbol,
+            instructions,
+            relocations,
+        );
         call_external(from, "GetProcAddress", KERNEL32, instructions, relocations);
         instructions.push(abi::move_register(abi::return_register(), abi::c_return(0)));
         Ok(())

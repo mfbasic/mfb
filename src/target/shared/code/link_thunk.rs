@@ -148,7 +148,13 @@ pub(super) fn emit_posix_dlsym<P: CodegenPlatform + ?Sized>(
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
     instructions.push(abi::move_register(abi::return_register(), handle_reg));
-    emit_data_address(from, abi::c_arg(1), symbol_symbol, instructions, relocations);
+    emit_data_address(
+        from,
+        abi::c_arg(1),
+        symbol_symbol,
+        instructions,
+        relocations,
+    );
     platform.emit_libc_call("dlsym", from, platform_imports, instructions, relocations)
 }
 
