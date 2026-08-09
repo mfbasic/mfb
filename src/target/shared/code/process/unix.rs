@@ -1838,3 +1838,219 @@ pub(in crate::target::shared::code) fn lower_process_receive_helper(
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 48);
     Ok((frame, instructions, relocations, stack_slots))
 }
+
+// ---------------------------------------------------------------------------
+// process.signal — deliver a Signal bucket to the child. Kill->SIGKILL,
+// Terminate->SIGTERM, Error->SIGABRT, None->no-op. Operating on a dropped/
+// detached process raises ErrResourceClosed.
+// ---------------------------------------------------------------------------
+pub(in crate::target::shared::code) fn lower_process_signal_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    let mut v = Vregs::new();
+    let file = v.next();
+    let sig = v.next();
+    let num = v.next();
+    let closed_l = format!("{symbol}_closed");
+    let set_kill = format!("{symbol}_set_kill");
+    let set_term = format!("{symbol}_set_term");
+    let do_kill = format!("{symbol}_do_kill");
+    let done_ok = format!("{symbol}_done_ok");
+    let done = format!("{symbol}_done");
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&file, abi::return_register()),
+        abi::move_register(&sig, abi::c_arg(1)),
+        abi::load_u64(&num, &file, RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(&num, "0"),
+        abi::branch_ne(&closed_l),
+        // None (0) -> no-op.
+        abi::compare_immediate(&sig, "0"),
+        abi::branch_eq(&done_ok),
+        abi::compare_immediate(&sig, "1"),
+        abi::branch_eq(&set_kill),
+        abi::compare_immediate(&sig, "2"),
+        abi::branch_eq(&set_term),
+        // Error (3) -> SIGABRT.
+        abi::move_immediate(&num, "Integer", "6"),
+        abi::branch(&do_kill),
+        abi::label(&set_kill),
+        abi::move_immediate(&num, "Integer", "9"),
+        abi::branch(&do_kill),
+        abi::label(&set_term),
+        abi::move_immediate(&num, "Integer", "15"),
+        abi::label(&do_kill),
+        abi::load_u64(abi::c_arg(0), &file, RESOURCE_OFFSET_HANDLE),
+        abi::move_register(abi::c_arg(1), &num),
+    ];
+    let mut relocations = Vec::new();
+    platform.emit_libc_call("kill", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::label(&done_ok),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&closed_l),
+    ]);
+    emit_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+// ---------------------------------------------------------------------------
+// process.didSignal — the Signal bucket a TERMINATED child died on (read from the
+// cached raw waitpid status): None if it exited normally or has not terminated;
+// Kill for SIGKILL; Error for the fault signals (SIGILL/ABRT/FPE/BUS/SEGV);
+// Terminate for every other terminating signal.
+// ---------------------------------------------------------------------------
+pub(in crate::target::shared::code) fn lower_process_didsignal_helper(
+    symbol: &str,
+    _platform_imports: &HashMap<String, String>,
+    _platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    let mut v = Vregs::new();
+    let file = v.next();
+    let reaped = v.next();
+    let status = v.next();
+    let termsig = v.next();
+    let closed_l = format!("{symbol}_closed");
+    let ret_none = format!("{symbol}_ret_none");
+    let ret_kill = format!("{symbol}_ret_kill");
+    let ret_error = format!("{symbol}_ret_error");
+    let ret_term = format!("{symbol}_ret_term");
+    let ret = format!("{symbol}_ret");
+    let done = format!("{symbol}_done");
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&file, abi::return_register()),
+        abi::load_u64(&reaped, &file, RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(&reaped, "0"),
+        abi::branch_ne(&closed_l),
+        abi::load_u64(&reaped, &file, PROC_REAPED),
+        abi::compare_immediate(&reaped, "0"),
+        abi::branch_eq(&ret_none),
+        abi::load_u64(&status, &file, PROC_STATUS),
+        abi::move_immediate(&termsig, "Integer", "127"),
+        abi::and_registers(&termsig, &status, &termsig),
+        abi::compare_immediate(&termsig, "0"),
+        abi::branch_eq(&ret_none),
+        abi::compare_immediate(&termsig, "9"),
+        abi::branch_eq(&ret_kill),
+        // Error bucket: SIGILL(4)/SIGABRT(6)/SIGFPE(8)/SIGBUS(10)/SIGSEGV(11).
+        abi::compare_immediate(&termsig, "4"),
+        abi::branch_eq(&ret_error),
+        abi::compare_immediate(&termsig, "6"),
+        abi::branch_eq(&ret_error),
+        abi::compare_immediate(&termsig, "8"),
+        abi::branch_eq(&ret_error),
+        abi::compare_immediate(&termsig, "10"),
+        abi::branch_eq(&ret_error),
+        abi::compare_immediate(&termsig, "11"),
+        abi::branch_eq(&ret_error),
+        // Everything else -> Terminate.
+        abi::label(&ret_term),
+        abi::move_immediate(&termsig, "Integer", "2"),
+        abi::branch(&ret),
+        abi::label(&ret_none),
+        abi::move_immediate(&termsig, "Integer", "0"),
+        abi::branch(&ret),
+        abi::label(&ret_kill),
+        abi::move_immediate(&termsig, "Integer", "1"),
+        abi::branch(&ret),
+        abi::label(&ret_error),
+        abi::move_immediate(&termsig, "Integer", "3"),
+        abi::label(&ret),
+        abi::move_register(RESULT_VALUE_REGISTER, &termsig),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&closed_l),
+    ];
+    let mut relocations = Vec::new();
+    emit_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+// ---------------------------------------------------------------------------
+// process.detach — relinquish ownership WITHOUT killing: close the parent-side
+// pipe fds, set SIGCHLD to SIG_IGN so the kernel auto-reaps the (now un-waited)
+// child and no zombie is left, and set the record `closed` bit so scope-drop's
+// __drop is a no-op and any later op traps ErrResourceClosed.
+// ---------------------------------------------------------------------------
+pub(in crate::target::shared::code) fn lower_process_detach_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    let sigchld = if platform.family() == PlatformFamily::MacOS {
+        "20"
+    } else {
+        "17"
+    };
+    let mut v = Vregs::new();
+    let file = v.next();
+    let fd = v.next();
+    let one = v.next();
+    let closed_l = format!("{symbol}_closed");
+    let done = format!("{symbol}_done");
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&file, abi::return_register()),
+        abi::load_u64(&fd, &file, RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(&fd, "0"),
+        abi::branch_ne(&closed_l),
+    ];
+    let mut relocations = Vec::new();
+    for off in [PROC_STDIN_W, PROC_STDOUT_R, PROC_STDERR_R] {
+        let skip = format!("{symbol}_skip_{off}");
+        instructions.extend([
+            abi::load_u64(&fd, &file, off),
+            abi::compare_immediate(&fd, "0"),
+            abi::branch_lt(&skip),
+            abi::move_register(abi::c_arg(0), &fd),
+        ]);
+        platform.emit_libc_call("close", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        instructions.push(abi::label(&skip));
+    }
+    // signal(SIGCHLD, SIG_IGN=1) -> kernel auto-reaps, no zombie.
+    instructions.extend([
+        abi::move_immediate(abi::c_arg(0), "Integer", sigchld),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+    ]);
+    platform.emit_libc_call("signal", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::move_immediate(&one, "Integer", "1"),
+        abi::store_u64(&one, &file, RESOURCE_OFFSET_CLOSED),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&closed_l),
+    ]);
+    emit_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
+}

@@ -32,6 +32,11 @@ pub(crate) const PROCESS_TYPE: &str = "Process";
 /// from. Declared as an `EXPORT ENUM` in the source companion (plan-90-B).
 pub(crate) const STREAM_TYPE: &str = "Stream";
 
+/// The `Signal` enum (`None`/`Kill`/`Terminate`/`Error`) — the 4-bucket
+/// send/observe vocabulary. Declared as an `EXPORT ENUM` in the companion
+/// (plan-90-C).
+pub(crate) const SIGNAL_TYPE: &str = "Signal";
+
 const SPAWN: &str = "process.spawn";
 const SHELL: &str = "process.shell";
 const PID: &str = "process.pid";
@@ -44,6 +49,10 @@ const SEND_BYTES: &str = "process.sendBytes";
 const RECEIVE: &str = "process.receive";
 const RECEIVE_BYTES: &str = "process.receiveBytes";
 const POLL: &str = "process.poll";
+// plan-90-C signals & detach.
+const SIGNAL: &str = "process.signal";
+const DID_SIGNAL: &str = "process.didSignal";
+const DETACH: &str = "process.detach";
 
 /// The internal scope-drop op registered as `Process`'s resource close function.
 ///
@@ -139,6 +148,10 @@ const OV_RECEIVE: &[BuiltinOverload] = &[ov(P_RECV, "String"), ov(P_RECV_S, "Str
 const OV_RECEIVE_BYTES: &[BuiltinOverload] =
     &[ov(P_RECV, "List OF Byte"), ov(P_RECV_S, "List OF Byte")];
 const OV_POLL: &[BuiltinOverload] = &[ov(P_POLL, "Boolean"), ov(P_POLL_S, "Boolean")];
+const P_SIGNAL: &[Parameter] = &[
+    req("p", &["process"], PROCESS_TYPE),
+    req("sig", &["signal"], SIGNAL_TYPE),
+];
 
 const OV_SPAWN: &[BuiltinOverload] = &[
     ov(P_SPAWN_ARGV, PROCESS_TYPE),
@@ -157,6 +170,9 @@ const PROCESS_FUNCTIONS: &[BuiltinFunction] = &[
     nf(RECEIVE, "receive", OV_RECEIVE),
     nf(RECEIVE_BYTES, "receiveBytes", OV_RECEIVE_BYTES),
     nf(POLL, "poll", OV_POLL),
+    nf(SIGNAL, "signal", &[ov(P_SIGNAL, "Nothing")]),
+    nf(DID_SIGNAL, "didSignal", &[ov(P_PROC, SIGNAL_TYPE)]),
+    nf(DETACH, "detach", &[ov(P_PROC, "Nothing")]),
 ];
 
 const PROCESS_TYPES: &[BuiltinType] = &[BuiltinType {
@@ -266,7 +282,7 @@ mod tests {
     #[test]
     fn module_shape() {
         assert_eq!(PROCESS.name, "process");
-        assert_eq!(PROCESS.functions.len(), 11);
+        assert_eq!(PROCESS.functions.len(), 14);
         assert!(PROCESS.source.is_some());
         assert!(PROCESS.resolver.is_none());
     }

@@ -8,6 +8,28 @@
     "accepts_args": false
   },
   "types": [
+  {
+    "kind": "enum",
+    "line": 17,
+    "visibility": "export",
+    "name": "Stream",
+    "members": [
+    { "name": "StdOut" },
+    { "name": "StdErr" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 33,
+    "visibility": "export",
+    "name": "Signal",
+    "members": [
+    { "name": "None" },
+    { "name": "Kill" },
+    { "name": "Terminate" },
+    { "name": "Error" }
+    ]
+  }
   ],
   "functions": [
   {

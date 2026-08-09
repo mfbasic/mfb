@@ -1,0 +1,14 @@
+' plan-90-C Phase 2: detach relinquishes the child without killing it — the
+' program exits promptly (scope-drop's __drop is a no-op after detach) and no
+' zombie accrues (SIGCHLD is SIG_IGN'd so the kernel auto-reaps). The detached
+' `sleep 30` outlives the parent-side handle.
+IMPORT process
+IMPORT io
+
+FUNC main AS Integer
+  RES p = process::spawn(["sleep", "30"])
+  process::detach(p)
+  io::print("detached")
+  ' scope exit: __drop no-ops because detach set the closed bit.
+  RETURN 0
+END FUNC

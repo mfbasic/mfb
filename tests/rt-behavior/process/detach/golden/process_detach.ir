@@ -1,7 +1,7 @@
 {
   "format": "mfb-ir",
   "version": 1,
-  "project": "func_process_type_valid",
+  "project": "process_detach",
   "entry": {
     "name": "main",
     "returns": "Integer",
@@ -33,27 +33,17 @@
   ],
   "functions": [
   {
-    "name": "describe",
+    "name": "main",
     "line": 8,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "p", "line": 8, "type": "Process", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "line": 9, "value": { "kind": "const", "type": "Integer", "value": "0" } }
-    ]
-  },
-  {
-    "name": "main",
-    "line": 12,
-    "visibility": "public",
-    "kind": "func",
-    "params": [
-    ],
-    "returns": "Integer",
-    "body": [
+    { "op": "bind", "line": 9, "mutable": false, "name": "p", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "sleep" }, { "kind": "const", "type": "String", "value": "30" }] }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "process.detach", "args": [{ "kind": "local", "name": "p" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "detached" }] } },
     { "op": "return", "line": 13, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }

@@ -146,6 +146,9 @@ static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     PROCESS_RECEIVE_BYTES_FROM_SPEC,
     PROCESS_POLL_SPEC,
     PROCESS_POLL_FROM_SPEC,
+    PROCESS_SIGNAL_SPEC,
+    PROCESS_DID_SIGNAL_SPEC,
+    PROCESS_DETACH_SPEC,
     PROCESS_DROP_SPEC,
     // plan-67-B: internal perf-tracking helpers. Catalogued (so `spec_for_symbol`
     // resolves the injected `_mfb_rt_perf_*` calls during emission/object

@@ -18,3 +18,21 @@ EXPORT ENUM Stream
   StdOut          ' the child's standard output (the default)
   StdErr          ' the child's standard error
 END ENUM
+
+DOC
+  ENUM Signal
+  DESC A cross-platform signal bucket. `process::signal` delivers one to a child
+  DESC (`Kill`→SIGKILL, `Terminate`→SIGTERM, `Error`→SIGABRT, `None`→no-op);
+  DESC `process::didSignal` reports which bucket a terminated child died on
+  DESC (`None` if it exited normally or has not terminated).
+  PROP None No signal (a no-op to send; "exited normally / still running" to read).
+  PROP Kill Forced, uncatchable termination (SIGKILL).
+  PROP Terminate A polite "please stop" (SIGTERM and the other catchable stops).
+  PROP Error An abnormal-fault termination (SIGABRT/SIGSEGV/SIGFPE/…).
+END DOC
+EXPORT ENUM Signal
+  None            ' no signal (send: no-op; observe: normal exit / still running)
+  Kill            ' SIGKILL
+  Terminate       ' SIGTERM (and other catchable stop signals)
+  Error           ' SIGABRT/SIGSEGV/SIGFPE/… (abnormal fault)
+END ENUM

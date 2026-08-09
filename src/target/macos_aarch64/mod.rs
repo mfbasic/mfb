@@ -205,6 +205,9 @@ impl NativeBackend for Backend {
                 "process.receive",
                 "process.receiveBytes",
                 "process.poll",
+                "process.signal",
+                "process.didSignal",
+                "process.detach",
                 "process.__drop",
             ],
         }

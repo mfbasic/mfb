@@ -2375,6 +2375,15 @@ fn lower_runtime_helper(
                     "process.pollFrom" => {
                         process::lower_process_poll_helper(symbol, platform_imports, platform, true)?
                     }
+                    "process.signal" => {
+                        process::lower_process_signal_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.didSignal" => {
+                        process::lower_process_didsignal_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.detach" => {
+                        process::lower_process_detach_helper(symbol, platform_imports, platform)?
+                    }
                     "process.__drop" => {
                         process::lower_process_drop_helper(symbol, platform_imports, platform)?
                     }

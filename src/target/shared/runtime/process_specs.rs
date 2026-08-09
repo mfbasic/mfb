@@ -115,6 +115,24 @@ pub(crate) const PROCESS_POLL_FROM_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     abi: RuntimeHelperAbi { returns: "Boolean" },
 };
 
+pub(crate) const PROCESS_SIGNAL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Process,
+    call: "process.signal",
+    abi: RuntimeHelperAbi { returns: "Nothing" },
+};
+
+pub(crate) const PROCESS_DID_SIGNAL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Process,
+    call: "process.didSignal",
+    abi: RuntimeHelperAbi { returns: "Signal" },
+};
+
+pub(crate) const PROCESS_DETACH_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Process,
+    call: "process.detach",
+    abi: RuntimeHelperAbi { returns: "Nothing" },
+};
+
 // The scope-drop cleanup op (SIGKILL + waitpid + close pipes). Code-layer-only:
 // synthesized by the resource-cleanup path, never written in source.
 pub(crate) const PROCESS_DROP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
