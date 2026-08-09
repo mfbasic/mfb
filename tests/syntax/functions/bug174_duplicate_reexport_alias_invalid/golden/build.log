@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/functions/bug174_duplicate_reexport_alias_invalid
+  17 | 
+  18 | EXPORT FUNC close AS demoLink::close
+  19 | EXPORT FUNC close AS demoLink::close
+     | ^
+tests/syntax/functions/bug174_duplicate_reexport_alias_invalid/src/main.mfb:19 error[2-201-0010 SYMBOL_DUPLICATE_TOP_LEVEL]: top-level symbol is declared more than once
+               Top-level symbol `close` was already declared in src/main.mfb:18.
+[exit 1]
