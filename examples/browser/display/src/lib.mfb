@@ -51,25 +51,40 @@ FUNC collapse(s AS String) AS String
   RETURN regex::replace(t, " +", " ")
 END FUNC
 
-' Truncate with an ellipsis.
+' Truncate to `width` terminal columns (strings::displayWidth, not scalar
+' count), appending an ellipsis when clipped. One column is reserved for the
+' ellipsis and truncation breaks on whole graphemes, so wide CJK/emoji glyphs
+' stay aligned and are never split.
 FUNC clip(s AS String, width AS Integer) AS String
-  IF len(s) <= width THEN RETURN s
-  RETURN strings::mid(s, 0, maxOf(0, width - 1)) & "…"
+  IF strings::displayWidth(s) <= width THEN RETURN s
+  LET limit AS Integer = maxOf(0, width - 1)
+  MUT out AS String = ""
+  MUT used AS Integer = 0
+  FOR EACH g IN strings::graphemes(s)
+    LET gw AS Integer = strings::displayWidth(g)
+    IF used + gw > limit THEN EXIT FOR
+    out = out & g
+    used = used + gw
+  NEXT
+  RETURN out & "…"
 END FUNC
 
-' Hard-wrap each newline-delimited line to `width` columns.
+' Word-wrap each newline-delimited line to `width` terminal columns, measuring
+' by strings::displayWidth so a wide CJK/emoji glyph counts as two cells. A
+' single word wider than `width` is left whole; the app's own hard-wrap breaks
+' it on grapheme boundaries.
 FUNC wrap(s AS String, width AS Integer) AS String
   LET w AS Integer = maxOf(1, width)
   MUT out AS List OF String = []
   FOR EACH line IN strings::split(s, "\n")
-    IF len(line) <= w THEN
+    IF strings::displayWidth(line) <= w THEN
       out = collections::append(out, line)
     ELSE
       MUT currentLine AS String = ""
       FOR EACH word IN strings::split(line, " ")
         IF currentLine = "" THEN
           currentLine = word
-        ELSEIF len(currentLine) + 1 + len(word) <= w THEN
+        ELSEIF strings::displayWidth(currentLine) + 1 + strings::displayWidth(word) <= w THEN
           currentLine = currentLine & " " & word
         ELSE
           out = collections::append(out, currentLine)

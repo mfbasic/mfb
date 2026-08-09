@@ -67,25 +67,51 @@ FUNC contentHeight(size AS TermSize) AS Integer
 END FUNC
 
 ' ----- text shaping -----
+'
+' Every measurement here is in terminal *columns* (strings::displayWidth), never
+' Unicode scalar count (len): a CJK ideograph or emoji occupies two cells and a
+' combining mark none, so measuring by scalars would let a wide glyph push the
+' right edge out of alignment. Truncation always breaks on a grapheme boundary,
+' so a two-cell glyph or a base-plus-combining-mark sequence is never split.
 
-' Truncate or space-pad a string to exactly `width` scalar columns.
+' Space-pad `s` on the right to exactly `width` columns. `s` must already be no
+' wider than `width`; a space is one column, so the pad count is exact.
+FUNC padCols(s AS String, width AS Integer) AS String
+  LET w AS Integer = strings::displayWidth(s)
+  IF w >= width THEN RETURN s
+  RETURN s & strings::repeat(" ", width - w)
+END FUNC
+
+' Truncate `s` to at most `width` columns, keeping whole graphemes. When a
+' two-cell glyph would straddle the limit it is dropped, leaving the result one
+' column short (the caller pads that cell).
+FUNC clipCols(s AS String, width AS Integer) AS String
+  IF width <= 0 THEN RETURN ""
+  IF strings::displayWidth(s) <= width THEN RETURN s
+  MUT out AS String = ""
+  MUT used AS Integer = 0
+  FOR EACH g IN strings::graphemes(s)
+    LET gw AS Integer = strings::displayWidth(g)
+    IF used + gw > width THEN EXIT FOR
+    out = out & g
+    used = used + gw
+  NEXT
+  RETURN out
+END FUNC
+
+' Truncate or space-pad a string to exactly `width` terminal columns.
 FUNC fit(s AS String, width AS Integer) AS String
   IF width <= 0 THEN RETURN ""
-  IF len(s) > width THEN RETURN strings::mid(s, 0, width)
-  RETURN strings::padRight(s, width)
+  RETURN padCols(clipCols(s, width), width)
 END FUNC
 
 ' Compose one footer line: `left` flush-left, `right` flush-right, in `width`
-' columns. Both are truncated if they cannot fit.
+' columns. Both are truncated (by column) if they cannot fit.
 FUNC composeFooter(left AS String, right AS String, width AS Integer) AS String
   IF width <= 0 THEN RETURN ""
-  MUT r AS String = right
-  IF len(r) > width THEN r = strings::mid(r, 0, width)
-  LET leftRoom AS Integer = width - len(r)
-  MUT l AS String = left
-  IF len(l) > leftRoom THEN l = strings::mid(l, 0, leftRoom)
-  l = strings::padRight(l, leftRoom)
-  RETURN l & r
+  LET r AS String = clipCols(right, width)
+  LET leftRoom AS Integer = width - strings::displayWidth(r)
+  RETURN padCols(clipCols(left, leftRoom), leftRoom) & r
 END FUNC
 
 ' Break raw page text into display lines, hard-wrapping at `width` columns and
@@ -101,12 +127,22 @@ FUNC wrapContent(content AS String, width AS Integer) AS List OF String
     IF len(line) = 0 THEN
       out = collections::append(out, "")
     ELSE
-      MUT start AS Integer = 0
-      DO WHILE start < len(line)
-        LET count AS Integer = minOf(w, len(line) - start)
-        out = collections::append(out, strings::mid(line, start, count))
-        start = start + count
-      LOOP
+      ' Accumulate whole graphemes into a chunk, flushing before the chunk would
+      ' exceed `w` columns. A lone grapheme wider than `w` is kept on its own
+      ' line (fit() clips it when drawn) rather than looping forever.
+      MUT chunk AS String = ""
+      MUT chunkW AS Integer = 0
+      FOR EACH g IN strings::graphemes(line)
+        LET gw AS Integer = strings::displayWidth(g)
+        IF chunkW > 0 AND chunkW + gw > w THEN
+          out = collections::append(out, chunk)
+          chunk = ""
+          chunkW = 0
+        END IF
+        chunk = chunk & g
+        chunkW = chunkW + gw
+      NEXT
+      IF chunkW > 0 THEN out = collections::append(out, chunk)
     END IF
   NEXT
   RETURN out
@@ -224,7 +260,12 @@ SUB drawChrome(size AS TermSize, addressMode AS Boolean, rawMode AS Boolean, url
   term::setForeground(225, 233, 255)
   term::setBold(TRUE)
   term::moveTo(rows - 1, 0)
-  io::write(composeFooter(leftPart, rightPart, cols - 1))
+  ' Full surface width, including the bottom-right cell: the term:: presenter
+  ' positions every cell with an absolute cursor move and restores the cursor at
+  ' the end of each frame, so the last cell never triggers a wrap/scroll. Drawing
+  ' the footer to cols-1 (one short) would leave its right edge misaligned with
+  ' the full-width top bar and rules.
+  io::write(composeFooter(leftPart, rightPart, cols))
   term::setBold(FALSE)
   term::setBackground(0, 0, 0)
   term::setForeground(255, 255, 255)
