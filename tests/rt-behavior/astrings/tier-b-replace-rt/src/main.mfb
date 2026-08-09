@@ -1,0 +1,51 @@
+REM plan-89-D Phase 3: replace's piecewise span remap. Multiple matches; a span
+REM covering matches is clipped/split around them; a span inside a match is
+REM dropped; a span after matches shifts by the cumulative length delta; the
+REM inserted replacement carries no attributes; the text invariant holds.
+
+IMPORT astrings
+IMPORT strings
+IMPORT io
+
+FUNC flagMap(a AS AttributedString) AS String
+  MUT out AS String = ""
+  MUT i AS Integer = 0
+  LET n AS Integer = len(strings::toScalars(toString(a)))
+  WHILE i < n
+    MUT mark AS String = "-"
+    FOR EACH at IN astrings::getAttributes(a, i)
+      MATCH at
+        CASE AttrFlag(f)
+          MATCH f.kind
+            CASE AttrTypeFlag.Bold
+              mark = "B"
+            CASE AttrTypeFlag.Italic
+              mark = "I"
+            CASE ELSE
+          END MATCH
+        CASE ELSE
+      END MATCH
+    NEXT
+    out = out & mark
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC main AS Integer
+  ' "aXbXc", bold everything; replace "X"->"YY". Kept scalars a,b,c stay bold;
+  ' the inserted YY runs are plain. Text invariant: aYYbYYc.
+  MUT s AS AttributedString = astrings::addAttribute(astrings::fromString("aXbXc"), 0, 4, astrings::bold())
+  LET r AS AttributedString = strings::replace(s, "X", "YY")
+  io::print("text=" & toString(r) & " inv=" & strings::replace("aXbXc", "X", "YY"))
+  io::print("flags=" & flagMap(r))
+
+  ' bold only the first X (inside a match -> dropped); italic c (after matches ->
+  ' shifts by cumulative +2). Text invariant preserved.
+  MUT s2 AS AttributedString = astrings::fromString("aXbXc")
+  s2 = astrings::addAttribute(s2, 1, 1, astrings::bold())
+  s2 = astrings::addAttribute(s2, 4, 4, astrings::italic())
+  LET r2 AS AttributedString = strings::replace(s2, "X", "YY")
+  io::print("text2=" & toString(r2) & " flags2=" & flagMap(r2))
+  RETURN 0
+END FUNC

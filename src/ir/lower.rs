@@ -2711,6 +2711,26 @@ fn lower_expression_with_expected(
                     loc,
                 };
             }
+            // plan-89-D: the attribute-preserving `padLeft`/`padRight` source-companion
+            // bodies take a required `padChar`; fill the default single space for the
+            // 2-arg form of an `AttributedString` call. The native `String` forms
+            // default `padChar` in codegen, so this only affects the astrings-routed
+            // calls and leaves the `String` IR unchanged.
+            if matches!(
+                canonical_callee.as_str(),
+                "strings.padLeft" | "strings.padRight"
+            ) && args.len() == 2
+                && normalized_builtin
+                    .first()
+                    .and_then(|arg| expression_type(arg, locals, context))
+                    .as_deref()
+                    == Some("AttributedString")
+            {
+                args.push(IrValue::Const {
+                    type_: "String".to_string(),
+                    value: " ".to_string(),
+                });
+            }
             for (type_, value) in builtins::default_argument_padding(&canonical_callee, args.len())
             {
                 if type_.starts_with("List OF ") {
@@ -2880,6 +2900,24 @@ fn lower_expression_with_expected(
                         })
                         .collect();
                     builtins::audio::source_implementation_name(&canonical_callee, &arg_types)
+                        .map(crate::internal_name::internalize)
+                })
+                .or_else(|| {
+                    // plan-89-D: a Tier-B `strings::` transform whose text argument
+                    // is an `AttributedString` routes to its `__astrings_*`
+                    // attribute-preserving source-companion body (the native String
+                    // transform stays for a String argument).
+                    if !builtins::strings::is_tier_b_transform(&canonical_callee) {
+                        return None;
+                    }
+                    let first_arg_type = arguments
+                        .first()
+                        .map(call_arg_value)
+                        .and_then(|argument| expression_type(argument, locals, context));
+                    if first_arg_type.as_deref() != Some("AttributedString") {
+                        return None;
+                    }
+                    builtins::strings::tier_b_transform_impl(&canonical_callee)
                         .map(crate::internal_name::internalize)
                 })
                 .or_else(|| {

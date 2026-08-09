@@ -404,16 +404,85 @@ impl BuiltinResolver for StringsResolver {
         name: &str,
         arg_types: &[String],
     ) -> Option<String> {
-        if is_tier_a_query(name) && arg_types.first().map(String::as_str) == Some("AttributedString")
-        {
-            let mut substituted = arg_types.to_vec();
-            substituted[0] = "String".to_string();
-            return resolve_call(name, &substituted).map(|resolved| resolved.return_type.into_owned());
+        if arg_types.first().map(String::as_str) == Some("AttributedString") {
+            if is_tier_a_query(name) {
+                // Tier-A: same result type as the String overload, on visible text.
+                let mut substituted = arg_types.to_vec();
+                substituted[0] = "String".to_string();
+                return resolve_call(name, &substituted)
+                    .map(|resolved| resolved.return_type.into_owned());
+            }
+            if is_tier_b_transform(name) {
+                // plan-89-D: a Tier-B transform of an AttributedString yields an
+                // AttributedString (the text transformed as the String overload
+                // does, with attribute spans remapped). Validate the trailing
+                // arguments against the String overload (they are unchanged), then
+                // return AttributedString.
+                let mut substituted = arg_types.to_vec();
+                substituted[0] = "String".to_string();
+                return resolve_call(name, &substituted).map(|_| "AttributedString".to_string());
+            }
         }
         resolve_call(name, arg_types).map(|resolved| resolved.return_type.into_owned())
     }
 }
 static STRINGS_RESOLVER: StringsResolver = StringsResolver;
+
+/// The Tier-B `strings::` transform members (plan-89-D): they *modify* the text
+/// (re-express it — narrowed, extended, or rewritten), so an `AttributedString`
+/// argument yields an `AttributedString` whose text is transformed exactly as the
+/// `String` overload's and whose attribute spans are remapped by the same edit
+/// (case/normalize transform the text but drop attributes; D §3). The frozen
+/// partition is plan-89-C §4.1.
+pub(crate) fn is_tier_b_transform(name: &str) -> bool {
+    matches!(
+        name,
+        LEFT | RIGHT
+            | MID
+            | TRIM
+            | TRIM_START
+            | TRIM_END
+            | TRIM_CHARS
+            | STRIP_PREFIX
+            | STRIP_SUFFIX
+            | PAD_LEFT
+            | PAD_RIGHT
+            | REPEAT
+            | REPLACE
+            | UPPER
+            | LOWER
+            | CASE_FOLD
+            | NORMALIZE_NFC
+    )
+}
+
+/// The `astrings` source-companion implementation symbol for a Tier-B transform of
+/// an `AttributedString` (plan-89-D). Returns `None` for a non-Tier-B name. The IR
+/// lowering routes a `strings::<t>(AttributedString, …)` call to this `__astrings_*`
+/// body instead of the native `String` transform.
+pub(crate) fn tier_b_transform_impl(name: &str) -> Option<&'static str> {
+    let symbol = match name {
+        LEFT => "__astrings_left",
+        RIGHT => "__astrings_right",
+        MID => "__astrings_mid",
+        TRIM => "__astrings_trim",
+        TRIM_START => "__astrings_trimStart",
+        TRIM_END => "__astrings_trimEnd",
+        TRIM_CHARS => "__astrings_trimChars",
+        STRIP_PREFIX => "__astrings_stripPrefix",
+        STRIP_SUFFIX => "__astrings_stripSuffix",
+        PAD_LEFT => "__astrings_padLeft",
+        PAD_RIGHT => "__astrings_padRight",
+        REPEAT => "__astrings_repeat",
+        REPLACE => "__astrings_replace",
+        UPPER => "__astrings_upper",
+        LOWER => "__astrings_lower",
+        CASE_FOLD => "__astrings_caseFold",
+        NORMALIZE_NFC => "__astrings_normalizeNfc",
+        _ => return None,
+    };
+    Some(symbol)
+}
 
 /// The Tier-A `strings::` query members (plan-89-C): they *interrogate* the text
 /// (returning a measurement, a position, or a decomposition into a collection)
