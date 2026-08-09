@@ -1,0 +1,40 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 D3: native collections::merge for a String-key, fixed-width-value map
+' with a compile-time TRUE preferB (presize + bulk in-place insert). Must be
+' bit-identical to the .mfb __collections_merge: b overwrites a on shared keys when
+' preferB is TRUE; a wins when FALSE (that path falls through to the .mfb). Also
+' pins value-semantics (the inputs are unchanged) and the empty-map edges.
+
+FUNC sumv(m AS Map OF String TO Integer) AS Integer
+  MUT s AS Integer = 0
+  FOR EACH e IN m
+    s = s + e.value
+  NEXT
+  RETURN s
+END FUNC
+
+FUNC main() AS Integer
+  MUT a AS Map OF String TO Integer = Map OF String TO Integer {}
+  FOR i = 0 TO 19
+    a = collections::set(a, "k" & toString(i), i)
+  NEXT
+  MUT b AS Map OF String TO Integer = Map OF String TO Integer {}
+  FOR j = 15 TO 24
+    b = collections::set(b, "k" & toString(j), j * 100)
+  NEXT
+  ' preferB TRUE (native): shared keys k15..k19 take b's *100 values; k20..k24 new.
+  LET mt AS Map OF String TO Integer = collections::merge(a, b, TRUE)
+  io::print("trueN=" & toString(len(collections::keys(mt))) & " sum=" & toString(sumv(mt)) & " k17=" & toString(collections::get(mt, "k17")) & " k24=" & toString(collections::get(mt, "k24")))
+  ' preferB FALSE (.mfb fallback): shared keys keep a's values.
+  LET mf AS Map OF String TO Integer = collections::merge(a, b, FALSE)
+  io::print("falseN=" & toString(len(collections::keys(mf))) & " sum=" & toString(sumv(mf)) & " k17=" & toString(collections::get(mf, "k17")))
+  ' empty edges + value-semantics: a and b unchanged.
+  MUT empty AS Map OF String TO Integer = Map OF String TO Integer {}
+  LET me AS Map OF String TO Integer = collections::merge(a, empty, TRUE)
+  LET ma AS Map OF String TO Integer = collections::merge(empty, a, TRUE)
+  io::print("emptyB=" & toString(sumv(me)) & " emptyA=" & toString(sumv(ma)))
+  io::print("a-sum=" & toString(sumv(a)) & " b-sum=" & toString(sumv(b)))
+  RETURN 0
+END FUNC

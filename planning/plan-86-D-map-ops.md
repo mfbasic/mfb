@@ -87,9 +87,23 @@ removeKey matrix rows (`map (State-Dynamic) removeKey` 62.6, `State-Fixed` 17.3)
   i.e. MARGINAL like chunks/window/zip (`[[native-string-hof-rewrites-are-marginal]]`), NOT a groupBy-class
   win. **DEPRIORITIZE: measure the interpreted map str_ops loop first; likely not worth a ~100-line native
   lowering.** The valuable part of sub-plan D was D1 (removeKey, 7.3×, LANDED). D2/D3 are marginal/modest.
-- [ ] **D3 — native `merge`** (size to `|a|+|b|`, copy `a` once with buckets built, bulk-insert both). **NOT
-  modest — MEASURED ~5ms of a P1 row; the earlier "base copy inherent → marginal" note was an UNMEASURED
-  assumption and is WRONG.** Decomposed `mapchurn iterate` (14.4ms) this session by editing the benchmark's
+- [x] **D3 — native `merge`** — **LANDED. `mapchurn iterate` 14.27 → 9.27 ms (~36 %, ~5ms cut as predicted;
+  stays P1 vs py 7.55 but the merge slice of the row is gone).** Gated to a String-key, fixed-width-value map
+  (`#collections_merge$String$<Integer|Float|Fixed|Money>`) with a **compile-time `TRUE` preferB**
+  (`args[2] == Const Boolean "true"`); other shapes (non-const/false preferB, String value, non-String key)
+  fall through to the `.mfb __collections_merge`. Implementation: `copy_map_with_capacity` (presized copy variant
+  — bigger alloc + `emit_write_collection_header_full` writing `capacity = a.count+b.count`,
+  `dataCapacity = a.dataLength+b.dataLength`) then a loop over `b`'s entries doing `lower_map_set_in_place`
+  (no grow — presized). preferB=TRUE ⇒ b overwrites a on a shared key == set_in_place's overwrite-or-append,
+  so **no hasKey probe needed** (that's why the const-TRUE gate). **GOTCHA that SIGSEGV'd first:** the map
+  stores keys as RAW bytes in the data region with the length in `entry.KEY_LENGTH`, but `set_in_place`
+  expects a length-prefixed String value (`{length@0, bytes@8}`) — so each b-key must be rebuilt via
+  `emit_materialize_string_from_bytes(keyAddr, KEY_LENGTH)` before the insert (the per-key cost, far below the
+  geometric grow it replaces). Verified correct: fixture `merge-native-rt` (b-overwrites-on-TRUE / a-wins-on-
+  FALSE-fallback / disjoint / empty-a / empty-b / **inputs unchanged = value semantics**; trueN=25 sum=19605
+  k17=1700, falseN sum=11190 k17=17) + 3776 unit tests green. Commit: `<pending>`. Original analysis (kept):
+  **MEASURED ~5ms of a P1 row; the earlier "base copy inherent → marginal" note was an UNMEASURED assumption
+  and is WRONG.** Decomposed `mapchurn iterate` (14.4ms) this session by editing the benchmark's
   merge line (release `--run 10`, box-local): remove the whole merge line → **5.2ms** (so merge+its `keys(mg)`
   = 9.2ms, 64% of iterate); keep merge but drop `keys(mg)` → 12.4ms (merge alone = **7.2ms**); replace merge
   with a bare `MUT mg = m` owning copy → 7.26ms (base copy = **2.06ms**); so **the 10 inserts of `other`'s

@@ -838,6 +838,28 @@ impl CodeBuilder<'_> {
                         }
                     }
                 }
+                // plan-86 D3: native merge(a, b, preferB) for a String-key,
+                // fixed-width-value map when preferB is a compile-time TRUE (b
+                // overwrites a on a shared key == set_in_place's overwrite-or-append,
+                // so no hasKey probe needed). Presizes the copy so bulk-inserting b
+                // does not grow. Other shapes fall through to `.mfb __collections_merge`.
+                if let Some(params) = target.strip_prefix("#collections_merge$") {
+                    if args.len() == 3 {
+                        let parts: Vec<&str> = params.split('$').collect();
+                        let prefer_true = matches!(
+                            &args[2],
+                            NirValue::Const { type_, value }
+                                if type_ == "Boolean" && value == "true"
+                        );
+                        let ok = parts.len() == 2
+                            && parts[0] == "String"
+                            && matches!(parts[1], "Integer" | "Float" | "Fixed" | "Money")
+                            && prefer_true;
+                        if ok {
+                            return self.lower_collection_merge_call(args);
+                        }
+                    }
+                }
                 // plan-64 D3: native window for 8-byte fixed-width elements with a
                 // constant size >= 1 and constant stride >= 1 (`#collections_window$T`,
                 // 2 or 3 args). Non-constant/invalid size|stride or other element
