@@ -41,6 +41,12 @@ const BUILTIN_ARG_MODES: &[BuiltinArgMode] = &[
         args: ArgMode::Read,
     },
     BuiltinArgMode {
+        // plan-89: every `astrings::` member reads its arguments (value-semantic;
+        // it never takes ownership of or mutates a caller's binding).
+        name: "astrings",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
         name: "crypto",
         args: ArgMode::Read,
     },

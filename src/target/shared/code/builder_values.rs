@@ -676,6 +676,9 @@ impl CodeBuilder<'_> {
                 if let Some(result) = self.lower_strings_package_call(target, args)? {
                     return Ok(result);
                 }
+                if let Some(result) = self.lower_astrings_package_call(target, args)? {
+                    return Ok(result);
+                }
                 // Migrated `collections::`/`strings::` members arrive with their
                 // qualified, dot-containing target (`collections.get`,
                 // `strings.find`, ...). `native_builtin_target` maps these to the
@@ -1151,6 +1154,9 @@ impl CodeBuilder<'_> {
                     return Ok(result);
                 }
                 if let Some(result) = self.lower_strings_package_call(target, args)? {
+                    return Ok(result);
+                }
+                if let Some(result) = self.lower_astrings_package_call(target, args)? {
                     return Ok(result);
                 }
                 if target == "isEven" && args.len() == 1 {
@@ -1835,6 +1841,22 @@ impl CodeBuilder<'_> {
         raw: bool,
     ) -> Result<ValueResult, String> {
         let mut helper_args = args.to_vec();
+        // plan-89-A: `io::print`/`io::write` accept an `AttributedString` and emit
+        // its visible text. Rewrite the argument to `toString(a)` — the `toString`
+        // overload deep-copies the inlined text into an owned String — so the rest
+        // of the writer path is byte-identical to a String argument.
+        if matches!(target, "io.print" | "io.write") {
+            if let Some(arg) = helper_args.first() {
+                if self.static_type_name(arg).as_deref() == Some("AttributedString") {
+                    let inner = helper_args[0].clone();
+                    helper_args[0] = NirValue::Call {
+                        target: "toString".to_string(),
+                        args: vec![inner],
+                        loc: NirSourceLoc::default(),
+                    };
+                }
+            }
+        }
         if target == "io.input" && helper_args.is_empty() {
             helper_args.push(NirValue::Const {
                 type_: "String".to_string(),

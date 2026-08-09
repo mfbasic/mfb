@@ -2060,6 +2060,7 @@ fn expression_type(
             // shared `resolve_call_return_type` dispatches in the same order as
             // `ir::verify`, keeping the two return-type oracles in lockstep.
             if builtins::strings::is_strings_call(&canonical_callee)
+                || builtins::astrings::is_astrings_call(&canonical_callee)
                 || builtins::math::is_math_call(&canonical_callee)
                 || builtins::vector::is_vector_call(&canonical_callee)
                 || builtins::bits::is_bits_call(&canonical_callee)

@@ -1,0 +1,35 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "fromstring_print_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 9, "mutable": false, "name": "a", "type": "AttributedString", "value": { "kind": "call", "type": "AttributedString", "target": "astrings.fromString", "args": [{ "kind": "const", "type": "String", "value": "hi" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "a" }] }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "a" }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.write", "args": [{ "kind": "local", "name": "a" }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.write", "args": [{ "kind": "const", "type": "String", "value": "\n" }] } },
+    { "op": "bind", "line": 18, "mutable": true, "name": "d", "type": "AttributedString", "value": null },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.write", "args": [{ "kind": "const", "type": "String", "value": "[" }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.write", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "d" }] }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "]" }] } },
+    { "op": "return", "line": 22, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

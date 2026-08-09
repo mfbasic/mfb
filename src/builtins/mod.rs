@@ -1,4 +1,5 @@
 pub(crate) mod app;
+pub(crate) mod astrings;
 pub(crate) mod audio;
 pub(crate) mod bits;
 pub(crate) mod collections;
@@ -82,6 +83,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
         name,
         "app"
+            | "astrings"
             | "audio"
             | "bits"
             | "collections"
@@ -726,6 +728,7 @@ pub(crate) fn select_param_name_overload<'a>(
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     app::call_param_names(name)
+        .or_else(|| astrings::call_param_names(name))
         .or_else(|| audio::call_param_names(name))
         .or_else(|| general::call_param_names(name))
         .or_else(|| collections::call_param_names(name))
@@ -1066,6 +1069,7 @@ mod tests {
     /// such test existed).
     const ALL_BUILTIN_PACKAGES: &[&str] = &[
         "app",
+        "astrings",
         "audio",
         "bits",
         "collections",

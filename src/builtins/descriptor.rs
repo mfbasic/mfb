@@ -630,6 +630,7 @@ impl BuiltinRegistry {
 /// `term` (W), `testing` (X).
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
+    &crate::builtins::astrings::ASTRINGS,
     &crate::builtins::bits::BITS,
     &crate::builtins::collections::COLLECTIONS,
     &crate::builtins::csv::CSV,
@@ -1312,8 +1313,11 @@ mod tests {
         assert!(REGISTRY.function("tls.connect").is_some());
         assert!(REGISTRY.module("vector").is_some());
         assert!(REGISTRY.function("vector.length").is_some());
-        // The registry is exhaustive: all 26 builtin packages are registered.
-        assert_eq!(REGISTRY.modules().len(), 26);
+        // plan-89-A: the `astrings` package (opaque AttributedString + fromString).
+        assert!(REGISTRY.module("astrings").is_some());
+        assert!(REGISTRY.function("astrings.fromString").is_some());
+        // The registry is exhaustive: all 27 builtin packages are registered.
+        assert_eq!(REGISTRY.modules().len(), 27);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

@@ -244,29 +244,44 @@ rejections fire with the documented diagnostics; `.mfp` encode+decode round-trip
 fixture `tests/syntax/astrings/roundtrip-package/` (exports `wrap(a AS AttributedString) AS
 AttributedString`; `.info` decode golden), and a consumer importing it builds+runs (verified). Both
 fixtures pass `test-accept.sh`.
-Commit: —
+Commit: 006d75d69
 
 ### Phase 2 — construction + copy/drop (correctness risk last)
 
-- [ ] Register the `astrings` package shell (10 sites, §2) with `fromString` as its only function.
-- [ ] Implement `astrings::fromString` codegen (§4.3).
-- [ ] Prove value semantics: a fixture that copies an `AttributedString` into a `List`, drops the
-      original, and reads the copy back via `toString` (Phase 3) — run under the leak/UAF checks the
-      rt-behavior harness applies.
+- [x] Register the `astrings` package shell with `fromString` as its only function. Sites landed:
+      `src/builtins/astrings.rs` (new `ASTRINGS` module + `fromString` descriptor + `is_astrings_call`
+      + `call_param_names`); `mod.rs` (`mod astrings`, `is_builtin_import`, `call_param_names` chain,
+      `ALL_BUILTIN_PACKAGES` test); `descriptor.rs` `REGISTRY`; `syntaxcheck/builtins.rs`
+      `BUILTIN_ARG_MODES` (Read); `ir/lower.rs` return-type gate; `runtime/usage.rs`
+      `is_native_direct_call`; man `PACKAGE_ORDER` + `src/docs/man/builtins/astrings/{package,fromString}.md`.
+      (The `type_utils.rs:49` allow-list was NOT needed — `fromString`'s return is a fixed
+      `AttributedString`, not arg-computed.)
+- [x] Implement `astrings::fromString` codegen (§4.3) — `builder_astrings.rs::lower_astrings_from_string`
+      builds the record via the generic `emit_build_inlined_record("AttributedString", [text, empty
+      spans])`, guaranteeing byte-layout parity with copy/drop; dispatched from `builder_values.rs`.
+- [x] Prove value semantics: `tests/rt-behavior/astrings/copy-drop-rt/` copies an `AttributedString`
+      into a `List` (two independent deep copies), reads them back via `toString`, and reassigns a
+      `MUT` binding (dropping the old value) — runs clean (exit 0) with correct output.
 
-Acceptance: `fromString` builds an `AttributedString`; copy-into-collection + drop-original leaves
-the copy valid; no leak/UAF in the rt-behavior run.
+Acceptance: MET. `fromString` builds an `AttributedString`; copy-into-collection leaves each copy
+valid after scope-drop of the source; MUT reassignment drops the old value; no leak/UAF (clean exit
+under the rt-behavior run). `cargo test --bin mfb` green (3782 tests).
 Commit: —
 
 ### Phase 3 — text seams (`toString`, `io::print`, `io::write`)
 
-- [ ] `toString(AttributedString)` overload (§4.4): accept-set + `lower_to_string` arm.
-- [ ] `io::print`/`io::write` `AttributedString` overloads (§4.4).
-- [ ] Tests: `tests/rt-behavior/astrings/fromstring-print-rt/` — `io::print(astrings::fromString(
-      "hi"))` emits `hi`; `toString(astrings::fromString("hi"))` equals `"hi"`; both `io::print` and
-      `io::write` covered.
+- [x] `toString(AttributedString)` overload (§4.4): accept-set (`general.rs`) + `lower_to_string` arm
+      (`builder_strings.rs`) that reads the inlined `text` field and **deep-copies** it (owned String).
+- [x] `io::print`/`io::write` `AttributedString` overloads (§4.4): descriptor overload `OV_PRINT`
+      (`io.rs`) + codegen rewrite of the arg to `toString(a)` in `lower_runtime_helper_call`
+      (`builder_values.rs`). Scoped to `print`/`write` per the plan; `printError`/`writeError` stay
+      String-only.
+- [x] Tests: `tests/rt-behavior/astrings/fromstring-print-rt/` — `io::print(a)` and `io::write(a)`
+      each emit `hi`, `toString(fromString("hi"))` == `"hi"`, and a defaulted `AttributedString`'s
+      `toString` is empty (`[]`). Golden captured; passes `test-accept.sh`.
 
-Acceptance: the rt-behavior fixture prints exactly the visible text and `toString` round-trips.
+Acceptance: MET. The rt-behavior fixture prints exactly the visible text and `toString` round-trips;
+the default's text is empty.
 Commit: —
 
 ## Validation Plan

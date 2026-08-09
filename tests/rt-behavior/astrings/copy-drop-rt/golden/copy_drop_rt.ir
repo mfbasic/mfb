@@ -1,0 +1,35 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "copy_drop_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 11,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 12, "mutable": false, "name": "a", "type": "AttributedString", "value": { "kind": "call", "type": "AttributedString", "target": "astrings.fromString", "args": [{ "kind": "const", "type": "String", "value": "hello" }] } },
+    { "op": "bind", "line": 13, "mutable": true, "name": "xs", "type": "List OF AttributedString", "value": { "kind": "list", "type": "List OF AttributedString", "values": [] } },
+    { "op": "assign", "line": 14, "name": "xs", "value": { "kind": "call", "type": "List OF AttributedString", "target": "collections.append", "args": [{ "kind": "local", "name": "xs" }, { "kind": "local", "name": "a" }] } },
+    { "op": "assign", "line": 15, "name": "xs", "value": { "kind": "call", "type": "List OF AttributedString", "target": "collections.append", "args": [{ "kind": "local", "name": "xs" }, { "kind": "local", "name": "a" }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "AttributedString", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "AttributedString", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "1" }] }] }] } },
+    { "op": "bind", "line": 20, "mutable": true, "name": "b", "type": "AttributedString", "value": { "kind": "call", "type": "AttributedString", "target": "astrings.fromString", "args": [{ "kind": "const", "type": "String", "value": "first" }] } },
+    { "op": "assign", "line": 21, "name": "b", "value": { "kind": "call", "type": "AttributedString", "target": "astrings.fromString", "args": [{ "kind": "const", "type": "String", "value": "second" }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "b" }] }] } },
+    { "op": "return", "line": 23, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

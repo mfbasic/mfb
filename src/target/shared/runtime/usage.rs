@@ -104,6 +104,9 @@ pub(crate) fn is_native_direct_call(name: &str) -> bool {
             | "strings.graphemesCount"
             | "strings.displayWidth"
             | "strings.trimChars"
+            // plan-89-A: `astrings::fromString` is native-direct codegen
+            // (`builder_astrings.rs::lower_astrings_from_string`).
+            | "astrings.fromString"
     )
 }
 

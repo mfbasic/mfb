@@ -36,6 +36,7 @@ const PACKAGE_ORDER: &[(&str, &str)] = &[
     ("general", "mfb man general [function]"),
     ("collections", "mfb man collections [function]"),
     ("strings", "mfb man strings [function]"),
+    ("astrings", "mfb man astrings [function]"),
     ("unicode", "mfb man unicode"),
     ("lambda", "mfb man lambda"),
     ("io", "mfb man io [function]"),
