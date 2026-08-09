@@ -41,15 +41,24 @@ impl CodeBuilder<'_> {
         }
         let text = self.materialize_value(text)?;
         let text_slot = self.allocate_stack_object("astrings_from_string_text", 8);
-        self.emit(abi::store_u64(&text.location, abi::stack_pointer(), text_slot));
+        self.emit(abi::store_u64(
+            &text.location,
+            abi::stack_pointer(),
+            text_slot,
+        ));
 
         // An empty overlay: `List OF AttrSpan`. `emit_build_inlined_record` inlines
         // this flat list into the record's data region.
         let spans = self.lower_empty_collection("List OF AttrSpan")?;
         let spans_slot = self.allocate_stack_object("astrings_from_string_spans", 8);
-        self.emit(abi::store_u64(&spans.location, abi::stack_pointer(), spans_slot));
+        self.emit(abi::store_u64(
+            &spans.location,
+            abi::stack_pointer(),
+            spans_slot,
+        ));
 
-        let register = self.emit_build_inlined_record("AttributedString", &[text_slot, spans_slot])?;
+        let register =
+            self.emit_build_inlined_record("AttributedString", &[text_slot, spans_slot])?;
         Ok(ValueResult {
             type_: "AttributedString".to_string(),
             location: Operand::from(register.render()),
@@ -79,7 +88,11 @@ impl CodeBuilder<'_> {
     fn lower_astrings_read_spans(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let value = self.lower_value(&args[0])?;
         let record_slot = self.allocate_stack_object("astrings_read_spans_record", 8);
-        self.emit(abi::store_u64(&value.location, abi::stack_pointer(), record_slot));
+        self.emit(abi::store_u64(
+            &value.location,
+            abi::stack_pointer(),
+            record_slot,
+        ));
         let record = self.allocate_register()?;
         self.emit(abi::load_u64(&record, abi::stack_pointer(), record_slot));
         let record_op = Operand::from(record.render());
@@ -99,7 +112,11 @@ impl CodeBuilder<'_> {
     fn lower_astrings_scalar_len(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let value = self.lower_value(&args[0])?;
         let record_slot = self.allocate_stack_object("astrings_scalar_len_record", 8);
-        self.emit(abi::store_u64(&value.location, abi::stack_pointer(), record_slot));
+        self.emit(abi::store_u64(
+            &value.location,
+            abi::stack_pointer(),
+            record_slot,
+        ));
         let record = self.allocate_register()?;
         self.emit(abi::load_u64(&record, abi::stack_pointer(), record_slot));
         let record_op = Operand::from(record.render());
@@ -144,7 +161,11 @@ impl CodeBuilder<'_> {
     fn lower_astrings_write_spans(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let value = self.lower_value(&args[0])?;
         let record_slot = self.allocate_stack_object("astrings_write_spans_record", 8);
-        self.emit(abi::store_u64(&value.location, abi::stack_pointer(), record_slot));
+        self.emit(abi::store_u64(
+            &value.location,
+            abi::stack_pointer(),
+            record_slot,
+        ));
         let record = self.allocate_register()?;
         self.emit(abi::load_u64(&record, abi::stack_pointer(), record_slot));
         let record_op = Operand::from(record.render());
@@ -161,9 +182,14 @@ impl CodeBuilder<'_> {
         }
         let spans = self.materialize_value(spans)?;
         let spans_slot = self.allocate_stack_object("astrings_write_spans_spans", 8);
-        self.emit(abi::store_u64(&spans.location, abi::stack_pointer(), spans_slot));
+        self.emit(abi::store_u64(
+            &spans.location,
+            abi::stack_pointer(),
+            spans_slot,
+        ));
 
-        let register = self.emit_build_inlined_record("AttributedString", &[text_slot, spans_slot])?;
+        let register =
+            self.emit_build_inlined_record("AttributedString", &[text_slot, spans_slot])?;
         Ok(ValueResult {
             type_: "AttributedString".to_string(),
             location: Operand::from(register.render()),

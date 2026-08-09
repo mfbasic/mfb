@@ -141,9 +141,19 @@ const fn astrings_internal_fn(
 
 const ASTRINGS_FUNCTIONS: &[BuiltinFunction] = &[
     // Native-direct constructor.
-    astrings_fn(FROM_STRING, "fromString", OV_FROM_STRING, Implementation::Same),
+    astrings_fn(
+        FROM_STRING,
+        "fromString",
+        OV_FROM_STRING,
+        Implementation::Same,
+    ),
     // Source-companion Attribute-model constructors.
-    astrings_fn(BOLD, "bold", OV_FLAG, Implementation::Rewrite("__astrings_bold")),
+    astrings_fn(
+        BOLD,
+        "bold",
+        OV_FLAG,
+        Implementation::Rewrite("__astrings_bold"),
+    ),
     astrings_fn(
         ITALIC,
         "italic",
@@ -168,7 +178,12 @@ const ASTRINGS_FUNCTIONS: &[BuiltinFunction] = &[
         OV_FLAG,
         Implementation::Rewrite("__astrings_overline"),
     ),
-    astrings_fn(FONT, "font", OV_FONT, Implementation::Rewrite("__astrings_font")),
+    astrings_fn(
+        FONT,
+        "font",
+        OV_FONT,
+        Implementation::Rewrite("__astrings_font"),
+    ),
     astrings_fn(
         FONT_SIZE,
         "fontSize",
@@ -320,7 +335,10 @@ mod tests {
 
     #[test]
     fn clear_attributes_overloads_on_arity() {
-        assert_eq!(DefaultResolver::arity(&ASTRINGS, CLEAR_ATTRIBUTES), Some((1, 3)));
+        assert_eq!(
+            DefaultResolver::arity(&ASTRINGS, CLEAR_ATTRIBUTES),
+            Some((1, 3))
+        );
     }
 
     #[test]

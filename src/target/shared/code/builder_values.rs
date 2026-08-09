@@ -570,7 +570,11 @@ impl CodeBuilder<'_> {
                         CLOSURE_OFFSET_ENV,
                     ));
                 } else {
-                    self.emit(abi::store_u64(abi::ZERO, abi::mfb_return(1), CLOSURE_OFFSET_ENV));
+                    self.emit(abi::store_u64(
+                        abi::ZERO,
+                        abi::mfb_return(1),
+                        CLOSURE_OFFSET_ENV,
+                    ));
                 }
                 self.emit(abi::move_register(&closure_register, abi::mfb_return(1)));
                 Ok(ValueResult {
@@ -1317,7 +1321,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64(&tag_register, abi::mfb_return(1), 0));
                 for (index, slot) in arg_slots.iter().enumerate() {
                     self.emit(abi::load_u64(scratch9, abi::stack_pointer(), *slot));
-                    self.emit(abi::store_u64(scratch9, abi::mfb_return(1), 8 * (index + 1)));
+                    self.emit(abi::store_u64(
+                        scratch9,
+                        abi::mfb_return(1),
+                        8 * (index + 1),
+                    ));
                 }
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
