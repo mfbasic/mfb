@@ -123,9 +123,9 @@ mod list_mutate;
 mod map_mutate;
 mod net;
 mod os;
-mod process;
 mod perf;
 mod private;
+mod process;
 mod simd_kernel_coeffs;
 mod term;
 mod term_grid;
@@ -1604,12 +1604,18 @@ pub(crate) fn lower_module_for_platform(
     // `sendTimeout`/`sendBytesTimeout`, synthesized targets the NIR never names —
     // emit each whenever its base is present.
     for (base, timed) in [
-        ("_mfb_rt_process_process_send", "_mfb_rt_process_process_sendTimeout"),
+        (
+            "_mfb_rt_process_process_send",
+            "_mfb_rt_process_process_sendTimeout",
+        ),
         (
             "_mfb_rt_process_process_sendBytes",
             "_mfb_rt_process_process_sendBytesTimeout",
         ),
-        ("_mfb_rt_process_process_poll", "_mfb_rt_process_process_pollFrom"),
+        (
+            "_mfb_rt_process_process_poll",
+            "_mfb_rt_process_process_pollFrom",
+        ),
         (
             "_mfb_rt_process_process_receiveBytes",
             "_mfb_rt_process_process_receiveBytesFrom",
@@ -2347,9 +2353,12 @@ fn lower_runtime_helper(
                     audio::lower_audio_helper(call, symbol, platform_imports, platform)?
                 }
                 call if call.starts_with("process.") => match call {
-                    "process.spawn" => {
-                        process::lower_process_spawn_helper(symbol, platform_imports, platform, false)?
-                    }
+                    "process.spawn" => process::lower_process_spawn_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
                     "process.shell" => {
                         process::lower_process_shell_helper(symbol, platform_imports, platform)?
                     }
@@ -2368,15 +2377,13 @@ fn lower_runtime_helper(
                     "process.close" => {
                         process::lower_process_close_helper(symbol, platform_imports, platform)?
                     }
-                    "process.send" => {
-                        process::lower_process_send_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            false,
-                            false,
-                        )?
-                    }
+                    "process.send" => process::lower_process_send_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                        false,
+                    )?,
                     "process.sendTimeout" => process::lower_process_send_helper(
                         symbol,
                         platform_imports,
@@ -2422,12 +2429,18 @@ fn lower_runtime_helper(
                         platform,
                         true,
                     )?,
-                    "process.poll" => {
-                        process::lower_process_poll_helper(symbol, platform_imports, platform, false)?
-                    }
-                    "process.pollFrom" => {
-                        process::lower_process_poll_helper(symbol, platform_imports, platform, true)?
-                    }
+                    "process.poll" => process::lower_process_poll_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
+                    "process.pollFrom" => process::lower_process_poll_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        true,
+                    )?,
                     "process.signal" => {
                         process::lower_process_signal_helper(symbol, platform_imports, platform)?
                     }

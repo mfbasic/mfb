@@ -141,7 +141,13 @@ pub(in crate::target::shared::code) fn lower_process_close_helper(
         abi::move_register(abi::c_arg(0), &fd),
     ];
     let mut relocations = Vec::new();
-    platform.emit_libc_call("close", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::bitwise_not(&neg, abi::ZERO), // -1: stdin marked closed
         abi::store_u64(&neg, &file, PROC_STDIN_W),
@@ -200,7 +206,13 @@ pub(in crate::target::shared::code) fn lower_process_waitfor_helper(
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ];
     let mut relocations = Vec::new();
-    platform.emit_libc_call("waitpid", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "waitpid",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
         abi::compare_immediate(abi::c_return(0), "0"),
@@ -277,7 +289,13 @@ pub(in crate::target::shared::code) fn lower_process_isrunning_helper(
         abi::move_immediate(abi::c_arg(2), "Integer", WNOHANG),
     ];
     let mut relocations = Vec::new();
-    platform.emit_libc_call("waitpid", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "waitpid",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(&ret, abi::c_return(0)),
         // 0 -> running; >0 -> reaped now; <0 -> ECHILD (not running, nothing to cache).
@@ -349,13 +367,25 @@ pub(in crate::target::shared::code) fn lower_process_drop_helper(
         abi::move_immediate(abi::c_arg(1), "Integer", SIGKILL),
     ];
     let mut relocations = Vec::new();
-    platform.emit_libc_call("kill", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "kill",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64(abi::c_arg(0), &file, RESOURCE_OFFSET_HANDLE),
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), STATUS_SLOT),
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
-    platform.emit_libc_call("waitpid", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "waitpid",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::label(&already_reaped));
     // Close the three retained pipe fds if still open (>= 0).
     for off in [PROC_STDIN_W, PROC_STDOUT_R, PROC_STDERR_R] {
@@ -366,7 +396,13 @@ pub(in crate::target::shared::code) fn lower_process_drop_helper(
             abi::branch_lt(&skip),
             abi::move_register(abi::c_arg(0), &fd),
         ]);
-        platform.emit_libc_call("close", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "close",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.push(abi::label(&skip));
     }
     instructions.extend([
@@ -517,11 +553,28 @@ fn emit_child_apply_env(
         abi::label(&scan_done),
     ]);
     emit_copy_to_cstring(
-        symbol, &estr, &nlen, &namebuf, &sp, &dp, &cnt, &byte, &name_copy,
-        &name_copy_done, alloc_fail, instructions, relocations,
+        symbol,
+        &estr,
+        &nlen,
+        &namebuf,
+        &sp,
+        &dp,
+        &cnt,
+        &byte,
+        &name_copy,
+        &name_copy_done,
+        alloc_fail,
+        instructions,
+        relocations,
     );
     instructions.push(abi::move_register(abi::c_arg(0), &namebuf));
-    platform.emit_libc_call("unsetenv", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_libc_call(
+        "unsetenv",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     // environ shifted down in place; environ[0] is the next entry. Reload ep in
     // case the accessor is not stable, then loop.
     platform.emit_environ_pointer(symbol, platform_imports, instructions, relocations)?;
@@ -568,8 +621,19 @@ fn emit_child_apply_env(
         abi::load_u64(&klen, &entry, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
     ]);
     emit_copy_to_cstring(
-        symbol, &sp, &klen, &keyc, &dp, &namebuf, &cnt, &byte, &key_copy, &key_copy_done,
-        alloc_fail, instructions, relocations,
+        symbol,
+        &sp,
+        &klen,
+        &keyc,
+        &dp,
+        &namebuf,
+        &cnt,
+        &byte,
+        &key_copy,
+        &key_copy_done,
+        alloc_fail,
+        instructions,
+        relocations,
     );
     instructions.extend([
         // value cstr — recompute entry (vregs survive, but reload offsets fresh)
@@ -582,8 +646,19 @@ fn emit_child_apply_env(
         abi::load_u64(&vlen, &entry, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
     ]);
     emit_copy_to_cstring(
-        symbol, &sp, &vlen, &valc, &dp, &namebuf, &cnt, &byte, &val_copy, &val_copy_done,
-        alloc_fail, instructions, relocations,
+        symbol,
+        &sp,
+        &vlen,
+        &valc,
+        &dp,
+        &namebuf,
+        &cnt,
+        &byte,
+        &val_copy,
+        &val_copy_done,
+        alloc_fail,
+        instructions,
+        relocations,
     );
     // setenv(key, value, 1)
     instructions.extend([
@@ -591,7 +666,13 @@ fn emit_child_apply_env(
         abi::move_register(abi::c_arg(1), &valc),
         abi::move_immediate(abi::c_arg(2), "Integer", "1"),
     ]);
-    platform.emit_libc_call("setenv", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_libc_call(
+        "setenv",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.extend([
         abi::label(&ent_skip),
         abi::add_immediate(&i, &i, 1),
@@ -765,8 +846,20 @@ fn emit_spawn_tail(
         abi::load_u64(abi::c_arg(0), argv, 0),
         abi::move_register(abi::c_arg(1), argv),
     ]);
-    platform.emit_libc_call("execvp", symbol, platform_imports, instructions, relocations)?;
-    platform.emit_errno(symbol, errno.as_str().into(), platform_imports, instructions, relocations)?;
+    platform.emit_libc_call(
+        "execvp",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    platform.emit_errno(
+        symbol,
+        errno.as_str().into(),
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.extend([
         abi::store_u32(&errno, abi::stack_pointer(), ERRBUF),
         abi::load_u32(abi::c_arg(0), abi::stack_pointer(), ERR_P + 4),
@@ -783,7 +876,13 @@ fn emit_spawn_tail(
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
-    platform.emit_libc_call("waitpid", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_libc_call(
+        "waitpid",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::branch(fork_fail));
     Ok(())
 }
@@ -791,7 +890,12 @@ fn emit_spawn_tail(
 /// Emit `store_u8` bytes materializing a NUL-terminated ASCII literal at
 /// `dst + 0..`, using `byte` as a scratch vreg. The buffer must already be
 /// allocated with room for `text.len() + 1` bytes.
-fn emit_cstring_literal(text: &str, dst: &str, byte: &str, instructions: &mut Vec<CodeInstruction>) {
+fn emit_cstring_literal(
+    text: &str,
+    dst: &str,
+    byte: &str,
+    instructions: &mut Vec<CodeInstruction>,
+) {
     for (offset, ch) in text.bytes().enumerate() {
         instructions.push(abi::move_immediate(byte, "Integer", &ch.to_string()));
         instructions.push(abi::store_u8(byte, dst, offset));
@@ -1133,8 +1237,19 @@ pub(in crate::target::shared::code) fn lower_process_spawnenv_helper(
         abi::load_u64(&cwdlen, &cwd_str, 0),
     ]);
     emit_copy_to_cstring(
-        symbol, &cwdptr, &cwdlen, &cwdcstr, &sp, &dp, &cnt, &byte, &cwd_copy, &cwd_copy_done,
-        &alloc_fail, &mut instructions, &mut relocations,
+        symbol,
+        &cwdptr,
+        &cwdlen,
+        &cwdcstr,
+        &sp,
+        &dp,
+        &cnt,
+        &byte,
+        &cwd_copy,
+        &cwd_copy_done,
+        &alloc_fail,
+        &mut instructions,
+        &mut relocations,
     );
     // Build argv from the args list (same entry-array walk as spawn).
     instructions.extend([
@@ -1311,8 +1426,17 @@ pub(in crate::target::shared::code) fn lower_process_send_helper(
     ]);
     if with_timeout {
         emit_poll_wait(
-            symbol, &fd, &timeout, &n, POLLFD_SLOT, POLLOUT, &timeout_l, platform, platform_imports,
-            &mut instructions, &mut relocations,
+            symbol,
+            &fd,
+            &timeout,
+            &n,
+            POLLFD_SLOT,
+            POLLOUT,
+            &timeout_l,
+            platform,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
         )?;
     }
     instructions.extend([
@@ -1320,7 +1444,13 @@ pub(in crate::target::shared::code) fn lower_process_send_helper(
         abi::move_register(abi::c_arg(1), &srcp),
         abi::move_register(abi::c_arg(2), &rem),
     ]);
-    platform.emit_libc_call("write", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "write",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(&n, abi::c_return(0)),
         abi::compare_immediate(&n, "0"),
@@ -1330,7 +1460,13 @@ pub(in crate::target::shared::code) fn lower_process_send_helper(
         abi::branch(&write_loop),
         abi::label(&write_fail),
     ]);
-    platform.emit_errno(symbol, errno.as_str().into(), platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_errno(
+        symbol,
+        errno.as_str().into(),
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(&errno, EINTR),
         abi::branch_eq(&write_loop),
@@ -1345,8 +1481,17 @@ pub(in crate::target::shared::code) fn lower_process_send_helper(
         ]);
         if with_timeout {
             emit_poll_wait(
-                symbol, &fd, &timeout, &n, POLLFD_SLOT, POLLOUT, &timeout_l, platform,
-                platform_imports, &mut instructions, &mut relocations,
+                symbol,
+                &fd,
+                &timeout,
+                &n,
+                POLLFD_SLOT,
+                POLLOUT,
+                &timeout_l,
+                platform,
+                platform_imports,
+                &mut instructions,
+                &mut relocations,
             )?;
         }
         instructions.extend([
@@ -1354,14 +1499,26 @@ pub(in crate::target::shared::code) fn lower_process_send_helper(
             abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), NL_SLOT),
             abi::move_immediate(abi::c_arg(2), "Integer", "1"),
         ]);
-        platform.emit_libc_call("write", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "write",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::sign_extend_word(&n, abi::c_return(0)),
             abi::compare_immediate(&n, "0"),
             abi::branch_gt(&nl_done),
             abi::label(&nl_fail),
         ]);
-        platform.emit_errno(symbol, errno.as_str().into(), platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_errno(
+            symbol,
+            errno.as_str().into(),
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::compare_immediate(&errno, EINTR),
             abi::branch_eq(&nl_loop),
@@ -1498,7 +1655,13 @@ pub(in crate::target::shared::code) fn lower_process_poll_helper(
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::move_register(abi::c_arg(2), &ms),
     ]);
-    platform.emit_libc_call("poll", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "poll",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(&n, abi::c_return(0)),
         abi::compare_immediate(&n, "0"),
@@ -1588,7 +1751,13 @@ pub(in crate::target::shared::code) fn lower_process_receivebytes_helper(
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), BUF_OFFSET),
         abi::move_immediate(abi::c_arg(2), "Integer", CHUNK),
     ]);
-    platform.emit_libc_call("read", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "read",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
         abi::compare_immediate(abi::c_return(0), "0"),
@@ -1660,7 +1829,13 @@ pub(in crate::target::shared::code) fn lower_process_receivebytes_helper(
         abi::branch(&done),
         abi::label(&read_fail),
     ]);
-    platform.emit_errno(symbol, ("%v9").into(), platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_errno(
+        symbol,
+        ("%v9").into(),
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate("%v9", EINTR),
         abi::branch_eq(&read_retry),
@@ -1763,7 +1938,13 @@ pub(in crate::target::shared::code) fn lower_process_receive_helper(
         abi::add_registers(abi::c_arg(1), "%v9", "%v10"),
         abi::move_immediate(abi::c_arg(2), "Integer", "1"),
     ]);
-    platform.emit_libc_call("read", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "read",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
         abi::compare_immediate(abi::c_return(0), "0"),
@@ -1791,7 +1972,13 @@ pub(in crate::target::shared::code) fn lower_process_receive_helper(
         abi::branch(&read_loop),
         abi::label(&read_fail),
     ]);
-    platform.emit_errno(symbol, ("%v9").into(), platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_errno(
+        symbol,
+        ("%v9").into(),
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate("%v9", EINTR),
         abi::branch_eq(&read_loop),
@@ -1799,8 +1986,16 @@ pub(in crate::target::shared::code) fn lower_process_receive_helper(
         abi::label(&build),
     ]);
     super::super::net::emit_string_result_build(
-        symbol, LINEP, N, STR, &str_copy, &str_done, &alloc_fail, &encoding_error,
-        &mut instructions, &mut relocations,
+        symbol,
+        LINEP,
+        N,
+        STR,
+        &str_copy,
+        &str_done,
+        &alloc_fail,
+        &encoding_error,
+        &mut instructions,
+        &mut relocations,
     );
     instructions.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STR),
@@ -1886,7 +2081,13 @@ pub(in crate::target::shared::code) fn lower_process_signal_helper(
         abi::move_register(abi::c_arg(1), &num),
     ];
     let mut relocations = Vec::new();
-    platform.emit_libc_call("kill", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "kill",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::label(&done_ok),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -2026,7 +2227,13 @@ pub(in crate::target::shared::code) fn lower_process_detach_helper(
             abi::branch_lt(&skip),
             abi::move_register(abi::c_arg(0), &fd),
         ]);
-        platform.emit_libc_call("close", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "close",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.push(abi::label(&skip));
     }
     // signal(SIGCHLD, SIG_IGN=1) -> kernel auto-reaps, no zombie.
@@ -2034,7 +2241,13 @@ pub(in crate::target::shared::code) fn lower_process_detach_helper(
         abi::move_immediate(abi::c_arg(0), "Integer", sigchld),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
-    platform.emit_libc_call("signal", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "signal",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_immediate(&one, "Integer", "1"),
         abi::store_u64(&one, &file, RESOURCE_OFFSET_CLOSED),

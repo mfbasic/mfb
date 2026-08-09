@@ -112,7 +112,10 @@ const P_SHELL: &[Parameter] = &[req("cmd", &["command"], "String")];
 // The lifecycle queries all take the `Process` receiver.
 const P_PROC: &[Parameter] = &[req("p", &["process"], PROCESS_TYPE)];
 // plan-90-B streaming I/O parameter lists.
-const P_SEND: &[Parameter] = &[req("p", &["process"], PROCESS_TYPE), req("text", &[], "String")];
+const P_SEND: &[Parameter] = &[
+    req("p", &["process"], PROCESS_TYPE),
+    req("text", &[], "String"),
+];
 const P_SEND_T: &[Parameter] = &[
     req("p", &["process"], PROCESS_TYPE),
     req("text", &[], "String"),
@@ -218,9 +221,7 @@ pub(crate) fn is_process_runtime_call(name: &str) -> bool {
 /// and they fall through to `DefaultResolver::expected_arguments`.
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
-        SPAWN => {
-            Some("List OF String or List OF String, String, Map OF String TO String, Boolean")
-        }
+        SPAWN => Some("List OF String or List OF String, String, Map OF String TO String, Boolean"),
         _ => None,
     }
 }
@@ -303,7 +304,12 @@ mod tests {
         assert_eq!(
             ret(
                 SPAWN,
-                &["List OF String", "String", "Map OF String TO String", "Boolean"]
+                &[
+                    "List OF String",
+                    "String",
+                    "Map OF String TO String",
+                    "Boolean"
+                ]
             ),
             Some("Process".to_string())
         );
@@ -314,7 +320,12 @@ mod tests {
         assert_eq!(
             ret(
                 SPAWN,
-                &["List OF String", "String", "Map OF String TO String", "Integer"]
+                &[
+                    "List OF String",
+                    "String",
+                    "Map OF String TO String",
+                    "Integer"
+                ]
             ),
             None
         );
@@ -345,7 +356,10 @@ mod tests {
 
     #[test]
     fn streaming_io_resolves() {
-        assert_eq!(ret(SEND, &["Process", "String"]), Some("Nothing".to_string()));
+        assert_eq!(
+            ret(SEND, &["Process", "String"]),
+            Some("Nothing".to_string())
+        );
         assert_eq!(
             ret(SEND, &["Process", "String", "Integer"]),
             Some("Nothing".to_string())
@@ -363,7 +377,10 @@ mod tests {
             ret(RECEIVE_BYTES, &["Process"]),
             Some("List OF Byte".to_string())
         );
-        assert_eq!(ret(POLL, &["Process", "Integer"]), Some("Boolean".to_string()));
+        assert_eq!(
+            ret(POLL, &["Process", "Integer"]),
+            Some("Boolean".to_string())
+        );
         assert_eq!(
             ret(POLL, &["Process", "Integer", "Stream"]),
             Some("Boolean".to_string())
