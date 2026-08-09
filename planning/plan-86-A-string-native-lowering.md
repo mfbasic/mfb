@@ -42,6 +42,13 @@ element move**, not an 8-byte word copy. Gates: `builder_values.rs` sortBy/windo
 - [ ] **A2-chunks (String)** — native String `chunks` (same variable-size nested-block work as window).
   Clears chunks (13.6) **and unblocks the flatten row** (which is chunks-bound). Note: the `.mfb` chunks
   already uses native `slice`+`append`, so a worthwhile native chunks needs direct nested-block construction.
+  **ATTEMPT 1 (reserve+append) REVERTED — measured regression (see Corrections).** The correct approach is
+  slice-per-chunk: a String-slice-into-block helper (the `lower_list_slice_range` String path: length pass +
+  tight alloc + copy pass, one alloc/chunk) called per chunk, then append+free the tight inner. Cannot reuse
+  `lower_list_slice_range` directly (NirValue args; extracting a slot core reorders its vregs →
+  `[[vreg-alloc-order-load-bearing]]` golden churn), so it needs a focused String-slice-into-slot helper (also
+  serves window). Likely **G2-class, not a G1 clear** — String-copy chunks can't beat Python's C-backed slicing
+  (py 1.69).
 - [ ] **A3-zip (String)** — native String `zip` → `List OF Pair OF A, B`. Needs Pair-of-Strings
   variable-width fields (the fixed-width `try_inline_zip_op` hard-codes `REC=16`). Clears zip (26).
 - [x] **A3-findLastIndex** — native reverse-scan lowering (`lower_collection_find_last_index_call`,
@@ -54,7 +61,7 @@ element move**, not an 8-byte word copy. Gates: `builder_values.rs` sortBy/windo
   unchanged; native/`​.mfb` output byte-identical across default/explicit/negative/empty/no-match + 1000-round
   UAF stress. Fixtures: `findlast-native-rt`, `func_collection_findLastIndex_{not_found,out_of_range}`.
   Corrections: predicate boolean must be tested BEFORE `free_collection_loop_item` (its `bl _mfb_arena_free`
-  clobbers the caller-saved RESULT_VALUE_REGISTER). Commit: `PENDING`.
+  clobbers the caller-saved RESULT_VALUE_REGISTER). Commit: `d89125d98`.
 
 ## Acceptance
 Per-op `list (Dynamic)` checksums unchanged (order-sensitive for sort rows) + `scripts/artifact-gate.sh` +
@@ -75,3 +82,19 @@ Per-op `list (Dynamic)` checksums unchanged (order-sensitive for sort rows) + `s
 - **The nested-block tail (groupBy/window/chunks/zip) needs variable-size nested String blocks** — the hard
   core of A; `filter`/`partition` were the only native bodies already on the generic String-correct
   get/append primitives.
+- **A2-chunks attempt 1 (reserve+append per element) REGRESSED and was reverted (measured, not shipped).**
+  The first native String `chunks` built each inner list by materializing every String item, appending it to a
+  growable inner (`lower_list_append_in_place`), freeing the item, then appending the inner to the outer and
+  freeing it. Output was byte-identical to the `.mfb` across exact/remainder/size-1/oversize/empty/empty-string
+  inputs + a 1000-round churn stress, BUT the trimmed `--run 10` benchmark measured **chunks 13.4 → 30.5 ms and
+  the flatten row 24 → 38.7 ms** — a ~2.3× *slowdown*, because the per-element materialize+append+free arena
+  churn is worse than the `.mfb`'s per-chunk native `slice` (one alloc/chunk). This is exactly the plan's
+  prediction ("a worthwhile native chunks needs direct nested-block construction"). Reverted in full (dispatch
+  gate + `lower_collection_chunks_string_call` + `emit_free_owned_kind0_list_block` + the fixture); tree left at
+  findLastIndex-only. The correct approach is **slice-per-chunk**: a focused String-slice-into-block helper
+  (mirroring `lower_list_slice_range`'s String length-pass + tight-alloc + copy-pass) invoked once per chunk,
+  then append+free the tight inner (`HEADER + cap*ENTRY + dataCap` free is exact for a tight block). Do NOT
+  extract that helper by refactoring `lower_list_slice_range` — moving its `s8..s25` mint after the arg-lowering
+  reorders vregs and churns the slice goldens (`[[vreg-alloc-order-load-bearing]]`); write a standalone helper
+  (which window will reuse). Lesson: **byte-identical output did NOT prove the native path was worthwhile — only
+  the benchmark did** (cf. the A1 sortBy gotcha above).
