@@ -136,7 +136,9 @@ def test_map_intkey():
 
 
 def test_map_intchurn():
-    # Arena-gated in mfb (plan-44-J); the Python mirror keeps the same tiny counts.
+    # Held tiny in mfb (NOT raised to the plan-44-J 2000/20000 target): mfb intchurn
+    # stays super-linear even after plan-64-A1 (in-place removeKey invalidates the
+    # bucket index). The mirror keeps the same counts so the table lines up.
     w = 32
     steps = 64
     times = []

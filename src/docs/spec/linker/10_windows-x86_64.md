@@ -133,6 +133,29 @@ today, so the data arm exists for completeness. The entry symbol must resolve to
 `.text`. Any other `(binding, kind)` pair, or a `rel32`/thunk displacement outside
 the `±2 GiB` reach, is a hard link error (see **Failure rules**).
 
+## Native `LINK` bindings and vendored DLLs
+
+User `LINK` bindings are **not** ordinary imports (see **Import selection** — they
+are a runtime `dlopen`-style load, not an `.idata` entry, so a missing library is
+a catchable runtime error rather than a load-time start failure). Windows has no
+`dlopen`, so `_mfb_linker_init` uses the Win32 loader: `LoadLibraryExA` in place
+of `dlopen`, `GetProcAddress` in place of `dlsym`. These come from `kernel32.dll`
+(plus `shlwapi.dll` for `PathRemoveFileSpecA`) as ordinary `.idata` imports,
+declared by `win_x86_64::link_imports` only when the program has `LINK` bindings.
+
+Windows also has no rpath, so a **vendored** library is located at run time rather
+than through an image tag. The initializer builds the absolute path
+`<exe_dir>\vendor\<name>` — `GetModuleFileNameA` → `PathRemoveFileSpecA` →
+`lstrcatA "\vendor\"` → `lstrcatA <name>` into a writable scratch buffer
+(`_mfb_linker_win_pathbuf`) — and calls
+`LoadLibraryExA(path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH)`, so the DLL and its
+own dependencies resolve from the exe-relative `build/vendor/` directory. A
+`system` locator is loaded by bare name (`LoadLibraryExA(name, NULL, 0)`, default
+search). The scratch buffer and the `\vendor\` string are emitted only for a build
+that vendors at least one library; a non-vendoring build is byte-identical to one
+predating the feature. See `./mfb spec language native-libraries` for the
+cross-platform vendor-search table. [[src/target/win_x86_64/code.rs:emit_link_dlopen]]
+
 ## Determinism
 
 The image is reproducible: `TimeDateStamp` and `CheckSum` are zero, and imports

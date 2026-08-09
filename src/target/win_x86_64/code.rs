@@ -33,7 +33,13 @@ use crate::target::win_x86_64::app;
 const KERNEL32: &str = "kernel32.dll";
 const ADVAPI32: &str = "advapi32.dll";
 const SHELL32: &str = "shell32.dll";
+const SHLWAPI: &str = "shlwapi.dll"; // bug-431: PathRemoveFileSpecA for the vendored-DLL path
 const WS2_32: &str = "ws2_32.dll";
+/// bug-431: `LoadLibraryExA` flag — resolve the library (and its own
+/// dependencies) from the directory of the absolute path passed, rather than the
+/// default search order. Requires an absolute path, which the vendored loader
+/// builds as `<exe_dir>\vendor\<name>`.
+const LOAD_WITH_ALTERED_SEARCH_PATH: &str = "8";
 // ioctlsocket command to toggle blocking mode: FIONBIO = 0x8004667E
 // (_IOW('f', 126, u_long); the 'f' magic byte is 0x66 — bug-417).
 const FIONBIO: &str = "2147772030";
@@ -427,7 +433,7 @@ pub(crate) fn lower_module_mir(
     code::lower_module_mir_for_platform(module, native_plan, packages, &Platform)
 }
 
-struct Platform;
+pub(crate) struct Platform;
 
 /// Push an external `kernel32`-style call whose reloc names the DLL directly
 /// (the trait methods that need it carry no `platform_imports`, exactly like the
@@ -795,6 +801,154 @@ impl code::CodegenPlatform for Platform {
         // Win64 has no separate variadic marker (unlike SysV's `al`); a plain
         // call suffices.
         self.emit_libc_call(base, from, platform_imports, instructions, relocations)
+    }
+
+    fn emit_link_dlopen(
+        &self,
+        filename_symbol: &str,
+        vendored: bool,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // bug-431: Windows has no `dlopen`. Load the DLL with `LoadLibraryExA`,
+        // leaving the module handle in `return_register()` (0 on failure) so the
+        // shared initializer's failure check and slot store are unchanged.
+        //
+        // `filename_symbol` names a read-only C string holding the resolved
+        // `dlopen` filename — a bare DLL name. For a **vendored** library that
+        // file lives in the exe-relative `vendor/` directory, which the default
+        // DLL search never consults, so build the absolute path
+        // `<exe_dir>\vendor\<name>` at load time and pass
+        // `LOAD_WITH_ALTERED_SEARCH_PATH` (which requires an absolute path and
+        // also resolves the DLL's own dependencies from `vendor/`). A **system**
+        // library is loaded by bare name through the default search.
+        //
+        // This runs once at startup, single-threaded, so the shared writable
+        // `WIN_LINK_PATHBUF` scratch is safe to reuse across libraries. The buffer
+        // address is re-materialized (a RIP-relative `lea`) before each call, so
+        // no register needs to survive one — only the buffer's memory does.
+        use crate::target::shared::code::link_thunk::{
+            emit_data_address, WIN_LINK_PATHBUF_BYTES, WIN_LINK_PATHBUF_SYMBOL,
+            WIN_LINK_VENDORSEP_SYMBOL,
+        };
+        if vendored {
+            // GetModuleFileNameA(NULL, buf, WIN_LINK_PATHBUF_BYTES) -> full exe path.
+            emit_data_address(
+                from,
+                abi::mfb_arg(1),
+                WIN_LINK_PATHBUF_SYMBOL,
+                instructions,
+                relocations,
+            );
+            instructions.extend([
+                abi::move_immediate(abi::mfb_arg(0), "Integer", "0"),
+                abi::move_immediate(
+                    abi::mfb_arg(2),
+                    "Integer",
+                    &WIN_LINK_PATHBUF_BYTES.to_string(),
+                ),
+            ]);
+            call_external(
+                from,
+                "GetModuleFileNameA",
+                KERNEL32,
+                instructions,
+                relocations,
+            );
+            // PathRemoveFileSpecA(buf) -> strip the trailing `\<exe>`, leaving <exe_dir>.
+            emit_data_address(
+                from,
+                abi::mfb_arg(0),
+                WIN_LINK_PATHBUF_SYMBOL,
+                instructions,
+                relocations,
+            );
+            call_external(
+                from,
+                "PathRemoveFileSpecA",
+                SHLWAPI,
+                instructions,
+                relocations,
+            );
+            // lstrcatA(buf, "\vendor\") then lstrcatA(buf, name).
+            for append_symbol in [WIN_LINK_VENDORSEP_SYMBOL, filename_symbol] {
+                emit_data_address(
+                    from,
+                    abi::mfb_arg(0),
+                    WIN_LINK_PATHBUF_SYMBOL,
+                    instructions,
+                    relocations,
+                );
+                emit_data_address(
+                    from,
+                    abi::mfb_arg(1),
+                    append_symbol,
+                    instructions,
+                    relocations,
+                );
+                call_external(from, "lstrcatA", KERNEL32, instructions, relocations);
+            }
+            // LoadLibraryExA(buf, NULL, LOAD_WITH_ALTERED_SEARCH_PATH).
+            emit_data_address(
+                from,
+                abi::mfb_arg(0),
+                WIN_LINK_PATHBUF_SYMBOL,
+                instructions,
+                relocations,
+            );
+            instructions.extend([
+                abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
+                abi::move_immediate(abi::mfb_arg(2), "Integer", LOAD_WITH_ALTERED_SEARCH_PATH),
+            ]);
+            call_external(from, "LoadLibraryExA", KERNEL32, instructions, relocations);
+        } else {
+            // System DLL: LoadLibraryExA(name, NULL, 0) — resolved by the default
+            // search order (no `vendor/` involvement).
+            emit_data_address(
+                from,
+                abi::mfb_arg(0),
+                filename_symbol,
+                instructions,
+                relocations,
+            );
+            instructions.extend([
+                abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
+                abi::move_immediate(abi::mfb_arg(2), "Integer", "0"),
+            ]);
+            call_external(from, "LoadLibraryExA", KERNEL32, instructions, relocations);
+        }
+        // Stage the C return (`rax`) into the aligned MFB result register the
+        // shared loop reads, exactly like `emit_arena_map` (plan-85).
+        instructions.push(abi::move_register(abi::return_register(), abi::c_return(0)));
+        Ok(())
+    }
+
+    fn emit_link_dlsym(
+        &self,
+        handle_reg: &str,
+        symbol_symbol: &str,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // bug-431: GetProcAddress(handle, symbolName) — the Windows `dlsym`. The
+        // handle is a callee-saved vreg the shared loop keeps live across these
+        // calls; the resolved address lands in `return_register()`.
+        use crate::target::shared::code::link_thunk::emit_data_address;
+        instructions.push(abi::move_register(abi::mfb_arg(0), handle_reg));
+        emit_data_address(
+            from,
+            abi::mfb_arg(1),
+            symbol_symbol,
+            instructions,
+            relocations,
+        );
+        call_external(from, "GetProcAddress", KERNEL32, instructions, relocations);
+        instructions.push(abi::move_register(abi::return_register(), abi::c_return(0)));
+        Ok(())
     }
 
     fn emit_write(

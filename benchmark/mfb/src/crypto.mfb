@@ -65,11 +65,11 @@ END FUNC
 ' Arena-gated (plan-64-A): mfb's SHA-512 software core allocates transient values
 ' larger than the arena quick-bin threshold, so per-call it hits the O(n^2) free-
 ' list walk and explodes cumulatively in-suite (reps=64 measured at 1634 ms once
-' the arena is degraded, vs 26 ms in a clean process). Authored tiny; raise reps
-' when the arena fix lands.
+' the arena is degraded, vs 26 ms in a clean process). Arena quadratic fixed by
+' plan-64-A1; reps raised to target.
 FUNC test_crypto_sha512(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET buf AS List OF Byte = cryptoBuf(1024)
-  LET reps AS Integer = 2   ' TODO(plan-64-A): raise to 64
+  LET reps AS Integer = 64
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -91,11 +91,11 @@ END FUNC
 ' Arena-gated (plan-64-A): each MAC allocates several transient buffers, and at a
 ' realistic rep count the volume fills the quick bins and the per-call cost climbs
 ' cumulatively across the run loop (reps=64 measured climbing 179 ms -> 1300 ms
-' across --run 10). Authored tiny; raise reps when the arena fix lands.
+' across --run 10). Arena quadratic fixed by plan-64-A1; reps raised to target.
 FUNC test_crypto_hmac(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET buf AS List OF Byte = cryptoBuf(1024)
   LET key AS List OF Byte = cryptoBuf(32)
-  LET reps AS Integer = 8   ' TODO(plan-64-A): raise to 64
+  LET reps AS Integer = 64
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -118,11 +118,11 @@ END FUNC
 ' Arena-gated (plan-64-A): a realistic 4096-iteration derive is ~8192 SHA-256
 ' compressions, whose transient-list churn fills the quick bins and triggers the
 ' O(n^2) flush-before-grow amplifier (measured 8069 ms in-suite vs 224 ms clean).
-' Authored at a low work factor; raise iterations when the arena fix lands.
+' Arena quadratic fixed by plan-64-A1; iterations raised to target.
 FUNC test_crypto_pbkdf2(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET pw AS List OF Byte = cryptoBuf(16)
   LET salt AS List OF Byte = cryptoBuf(16)
-  LET iters AS Integer = 64   ' TODO(plan-64-A): raise to 4096
+  LET iters AS Integer = 4096
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -160,9 +160,9 @@ END FUNC
 
 ' hash churn — hash many *fresh* small `List OF Byte` messages built per call (the
 ' realistic "hash a stream of records" pattern; per-call byte-list allocation).
-' Arena-gated (plan-64-A): authored tiny — raise MSGS when the arena fix lands.
+' Arena-gated (plan-64-A): arena quadratic fixed by A1 — MSGS raised to target.
 FUNC test_crypto_churn(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET msgs AS Integer = 16   ' TODO(plan-64-A): raise to 4096
+  LET msgs AS Integer = 4096
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -191,12 +191,12 @@ END FUNC
 ' Arena-gated (plan-64-A): each sign/verify runs SHA-512 plus Curve25519 field
 ' arithmetic over the bits package — intrinsically heavy and transient-allocation
 ' heavy, so it also suffers the arena quadratic in-suite (963 ms at reps=2 vs
-' ~300 ms clean). Authored at reps=1; raise when the arena fix lands.
+' ~300 ms clean). Arena quadratic fixed by plan-64-A1; reps raised to target.
 FUNC test_crypto_ed25519(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET seed AS List OF Byte = cryptoBuf(32)
   LET msg AS List OF Byte = cryptoBuf(64)
   LET pub AS List OF Byte = [toByte(36), toByte(195), toByte(164), toByte(148), toByte(250), toByte(34), toByte(153), toByte(98), toByte(102), toByte(68), toByte(185), toByte(101), toByte(169), toByte(19), toByte(45), toByte(167), toByte(156), toByte(254), toByte(103), toByte(21), toByte(31), toByte(220), toByte(66), toByte(222), toByte(96), toByte(12), toByte(240), toByte(144), toByte(151), toByte(219), toByte(130), toByte(71)]
-  LET reps AS Integer = 1   ' TODO(plan-64-A): raise to 4
+  LET reps AS Integer = 4
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
