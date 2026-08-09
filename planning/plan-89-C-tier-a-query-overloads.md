@@ -129,7 +129,7 @@ codegen preamble that loads the text slot, then reuses the `String` arm. No new 
 
 Acceptance: MET. Complete per-function tier table covering all 39, committed here and codified as
 `is_tier_a_query`.
-Commit: —
+Commit: 370130660
 
 ### Phase 2 — implement Tier-A overloads
 
@@ -146,7 +146,7 @@ Commit: —
 
 Acceptance: MET. Every Tier-A overload equals the `String`-of-plaintext result and matches error
 behavior.
-Commit: —
+Commit: 370130660
 
 ## Validation Plan
 
@@ -169,7 +169,18 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution — especially any function that moves tier after reading its signature. -->
+- **Overload wiring is a resolver override + IR-lowering rewrite, not per-function descriptor
+  overloads + a codegen preamble (§4.2).** A codegen-only preamble (loading the text slot) would have
+  missed `toScalars`, whose Tier-A member is a source-companion rewrite (`__strings_toScalars`)
+  validated against a `String` param at the IR level — before codegen. So the leading argument is
+  wrapped in `toString(a)` once, at IR lowering (`ir/lower.rs`), which is the single point before the
+  native-vs-companion split; every Tier-A member (native and rewrite) then receives a `String`. The
+  `StringsResolver` return-type override makes the frontend accept the `AttributedString` argument
+  (substitutes `String`, reuses the existing resolution) so no `String`-overload golden churns.
+- **Tier-A membership matched the plan's estimate (15, not "~16").** The stray "indexOf if present"
+  candidate does not exist in `STRINGS_FUNCTIONS`; `graphemeAt` stays Tier-A per Open Decision 1.
+- **Doc sync** notes `AttributedString` acceptance in the `strings` package overview (one edit listing
+  the Tier-A set) rather than editing all 15 per-function pages.
 
 ## Summary
 
