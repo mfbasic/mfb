@@ -2144,6 +2144,11 @@ fn expression_type(
                 return Some("Boolean".to_string());
             }
             if operator == "&" {
+                // plan-89-D: `AttributedString & AttributedString` yields an
+                // AttributedString (both operands attributed); otherwise String.
+                if expression_type(left, locals, context).as_deref() == Some("AttributedString") {
+                    return Some("AttributedString".to_string());
+                }
                 return Some("String".to_string());
             }
             let left = expression_type(left, locals, context)?;
@@ -3227,15 +3232,30 @@ fn lower_expression_with_expected(
         } => {
             let result_type = expression_type(expression, locals, context)
                 .unwrap_or_else(|| "Unknown".to_string());
+            let loc = IrSourceLoc {
+                line: *line as u32,
+                column: *column as u32,
+            };
+            // plan-89-D: `AttributedString & AttributedString` concatenation routes
+            // to the `__astrings_concat` source-companion body (text concatenated,
+            // right operand's spans shifted by the left's scalar length).
+            if operator == "&" && result_type == "AttributedString" {
+                return IrValue::Call {
+                    target: crate::internal_name::internalize("__astrings_concat"),
+                    args: vec![
+                        lower_expression(left, locals, context),
+                        lower_expression(right, locals, context),
+                    ],
+                    type_: "AttributedString".to_string(),
+                    loc,
+                };
+            }
             IrValue::Binary {
                 op: operator.clone(),
                 left: Box::new(lower_expression(left, locals, context)),
                 right: Box::new(lower_expression(right, locals, context)),
                 type_: result_type,
-                loc: IrSourceLoc {
-                    line: *line as u32,
-                    column: *column as u32,
-                },
+                loc,
             }
         }
         Expression::Unary {

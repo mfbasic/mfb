@@ -19,4 +19,6 @@ padRight=[hello world   ] bold=BBBBB---------
 repeat=hello worldhello world bold=BBBBB------BBBBB------
 upper=HELLO WORLD inv=HELLO WORLD bold=-----------
 lower=hello bold=-----
+upperEszett=STRASSE inv=STRASSE bold=-------
+concat=foobar bold=BBB-BB
 [exit 0]

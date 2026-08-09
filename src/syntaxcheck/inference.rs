@@ -1001,6 +1001,13 @@ impl<'a> SyntaxChecker<'a> {
         }
 
         if operator == "&" {
+            // plan-89-D: `AttributedString & AttributedString` concatenates two
+            // attributed strings into one (both operands attributed — no mixing with
+            // `String`). Attributes on the right operand shift by the left's scalar
+            // length (Open Decision 2).
+            if matches!(left, Type::AttributedString) && matches!(right, Type::AttributedString) {
+                return Type::AttributedString;
+            }
             if self.compatible(&Type::String, left) && self.compatible(&Type::String, right) {
                 return Type::String;
             }

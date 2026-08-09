@@ -66,5 +66,13 @@ FUNC main AS Integer
   io::print("upper=" & toString(up) & " inv=" & strings::upper("hello world") & " bold=" & boldMap(up))
   LET lo AS AttributedString = strings::lower(astrings::addAttribute(astrings::fromString("HELLO"), 0, 4, astrings::bold()))
   io::print("lower=" & toString(lo) & " bold=" & boldMap(lo))
+  ' Scalar-count-changing case: ß -> SS. Text invariant holds; attributes drop.
+  LET ss AS AttributedString = strings::upper(astrings::addAttribute(astrings::fromString("straße"), 0, 5, astrings::bold()))
+  io::print("upperEszett=" & toString(ss) & " inv=" & strings::upper("straße") & " bold=" & boldMap(ss))
+  ' Concatenation: both overlays kept, the right operand's spans shift by aLen.
+  LET ca AS AttributedString = astrings::addAttribute(astrings::fromString("foo"), 0, 2, astrings::bold())
+  LET cb AS AttributedString = astrings::addAttribute(astrings::fromString("bar"), 1, 2, astrings::bold())
+  LET cc AS AttributedString = ca & cb
+  io::print("concat=" & toString(cc) & " bold=" & boldMap(cc))
   RETURN 0
 END FUNC
