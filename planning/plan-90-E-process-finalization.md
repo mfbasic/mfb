@@ -129,14 +129,20 @@ root-cause, never a premise-death.
 
 ### Phase 1 — Docs: types page, package overview, citation/example gates
 
-- [ ] Census `src/docs/man/builtins/process/`; fill any missing function page.
-- [ ] Author `types.md` (Process/Stream/Signal + mapping tables) and
-  `package.md`.
-- [ ] `cargo test man_citations_resolve`; `scripts/check-man-examples.py` green.
+- [x] Census `src/docs/man/builtins/process/`; fill any missing function page.
+  **Census found the directory ABSENT — A–D authored NO man pages, so all 14
+  function pages were written here (not "any missed").**
+- [x] Author `types.md` (Process/Stream/Signal + POSIX/Windows `signal`/`didSignal`
+  mapping tables) and `package.md`; registered `process` in `PACKAGE_ORDER`.
+- [x] `cargo test man_citations_resolve` green (163 citations resolve);
+  `scripts/check-man-examples.py` green for every `process` example (the 33
+  remaining failures are all pre-existing non-`process` pages: thread/astrings/
+  app/tooling).
 
-Acceptance: all 15 pages present and template-conformant; citation + example
-tests green.
-Commit: —
+Acceptance: all 16 pages present (14 functions + types + package — the plan's
+"15/13" undercounted; there are 14 functions) and template-conformant; citation +
+example tests green.
+Commit: <docs commit>
 
 ### Phase 2 — Goldens & acceptance fixture
 
@@ -185,7 +191,39 @@ Commit: —
 
 ## Corrections
 
-<filled during execution>
+- **A–D authored NO man pages (Phase 1).** The plan's premise "each sub-plan added
+  its own function man pages" was false — `src/docs/man/builtins/process/` did not
+  exist. Phase 1's census caught it; all 14 function pages + `types.md` +
+  `package.md` were authored here, and `process` was registered in
+  `src/docs/man/mod.rs` `PACKAGE_ORDER` (the build.rs man generator embeds the
+  pages; `man_citations_resolve` enforces the count). Function count is **14**
+  (spawn/shell/pid/isRunning/waitFor/close/send/sendBytes/receive/receiveBytes/
+  poll/signal/didSignal/detach), not the plan's 13.
+- **ErrEncoding data-object gap (a real bug, found via a man example).** The
+  `process` `data_objects` gate (plan-90-B) registered ErrSpawnFailed/
+  ResourceClosed/InvalidArgument/Allocation/Timeout but NOT ErrEncoding, and
+  triggered only on the lifecycle calls. `process::receive`/`receiveFrom` validate
+  UTF-8 and reference `_mfb_str_error_encoding`, so a receive program that never
+  calls `toString` (which incidentally registers it) failed at native link with
+  "not a data object". Fixed `src/target/shared/code/data_objects.rs`: the trigger
+  now lists the whole process surface, and a receive/receiveFrom reference pulls
+  ErrEncoding. Regenerated the process byte-identity `.ncodesum` afterward (the
+  string-order shift changed the `.ncode`). Applies to Unix too — a latent
+  plan-90-B gap the rt-behavior fixtures hid because they all use `toString`.
+- **Acceptance fixture lives in rt-behavior, not `tests/acceptance/src/` (Phase 2).**
+  The plan asked for `tests/acceptance/src/process.mfb`, but resource packages
+  (net, thread) have no program there — their runtime acceptance is under
+  `tests/rt-behavior/`. The `process` full-surface runtime acceptance is the ~14
+  `tests/rt-behavior/process/*` fixtures A–C authored (spawn-waitfor, shell-
+  exitcode, send-grep, send-timeout, sendbytes, receive-lines, receivebytes, poll,
+  signal, detach, detach-then-use, drop-reap, spawnenv, spawn-fail-trap), all
+  green on the host. Added `tests/byte-identity/process/` for codegen coverage.
+- **`.mfp` packaging is N/A for a builtin (Phase 3).** `process` is a built-in
+  package (embedded companion `process_package.mfb` via `include_str!`), not a
+  distributable consumer package. `sync-package-mfp.sh` only rebuilds package
+  *fixtures'* `.mfp`; no committed `.mfp` imports `process` (the only consumers are
+  `tests/syntax/process/*`, which are `kind: executable`). The "packaging" is the
+  embedded companion, already shipped in the compiler binary — nothing to sync.
 
 ## Summary
 

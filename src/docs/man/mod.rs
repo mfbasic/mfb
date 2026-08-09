@@ -47,6 +47,7 @@ const PACKAGE_ORDER: &[(&str, &str)] = &[
     ("fs", "mfb man fs [function]"),
     ("os", "mfb man os [function]"),
     ("thread", "mfb man thread [function]"),
+    ("process", "mfb man process [function]"),
     ("json", "mfb man json [function]"),
     ("csv", "mfb man csv [function]"),
     ("regex", "mfb man regex [function]"),

@@ -381,21 +381,34 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     }
     // plan-90: `process::spawn`/`shell` raise ErrSpawnFailed; lifecycle ops raise
     // ErrResourceClosed on a dropped handle; spawn raises ErrInvalidArgument on an
-    // empty argv and ErrAllocation on OOM. `__drop` is emitted by scope-drop, so a
-    // program that only spawns still needs the close-path strings.
-    if module_uses_any_call(
-        module,
-        &[
-            "process.spawn",
-            "process.spawnEnv",
-            "process.shell",
-            "process.pid",
-            "process.isRunning",
-            "process.waitFor",
-            "process.close",
-            "process.__drop",
-        ],
-    ) {
+    // empty argv and ErrAllocation on OOM; the send/poll timeout overloads raise
+    // ErrTimeout. `__drop` is emitted by scope-drop, so a program that only spawns
+    // still needs the close-path strings. The whole surface is listed so an I/O-
+    // or signal-only reference still pulls the shared close/timeout strings.
+    let process_calls = [
+        "process.spawn",
+        "process.spawnEnv",
+        "process.shell",
+        "process.pid",
+        "process.isRunning",
+        "process.waitFor",
+        "process.close",
+        "process.send",
+        "process.sendTimeout",
+        "process.sendBytes",
+        "process.sendBytesTimeout",
+        "process.receive",
+        "process.receiveFrom",
+        "process.receiveBytes",
+        "process.receiveBytesFrom",
+        "process.poll",
+        "process.pollFrom",
+        "process.signal",
+        "process.didSignal",
+        "process.detach",
+        "process.__drop",
+    ];
+    if module_uses_any_call(module, &process_calls) {
         for value in [
             ERR_SPAWN_FAILED_MESSAGE,
             ERR_RESOURCE_CLOSED_MESSAGE,
@@ -405,6 +418,12 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         ] {
             push_string_value(&mut values, value.to_string());
         }
+    }
+    // `process::receive`/`receiveFrom` validate the line as UTF-8 and raise
+    // ErrEncoding on a malformed byte sequence, so the receive path needs the
+    // encoding string even when the program never calls `toString`.
+    if module_uses_any_call(module, &["process.receive", "process.receiveFrom"]) {
+        push_string_value(&mut values, ERR_ENCODING_MESSAGE.to_string());
     }
     if module_uses_migrated(module, "find")
         || module_uses_migrated(module, "mid")

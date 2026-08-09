@@ -241,7 +241,7 @@ Acceptance (execution): a faulting child reports `didSignal()==Error`; a normal
 exit reports `None`; a detached child survives handle close. `signal(Kill)`
 terminates the child. **MET** — box 2230 printed `137` (signal Kill exit),
 `none` (normal exit), `error` (0xC0000005 exception exit), `detached`.
-Commit: <this commit>
+Commit: ff7c5f4de
 
 ## Validation Plan
 
