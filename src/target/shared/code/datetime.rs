@@ -159,10 +159,10 @@ pub(super) fn lower_datetime_helper(
                 // year does not fit `tm_year`'s `int`; on that path it writes no field
                 // of `tm`, so loading `tm_gmtoff` would return an uninitialized stack
                 // qword (an ASLR info-leak). Branch on the return before touching the
-                // buffer (bug-42). The return sits in the return register, which is
-                // also `RESULT_TAG_REGISTER`, so test it before the OK tail overwrites
-                // it below.
-                instructions.push(abi::compare_immediate(abi::RET[0], "0"));
+                // buffer (bug-42). plan-85: `localtime_r`'s pointer return is a C
+                // result (`rax`, `%retC`), not the aligned MFB result register — read
+                // it from the C-return register (byte-identical `x0` on ARM/RISC-V).
+                instructions.push(abi::compare_immediate(abi::c_return(0), "0"));
                 instructions.push(abi::branch_eq(&localoffset_range_fail));
                 instructions.push(abi::load_u64(
                     RESULT_VALUE_REGISTER,
