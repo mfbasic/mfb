@@ -14,9 +14,30 @@ The strings family copies **byte-at-a-time** through `emit_materialize_string_fr
 
 ## Fixes
 - [x] **F1** — case_map ASCII quick-check (landed plan-64).
-- [ ] **F2** — memchr single-byte delimiter scan + 8-byte word-at-a-time block copy in split/join/mid; fuse
-  split's two scans for a single-char delimiter. Helps string case/slice + strbuild splitjoin.
-- [ ] **F3** — collapse case_map to a single pass (one over-allocate-to-byte-len write).
+- [ ] **F2** — 8-byte word-copy + SWAR memchr. **TRACTABLE + near-zero-risk (scout, plan-86-A session), but
+  MARGINAL (~1.3–1.8×, NOT band-clearing).** The word-copy helper ALREADY EXISTS: `emit_block_copy_advance`
+  (`builder_collection_layout.rs:171-209`, an 8-byte load_u64/store_u64 loop + byte tail) is already used by
+  the list/slice/map bulk paths — the string byte-copy loops are the outliers that never adopted it. **Swap
+  these 4 byte-at-a-time loops to `emit_block_copy_advance` (dst/src/remaining are already set up at each):**
+  (1) `emit_materialize_string_from_bytes` `builder_collection_layout.rs:2303-2311` (the widest — to_bytes/
+  repeat/materialize funnel); (2) string `mid`/slice `builder_search.rs:910-918`; (3) split segment copy
+  `builder_strings_package.rs:307-316`; (4) join delim+value copies `builder_strings_builtins.rs:1552-1560`
+  and `1574-1582`. All byte-exact (moves UTF-8 verbatim), no Unicode concern. (5) **SWAR single-byte memchr**
+  (no runtime memchr symbol exists — open-code it, model on `emit_ascii_scalar_fastforward` `builder_search.rs:33-56`,
+  mask `0x8080808080808080`) for split's inner delimiter compare (`builder_strings_builtins.rs:1695-1697`,
+  `1810-1812`), gated on `delimiterLen == 1` (the benchmark's `,`). **Why marginal:** the benchmark strings are
+  SHORT (case/slice 13–21 B; split = 100 tiny fields), so the copy is a small fraction — allocation + call
+  overhead dominate; word-copy cuts per-byte work ~8× but that's not the bottleneck. Same class as
+  chunks/window/zip (`[[native-string-hof-rewrites-are-marginal]]`).
+- [ ] **F3** — collapse case_map to a single ASCII pass. **HIGHER-RISK (control-flow restructure), do 2nd.**
+  The ASCII fast path (`builder_strings_builtins.rs:521-568`) is ITSELF two byte passes — a quick-check scan
+  (`:521-529`) then a transform-copy (`:559-568`). For ASCII, out-len == byte_len exactly, so allocate
+  `byte_len+9` up front (byte_len already in scratch21 `:518`) and fuse to ONE transform-copy pass that bails
+  to `case_slow` (`:574`, the Unicode two-pass, REQUIRED for ß→ss width changes) the moment a byte ≥0x80 is
+  seen. The cheaper half — SWAR-ing the quick-check scan's per-byte `compare 128` (`:526`) to a word high-bit
+  test — can land independently. **~1.5–2× on the case_map component, diluted by the row's 6 other ops** (trim*,
+  normalizeNfc). **NET: F is a modest ~1.3–2× row improvement, not a clear** — the big benchmark wins are the
+  O(container)-copy eliminations (groupBy 445×, removeKey 7.3×), not short-string byte-copy tuning.
 
 ## Acceptance
 string/strbuild checksums + `scripts/artifact-gate.sh`.
