@@ -516,11 +516,45 @@ FUNC inlineRun(pending AS List OF Node, st AS Style, x AS Integer, y AS Integer,
   RETURN Sized[textLaid(text, box, st.textAlign), contentW, h]
 END FUNC
 
+' Shift a laid subtree horizontally by dx: every box (element and text) moves right
+' by dx. Used to centre or right-align a block child after it has been laid out.
+FUNC translateNode(n AS Node, dx AS Integer) AS Node
+  MATCH n
+    CASE ElementNode(e)
+      MUT kids AS List OF Node = []
+      FOR EACH c IN e.children
+        kids = collections::append(kids, translateNode(c, dx))
+      NEXT
+      LET b AS Layout = e.layout
+      RETURN elementLaid(e.tag, e.attrs, kids, e.style, Layout[b.x + dx, b.y, b.width, b.height])
+    CASE TextNode(t)
+      LET b AS Layout = t.layout
+      RETURN textLaid(t.text, Layout[b.x + dx, b.y, b.width, b.height], t.align)
+    CASE ELSE
+      RETURN n
+  END MATCH
+END FUNC
+
+' Position a just-laid block child horizontally within its container per the
+' container's text-align: a child narrower than the content box is centred or
+' right-aligned (a full-width child is untouched). This is how a shrink-to-fit
+' block — a <table>, or a fixed-width element — is centred by a <center> /
+' text-align:center ancestor.
+FUNC alignBlockChild(node AS Node, childW AS Integer, contentW AS Integer, align AS Justify) AS Node
+  IF childW >= contentW THEN RETURN node
+  MUT dx AS Integer = 0
+  IF align = Justify.Center THEN dx = (contentW - childW) / 2
+  IF align = Justify.FlexEnd THEN dx = contentW - childW
+  IF dx <= 0 THEN RETURN node
+  RETURN translateNode(node, dx)
+END FUNC
+
 ' Block formatting: stack the children vertically, each filling the content width.
 ' Consecutive inline-level children (text + inline elements) between block-level
 ' children are flowed together into one wrapped run (an anonymous block); block-
-' level children lay out as their own boxes. Vertical spacing comes from each
-' box's margins, not a gap.
+' level children lay out as their own boxes, and a narrower-than-full block (a
+' shrink-to-fit table, a fixed-width element) is centred/right-aligned per the
+' container's text-align. Vertical spacing comes from each box's margins, not a gap.
 FUNC layoutBlock(kids AS List OF Node, st AS Style, originX AS Integer, originY AS Integer, contentW AS Integer) AS Flow
   MUT outKids AS List OF Node = []
   MUT pending AS List OF Node = []
@@ -539,7 +573,7 @@ FUNC layoutBlock(kids AS List OF Node, st AS Style, originX AS Integer, originY 
         pending = []
       END IF
       LET r AS Sized = layoutNode(k, originX, curY, contentW, FALSE)
-      outKids = collections::append(outKids, r.node)
+      outKids = collections::append(outKids, alignBlockChild(r.node, r.width, contentW, st.textAlign))
       curY = curY + r.height
     ELSE
       pending = collections::append(pending, k)
@@ -786,10 +820,12 @@ FUNC layoutTable(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integer
   LET pr AS Integer = maxI(0, st.paddingRight)
   LET pt AS Integer = maxI(0, st.paddingTop)
   LET pb AS Integer = maxI(0, st.paddingBottom)
-  MUT borderW AS Integer = availW - ml - mr
-  IF imposeWidth = FALSE AND st.width >= 0 THEN borderW = st.width
-  borderW = maxI(0, borderW)
-  LET contentW AS Integer = maxI(0, borderW - pl - pr)
+  ' The maximum width the table may occupy: an explicit/imposed width, else fill.
+  MUT maxBorderW AS Integer = availW - ml - mr
+  IF imposeWidth = FALSE AND st.width >= 0 THEN maxBorderW = st.width
+  maxBorderW = maxI(0, maxBorderW)
+  LET maxContentW AS Integer = maxI(0, maxBorderW - pl - pr)
+  LET autoWidth AS Boolean = imposeWidth = FALSE AND st.width < 0
   LET originX AS Integer = x + ml + pl
   LET originY AS Integer = y + mt + pt
 
@@ -804,8 +840,8 @@ FUNC layoutTable(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integer
     numCols = maxI(numCols, sc)
   NEXT
   IF numCols = 0 THEN
-    LET box0 AS Layout = Layout[x + ml, y + mt, borderW, pt + pb]
-    RETURN Sized[elementLaid(e.tag, e.attrs, [], st, box0), borderW + ml + mr, pt + pb + mt + mb]
+    LET box0 AS Layout = Layout[x + ml, y + mt, maxBorderW, pt + pb]
+    RETURN Sized[elementLaid(e.tag, e.attrs, [], st, box0), maxBorderW + ml + mr, pt + pb + mt + mb]
   END IF
 
   ' Natural (max-content) and minimum (min-content) column widths. A spanning cell
@@ -834,13 +870,23 @@ FUNC layoutTable(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integer
     NEXT
   NEXT
 
-  ' Fit the columns to the available width (a 1-cell gap between them). If the
-  ' natural widths fit, use them; otherwise shrink each column toward its
-  ' min-content, distributing the available slack across the columns' flex range
-  ' (natural - min). A column never shrinks below its longest word, so tables that
-  ' cannot fit overflow (and clip at the edge) rather than corrupting neighbours.
+  ' Table width: shrink-to-fit the natural columns when the width is auto (so the
+  ' table is narrower than the container and can be centred by an ancestor), else
+  ' fill the explicit/imposed width. A 1-cell gap separates columns.
   LET gap AS Integer = 1
   LET gapsTotal AS Integer = gap * maxI(0, numCols - 1)
+  LET naturalContentW AS Integer = sumList(colNat) + gapsTotal
+  MUT contentW AS Integer = maxContentW
+  IF autoWidth THEN
+    contentW = minI(naturalContentW, maxContentW)
+  END IF
+  LET borderW AS Integer = contentW + pl + pr
+
+  ' Fit the columns to the table's content width. If the natural widths fit, use
+  ' them; otherwise shrink each column toward its min-content, distributing the
+  ' slack across the columns' flex range (natural - min). A column never shrinks
+  ' below its longest word, so a table that cannot fit overflows (and clips at the
+  ' edge) rather than corrupting neighbours.
   LET avail AS Integer = maxI(0, contentW - gapsTotal)
   LET totalNat AS Integer = sumList(colNat)
   LET totalMin AS Integer = sumList(colMin)

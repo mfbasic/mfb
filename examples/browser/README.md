@@ -158,7 +158,8 @@ recursing over an *imported* union):
   width is the max of its cells' natural widths (shrinking toward each column's
   min-content — its longest word — to fit), and every row places its cells at the
   shared column positions so columns line up across rows; `colspan` is honored
-  (`rowspan` is treated as one row). `center` and the sectioning wrappers are block by
+  (`rowspan` is treated as one row). An auto-width table **shrinks to fit** its
+  columns rather than filling the width, so it can be centred. `center` and the sectioning wrappers are block by
   default. Vertical spacing between blocks comes from margins;
   the UA sheet gives paragraphs, lists, and headings a default margin. **Horizontal
   alignment** is unified into the flex vocabulary: `text-align`, a `<center>`
@@ -166,7 +167,10 @@ recursing over an *imported* union):
   `Justify` enum (`FlexStart`/`Center`/`FlexEnd`) on the block, and each wrapped line
   of its inline content is placed accordingly — the same `Justify` that drives a flex
   row's `justify-content`. Alone among the layout properties this one **inherits**, so
-  a `<center>` (or `text-align` on an ancestor) centers all descendant text. Text is
+  a `<center>` (or `text-align` on an ancestor) centers all descendant text. It also
+  centers (or right-aligns) a **block** child that is narrower than the content box —
+  a shrink-to-fit table or a fixed-width element — by shifting its laid box, so
+  `<center>` centres a whole table, not just text. Text is
   measured by `strings::displayWidth`. Layout is recomputed on each
   render/resize (in the app), not stored by the worker. (Current subset: single-line
   flex — `flex-wrap` falls back to nowrap — cross-axis `align-items` is not applied,
