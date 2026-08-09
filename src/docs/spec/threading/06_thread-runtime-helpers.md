@@ -18,6 +18,7 @@ _mfb_rt_thread_thread_emit             ; data plane, worker -> parent (outbound)
 _mfb_rt_thread_thread_receive          ; data plane, worker reads inbound
 _mfb_rt_thread_thread_read             ; data plane, parent reads outbound
 _mfb_rt_thread_thread_poll             ; parent peeks outbound
+_mfb_rt_thread_thread_sleep            ; parent blocks the calling thread ms
 _mfb_rt_thread_thread_isCancelled      ; worker reads the cancel flag
 _mfb_rt_thread_thread_transferResource ; resource plane, parent -> worker (inbound)
 _mfb_rt_thread_thread_emitResource     ; resource plane, worker -> parent (outbound)
@@ -44,8 +45,8 @@ applied when the runtime call is lowered: [[src/target/shared/code/builder_value
 | `thread::transfer`        | `transferResource` (in)   | `emitResource` (out)       |
 | `thread::accept`          | `readResource` (out)      | `acceptResource` (in)      |
 
-`thread::poll` and `thread::isRunning`/`waitFor`/`cancel` are parent-only;
-`thread::isCancelled` is worker-only. (`thread::transfer`/`thread::accept` first
+`thread::poll`, `thread::sleep`, and `thread::isRunning`/`waitFor`/`cancel` are
+parent-only; `thread::isCancelled` is worker-only. (`thread::transfer`/`thread::accept` first
 lower to the internal `thread.transferResource`/`thread.acceptResource` targets
 during IR lowering, then the value builder applies the worker-direction split to
 `emitResource`/`readResource`.) [[src/ir/lower.rs]] [[src/target/shared/code/builder_values.rs]]
@@ -72,6 +73,19 @@ storing:
 It then asks the OS to start `_mfb_rt_thread_trampoline`, passing the control
 block pointer as the pthread argument (see `os-integration`). A `pthread_create`
 failure is reported as `ErrInterrupted`. [[src/target/shared/code/runtime_helpers.rs:lower_thread_start_helper]]
+
+## `thread::sleep`
+
+`thread::sleep(t, ms)` blocks the *calling* thread for `ms` milliseconds and
+returns `Nothing`. The parent-handle form is a plain wall-clock delay: it reads
+nothing from the queues and does not observe cancellation. It validates `ms`
+(`< 0` → `ErrInvalidArgument`, `== 0` → immediate no-op), checks the handle state
+for `ErrResourceClosed` parity with `thread::poll`, then splits `ms` into a
+*relative* `{tv_sec, tv_nsec}` `timespec` and calls libc `nanosleep` in a loop
+that retries on signal interruption (`EINTR`) so a signal cannot truncate the
+sleep. On Windows there is no `nanosleep`: the helper converts the `timespec` to
+whole milliseconds and calls `Sleep(dwMilliseconds)`, which is uninterruptible, so
+the retry loop exits after one call. [[src/target/shared/code/runtime_helpers.rs:lower_thread_sleep_helper]]
 
 ## Trampoline
 

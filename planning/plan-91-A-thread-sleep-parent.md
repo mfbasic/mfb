@@ -310,26 +310,29 @@ Acceptance: the rt-behavior sleep test passes on the native host target (observe
 (ErrInvalidArgument) AND full `cargo test` is green (0 failures). Cross-compiled
 `-ncode` cleanly for linux-x86_64/linux-aarch64/windows-x86_64 (nanosleep on
 Linux, Sleep on Windows).
-Commit: —
+Commit: 2aacef7eb
 
 ### Phase 3 — Docs, spec, byte-identity
 
-- [ ] `src/docs/man/builtins/thread/sleep.md`: author per `.ai/man_template.md`
+- [x] `src/docs/man/builtins/thread/sleep.md`: authored per `.ai/man_template.md`
       (Synopsis shows the parent overload; Errors table lists
-      `ErrInvalidArgument`, `ErrResourceClosed`; note `ms=0` is a no-op and the
-      worker overload is documented as arriving in plan-91-B — or omit until B,
-      per doc hygiene). Add `sleep` to the package `FUNCTIONS` list in
-      `package.md`.
-- [ ] Spec: `src/docs/spec/threading/*.md` and
-      `src/docs/spec/language/16_threads.md` — document parent-side
-      `thread::sleep` and the ms convention. (`.ai/specifications.md` governs.)
-- [ ] Byte-identity: add/refresh a `tests/byte-identity/thread/` fixture proving
-      a program that does NOT call `thread::sleep` is byte-identical to HEAD; add
-      a fixture that DOES call it so its `.ncode` is pinned going forward.
+      `ErrInvalidArgument`, `ErrResourceClosed`; notes `ms=0` is a no-op and the
+      overload is uninterruptible). Omitted the Overloads section (single overload
+      in 91-A; 91-B adds the worker form). Added a `thread::sleep` paragraph +
+      error-row mentions to `package.md` (the package page is prose, not a list).
+- [x] Spec: `src/docs/spec/threading/06_thread-runtime-helpers.md` (helper symbol
+      + parent-only note + a `thread::sleep` section) and
+      `src/docs/spec/language/16_threads.md` (signature + ms-convention prose);
+      also `language/18_builtin-functions.md`'s thread call list.
+- [x] Byte-identity: added `thread::sleep(t1, 0)` to the existing
+      `tests/byte-identity/thread/` coverage fixture (which drives every overload)
+      and regenerated all 4 `.ncodesum` targets + `.ir`/`.ast`/build.log. Non-sleep
+      programs stay byte-identical (the nanosleep import is gated to `thread.sleep`);
+      the scoped `artifact-gate.sh … thread` reports 0 diffs.
 
-Acceptance: the man-page coverage test passes (every thread function has a
-page), the spec-sync check passes, and full `cargo test` (including
-byte-identity and acceptance goldens) is green.
+Acceptance: `mfb man thread sleep` renders; man-coverage (261) + spec (42) +
+citations (2) tests green; scoped artifact-gate for `thread` = 0 diffs; full
+`cargo test` green (0 failures).
 Commit: —
 
 ## Validation Plan
