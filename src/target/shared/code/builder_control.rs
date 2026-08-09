@@ -192,6 +192,38 @@ impl CodeBuilder<'_> {
                         // another); it is re-established below only if this binding
                         // promotes (plan-01-vector).
                         self.promoted_vector_locals.remove(name);
+                        // plan-86 G1: track `LET n = len(L)` (both locals) so a loop
+                        // bound `n - k` can resolve to `len(L) - k`. A rebind of `n`
+                        // drops its fact; a rebind of any list drops facts naming it
+                        // as `L` (its length may have changed).
+                        self.len_of_local.remove(name);
+                        self.len_of_local.retain(|_, l| l != name);
+                        if let Some(NirValue::Call { target, args, .. }) = value {
+                            if target == "len" && args.len() == 1 {
+                                if let NirValue::Local(l) = &args[0] {
+                                    self.len_of_local.insert(name.clone(), l.clone());
+                                }
+                            }
+                        }
+                        // Record the synthetic FOR-bound/step binds so the loop's
+                        // `end`/`step` (which arrive as `Local($for_endN)`) resolve.
+                        if name.starts_with("$for_end") || name.starts_with("$for_step") {
+                            if let Some(v) = value {
+                                self.for_bound_expr.insert(name.clone(), v.clone());
+                            }
+                        }
+                        // plan-86 G1: a rebind clears any provable-index fact keyed on
+                        // `name`, and any fact naming it as the indexed list `L`. An
+                        // alias `LET i = $for_iterN` (the IR's user-var binding) then
+                        // INHERITS the loop var's provable fact, so `get(L, i)` in the
+                        // body can elide. `i` is immutable, so the alias stays valid.
+                        self.provable_index_locals.remove(name);
+                        self.provable_index_locals.retain(|_, (l, _)| l != name);
+                        if let Some(NirValue::Local(src)) = value {
+                            if let Some(fact) = self.provable_index_locals.get(src).cloned() {
+                                self.provable_index_locals.insert(name.clone(), fact);
+                            }
+                        }
                         // A `MATCH` variant binding (`UnionExtract`) is an alias
                         // into the matched union's inlined variant block: the union
                         // owns the data and frees it as one block on its own drop,
@@ -573,6 +605,13 @@ impl CodeBuilder<'_> {
                         }
                     }
                     NirOp::Assign { name, value } => {
+                        // plan-86 G1: reassigning `name` invalidates any `len_of_local`
+                        // or provable-index fact keyed on it, and any fact naming it
+                        // as the list `L`.
+                        self.len_of_local.remove(name);
+                        self.len_of_local.retain(|_, l| l != name);
+                        self.provable_index_locals.remove(name);
+                        self.provable_index_locals.retain(|_, (l, _)| l != name);
                         // A loop-promoted float local is updated in its FP
                         // register, not its slot (plan-03 Stage D part 2).
                         if let Some(d) = self.promoted_float_locals.get(name).cloned() {
@@ -1166,6 +1205,117 @@ impl CodeBuilder<'_> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// plan-86 G1: resolve an expression to the list `L` whose `len(L)` it is —
+    /// either a direct `len(L)` call or a local `n` bound as `LET n = len(L)`.
+    fn resolve_len_list(&self, expr: &NirValue) -> Option<String> {
+        match expr {
+            NirValue::Call { target, args, .. } if target == "len" && args.len() == 1 => {
+                match &args[0] {
+                    NirValue::Local(l) => Some(l.clone()),
+                    _ => None,
+                }
+            }
+            NirValue::Local(n) => self.len_of_local.get(n).cloned(),
+            _ => None,
+        }
+    }
+
+    /// plan-86 G1: recognize `FOR i = 0 TO len(L) - k` (`k >= 1`, step 1) where `i`
+    /// and `L` are provably unmodified across the whole loop body. Returns
+    /// `(L, k)` — then `get/set(L, i)` is in-range (`i <= len-k < len`), and
+    /// `get/set(L, i+1)` too when `k >= 2`. Conservative: any deviation returns
+    /// `None` (the bounds check is kept). SOUNDNESS rests on the whole-body
+    /// no-reassign proof — an unsound elision is a silent OOB.
+    /// plan-86 G1: resolve a synthetic `$for_end*`/`$for_step*` local back to its
+    /// bound expr; identity for anything else.
+    fn resolve_for_local<'a>(&'a self, v: &'a NirValue) -> &'a NirValue {
+        if let NirValue::Local(name) = v {
+            if let Some(expr) = self.for_bound_expr.get(name) {
+                return expr;
+            }
+        }
+        v
+    }
+
+    fn recognize_provable_index(
+        &self,
+        i: &str,
+        start: &NirValue,
+        end: &NirValue,
+        step: &NirValue,
+        body: &[NirOp],
+    ) -> Option<(String, i64)> {
+        let is_int_const = |v: &NirValue, want: &str| {
+            matches!(v, NirValue::Const { type_, value } if type_ == "Integer" && value == want)
+        };
+        // The IR desugars the bound/step into synthetic locals — resolve them.
+        let start = self.resolve_for_local(start);
+        let step = self.resolve_for_local(step);
+        let end = self.resolve_for_local(end);
+        if !is_int_const(start, "0") || !is_int_const(step, "1") {
+            return None;
+        }
+        // end must be `<lenexpr> - k`, k >= 1.
+        let NirValue::Binary { op, left, right, .. } = end else {
+            return None;
+        };
+        if op != "-" {
+            return None;
+        }
+        let NirValue::Const { type_, value } = right.as_ref() else {
+            return None;
+        };
+        if type_ != "Integer" {
+            return None;
+        }
+        let k: i64 = value.parse().ok()?;
+        if k < 1 {
+            return None;
+        }
+        let list = self.resolve_len_list(left)?;
+        // Soundness: `i` and `L` (and the `n` in `n - k`, since `n = len(L)` must
+        // still hold) must not be reassigned anywhere in the body.
+        let reassigned = super::function_lowering::collect_reassigned_locals(body);
+        if reassigned.contains(i) || reassigned.contains(&list) {
+            return None;
+        }
+        if let NirValue::Local(n) = left.as_ref() {
+            if reassigned.contains(n) {
+                return None;
+            }
+        }
+        Some((list, k))
+    }
+
+    /// plan-86 G1: is `index_arg` a provably-in-range index into list `list_arg`?
+    /// True when `list_arg == Local(L)` and `index_arg` is `Local(i)` (needs
+    /// headroom `k >= 1`) or `i + 1` (needs `k >= 2`), with
+    /// `provable_index_locals[i] == (L, k)`.
+    pub(super) fn is_provable_index_access(
+        &self,
+        list_arg: &NirValue,
+        index_arg: &NirValue,
+    ) -> bool {
+        let NirValue::Local(list) = list_arg else {
+            return false;
+        };
+        let (i, need_k) = match index_arg {
+            NirValue::Local(i) => (i.as_str(), 1i64),
+            NirValue::Binary {
+                op, left, right, ..
+            } if op == "+" => match (left.as_ref(), right.as_ref()) {
+                (NirValue::Local(i), NirValue::Const { type_, value })
+                    if type_ == "Integer" && value == "1" =>
+                {
+                    (i.as_str(), 2i64)
+                }
+                _ => return false,
+            },
+            _ => return false,
+        };
+        matches!(self.provable_index_locals.get(i), Some((l, k)) if l == list && *k >= need_k)
+    }
+
     pub(super) fn lower_numeric_for(
         &mut self,
         name: &str,
@@ -1191,6 +1341,15 @@ impl CodeBuilder<'_> {
                 by_ref: false,
             },
         );
+
+        // plan-86 G1: if this is `FOR name = 0 TO len(L)-k` (step 1) with `name` and
+        // `L` unmodified across the whole body, record that `name` provably indexes
+        // `L` in-range for the body's `get`/`set(L, name[+1])` — cleared right after.
+        let g1_provable = self.recognize_provable_index(name, start, end, step, body);
+        if let Some((list, k)) = &g1_provable {
+            self.provable_index_locals
+                .insert(name.to_string(), (list.clone(), *k));
+        }
 
         let promoted = self.begin_loop_promotion(body, Some(name))?;
         let loop_label = self.label("for_loop");
@@ -1253,6 +1412,10 @@ impl CodeBuilder<'_> {
             cleanup_depth: self.active_cleanups.len(),
         });
         self.lower_ops(body)?;
+        // plan-86 G1: the provable-index fact is scoped to this loop's body only.
+        if g1_provable.is_some() {
+            self.provable_index_locals.remove(name);
+        }
         self.loop_stack.pop();
         self.emit(abi::label(&continue_label));
         let increment_node = NirValue::Binary {

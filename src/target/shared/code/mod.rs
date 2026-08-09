@@ -438,6 +438,24 @@ struct CodeBuilder<'a> {
     /// to elide the overflow check on `local + 1`; dropped on any assignment to the
     /// local and cleared at every loop/Match/Trap boundary.
     integer_strict_upper: std::collections::HashSet<String>,
+    /// plan-86 G1: value expr of each synthetic `$for_end*` / `$for_step*` binding
+    /// the IR emits for a `FOR` bound/step, so the loop's `end`/`step` (which reach
+    /// `lower_numeric_for` as `Local($for_endN)`) can be resolved back to their
+    /// `n - k` / `1` exprs. These synthetics are write-once and unique per loop.
+    for_bound_expr: HashMap<String, NirValue>,
+    /// plan-86 G1: `n -> L` for a binding `LET n = len(L)` (both locals). Lets a
+    /// loop bound written as `n - k` resolve to `len(L) - k`. Dropped when `n` or
+    /// `L` is reassigned.
+    len_of_local: HashMap<String, String>,
+    /// plan-86 G1: induction var `i -> (L, headroom k)` for a `FOR i = 0 TO
+    /// len(L) - k` loop (`k >= 1`, step 1) where BOTH `i` and `L` are provably NOT
+    /// reassigned anywhere in the loop body. Then `get/set(L, i)` is in-range
+    /// (`i <= len-k < len`), and `get/set(L, i+1)` too when `k >= 2` — so the
+    /// per-access bounds check is elided. Set for the duration of the body and
+    /// removed after; because `i`/`L` are unmodified across the WHOLE body, the fact
+    /// stays sound throughout (no mid-body clear needed). UNSOUND elision = silent
+    /// OOB — gated by the whole-body-unmodified proof AND mandatory negative fixtures.
+    provable_index_locals: HashMap<String, (String, i64)>,
 }
 
 #[derive(Clone)]

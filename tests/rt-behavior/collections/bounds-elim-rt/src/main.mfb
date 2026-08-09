@@ -1,0 +1,33 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 G1: bounds-check elimination for an induction var over `len(L)-k`.
+' `get(L, i)` (k>=1) and `get(L, i+1)` (k>=2) over a list L not reassigned in the
+' body emit an UNCHECKED load. Output must be IDENTICAL to the checked path; this
+' pins that the elided accesses compute the right elements (a bad offset would
+' diverge). Both the `n = len(L)` indirection and the direct `len(L)-k` form.
+
+FUNC main() AS Integer
+  LET xs AS List OF Integer = [10, 20, 30, 40, 50, 60, 70, 80, 90]
+  LET n AS Integer = len(xs)
+  ' k=2 via the `n = len(xs)` indirection: get(xs,i) and get(xs,i+1) both elided.
+  MUT s2 AS Integer = 0
+  FOR i = 0 TO n - 2
+    s2 = s2 + collections::get(xs, i) + collections::get(xs, i + 1)
+  NEXT
+  io::print("s2=" & toString(s2))
+  ' k=1 via the direct `len(xs)-1` form: get(xs,j) elided, get(xs,j+1) NOT (kept).
+  MUT s1 AS Integer = 0
+  FOR j = 0 TO len(xs) - 1
+    s1 = s1 + collections::get(xs, j)
+  NEXT
+  io::print("s1=" & toString(s1))
+  ' String list (variable-width element) — same elision, different get path.
+  LET ws AS List OF String = ["a", "bb", "ccc", "dddd"]
+  MUT tot AS Integer = 0
+  FOR k = 0 TO len(ws) - 1
+    tot = tot + len(collections::get(ws, k))
+  NEXT
+  io::print("tot=" & toString(tot))
+  RETURN 0
+END FUNC

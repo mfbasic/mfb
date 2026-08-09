@@ -41,6 +41,43 @@ pub(super) fn collect_address_taken_locals(ops: &[NirOp], out: &mut HashSet<Stri
     Collector { out }.visit_ops(ops);
 }
 
+/// plan-86 G1: names of every local REASSIGNED anywhere in `ops` — rebound
+/// (`Bind`), assigned (`Assign`), or state-mutated (`StateAssign`). For the
+/// bounds-check elision, the induction var `i` and the list `L` must both be
+/// absent from this set over the loop body, so `i < len(L)` provably holds at
+/// every iteration (a reassigned `L` changes its length; a reassigned `i` breaks
+/// the `0..=len-k` range). Uses the exhaustive `NirVisitor` seam so a new
+/// mutation op cannot silently escape the check — a missed reassignment would be
+/// an UNSOUND unchecked access (silent OOB).
+pub(super) fn collect_reassigned_locals(ops: &[NirOp]) -> HashSet<String> {
+    use nir::visit::{walk_op, NirVisitor};
+    struct Collector {
+        out: HashSet<String>,
+    }
+    impl NirVisitor for Collector {
+        fn visit_op(&mut self, op: &NirOp) {
+            match op {
+                NirOp::Bind { name, .. } => {
+                    self.out.insert(name.clone());
+                }
+                NirOp::Assign { name, .. } => {
+                    self.out.insert(name.clone());
+                }
+                NirOp::StateAssign { resource, .. } => {
+                    self.out.insert(resource.clone());
+                }
+                _ => {}
+            }
+            walk_op(self, op);
+        }
+    }
+    let mut c = Collector {
+        out: HashSet::new(),
+    };
+    c.visit_ops(ops);
+    c.out
+}
+
 /// plan-77 M6: names of every local used as a VALUE — read (`Local`) or
 /// address-taken (`LocalRef`) — anywhere in `ops`. A closure binding whose name
 /// is NOT in this set never flows anywhere except as a direct call target (an
@@ -763,6 +800,9 @@ pub(super) fn lower_function(
         promotable_vector_locals: HashSet::new(),
         integer_lower_bounds: HashMap::new(),
         integer_strict_upper: std::collections::HashSet::new(),
+        for_bound_expr: HashMap::new(),
+        len_of_local: HashMap::new(),
+        provable_index_locals: HashMap::new(),
     };
     for (index, param) in params.iter().enumerate() {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
@@ -1022,6 +1062,9 @@ pub(super) fn lower_builtin_function_wrapper(
         promotable_vector_locals: HashSet::new(),
         integer_lower_bounds: HashMap::new(),
         integer_strict_upper: std::collections::HashSet::new(),
+        for_bound_expr: HashMap::new(),
+        len_of_local: HashMap::new(),
+        provable_index_locals: HashMap::new(),
     };
 
     let stack_offset = builder.allocate_stack_object("value", 8);
@@ -1165,6 +1208,9 @@ pub(super) fn lower_thread_copy_function(
         promotable_vector_locals: HashSet::new(),
         integer_lower_bounds: HashMap::new(),
         integer_strict_upper: std::collections::HashSet::new(),
+        for_bound_expr: HashMap::new(),
+        len_of_local: HashMap::new(),
+        provable_index_locals: HashMap::new(),
     };
 
     // Capture the incoming source pointer in a vreg (spilled across the copy's

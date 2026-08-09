@@ -35,6 +35,9 @@ impl CodeBuilder<'_> {
         &mut self,
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
+        // plan-86 G1: is `args[1]` a provably-in-range index into the list `args[0]`?
+        // (Computed from the RAW NIR before lowering, against `provable_index_locals`.)
+        let unchecked = self.is_provable_index_access(&args[0], &args[1]);
         let collection = self.lower_value(&args[0])?;
         let collection_slot = self.allocate_stack_object("get_collection", 8);
         self.emit(abi::store_u64(
@@ -56,8 +59,13 @@ impl CodeBuilder<'_> {
                     key.type_
                 ));
             }
-            let result =
-                self.lower_list_get(collection_slot, key_slot, &collection.type_, &element_type)?;
+            let result = self.lower_list_get(
+                collection_slot,
+                key_slot,
+                &collection.type_,
+                &element_type,
+                unchecked,
+            )?;
             return self.materialize_owned_element(result);
         }
 

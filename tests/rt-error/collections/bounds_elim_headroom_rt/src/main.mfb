@@ -1,0 +1,16 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 G1 SOUNDNESS: the bound is `len(xs)-1` (headroom k=1), so `get(xs, i+1)`
+' at i=len-1 indexes `len(xs)` — OUT OF RANGE. `i+1` requires k>=2, so the elision
+' must NOT fire for it and the access MUST trap (not silently OOB-read).
+
+FUNC main AS Integer
+  LET xs AS List OF Integer = [10, 20, 30, 40, 50]
+  MUT s AS Integer = 0
+  FOR i = 0 TO len(xs) - 1
+    s = s + collections::get(xs, i + 1)
+  NEXT
+  io::print("s=" & toString(s))
+  RETURN 0
+END FUNC

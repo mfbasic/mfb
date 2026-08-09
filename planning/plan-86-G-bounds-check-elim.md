@@ -10,7 +10,27 @@ Each hot loop does `collections::get`/`set` on a **loop-invariant-length** list 
 variable**, paying a per-access bounds check the C peers (stack arrays) and Python don't. bignum is a
 bounds-check row, not an algorithm swap — the C mirror `benchmark/c/main.c:365` is also bit-serial.
 
-- [ ] **G1** — emit an unchecked `get`/`set` when `0 ≤ index < len` is provable. **SCOUT VERDICT (plan-86-A
+- [~] **G1 SAFE CUT LANDED (get elision for the `FOR i=0 TO len(L)-k` shape); the bignum/memo symbolic pass
+  remains.** — emit an unchecked `get`/`set` when `0 ≤ index < len` is provable. **DONE: the FOR/len-exact GET
+  elision, SOUND + verified.** Implementation: `provable_index_locals` (`i -> (L, headroom k)`) + `len_of_local`
+  (`n -> L` from `LET n = len(L)`) + `for_bound_expr` (resolve the IR's synthetic `$for_end/$for_step` locals) +
+  `collect_reassigned_locals` (the whole-body no-reassign proof). `recognize_provable_index` (in
+  `lower_numeric_for`) records the fact for the body ONLY when `start==0`, `step==1`, `end` resolves to
+  `len(L)-k` (`k>=1`), and `i`/`L`/`n` are NOT reassigned anywhere in the body; the IR's `LET i = $for_iterN`
+  alias inherits the fact (Bind handler). `is_provable_index_access` proves `get(L, i)` (k>=1) / `get(L, i+1)`
+  (k>=2); `lower_collection_get` threads `unchecked` into `lower_list_get_common`, which then skips the
+  `0<=index<count` compares (the `count` reg is still allocated → vreg numbering unchanged; only the two
+  compare/branch pairs are removed). **SOUNDNESS gated by 3 mandatory negative fixtures — each proves the OOB
+  access STILL traps `7-705-0001` (the elision did NOT fire unsoundly):** `bounds_elim_reassigned_rt` (L
+  reassigned in body), `bounds_elim_headroom_rt` (`i+1` with k=1), `bounds_elim_noninduction_rt` (`i*2`, not the
+  induction var) — plus positive `bounds-elim-rt` (elision fires 9→3 `list_get_invalid` refs, output identical:
+  s2=800/s1=450/tot=10). 3776 unit tests green. **Measured listchurn 10.6 → 10.36ms (~2%, MARGINAL): the two
+  bounds checks are a small fraction of the per-pass cost (`toScalars(base)` dominates each of the 2000
+  passes).** Commit: `<pending-G1>`. **REMAINING (the larger G1 half — bignum modmul 19.5 P2 / modexp 10.9 P3 /
+  memo 11.5 P3):** they do NOT match the safe shape (WHILE loops with `r = set(r, …)` reassigning the list; memo
+  bound is a const not `len`), so they need the symbolic-upper-bound range pass (extend `integer_strict_upper`
+  to carry `< len(L)` + prove in-place `set` preserves `len`) + `set` elision — separately justified,
+  runtime-validated, riskier. Original scout note (kept): **SCOUT VERDICT (plan-86-A
   session): the SAFE minimal cut helps ONLY scalar listchurn (P1, 10.6ms) — memo and bignum do NOT match and
   need a strictly larger, riskier pass.** Why: (a) **listchurn** (`scalarbench.mfb:151-161`) is the clean shape
   — `LET scalars` (never reassigned), `n=len(scalars)`, `FOR i=0 TO n-2`, `get(scalars,i)`/`get(scalars,i+1)`,
