@@ -1280,36 +1280,36 @@ impl code::CodegenPlatform for Platform {
         );
         instructions.extend([
             abi::store_u64(abi::return_register(), abi::stack_pointer(), BLOCK),
-            abi::move_register(abi::ARG[0], abi::return_register()), // cursor (entry start)
-            abi::move_immediate(abi::ARG[1], "Integer", "0"),        // count
+            abi::move_register(abi::SCRATCH[0], abi::return_register()), // cursor (entry start)
+            abi::move_immediate(abi::SCRATCH[1], "Integer", "0"),        // count
             // --- Pass 1: count non-drive entries (no calls, so ARG regs survive) ---
             abi::label(&count_loop),
-            abi::load_u16(abi::ARG[3], abi::ARG[0], 0), // first wide char
-            abi::compare_immediate(abi::ARG[3], "0"),
+            abi::load_u16(abi::SCRATCH[3], abi::SCRATCH[0], 0), // first wide char
+            abi::compare_immediate(abi::SCRATCH[3], "0"),
             abi::branch_eq(&count_done), // double-NUL → end of block
-            abi::move_register(abi::ARG[2], abi::ARG[0]), // scan
+            abi::move_register(abi::SCRATCH[2], abi::SCRATCH[0]), // scan
             abi::label(&count_scan),
-            abi::load_u16(abi::ARG[3], abi::ARG[2], 0),
-            abi::compare_immediate(abi::ARG[3], "0"),
+            abi::load_u16(abi::SCRATCH[3], abi::SCRATCH[2], 0),
+            abi::compare_immediate(abi::SCRATCH[3], "0"),
             abi::branch_eq(&count_scan_done),
-            abi::add_immediate(abi::ARG[2], abi::ARG[2], 2),
+            abi::add_immediate(abi::SCRATCH[2], abi::SCRATCH[2], 2),
             abi::branch(&count_scan),
             abi::label(&count_scan_done),
             // reload the first char; skip if '=' (0x3D = 61, a hidden drive entry).
-            abi::load_u16(abi::ARG[3], abi::ARG[0], 0),
-            abi::compare_immediate(abi::ARG[3], "61"),
+            abi::load_u16(abi::SCRATCH[3], abi::SCRATCH[0], 0),
+            abi::compare_immediate(abi::SCRATCH[3], "61"),
             abi::branch_eq(&count_next),
-            abi::add_immediate(abi::ARG[1], abi::ARG[1], 1), // count++
+            abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 1), // count++
             abi::label(&count_next),
-            abi::add_immediate(abi::ARG[0], abi::ARG[2], 2), // next entry
+            abi::add_immediate(abi::SCRATCH[0], abi::SCRATCH[2], 2), // next entry
             abi::branch(&count_loop),
             abi::label(&count_done),
         ]);
         // --- Allocate the (count+1) pointer array ---
         instructions.extend([
-            abi::add_immediate(abi::return_register(), abi::ARG[1], 1),
+            abi::add_immediate(abi::return_register(), abi::SCRATCH[1], 1),
             abi::shift_left_immediate(abi::return_register(), abi::return_register(), 3), // *8
-            abi::move_immediate(abi::ARG[1], "Integer", "8"),
+            abi::move_immediate(abi::SCRATCH[1], "Integer", "8"),
             abi::branch_link(code::ARENA_ALLOC_SYMBOL),
         ]);
         relocations.push(CodeRelocation {
@@ -1321,27 +1321,27 @@ impl code::CodegenPlatform for Platform {
         });
         instructions.extend([
             abi::store_u64(abi::RET[1], abi::stack_pointer(), ARRAY),
-            abi::load_u64(abi::ARG[0], abi::stack_pointer(), BLOCK),
-            abi::store_u64(abi::ARG[0], abi::stack_pointer(), CURSOR),
+            abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), BLOCK),
+            abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), CURSOR),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), IDX),
             // --- Pass 2: marshal each non-drive entry into the array ---
             abi::label(&fill_loop),
-            abi::load_u64(abi::ARG[0], abi::stack_pointer(), CURSOR),
-            abi::load_u16(abi::ARG[1], abi::ARG[0], 0), // first char
-            abi::compare_immediate(abi::ARG[1], "0"),
+            abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), CURSOR),
+            abi::load_u16(abi::SCRATCH[1], abi::SCRATCH[0], 0), // first char
+            abi::compare_immediate(abi::SCRATCH[1], "0"),
             abi::branch_eq(&fill_done),
-            abi::move_register(abi::ARG[2], abi::ARG[0]), // scan
+            abi::move_register(abi::SCRATCH[2], abi::SCRATCH[0]), // scan
             abi::label(&fill_scan),
-            abi::load_u16(abi::ARG[3], abi::ARG[2], 0),
-            abi::compare_immediate(abi::ARG[3], "0"),
+            abi::load_u16(abi::SCRATCH[3], abi::SCRATCH[2], 0),
+            abi::compare_immediate(abi::SCRATCH[3], "0"),
             abi::branch_eq(&fill_scan_done),
-            abi::add_immediate(abi::ARG[2], abi::ARG[2], 2),
+            abi::add_immediate(abi::SCRATCH[2], abi::SCRATCH[2], 2),
             abi::branch(&fill_scan),
             abi::label(&fill_scan_done),
-            abi::add_immediate(abi::ARG[3], abi::ARG[2], 2), // next cursor = NUL + 2
-            abi::store_u64(abi::ARG[3], abi::stack_pointer(), NEXT),
+            abi::add_immediate(abi::SCRATCH[3], abi::SCRATCH[2], 2), // next cursor = NUL + 2
+            abi::store_u64(abi::SCRATCH[3], abi::stack_pointer(), NEXT),
             // skip drive entries (leading '=', ARG[1] still holds the first char).
-            abi::compare_immediate(abi::ARG[1], "61"),
+            abi::compare_immediate(abi::SCRATCH[1], "61"),
             abi::branch_eq(&fill_skip),
         ]);
         arena_alloc_to_slot(from, ENTRY_CAP, U8BUF, instructions, relocations);
@@ -1349,27 +1349,27 @@ impl code::CodegenPlatform for Platform {
         emit_wide_slot_to_utf8(from, CURSOR, U8BUF, ENTRY_CAP, instructions, relocations);
         instructions.extend([
             // array[idx] = u8buf; idx++.
-            abi::load_u64(abi::ARG[0], abi::stack_pointer(), ARRAY),
-            abi::load_u64(abi::ARG[1], abi::stack_pointer(), IDX),
-            abi::shift_left_immediate(abi::ARG[2], abi::ARG[1], 3),
-            abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[2]),
-            abi::load_u64(abi::ARG[2], abi::stack_pointer(), U8BUF),
-            abi::store_u64(abi::ARG[2], abi::ARG[0], 0),
-            abi::add_immediate(abi::ARG[1], abi::ARG[1], 1),
-            abi::store_u64(abi::ARG[1], abi::stack_pointer(), IDX),
+            abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), ARRAY),
+            abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), IDX),
+            abi::shift_left_immediate(abi::SCRATCH[2], abi::SCRATCH[1], 3),
+            abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[2]),
+            abi::load_u64(abi::SCRATCH[2], abi::stack_pointer(), U8BUF),
+            abi::store_u64(abi::SCRATCH[2], abi::SCRATCH[0], 0),
+            abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 1),
+            abi::store_u64(abi::SCRATCH[1], abi::stack_pointer(), IDX),
             abi::label(&fill_skip),
-            abi::load_u64(abi::ARG[0], abi::stack_pointer(), NEXT),
-            abi::store_u64(abi::ARG[0], abi::stack_pointer(), CURSOR),
+            abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), NEXT),
+            abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), CURSOR),
             abi::branch(&fill_loop),
             abi::label(&fill_done),
             // NULL-terminate the array at [idx].
-            abi::load_u64(abi::ARG[0], abi::stack_pointer(), ARRAY),
-            abi::load_u64(abi::ARG[1], abi::stack_pointer(), IDX),
-            abi::shift_left_immediate(abi::ARG[1], abi::ARG[1], 3),
-            abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]),
-            abi::store_u64(abi::ZERO, abi::ARG[0], 0),
+            abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), ARRAY),
+            abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), IDX),
+            abi::shift_left_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 3),
+            abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[1]),
+            abi::store_u64(abi::ZERO, abi::SCRATCH[0], 0),
             // FreeEnvironmentStringsW(block).
-            abi::load_u64(abi::ARG[0], abi::stack_pointer(), BLOCK),
+            abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), BLOCK),
         ]);
         call_external(
             from,

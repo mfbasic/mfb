@@ -229,10 +229,21 @@ fn realize_abi_operand(
         X86Abi::Win64 => (CALL_ARGS_WIN64, SYS_ARGS),
     };
     let bank: &[&str] = match (convention, role) {
-        // MFB's aligned convention: arg and result share the call-argument bank
-        // (on SysV `[rdi,rsi,rdx,rcx]`, no `rax`); a C-call argument is the same
-        // bank, so an MFB result feeding a C call needs no staging move.
-        (AbiConvention::Mfb, _) | (AbiConvention::C, AbiRole::Arg) => call_args,
+        // MFB's aligned convention: an MFB argument (and a C-call argument) draws
+        // from the call-argument bank on both ABIs — unchanged from the legacy
+        // realization, so args never move on any target.
+        (AbiConvention::Mfb, AbiRole::Arg) | (AbiConvention::C, AbiRole::Arg) => call_args,
+        // The MFB RESULT is where the alignment (and the byte change) lives, and it
+        // is SysV-ONLY: on SysV the result shares the aligned call bank
+        // (`[rdi,rsi,rdx,rcx]`, no `rax`), so an MFB result reused as an argument is
+        // a self-move and needs no staging. On Win64 the result KEEPS its legacy
+        // `rax`-based bank (`RETS_WIN64`) — the census measured zero Win64
+        // divergences from the fixpoint, so Win64 stays byte-identical (and `rax`,
+        // not `rcx`, avoids colliding with the variable-shift count register).
+        (AbiConvention::Mfb, AbiRole::Ret) => match abi {
+            X86Abi::SysV => CALL_ARGS,
+            X86Abi::Win64 => RETS_WIN64,
+        },
         (AbiConvention::C, AbiRole::Ret) => C_RETS,
         (AbiConvention::Sys, AbiRole::Arg) => match abi {
             X86Abi::SysV => sys_args,
@@ -250,6 +261,34 @@ fn realize_abi_operand(
     bank.get(index).copied().unwrap_or_else(|| {
         panic!("ABI token index {index} out of range for {convention:?}/{role:?} on x86")
     })
+}
+
+/// Realize a convention-explicit ABI token in its **rendered string** form
+/// (`%argMFB{k}`/`%retMFB{k}`/`%argC{k}`/`%retC{k}`/`%argSys{k}`/`%retSys`) directly
+/// to its aligned x86-64 register under `abi` — the string counterpart of
+/// [`realize_abi_operand`], used once the tokens flow as `Raw` strings (the shared
+/// `RET`/`ARG`/`SYSARG` arrays and the fused compare-branch `expand_fused` erasure).
+/// This is the whole map after `remap_x86_abi`'s deletion (plan-85-D): no CFG role
+/// inference — parse the convention+role+index and table-look-up. `None` for any
+/// non-convention string (a physical register, immediate, symbol, label, or vreg).
+fn map_convention_token(value: &str, abi: X86Abi) -> Option<String> {
+    let (convention, role, index): (AbiConvention, AbiRole, usize) =
+        if let Some(rest) = value.strip_prefix("%argMFB") {
+            (AbiConvention::Mfb, AbiRole::Arg, rest.parse().ok()?)
+        } else if let Some(rest) = value.strip_prefix("%retMFB") {
+            (AbiConvention::Mfb, AbiRole::Ret, rest.parse().ok()?)
+        } else if let Some(rest) = value.strip_prefix("%argSys") {
+            (AbiConvention::Sys, AbiRole::Arg, rest.parse().ok()?)
+        } else if let Some(rest) = value.strip_prefix("%argC") {
+            (AbiConvention::C, AbiRole::Arg, rest.parse().ok()?)
+        } else if let Some(rest) = value.strip_prefix("%retC") {
+            (AbiConvention::C, AbiRole::Ret, rest.parse().ok()?)
+        } else if value == "%retSys" {
+            (AbiConvention::Sys, AbiRole::Ret, 0)
+        } else {
+            return None;
+        };
+    Some(realize_abi_operand(convention, role, index, abi).to_string())
 }
 
 /// Remap the residual AArch64 physical registers a selected stream still carries
@@ -1079,7 +1118,20 @@ pub(crate) fn select_x86(instructions: Vec<MirInstruction>, abi: X86Abi) -> Vec<
                 continue;
             }
             let rendered = value.render();
-            if is_abi_role_token(&rendered) {
+            // plan-85-D: realize every ABI token DIRECTLY here — the convention
+            // tokens (`%retMFB`/`%argC`/…) by aligned table lookup, the transitional
+            // legacy role tokens (`%arg`/`%ret`/`%sysarg`) context-free — so nothing
+            // defers to `remap_x86_abi`'s CFG inference. Under the aligned convention
+            // an MFB result and its reuse-as-argument share the call bank, so the
+            // context-free map reproduces the (former) inference without a boundary
+            // scan. The residual `xN` scratch / `sp` / `x31` / `dN` still flow to the
+            // mechanical remap below (which no longer colors any `x0`–`x8` role).
+            if let Some(reg) = map_convention_token(&rendered, abi) {
+                *value = Operand::from(reg);
+                continue;
+            }
+            if let Some(reg) = map_token_direct(&rendered, abi) {
+                *value = Operand::from(reg);
                 continue;
             }
             if let Some(reg) = crate::target::shared::abi::realize_abi_token(&rendered) {
@@ -1283,6 +1335,54 @@ mod tests {
         assert_eq!(map_abi_register(3, None, true, X86Abi::Win64), "r9");
         // A leftover (None, non-result) also draws from the Win64 result bank.
         assert_eq!(map_abi_register(2, None, false, X86Abi::Win64), "r8");
+    }
+
+    /// The string-form convention-token realizer reproduces the plan-85-A §2 table
+    /// exactly — the aligned MFB bank on SysV (`[rdi,rsi,rdx,rcx]` for MFB arg AND
+    /// result), `rax:rdx` for the genuine C return, the syscall file for `%argSys`,
+    /// and the Win64 homes. This is the whole x86 realization after the fixpoint is
+    /// deleted, so its correctness is the deletion's correctness.
+    #[test]
+    fn map_convention_token_matches_aligned_table() {
+        let s = |v: &str| map_convention_token(v, X86Abi::SysV).unwrap();
+        let w = |v: &str| map_convention_token(v, X86Abi::Win64).unwrap();
+        // SysV: one aligned bank for MFB arg, MFB return, and C-call arg.
+        for (tok, reg) in [
+            ("%argMFB0", "rdi"),
+            ("%argMFB3", "rcx"),
+            ("%retMFB0", "rdi"),
+            ("%retMFB1", "rsi"),
+            ("%retMFB2", "rdx"),
+            ("%retMFB3", "rcx"),
+            ("%argC0", "rdi"),
+            ("%argC1", "rsi"),
+            ("%retC0", "rax"),
+            ("%retC1", "rdx"),
+            ("%argSys0", "rdi"),
+            ("%argSys3", "r10"),
+            ("%retSys", "rax"),
+        ] {
+            assert_eq!(s(tok), reg, "SysV {tok}");
+        }
+        // Win64: MFB args use the Win64 call bank (rcx,rdx,…); the MFB RESULT keeps
+        // its legacy rax-based bank (byte-identical), and the C return is rax:rdx.
+        for (tok, reg) in [
+            ("%argMFB0", "rcx"),
+            ("%argMFB1", "rdx"),
+            ("%retMFB0", "rax"),
+            ("%retMFB1", "rdx"),
+            ("%retMFB2", "r8"),
+            ("%retMFB3", "r9"),
+            ("%argC0", "rcx"),
+            ("%retC0", "rax"),
+            ("%retC1", "rdx"),
+        ] {
+            assert_eq!(w(tok), reg, "Win64 {tok}");
+        }
+        // Non-convention strings are passed through (None).
+        assert!(map_convention_token("rax", X86Abi::SysV).is_none());
+        assert!(map_convention_token("x5", X86Abi::SysV).is_none());
+        assert!(map_convention_token("%v3", X86Abi::SysV).is_none());
     }
 
     #[test]
@@ -1677,15 +1777,19 @@ mod tests {
             realize_abi_operand(AbiConvention::Sys, AbiRole::Ret, 0, X86Abi::SysV),
             "rax"
         );
-        // Win64: aligned onto the Win64 call bank; %retC still rax:rdx.
-        for (n, reg) in ["rcx", "rdx", "r8", "r9"].into_iter().enumerate() {
+        // Win64: MFB args use the Win64 call bank (rcx,rdx,r8,r9); the MFB RESULT
+        // keeps its legacy rax-based bank (RETS_WIN64 = rax,rdx,r8,r9) so Win64
+        // stays byte-identical. %retC still rax:rdx.
+        for (n, arg_reg) in ["rcx", "rdx", "r8", "r9"].into_iter().enumerate() {
             assert_eq!(
                 realize_abi_operand(AbiConvention::Mfb, AbiRole::Arg, n, X86Abi::Win64),
-                reg
+                arg_reg
             );
+        }
+        for (n, ret_reg) in ["rax", "rdx", "r8", "r9"].into_iter().enumerate() {
             assert_eq!(
                 realize_abi_operand(AbiConvention::Mfb, AbiRole::Ret, n, X86Abi::Win64),
-                reg
+                ret_reg
             );
         }
         assert_eq!(

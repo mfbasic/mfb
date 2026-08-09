@@ -231,14 +231,24 @@ pub(crate) const ARENA: &str = crate::target::shared::code::mir::ARENA_BASE;
 /// A call's Nth outgoing argument (0..8; 8 in registers per
 /// [`REGISTER_ARGUMENT_COUNT`], the rest in a stack tail — bug-08). Never
 /// allocator-colored.
+// plan-85-B/D: the single-role arg/result/syscall-arg arrays now emit the
+// convention-EXPLICIT tokens (plan-85-A vocabulary) directly, so every emission
+// site is aligned without editing thousands of call sites. `ARG` is the MFB
+// internal-call argument bank — register-identical to `%argC` on every target (the
+// aligned call bank), so a `_mfb_*`/arena/C-boundary arg staged through `ARG`
+// realizes to the same register whether it is spelled `%argMFB` or `%argC`; only a
+// genuine C/kernel RETURN (`%retC`/`%retSys`, in `rax`) diverges and is spelled at
+// its site with `c_return`/`sys_return`. On AArch64/RISC-V every one collapses to
+// the positional `xN`/`aN` (byte-identical); on SysV-x86 the aligned bank
+// `[rdi,rsi,rdx,rcx]` replaces the legacy split (byte-changing, by design).
 pub(crate) const ARG: [&str; 8] = [
-    "%arg0", "%arg1", "%arg2", "%arg3", "%arg4", "%arg5", "%arg6", "%arg7",
+    "%argMFB0", "%argMFB1", "%argMFB2", "%argMFB3", "%argMFB4", "%argMFB5", "%argMFB6", "%argMFB7",
 ];
 
 /// A call's Nth result. `RET[0..4]` are the fallible-call ABI's tag / value /
 /// error-message / error-source (`spec: memory/02_fallible-call-abi.md`); an
 /// infallible call uses `RET[0]` only.
-pub(crate) const RET: [&str; 4] = ["%ret0", "%ret1", "%ret2", "%ret3"];
+pub(crate) const RET: [&str; 4] = ["%retMFB0", "%retMFB1", "%retMFB2", "%retMFB3"];
 
 /// The syscall-number register — AArch64/Linux `x8`, AArch64/macOS `x16`, riscv64
 /// `a7`, x86-64 `rax`. Four realizations of one role, which is exactly why it
@@ -248,7 +258,7 @@ pub(crate) const SYSNR: &str = "%sysnr";
 /// A syscall's Nth argument. Distinct from [`ARG`]: x86-64 passes syscall arg 3 in
 /// `r10`, not `rcx`, because the `syscall` instruction clobbers `rcx`.
 pub(crate) const SYSARG: [&str; 6] = [
-    "%sysarg0", "%sysarg1", "%sysarg2", "%sysarg3", "%sysarg4", "%sysarg5",
+    "%argSys0", "%argSys1", "%argSys2", "%argSys3", "%argSys4", "%argSys5",
 ];
 
 /// A syscall's result (AArch64 `x0`, riscv64 `a0`, x86-64 `rax`).
@@ -1693,12 +1703,13 @@ mod tests {
 
     #[test]
     fn register_role_helpers() {
-        // plan-34-B Phase 3b: arguments are named by the role token, realized to
-        // the AArch64 register by the selection seam.
-        assert_eq!(argument_register(0).unwrap(), "%arg0");
-        assert_eq!(argument_register(7).unwrap(), "%arg7");
-        assert_eq!(realize_abi_token("%arg0"), Some("x0"));
-        assert_eq!(realize_abi_token("%arg7"), Some("x7"));
+        // plan-85-B/D: arguments are named by the convention-EXPLICIT token
+        // (`%argMFB`, the aligned MFB call bank), realized to the AArch64 register
+        // positionally by the selection seam (byte-identical to the legacy `%arg`).
+        assert_eq!(argument_register(0).unwrap(), "%argMFB0");
+        assert_eq!(argument_register(7).unwrap(), "%argMFB7");
+        assert_eq!(realize_abi_token("%argMFB0"), Some("x0"));
+        assert_eq!(realize_abi_token("%argMFB7"), Some("x7"));
         assert!(argument_register(8).is_err());
         // bug-08: arguments beyond the register window go through the stack-tail
         // sentinels, resolved to concrete `sp`-relative accesses in the frame.
@@ -1730,8 +1741,8 @@ mod tests {
         assert_eq!(fp_temporary_register(7).unwrap(), "d7");
         assert!(fp_temporary_register(8).is_err());
         // Named ABI registers.
-        assert_eq!(return_register(), "%ret0");
-        assert_eq!(realize_abi_token("%ret0"), Some("x0"));
+        assert_eq!(return_register(), "%retMFB0");
+        assert_eq!(realize_abi_token("%retMFB0"), Some("x0"));
         assert_eq!(link_register(), "lr");
         assert_eq!(stack_pointer(), "sp");
         assert_eq!(syscall_register(), "%sysnr");
@@ -1743,9 +1754,9 @@ mod tests {
             let expected = format!("d{i}");
             assert_eq!(realize_abi_token(token), Some(expected.as_str()));
         }
-        assert_eq!(string_length_register(), "%arg2");
+        assert_eq!(string_length_register(), "%argMFB2");
         assert_eq!(realize_abi_token(string_length_register()), Some("x2"));
-        assert_eq!(string_data_register(), "%arg1");
+        assert_eq!(string_data_register(), "%argMFB1");
         assert_eq!(realize_abi_token(string_data_register()), Some("x1"));
         assert!(is_callee_saved("x19"));
         assert!(is_callee_saved("x28"));
