@@ -18,6 +18,7 @@ pub(crate) mod math;
 pub(crate) mod money;
 pub(crate) mod net;
 pub(crate) mod os;
+pub(crate) mod process;
 pub(crate) mod regex;
 pub(crate) mod resource;
 pub(crate) mod strings;
@@ -100,6 +101,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
             | "money"
             | "net"
             | "os"
+            | "process"
             | "regex"
             | "strings"
             | "term"
@@ -174,6 +176,7 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         "json" => json::is_builtin_type(member),
         "money" => money::is_builtin_type(member),
         "net" => net::is_builtin_type(member),
+        "process" => process::is_builtin_type(member),
         "term" => term::is_builtin_type(member),
         "thread" => thread::is_builtin_type(member),
         "tls" => tls::is_builtin_type(member),
@@ -1086,6 +1089,7 @@ mod tests {
         "money",
         "net",
         "os",
+        "process",
         "regex",
         "strings",
         "term",

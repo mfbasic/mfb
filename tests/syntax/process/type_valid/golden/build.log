@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/process/type_valid
+Wrote AST to tests/syntax/process/type_valid/func_process_type_valid.ast
+Wrote IR to tests/syntax/process/type_valid/func_process_type_valid.ir
+[exit 0]

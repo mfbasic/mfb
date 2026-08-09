@@ -1,0 +1,39 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_process_type_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "describe",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "p", "line": 8, "type": "Process", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 9, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 12,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 13, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

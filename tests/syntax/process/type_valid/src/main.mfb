@@ -1,0 +1,14 @@
+' plan-90-A Phase 1: the opaque `Process` resource type resolves as a type name.
+' The callable surface (spawn/waitFor/...) lands in later phases, so this proves
+' only that `Process` is a known type: it names it as a parameter type and as a
+' function return type.
+IMPORT process
+
+' Names `Process` as a parameter type.
+FUNC describe(p AS Process) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

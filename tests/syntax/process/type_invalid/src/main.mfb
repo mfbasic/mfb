@@ -1,0 +1,16 @@
+' plan-90-A Phase 1: misuse of the `Process` type is rejected — passing a
+' non-`Process` value where a `Process` is expected is a type error. `Process`
+' is a real, distinct built-in type, not a synonym for any scalar.
+IMPORT process
+
+FUNC describe(p AS Process) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  ' An Integer is not a Process.
+  LET bad = describe(5)
+  ' A String is not a Process either.
+  LET worse = describe("child")
+  RETURN 0
+END FUNC

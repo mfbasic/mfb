@@ -41,7 +41,7 @@ point back to this table).
 |---|---|---|
 | No prior `process` package exists (net-new, no partial landing to reconcile) | `rg -l 'builtins/process' src/ ; ls src/builtins/process.rs 2>/dev/null` → no matches | MET |
 | Resource tag `10` is free | `grep -n 'RESOURCE_TAG_' src/target/shared/code/error_constants.rs` → highest real tag is `9` (AUDIO) | MET |
-| A riscv64 remote is reachable for runtime proof | `ssh -p 2229 <rv64-host> true` (per plan-31-B) | UNMEASURED — verify before Phase 4 |
+| A riscv64 remote is reachable for runtime proof | `ssh -p 2229 <rv64-host> true` (per plan-31-B) | MET — box 2229 reported online (re-verify at Phase 4) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command before continuing and before deciding to stop.
@@ -265,22 +265,37 @@ paired `ERR_SPAWN_FAILED_CODE/_SYMBOL` to `error_constants.rs`; reuse
 Delivers a registered `process` package whose `Process` type resolves; safe to
 land alone because nothing is callable yet.
 
-- [ ] `src/builtins/process.rs` (new): `PROCESS_TYPE`, `PROCESS` static,
-  `include_str!`.
-- [ ] `src/builtins/process_package.mfb` (new): companion header + `EXPORT` type
-  `Process`.
-- [ ] Register: `descriptor.rs:631`, `mod.rs:100`/`:1084`, resolver BUILTIN_TYPES,
-  `is_resource_type`.
-- [ ] `resource.rs:138` `BUILTIN_RESOURCES` entry + extend test `:360`.
-- [ ] Tag 10: `error_constants.rs`, `03_heap-values.md:199`,
-  `binary_repr/{mod,sections,reader}.rs`.
-- [ ] Tests: `tests/func_process_type_valid/**` (a program that names `Process`
-  as a var type resolves) + `_invalid` (misuse).
+- [x] `src/builtins/process.rs` (new): `PROCESS_TYPE`, `DROP`, `PROCESS` static,
+  opaque `Process` type, `is_builtin_type`, `resource_close_function`.
+- [x] ~~`src/builtins/process_package.mfb` (new): companion header + `EXPORT` type
+  `Process`.~~ — moot: an opaque resource handle lives ONLY in the descriptor
+  `types` list, never in a companion `EXPORT TYPE` (net's `Socket`, audio's
+  `AudioInput`/`AudioOutput` are all opaque and have no companion declaration).
+  The companion + `augmented_project` wiring first appears in B, when the `Stream`
+  enum needs it. Creating a companion here would inject a dead file every compile.
+- [x] Register: `descriptor.rs` REGISTRY (`&process::PROCESS`), `mod.rs`
+  (`mod process`, `is_builtin_import`, `ALL_BUILTIN_PACKAGES`,
+  `qualified_builtin_type`), resolver `BUILTIN_TYPES`, spec §18 package list;
+  `is_resource_type` works via the `resource.rs` entry.
+- [x] `resource.rs` `BUILTIN_RESOURCES` entry (close op `process.__drop`,
+  `sendable:false`, `close_may_fail:false`) + extend enumeration test.
+- [~] Tag 10: `03_heap-values.md` table row added. `RESOURCE_TAG_PROCESS` const
+  in `error_constants.rs` lands in Phase 3 at its first use (record stamping) — an
+  unused `pub(crate) const` trips `dead_code`. `binary_repr` is moot here (see
+  Corrections): `UdpSocket`(3)/`TlsSocket`(5–8)/`Audio`(9) all carry a resource tag
+  yet have NO `binary_repr` handle constant and the tree is green — the wire
+  handle ids are the legacy File/Socket/Listener set only. E's `.mfp` packaging
+  re-verifies `Process` round-trips.
+- [x] Tests: `tests/syntax/process/type_valid` (names `Process` as a param type,
+  compiles) + `tests/syntax/process/type_invalid` (Integer/String passed where
+  `Process` expected → `TYPE_CALL_ARGUMENT_MISMATCH`). New `tests/syntax/<pkg>/`
+  layout per `.ai/compiler.md`, NOT the retired flat `tests/func_*` layout.
 
 Acceptance: a program declaring a `Process`-typed variable type-checks and
-compiles; `cargo test --bin mfb` green incl. the extended `resource.rs:360`
-enumeration test; existing goldens unchanged.
-Commit: —
+compiles; `cargo test --bin mfb` green (3789 passed) incl. the extended
+`resource.rs` enumeration test; existing goldens unchanged (only new `process`
+fixtures added).
+Commit: <next>  (Phase 1 landed; hash recorded in Phase 2's commit)
 
 ### Phase 2 — Frontend metadata for the 5 functions
 
@@ -359,7 +374,35 @@ Commit: —
 
 ## Corrections
 
-<filled during execution>
+- **Phase 1 — no source companion for the opaque `Process`.** §4.1 said to create
+  `process_package.mfb` with `EXPORT TYPE Process`. Evidence it is wrong: an opaque
+  resource handle is declared only in the descriptor `types` list — `net`'s
+  `Socket`/`Listener`/`UdpSocket` and `audio`'s `AudioInput`/`AudioOutput` are all
+  `TypeKind::Opaque` and appear in NO companion `.mfb` (`rg 'EXPORT TYPE Socket'`
+  → none). Declaring `EXPORT TYPE Process` in a companion would be a duplicate
+  definition of the descriptor type. The companion (+ `augmented_project` wiring in
+  `resolver/mod.rs` and `syntaxcheck/mod.rs`) first appears in **B**, when the
+  `Stream` enum needs a source declaration. Phase 1 registers `Process` purely
+  through the descriptor.
+- **Phase 1 — extra registration site the plan omitted: `resolver::BUILTIN_TYPES`.**
+  A bare type name in a param/return position is resolved against the resolver's
+  hardcoded `BUILTIN_TYPES` slice (`src/resolver/mod.rs`), NOT the descriptor. The
+  plan's "resolver BUILTIN_TYPES" bullet named it; concretely, `Process` had to be
+  appended there (`builtins::process::PROCESS_TYPE`) or `AS Process` fails with
+  `SYMBOL_UNKNOWN_TYPE`. Two package-list gates also had to be updated in lockstep:
+  the spec §18 `is_builtin_import` sentence (`spec_section_18_package_list_matches_is_builtin_import`
+  test) and the registry-size assertion in `descriptor.rs`
+  (`production_registry_holds_migrated_packages`, 27→28).
+- **Phase 1 — `binary_repr` tag mirror is moot.** §4.1/Phase 1 listed
+  `binary_repr/{mod,sections,reader}.rs`. `sections.rs::type_id` only maps the
+  legacy `File`/`Socket`/`Listener` handle ids; `UdpSocket`(tag 3),
+  `TlsSocket`(5–8), and `Audio`(9) carry a runtime resource tag but have NO
+  `binary_repr` handle constant, and `cargo test --bin mfb` is green. `Process`
+  follows that precedent. If E's `sync-package-mfp` ever fails to round-trip a
+  `Process` in an exported signature, add the handle then — flagged in E.
+- **Test layout — new tree, not the retired flat one.** §Phase 1/Validation named
+  `tests/func_process_type_valid/**`. Per `.ai/compiler.md` that flat layout no
+  longer exists; the fixtures live at `tests/syntax/process/type_{valid,invalid}`.
 
 ## Summary
 
