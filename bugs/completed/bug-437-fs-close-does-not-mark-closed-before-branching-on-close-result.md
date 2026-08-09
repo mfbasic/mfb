@@ -7,8 +7,43 @@ Effort: unknown (needs triage — real codegen regression vs. stale assertion)
 Severity: MEDIUM
 Class: Correctness (resource hygiene — double-close of a reused fd)
 
-Status: Open (pre-existing; discovered while landing bug-436, NOT caused by it)
-Regression Test: tests/rt_fs_error_path_hygiene.rs (already present — currently RED)
+Status: FIXED — the codegen was CORRECT; the guard test held a stale offset constant.
+Regression Test: tests/rt_fs_error_path_hygiene.rs (already present — now GREEN)
+
+## STATUS: FIXED (worktree-B-437)
+
+**The documented hypothesis was false.** `fs::close` already stores the CLOSED flag
+*before* branching on the close result (has since 2026-06-30). The `str_u64` at
+`src/target/shared/code/fs/io.rs:1363` sits between the close call and the
+`branch_lt(&close_error)` at 1367 — verified on all four targets via `-ncode`
+(macOS/linux aarch64, x86-64, riscv64): the CLOSED store lands *before* the
+`_close_error` branch with base = the File pointer.
+
+**Real root cause: a stale test constant.** plan-80 (`e38bbb748`, unified
+resource-record header) moved the CLOSED flag from record offset 8 to 16
+(tag@0/handle@8/closed@16/STATE@24). The source constant `FILE_OFFSET_CLOSED`
+(`error_constants.rs:823 == 16`) tracked the move, but the test's hardcoded mirror
+literal `"8"` did not. Offset 8 is now the fd handle, so the assertion searched for
+the wrong store and never found the correctly-placed one at offset 16. Fixed by
+correcting the literal `8 → 16` and its comments (commit on `worktree-B-437`). This
+was NOT a codegen regression and NO codegen changed.
+
+**Sibling stale tests fixed (surfaced by this bug's full-suite gate, same class —
+a plan grew a structure and left a hardcoded test assumption behind):**
+- `tests/rt_fs_atomic_int_return.rs` (linux-x86_64): the bug-44 fsync/close
+  narrowing check assumed the `sxtw` seam is immediately adjacent to the call. On
+  x86-64 plan-85's `%retC`/rax reads emit a `mov rdi, rax` between the call and the
+  `sxtw`; the codegen still narrows correctly. Skip register moves before the seam
+  (also strengthens the guard so a dropped `sxtw` is now caught on x86-64).
+- `tests/rt_gtk_term_utf8_grid.rs`: plan-70-E Phase 3 added the per-cell EGC pool
+  (`ST_TERM_POOL` + snapshot, 32 B/cell each), so `_mfb_gtkapp_state` is 677064 B,
+  not the hardcoded 185544; and `term_write`'s `str_u8@0` is now the pool slot's
+  length-prefix byte, not a CHAR grid cell (cells stay `str_u32`). Updated the size
+  formula and removed the now-invalid `!str_u8@0` proxy (bug-203 stays covered by
+  the `str_u32` cell-store + decode-ladder assertions).
+
+Full `cargo test` is green (44 `test result: ok`, 0 failed). All changes are
+test-only.
 
 The codegen-inspection test `rt_fs_error_path_hygiene` asserts (item 3,
 `assert_close_marked_before_branch`) that `_mfb_rt_fs_fs_close` stores the CLOSED
