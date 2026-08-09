@@ -295,21 +295,33 @@ Acceptance: a program declaring a `Process`-typed variable type-checks and
 compiles; `cargo test --bin mfb` green (3789 passed) incl. the extended
 `resource.rs` enumeration test; existing goldens unchanged (only new `process`
 fixtures added).
-Commit: <next>  (Phase 1 landed; hash recorded in Phase 2's commit)
+Commit: 3b6ced597
 
 ### Phase 2 — Frontend metadata for the 5 functions
 
 Makes the 5 functions resolve with correct arity/return types (still no
 codegen).
 
-- [ ] `src/builtins/process.rs`: `is_process_call`, `arity`,
-  `call_return_type_name`, `expected_arguments`, `resolve_call` (spawn overloads).
-- [ ] Tests: `tests/func_process_{spawn,shell,pid,isRunning,waitFor,close}_invalid/**`
-  (arity/arg-type diagnostics) — the `_valid` runtime cases land in Phase 3/4.
+- [x] `src/builtins/process.rs`: the 6-function `PROCESS_FUNCTIONS` descriptor
+  (spawn ×2, shell, pid, isRunning, waitFor, close), fully data-only. `arity`,
+  `call_return_type_name`, `resolve_call` (spawn overload selection) come from
+  `DefaultResolver` over the descriptor — NOT hand-written (see Corrections). A
+  bespoke `expected_arguments(spawn)` names both overloads; wired into
+  `mod.rs::expected_arguments`.
+- [x] Extra site the plan omitted: `syntaxcheck/builtins.rs BUILTIN_ARG_MODES`
+  gains a `process` row (`ArgMode::Use` — no call consumes its `Process`). Without
+  it the shared checker never runs, so invalid calls collapse to `TYPE_UNKNOWN_VALUE`
+  with no arity/argument-mismatch diagnostic (see Corrections).
+- [x] Tests: `tests/syntax/process/{spawn,shell,pid,isRunning,waitFor,close}_invalid`
+  (arity + arg-type diagnostics: `TYPE_CALL_ARITY_MISMATCH`/`TYPE_CALL_ARGUMENT_MISMATCH`)
+  — the `_valid` runtime cases land in Phase 3/4. New `tests/syntax/<pkg>/` layout.
 
-Acceptance: arity/type diagnostics for all 5 functions match golden `_invalid`
-fixtures; `cargo test --bin mfb` green.
-Commit: —
+Acceptance: arity/type diagnostics for all 6 functions match golden `_invalid`
+fixtures; `cargo test --bin mfb` green (3795 passed). (Golden `build.log`s were
+produced by the same `mfb build -q -ast -ir` the harness runs, byte-for-byte;
+a `sync-goldens`/`test-accept` re-verify is queued once a concurrent P-86
+acceptance clears the test-accept concurrency guard.)
+Commit: <next>  (Phase 2 landed; hash recorded in Phase 3's commit)
 
 ### Phase 3 — Native Unix backend: spawn/waitFor/isRunning/pid/close + drop-reap
 
@@ -403,6 +415,26 @@ Commit: —
 - **Test layout — new tree, not the retired flat one.** §Phase 1/Validation named
   `tests/func_process_type_valid/**`. Per `.ai/compiler.md` that flat layout no
   longer exists; the fixtures live at `tests/syntax/process/type_{valid,invalid}`.
+- **Phase 2 — `process` is fully data-only; no hand-written `resolve_call`.** §4.2
+  and the Phase 2 checkbox implied a bespoke `is_process_call`/`arity`/
+  `call_return_type_name`/`resolve_call` (the net idiom). Evidence they are
+  unnecessary: no `process` overload uses an argument *union* (net's `close` accepts
+  `Socket|Listener|UdpSocket`), so `DefaultResolver::resolve_call`'s exact
+  per-position match answers every overload, including spawn's two arities. The
+  package carries `resolver: None`. Only `expected_arguments(spawn)` is
+  hand-authored (two structurally different overloads the descriptor renders as the
+  first form alone).
+- **Phase 2 — extra site: `syntaxcheck::BUILTIN_ARG_MODES`.** The plan did not name
+  it, but the shared table-driven builtin checker only runs for a package listed in
+  `BUILTIN_ARG_MODES` (`builtin_arg_mode`); a missing row routes the call to the
+  `Type::Unknown` fallback with NO arity/argument diagnostic. `process` was added
+  as `ArgMode::Use` (it consumes no argument — `close` borrows the `Process`, and
+  scope-drop's `__drop` reaps it). Verified: before the row, `process::spawn()`
+  reported only `TYPE_UNKNOWN_VALUE`; after, `TYPE_CALL_ARITY_MISMATCH`.
+- **`Process` is a resource → `RES`, not `LET`.** A `spawn`/`shell` result binds
+  with `RES` (like `net`/`fs`), so the runtime `_valid` fixtures (Phase 3) and any
+  program use `RES p = process::spawn(...)`. A `LET` binding raises
+  `TYPE_RESOURCE_REQUIRES_RES`.
 
 ## Summary
 

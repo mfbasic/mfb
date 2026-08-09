@@ -452,6 +452,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| net::expected_arguments(name))
         .or_else(|| tls::expected_arguments(name))
         .or_else(|| audio::expected_arguments(name))
+        .or_else(|| process::expected_arguments(name))
         .or_else(|| http::expected_arguments(name))
         .or_else(|| vector::expected_arguments(name))
         .or_else(|| collections::expected_arguments(name))
