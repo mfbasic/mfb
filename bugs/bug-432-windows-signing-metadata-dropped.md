@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness / Footgun
 
-Status: Open
+Status: FIXED (db9335626)
 Regression Test: src/os/windows/link/tests.rs (new `signing_metadata_emits_mfbsign_section`), src/os/linux/link/tests.rs, src/os/macos/link/tests.rs
 
 The CLI threads executable signing metadata (the `mfb-signing-v1` JSON blob) into
@@ -137,11 +137,16 @@ Found by grep for `mfb_sign` / `__sign` / `signing_metadata` across `src/`:
   `src/os/macos/link/tests.rs:322` — **updated** to `.mfbsign`.
 - Spec prose naming the sections — `src/docs/spec/linker/08_linux-x86_64.md:152`,
   `06_macos-aarch64.md:24,113`, and the aarch64/riscv64 ELF siblings — **updated**.
-- Acceptance goldens: **audit needed** — do any acceptance/artifact-gate fixtures
-  build with signing enabled? If none sign, the ELF/Mach-O byte output is unchanged
-  for every golden (the signing section only appears on a signed build), so the
-  rename shifts no golden. If any golden signs, its bytes shift by exactly the name
-  delta. Record the verdict in Phase 1.
+- Acceptance goldens: **audit verdict (Phase 1): no golden signs → the rename
+  shifts no golden.** Executable `signing_metadata` is populated only on the CLI
+  signing path (`src/cli/build/signing.rs`, requires owner/keys/proof); no
+  `tests/acceptance`, `tests/byte-identity`, or `tests/rt-behavior` fixture enables
+  it. Byte-identity goldens are `.ir`/`.ast`/`.ncode` (IR level, emitted before the
+  linker appends any signing section); acceptance goldens build unsigned
+  executables. The signing section only appears on a signed build, so the ELF/Mach-O
+  byte output is unchanged for every golden. `grep -rln 'mfb-signing\|"signing"'
+  tests/` hits only `.ir` goldens matching "assign"/"unsigned"/datetime-offset and
+  `cli_repo_publish.rs` (package trust, a different subsystem).
 - `src/os/note.rs` (the `MFBasic\0` `LC_NOTE`/`PT_NOTE` provenance marker) —
   **out of scope here**: separate, unconditional payload tracked in bug-433, but it
   shares this bug's PE-section vehicle, so the two should land in one pass.
@@ -177,43 +182,53 @@ fits them trivially.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `signing_metadata_emits_mfbsign_section` to `src/os/windows/link/tests.rs`
-      (above), plus a `None`-image byte-identity assertion. Confirm the first fails.
-- [ ] Audit acceptance/artifact-gate fixtures for any signed build; write the
-      verdict (does any golden carry a signing section?) into Blast Radius.
+- [x] Add `signing_metadata_emits_mfbsign_section` to `src/os/windows/link/tests.rs`
+      (above), plus a `None`-image byte-identity assertion
+      (`unsigned_build_emits_no_mfbsign_section`). Confirmed the first fails for the
+      documented reason (panic `.mfbsign section present` — no such section).
+- [x] Audit acceptance/artifact-gate fixtures for any signed build; verdict
+      recorded in Blast Radius: **no golden signs → the rename shifts no golden.**
 
 Acceptance: the new Windows test fails for the documented reason; the golden-impact
 verdict is recorded.
-Commit: —
+Commit: db9335626 (test lands with the fix)
 
 ### Phase 2 — the fix + rename
 
-- [ ] `src/os/windows/link/mod.rs`: emit the `.mfbsign` section from
+- [x] `src/os/windows/link/mod.rs`: emit the `.mfbsign` section from
       `image.signing_metadata` (mirror the `.rsrc` block; `SCN_RDATA`; last; no data
-      directory). Remove the silent drop.
-- [ ] `src/os/linux/link/elf.rs`: rename `.mfb_sign` → `.mfbsign` (section name +
-      the shstrtab literal). Keep it non-alloc PROGBITS at EOF.
-- [ ] `src/os/macos/link/{commands.rs,macho.rs}`: rename the section name `__sign`
-      → `.mfbsign` (keep it mapped). Segment-name decision: see Open Decisions.
-- [ ] Update the three name-scan tests to `.mfbsign`.
+      directory). Removed the silent drop.
+- [x] `src/os/linux/link/elf.rs`: renamed `.mfb_sign` → `.mfbsign` (section name +
+      the shstrtab literal; `.shstrtab`'s name index shifts 11 → 10). Still non-alloc
+      PROGBITS at EOF.
+- [x] `src/os/macos/link/commands.rs`: renamed the section name `__sign` →
+      `.mfbsign` (kept mapped). Segment stays `__MFB` (see Open Decisions). `macho.rs`
+      needed no change — it names no literal, only the `mfb_sign_file_offset`
+      internal field.
+- [x] Updated the three backends' name-scan tests to `.mfbsign` (plus the
+      `src/os/note.rs` comment).
 
-Acceptance: all four backends' signing tests pass with `.mfbsign`; unsigned builds
+Acceptance: all three backends' signing tests pass with `.mfbsign`; unsigned builds
 unchanged; nothing in Non-goals changed.
-Commit: —
+Commit: db9335626
 
 ### Phase 3 — docs + full validation
 
-- [ ] Update spec prose to `.mfbsign` (`08_linux-x86_64.md`, `06_macos-aarch64.md`,
-      the aarch64/riscv64 siblings); add the `.mfbsign` section to the new
-      `10_windows-x86_64.md`. Run the spec drift-guard tests.
-- [ ] `cargo test --bin mfb` full suite; `scripts/artifact-gate.sh` — confirm the
-      golden delta is exactly the intended change (nothing if no golden signs).
-- [ ] If a Windows/Wine runner is available, confirm a signed test `.exe` contains a
-      `.mfbsign` section (`dumpbin /headers` or a byte-scan).
+- [x] Updated spec prose to `.mfbsign` (`08_linux-x86_64.md`, `07_linux-aarch64.md`,
+      `09_linux-riscv64.md`, `06_macos-aarch64.md`, `13_provenance-marker.md`); added
+      the `.mfbsign` section to `10_windows-x86_64.md`. Spec drift-guard tests green
+      (`docs::spec`/`docs::man`/`docs::render`, 33 tests).
+- [x] `cargo test --bin mfb` full suite: **3788 passed, 0 failed**.
+      `scripts/artifact-gate.sh all`: **1201 tests, 1647 goldens, 0 diffs** —
+      golden delta is exactly nothing, matching the no-golden-signs verdict.
+- [~] No Windows/Wine runner available in this environment. The signed-`.exe` proof
+      is the in-repo `signing_metadata_emits_mfbsign_section` byte-scan test (the
+      same write-only byte-scan the ELF/Mach-O backends are verified by; there is no
+      runtime signature verifier anywhere in-repo).
 
 Acceptance: full suite green; golden deltas exactly the intended change; the
 Windows reproduction passes.
-Commit: —
+Commit: db9335626 (fix + tests), a51de2469 (spec)
 
 ## Validation Plan
 
@@ -234,6 +249,30 @@ Commit: —
   `__MFB` (a segment is the natural grouping and `__`-prefixed names are the Mach-O
   convention). Alternative: set both to `.mfbsign`. Pick one and note it in the
   STATUS block. (§Fix Design)
+
+## STATUS: FIXED (db9335626, a51de2469)
+
+The Windows PE linker now emits `image.signing_metadata` verbatim in a read-only
+`.mfbsign` section (last, no data directory), removing the silent drop. All three
+backends share the 8-char section name `.mfbsign`: ELF renamed `.mfb_sign` →
+`.mfbsign` (the shstrtab shift moved `.shstrtab`'s name index 11 → 10), Mach-O
+renamed section `__sign` → `.mfbsign`.
+
+Deviations / decisions:
+- **macOS segment name.** Took the recommended option: renamed only the section
+  (`__sign` → `.mfbsign`); the segment stays `__MFB`. The section remains mapped so
+  the ad-hoc code signature's page hashes still cover it.
+- `macho.rs` needed no edit — it holds no `__sign` literal, only the internal
+  `mfb_sign_file_offset` layout field (left as-is; it names an offset, not the
+  section).
+- No Windows/Wine runner was available; the runtime proof is the in-repo byte-scan
+  test, matching how the ELF/Mach-O backends are already verified (all three linkers
+  are write-only — there is no in-repo signature verifier).
+
+Verification: `cargo test --bin mfb` 3788 passed / 0 failed;
+`scripts/artifact-gate.sh all` 1201 tests / 1647 goldens / 0 diffs; spec
+drift-guards green. Unsigned builds are byte-identical to before (guarded by
+`unsigned_build_emits_no_mfbsign_section`).
 
 ## Summary
 
