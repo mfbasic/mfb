@@ -467,6 +467,23 @@ impl LinuxPlan<'_> {
                     .map(|symbol| self.libc_import(symbol, required_by))
                     .collect()
             }
+            call if crate::builtins::process::is_process_runtime_call(call) => {
+                // plan-90: fork/exec/pipe/wait + the errno accessor. Over-importing
+                // is harmless (the merged table dedups). `_exit` is spelled without
+                // the leading underscore macOS uses.
+                // The process helpers call libc `write` directly (the exec-failure
+                // self-pipe report), so `write` is NOT filtered here the way the
+                // raw-syscall net write path filters it.
+                let mut imports = [
+                    "pipe", "fork", "dup2", "execvp", "close", "waitpid", "kill", "read", "write",
+                    "fcntl", "_exit",
+                ]
+                .iter()
+                .map(|base| self.libc_import(base, required_by))
+                .collect::<Vec<_>>();
+                imports.push(self.libc_import("__errno_location", required_by));
+                imports
+            }
             call if crate::builtins::net::is_net_call(call) => {
                 // bug-300 E10: where `emit_write` is a raw syscall the net write
                 // helper derives errno from the negated raw return (bug-109), so

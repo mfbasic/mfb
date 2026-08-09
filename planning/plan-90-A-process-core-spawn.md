@@ -336,9 +336,10 @@ The mechanism. Highest blast radius; lands behind runtime tests.
   `termsig=status&0x7f`, `WEXITSTATUS=(status>>8)&0xff`, signal→-1 (via
   `bitwise_not(ZERO)` — `-1` is not a valid `move_immediate`). spawn = argv build
   from the `List OF String` entry array + 3 stdio pipes + O_CLOEXEC self-pipe +
-  fork/execvp + exec-failure-over-self-pipe. REMAINING: `spawnEnv` (child chdir +
-  environment application) and `shell` (their dispatch/capability arms are
-  intentionally absent → a call errors at codegen until implemented).
+  fork/execvp + exec-failure-over-self-pipe. `shell` DONE (`f43a36703`):
+  `["/bin/sh","-c",cmd]` over the shared `emit_spawn_tail` (extracted from spawn),
+  verified `shell("exit 7")`→waitFor==7. REMAINING: `spawnEnv` (child chdir +
+  environment application).
 - [x] Error block 7708 (`ERR_SPAWN_FAILED_*`) + `RESOURCE_TAG_PROCESS=10` +
   `02_error-codes.md` row (`4f283bc3a`); `data_objects.rs` per-package error-string
   gate + `standard_error_messages` `ErrSpawnFailed` row + raising at the self-pipe
@@ -451,6 +452,12 @@ Commit: —
   with `RES` (like `net`/`fs`), so the runtime `_valid` fixtures (Phase 3) and any
   program use `RES p = process::spawn(...)`. A `LET` binding raises
   `TYPE_RESOURCE_REQUIRES_RES`.
+- **D2 resolved: `shell` uses `/bin/sh` on both platforms, not bash-on-macOS.**
+  Open Decision D2 recommended `bash -c` on macOS / `sh -c` on Linux. Chosen: the
+  documented simpler alternative — `["/bin/sh","-c",cmd]` everywhere. `/bin/sh`
+  exists on both macOS and Linux; the 4-bucket "run this command line" abstraction
+  gains nothing from bash-specific syntax, and one code path keeps the backend
+  uniform. Revisit only if a concrete need for bash builtins appears.
 - **Phase 3 — hand-built helper register operands must be numeric `%vN`.** A first
   lowering draft used readable names (`%vfile`, `%vstatus`). `regalloc/mod.rs`
   decodes a vreg as `value.strip_prefix("%v")?.parse()` — a NUMBER — so `%vfile`
