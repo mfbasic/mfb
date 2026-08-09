@@ -30,7 +30,7 @@ removeKey matrix rows (`map (State-Dynamic) removeKey` 62.6, `State-Fixed` 17.3)
   than set-overwrite. (A data-compaction refinement — shift the data tail + fix shifted offsets — would
   reclaim slack eagerly at an extra O(dataLen) copy; not needed for correctness.) Native/`.mfb` byte-identical
   across middle/first/last removal, no-op on a missing key, hasKey/get + re-add (bucket rebuild), Integer key,
-  preserved insertion order, and the 200-cycle churn. Fixture: `map-removekey-inplace-rt`. Commit: `PENDING`.
+  preserved insertion order, and the 200-cycle churn. Fixture: `map-removekey-inplace-rt`. Commit: `480e1c1f7`.
   Original analysis (kept for context): **TOMBSTONE CONFIRMED INFEASIBLE as reuse (plan-86-A session scout).**
   Why no tombstone: the map index is **open addressing storing absolute entry indices** (`mod.rs:2407-2703`),
   the probe halts on `bucket==0` with **no DELETED sentinel**, the entry `FLAGS` bit is **read nowhere**
