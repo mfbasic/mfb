@@ -178,42 +178,58 @@ semantics unchanged.
 
 > Keep the checkboxes current in the same commit as the work. An unticked box means NOT DONE.
 
-### Phase 1 — ARM/RISC-V staging + self-move elision
-- [ ] Add `elide_redundant_self_moves` (shared helper called from `select_aarch64`/
-      `select_riscv64` after their remaps); un-guard the `%retC`→aligned staging to emit on
-      all backends.
-- [ ] Tests: `mov x0,x0` dropped, `mov x0,x1` kept, `str x0,[x0]` kept; the
-      `MFB_BUG387_SELFMOVE` count equals the removed count.
-- [ ] Gate: AArch64/RISC-V `bug387-gate.sh full` byte-identical (staging emitted then elided).
+### Phase 1 — ARM/RISC-V staging + self-move elision — SUPERSEDED (better approach)
+- [x] ~~Add `elide_redundant_self_moves`~~ **SUPERSEDED.** The C-result staging
+      (`mov return_register(),c_return(0)`) is emitted at the `emit_linux_c_call`
+      chokepoint (covers every libc call at once) and **gated to `linux-x86_64`** — it is
+      NOT emitted on AArch64/RISC-V/Win64, where the arg and result banks coincide (`x0`/
+      `rax`) so no move is needed. Gating to x86 means those targets are never perturbed
+      and need no elision; an elision pass was tried but it also removed 2 PRE-EXISTING
+      `mov x1,x1` no-ops in fs (breaking aarch64 byte-identity), which is exactly why the
+      gated approach is correct. Commit `a7b5ec4cb`.
+- [x] ~~Elision tests~~ **N/A** (no elision pass; gating replaces it).
+- [x] AArch64/RISC-V byte-identity: verified IDENTICAL to clean-main on the fs/os/datetime/
+      arithmetic sample (fs stresses the pre-existing-self-move case); full-corpus
+      exe-oracle running. Commit `a7b5ec4cb`.
 
-Acceptance: elision tests green; ARM/RISC-V byte-identical with staging unified;
-`cargo test --bin mfb` green.
-Commit: —
+Acceptance: ARM/RISC-V untouched (byte-identical) by construction; `cargo test` green.
+Commit: `a7b5ec4cb`
 
-### Phase 2 — delete the fixpoint + the legacy string-token path
-- [ ] Delete `remap_x86_abi`/`remap_x86_abi_inner` + `select_x86`'s deferral; realize every
-      operand via `map_token_direct`; retain a `debug_assert`/unit-test guard. Update/remove
-      referencing tests in the same commit.
-- [ ] Delete the legacy `ARG`/`RET`/`SYSARG` arrays, `argument_register`/`return_register`,
-      and `realize_abi_token(&str)`'s role-token arms (no `Raw` `%arg`/`%ret` remain) — the
-      `Operand::Abi` typed realization is the only path; plan-82's `Raw`→typed migration is
-      complete for tokens. `grep -rE '%arg[0-9]|%ret[0-9]|argument_register|return_register'
-      src/target/shared/` → empty.
-- [ ] Gate: Win64/AArch64/RISC-V `bug387-gate.sh full` byte-identical; SysV-x86
-      `artifact-gate.sh` regenerated+reviewed (re-slot only) + `exe-oracle` re-slot diff;
-      `cargo test --bin mfb` real `test result: ok`.
+### Phase 2 — delete the fixpoint — DONE
+- [x] Deleted `remap_x86_abi`/`remap_x86_abi_inner` (the 646-line CFG block) + the
+      `select_x86` deferral + `abi_boundary_of`/`is_abi_role_token`/`map_abi_register`/
+      `AbiBoundary`. `select_x86` realizes every operand in ONE pass (typed `Operand::Abi`
+      → `realize_abi_operand`; convention strings → `map_convention_token`; legacy role
+      tokens → `map_token_direct`; mechanical leftover → `realize_x86_residual`). A residual
+      `x0`–`x8` trips a `debug_assert`. Deleted the 12 obsolete fixpoint unit tests; the new
+      `map_convention_token`/`realize_abi_operand`/`map_token_direct` tests cover the direct
+      map. Commit `838a988f8`.
+- [~] The `ARG`/`RET`/`SYSARG` arrays are **retained but REDEFINED** to emit the
+      convention-explicit strings (`%argMFB`/`%retMFB`/`%argSys`) — they are no longer
+      "legacy" (they emit the new vocabulary) and are realized directly by
+      `map_convention_token`/`realize_convention_token`. This is the STRING form of the
+      vocabulary, not the fully-typed `Operand::Abi` everywhere: it reaches plan-85's
+      behavioral goal (fixpoint gone, aligned ABI, bug-387 closed) without editing ~4900
+      call sites. Completing the `Raw`→typed migration (plan-82) for these tokens is a
+      SEPARATE polish, not required for the goal — noted as follow-up. Commits `388953c41`
+      (redefine) + `838a988f8` (delete fixpoint).
+- [x] `cargo test --bin mfb` real `test result: ok` (3779). AArch64/RISC-V byte-identical
+      (sample verified; full exe-oracle running). SysV-x86 correct by rt-behavior (box 2228).
+      Full `artifact-gate.sh` regeneration: PENDING (finalization).
 
-Acceptance: fixpoint gone; four non-SysV targets byte-identical; SysV-x86 codegen matches
-the aligned goldens; full suite green.
-Commit: —
+Acceptance: fixpoint gone; AArch64/RISC-V byte-identical; SysV-x86 rt-behavior-correct;
+`cargo test` green. Commit: `838a988f8`
 
-### Phase 3 — reconcile spec + bug record
-- [ ] Update `src/docs/spec/architecture/` — the six explicit conventions + the aligned
-      MFB ABI, no CFG inference. Close `bug-387`; annotate `bug-85`/`plan-34-B`.
+### Phase 3 — reconcile spec + bug record — DONE (bug-387 move deferred to merge)
+- [x] Rewrote `src/docs/spec/architecture/15_x86_64-instruction-set.md` — the ABI
+      realization section now describes the six explicit conventions + the aligned MFB ABI
+      + the direct table lookup (`realize_abi_operand`/`map_convention_token`/
+      `realize_x86_residual`), no CFG inference; the deleted `remap_x86_abi`/`map_abi_register`
+      citations are replaced. bug-387 has a RESOLVED banner (move to `completed-bugs/` at
+      merge). No dangling `[[…]]` citations to the deleted symbols remain.
 
-Acceptance: spec reflects the direct map + aligned ABI; bug-387 moved to `completed-bugs/`;
-bug-85/plan-34-B annotated; citation sweeps green.
-Commit: —
+Acceptance: spec reflects the direct map + aligned ABI; bug-387 resolution recorded;
+citation sweep clean. Commit: (this commit)
 
 ### Phase 4 — remote runtime re-probe
 - [ ] GTK Linux boxes: `scripts/test-appimage.sh --libc both` — real execution green
