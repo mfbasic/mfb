@@ -844,7 +844,7 @@ impl CodeBuilder<'_> {
                         }
                     };
                     let elem_ok = matches!(t, "Integer" | "Float" | "Fixed" | "Money");
-                    if elem_ok && (args.len() == 2 || args.len() == 3) {
+                    if (elem_ok || t == "String") && (args.len() == 2 || args.len() == 3) {
                         let size = args.get(1).and_then(const_i64);
                         let stride = if args.len() == 3 {
                             args.get(2).and_then(const_i64)
@@ -852,7 +852,14 @@ impl CodeBuilder<'_> {
                             Some(1)
                         };
                         if let (Some(sz), Some(st)) = (size, stride) {
-                            if sz >= 1 && st == 1 {
+                            // plan-86 A2: String windows are variable-size kind-0
+                            // blocks → direct slice-per-window construction (any
+                            // stride). Fixed-width keeps the contiguous-block builder
+                            // (stride 1 only).
+                            if sz >= 1 && st >= 1 && t == "String" {
+                                return self.lower_collection_window_string_call(args, sz, st);
+                            }
+                            if sz >= 1 && st == 1 && elem_ok {
                                 return self.lower_collection_window_call(args, sz, st);
                             }
                         }
@@ -884,11 +891,21 @@ impl CodeBuilder<'_> {
                 // plan-64 D3: native chunks for 8-byte fixed-width elements with a
                 // constant size >= 1 (`#collections_chunks$T`, 2 args).
                 if let Some(t) = target.strip_prefix("#collections_chunks$") {
-                    if matches!(t, "Integer" | "Float" | "Fixed" | "Money") && args.len() == 2 {
+                    if matches!(t, "Integer" | "Float" | "Fixed" | "Money" | "String")
+                        && args.len() == 2
+                    {
                         if let Some(NirValue::Const { type_, value }) = args.get(1) {
                             if type_ == "Integer" {
                                 if let Ok(sz) = value.parse::<i64>() {
                                     if sz >= 1 {
+                                        // plan-86 A2: String inner lists are
+                                        // variable-size kind-0 blocks → direct
+                                        // slice-per-chunk construction; fixed-width
+                                        // takes the contiguous-block builder.
+                                        if t == "String" {
+                                            return self
+                                                .lower_collection_chunks_string_call(args, sz);
+                                        }
                                         return self.lower_collection_chunks_call(args, sz);
                                     }
                                 }

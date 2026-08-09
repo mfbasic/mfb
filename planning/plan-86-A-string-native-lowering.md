@@ -36,19 +36,27 @@ element move**, not an 8-byte word copy. Gates: `builder_values.rs` sortBy/windo
   Lifts `listchurn nested` (Integer flatten). Commit: `14aed9249`.
 - [ ] **A2-groupBy (String)** — native String `groupBy` → `Map OF K TO List OF String`. Needs the
   String-value bucket append + map-of-String-lists nested-value handling. Clears groupby (166).
-- [ ] **A2-window (String)** — native String `window` → `List OF List OF String`. Needs **variable-size
-  nested String inner blocks** (the fixed-width path hard-codes `inner_block_size = HEADER + size*8`).
-  Clears window (88).
-- [ ] **A2-chunks (String)** — native String `chunks` (same variable-size nested-block work as window).
-  Clears chunks (13.6) **and unblocks the flatten row** (which is chunks-bound). Note: the `.mfb` chunks
-  already uses native `slice`+`append`, so a worthwhile native chunks needs direct nested-block construction.
-  **ATTEMPT 1 (reserve+append) REVERTED — measured regression (see Corrections).** The correct approach is
-  slice-per-chunk: a String-slice-into-block helper (the `lower_list_slice_range` String path: length pass +
-  tight alloc + copy pass, one alloc/chunk) called per chunk, then append+free the tight inner. Cannot reuse
-  `lower_list_slice_range` directly (NirValue args; extracting a slot core reorders its vregs →
-  `[[vreg-alloc-order-load-bearing]]` golden churn), so it needs a focused String-slice-into-slot helper (also
-  serves window). Likely **G2-class, not a G1 clear** — String-copy chunks can't beat Python's C-backed slicing
-  (py 1.69).
+- [x] **A2-window (String)** — native String `window` via the shared `emit_string_list_slice_block` helper:
+  `lower_collection_window_string_call` slices each (overlapping/strided) `source[i .. i+size]` into one TIGHT
+  `List OF String`, inlines it into a growable outer, and frees it, mirroring the `.mfb __collections_window`
+  `slice`+`append`/`stride` shape without the interpreted loop. Supports any `stride >= 1` (fixed-width path is
+  still stride-1 only). **window 88.66 → 84.53 ms** — a correct, non-regressing **marginal** win (~4.7%; the
+  `.mfb` was already per-window native `slice`), **NOT a G1 clear** (capped vs Python's C-backed slicing, py
+  8.68). Checksum `99100` unchanged; native/`.mfb` byte-identical across overlapping/strided/whole/oversize/
+  empty/empty-string + 1000-round churn. Fixture: `window-string-native-rt`. Commit: `PENDING`.
+- [x] **A2-chunks (String)** — native String `chunks` via **direct slice-per-chunk construction**: new
+  `emit_string_list_slice_block(source_slot, start_slot, count_slot)` builds one TIGHT `List OF String` per
+  chunk (length pass + overflow-guarded tight alloc + per-entry byte copy, mirroring `lower_list_slice_range`'s
+  String path but slot-parameterized), which `lower_collection_chunks_string_call` inlines into a growable outer
+  via `lower_list_append_in_place` and frees via `emit_free_owned_kind0_list_block`. **chunks 13.4 → 12.98 ms,
+  flatten row 21.7 → 21.2 ms** — a correct, non-regressing **marginal** win (the `.mfb` was already native
+  `slice`+`append`; the only saving is the interpreted per-chunk dispatch). **NOT a G1 clear and does not
+  meaningfully unblock flatten** — chunks is structurally capped vs Python's C-backed slicing (py 1.69); String
+  copy of 1000 strings into 100 chunks inherently costs more. Checksums `chunks=20000`/`flatten=200000`
+  unchanged; native/`.mfb` byte-identical across exact/remainder/size-1/oversize/empty/empty-string + 1000-round
+  churn. Value is mainly the reusable `emit_string_list_slice_block` primitive (window will reuse it). ATTEMPT 1
+  (reserve+append) regressed ~2.3× and was reverted (see Corrections). Fixture: `chunks-string-native-rt`.
+  Commit: `PENDING`.
 - [ ] **A3-zip (String)** — native String `zip` → `List OF Pair OF A, B`. Needs Pair-of-Strings
   variable-width fields (the fixed-width `try_inline_zip_op` hard-codes `REC=16`). Clears zip (26).
 - [x] **A3-findLastIndex** — native reverse-scan lowering (`lower_collection_find_last_index_call`,
