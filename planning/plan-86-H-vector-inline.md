@@ -12,12 +12,32 @@ fresh N×8 arena block; Integer/Fixed `length` also runs software isqrt. `vector
 `normalize` ×2/iter.
 
 ## Fixes
-- [ ] **H1 (biggest, vector math)** — inline `normalize` as `scale(v, 1/length(v))` with the zero-length
-  `FAIL error(77050002)` guard — needs a **guard-capable inline path** (the guard is control flow the
-  pure-expression inliner can't emit today).
-- [ ] **H2 (vector int/fixed)** — relax the `element=="Float"` clause at `:108` for length/distance/lerp,
-  feeding register-native lanes to skip the block materialize, and inline the Fixed/Integer isqrt
-  (`emit_fixed_sqrt` already deterministic).
+- [ ] **H1 (vector math — the biggest single lever, but HARDER)** — inline `normalize`. **Scout
+  (plan-86-A session): needs NEW statement-emitting inline machinery with no precedent in the module.** The
+  `.mfb` body (`vector_package.mfb:367-376`) is `len=sqrt(Σx²); IF len=0.0 THEN FAIL error(77050002); RETURN
+  Float_N[x/len,…]` (divide each lane by len, NOT `scale(v,1/len)`). `try_inline_vector_op`
+  (`builder_vector_inline.rs:242-416`) is a PURE-EXPRESSION rewriter — it only assembles
+  `NirValue::{Binary,Constructor,Call,MemberAccess}` trees and hands them to `lower_value`; it has NO
+  vocabulary for a compare/branch/FAIL. H1 needs a statement-emitting variant: lower Σx²+`math.sqrt` to a
+  register, emit `compare_immediate`/`branch_eq` to a fail label emitting the same `FAIL error(77050002)` NIR,
+  then lower the per-lane divides into a constructor. **Only lever for vector math (30.9ms, normalize ×2/iter)
+  AND vector float (20.9, already fully inlined except normalize).** Higher-risk; do 2nd.
+- [ ] **H2 (vector int/fixed — TRACTABLE, do FIRST)** — relax the `element=="Float"` clause
+  (`builder_vector_inline.rs:108`) for **length/distance ONLY** (KEEP `lerp`/`lerp_unclamped` Float-gated —
+  their Fixed/Integer `.mfb` bodies genuinely differ via `toFixed`/`toFloat`/`round`, `vector_package.mfb:981`/
+  `:1122`, so they'd need type-specific rewrite branches, not just the gate drop). `vector_call_is_inlined`
+  (`:117-128`) already funnels through `vector_op_inlinable`, so the escape analysis + register-lane feeding
+  follow AUTOMATICALLY — no second edit for lanes. Then extend the `length` (`:371-384`)/`distance`
+  (`:390-406`) rewrite branches: Float keeps `math.sqrt` Call; **Fixed** emits the same `math.sqrt` Call
+  (dispatches to `emit_fixed_sqrt`, deterministic `builder_fixed_math.rs:135-201`); **Integer** wraps Σx² in a
+  Call to the mangled `__vector_isqrtRound` target (do NOT open-code — bit-identity requires calling the same
+  deterministic helper, `vector_package.mfb:137-165`) instead of `math.sqrt`. This removes the operand N×8
+  arena block-materialize (`vector_value_as_block`, `builder_vector_inline.rs:184-219`, fired at
+  `builder_emit_helpers.rs:66`) for every Integer/Fixed length/distance — helps **vector int (55.7ms, ~18
+  length+distance/iter): solid double-digit-% cut** (the isqrt compute stays, so not to zero) + vector fixed.
+  Does NOT help vector float/math (those need H1). **Bit-identity mandatory** (module invariant
+  `builder_vector_inline.rs:8-17`); gate on the 4 vector checksums + `tools/math-kernels/runtime_ulp.py`
+  (sqrt-adjacent) + scalar-vs-array bit identity.
 
 ## Acceptance
 `tools/math-kernels/runtime_ulp.py` (normalize reuses gated `math::sqrt`) + scalar-vs-array bit identity +
