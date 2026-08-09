@@ -191,3 +191,76 @@ END FUNC
     assert!(run.status.success(), "app435 crashed:\n{stdout}");
     assert!(stdout.contains("ok"), "expected `ok`, got:\n{stdout}");
 }
+
+// bug-436: the same re-export, but the intermediary names the imported union in
+// its **package-qualified** form (`leaf435::Node`) in the exported signature.
+// The parser lowers this to the dotted IR type name `leaf435.Node`, which the ABI
+// writer's `TypeTable::type_id` failed to resolve — the bare `Node` foreign-type
+// entry is keyed under `Node`, so the dotted name missed and degraded to an
+// empty-record placeholder that failed its own read-back with
+// `truncated binary representation`, writing no `.mfp`.
+const MID_SRC_QUALIFIED: &str = "\
+IMPORT leaf435
+
+EXPORT FUNC describe(n AS leaf435::Node) AS String
+  RETURN \"node\"
+END FUNC
+";
+
+/// A package-qualified imported type in an exported signature must build a valid
+/// `.mfp` equivalent to the unqualified spelling — never emit a corrupt/no `.mfp`
+/// under a `Building …` line (bug-436). The whole three-package chain must build
+/// and run just as the unqualified form does.
+#[test]
+fn reexported_union_qualified_type_reference_builds_equivalent_package() {
+    let root = unique_root("qualified_mid");
+    write_project(&root, "leaf435", "package", &[], false, LEAF_SRC);
+    build_ok(&root, "leaf435");
+
+    write_project(
+        &root,
+        "mid435",
+        "package",
+        &["leaf435"],
+        false,
+        MID_SRC_QUALIFIED,
+    );
+    install(&root, "leaf435", "mid435", "leaf435");
+    // Pre-fix: this build printed `Building mid435 …` then
+    // `error: truncated binary representation` and wrote no `.mfp`.
+    build_ok(&root, "mid435");
+    assert!(
+        root.join("mid435").join("mid435.mfp").is_file(),
+        "mid435.mfp must be written for the qualified spelling"
+    );
+
+    let app_src = "\
+IMPORT io AS console
+IMPORT mid435
+
+FUNC main AS Integer
+  console::print(\"ok\")
+  RETURN 0
+END FUNC
+";
+    write_project(&root, "app435", "executable", &["mid435"], true, app_src);
+    install(&root, "mid435", "app435", "mid435");
+    install(&root, "leaf435", "app435", "leaf435");
+
+    let (ok, combined) = build(&root, "app435");
+    assert!(
+        ok,
+        "app435 must build against the qualified-form mid435:\n{combined}"
+    );
+
+    let exe = combined
+        .lines()
+        .find_map(|line| line.strip_prefix("Wrote executable to "))
+        .expect("app build reported no executable path")
+        .trim()
+        .to_string();
+    let run = Command::new(&exe).output().expect("run app435");
+    let stdout = String::from_utf8_lossy(&run.stdout).into_owned();
+    assert!(run.status.success(), "app435 crashed:\n{stdout}");
+    assert!(stdout.contains("ok"), "expected `ok`, got:\n{stdout}");
+}

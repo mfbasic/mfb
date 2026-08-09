@@ -7,8 +7,39 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (silent package corruption — a build reports success-then-failure and emits no usable artifact)
 
-Status: Open
-Regression Test: tests/rt_reexport_union_transitive_field_types.rs (add a qualified-form case) — none yet
+Status: FIXED (d1347fafb)
+Regression Test: tests/rt_reexport_union_transitive_field_types.rs::reexported_union_qualified_type_reference_builds_equivalent_package
+
+STATUS: FIXED (d1347fafb)
+
+Root cause was exactly as documented: the qualified reference `leaf435::Node`
+lowers to the dotted IR type name `leaf435.Node`, and the ABI writer's
+`TypeTable::type_id` (`src/binary_repr/sections.rs`) fallback looked the dotted
+name up in `foreign_types` — which is keyed by **bare** exported name (`Node`) —
+missed, and degraded it to an empty RECORD entry (kind 1) that failed its own
+read-back with `truncated binary representation`, writing no `.mfp`.
+
+Fix (chosen resolution: **serialize-equivalently**, the preferred Open Decision):
+added a bare-name fallback in the `type_id` `_` arm — a dotted `pkg.Type` whose
+bare last segment resolves to a foreign export is encoded via `foreign_type`
+interned under the **bare** name, producing the identical type-table entry the
+unqualified spelling already emits. Composite-type keys use `#`, never `.`, so
+only a genuine qualified `pkg.Type` reference reaches the new arm. The fix is in
+the writer, not IR lowering — the IR still records `leaf435.Node` (consumers read
+ABI exports / the resolved type table, not the IR string), and the new test
+proves full equivalence by building `mid435` and then building **and running** an
+`app435` consumer that imports only `mid435`.
+
+Verification:
+- New regression test GREEN; existing unqualified re-export test still GREEN.
+- `cargo test --bin mfb`: 3783 passed, 0 failed.
+- `cargo test --tests`: the only failures are 6 tests proven pre-existing on the
+  base commit `03309dd8a` (unrelated: 4× `rt_fs_error_path_hygiene` fs::close
+  CLOSED-bit ordering [bug-63 cluster], 2× `rt_gtk_term_utf8_grid`) — none
+  touched by this change (diff is `src/binary_repr/sections.rs` only).
+- artifact-gate not run: the change is package `.mfp` serialization, not native
+  codegen (`src/target/`), so it cannot move any `.ncode`/`.ncodesum` golden;
+  another session was actively cycling the gate (no-concurrent-gate rule).
 
 When a package function references an imported type by its **package-qualified**
 name in an exported signature — `EXPORT FUNC describe(n AS leaf435::Node)` — the
@@ -134,17 +165,21 @@ dotted type names (wider surface, more places to miss).
 
 ## Phases
 
-### Phase 1 — failing test + audit
-- Add a qualified-form case (the repro above) asserting `mid435` builds; confirm
-  it is RED with `truncated binary representation`.
+### Phase 1 — failing test + audit ✅
+- [x] Added the qualified-form case; confirmed RED with `truncated binary
+  representation` at `build_ok(mid435)`. Commit: d1347fafb
 
-### Phase 2 — the fix
-- Canonicalize the qualified imported-type reference so the writer emits the
-  bare foreign-type marker (or reject at syntaxcheck).
+### Phase 2 — the fix ✅
+- [x] Resolved the qualified imported-type reference to the bare foreign-type
+  marker in `TypeTable::type_id` (writer side; the existing writer path handles
+  it unchanged). Commit: d1347fafb
 
-### Phase 3 — validation
-- Qualified and unqualified spellings both build valid, equivalent `.mfp`s.
-- Full `cargo test`, package acceptance, and artifact-gate green.
+### Phase 3 — validation ✅
+- [x] Qualified and unqualified spellings both build valid, equivalent `.mfp`s
+  (the qualified test builds `mid435` and builds+runs an `app435` consumer).
+- [x] `cargo test --bin mfb` green (3783 passed); `cargo test --tests` clean
+  apart from 6 pre-existing reds proven identical on base `03309dd8a`. See the
+  STATUS block for the artifact-gate rationale. Commit: d1347fafb
 
 ## Open Decisions
 
