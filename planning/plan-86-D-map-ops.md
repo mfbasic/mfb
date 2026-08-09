@@ -69,8 +69,24 @@ removeKey matrix rows (`map (State-Dynamic) removeKey` 62.6, `State-Fixed` 17.3)
   compaction. Either way COUNT-=1, BUCKETS_READY=0. The scan/match reuses
   `emit_collection_payload_matches_value_branch(key_type,"",map_ptr,key_off,key_len,query_key,no_match,match)`
   (`map_mutate.rs:1292`).
-- [ ] **D2 — native String-value `mapValues`** (variable-width same-type path: copy the key/bucket structure,
-  rebuild only value payloads keeping `ready=1`). Helps map str_ops. **NOTE (plan-86-A session) — MEASURE
+- [x] ~~**D2 — native String-value `mapValues`**~~ — **moot: MEASURED — unlike merge/removeKey, the `.mfb`
+  mapValues has NO algorithmic inefficiency to fix, so native D2 is a marginal constant-factor-only win that
+  does not clear the row, and the tractable native path would REGRESS.** Decomposition (release, `--run 10`):
+  `map str_ops` 5.77ms; removing the `mapValues` line → **4.22ms**, so mapValues = ~1.55ms over 250 entries ×
+  500 iters = **~12 ns/entry** — which is already-efficient in-place work, NOT the ~500 ns/entry copy-then-grow
+  the merge suffered. Root cause (`collections_package.mfb:246`): `__collections_mapValues` builds
+  `MUT result = Map {}` FROM SCRATCH then `result = set(result, e.key, f(e.value))` per entry — from-scratch
+  sets fire the in-place append (geometric grow, amortized O(1)), so there is no O(container-copy) bug for
+  native to remove (contrast D3 merge's `MUT result = a` COPY-then-insert). Native D2 would save only the
+  per-entry `set`/loop dispatch overhead (~0.3-0.5ms), NOT clearing the row (`map str_ops` is 5.47ms after the
+  D3 String-value merge extension already landed; D2 → ~5.0-5.2ms, still ≥ the 5ms bar). **Two native paths,
+  both bad:** (a) `copy_collection_tight(source)` + per-entry `set_in_place` value-OVERWRITE with `f(value)` —
+  reuses existing machinery but each String-value overwrite leaves the old value as DEAD SLACK (the
+  `set`-overwrite pattern), so over N entries the data region ~doubles + reallocs → likely a **REGRESSION** vs
+  the .mfb fresh build; (b) a correct fresh-build native path needs a NEW empty-presized-map primitive
+  (`copy_map_with_capacity` only copies a source) for a marginal, non-band-clearing win. Honors the plan's own
+  D2 deprioritization ("likely not worth a ~100-line native lowering") — now MEASURED, not assumed. Correctness
+  of the .mfb path intact (map str_ops checksum + full artifact-gate green). Original NOTE (kept): **MEASURE
   first; likely MODEST, not groupBy-class.** The scored row is `map str_ops` at only ~5.97 ms (py 2.82), NOT
   a 166 ms O(container)-copy row like groupby: mapValues values are single small Strings, not 500-element
   buckets, so the per-entry `set` cost is small (and the C2-style in-place-set may already fire on
@@ -108,7 +124,7 @@ removeKey matrix rows (`map (State-Dynamic) removeKey` 62.6, `State-Fixed` 17.3)
   `String`. Helps `map str_ops` (a `Map OF String TO String` merge, was the .mfb copy-then-insert slow path):
   **5.77 → 5.47 ms** (~0.3ms; the merge there is 200+50, smaller than iterate's 1000+10, so a smaller cut —
   stays P1). Verified (fixture `merge-native-rt` String-VALUE cases: strT y=by-longer overwrites with a longer
-  value, strF a-wins fallback, sa unchanged). Commit: `<pending-D3s>`. Original analysis (kept):
+  value, strF a-wins fallback, sa unchanged). Commit: `85ff4f08b`. Original analysis (kept):
   **MEASURED ~5ms of a P1 row; the earlier "base copy inherent → marginal" note was an UNMEASURED assumption
   and is WRONG.** Decomposed `mapchurn iterate` (14.4ms) this session by editing the benchmark's
   merge line (release `--run 10`, box-local): remove the whole merge line → **5.2ms** (so merge+its `keys(mg)`

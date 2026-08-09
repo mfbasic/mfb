@@ -247,8 +247,11 @@ The index table above stays as the one-line overview; open a file for the checkl
 - **C** → [plan-86-C-set-algebra.md](plan-86-C-set-algebra.md) — **DONE** (C2 in-place add retired all 7 P1; C1 moot)
 - **D** → [plan-86-D-map-ops.md](plan-86-D-map-ops.md) — **D1 removeKey DONE** (mapchurn churn 161→22 ms ~7.3×);
   **D3 merge DONE** (native presize, mapchurn iterate 14.27→9.27 ms ~36% — measurement corrected the earlier
-  wrong "marginal" call; the win is the presized copy avoiding the per-new-key geometric grow). D2 (String
-  mapValues) still open — re-measure per the D3 lesson (copy-then-insert `set` does NOT fire in-place).
+  wrong "marginal" call; the win is the presized copy avoiding the per-new-key geometric grow; also extended
+  native merge to String VALUES, map str_ops 5.77→5.47). **D2 (String mapValues) moot (measured):** the .mfb
+  mapValues builds from-scratch (in-place sets ~12ns/entry) — already optimal, NO algorithmic bug like merge;
+  native is constant-factor-only (won't clear the row) and the tractable copy-then-overwrite path would REGRESS
+  (dead-slack). **Sub-plan D COMPLETE (D1+D3 landed, D2 moot).**
 - **E** → [plan-86-E-borrow-element.md](plan-86-E-borrow-element.md) — **DONE** (E1 read-only get-borrow: **dispatch union 160.9 → 43.2 ms, ~3.7×**; classifier follows the `MATCH e` → `$matchN=e; MATCH $matchN` desugar, borrows both; fixed the plan-25 pending-temp free-into-container corruption; E2 moot/subsumed). Still P2 (interpreted MATCH/tree-eval residual).
 - **F** → [plan-86-F-string-single-pass.md](plan-86-F-string-single-pass.md) — open, **fully mapped** (F2 word-copy via existing `emit_block_copy_advance` + SWAR memchr = tractable/near-zero-risk but MARGINAL ~1.3–1.8×, short strings are alloc/call-bound; F3 case_map single-pass higher-risk). F1 landed plan-64.
 - **G** → [plan-86-G-bounds-check-elim.md](plan-86-G-bounds-check-elim.md) — open, **fully mapped** (correctness-critical, UAF if unsound). **HONEST SCOPING: the SAFE minimal G1 cut helps ONLY scalar listchurn (1 P1, 10.6ms)** — memo/bignum do NOT match the `FOR i=0..len(L)-1`/un-reassigned-L shape (memo bound is a const + `ways` reassigned by `set`; bignum uses WHILE + `set`-reassigned) and need a strictly larger symbolic-range pass. Reuse plan-39 I1's range-fact substrate + `scan_loop_locals` + conservative-default-false; MANDATORY negative fixtures.
