@@ -71,6 +71,10 @@ pub fn resolve_project_with(
     validate_docs: bool,
 ) -> Result<(), ()> {
     let augmented = builtins::json::augmented_project(ast)?;
+    // `astrings_package.mfb` imports only `collections` (native members) and
+    // `astrings` itself (the internal overlay bridge), so it has no companion
+    // ordering dependency.
+    let augmented = builtins::astrings::augmented_project(&augmented)?;
     let augmented = builtins::app::augmented_project(&augmented)?;
     let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;

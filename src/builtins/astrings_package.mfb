@@ -1,0 +1,340 @@
+REM MFBASIC astrings source companion (plan-89-B). The open, user-constructible
+REM `Attribute` model plus the convenience constructors, and the Tier-C
+REM mutation/query members built over three internal native overlay-bridge
+REM primitives (`astrings::readSpans` / `astrings::writeSpans` /
+REM `astrings::scalarLen`, all internal-only). The `.mfb` bodies own the risky
+REM inclusive-bound split arithmetic and the higher-start-wins resolution
+REM (plan-89-B §3); the natives only cross the opaque-record boundary.
+
+IMPORT collections
+IMPORT astrings
+
+REM ===========================================================================
+REM The Attribute model
+REM ===========================================================================
+
+DOC
+  ENUM AttrTypeFlag
+  DESC A boolean styling flag with no value — either present on a run or not.
+END DOC
+EXPORT ENUM AttrTypeFlag
+  Bold, Italic, Underline, Strike, Overline
+END ENUM
+
+DOC
+  ENUM AttrTypeText
+  DESC A styling attribute whose value is a String (e.g. a font family name).
+END DOC
+EXPORT ENUM AttrTypeText
+  Font
+END ENUM
+
+DOC
+  ENUM AttrTypeNumber
+  DESC A styling attribute whose value is an Integer (e.g. a font size).
+END DOC
+EXPORT ENUM AttrTypeNumber
+  FontSize
+END ENUM
+
+DOC
+  TYPE AttrFlag
+  DESC A flag attribute: one member of `AttrTypeFlag`, carrying no value.
+  PROP kind Which flag.
+END DOC
+EXPORT TYPE AttrFlag
+  kind AS AttrTypeFlag
+END TYPE
+
+DOC
+  TYPE AttrText
+  DESC A String-valued attribute: an `AttrTypeText` member and its String value.
+  PROP kind Which text attribute.
+  PROP value The String value (e.g. the font family name).
+END DOC
+EXPORT TYPE AttrText
+  kind AS AttrTypeText
+  value AS String
+END TYPE
+
+DOC
+  TYPE AttrNumber
+  DESC An Integer-valued attribute: an `AttrTypeNumber` member and its value.
+  PROP kind Which numeric attribute.
+  PROP value The Integer value (e.g. the font size in points).
+END DOC
+EXPORT TYPE AttrNumber
+  kind AS AttrTypeNumber
+  value AS Integer
+END TYPE
+
+DOC
+  UNION Attribute
+  DESC One styling attribute: a flag, a String-valued, or an Integer-valued one.
+  DESC Match on the variant to read the underlying value.
+  PROP AttrFlag A boolean flag (bold, italic, …).
+  PROP AttrText A String-valued attribute (font).
+  PROP AttrNumber An Integer-valued attribute (font size).
+END DOC
+EXPORT UNION Attribute
+  AttrFlag
+  AttrText
+  AttrNumber
+END UNION
+
+REM The internal stored-span record. Field-identical to the codegen-internal
+REM `AttrSpan` registered in `validation.rs` (the `AttributedString` overlay
+REM element). Not exported: only this companion and the native bridge touch it.
+REM `class`: 0=flag, 1=text, 2=number. `member`: the enum-member ordinal within
+REM that class. `text`/`number`: the flat attribute payload.
+REM `last` (not `end`) because `end` is a reserved keyword — it can be neither a
+REM member accessed with `.` nor a parameter/field identifier.
+TYPE AttrSpan
+  start AS Integer
+  last AS Integer
+  seq AS Integer
+  class AS Integer
+  member AS Integer
+  text AS String
+  number AS Integer
+END TYPE
+
+REM ===========================================================================
+REM Convenience constructors
+REM ===========================================================================
+
+FUNC __astrings_bold() AS Attribute
+  RETURN AttrFlag[AttrTypeFlag.Bold]
+END FUNC
+
+FUNC __astrings_italic() AS Attribute
+  RETURN AttrFlag[AttrTypeFlag.Italic]
+END FUNC
+
+FUNC __astrings_underline() AS Attribute
+  RETURN AttrFlag[AttrTypeFlag.Underline]
+END FUNC
+
+FUNC __astrings_strike() AS Attribute
+  RETURN AttrFlag[AttrTypeFlag.Strike]
+END FUNC
+
+FUNC __astrings_overline() AS Attribute
+  RETURN AttrFlag[AttrTypeFlag.Overline]
+END FUNC
+
+FUNC __astrings_font(name AS String) AS Attribute
+  RETURN AttrText[AttrTypeText.Font, name]
+END FUNC
+
+FUNC __astrings_fontSize(size AS Integer) AS Attribute
+  RETURN AttrNumber[AttrTypeNumber.FontSize, size]
+END FUNC
+
+REM ===========================================================================
+REM Attribute <-> AttrSpan encoding
+REM ===========================================================================
+
+FUNC __astrings_flagMember(t AS AttrTypeFlag) AS Integer
+  MATCH t
+    CASE AttrTypeFlag.Bold
+      RETURN 0
+    CASE AttrTypeFlag.Italic
+      RETURN 1
+    CASE AttrTypeFlag.Underline
+      RETURN 2
+    CASE AttrTypeFlag.Strike
+      RETURN 3
+    CASE AttrTypeFlag.Overline
+      RETURN 4
+  END MATCH
+END FUNC
+
+FUNC __astrings_flagFromMember(m AS Integer) AS AttrTypeFlag
+  IF m = 0 THEN
+    RETURN AttrTypeFlag.Bold
+  END IF
+  IF m = 1 THEN
+    RETURN AttrTypeFlag.Italic
+  END IF
+  IF m = 2 THEN
+    RETURN AttrTypeFlag.Underline
+  END IF
+  IF m = 3 THEN
+    RETURN AttrTypeFlag.Strike
+  END IF
+  RETURN AttrTypeFlag.Overline
+END FUNC
+
+FUNC __astrings_encodeAttr(start AS Integer, endIndex AS Integer, seq AS Integer, attr AS Attribute) AS AttrSpan
+  MATCH attr
+    CASE AttrFlag(f)
+      RETURN AttrSpan[start, endIndex, seq, 0, __astrings_flagMember(f.kind), "", 0]
+    CASE AttrText(t)
+      RETURN AttrSpan[start, endIndex, seq, 1, 0, t.value, 0]
+    CASE AttrNumber(n)
+      RETURN AttrSpan[start, endIndex, seq, 2, 0, "", n.value]
+  END MATCH
+END FUNC
+
+FUNC __astrings_decodeAttr(s AS AttrSpan) AS Attribute
+  IF s.class = 0 THEN
+    RETURN AttrFlag[__astrings_flagFromMember(s.member)]
+  END IF
+  IF s.class = 1 THEN
+    RETURN AttrText[AttrTypeText.Font, s.text]
+  END IF
+  RETURN AttrNumber[AttrTypeNumber.FontSize, s.number]
+END FUNC
+
+REM Structural equality of a stored span's attribute vs a target span's attribute
+REM (class + member + payload). Used by removeAttribute to match spans to drop.
+FUNC __astrings_attrEquals(a AS AttrSpan, b AS AttrSpan) AS Boolean
+  IF a.class <> b.class THEN
+    RETURN FALSE
+  END IF
+  IF a.member <> b.member THEN
+    RETURN FALSE
+  END IF
+  IF a.class = 1 THEN
+    RETURN a.text = b.text
+  END IF
+  IF a.class = 2 THEN
+    RETURN a.number = b.number
+  END IF
+  RETURN TRUE
+END FUNC
+
+REM ===========================================================================
+REM Bounds + sequence helpers
+REM ===========================================================================
+
+REM Validate an inclusive scalar range against the visible scalar count. An op on
+REM an empty AttributedString always errors (n = 0 → endIndex >= 0 fails). Returns the
+REM scalar count.
+FUNC __astrings_validateRange(a AS AttributedString, start AS Integer, endIndex AS Integer) AS Integer
+  LET n AS Integer = astrings::scalarLen(a)
+  IF start < 0 OR endIndex < start THEN
+    FAIL error(77050002, "invalid attribute range")
+  END IF
+  IF endIndex >= n THEN
+    FAIL error(77050001, "attribute range out of bounds")
+  END IF
+  RETURN n
+END FUNC
+
+REM The next insertion sequence: one past the maximum existing seq (0 when empty).
+FUNC __astrings_nextSeq(spans AS List OF AttrSpan) AS Integer
+  MUT maxSeq AS Integer = -1
+  FOR EACH s IN spans
+    IF s.seq > maxSeq THEN
+      maxSeq = s.seq
+    END IF
+  NEXT
+  RETURN maxSeq + 1
+END FUNC
+
+REM ===========================================================================
+REM Tier-C: mutation
+REM ===========================================================================
+
+FUNC __astrings_addAttribute(a AS AttributedString, start AS Integer, endIndex AS Integer, attr AS Attribute) AS AttributedString
+  LET n AS Integer = __astrings_validateRange(a, start, endIndex)
+  MUT spans AS List OF AttrSpan = astrings::readSpans(a)
+  LET seq AS Integer = __astrings_nextSeq(spans)
+  LET span AS AttrSpan = __astrings_encodeAttr(start, endIndex, seq, attr)
+  spans = collections::append(spans, span)
+  RETURN astrings::writeSpans(a, spans)
+END FUNC
+
+REM Append the surviving flanks of `s` after removing the inclusive range
+REM [rs, re] to `acc`, returning the updated list. A span not overlapping the
+REM range survives whole; a straddler keeps its left flank [s.start, rs-1] and/or
+REM right flank [re+1, s.endIndex]; the overlap is dropped. Flanks keep `s`'s seq.
+FUNC __astrings_splitSpan(acc AS List OF AttrSpan, s AS AttrSpan, rs AS Integer, re AS Integer) AS List OF AttrSpan
+  MUT out AS List OF AttrSpan = acc
+  IF s.last < rs OR s.start > re THEN
+    out = collections::append(out, s)
+    RETURN out
+  END IF
+  IF s.start <= rs - 1 THEN
+    out = collections::append(out, AttrSpan[s.start, rs - 1, s.seq, s.class, s.member, s.text, s.number])
+  END IF
+  IF re + 1 <= s.last THEN
+    out = collections::append(out, AttrSpan[re + 1, s.last, s.seq, s.class, s.member, s.text, s.number])
+  END IF
+  RETURN out
+END FUNC
+
+FUNC __astrings_removeAttribute(a AS AttributedString, start AS Integer, endIndex AS Integer, attr AS Attribute) AS AttributedString
+  LET n AS Integer = __astrings_validateRange(a, start, endIndex)
+  LET spans AS List OF AttrSpan = astrings::readSpans(a)
+  LET target AS AttrSpan = __astrings_encodeAttr(start, endIndex, 0, attr)
+  MUT out AS List OF AttrSpan = []
+  FOR EACH s IN spans
+    IF __astrings_attrEquals(s, target) THEN
+      out = __astrings_splitSpan(out, s, start, endIndex)
+    ELSE
+      out = collections::append(out, s)
+    END IF
+  NEXT
+  RETURN astrings::writeSpans(a, out)
+END FUNC
+
+FUNC __astrings_clearAttributesRange(a AS AttributedString, start AS Integer, endIndex AS Integer) AS AttributedString
+  LET n AS Integer = __astrings_validateRange(a, start, endIndex)
+  LET spans AS List OF AttrSpan = astrings::readSpans(a)
+  MUT out AS List OF AttrSpan = []
+  FOR EACH s IN spans
+    out = __astrings_splitSpan(out, s, start, endIndex)
+  NEXT
+  RETURN astrings::writeSpans(a, out)
+END FUNC
+
+FUNC __astrings_clearAttributes(a AS AttributedString) AS AttributedString
+  MUT empty AS List OF AttrSpan = []
+  RETURN astrings::writeSpans(a, empty)
+END FUNC
+
+REM ===========================================================================
+REM Tier-C: query (higher-start-wins resolution)
+REM ===========================================================================
+
+REM Whether `s` is the winning span for its (class, member) among `covering`:
+REM no other covering span of the same class+member has a higher start, or an
+REM equal start with a higher seq (later insertion). Exactly one span per
+REM (class, member) wins, since seq is unique.
+FUNC __astrings_isWinner(s AS AttrSpan, covering AS List OF AttrSpan) AS Boolean
+  FOR EACH t IN covering
+    IF t.class = s.class AND t.member = s.member THEN
+      IF t.start > s.start THEN
+        RETURN FALSE
+      END IF
+      IF t.start = s.start AND t.seq > s.seq THEN
+        RETURN FALSE
+      END IF
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+FUNC __astrings_getAttributes(a AS AttributedString, index AS Integer) AS List OF Attribute
+  LET n AS Integer = astrings::scalarLen(a)
+  IF index < 0 OR index >= n THEN
+    FAIL error(77050001, "attribute index out of bounds")
+  END IF
+  LET spans AS List OF AttrSpan = astrings::readSpans(a)
+  MUT covering AS List OF AttrSpan = []
+  FOR EACH s IN spans
+    IF s.start <= index AND index <= s.last THEN
+      covering = collections::append(covering, s)
+    END IF
+  NEXT
+  MUT result AS List OF Attribute = []
+  FOR EACH s IN covering
+    IF __astrings_isWinner(s, covering) THEN
+      result = collections::append(result, __astrings_decodeAttr(s))
+    END IF
+  NEXT
+  RETURN result
+END FUNC

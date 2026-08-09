@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/rt-error/astrings/attribute-bounds-rt
+Wrote AST to tests/rt-error/astrings/attribute-bounds-rt/attribute_bounds_rt.ast
+Wrote IR to tests/rt-error/astrings/attribute-bounds-rt/attribute_bounds_rt.ir
+[exit 0]
+$ mfb build tests/rt-error/astrings/attribute-bounds-rt
+Wrote executable to tests/rt-error/astrings/attribute-bounds-rt/build/attribute_bounds_rt.out
+[exit 0]
+$ tests/rt-error/astrings/attribute-bounds-rt/build/attribute_bounds_rt.out
+Error: 7-705-0001
+attribute range out of bounds
+[exit 255]

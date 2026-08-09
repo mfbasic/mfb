@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/rt-behavior/astrings/attribute-model-rt
+Wrote AST to tests/rt-behavior/astrings/attribute-model-rt/attribute_model_rt.ast
+Wrote IR to tests/rt-behavior/astrings/attribute-model-rt/attribute_model_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/astrings/attribute-model-rt
+Wrote executable to tests/rt-behavior/astrings/attribute-model-rt/build/attribute_model_rt.out
+[exit 0]
+$ tests/rt-behavior/astrings/attribute-model-rt/build/attribute_model_rt.out
+ctors=Bold Italic Underline Strike Overline Font:Serif Size:14 
+size@12=Size:10 
+size@15=Size:20 
+coexist@7=Bold Italic Font:Serif 
+coexist@0=Bold Font:Serif 
+[exit 0]

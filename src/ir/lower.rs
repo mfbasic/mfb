@@ -88,6 +88,8 @@ pub fn lower_project_with_external_functions(
 ) -> IrProject {
     let augmented =
         builtins::json::augmented_project(ast).expect("built-in json package source must parse");
+    let augmented = builtins::astrings::augmented_project(&augmented)
+        .expect("built-in astrings package source must parse");
     let augmented = builtins::app::augmented_project(&augmented)
         .expect("built-in app package source must parse");
     let augmented = builtins::csv::augmented_project(&augmented)
@@ -2776,6 +2778,13 @@ fn lower_expression_with_expected(
                 })
                 .or_else(|| {
                     builtins::datetime::implementation_name(&canonical_callee, args.len())
+                        .map(|name| crate::internal_name::internalize(&name))
+                })
+                .or_else(|| {
+                    // `astrings::` Attribute-model + Tier-C members rewrite to their
+                    // `__astrings_*` source-companion bodies; `clearAttributes`
+                    // selects the whole vs ranged body by arity (plan-89-B).
+                    builtins::astrings::implementation_name(&canonical_callee, args.len())
                         .map(|name| crate::internal_name::internalize(&name))
                 })
                 .or_else(|| {

@@ -161,6 +161,8 @@ pub fn check_project_collect(
     ast: &AstProject,
 ) -> Result<Vec<crate::rules::PendingDiagnostic>, ()> {
     let augmented = builtins::json::augmented_project(ast)?;
+    // `astrings` imports only `collections` (native members) + `astrings` itself.
+    let augmented = builtins::astrings::augmented_project(&augmented)?;
     let augmented = builtins::app::augmented_project(&augmented)?;
     let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;

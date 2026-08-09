@@ -1,0 +1,62 @@
+REM plan-89-B Phase 3: removeAttribute (structural match + inclusive-bound split)
+REM and clearAttributes (ranged split + whole). Covers the worked example
+REM (bold 5..25, remove 10..20 -> 5..9 + 21..25), remove-winner-reveals-loser,
+REM single-scalar spans, and ranged vs whole clear.
+
+IMPORT astrings
+IMPORT io
+
+FUNC boldAt(a AS AttributedString, i AS Integer) AS String
+  FOR EACH at IN astrings::getAttributes(a, i)
+    MATCH at
+      CASE AttrFlag(f)
+        MATCH f.kind
+          CASE AttrTypeFlag.Bold
+            RETURN "bold"
+          CASE ELSE
+        END MATCH
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN "-"
+END FUNC
+
+FUNC sizeAt(a AS AttributedString, i AS Integer) AS String
+  FOR EACH at IN astrings::getAttributes(a, i)
+    MATCH at
+      CASE AttrNumber(n)
+        RETURN toString(n.value)
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN "-"
+END FUNC
+
+FUNC main AS Integer
+  LET s AS AttributedString = astrings::fromString("hello world, styled text here!")
+
+  ' Worked example: bold [5,25], remove [10,20] -> flanks [5,9] and [21,25].
+  MUT a AS AttributedString = astrings::addAttribute(s, 5, 25, astrings::bold())
+  a = astrings::removeAttribute(a, 10, 20, astrings::bold())
+  io::print("worked: 9=" & boldAt(a, 9) & " 15=" & boldAt(a, 15) & " 21=" & boldAt(a, 21))
+
+  ' Remove-winner-reveals-loser: two different FontSize spans overlap; removing the
+  ' winner (structural match on its value) reveals the loser.
+  MUT r AS AttributedString = astrings::addAttribute(s, 0, 15, astrings::fontSize(10))
+  r = astrings::addAttribute(r, 10, 18, astrings::fontSize(20))
+  io::print("reveal: before@12=" & sizeAt(r, 12) & " after@12=" & sizeAt(astrings::removeAttribute(r, 10, 18, astrings::fontSize(20)), 12))
+
+  ' Single-scalar span (start == end).
+  MUT g AS AttributedString = astrings::addAttribute(s, 4, 4, astrings::bold())
+  io::print("single: 3=" & boldAt(g, 3) & " 4=" & boldAt(g, 4) & " 5=" & boldAt(g, 5))
+
+  ' Ranged clear [2,7] splits straddlers; flanks survive.
+  MUT c AS AttributedString = astrings::addAttribute(s, 0, 9, astrings::bold())
+  c = astrings::clearAttributes(c, 2, 7)
+  io::print("clearRange: 1=" & boldAt(c, 1) & " 4=" & boldAt(c, 4) & " 8=" & boldAt(c, 8))
+
+  ' Whole clear removes everything.
+  LET whole AS AttributedString = astrings::clearAttributes(astrings::addAttribute(s, 0, 9, astrings::bold()))
+  io::print("clearWhole@5=" & boldAt(whole, 5))
+  RETURN 0
+END FUNC
