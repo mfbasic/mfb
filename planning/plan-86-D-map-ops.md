@@ -24,14 +24,15 @@ removeKey matrix rows (`map (State-Dynamic) removeKey` 62.6, `State-Fixed` 17.3)
   **tombstone-based delete** (O(1) + periodic compaction), a bigger design than "compact the data tail".
   Reconsider the approach before implementing.
 - [ ] **D2 — native String-value `mapValues`** (variable-width same-type path: copy the key/bucket structure,
-  rebuild only value payloads keeping `ready=1`). Helps map str_ops. **NOTE (plan-86-A session): potential
-  groupBy-class BIG win.** The `.mfb __collections_mapValues` does `result = set(result, e.key, f(e.value))`
-  per entry — each `set` copies the WHOLE map (O(map) per element). The fixed-width native `mapValues`
-  (`lower_collection_map_values_call`, gated `builder_values.rs` `#collections_mapValues$K$V$U`, V==U
-  fixed-width) already avoids this by copying the map once and rewriting value payloads in place. Extending V==U
-  to `String` (via the `emit_string_list_slice_block`/append String primitives now available) should give a
-  large drop like groupBy (162→0.366), NOT a marginal one — the `.mfb`'s per-entry whole-map copy is the
-  killer. See `[[native-string-hof-rewrites-are-marginal]]` (the groupBy exception).
+  rebuild only value payloads keeping `ready=1`). Helps map str_ops. **NOTE (plan-86-A session) — MEASURE
+  first; likely MODEST, not groupBy-class.** The scored row is `map str_ops` at only ~5.97 ms (py 2.82), NOT
+  a 166 ms O(container)-copy row like groupby: mapValues values are single small Strings, not 500-element
+  buckets, so the per-entry `set` cost is small (and the C2-style in-place-set may already fire on
+  `result = set(result, e.key, ...)`). The fixed-width native `mapValues` (`lower_collection_map_values_call`,
+  gate `#collections_mapValues$K$V$U`, V==U fixed-width) copies the map once + rewrites value payloads IN
+  PLACE — but that only works because fixed-width values are same-size; a String `f(value)` changes size, so
+  the in-place rewrite does NOT apply and a String D2 must rebuild the value data region (build a new map,
+  `lower_map_set_in_place(result, key, f(value))` per entry). Expect a few-ms win, not a 445× drop.
 - [ ] **D3 — native `merge`** (size to `|a|+|b|`, copy `a` once with buckets built, bulk-insert both). Modest
   (base copy inherent to value semantics) — lowest ROI. Helps mapchurn iterate.
 
