@@ -333,8 +333,10 @@ END FUNC
 ' Given each item's base main size and its grow/shrink factors, return the final
 ' main sizes after distributing the free space `free` (positive: grow; negative:
 ' shrink). Rounding remainder goes to the first growing/shrinking item so the line
-' fills the container exactly.
-FUNC distributeMain(bases AS List OF Integer, grows AS List OF Integer, shrinks AS List OF Integer, free AS Integer) AS List OF Integer
+' fills the container exactly. A shrinking item never drops below its `mins` entry
+' (its min-content width) — real flexbox's automatic minimum size — so items overflow
+' (and clip at the edge) rather than collapsing to a column of single characters.
+FUNC distributeMain(bases AS List OF Integer, grows AS List OF Integer, shrinks AS List OF Integer, mins AS List OF Integer, free AS Integer) AS List OF Integer
   LET n AS Integer = len(bases)
   MUT finals AS List OF Integer = []
   IF n = 0 THEN RETURN finals
@@ -398,7 +400,7 @@ FUNC distributeMain(bases AS List OF Integer, grows AS List OF Integer, shrinks 
       c = c + leftDef
       gave = TRUE
     END IF
-    finals = collections::append(finals, maxI(0, collections::get(bases, k) - c))
+    finals = collections::append(finals, maxI(collections::get(mins, k), collections::get(bases, k) - c))
     k = k + 1
   LOOP
   RETURN finals
@@ -621,17 +623,21 @@ FUNC layoutRow(kids AS List OF Node, st AS Style, originX AS Integer, originY AS
   MUT bases AS List OF Integer = []
   MUT grows AS List OF Integer = []
   MUT shrinks AS List OF Integer = []
+  MUT mins AS List OF Integer = []
   FOR EACH k IN kids
     IF isNone(k) = FALSE THEN
-      bases = collections::append(bases, childBaseMain(k, contentW))
+      LET base AS Integer = childBaseMain(k, contentW)
+      bases = collections::append(bases, base)
       grows = collections::append(grows, childGrow(k))
       shrinks = collections::append(shrinks, childShrink(k))
+      ' Min-content, but never above the item's own base (a fixed/basis width caps it).
+      mins = collections::append(mins, minI(base, minContentW(k)))
     END IF
   NEXT
   LET nParts AS Integer = len(bases)
   LET gapsTotal AS Integer = gap * maxI(0, nParts - 1)
   LET free AS Integer = contentW - sumList(bases) - gapsTotal
-  LET finals AS List OF Integer = distributeMain(bases, grows, shrinks, free)
+  LET finals AS List OF Integer = distributeMain(bases, grows, shrinks, mins, free)
 
   LET usedMain AS Integer = sumList(finals) + gapsTotal
   LET leftover AS Integer = maxI(0, contentW - usedMain)

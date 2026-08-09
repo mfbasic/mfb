@@ -147,7 +147,10 @@ recursing over an *imported* union):
   every `ElementNode` *and* every `TextNode` (a text run's box is where it wraps).
   `dom::updateLayout(doc, width, metrics)` derives it from `Style`. A `display:flex`
   box uses flex layout along its `flex-direction` (honoring `flex-grow`/`shrink`/
-  `basis`, `width`/`height`, `gap`, and `justify-content`); every other box uses
+  `basis`, `width`/`height`, `gap`, and `justify-content`); a shrinking flex item
+  never drops below its **min-content** width (its longest word), matching real
+  flexbox's automatic minimum — so an over-full row overflows and clips at the edge
+  instead of collapsing each item into a column of single characters. Every other box uses
   **block formatting** — block-level children (`display:block`/`flex`) stack
   vertically, while consecutive **inline-level** children (text and inline elements
   like `<a>`/`<b>`/`<em>`) flow *together* into one wrapped run, so a paragraph's
