@@ -38,11 +38,19 @@ Two deviations from the plan, both because the plan was wrong on a detail:
    record and never binds a `MUT` of it, so it never exercised defaultability and
    stays green untouched.
 
-Tree-wide `cargo fmt --all` (skill §9) was NOT run: main carries pre-existing
-unformatted files (e.g. `src/target/win_x86_64/app/mod.rs` fails
-`rustfmt --check` at HEAD, untouched by this fix), so a full-repo format would
-sweep unrelated churn into this bug. The two changed Rust files pass
-`rustfmt --check` individually, satisfying §9's intent.
+Tree-wide `cargo fmt --all` (skill §9) was NOT run from this branch: at fix time
+main carried pre-existing unformatted files (e.g. `src/target/win_x86_64/app/mod.rs`
+failed `rustfmt --check`, untouched by this fix), so a full-repo format would have
+swept unrelated churn into this bug. The two changed Rust files pass
+`rustfmt --check` individually. Main subsequently landed that formatting itself
+(`45168f67b cargo fmt --all: reformat pre-existing rustfmt drift`), confirming the
+call to keep it out of this fix.
+
+Main advanced after the branch was cut (fmt commit above + bug-431/432/433 Windows
+vendoring/signing work). Merged main into `worktree-B-434` (4721e6891, no
+conflicts — the fix's files are disjoint from main's Windows/codegen changes) and
+re-ran the full suite green: `cargo test --bin mfb` (3797 passed), the fixture +
+reproduction (exit 0), and the artifact-gate `all` post-merge.
 
 A `MUT` binding may omit its initializer only when its type has a defined default value. The
 current rule makes a `List OF T` defaultable **only when `T` is defaultable** (same for `Set OF T`
