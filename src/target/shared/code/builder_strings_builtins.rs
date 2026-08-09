@@ -1425,10 +1425,6 @@ impl CodeBuilder<'_> {
         let overflow = self.label("strings_join_overflow");
         let copy_loop = self.label("strings_join_copy_loop");
         let copy_no_delim = self.label("strings_join_copy_no_delim");
-        let delim_loop = self.label("strings_join_delim_loop");
-        let delim_done = self.label("strings_join_delim_done");
-        let value_loop = self.label("strings_join_value_loop");
-        let value_done = self.label("strings_join_value_done");
         let copy_done = self.label("strings_join_copy_done");
 
         // Copy-loop scratch as vregs, so the allocator colors them per-ISA. They
@@ -1549,16 +1545,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&copy_no_delim));
         self.emit(abi::move_register(cursor, &scratch11));
         self.emit(abi::move_register(remaining, &scratch10));
-        self.emit(abi::label(&delim_loop));
-        self.emit(abi::compare_immediate(remaining, "0"));
-        self.emit(abi::branch_eq(&delim_done));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::store_u8(byte, &scratch13, 0));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::add_immediate(&scratch13, &scratch13, 1));
-        self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::branch(&delim_loop));
-        self.emit(abi::label(&delim_done));
+        // plan-86 F2: 8-byte word-copy (+ byte tail) of the delimiter into scratch13.
+        self.emit_block_copy_advance(&scratch13, cursor, remaining, byte, "strings_join_delim");
         self.emit(abi::label(&copy_no_delim));
         self.emit(abi::load_u64(
             cursor,
@@ -1571,16 +1559,8 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         self.emit(abi::add_registers(cursor, &scratch14, cursor));
-        self.emit(abi::label(&value_loop));
-        self.emit(abi::compare_immediate(remaining, "0"));
-        self.emit(abi::branch_eq(&value_done));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::store_u8(byte, &scratch13, 0));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::add_immediate(&scratch13, &scratch13, 1));
-        self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::branch(&value_loop));
-        self.emit(abi::label(&value_done));
+        // plan-86 F2: 8-byte word-copy (+ byte tail) of the value into scratch13.
+        self.emit_block_copy_advance(&scratch13, cursor, remaining, byte, "strings_join_value");
         self.emit(abi::add_immediate(
             &scratch15,
             &scratch15,

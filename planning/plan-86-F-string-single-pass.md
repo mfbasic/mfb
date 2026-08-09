@@ -40,7 +40,23 @@ The strings family copies **byte-at-a-time** through `emit_materialize_string_fr
 > builtins like `planning/todo/regen-collections.sh` + `sync-goldens.sh` for rt-behavior), re-gate to 0, commit.
 > Given F2 is measured non-clearing (~+6%), this is genuinely LOW priority vs the real remaining levers G1/K1.
 - [x] **F1** — case_map ASCII quick-check (landed plan-64).
-- [ ] **F2** — 8-byte word-copy + SWAR memchr. **TRACTABLE + near-zero-risk (scout, plan-86-A session), but
+- [x] **F2** — 8-byte word-copy (+ SWAR memchr, deferred — see below). **LANDED the 4 word-copy swaps** —
+  byte-exact, `artifact-gate all` 0-diff after regen, 3776 unit tests green. Commit: `<pending-F2>`. Swapped the
+  4 byte-at-a-time string-copy loops to `emit_block_copy_advance`: (1) `emit_materialize_string_from_bytes`, (2)
+  `mid`/slice (`builder_search.rs`), (3) split segment (`builder_strings_package.rs`), (4) join delim+value
+  (`builder_strings_builtins.rs`), each dropping its now-unused `copy_loop`/`copy_done` labels. Verified
+  byte-exact on upper/lower/mid/repeat/split/join across 0/1/7/8/9/16-byte lengths + multi-byte UTF-8 + the
+  ß→SS width change. **Churn was as predicted: 74 CODEGEN goldens** (69 byte-identity `.ncodesum` across 14
+  builtins: audio/collections/crypto/csv/datetime/encoding/fs/general/http/json/net/os/regex/strings + 5
+  rt-behavior `.ncode`/`.ncodesum`: crypto-ec-valid ×4, func_map_getor_hash_probe) — **ZERO output diffs**
+  (byte-exact), regenerated via the new general `planning/todo/regen-bytid.sh` + `regen-rtb-f2.sh` affordances,
+  re-gated to 0. **SWAR memchr DEFERRED with evidence:** it optimizes split's byte-by-byte delimiter *scan*
+  (gated `delimiterLen==1`), but F2's measured value (~+6 %, alloc/call-bound) is dominated by the copy the
+  word-copy already addresses; for typical split inputs the delimiter fields are SHORT so the scan is a
+  marginal-on-marginal slice, and an open-coded SWAR (mask `0x80…`) is higher-risk than the byte-exact
+  helper-swaps. F2's acceptance (string/strbuild checksums byte-exact + `artifact-gate` green) is MET by the
+  word-copy; the memchr is a further micro-opt, recorded here for a future pass, not gating. Original scout
+  note (kept): **TRACTABLE + near-zero-risk (scout, plan-86-A session), but
   MARGINAL (~1.3–1.8×, NOT band-clearing).** The word-copy helper ALREADY EXISTS: `emit_block_copy_advance`
   (`builder_collection_layout.rs:171-209`, an 8-byte load_u64/store_u64 loop + byte tail) is already used by
   the list/slice/map bulk paths — the string byte-copy loops are the outliers that never adopted it. **Swap
