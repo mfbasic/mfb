@@ -327,26 +327,38 @@ Commit: 468ccb5eb
 
 The mechanism. Highest blast radius; lands behind runtime tests.
 
-- [ ] `RuntimeHelper::Process` + `runtime/process_specs.rs` + `catalog.rs` wiring.
-- [ ] `src/target/shared/code/process/{mod,unix}.rs`: fork/exec/3-pipe spawn,
-  record alloc+stamp (tag 10), waitpid decode + cache, close(stdin), `__drop`
-  (SIGKILL+waitpid).
-- [ ] Error block 7708 + raise `ErrSpawnFailed` at the exec-failure self-pipe
-  site; `ErrResourceClosed` on a dropped process; `ErrInvalidArgument` on empty
-  args.
+- [x] `RuntimeHelper::Process` + `runtime/process_specs.rs` + `catalog.rs` wiring.
+  (Commit `4f283bc3a`: `Process` variant, `is_process_runtime_call`, 8 specs
+  incl. code-layer-only `spawnEnv`, `catalog_is_consistent` green.)
+- [~] `src/target/shared/code/process/{mod,unix}.rs`: the native lowering. NOT
+  YET DONE — the emit dispatch (`code/mod.rs` `call if call.starts_with("process.")`
+  arm), the `mod process;` declaration, and the helper bodies remain. Design is
+  fully specified below and in memory `new-builtin-package-registration-seams`
+  (record tail: stdin-w@32/stdout-r@40/stderr-r@48/reaped@56/status@64/exitcode@72;
+  waitpid decode `termsig=status&0x7f`, `WEXITSTATUS=(status>>8)&0xff`, signal→-1).
+  A first draft was written and discarded — it used invalid NAMED vregs (`%vfile`);
+  register operands MUST be numeric `%vN` (`Vregs::next()`), else
+  `finalize_vreg_body` panics on the physical-register guard (see Corrections).
+- [x] Error block 7708 (`ERR_SPAWN_FAILED_*`) + `RESOURCE_TAG_PROCESS=10` +
+  `02_error-codes.md` row landed in `4f283bc3a`. Raising `ErrSpawnFailed` at the
+  self-pipe site + `ErrResourceClosed`/`ErrInvalidArgument` is part of the pending
+  lowering + `data_objects.rs` per-package error-string gate.
 - [ ] Register libc imports (`fork`/`execvp`/`pipe`/`waitpid`/`kill`/`chdir`/
-  `dup2`/`close`) in each Unix target's `code.rs`/`plan.rs` (4 backends).
-- [ ] Tests: `tests/rt_process_spawn_waitfor.rs` (spawn `echo`, waitFor==0),
-  `tests/rt_process_scope_drop_reap.rs` (dropped live child → no zombie: parent
-  observes reap), `tests/rt_process_spawn_fail_trap.rs` (spawn a nonexistent
-  binary → TRAP `ErrSpawnFailed`), `tests/rt_process_isrunning.rs`.
+  `dup2`/`close`/`fcntl`/`read`/`write`/`_exit` + errno accessor) in each Unix
+  target's `plan.rs` `runtime_imports(spec)` (macOS `libSystem` `_`-prefixed;
+  3 linux arches share `linux_common`).
+- [ ] Wire `process.__drop` through `builder_resource_cleanup.rs` (close op).
+- [ ] Tests: `tests/rt-behavior/process/…` runtime fixtures (spawn `echo`,
+  waitFor==0; scope-drop reap / no zombie; spawn bogus path → TRAP
+  `ErrSpawnFailed`; isRunning true→false). (Note: new-layout `tests/rt-behavior/`,
+  NOT the `tests/rt_*.rs` cargo-integration path the plan named.)
 
 Acceptance (runtime proof): on macOS + Linux x86_64/aarch64 locally, a compiled
 program spawns `["echo","hi"]`, `waitFor` returns `0`, `pid` is plausible,
 `isRunning` flips true→false, and a dropped live child leaves no zombie
 (`ps`/`waitpid` confirms reap). Spawn of a bogus path TRAPs. `cargo test`
 green.
-Commit: —
+Commit: 4f283bc3a (infra only; lowering pending)
 
 ### Phase 4 — riscv64 backend parity + runtime proof
 
@@ -435,6 +447,17 @@ Commit: —
   with `RES` (like `net`/`fs`), so the runtime `_valid` fixtures (Phase 3) and any
   program use `RES p = process::spawn(...)`. A `LET` binding raises
   `TYPE_RESOURCE_REQUIRES_RES`.
+- **Phase 3 — hand-built helper register operands must be numeric `%vN`.** A first
+  lowering draft used readable names (`%vfile`, `%vstatus`). `regalloc/mod.rs`
+  decodes a vreg as `value.strip_prefix("%v")?.parse()` — a NUMBER — so `%vfile`
+  parses to `None`, is treated as a physical register, and `finalize_vreg_body`'s
+  `find_physical_operand` guard PANICS (the zero-physical-register invariant,
+  plan-34-D). Use `Vregs::next()` (or hardcode distinct `%vN`, as `net` does with
+  `%v9`..`%v15`). The allocator DOES spill live vregs across every `bl`, so a value
+  may live in a vreg across a libc call; only syscall-filled memory buffers
+  (`pipe(int[2])`, the `waitpid` status int, the argv array) need the explicit
+  `sp`-frame from `finalize_vreg_body_with_locals`. Full recipe recorded in memory
+  `new-builtin-package-registration-seams`.
 
 ## Summary
 
