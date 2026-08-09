@@ -74,6 +74,19 @@ pub(crate) const PROCESS_SEND_BYTES_TIMEOUT_SPEC: RuntimeHelperSpec = RuntimeHel
     abi: RuntimeHelperAbi { returns: "Nothing" },
 };
 
+pub(crate) const PROCESS_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Process,
+    call: "process.poll",
+    abi: RuntimeHelperAbi { returns: "Boolean" },
+};
+
+// The `from AS Stream` poll overload (stderr selection), builder_values-synthesized.
+pub(crate) const PROCESS_POLL_FROM_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Process,
+    call: "process.pollFrom",
+    abi: RuntimeHelperAbi { returns: "Boolean" },
+};
+
 // The scope-drop cleanup op (SIGKILL + waitpid + close pipes). Code-layer-only:
 // synthesized by the resource-cleanup path, never written in source.
 pub(crate) const PROCESS_DROP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {

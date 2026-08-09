@@ -2113,6 +2113,15 @@ impl CodeBuilder<'_> {
                     "process.sendBytes"
                 }
             }
+            // plan-90-B: `poll(p, ms, from AS Stream)` routes to the stderr-capable
+            // helper; the 2-arg form always polls stdout.
+            "process.poll" => {
+                if args.len() >= 3 {
+                    "process.pollFrom"
+                } else {
+                    "process.poll"
+                }
+            }
             _ => target,
         };
         self.emit_runtime_helper_call(

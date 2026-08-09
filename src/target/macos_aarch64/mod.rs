@@ -202,6 +202,7 @@ impl NativeBackend for Backend {
                 "process.close",
                 "process.send",
                 "process.sendBytes",
+                "process.poll",
                 "process.__drop",
             ],
         }

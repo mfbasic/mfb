@@ -1,0 +1,22 @@
+' plan-90-B Phase 2: process::poll reports whether the selected stream is
+' readable (or at EOF) within `ms`. `echo hi` writes then exits -> readable;
+' `sleep 5` produces nothing -> a short poll times out -> not readable.
+IMPORT process
+IMPORT io
+
+FUNC main AS Integer
+  RES p = process::spawn(["echo", "hi"])
+  IF process::poll(p, 1000) THEN
+    io::print("readable")
+  ELSE
+    io::print("not")
+  END IF
+
+  RES q = process::spawn(["sleep", "5"])
+  IF process::poll(q, 50) THEN
+    io::print("readable")
+  ELSE
+    io::print("not")
+  END IF
+  RETURN 0
+END FUNC

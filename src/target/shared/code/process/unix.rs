@@ -1436,3 +1436,92 @@ fn emit_poll_wait(
     ]);
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// process.poll — is the selected child stream readable within `ms` ms? Returns
+// true if readable OR at EOF (POLLHUP makes poll return > 0), so a draining
+// receive can follow; false on timeout. `with_from` selects the stream via the
+// `Stream` arg (0 = StdOut, else StdErr); the 2-arg form always polls stdout.
+// ---------------------------------------------------------------------------
+pub(in crate::target::shared::code) fn lower_process_poll_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    with_from: bool,
+) -> HelperResult {
+    const POLLFD_SLOT: usize = 0;
+    let mut v = Vregs::new();
+    let file = v.next();
+    let ms = v.next();
+    let fd = v.next();
+    let n = v.next();
+    let from = v.next();
+    let closed_l = format!("{symbol}_closed");
+    let use_stderr = format!("{symbol}_use_stderr");
+    let sel_done = format!("{symbol}_sel_done");
+    let ready = format!("{symbol}_ready");
+    let done = format!("{symbol}_done");
+
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&file, abi::return_register()),
+        abi::move_register(&ms, abi::c_arg(1)),
+    ];
+    if with_from {
+        instructions.push(abi::move_register(&from, abi::c_arg(2)));
+    }
+    instructions.extend([
+        abi::load_u64(&n, &file, RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(&n, "0"),
+        abi::branch_ne(&closed_l),
+    ]);
+    if with_from {
+        instructions.extend([
+            abi::compare_immediate(&from, "0"),
+            abi::branch_ne(&use_stderr),
+            abi::load_u64(&fd, &file, PROC_STDOUT_R),
+            abi::branch(&sel_done),
+            abi::label(&use_stderr),
+            abi::load_u64(&fd, &file, PROC_STDERR_R),
+            abi::label(&sel_done),
+        ]);
+    } else {
+        instructions.push(abi::load_u64(&fd, &file, PROC_STDOUT_R));
+    }
+    let mut relocations = Vec::new();
+    instructions.extend([
+        abi::store_u32(&fd, abi::stack_pointer(), POLLFD_SLOT),
+        abi::move_immediate(&n, "Integer", "1"), // POLLIN
+        abi::store_u16(&n, abi::stack_pointer(), POLLFD_SLOT + 4),
+        abi::store_u16(abi::ZERO, abi::stack_pointer(), POLLFD_SLOT + 6),
+        abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), POLLFD_SLOT),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::move_register(abi::c_arg(2), &ms),
+    ]);
+    platform.emit_libc_call("poll", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::sign_extend_word(&n, abi::c_return(0)),
+        abi::compare_immediate(&n, "0"),
+        abi::branch_gt(&ready),
+        // 0 (timeout) or < 0 (error) -> not ready.
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&ready),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "1"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&closed_l),
+    ]);
+    emit_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 16);
+    Ok((frame, instructions, relocations, stack_slots))
+}
