@@ -7,8 +7,44 @@ Effort: medium (2h–4h)
 Severity: MEDIUM
 Class: Incompleteness (package type-closure serialization is non-transitive — blocks a valid cross-package pattern; hard compile error, no wrong runtime output)
 
-Status: Open
-Regression Test: tests/syntax/packages/reexport-union-owner-record-field-* (new)
+Status: FIXED (a30fb4ba0)
+Regression Test: tests/rt_reexport_union_transitive_field_types.rs (new — from-source
+leaf→mid→app harness, mirroring bug-390's rt_foreign_type_reexport)
+
+## STATUS: FIXED (a30fb4ba0)
+
+Reader-side transitive closure implemented in `read_package_type_exports_resolved`
+(`src/binary_repr/mod.rs`) plus two helpers (`enqueue_referenced_types`,
+`push_type_identifiers`). After the existing foreign-marker fill, each owning
+dependency's fully-resolved export list is cached once (`owner_pool`) and a
+cycle-guarded (`seen`) closure walk appends every `Type::User` reachable from a
+re-exported type's fields/variants, resolved from the same owner's list.
+
+Deviation from the design as written: the closure must also pull each **union
+variant record itself** (e.g. `Box`/`ElementNode`), not only the types its fields
+reference. Native codegen lays a data union's block out by inlining each variant's
+record, so it needs the variant record in the codegen `type_model.record_fields`
+— which is built from the very same `read_package_type_exports`
+(`target/shared/code/validation.rs:444`). Without this the minimal repro passed
+syntaxcheck but failed native codegen with `native inlined field size not
+available for type 'Box'`. The consumer install/validate reorder (defense-in-depth)
+was **not** needed: the reader-side closure makes each package self-contained, so
+per-import order no longer matters.
+
+Verified: minimal `leaf→mid→app` builds AND runs (app imports only `mid435`); the
+browser example builds end-to-end (dom→fetch/display→app) with `style AS Style`
+added to `dom::ElementNode`. Full `cargo test --release` green except the
+pre-existing, unrelated `rt_fs_error_path_hygiene` (confirmed identical failure at
+base commit 8950e9eed). Package/security acceptance (30 fixtures) pass;
+artifact-gate `all` = 0 diffs across 1589 goldens (reader-only, no codegen bytes
+shift).
+
+Found while fixing (separate bug, written up): a package-qualified imported type
+in an exported signature (`describe(n AS leaf435::Node)`) lowers to the dotted IR
+name `leaf435.Node` that the ABI **writer** cannot serialize, corrupting the
+`.mfp` with `truncated binary representation`. The unqualified spelling
+(`AS Node`) is unaffected and is the canonical form. See
+`bugs/bug-436-qualified-imported-type-in-reexport-signature-corrupts-mfp.md`.
 
 When package **B** re-exports a type from a dependency **A** (by naming A's type in an exported
 function/record signature), B's `.mfp` stores that type as a *foreign marker* and the importer
