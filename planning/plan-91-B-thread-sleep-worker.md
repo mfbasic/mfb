@@ -321,7 +321,7 @@ Commit: cd1647926
 Acceptance: man-coverage (11) + spec (7) + citations (2) gates pass; scoped
 artifact-gate for `thread` = 0 diffs; `mfb man thread sleep` renders both
 overloads; full `cargo test` green (0 failures).
-Commit: —
+Commit: 5c053798c
 
 ## Validation Plan
 
