@@ -20,12 +20,17 @@
 //! waitFor/close; **B** streaming I/O; **C** signals & detach; **D** Windows.
 
 use super::descriptor::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinType, DefaultResolver,
-    DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType, TypeKind,
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, BuiltinType,
+    DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
+    ParameterType, ReturnType, TypeKind,
 };
 
 /// The opaque `Process` resource handle type name.
 pub(crate) const PROCESS_TYPE: &str = "Process";
+
+/// The `Stream` enum (`StdOut`/`StdErr`) selecting which child pipe a read reads
+/// from. Declared as an `EXPORT ENUM` in the source companion (plan-90-B).
+pub(crate) const STREAM_TYPE: &str = "Stream";
 
 const SPAWN: &str = "process.spawn";
 const SHELL: &str = "process.shell";
@@ -33,6 +38,12 @@ const PID: &str = "process.pid";
 const IS_RUNNING: &str = "process.isRunning";
 const WAIT_FOR: &str = "process.waitFor";
 const CLOSE: &str = "process.close";
+// plan-90-B streaming I/O.
+const SEND: &str = "process.send";
+const SEND_BYTES: &str = "process.sendBytes";
+const RECEIVE: &str = "process.receive";
+const RECEIVE_BYTES: &str = "process.receiveBytes";
+const POLL: &str = "process.poll";
 
 /// The internal scope-drop op registered as `Process`'s resource close function.
 ///
@@ -91,6 +102,43 @@ const P_SPAWN_FULL: &[Parameter] = &[
 const P_SHELL: &[Parameter] = &[req("cmd", &["command"], "String")];
 // The lifecycle queries all take the `Process` receiver.
 const P_PROC: &[Parameter] = &[req("p", &["process"], PROCESS_TYPE)];
+// plan-90-B streaming I/O parameter lists.
+const P_SEND: &[Parameter] = &[req("p", &["process"], PROCESS_TYPE), req("text", &[], "String")];
+const P_SEND_T: &[Parameter] = &[
+    req("p", &["process"], PROCESS_TYPE),
+    req("text", &[], "String"),
+    req("timeoutMs", &[], "Integer"),
+];
+const P_SENDB: &[Parameter] = &[
+    req("p", &["process"], PROCESS_TYPE),
+    req("data", &[], "List OF Byte"),
+];
+const P_SENDB_T: &[Parameter] = &[
+    req("p", &["process"], PROCESS_TYPE),
+    req("data", &[], "List OF Byte"),
+    req("timeoutMs", &[], "Integer"),
+];
+const P_RECV: &[Parameter] = &[req("p", &["process"], PROCESS_TYPE)];
+const P_RECV_S: &[Parameter] = &[
+    req("p", &["process"], PROCESS_TYPE),
+    req("from", &[], STREAM_TYPE),
+];
+const P_POLL: &[Parameter] = &[
+    req("p", &["process"], PROCESS_TYPE),
+    req("ms", &[], "Integer"),
+];
+const P_POLL_S: &[Parameter] = &[
+    req("p", &["process"], PROCESS_TYPE),
+    req("ms", &[], "Integer"),
+    req("from", &[], STREAM_TYPE),
+];
+
+const OV_SEND: &[BuiltinOverload] = &[ov(P_SEND, "Nothing"), ov(P_SEND_T, "Nothing")];
+const OV_SEND_BYTES: &[BuiltinOverload] = &[ov(P_SENDB, "Nothing"), ov(P_SENDB_T, "Nothing")];
+const OV_RECEIVE: &[BuiltinOverload] = &[ov(P_RECV, "String"), ov(P_RECV_S, "String")];
+const OV_RECEIVE_BYTES: &[BuiltinOverload] =
+    &[ov(P_RECV, "List OF Byte"), ov(P_RECV_S, "List OF Byte")];
+const OV_POLL: &[BuiltinOverload] = &[ov(P_POLL, "Boolean"), ov(P_POLL_S, "Boolean")];
 
 const OV_SPAWN: &[BuiltinOverload] = &[
     ov(P_SPAWN_ARGV, PROCESS_TYPE),
@@ -104,6 +152,11 @@ const PROCESS_FUNCTIONS: &[BuiltinFunction] = &[
     nf(IS_RUNNING, "isRunning", &[ov(P_PROC, "Boolean")]),
     nf(WAIT_FOR, "waitFor", &[ov(P_PROC, "Integer")]),
     nf(CLOSE, "close", &[ov(P_PROC, "Nothing")]),
+    nf(SEND, "send", OV_SEND),
+    nf(SEND_BYTES, "sendBytes", OV_SEND_BYTES),
+    nf(RECEIVE, "receive", OV_RECEIVE),
+    nf(RECEIVE_BYTES, "receiveBytes", OV_RECEIVE_BYTES),
+    nf(POLL, "poll", OV_POLL),
 ];
 
 const PROCESS_TYPES: &[BuiltinType] = &[BuiltinType {
@@ -116,9 +169,12 @@ pub(crate) static PROCESS: BuiltinModule = BuiltinModule {
     name: "process",
     functions: PROCESS_FUNCTIONS,
     types: PROCESS_TYPES,
-    // No source companion yet: `Process` is opaque (descriptor-only, per the
-    // net/audio idiom); the `Stream`/`Signal` enums add a companion in B/C.
-    source: None,
+    // The source companion carries the `Stream` (plan-90-B) and `Signal`
+    // (plan-90-C) value enums; the opaque `Process` handle stays descriptor-only.
+    source: Some(BuiltinSource {
+        rule: InjectionRule::WhenImported,
+        loader: source_file,
+    }),
     // Fully data-only: `DefaultResolver` answers every metadata question.
     resolver: None,
 };
@@ -168,6 +224,13 @@ pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
     }
 }
 
+super::package_source_glue!(
+    "process",
+    "<builtin-process>",
+    "builtins/process.mfb",
+    include_str!("process_package.mfb")
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,8 +266,8 @@ mod tests {
     #[test]
     fn module_shape() {
         assert_eq!(PROCESS.name, "process");
-        assert_eq!(PROCESS.functions.len(), 6);
-        assert!(PROCESS.source.is_none());
+        assert_eq!(PROCESS.functions.len(), 11);
+        assert!(PROCESS.source.is_some());
         assert!(PROCESS.resolver.is_none());
     }
 
@@ -259,6 +322,44 @@ mod tests {
         assert_eq!(DefaultResolver::arity(&PROCESS, SPAWN), Some((1, 4)));
         assert_eq!(DefaultResolver::arity(&PROCESS, SHELL), Some((1, 1)));
         assert_eq!(DefaultResolver::arity(&PROCESS, PID), Some((1, 1)));
+        assert_eq!(DefaultResolver::arity(&PROCESS, SEND), Some((2, 3)));
+        assert_eq!(DefaultResolver::arity(&PROCESS, RECEIVE), Some((1, 2)));
+        assert_eq!(DefaultResolver::arity(&PROCESS, POLL), Some((2, 3)));
+    }
+
+    #[test]
+    fn streaming_io_resolves() {
+        assert_eq!(ret(SEND, &["Process", "String"]), Some("Nothing".to_string()));
+        assert_eq!(
+            ret(SEND, &["Process", "String", "Integer"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(
+            ret(SEND_BYTES, &["Process", "List OF Byte"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(ret(RECEIVE, &["Process"]), Some("String".to_string()));
+        assert_eq!(
+            ret(RECEIVE, &["Process", "Stream"]),
+            Some("String".to_string())
+        );
+        assert_eq!(
+            ret(RECEIVE_BYTES, &["Process"]),
+            Some("List OF Byte".to_string())
+        );
+        assert_eq!(ret(POLL, &["Process", "Integer"]), Some("Boolean".to_string()));
+        assert_eq!(
+            ret(POLL, &["Process", "Integer", "Stream"]),
+            Some("Boolean".to_string())
+        );
+        // Wrong types rejected.
+        assert_eq!(ret(SEND, &["Process", "Integer"]), None);
+        assert_eq!(ret(RECEIVE, &["Process", "Integer"]), None);
+    }
+
+    #[test]
+    fn source_companion_parses() {
+        assert!(source_file().is_ok());
     }
 
     #[test]
