@@ -78,6 +78,85 @@ pub(super) fn collect_reassigned_locals(ops: &[NirOp]) -> HashSet<String> {
     c.out
 }
 
+/// plan-86 K1: whether EVERY value-return in `f` returns a bare PARAMETER that is
+/// never mutated or address-taken in the body — so `f`'s return value is always a
+/// BORROW of one of the caller's argument blocks, NEVER a freshly allocated one
+/// (the pure passthrough / identity shape, e.g. `FUNC copyStrs(xs) RETURN xs`).
+///
+/// For such a function the callee-side return deep-copy is elided (it returns the
+/// parameter pointer directly), and every caller treats the call result as an
+/// aliasing source (`value_needs_owning_copy`): `register_pending_temp` does not
+/// free it, and `lower_value_owned` deep-copies it at any owning store. The net
+/// effect is that the one deep-copy MOVES from the callee to the caller's ownership
+/// boundary — a read-only-and-discarded result pays no copy at all, while a result
+/// stored into an owned binding is copied exactly once, so observable value
+/// semantics is byte-identical to the always-copy behavior it replaces.
+///
+/// Both the callee skip and the caller's aliasing classification key off THIS one
+/// predicate, so they can never disagree (a disagreement would leak the callee's
+/// copy or double-free the caller's argument). Conservative in the safe direction:
+/// requires at least one value-return, EVERY value-return to be a bare parameter,
+/// and no returned parameter to be reassigned (`Bind`/`Assign`/`StateAssign`) or
+/// address-taken anywhere in the body — any doubt keeps the copy. Uses the
+/// exhaustive `NirVisitor` seam so a new return/mutation route cannot silently slip
+/// the gate (a missed mutation would return a modified block as if it were the
+/// caller's untouched argument).
+pub(super) fn function_returns_param_borrow(
+    f: &NirFunction,
+    callback_referenced: &HashSet<String>,
+) -> bool {
+    use nir::visit::{walk_op, NirVisitor};
+    // A function used as a `FunctionRef` (callback) is invoked through an ABI that
+    // OWNS and frees its return value, so it must keep returning a fresh copy — never
+    // a parameter borrow (see `collect_function_ref_names`).
+    if callback_referenced.contains(&f.name) {
+        return false;
+    }
+    let params: HashSet<String> = f.params.iter().map(|p| p.name.clone()).collect();
+    if params.is_empty() {
+        return false;
+    }
+    struct Returns<'a> {
+        params: &'a HashSet<String>,
+        any: bool,
+        all_param: bool,
+        returned: HashSet<String>,
+    }
+    impl NirVisitor for Returns<'_> {
+        fn visit_op(&mut self, op: &NirOp) {
+            if let NirOp::Return { value: Some(v) } = op {
+                self.any = true;
+                match v {
+                    NirValue::Local(name) if self.params.contains(name) => {
+                        self.returned.insert(name.clone());
+                    }
+                    _ => self.all_param = false,
+                }
+            }
+            walk_op(self, op);
+        }
+    }
+    let mut r = Returns {
+        params: &params,
+        any: false,
+        all_param: true,
+        returned: HashSet::new(),
+    };
+    r.visit_ops(&f.body);
+    if !r.any || !r.all_param {
+        return false;
+    }
+    // A returned parameter that is reassigned or address-taken is no longer
+    // guaranteed to be the caller's untouched argument block, so the "borrow" could
+    // alias a modified/freed local — bail (keep the copy).
+    let reassigned = collect_reassigned_locals(&f.body);
+    let mut address_taken = HashSet::new();
+    collect_address_taken_locals(&f.body, &mut address_taken);
+    !r.returned
+        .iter()
+        .any(|p| reassigned.contains(p) || address_taken.contains(p))
+}
+
 /// plan-77 M6: names of every local used as a VALUE — read (`Local`) or
 /// address-taken (`LocalRef`) — anywhere in `ops`. A closure binding whose name
 /// is NOT in this set never flows anywhere except as a direct call target (an
@@ -706,6 +785,7 @@ pub(super) fn lower_function(
     platform_imports: &HashMap<String, String>,
     globals: &HashMap<String, GlobalValue>,
     string_symbols: &HashMap<String, String>,
+    callback_referenced_functions: &HashSet<String>,
     type_model: TypeModel,
 ) -> Result<CodeFunction, String> {
     let params = function
@@ -761,6 +841,8 @@ pub(super) fn lower_function(
         value_used_locals: HashSet::new(),
         borrow_get_locals: HashSet::new(),
         borrow_get_result: false,
+        current_returns_param_borrow: false,
+        callback_referenced_functions: HashSet::new(),
         regalloc_kind: regalloc::active_kind(),
         regalloc_error: None,
         next_label: 0,
@@ -880,6 +962,14 @@ pub(super) fn lower_function(
     // plan-64-I: inline-conversion `CallResult` Result-locals whose trapped error
     // is provably unused, so the error path builds only a tag (no ErrorLoc/Error).
     builder.trap_discard_error_results = trap_discard_error_results(&function.body);
+    // plan-86 K1: a pure parameter-passthrough function returns its argument uncopied;
+    // the caller copies at its ownership boundary. Only the user-function path sets
+    // this — builtin/thread-copy wrappers default false (never param-borrow, and no
+    // caller looks them up in `functions`), keeping callee-skip and caller-classify
+    // consistent.
+    builder.callback_referenced_functions = callback_referenced_functions.clone();
+    builder.current_returns_param_borrow =
+        function_returns_param_borrow(function, callback_referenced_functions);
     builder.lower_ops(&function.body)?;
     if !builder.current_block_returns() {
         builder.emit_return_exit(None)?;
@@ -1030,6 +1120,8 @@ pub(super) fn lower_builtin_function_wrapper(
         value_used_locals: HashSet::new(),
         borrow_get_locals: HashSet::new(),
         borrow_get_result: false,
+        current_returns_param_borrow: false,
+        callback_referenced_functions: HashSet::new(),
         regalloc_kind: regalloc::active_kind(),
         regalloc_error: None,
         next_label: 0,
@@ -1176,6 +1268,8 @@ pub(super) fn lower_thread_copy_function(
         value_used_locals: HashSet::new(),
         borrow_get_locals: HashSet::new(),
         borrow_get_result: false,
+        current_returns_param_borrow: false,
+        callback_referenced_functions: HashSet::new(),
         regalloc_kind: regalloc::active_kind(),
         regalloc_error: None,
         next_label: 0,

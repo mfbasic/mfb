@@ -1234,6 +1234,36 @@ pub(super) fn builtin_function_refs(module: &NirModule) -> Vec<(String, String, 
     refs
 }
 
+/// plan-86 K1: names of every top-level function referenced as a `FunctionRef`
+/// (used as a callback / function value) ANYWHERE in the module. Such a function
+/// is invoked through the generic callback ABI, which takes OWNERSHIP of the
+/// callback's return value — e.g. `collections::groupBy` stores each per-element
+/// result into a bucket and frees the callee's returned block after use. A
+/// parameter-passthrough callback that returned a borrow of its argument would
+/// hand that ABI a non-owned pointer to a per-iteration temporary, causing a
+/// double-free / UAF (observed: grouped String values came back empty). So a
+/// function used as a `FunctionRef` MUST keep returning a fresh owned copy;
+/// `function_returns_param_borrow` excludes every name in this set.
+pub(super) fn collect_function_ref_names(module: &NirModule) -> HashSet<String> {
+    use nir::visit::{walk_value, NirVisitor};
+    struct Collector<'a> {
+        out: &'a mut HashSet<String>,
+    }
+    impl NirVisitor for Collector<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::FunctionRef { name, .. } = value {
+                self.out.insert(name.clone());
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut out = HashSet::new();
+    for function in &module.functions {
+        Collector { out: &mut out }.visit_ops(&function.body);
+    }
+    out
+}
+
 fn collect_builtin_function_refs_in_ops(
     ops: &[NirOp],
     refs: &mut Vec<(String, String, String)>,

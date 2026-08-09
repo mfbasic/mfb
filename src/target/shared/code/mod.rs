@@ -260,6 +260,19 @@ struct CodeBuilder<'a> {
     /// binding, so `materialize_owned_element` returns the aliasing borrow instead of
     /// copying it. Scoped to the one initializer (reset immediately after).
     borrow_get_result: bool,
+    /// plan-86 K1: true while lowering a function whose every value-return is a bare
+    /// parameter (`function_returns_param_borrow`). Its `RETURN <param>` returns the
+    /// argument pointer uncopied (a borrow); callers deep-copy the result only at an
+    /// owning store, so the copy moves to the caller's ownership boundary with
+    /// identical value semantics. Consistent with the caller side because both key
+    /// off the same predicate.
+    current_returns_param_borrow: bool,
+    /// plan-86 K1: names of every function used as a `FunctionRef` (callback) in the
+    /// module. Such a function is invoked through an owning ABI, so it is excluded
+    /// from the parameter-passthrough borrow elision (`function_returns_param_borrow`)
+    /// — both here (callee) and at every call site (caller) — keeping the two sides
+    /// consistent. Shared verbatim across all functions in the build.
+    callback_referenced_functions: HashSet<String>,
     /// The register-allocation strategy selected for this build (`-regalloc`).
     regalloc_kind: regalloc::RegallocKind,
     /// First scratch-register-exhaustion error recorded by an infallible vreg
@@ -1327,6 +1340,10 @@ pub(crate) fn lower_module_for_platform(
             )?);
         }
     }
+    // plan-86 K1: functions used as callbacks (FunctionRef) are invoked through an
+    // owning ABI, so they are excluded from the parameter-passthrough borrow elision.
+    // Computed once for the whole module and shared by every function's lowering.
+    let callback_referenced_functions = collect_function_ref_names(module);
     for function in &module.functions {
         code_functions.push(lower_function(
             function,
@@ -1336,6 +1353,7 @@ pub(crate) fn lower_module_for_platform(
             &platform_imports,
             &globals,
             &string_symbols,
+            &callback_referenced_functions,
             type_model.clone(),
         )?);
     }

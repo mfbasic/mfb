@@ -1,0 +1,23 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/return-param-borrow-rt
+Wrote AST to tests/rt-behavior/collections/return-param-borrow-rt/return_param_borrow_rt.ast
+Wrote IR to tests/rt-behavior/collections/return-param-borrow-rt/return_param_borrow_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/return-param-borrow-rt
+Wrote executable to tests/rt-behavior/collections/return-param-borrow-rt/build/return_param_borrow_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/return-param-borrow-rt/build/return_param_borrow_rt.out
+ro=3
+base_after_ro_len=3
+base_after_ro_0=a
+copy_len=4
+copy_0=X
+base_len=3
+base_0=a
+picked_len=4
+p_len=3
+p_0=1
+q_len=2
+ints_ro=4
+g_len=5
+ints_len=4
+[exit 0]

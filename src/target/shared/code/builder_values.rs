@@ -154,7 +154,29 @@ impl CodeBuilder<'_> {
     /// binding/global/return can own it, so the eventual scope-drop `arena_free`
     /// reclaims a real arena block and never an aliased or static one.
     pub(super) fn value_needs_owning_copy(&self, value: &NirValue) -> bool {
-        Self::value_is_aliasing_source(value) || self.static_string_value(value).is_some()
+        Self::value_is_aliasing_source(value)
+            || self.static_string_value(value).is_some()
+            || self.call_returns_param_borrow(value)
+    }
+
+    /// plan-86 K1: whether `value` is a call to a user function that returns a borrow
+    /// of one of its parameters (`function_returns_param_borrow`). The result aliases
+    /// the caller's argument block rather than a fresh allocation, so it is
+    /// classified as an aliasing source exactly like a `Local`: `register_pending_temp`
+    /// leaves it unfreed (the argument's owner frees it), and `lower_value_owned`
+    /// deep-copies it at an owning store. This is the caller half of the elision — the
+    /// callee (`lower_returned_value`, gated on the SAME predicate via
+    /// `current_returns_param_borrow`) returns the argument pointer uncopied, so the
+    /// single deep-copy lands here at the ownership boundary and value semantics is
+    /// unchanged.
+    fn call_returns_param_borrow(&self, value: &NirValue) -> bool {
+        let target = match value {
+            NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => target.as_str(),
+            _ => return false,
+        };
+        self.functions
+            .get(target)
+            .is_some_and(|f| function_returns_param_borrow(f, &self.callback_referenced_functions))
     }
 
     /// Whether lowering `value` yields a value whose lifetime is managed by the
