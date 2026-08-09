@@ -897,11 +897,12 @@ impl CodeBuilder<'_> {
         let tail_done = self.label("simd_clamp_tail_done");
         self.emit(abi::compare_immediate(&tail_bit, "0"));
         self.emit(abi::branch_eq(&tail_done));
-        // Scratch-pool registers (not x0-x2): the x86 remap colors ABI
-        // registers by boundary role, and a block mixing a staged x1 (RETS[1]
-        // = rdx) with a role-colored x2 (CALL_ARGS[2] = rdx) collides — the
-        // low bound aliased the high bound and the tail lane clamped against
-        // the wrong limit. x9-x11 map to three distinct GPRs on both ISAs.
+        // Allocator-placed vregs (not hand-picked x0-x2): x0-x2 are ABI-boundary
+        // registers (argument/result banks) that the aligned x86 realization can
+        // reuse within this block, so hand-picking them risks two bounds aliasing
+        // onto one physical register (both landing on rdx) — the low bound would
+        // alias the high bound and the tail lane clamp against the wrong limit.
+        // Allocator-placed vregs get three distinct GPRs on every ISA.
         let lane = self.temporary_vreg();
         let low_bound = self.temporary_vreg();
         let high_bound = self.temporary_vreg();

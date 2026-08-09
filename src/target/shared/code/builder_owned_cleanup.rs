@@ -220,12 +220,10 @@ impl CodeBuilder<'_> {
         // garbage — a wild free — on x86-64).
         self.owned_value_slots.push(cleanup.stack_offset);
         let skip = self.label("owned_value_free_skip");
-        // plan-71-C Family-1a: this pointer is consumed as arg 0 of the arena-free
-        // call below, so emit it into the argument-role token (`%arg0`) rather than
-        // `return_register()` (`%ret0`). Byte-identical — `%arg0`/`%ret0` both realize
-        // to x0/a0 on AArch64/RISC-V and `map_token_direct(%arg0)=rdi` equals the
-        // register the x86 fixpoint already inferred here — and it removes the
-        // divergence (`builder_owned_cleanup.rs:187/193` in the C work-list).
+        // This pointer is consumed as arg 0 of the arena-free call below, so emit it
+        // into the C-argument token (`c_arg(0)`) — the aligned call bank — rather
+        // than a result token. On AArch64/RISC-V arg and result coincide (`x0`/`a0`);
+        // on x86 the aligned convention puts the C arg 0 in `rdi` directly.
         self.emit(abi::load_u64(
             abi::c_arg(0),
             abi::stack_pointer(),

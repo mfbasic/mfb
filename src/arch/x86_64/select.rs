@@ -62,13 +62,6 @@ fn map_scratch_register(n: usize) -> &'static str {
 // in practice.
 const CALL_ARGS: &[&str] = &["rdi", "rsi", "rdx", "rcx", "r8", "r9", "rax", "rbp"];
 const SYS_ARGS: &[&str] = &["rdi", "rsi", "rdx", "r10", "r8", "r9"];
-// x0/x1 are the SysV return registers (rax/rdx). x2/x3 extend the set only for
-// the runtime's 4-register error-Result convention (tag=x0, value=x1,
-// message=x2, source=x3), which `make_error_result` produces and the error/TRAP
-// path consumes immediately (no intervening call), so caller-saved rcx/rsi are
-// safe distinct homes. Without these, x2/x3 fell back to rax and aliased,
-// corrupting propagated errors.
-const RETS: &[&str] = &["rax", "rdx", "rcx", "rsi"];
 
 /// Which x86-64 calling convention `select_x86` realizes the residual ABI
 /// registers against (plan-47-B). `SysV` reads the constants above unchanged —
@@ -95,54 +88,11 @@ pub(crate) enum X86Abi {
 // even allocate `add_carry` (which needs 4 simultaneously-live), so the plan's
 // "accepted 3-register regression" was in fact a hard failure (§Corrections).
 const CALL_ARGS_WIN64: &[&str] = &["rcx", "rdx", "r8", "r9", "rdi", "rsi", "rax", "rbp"];
-// Win64 result bank: SysV's rcx/rsi (slots 2/3 of the 4-register fallible-result
-// convention) collide with Win64 argument register rcx, so use r8/r9 — caller-saved,
-// unpinned, and consumed by the error/TRAP path with no intervening call (§4.1).
-const RETS_WIN64: &[&str] = &["rax", "rdx", "r8", "r9"];
-
-/// Context-free direct map from an ABI *role token* to its x86-64 register under
-/// `abi` — **no CFG role inference** (`%argN` → `CALL_ARGS[N]`, `%sysargN` →
-/// `SYS_ARGS[N]`, `%retN` → `RETS[N]`, `%sysnr`/`%sysret` → `rax`); `None` for any
-/// non-role value. This is the map bug-85 tried to realize directly and
-/// `remap_x86_abi`'s fixpoint replaced. plan-71 drives the fixpoint toward it: at a
-/// site where this map and the inference AGREE the fixpoint is deletable
-/// byte-identically; where they DISAGREE a later letter must re-tokenize (Category
-/// 1) or stage a move (Category 2). The audit in `remap_x86_abi` reports every
-/// disagreement so plan-71-A can census the split (plan-71-A §3/§4).
-fn map_token_direct(value: &str, abi: X86Abi) -> Option<String> {
-    let (call_args, sys_args, rets): (&[&str], &[&str], &[&str]) = match abi {
-        X86Abi::SysV => (CALL_ARGS, SYS_ARGS, RETS),
-        // Win64 emits no raw syscall (OS calls go through the IAT), so `SYS_ARGS`
-        // is unreachable under Win64; it is passed only to keep the arity uniform.
-        X86Abi::Win64 => (CALL_ARGS_WIN64, SYS_ARGS, RETS_WIN64),
-    };
-    let index_after = |prefix: &str| {
-        value
-            .strip_prefix(prefix)
-            .and_then(|rest| rest.parse::<usize>().ok())
-    };
-    if let Some(n) = index_after("%arg") {
-        return call_args.get(n).map(|reg| reg.to_string());
-    }
-    if let Some(n) = index_after("%sysarg") {
-        return sys_args.get(n).map(|reg| reg.to_string());
-    }
-    if let Some(n) = index_after("%ret") {
-        return rets.get(n).map(|reg| reg.to_string());
-    }
-    if value == "%sysnr" || value == "%sysret" {
-        // The syscall number lives in `rax` (SysV) and a syscall's result comes
-        // back in `rax`; both agree with the inference's `x8`→rax / `x0`-result
-        // coloring at a syscall boundary.
-        return Some("rax".to_string());
-    }
-    None
-}
 
 /// The C-ABI return bank (plan-85-A §2): `rax:rdx`, the ≤2 registers the platform
-/// C ABI returns in, identical on SysV and Win64 (`RETS`/`RETS_WIN64` both start
-/// `rax, rdx`). `%retC` keeps `rax` — the one register MFB's aligned convention
-/// does *not* claim — so a genuine C boundary is the sole `rax`-bearing site.
+/// C ABI returns in, identical on SysV and Win64. `%retC` keeps `rax` — the one
+/// register MFB's aligned convention does *not* claim — so a genuine C boundary is
+/// the sole `rax`-bearing site.
 const C_RETS: &[&str] = &["rax", "rdx"];
 
 /// Realize a **convention-explicit** ABI token (plan-85-A `Operand::Abi`) to its
@@ -445,19 +395,16 @@ pub(crate) fn select_x86(instructions: Vec<MirInstruction>, abi: X86Abi) -> Vec<
             ARENA_BASE,
             "r15",
         );
-        // plan-34-B Phase-3b seam: realize a role token to its AArch64 spelling
-        // (`%arg3` → `x3`) so `remap_x86_abi`'s existing role inference reproduces
-        // today's result exactly (byte-identical). plan-71-A now DEFERS the ABI
-        // *role* tokens (`is_abi_role_token`: `%argN`/`%sysargN`/`%retN`/`%sysnr`/
-        // `%sysret`) past this seam so `remap_x86_abi` can realize AND cross-check
-        // them against `map_token_direct`; every other token (`%scratchN`,
-        // `%localN`, `%mathpool`, `%sysnr_darwin`, …) is realized here as before.
+        // plan-85-D direct-realize seam: every ABI token is realized to its final
+        // x86 register HERE, directly — there is no `remap_x86_abi` CFG inference
+        // anymore (deleted). A typed `Operand::Abi` (the six-token convention
+        // vocabulary) realizes to its ALIGNED register; the string forms flow
+        // through `map_convention_token`; the syscall-number register `%sysnr`
+        // realizes to `rax`; and the remaining neutral tokens (`%scratchN`,
+        // `%localN`, `%mathpool`, `%sysnr_darwin`, …) realize via the shared
+        // `realize_abi_token` to their `xN` spelling for the mechanical residual
+        // pass below.
         for (_, value) in instruction.fields.iter_mut() {
-            // plan-85-A direct-realize seam: a convention-explicit `Operand::Abi`
-            // token is realized *here*, directly to its aligned x86 register,
-            // bypassing `remap_x86_abi` entirely — the seam plan-85-D widens to
-            // "every operand direct, fixpoint gone". Legacy `%arg`/`%ret` role
-            // tokens still defer to the fixpoint below.
             if let Operand::Abi {
                 convention,
                 role,
@@ -469,20 +416,15 @@ pub(crate) fn select_x86(instructions: Vec<MirInstruction>, abi: X86Abi) -> Vec<
                 continue;
             }
             let rendered = value.render();
-            // plan-85-D: realize every ABI token DIRECTLY here — the convention
-            // tokens (`%retMFB`/`%argC`/…) by aligned table lookup, the transitional
-            // legacy role tokens (`%arg`/`%ret`/`%sysarg`) context-free — so nothing
-            // defers to `remap_x86_abi`'s CFG inference. Under the aligned convention
-            // an MFB result and its reuse-as-argument share the call bank, so the
-            // context-free map reproduces the (former) inference without a boundary
-            // scan. The residual `xN` scratch / `sp` / `x31` / `dN` still flow to the
-            // mechanical remap below (which no longer colors any `x0`–`x8` role).
             if let Some(reg) = map_convention_token(&rendered, abi) {
                 *value = Operand::from(reg);
                 continue;
             }
-            if let Some(reg) = map_token_direct(&rendered, abi) {
-                *value = Operand::from(reg);
+            // The syscall-number register lives in `rax` on x86-64 (the one
+            // intentionally-kept neutral ABI token with no convention spelling; its
+            // positional `x8` would otherwise fall through to the residual pass).
+            if rendered == "%sysnr" {
+                *value = Operand::from("rax");
                 continue;
             }
             if let Some(reg) = crate::target::shared::abi::realize_abi_token(&rendered) {
@@ -782,60 +724,6 @@ mod tests {
         assert!(values(&out).iter().any(|v| v == "r15"));
     }
 
-    // ---- plan-71-A: the context-free cross-check gate ----
-
-    #[test]
-    fn map_token_direct_matches_the_abi_tables() {
-        // SysV: call args, syscall args, returns, and the syscall nr/result.
-        for (n, reg) in ["rdi", "rsi", "rdx", "rcx", "r8", "r9", "rax", "rbp"]
-            .into_iter()
-            .enumerate()
-        {
-            assert_eq!(
-                map_token_direct(&format!("%arg{n}"), X86Abi::SysV).as_deref(),
-                Some(reg)
-            );
-        }
-        for (n, reg) in ["rdi", "rsi", "rdx", "r10", "r8", "r9"]
-            .into_iter()
-            .enumerate()
-        {
-            assert_eq!(
-                map_token_direct(&format!("%sysarg{n}"), X86Abi::SysV).as_deref(),
-                Some(reg)
-            );
-        }
-        for (n, reg) in ["rax", "rdx", "rcx", "rsi"].into_iter().enumerate() {
-            assert_eq!(
-                map_token_direct(&format!("%ret{n}"), X86Abi::SysV).as_deref(),
-                Some(reg)
-            );
-        }
-        assert_eq!(
-            map_token_direct("%sysnr", X86Abi::SysV).as_deref(),
-            Some("rax")
-        );
-        assert_eq!(
-            map_token_direct("%sysret", X86Abi::SysV).as_deref(),
-            Some("rax")
-        );
-        // Win64 reads the *_WIN64 tables.
-        for (n, reg) in ["rcx", "rdx", "r8", "r9"].into_iter().enumerate() {
-            assert_eq!(
-                map_token_direct(&format!("%arg{n}"), X86Abi::Win64).as_deref(),
-                Some(reg)
-            );
-        }
-        assert_eq!(
-            map_token_direct("%ret0", X86Abi::Win64).as_deref(),
-            Some("rax")
-        );
-        assert_eq!(
-            map_token_direct("%ret2", X86Abi::Win64).as_deref(),
-            Some("r8")
-        );
-    }
-
     #[test]
     fn realize_abi_operand_maps_to_aligned_registers() {
         // plan-85-A §2 aligned SysV realization: MFB args/results and C args all
@@ -855,7 +743,7 @@ mod tests {
             );
         }
         // %retMFB is the byte-CHANGING choice: aligned [rdi,rsi,rdx,rcx], NOT the
-        // legacy RETS [rax,rdx,rcx,rsi].
+        // old rax-first result bank [rax,rdx,rcx,rsi].
         for (n, reg) in ["rdi", "rsi", "rdx", "rcx"].into_iter().enumerate() {
             assert_eq!(
                 realize_abi_operand(AbiConvention::Mfb, AbiRole::Ret, n, X86Abi::SysV),
@@ -909,12 +797,12 @@ mod tests {
     }
 
     #[test]
-    fn explicit_abi_token_bypasses_the_fixpoint() {
+    fn explicit_abi_token_realizes_to_aligned_register() {
         use crate::target::shared::abi;
         // A typed `Operand::Abi` is realized directly by the plan-85-A seam to its
-        // ALIGNED register, NOT by `remap_x86_abi`. Proof: `%retMFB0` realizes to
-        // `rdi` (aligned CALL_ARGS[0]); the fixpoint / legacy `%ret0` would give
-        // `rax` (RETS[0]). If `rax` appeared, the token flowed through the fixpoint.
+        // ALIGNED register. Proof: `%retMFB0` realizes to `rdi` (aligned
+        // CALL_ARGS[0]); the old rax-first result bank would give `rax`. If `rax`
+        // appeared, the aligned realization was not applied.
         let inst = CodeInstruction::new("mov")
             .field("dst", abi::mfb_return(0))
             .field("src", abi::mfb_arg(1));
@@ -930,7 +818,7 @@ mod tests {
         );
         assert!(
             !vals.iter().any(|v| v == "rax"),
-            "no rax expected — the fixpoint's RETS[0] must not appear, got {vals:?}"
+            "no rax expected — the old rax-first result bank must not appear, got {vals:?}"
         );
     }
 }

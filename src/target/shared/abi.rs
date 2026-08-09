@@ -222,7 +222,7 @@ pub(crate) const ARENA: &str = crate::target::shared::code::mir::ARENA_BASE;
 // cannot collide with a physical register, immediate, symbol, label, or type name
 // (the same guarantee `regalloc`'s vreg sentinel relies on). During Phase 3b a
 // seam translates each back to its AArch64 spelling (`ARG[n]`/`RET[n]`/`SYSARG[n]`
-// → `x{n}`, `SYSNR` → `x8`, `SYSRET` → `x0`, `CLOSURE_ENV` → `x28`) before
+// → `x{n}`, `SYSNR` → `x8`, `CLOSURE_ENV` → `x28`) before
 // instruction selection, so the three backends see today's input unchanged and
 // the migration is byte-identical; Phase 4 deletes the seam and teaches each
 // backend to realize the tokens directly (AArch64/riscv positional, x86 by table
@@ -260,17 +260,6 @@ pub(crate) const SYSNR: &str = "%sysnr";
 pub(crate) const SYSARG: [&str; 6] = [
     "%argSys0", "%argSys1", "%argSys2", "%argSys3", "%argSys4", "%argSys5",
 ];
-
-/// A syscall's result (AArch64 `x0`, riscv64 `a0`, x86-64 `rax`).
-///
-/// Never emitted, and not expected to be: emitters stage a syscall result
-/// through `RET[0]`, which realizes to the same register. It is kept because
-/// [`realize_abi_token`] spells every token in this family literally, so
-/// deleting the one unread member would leave the `"%sysret"` arm there as a
-/// magic string with no name anywhere (bug-326-A2 — a deliberate keep, not an
-/// oversight and not a promise about a later phase).
-#[allow(dead_code)]
-pub(crate) const SYSRET: &str = "%sysret";
 
 /// The Darwin syscall-number register — macOS/AArch64 delivers the number in
 /// `x16` (IP1), not Linux's `x8`, and the Phase-3b seam is ISA-wide (one
@@ -423,13 +412,17 @@ pub(crate) fn fp_argument_register(index: usize) -> Result<&'static str, String>
     })
 }
 
-/// Translate a call-boundary role token to its AArch64 register spelling — the
+/// Translate a neutral call-boundary token to its AArch64 register spelling — the
 /// seam **all three** backends apply during selection before their per-ISA remap
 /// (AArch64 uses `xN` directly; riscv64 then remaps `xN` to its own file; x86-64
-/// then runs `remap_x86_abi`'s CFG role-inference to reach its SysV home). This is
-/// the plan-34-B Phase 3b state: Phase 4's x86 direct-lookup (`map_x86_operand`)
-/// was reverted because the entry stub and runtime-helper bodies stage arguments
-/// with result-accessors that only the inference disambiguates on x86 (bug-85). A
+/// realizes it directly too, no CFG inference — `remap_x86_abi` was deleted in
+/// plan-85-D). The convention-explicit six-token vocabulary
+/// (`%argMFB`/`%retMFB`/`%argC`/`%retC`/`%argSys`/`%retSys`) realizes positionally
+/// via [`realize_convention_token`], checked first; the remaining arms cover the
+/// genuinely-multi-realization neutral tokens with no convention spelling — the
+/// syscall-number register (`%sysnr`/`%sysnr_darwin`), the machine-floor scratch
+/// pools (`%scratchN`/`%fscratchN`/`%vscratchN`), the callee-saved persistent
+/// locals (`%localN`), and the pinned `%closure_env`/`%thread`/`%mathpool`. A
 /// non-token value passes through unchanged.
 pub(crate) fn realize_abi_token(value: &str) -> Option<&'static str> {
     // plan-85-A: a convention-explicit `Operand::Abi` token that reaches this
@@ -444,14 +437,6 @@ pub(crate) fn realize_abi_token(value: &str) -> Option<&'static str> {
         return Some(reg);
     }
     Some(match value {
-        "%arg0" | "%ret0" | "%sysarg0" | "%sysret" => "x0",
-        "%arg1" | "%ret1" | "%sysarg1" => "x1",
-        "%arg2" | "%ret2" | "%sysarg2" => "x2",
-        "%arg3" | "%ret3" | "%sysarg3" => "x3",
-        "%arg4" | "%sysarg4" => "x4",
-        "%arg5" | "%sysarg5" => "x5",
-        "%arg6" => "x6",
-        "%arg7" => "x7",
         "%sysnr" => "x8",
         "%sysnr_darwin" => "x16",
         "%closure_env" => "x28",

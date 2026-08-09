@@ -618,9 +618,10 @@ mod tests {
 
     #[test]
     fn abi_tokens_are_not_confused_with_legacy_or_vregs() {
-        // A new explicit token must NOT parse as a vreg/immediate, and its
-        // spelling is distinct from the legacy `%arg0`/`%ret0` (the two
-        // vocabularies coexist during plan-85-B/C).
+        // A convention-explicit token must NOT parse as a vreg/immediate, and its
+        // spelling must never collapse to the removed overloaded `%arg0`/`%ret0`
+        // role tokens (plan-85 deleted those; this guards against a regression that
+        // re-derives the ambiguous spelling).
         assert!(matches!(Operand::parse("%argMFB0"), Operand::Raw(_)));
         assert!(matches!(Operand::parse("%retMFB0"), Operand::Raw(_)));
         assert_ne!(
