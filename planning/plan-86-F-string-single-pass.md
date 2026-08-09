@@ -13,6 +13,20 @@ The strings family copies **byte-at-a-time** through `emit_materialize_string_fr
 (`builder_search.rs`, byte-copy). Bounded, ~2×; op-count/allocation-bound.
 
 ## Fixes
+> **MEASURED this session (release, `--run 10`, box-local) — the scout's "marginal" is CONFIRMED and QUANTIFIED,
+> and the rows are ALLOC/CALL-bound, not copy-bound.** `string case` 47.2 ms, `string slice` 34.5 ms.
+> `test_string_case` (`string.mfb:29`) = 50000 iters × 8 ops (upper/lower/caseFold/trim×4/normalizeNfc) on a
+> ~20-byte string = **400 000 string ops at ~118 ns/op**. For a 20-byte string the byte-copy/pass F2 replaces is
+> ~20 iterations ≈ a few ns — well under ~10 % of the 118 ns/op; the **arena alloc of the result + the builtin
+> call dominate**, and F2/F3 reduce NEITHER. So F2 (word-copy) ≈ +6 %, F3 (one fewer pass) another small slice —
+> `case` → ~44 ms (STILL P1 vs py 27.9), `slice` → ~30 ms (STILL P2). This is the same alloc/call-bound floor as
+> `[[native-string-hof-rewrites-are-marginal]]`; the plan's own acceptance already says F is "a modest ~1.3–2×
+> row improvement, NOT a clear." **Cost side: F2's widest swap (`emit_materialize_string_from_bytes`) is on the
+> to_bytes/repeat/materialize funnel used by ~every string builtin → swapping it churns the `.ncode` of ~every
+> string-touching byte-identity fixture (~15–20 builtins × 5 targets ≈ 75–100 `.ncodesum`) + many rt-behavior
+> `.ncode`.** Real-but-small win, prohibitive golden churn, does not clear either row — LOW priority; if pursued,
+> do the 4 byte-exact `emit_block_copy_advance` swaps together in ONE pass and budget a full multi-builtin
+> `.ncodesum` regen. The edit points below are precise and correct.
 - [x] **F1** — case_map ASCII quick-check (landed plan-64).
 - [ ] **F2** — 8-byte word-copy + SWAR memchr. **TRACTABLE + near-zero-risk (scout, plan-86-A session), but
   MARGINAL (~1.3–1.8×, NOT band-clearing).** The word-copy helper ALREADY EXISTS: `emit_block_copy_advance`
