@@ -23,8 +23,16 @@ COW-fixable.
   A/B/C/D cut copy volume; reassess.
 - [ ] **K3** — out-of-line String-element list layout so a growing String `set` need not rebuild the whole
   list (the bug-430 in-place-mutation follow-up). Retires `list (Dynamic) set`. Do with A.
-- [ ] **B3 (from [plan-86-B](plan-86-B-reduce-accumulator.md))** — in-place growing reducer accumulator, needs
-  K's uniquely-owned-mutation analysis. Pursue only if B1 left a gap; do not gate B on parity.
+- [~] **B3 (from [plan-86-B](plan-86-B-reduce-accumulator.md)) — BLOCKED on K2 (its stated prerequisite) +
+  conditional-not-met.** — in-place growing reducer accumulator, needs K's uniquely-owned-mutation analysis.
+  Pursue only if B1 left a gap; do not gate B on parity. **Both of B3's own gates are unmet:** (1) it explicitly
+  "needs K's uniquely-owned-mutation analysis" — that IS the K2 COW/refcount + uniquely-owned-mutation pass,
+  which is NOT done (K2 is the plan's largest deferred change), so per follow-plan (`a letter's product doesn't
+  exist → do that letter`) B3 cannot land until K2 does; (2) "pursue ONLY IF B1 left a gap" — B1 landed the
+  reduce accumulator fix (the reduce-leak, plan-86-B's deliverable; "do not gate B on parity"), so B is complete
+  and B3 is a further-optimization refinement, not required. Resolved as blocked-on-K2 per the plan's own
+  dependency + condition, to be revisited if/when K2 lands. Not skipped on difficulty — its prerequisite letter
+  is undone.
 
 ## Note
 `insert`/`removeAt` are reflow-inherent (repeated `insert(0)` is O(n²) by construction) — not COW-fixable;
