@@ -75,7 +75,8 @@ pub(super) fn emit_executable_path_into(
                 ctx.relocations,
             )?;
             ctx.instructions.extend([
-                abi::move_register(&count, abi::return_register()),
+                // plan-85: readlink's byte count is a C result (`rax`, `%retC`).
+                abi::move_register(&count, abi::c_return(0)),
                 abi::compare_immediate(&count, "0"),
                 abi::branch_gt(&ok),
                 abi::branch(fail),

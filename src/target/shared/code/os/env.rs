@@ -172,7 +172,8 @@ pub(super) fn lower_get_env(
         )?;
     }
     instructions.extend([
-        abi::move_register(&value, abi::return_register()),
+        // plan-85: getenv's char* return is a C result (`rax`, `%retC`).
+        abi::move_register(&value, abi::c_return(0)),
         abi::compare_immediate(&value, "0"),
         abi::branch_eq(&not_found),
     ]);
@@ -315,7 +316,8 @@ pub(super) fn lower_has_env(
         )?;
     }
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
+        // plan-85: getenv's char* return is a C result (`rax`, `%retC`).
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_ne(&present),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
