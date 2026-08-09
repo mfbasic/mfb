@@ -204,18 +204,20 @@ Commit: `a7b5ec4cb`
       `x0`–`x8` trips a `debug_assert`. Deleted the 12 obsolete fixpoint unit tests; the new
       `map_convention_token`/`realize_abi_operand`/`map_token_direct` tests cover the direct
       map. Commit `838a988f8`.
-- [~] The `ARG`/`RET`/`SYSARG` arrays are **retained but REDEFINED** to emit the
-      convention-explicit strings (`%argMFB`/`%retMFB`/`%argSys`) — they are no longer
-      "legacy" (they emit the new vocabulary) and are realized directly by
-      `map_convention_token`/`realize_convention_token`. This is the STRING form of the
-      vocabulary, not the fully-typed `Operand::Abi` everywhere: it reaches plan-85's
-      behavioral goal (fixpoint gone, aligned ABI, bug-387 closed) without editing ~4900
-      call sites. Completing the `Raw`→typed migration (plan-82) for these tokens is a
-      SEPARATE polish, not required for the goal — noted as follow-up. Commits `388953c41`
-      (redefine) + `838a988f8` (delete fixpoint).
-- [x] `cargo test --bin mfb` real `test result: ok` (3779). AArch64/RISC-V byte-identical
-      (sample verified; full exe-oracle running). SysV-x86 correct by rt-behavior (box 2228).
-      Full `artifact-gate.sh` regeneration: PENDING (finalization).
+- [x] The `Raw`→typed `Operand::Abi` migration is now **COMPLETE** (follow-up session,
+      2026-08-08). The `ARG`/`RET`/`SYSARG` string arrays are DELETED; every emission site,
+      every parameter/result `location` (`ValueResult`/`CodeParam`/`PendingTemp.location:
+      String → Operand`), and the riscv64 fused/`addr_of` expansion carry the typed
+      `Operand::Abi`, so no convention token ever flows as a `Raw` string. The string
+      realizers `map_convention_token` **and** `realize_convention_token` are DELETED; the
+      old overloaded `%arg`/`%ret`/`%sysarg`/`%sysret` tokens and `map_token_direct` are
+      gone. Commits `8e317bd5e` (remove old tokens), `bd57cca33` (typed emission),
+      `cc54f12a4` (typed location), `d868a73cb` (delete realizers).
+- [x] `cargo test --bin mfb` real `test result: ok` (3776). AArch64/RISC-V byte-identical.
+      SysV-x86 correct by rt-behavior (boxes 2227/2229/2230 execution: riscv64 22/22,
+      SysV-x86 + Win64 pass). Full `artifact-gate.sh all` regeneration: **DONE** — 1589
+      goldens, 0 diffs. (Also fixed a pre-existing Win64 >8-param stack-args shadow-space
+      bug found during verification, `5e723a45e`.)
 
 Acceptance: fixpoint gone; AArch64/RISC-V byte-identical; SysV-x86 rt-behavior-correct;
 `cargo test` green. Commit: `838a988f8`
