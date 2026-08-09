@@ -79,7 +79,7 @@ The strings family copies **byte-at-a-time** through `emit_materialize_string_fr
   ASCII across 0/7/8/9/15/16/17-byte lengths (word + tail) AND non-ASCII bail-to-slow-path at byte 8 / 15 / mid
   (café→CAFÉ, straße→STRASSE, aaaaaaaaé→AAAAAAAAÉ, MÜNCHEN GRÜßE→münchen grüße). 3776 unit tests green; full
   artifact-gate 0-diff after regen (churn: the case-op-using byte-identity builtins — regenerated via
-  `regen-bytid.sh`). Commit: `<pending-F3>`. **The full two-pass→one-pass FUSION is DEFERRED with evidence:**
+  `regen-bytid.sh`). Commit: `7a1c5d41a`. **The full two-pass→one-pass FUSION is DEFERRED with evidence:**
   it would allocate `byte_len+9` up front then bail mid-transform (wasting the alloc on non-ASCII), and F3 is
   measured non-clearing anyway (string case is alloc/call-bound — see the CHURN-MEASURED note above; the
   quick-check is one of two passes, and both are dwarfed by the per-op alloc+call). F3's acceptance (string
