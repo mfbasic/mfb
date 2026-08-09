@@ -155,7 +155,7 @@ pub(crate) trait LinuxArch {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_linux_c_call(from, "write", platform_imports, instructions, relocations)
+        emit_linux_c_call(self.target(), from, "write", platform_imports, instructions, relocations)
     }
 
     /// Fill a buffer with OS entropy. The default is libc `getentropy`; a
@@ -169,6 +169,7 @@ pub(crate) trait LinuxArch {
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
         emit_linux_c_call(
+            self.target(),
             from,
             "getentropy",
             platform_imports,
@@ -240,6 +241,7 @@ const ASM_GENERIC_SYS_MUNMAP: &str = "215";
 /// its trait method, which alone made two thirds of the shared methods look
 /// different.
 pub(crate) fn emit_linux_c_call(
+    target: &str,
     from: &str,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -258,21 +260,24 @@ pub(crate) fn emit_linux_c_call(
         binding: "external".to_string(),
         library: Some(library),
     });
-    // plan-85: a libc call returns its int/pointer result in the C-return register
-    // (`rax` = `%retC`), but the aligned MFB convention reads a call result from the
-    // aligned bank (`return_register()` = `rdi` on SysV). Since every caller-saved
-    // register — including `rdi` = `c_arg(0)` — is dead across the call, stage the
-    // C result into the MFB result register here, ONCE, so every downstream consumer
-    // is correct whether it reads the result (`return_register()`) or feeds it
-    // straight into the next call's first argument (`c_arg(0)`, the `getuid`→
-    // `getpwuid` shape). On AArch64/RISC-V both registers are `x0`, so this is a
-    // `mov x0,x0` no-op that `elide_redundant_self_moves` removes (byte-identical);
-    // on SysV-x86 it is the real `mov rdi,rax`. A void/`xmm0`-returning call stages a
-    // dead value into a dead register — harmless.
-    instructions.push(abi::move_register(
-        abi::return_register(),
-        crate::target::shared::abi::c_return(0),
-    ));
+    // plan-85: on SysV-x86 a libc call returns its int/pointer result in the C-return
+    // register (`rax` = `%retC`), but the aligned MFB convention reads a call result
+    // from the aligned bank (`return_register()` = `rdi`). Since every caller-saved
+    // register — including `rdi` = `c_arg(0)` — is dead across the call, stage the C
+    // result into the MFB result register here, ONCE, so every downstream consumer is
+    // correct whether it reads the result (`return_register()`) or feeds it straight
+    // into the next call's first argument (`c_arg(0)`, the `getuid`→`getpwuid` shape).
+    // This is emitted ONLY on `linux-x86_64`: on AArch64/RISC-V the argument and
+    // result banks coincide (both `x0`), so the result is already in
+    // `return_register()` and `c_arg(0)` with no move — emitting the staging there
+    // would be a `mov x0,x0` no-op that changes those byte-identical targets. Win64's
+    // MFB result bank is also `rax`-based, so it needs no staging either.
+    if target == "linux-x86_64" {
+        instructions.push(abi::move_register(
+            abi::return_register(),
+            crate::target::shared::abi::c_return(0),
+        ));
+    }
     Ok(())
 }
 
@@ -589,7 +594,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_linux_c_call(from, "poll", platform_imports, instructions, relocations)
+        emit_linux_c_call(self.target(), from, "poll", platform_imports, instructions, relocations)
     }
 
     fn emit_is_terminal(
@@ -599,7 +604,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_linux_c_call(from, "isatty", platform_imports, instructions, relocations)
+        emit_linux_c_call(self.target(), from, "isatty", platform_imports, instructions, relocations)
     }
 
     fn emit_terminal_size(
@@ -609,7 +614,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_linux_c_call(from, "ioctl", platform_imports, instructions, relocations)
+        emit_linux_c_call(self.target(), from, "ioctl", platform_imports, instructions, relocations)
     }
 
     // --- filesystem ---------------------------------------------------------
@@ -622,7 +627,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
         instructions.extend([abi::move_immediate(abi::ARG[1], "Integer", "0")]);
-        emit_linux_c_call(from, "access", platform_imports, instructions, relocations)
+        emit_linux_c_call(self.target(), from, "access", platform_imports, instructions, relocations)
     }
 
     fn emit_path_stat(
@@ -632,7 +637,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_linux_c_call(from, "stat", platform_imports, instructions, relocations)
+        emit_linux_c_call(self.target(), from, "stat", platform_imports, instructions, relocations)
     }
 
     fn emit_stat_is_kind(
@@ -672,7 +677,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_linux_c_call(from, "getcwd", platform_imports, instructions, relocations)
+        emit_linux_c_call(self.target(), from, "getcwd", platform_imports, instructions, relocations)
     }
 
     fn emit_environ_pointer(
@@ -725,7 +730,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         if matches!(operation, code::FsPathOperation::Mkdir) {
             instructions.push(abi::move_immediate(abi::ARG[1], "Integer", "493"));
         }
-        emit_linux_c_call(from, symbol, platform_imports, instructions, relocations)
+        emit_linux_c_call(self.target(), from, symbol, platform_imports, instructions, relocations)
     }
 
     fn emit_errno(
@@ -737,6 +742,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
         emit_linux_c_call(
+            self.target(),
             from,
             "__errno_location",
             platform_imports,
@@ -758,7 +764,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_linux_c_call(from, base, platform_imports, instructions, relocations)
+        emit_linux_c_call(self.target(), from, base, platform_imports, instructions, relocations)
     }
 
     fn emit_variadic_call(
@@ -775,7 +781,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         // unlike Darwin AArch64, which passes them on the stack. On x86-64 the
         // `bl` encoder additionally emits the `al` vector-count marker before
         // every external call, so no marker is needed here either (bug-300 E11).
-        emit_linux_c_call(from, base, platform_imports, instructions, relocations)
+        emit_linux_c_call(self.target(), from, base, platform_imports, instructions, relocations)
     }
 
     fn emit_open_file(
@@ -795,7 +801,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_linux_c_call(from, "read", platform_imports, instructions, relocations)
+        emit_linux_c_call(self.target(), from, "read", platform_imports, instructions, relocations)
     }
 
     fn emit_close_file(
@@ -805,7 +811,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_linux_c_call(from, "close", platform_imports, instructions, relocations)
+        emit_linux_c_call(self.target(), from, "close", platform_imports, instructions, relocations)
     }
 
     fn emit_sync_file(
@@ -815,7 +821,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_linux_c_call(from, "fsync", platform_imports, instructions, relocations)?;
+        emit_linux_c_call(self.target(), from, "fsync", platform_imports, instructions, relocations)?;
         // The C `int` return is narrowed to a signed 64-bit value by the caller,
         // at the comparison seam (`normalize_c_int_result` in
         // fs_helpers_atomic.rs, or an inline `sign_extend_word` — see that
@@ -832,7 +838,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_linux_c_call(from, "lseek", platform_imports, instructions, relocations)
+        emit_linux_c_call(self.target(), from, "lseek", platform_imports, instructions, relocations)
     }
 
     fn emit_rename_path(
@@ -842,7 +848,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_linux_c_call(from, "rename", platform_imports, instructions, relocations)
+        emit_linux_c_call(self.target(), from, "rename", platform_imports, instructions, relocations)
     }
 
     fn emit_mkstemps(
@@ -853,6 +859,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
         emit_linux_c_call(
+            self.target(),
             from,
             "mkstemps",
             platform_imports,
@@ -911,7 +918,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
                 abi::store_u8(abi::SCRATCH[0], abi::SCRATCH[1], offset),
             ]);
         }
-        emit_linux_c_call(from, "getenv", platform_imports, instructions, relocations)?;
+        emit_linux_c_call(self.target(), from, "getenv", platform_imports, instructions, relocations)?;
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_ne(&env_ok),
@@ -971,7 +978,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_linux_c_call(from, "opendir", platform_imports, instructions, relocations)
+        emit_linux_c_call(self.target(), from, "opendir", platform_imports, instructions, relocations)
     }
 
     fn emit_readdir(
@@ -981,7 +988,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_linux_c_call(from, "readdir", platform_imports, instructions, relocations)
+        emit_linux_c_call(self.target(), from, "readdir", platform_imports, instructions, relocations)
     }
 
     fn emit_closedir(
@@ -992,6 +999,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
         emit_linux_c_call(
+            self.target(),
             from,
             "closedir",
             platform_imports,
@@ -1039,6 +1047,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
         emit_linux_c_call(
+            self.target(),
             from,
             "realpath",
             platform_imports,

@@ -43,49 +43,10 @@ pub(crate) fn bug387_selfmove_lines(instructions: &[CodeInstruction], target: &s
     lines
 }
 
-/// Remove every `mov <reg>,<reg>` self-move from a finalized instruction stream
-/// (plan-85 Phase-D elision). On AArch64/RISC-V the aligned staging moves the
-/// shared lowering now emits (`mov return_register(),c_return(0)` after every libc
-/// call, and any `%retC`→aligned staging) realize to `mov xN,xN` no-ops, because
-/// the argument and result banks coincide (`x0`); this removes exactly those, so
-/// those targets stay byte-identical while the SysV-x86 build keeps the real
-/// `mov rdi,rax`. Order-preserving; `mov`-only — a store/load whose operands
-/// happen to render equally is a different op and is kept (same guard as the
-/// probe). Returns the number removed (for a debug/probe cross-check).
-pub(crate) fn elide_redundant_self_moves(instructions: &mut Vec<CodeInstruction>) -> usize {
-    let before = instructions.len();
-    instructions.retain(|inst| {
-        if inst.op != CodeOp::Mov {
-            return true;
-        }
-        match (inst.get("dst"), inst.get("src")) {
-            (Some(dst), Some(src)) => dst != src,
-            _ => true,
-        }
-    });
-    before - instructions.len()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::target::shared::abi;
-
-    #[test]
-    fn elide_removes_self_moves_keeps_the_rest() {
-        // A realized same-register move is dropped; a genuine cross-register move
-        // and a same-operand STORE (a different op, not a no-op) are both kept.
-        let mut stream = vec![
-            abi::move_register("x0", "x0"),
-            abi::move_register("x0", "x1"),
-            abi::store_u64("x0", "x0", 0),
-        ];
-        let removed = elide_redundant_self_moves(&mut stream);
-        assert_eq!(removed, 1, "exactly the x0,x0 self-move is removed");
-        assert_eq!(stream.len(), 2);
-        assert_eq!(stream[0].op, CodeOp::Mov); // the x0,x1 move survives
-        assert_eq!(stream[0].get("src").as_deref(), Some("x1"));
-    }
 
     #[test]
     fn probe_flags_self_move_and_ignores_distinct() {
