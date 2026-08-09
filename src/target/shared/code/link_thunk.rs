@@ -81,7 +81,7 @@ fn slot_offset(globals_base: usize, index: usize) -> usize {
 }
 
 /// Emit `adrp`/`add` to materialize the address of data `symbol` into `dst`.
-fn emit_data_address(
+pub(crate) fn emit_data_address(
     from: &str,
     dst: impl Into<Operand>,
     symbol: &str,
@@ -108,6 +108,61 @@ fn emit_data_address(
         },
     ]);
 }
+
+/// POSIX `handle = dlopen(filename, RTLD_NOW)` — the default `emit_link_dlopen`.
+/// `filename_symbol` names the read-only C string holding the `dlopen` filename;
+/// the resolved handle lands in `return_register()` (0 on failure). The
+/// vendored-vs-system distinction is not represented here: on ELF/Mach-O the
+/// image's rpath (`$ORIGIN/vendor`, `@loader_path/vendor`) already points the
+/// loader at the vendored copy, so a plain `dlopen(name, …)` finds it. Windows
+/// has no rpath and overrides this (bug-431).
+pub(super) fn emit_posix_dlopen<P: CodegenPlatform + ?Sized>(
+    platform: &P,
+    filename_symbol: &str,
+    from: &str,
+    platform_imports: &HashMap<String, String>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    emit_data_address(
+        from,
+        abi::return_register(),
+        filename_symbol,
+        instructions,
+        relocations,
+    );
+    instructions.push(abi::move_immediate(abi::c_arg(1), "Integer", "2")); // RTLD_NOW
+    platform.emit_libc_call("dlopen", from, platform_imports, instructions, relocations)
+}
+
+/// POSIX `slot = dlsym(handle, symbolName)` — the default `emit_link_dlsym`. The
+/// library handle is read from `handle_reg`; the resolved address lands in
+/// `return_register()` (0 if absent).
+pub(super) fn emit_posix_dlsym<P: CodegenPlatform + ?Sized>(
+    platform: &P,
+    handle_reg: &str,
+    symbol_symbol: &str,
+    from: &str,
+    platform_imports: &HashMap<String, String>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    instructions.push(abi::move_register(abi::return_register(), handle_reg));
+    emit_data_address(from, abi::c_arg(1), symbol_symbol, instructions, relocations);
+    platform.emit_libc_call("dlsym", from, platform_imports, instructions, relocations)
+}
+
+/// bug-431: the Windows `_mfb_linker_init` builds each vendored DLL's absolute
+/// path (`<exe_dir>\vendor\<dlopen_name>`) in this writable scratch buffer before
+/// `LoadLibraryExA`. Single writer, single reader, and the initializer runs once
+/// at startup before any thread exists, so one shared buffer is safe. Sized for a
+/// full path plus the `\vendor\` join and the longest bare DLL name.
+pub(crate) const WIN_LINK_PATHBUF_SYMBOL: &str = "_mfb_linker_win_pathbuf";
+pub(crate) const WIN_LINK_PATHBUF_BYTES: usize = 1024;
+/// bug-431: the `\vendor\` path component appended between the exe directory and
+/// the DLL name (a read-only NUL-terminated C string for `lstrcatA`).
+pub(crate) const WIN_LINK_VENDORSEP_SYMBOL: &str = "_mfb_linker_win_vendorsep";
+pub(crate) const WIN_LINK_VENDORSEP_TEXT: &str = "\\vendor\\";
 
 /// Emit `bl _mfb_arena_alloc` (size in `x0`, align in `x1`); on success the block
 /// pointer is in `x1`. Branches to `fail` on allocation failure.
@@ -177,9 +232,35 @@ pub(super) fn emit_link_support(
     // the logical name (`lib{logical}.so.0` / `lib{logical}.dylib`) does not
     // consult the manifest and misses every unversioned `.so`, `.so.3`,
     // non-`lib`-prefixed, or per-arch/libc variant — do not reintroduce it.
+    // bug-431: per-library, whether the resolved locator is a *vendored* copy
+    // (as opposed to a `system` soname the loader finds by name). On Windows the
+    // vendored ones are loaded from the exe-relative `vendor/` directory; POSIX
+    // ignores the flag (its rpath already covers vendoring).
+    let mut library_vendored: Vec<bool> = Vec::with_capacity(library_index.len());
     for (index, library) in library_index.iter().enumerate() {
         let resolved = libraries.get(library)?;
         data_objects.push(cstring_object(&lib_symbol(index), &resolved.dlopen_name));
+        library_vendored
+            .push(resolved.locator.lib_type == crate::manifest::libraries::LibType::Vendor);
+    }
+    // bug-431: the Windows loader builds each vendored DLL's absolute path in a
+    // writable scratch buffer and appends `\vendor\` via `lstrcatA`; emit those
+    // two data objects when a Windows build actually vendors something. On POSIX,
+    // or a Windows build whose libraries are all `system`, neither is emitted, so
+    // the binary is byte-identical to today.
+    if platform.family() == super::PlatformFamily::Windows && library_vendored.iter().any(|&v| v) {
+        data_objects.push(CodeDataObject {
+            symbol: WIN_LINK_PATHBUF_SYMBOL.to_string(),
+            kind: "raw".to_string(),
+            layout: "c-string { u8 bytes[] }".to_string(),
+            align: 8,
+            size: WIN_LINK_PATHBUF_BYTES,
+            value: "00".repeat(WIN_LINK_PATHBUF_BYTES),
+        });
+        data_objects.push(cstring_object(
+            WIN_LINK_VENDORSEP_SYMBOL,
+            WIN_LINK_VENDORSEP_TEXT,
+        ));
     }
     // One symbol-name constant per function (indexed by position).
     for (index, function) in link_functions.iter().enumerate() {
@@ -280,6 +361,7 @@ pub(super) fn emit_link_support(
         globals_base,
         link_count,
         &free_index_of,
+        &library_vendored,
         platform_imports,
         platform,
     )?;
@@ -319,6 +401,7 @@ fn lower_link_initializer(
     globals_base: usize,
     link_count: usize,
     free_index_of: &[Option<usize>],
+    library_vendored: &[bool],
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
@@ -338,17 +421,13 @@ fn lower_link_initializer(
     let mut relocations = Vec::new();
 
     for (lib_idx, library) in library_index.iter().enumerate() {
-        // handle = dlopen(filename, RTLD_NOW)
-        emit_data_address(
-            symbol,
-            abi::return_register(),
+        // handle = dlopen(filename, RTLD_NOW) on POSIX; on Windows this is a
+        // `LoadLibraryExA` resolving the vendored DLL from the exe-relative
+        // `vendor/` directory (bug-431). Either way the module handle lands in
+        // `return_register()`, so the failure check and store below are shared.
+        platform.emit_link_dlopen(
             &lib_symbol(lib_idx),
-            &mut instructions,
-            &mut relocations,
-        );
-        instructions.push(abi::move_immediate(abi::c_arg(1), "Integer", "2")); // RTLD_NOW
-        platform.emit_libc_call(
-            "dlopen",
+            library_vendored[lib_idx],
             symbol,
             platform_imports,
             &mut instructions,
@@ -363,17 +442,11 @@ fn lower_link_initializer(
             if &function.library != library {
                 continue;
             }
-            // slot = dlsym(handle, symbolName)
-            instructions.push(abi::move_register(abi::return_register(), &handle));
-            emit_data_address(
-                symbol,
-                abi::c_arg(1),
+            // slot = dlsym(handle, symbolName) on POSIX; `GetProcAddress` on
+            // Windows. The resolved address lands in `return_register()`.
+            platform.emit_link_dlsym(
+                &handle,
                 &sym_symbol(fn_idx),
-                &mut instructions,
-                &mut relocations,
-            );
-            platform.emit_libc_call(
-                "dlsym",
                 symbol,
                 platform_imports,
                 &mut instructions,
@@ -391,16 +464,9 @@ fn lower_link_initializer(
             // A FREE deallocator lives in the same library; resolve it into its
             // own slot (reserved past the per-function slots).
             if let Some(k) = free_index_of[fn_idx] {
-                instructions.push(abi::move_register(abi::return_register(), &handle));
-                emit_data_address(
-                    symbol,
-                    abi::c_arg(1),
+                platform.emit_link_dlsym(
+                    &handle,
                     &free_sym_symbol(k),
-                    &mut instructions,
-                    &mut relocations,
-                );
-                platform.emit_libc_call(
-                    "dlsym",
                     symbol,
                     platform_imports,
                     &mut instructions,
@@ -1106,7 +1172,16 @@ fn lower_link_thunk(
             slot_offset(globals_base, index),
         ),
         abi::branch_link_register("%v16"),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), CRET_OFF),
+        // bug-431: the native `LINK` function is a real C call through `blr`, so
+        // its integer/pointer result comes back in the C-ABI return register
+        // (`rax` on x86-64, `x0`/`a0` elsewhere) — NOT the aligned MFB result
+        // bank. On AArch64/RISC-V those coincide (`x0`/`a0`), which is why macOS
+        // and Linux-aarch64 worked; on x86-64 the MFB result bank is `rdi` (SysV)
+        // / `rcx` (Win64), so capturing `return_register()` read a caller-saved
+        // register the callee had clobbered and every native return surfaced as
+        // garbage (typically 0). Capture `c_return(0)` so the value is read from
+        // where the C ABI actually leaves it.
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), CRET_OFF),
     ]);
 
     // sec-02: verify every OUT CBuffer's guard canary survived the call, BEFORE
@@ -3030,5 +3105,196 @@ mod tests {
                 lowered.err()
             );
         }
+    }
+
+    /// bug-431: build a `LinkLibraries` with one logical library resolved to a
+    /// single vendored locator, so `emit_link_support` can lower a Windows
+    /// initializer that must load it from the exe-relative `vendor/` directory.
+    fn one_vendored_library(logical: &str, dlopen_name: &str) -> LinkLibraries {
+        use crate::binary_repr::NativeLibraryLocator;
+        use crate::manifest::libraries::LibType;
+        use crate::target::shared::code::link_locator::ResolvedLibrary;
+        let mut resolved = HashMap::new();
+        resolved.insert(
+            logical.to_string(),
+            ResolvedLibrary {
+                dlopen_name: dlopen_name.to_string(),
+                declaring_unit: "demo".to_string(),
+                locator: NativeLibraryLocator {
+                    os: "windows".to_string(),
+                    arch: Some("x86_64".to_string()),
+                    libc: None,
+                    lib_type: LibType::Vendor,
+                    source: dlopen_name.to_string(),
+                    hash: Some([0u8; 32]),
+                },
+            },
+        );
+        LinkLibraries::from_resolved(resolved)
+    }
+
+    /// The names a `bl` (`CodeOp::BranchLink`) in `function` calls.
+    fn call_targets(function: &CodeFunction) -> std::collections::HashSet<String> {
+        function
+            .instructions
+            .iter()
+            .filter(|i| i.op == CodeOp::BranchLink)
+            .filter_map(|i| i.get("target").map(|t| t.to_string()))
+            .collect()
+    }
+
+    /// bug-431: a native `LINK` function is a real C call through `blr`, so its
+    /// integer/pointer result returns in the C-ABI return register (`rax` on
+    /// x86-64, `x0`/`a0` elsewhere), NOT the aligned MFB result bank. On x86-64
+    /// those differ (`rdi`/SysV, `rcx`/Win64), so capturing `return_register()`
+    /// read a clobbered caller-saved register and every native return surfaced as
+    /// garbage — invisible because x86-64 LINK *execution* is not in the
+    /// acceptance oracle (macOS aarch64, where the banks coincide, is). The
+    /// capture must name `c_return(0)`. Asserted at the neutral operand level, so
+    /// it is backend-independent: the two banks are distinct ABI tokens.
+    #[test]
+    fn native_call_result_is_captured_from_c_return_register() {
+        mir::set_backend(&crate::arch::x86_64::backend::X86_64_BACKEND);
+        let function = IrLinkFunction {
+            alias: "lib".to_string(),
+            name: "answer".to_string(),
+            library: "demo".to_string(),
+            symbol: "demo_answer".to_string(),
+            params: vec![("n".to_string(), "Integer".to_string())],
+            return_type: "Integer".to_string(),
+            return_resource: false,
+            return_state_type: None,
+            abi_slots: vec![IrAbiSlot {
+                name: "n".to_string(),
+                ctype: "CInt64".to_string(),
+                direction: crate::ir::AbiDirection::In,
+            }],
+            abi_return_name: "return".to_string(),
+            abi_return_ctype: "CInt64".to_string(),
+            consts: vec![],
+            bind_in: vec![],
+            bind_state: None,
+            bind_state_resource: None,
+            success_on: None,
+            result: None,
+            free: None,
+            buffers: vec![],
+            result_length: None,
+        };
+        let lowered = lower_link_thunk(
+            &function,
+            &[],
+            &HashMap::new(),
+            TEST_THUNK_CONTEXT,
+            &HashSet::new(),
+            false,
+        )
+        .expect("thunk must lower");
+        let blr = lowered
+            .instructions
+            .iter()
+            .position(|i| i.op == CodeOp::BranchLinkRegister)
+            .expect("a LINK thunk calls the native function through blr");
+        let capture = &lowered.instructions[blr + 1];
+        let want = abi::store_u64(abi::c_return(0), abi::stack_pointer(), 0);
+        let wrong = abi::store_u64(abi::return_register(), abi::stack_pointer(), 0);
+        assert_eq!(
+            capture.get("src"),
+            want.get("src"),
+            "the native call's result must be captured from the C-return register (rax on \
+             x86-64), got src {:?}",
+            capture.get("src")
+        );
+        assert_ne!(
+            capture.get("src"),
+            wrong.get("src"),
+            "must not capture the aligned MFB result bank (rdi/SysV, rcx/Win64 on x86-64)"
+        );
+    }
+
+    /// bug-431: a `LINK`-using module lowered for `windows-x86_64` must build its
+    /// load-time initializer on the Win32 loader (`LoadLibraryExA` +
+    /// `GetProcAddress`), NOT the POSIX `dlopen`/`dlsym` pair — Windows has no
+    /// `dlopen`, so the initializer that emits it cannot even bind. A vendored
+    /// library is loaded from the exe-relative `vendor/` directory, so the path is
+    /// built with `GetModuleFileNameA` + `PathRemoveFileSpecA` + `lstrcatA`.
+    #[test]
+    fn windows_link_initializer_uses_win32_loader_not_dlopen() {
+        mir::set_backend(&crate::arch::x86_64::backend::WIN64_BACKEND);
+        let function = IrLinkFunction {
+            alias: "lib".to_string(),
+            name: "answer".to_string(),
+            library: "demo".to_string(),
+            symbol: "demo_answer".to_string(),
+            params: vec![],
+            return_type: "Integer".to_string(),
+            return_resource: false,
+            return_state_type: None,
+            abi_slots: vec![],
+            abi_return_name: "return".to_string(),
+            abi_return_ctype: "CInt64".to_string(),
+            consts: vec![],
+            bind_in: vec![],
+            bind_state: None,
+            bind_state_resource: None,
+            success_on: None,
+            result: None,
+            free: None,
+            buffers: vec![],
+            result_length: None,
+        };
+        // Provide every symbol either code path can reference (the current
+        // `dlopen`/`dlsym` default AND the intended Win32 loader) so the lowering
+        // reaches its emit rather than erroring on a missing import — the test
+        // then asserts on WHICH loader was emitted.
+        let platform_imports: HashMap<String, String> = [
+            ("dlopen", "kernel32.dll"),
+            ("dlsym", "kernel32.dll"),
+            ("LoadLibraryExA", "kernel32.dll"),
+            ("GetProcAddress", "kernel32.dll"),
+            ("GetModuleFileNameA", "kernel32.dll"),
+            ("lstrcatA", "kernel32.dll"),
+            ("PathRemoveFileSpecA", "shlwapi.dll"),
+        ]
+        .iter()
+        .map(|(s, l)| (s.to_string(), l.to_string()))
+        .collect();
+        let libraries = one_vendored_library("demo", "demo-libanswer.dll");
+        let support = emit_link_support(
+            std::slice::from_ref(&function),
+            &[],
+            &HashMap::new(),
+            LinkCodegenOptions {
+                globals_base: 0,
+                max_buffer_bytes: 64 * 1024 * 1024,
+            },
+            &platform_imports,
+            &crate::target::win_x86_64::code::Platform,
+            &libraries,
+            &HashSet::new(),
+        )
+        .expect("Windows LINK support must lower");
+        let initializer = &support.functions[0];
+        let calls = call_targets(initializer);
+        assert!(
+            calls.contains("LoadLibraryExA"),
+            "Windows _mfb_linker_init must load libraries via LoadLibraryExA, got calls: {calls:?}"
+        );
+        assert!(
+            calls.contains("GetProcAddress"),
+            "Windows _mfb_linker_init must resolve symbols via GetProcAddress, got calls: {calls:?}"
+        );
+        assert!(
+            !calls.contains("dlopen") && !calls.contains("dlsym"),
+            "Windows _mfb_linker_init must not call the POSIX dlopen/dlsym (unbindable on \
+             Windows), got calls: {calls:?}"
+        );
+        // A vendored DLL is resolved from the exe-relative `vendor/` directory:
+        // the path is built at load time rather than trusting the default search.
+        assert!(
+            calls.contains("GetModuleFileNameA"),
+            "a vendored Windows LINK library must resolve the exe directory via \
+             GetModuleFileNameA, got calls: {calls:?}"
+        );
     }
 }
