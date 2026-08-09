@@ -229,9 +229,9 @@ END FUNC
 
 ' ----- selector matching + the user-agent default sheet -----
 
-FUNC classListHas(classAttr AS String, name AS String) AS Boolean
-  FOR EACH c IN strings::split(classAttr, " ")
-    IF strings::trim(c) = name THEN RETURN TRUE
+FUNC listHasStr(items AS List OF String, name AS String) AS Boolean
+  FOR EACH c IN items
+    IF c = name THEN RETURN TRUE
   NEXT
   RETURN FALSE
 END FUNC
@@ -239,13 +239,14 @@ END FUNC
 ' Does a single simple selector match this element? Supported: "*", ".class",
 ' "#id", and a bare tag name (case-insensitive). Compound ("div.box") and
 ' descendant ("ul li") selectors do not match yet — they never apply rather than
-' matching wrongly.
-FUNC selectorMatches(sel AS String, tag AS String, attrs AS Map OF String TO String) AS Boolean
+' matching wrongly. `classes` is the element's pre-split class list, computed once
+' per element in resolveOne so the class attribute is not re-split per rule.
+FUNC selectorMatches(sel AS String, tag AS String, classes AS List OF String, attrs AS Map OF String TO String) AS Boolean
   LET s AS String = strings::trim(sel)
   IF s = "" THEN RETURN FALSE
   IF s = "*" THEN RETURN TRUE
   IF strings::startsWith(s, ".") THEN
-    RETURN classListHas(collections::getOr(attrs, "class", ""), strings::mid(s, 1, len(s) - 1))
+    RETURN listHasStr(classes, strings::mid(s, 1, len(s) - 1))
   END IF
   IF strings::startsWith(s, "#") THEN
     RETURN collections::getOr(attrs, "id", "") = strings::mid(s, 1, len(s) - 1)
@@ -274,9 +275,11 @@ END FUNC
 ' The resolved Style for one element: UA default, then each matching rule in
 ' document order, then the inline `style="…"` attribute.
 FUNC resolveOne(tag AS String, attrs AS Map OF String TO String, rules AS List OF StyleNode) AS Style
+  ' Split the class attribute once, not once per class-selector below.
+  LET classes AS List OF String = splitWs(collections::getOr(attrs, "class", ""))
   MUT s AS Style = uaStyle(tag)
   FOR EACH r IN rules
-    IF selectorMatches(r.selector, tag, attrs) THEN
+    IF selectorMatches(r.selector, tag, classes, attrs) THEN
       s = applyDeclarations(s, r.props)
     END IF
   NEXT
