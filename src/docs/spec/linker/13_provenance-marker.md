@@ -74,7 +74,7 @@ size   (u64)   16
 ```
 
 The payload is a 16-byte-aligned region placed after `__DATA` (and after the
-optional `__MFB,__sign` block) and before `__LINKEDIT`, which starts on the next
+optional `__MFB,.mfbsign` block) and before `__LINKEDIT`, which starts on the next
 page. It is a bare file region owned by no `LC_SEGMENT_64`: `LC_NOTE` addresses
 it by file offset, so it needs no mapping. [[src/os/macos/link/macho.rs:macho_layout]]
 
@@ -87,7 +87,7 @@ the signature-length settle still converges (see `macos-aarch64`).
 ## Relationship to executable signing
 
 The marker is additive and orthogonal to the optional MFBASIC executable signing
-metadata (the ELF `.mfb_sign` section / the Mach-O `__MFB,__sign` segment, which
+metadata (the ELF `.mfbsign` section / the Mach-O `__MFB,.mfbsign` segment, which
 appear only when the build supplies `signing_metadata`). Both may be present at
 once, and the marker is emitted whether or not signing metadata is.
 

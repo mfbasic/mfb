@@ -21,7 +21,7 @@ __PAGEZERO     vm 0, size = VM base, no file backing, no access
 __TEXT         RX: Mach-O header + load commands, __text, __stubs
 __DATA_CONST   RW->RO: __got, __mod_init_func, __const (if imports, initializers, or rodata)
 __DATA         RW: __data (program constants + main-arena global) (only if data)
-__MFB          __sign: executable signing metadata (only if signing_metadata)
+__MFB          .mfbsign: executable signing metadata (only if signing_metadata)
 __LINKEDIT     dyld info, symbol/string tables, code signature
 ```
 
@@ -110,7 +110,7 @@ ad-hoc code signature, even for a static, import-free image. The
 The image is encoded once unsigned to compute the hashes, then re-encoded with
 the signature in place. [[src/os/macos/link/commands.rs:code_signature]]
 
-This ad-hoc signature is distinct from the optional `__MFB,__sign` segment, which
+This ad-hoc signature is distinct from the optional `__MFB,.mfbsign` segment, which
 carries MFBASIC's own executable signing metadata when the build supplies it.
 
 ## App-mode bundle

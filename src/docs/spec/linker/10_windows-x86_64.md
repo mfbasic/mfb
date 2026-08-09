@@ -77,12 +77,21 @@ COFF characteristics word:
 .data   0xC000_0040  INITIALIZED_DATA | READ | WRITE program constants + main-arena global
 .idata  0xC000_0040  INITIALIZED_DATA | READ | WRITE import tables (the loader writes the IAT)
 .rsrc   0x4000_0040  INITIALIZED_DATA | READ        app-mode resources (GUI builds only)
+.mfbsign 0x4000_0040 INITIALIZED_DATA | READ        executable signing metadata (only if signing_metadata)
 ```
 
 `.rdata` and `.data` come from one `image.data` blob split at `rodata_size`; they
 are laid out contiguously so a data symbol's RVA is the same whichever partition
 it lands in, and one `data_base_rva` serves both. A program with only writable
 data emits `.data` and no `.rdata`, and vice versa.
+
+When the build supplies executable signing metadata, the linker emits it verbatim
+in a read-only `.mfbsign` section — the same 8-character section name the Linux ELF
+and macOS Mach-O backends use, so one reader can locate the blob across every
+format. It is placed last (after `.rsrc`), so its size shifts no other section's
+RVA, and it gets no data directory: this is MFBASIC's own `mfb-signing-v1` blob,
+not Authenticode. An unsigned build (the common case) omits it entirely.
+[[src/os/windows/link/mod.rs:write_executable]]
 
 ## Imports: `.idata` and the IAT thunk
 
