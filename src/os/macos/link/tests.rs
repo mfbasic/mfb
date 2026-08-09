@@ -322,8 +322,8 @@ fn writes_mfb_sign_section_to_mach_o() {
         .windows(b"__MFB".len())
         .any(|window| window == b"__MFB"));
     assert!(bytes
-        .windows(b"__sign".len())
-        .any(|window| window == b"__sign"));
+        .windows(b".mfbsign".len())
+        .any(|window| window == b".mfbsign"));
     assert!(bytes
         .windows(br#"{"owner":"alice"}"#.len())
         .any(|window| window == br#"{"owner":"alice"}"#));
@@ -399,7 +399,7 @@ fn mach_o_carries_the_mfbasic_provenance_note_inside_the_signed_region() {
 
 /// plan-43 non-goal: the marker is additive and orthogonal to the `--sign`
 /// feature — an image with `signing_metadata` carries both the `LC_NOTE` and the
-/// `__MFB`/`__sign` segment.
+/// `__MFB`/`.mfbsign` segment.
 #[test]
 fn provenance_note_coexists_with_the_mfb_sign_segment() {
     let image = EncodedImage {
@@ -421,8 +421,8 @@ fn provenance_note_coexists_with_the_mfb_sign_segment() {
     assert_eq!(descriptor, mfb_note_descriptor());
     assert!(offset + descriptor.len() <= code_signature_offset(&bytes));
     assert!(bytes
-        .windows(b"__sign".len())
-        .any(|window| window == b"__sign"));
+        .windows(b".mfbsign".len())
+        .any(|window| window == b".mfbsign"));
     assert!(bytes
         .windows(br#"{"owner":"alice"}"#.len())
         .any(|window| window == br#"{"owner":"alice"}"#));
@@ -433,7 +433,7 @@ fn provenance_note_coexists_with_the_mfb_sign_segment() {
 /// lies inside `codeLimit` (a payload past it, or an `LC_NOTE` the two-pass sign
 /// settle sized inconsistently, breaks verification); exit 7 proves dyld still
 /// loads the image and reaches `_main`. Both the plain and the `--sign`
-/// (`__MFB`/`__sign`) shapes, since the marker is orthogonal to that feature.
+/// (`__MFB`/`.mfbsign`) shapes, since the marker is orthogonal to that feature.
 #[cfg(target_os = "macos")]
 #[test]
 fn noted_mach_o_verifies_and_runs() {

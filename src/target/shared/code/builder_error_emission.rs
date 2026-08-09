@@ -351,7 +351,11 @@ impl CodeBuilder<'_> {
             result_slot,
         ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), src_off_slot));
-        self.emit(abi::add_registers(&scratch10, abi::mfb_return(1), &scratch9));
+        self.emit(abi::add_registers(
+            &scratch10,
+            abi::mfb_return(1),
+            &scratch9,
+        ));
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(
             &scratch12,

@@ -141,7 +141,7 @@ mapping is owned by ./mfb spec linker import-selection.
 ## Executable signing metadata
 
 When the build supplies executable signing metadata, the linker emits it as a
-`.mfb_sign` ELF section. Unlike macOS, Linux executables are not otherwise signed
+`.mfbsign` ELF section. Unlike macOS, Linux executables are not otherwise signed
 by the linker.
 
 ## See Also

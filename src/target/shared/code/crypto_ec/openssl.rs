@@ -652,7 +652,11 @@ fn generate(
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RAWBUF));
+    ins.push(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        RAWBUF,
+    ));
     // Bounds-guard the SPKI DER before slicing out the public point. The point sits
     // at the fixed constant-length SPKI prefix; a shorter-than-expected SPKI would
     // otherwise read point_len bytes past the SPKILEN-sized buffer (mirroring the
@@ -1073,7 +1077,11 @@ fn sign(
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), SIGBUF));
+    ins.push(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        SIGBUF,
+    ));
     // EVP_DigestSign(ctx, sig, &siglen, msg, msglen)
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), MDCTX),

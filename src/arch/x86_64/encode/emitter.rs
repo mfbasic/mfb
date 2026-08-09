@@ -1985,12 +1985,12 @@ fn var_shift(instruction: &CodeInstruction, digit: u8) -> Result<Encoded, String
         // which matters when value aliased rcx).
         bytes.extend_from_slice(&enc_mov(scratch, value));
         bytes.extend_from_slice(&enc_mov(1, amount)); // mov rcx, amount
-        // D3 /digit : shift scratch, CL.
+                                                      // D3 /digit : shift scratch, CL.
         bytes.push(rex(true, false, false, scratch >= 8));
         bytes.push(0xD3);
         bytes.push(modrm(0b11, digit, scratch));
         bytes.extend_from_slice(&enc_mov(1, scratch)); // mov rcx, scratch (the result)
-        // pop scratch.
+                                                       // pop scratch.
         if scratch >= 8 {
             bytes.push(rex(false, false, false, true));
         }

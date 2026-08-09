@@ -77,12 +77,28 @@ COFF characteristics word:
 .data   0xC000_0040  INITIALIZED_DATA | READ | WRITE program constants + main-arena global
 .idata  0xC000_0040  INITIALIZED_DATA | READ | WRITE import tables (the loader writes the IAT)
 .rsrc   0x4000_0040  INITIALIZED_DATA | READ        app-mode resources (GUI builds only)
+.mfbnote 0x4000_0040 INITIALIZED_DATA | READ        MFBasic provenance marker (always)
+.mfbsign 0x4000_0040 INITIALIZED_DATA | READ        executable signing metadata (only if signing_metadata)
 ```
 
 `.rdata` and `.data` come from one `image.data` blob split at `rodata_size`; they
 are laid out contiguously so a data symbol's RVA is the same whichever partition
 it lands in, and one `data_base_rva` serves both. A program with only writable
 data emits `.data` and no `.rdata`, and vice versa.
+
+`.mfbnote` is the sole **unconditional** section: it is placed last (after `.rsrc`
+when present) and carries the `MFBasic\0` owner plus the shared 16-byte descriptor
+so every `.exe` is identifiable as MFBASIC-produced. It has no data-directory
+entry. See **./mfb spec linker provenance-marker**.
+
+When the build supplies executable signing metadata, the linker also emits it
+verbatim in a read-only `.mfbsign` section — the same 8-character section name the
+Linux ELF and macOS Mach-O backends use, so one reader can locate the blob across
+every format. It is placed last of all (after `.mfbnote`, so the two trailing
+sections never overlap), so its size shifts no other section's RVA, and it gets no
+data directory: this is MFBASIC's own `mfb-signing-v1` blob, not Authenticode. An
+unsigned build (the common case) omits it entirely.
+[[src/os/windows/link/mod.rs:write_executable]]
 
 ## Imports: `.idata` and the IAT thunk
 
@@ -126,6 +142,29 @@ direct `call rel32` in `.text`; the built-in import surface is function-only
 today, so the data arm exists for completeness. The entry symbol must resolve to
 `.text`. Any other `(binding, kind)` pair, or a `rel32`/thunk displacement outside
 the `±2 GiB` reach, is a hard link error (see **Failure rules**).
+
+## Native `LINK` bindings and vendored DLLs
+
+User `LINK` bindings are **not** ordinary imports (see **Import selection** — they
+are a runtime `dlopen`-style load, not an `.idata` entry, so a missing library is
+a catchable runtime error rather than a load-time start failure). Windows has no
+`dlopen`, so `_mfb_linker_init` uses the Win32 loader: `LoadLibraryExA` in place
+of `dlopen`, `GetProcAddress` in place of `dlsym`. These come from `kernel32.dll`
+(plus `shlwapi.dll` for `PathRemoveFileSpecA`) as ordinary `.idata` imports,
+declared by `win_x86_64::link_imports` only when the program has `LINK` bindings.
+
+Windows also has no rpath, so a **vendored** library is located at run time rather
+than through an image tag. The initializer builds the absolute path
+`<exe_dir>\vendor\<name>` — `GetModuleFileNameA` → `PathRemoveFileSpecA` →
+`lstrcatA "\vendor\"` → `lstrcatA <name>` into a writable scratch buffer
+(`_mfb_linker_win_pathbuf`) — and calls
+`LoadLibraryExA(path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH)`, so the DLL and its
+own dependencies resolve from the exe-relative `build/vendor/` directory. A
+`system` locator is loaded by bare name (`LoadLibraryExA(name, NULL, 0)`, default
+search). The scratch buffer and the `\vendor\` string are emitted only for a build
+that vendors at least one library; a non-vendoring build is byte-identical to one
+predating the feature. See `./mfb spec language native-libraries` for the
+cross-platform vendor-search table. [[src/target/win_x86_64/code.rs:emit_link_dlopen]]
 
 ## Determinism
 

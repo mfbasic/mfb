@@ -547,6 +547,7 @@ from any working directory, and after the whole output directory is moved:
 | linux `--app` | `$ORIGIN/../lib` (`DT_RUNPATH`) | `build/<name>.AppDir/usr/lib/`, and therefore inside the sealed `<name>.AppImage` |
 | macos console | `@loader_path/vendor` (`LC_RPATH`) | `build/vendor/` |
 | macos `--app` | `@executable_path/../Frameworks` (`LC_RPATH`) | `build/<name>.app/Contents/Frameworks/` |
+| windows console | *(no rpath — see below)* | `build/vendor/` |
 
 The two Linux shapes differ by exactly that one string: an app build's executable
 sits at `usr/bin/<name>` inside the AppDir, one directory below its libraries, so
@@ -562,6 +563,21 @@ override it. RPATH is what keeps `dlopen` a bare-filename call with no runtime
 code: the loader resolves it, and the executable's own `DT_RUNPATH`/`LC_RPATH` is
 consulted for a `dlopen` issued from the executable itself, which is where
 `_mfb_linker_init` lives.
+
+**Windows has no rpath**, so the vendor directory is found at run time instead of
+at link time. `_mfb_linker_init` uses the Win32 loader (`LoadLibraryExA` +
+`GetProcAddress`) in place of `dlopen`/`dlsym`, and for a vendored library it
+builds the absolute path `<exe_dir>\vendor\<name>` — `GetModuleFileNameA` to find
+the running executable, `PathRemoveFileSpecA` (shlwapi) to strip the filename,
+then `lstrcatA` to append `\vendor\<name>` — and loads it with
+`LoadLibraryExA(path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH)`, so the DLL and its
+own dependencies resolve from `vendor/` regardless of the working directory. A
+`system` locator is loaded by bare name through the default DLL search
+(`LoadLibraryExA(name, NULL, 0)`); the vendor-path construction runs only for the
+libraries a build actually vendors, so a Windows build that vendors nothing needs
+none of it. This is the run-time analogue of `$ORIGIN/vendor`: the same
+`build/vendor/` layout, reached by constructing the path at load time rather than
+recording it in the image.
 
 Only *resolved* locators are copied — a project vendoring blobs for six targets
 ships one per build. Both Linux libc flavors share the one `build/vendor/`, which

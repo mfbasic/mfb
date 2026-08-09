@@ -36,7 +36,7 @@ static const char *GRID[4][3] = {
 
 static void test_serialize_json(void) {
   JSON_Value *tree = json_parse_string(JSON_TEXT);
-  int reps = 4; /* TODO(plan-64-A): raise to 200 */
+  int reps = 200;
   long long *t = alloc_times();
   long checksum = 0;
   for (int r = 0; r < RUN; r++) {
@@ -57,7 +57,7 @@ static void test_serialize_json(void) {
 }
 
 static void test_serialize_roundtrip(void) {
-  int reps = 4; /* TODO(plan-64-A): raise to 100 */
+  int reps = 100;
   long long *t = alloc_times();
   long checksum = 0;
   for (int r = 0; r < RUN; r++) {
@@ -112,7 +112,7 @@ static size_t csv_stringify(char *out) {
 }
 
 static void test_serialize_csv(void) {
-  int reps = 4; /* TODO(plan-64-A): raise to 200 */
+  int reps = 200;
   char buf[256];
   long long *t = alloc_times();
   long checksum = 0;

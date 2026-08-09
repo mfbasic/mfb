@@ -5,8 +5,30 @@ Effort: small (<1h)
 Severity: LOW
 Class: Correctness / Footgun
 
-Status: Open
-Regression Test: src/os/windows/link/tests.rs (new `provenance_marker_emitted_unconditionally`)
+Status: FIXED (651a1dd3c)
+Regression Test: src/os/windows/link/mod.rs `#[cfg(test)] mod tests`
+(new `provenance_marker_emitted_unconditionally`)
+
+STATUS: FIXED (651a1dd3c fix+test, 1867efce9 spec, 002e3979f test hardening)
+
+The `.mfbnote` section is emitted unconditionally by
+`src/os/windows/link/mod.rs:write_executable` (owner `MFBasic\0` + the shared
+`note.rs` 16-byte descriptor, `SCN_RDATA`, no data directory, placed last).
+End-to-end proof: a real `windows-x86_64` `.exe` built through the CLI carries a
+`.mfbnote` section at RVA 0x9000 whose body is `MFBasic\0` + `MFB1`/v1/0.1.0.
+
+Deviation from the plan — **no Windows goldens were regenerated**. The Blast
+Radius / Phase 3 claim that the marker "shifts the byte output / `NumberOfSections`
+/ `SizeOfImage` of every Windows acceptance fixture — an expected, intended
+regeneration" is **wrong**. The only committed Windows goldens are the
+`tests/byte-identity/*/golden/*.windows-x86_64.ncodesum` codegen checksums, which
+`scripts/artifact-gate.sh` generates *without linking* ("no link/run"). A
+`.mfbnote` section is a linker-stage addition (`write_executable`), downstream of
+codegen, so it cannot change `.ncode`/`.ncodesum`. Verified: `artifact-gate.sh
+collections` = 7/7 goldens byte-identical, 0 diffs. No full linked-image PE golden
+exists anywhere in `tests/`. The only test changes were three hand-written
+`NumberOfSections` assertions in the same module (bumped +1 for the added
+section) — not goldens. Full `cargo test --bin mfb`: 3787 passed.
 
 Every executable the ELF and Mach-O linkers emit carries an **unconditional** vendor
 note (plan-43): the `MFBasic\0` owner plus a versioned 16-byte descriptor from
@@ -147,40 +169,40 @@ Rejected alternatives (do not re-litigate):
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `provenance_marker_emitted_unconditionally` to
+- [x] Add `provenance_marker_emitted_unconditionally` to
       `src/os/windows/link/tests.rs`; confirm it fails.
-- [ ] Confirm the unconditional golden impact: the `.mfbnote` section shifts every
+- [x] Confirm the unconditional golden impact: the `.mfbnote` section shifts every
       Windows acceptance fixture; record the regeneration scope.
 
 Acceptance: the new Windows test fails for the documented reason; the golden scope is
-recorded.
-Commit: —
+recorded (see STATUS deviation — no linked-image goldens exist).
+Commit: 651a1dd3c
 
 ### Phase 2 — the fix
 
-- [ ] `src/os/windows/link/mod.rs`: unconditionally emit the `.mfbnote` section
+- [x] `src/os/windows/link/mod.rs`: unconditionally emit the `.mfbnote` section
       (`MFB_NOTE_OWNER` + `mfb_note_descriptor()` from `src/os/note.rs`; `SCN_RDATA`;
       no data directory), mirroring the `.rsrc` block.
 
 Acceptance: the Windows provenance test passes; the ELF/Mach-O provenance tests still
 pass; ELF/Mach-O output is byte-identical.
-Commit: —
+Commit: 651a1dd3c
 
 ### Phase 3 — docs + regenerate Windows goldens + full validation
 
-- [ ] `13_provenance-marker.md`: add a "PE: `.mfbnote` section" arm; replace "both
+- [x] `13_provenance-marker.md`: add a "PE: `.mfbnote` section" arm; replace "both
       formats" / "either in-tree linker" with "all three in-tree linkers".
       `10_windows-x86_64.md`: document the `.mfbnote` section. Run the spec
       drift-guard tests.
-- [ ] `scripts/artifact-gate.sh`: regenerate the Windows goldens; confirm the delta
+- [x] `scripts/artifact-gate.sh`: regenerate the Windows goldens; confirm the delta
       is exactly the one added section and ELF/Mach-O goldens are untouched.
-- [ ] `cargo test --bin mfb` full suite.
-- [ ] If a Windows/Wine runner is available, confirm a bare `.exe` carries `.mfbnote`
+- [x] `cargo test --bin mfb` full suite.
+- [x] If a Windows/Wine runner is available, confirm a bare `.exe` carries `.mfbnote`
       with `MFBasic\0` (`dumpbin /headers` or a byte-scan).
 
-Acceptance: full suite green; the Windows golden delta is exactly the section
-addition; the reproduction passes.
-Commit: —
+Acceptance: full suite green (3787 passed); no Windows goldens changed (linker-stage
+change is downstream of the codegen artifact-gate); the reproduction passes.
+Commit: 1867efce9 (spec), 002e3979f (test hardening)
 
 ## Validation Plan
 

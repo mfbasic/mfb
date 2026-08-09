@@ -146,7 +146,6 @@ fn realize_abi_operand(
     })
 }
 
-
 /// Map the MECHANICAL residual an already-ABI-realized x86 stream still carries
 /// (plan-85-D — the replacement for the deleted `remap_x86_abi` CFG fixpoint). By
 /// the time this runs, `select_x86` stage 1 has realized every ABI *role*/convention
@@ -480,7 +479,6 @@ mod tests {
         assert_eq!(map_scratch_register(19), "rbp");
         assert_eq!(map_scratch_register(9), "rbx");
     }
-
 
     #[test]
     fn x30_link_register_is_dropped() {

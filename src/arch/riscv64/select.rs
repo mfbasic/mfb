@@ -273,12 +273,23 @@ fn expand_fused(
             // branch jumps away on the no-overflow path — so a `mov dst, t0` after
             // it would be skipped, leaving `dst` undefined.
             vec![
-                CodeInstruction::new("add").field("dst", T0).field("lhs", &lhs).field("rhs", &rhs),
-                CodeInstruction::new("eor").field("dst", T1).field("lhs", &lhs).field("rhs", &rhs),
-                CodeInstruction::new("eor").field("dst", T2).field("lhs", T0).field("rhs", &lhs),
+                CodeInstruction::new("add")
+                    .field("dst", T0)
+                    .field("lhs", &lhs)
+                    .field("rhs", &rhs),
+                CodeInstruction::new("eor")
+                    .field("dst", T1)
+                    .field("lhs", &lhs)
+                    .field("rhs", &rhs),
+                CodeInstruction::new("eor")
+                    .field("dst", T2)
+                    .field("lhs", T0)
+                    .field("rhs", &lhs),
                 ci("mvn", &[("dst", T1), ("src", T1)]),
                 ci("and", &[("dst", T1), ("lhs", T1), ("rhs", T2)]),
-                CodeInstruction::new("mov").field("dst", &dst).field("src", T0),
+                CodeInstruction::new("mov")
+                    .field("dst", &dst)
+                    .field("src", T0),
                 ci(
                     "rv.br",
                     &[
@@ -300,11 +311,22 @@ fn expand_fused(
             let branch_cond = overflow_branch_cond(&cond);
             // Write `dst` before the branch (see the `Adds` case above).
             vec![
-                CodeInstruction::new("sub").field("dst", T0).field("lhs", &lhs).field("rhs", &rhs),
-                CodeInstruction::new("eor").field("dst", T1).field("lhs", &lhs).field("rhs", &rhs),
-                CodeInstruction::new("eor").field("dst", T2).field("lhs", &lhs).field("rhs", T0),
+                CodeInstruction::new("sub")
+                    .field("dst", T0)
+                    .field("lhs", &lhs)
+                    .field("rhs", &rhs),
+                CodeInstruction::new("eor")
+                    .field("dst", T1)
+                    .field("lhs", &lhs)
+                    .field("rhs", &rhs),
+                CodeInstruction::new("eor")
+                    .field("dst", T2)
+                    .field("lhs", &lhs)
+                    .field("rhs", T0),
                 ci("and", &[("dst", T1), ("lhs", T1), ("rhs", T2)]),
-                CodeInstruction::new("mov").field("dst", &dst).field("src", T0),
+                CodeInstruction::new("mov")
+                    .field("dst", &dst)
+                    .field("src", T0),
                 ci(
                     "rv.br",
                     &[

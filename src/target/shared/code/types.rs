@@ -285,6 +285,58 @@ pub(crate) trait CodegenPlatform {
             relocations,
         )
     }
+    /// bug-431: load the native `LINK` library named by the read-only C-string
+    /// data symbol `filename_symbol`, leaving the module handle in
+    /// `return_register()` (0 on failure). `vendored` is true when the resolved
+    /// locator is a vendored copy rather than a `system` soname.
+    ///
+    /// Defaulted to POSIX `dlopen(filename, RTLD_NOW)`; the vendored flag is
+    /// ignored there because the image's rpath (`$ORIGIN/vendor`,
+    /// `@loader_path/vendor`) already steers the loader to the vendored file.
+    /// Windows has no rpath and overrides this to build the exe-relative
+    /// `vendor/` path and call `LoadLibraryExA`.
+    fn emit_link_dlopen(
+        &self,
+        filename_symbol: &str,
+        vendored: bool,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        let _ = vendored;
+        super::link_thunk::emit_posix_dlopen(
+            self,
+            filename_symbol,
+            from,
+            platform_imports,
+            instructions,
+            relocations,
+        )
+    }
+    /// bug-431: resolve the symbol named by the read-only C-string data symbol
+    /// `symbol_symbol` in the library whose handle is in `handle_reg`, leaving the
+    /// address in `return_register()` (0 if absent). Defaulted to POSIX
+    /// `dlsym(handle, name)`; Windows overrides it with `GetProcAddress`.
+    fn emit_link_dlsym(
+        &self,
+        handle_reg: &str,
+        symbol_symbol: &str,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        super::link_thunk::emit_posix_dlsym(
+            self,
+            handle_reg,
+            symbol_symbol,
+            from,
+            platform_imports,
+            instructions,
+            relocations,
+        )
+    }
     /// Whether the program entry receives `argc`/`argv` in `x0`/`x1` (the C
     /// `main` convention — macOS, where libSystem calls `main` via `LC_MAIN`).
     /// A raw Linux ELF entry is JUMPED to with `argc` at `[sp]` and `argv` at

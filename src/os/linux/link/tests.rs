@@ -291,8 +291,8 @@ fn encode_static_elf_x86_appends_signing_section() {
     let meta = br#"{"owner":"bob"}"#;
     let bytes = encode_static_elf_x86(0, &image.text, &image.data, Some(meta));
     assert!(bytes
-        .windows(b".mfb_sign".len())
-        .any(|window| window == b".mfb_sign"));
+        .windows(b".mfbsign".len())
+        .any(|window| window == b".mfbsign"));
     assert!(bytes.windows(meta.len()).any(|window| window == meta));
     // Section header table is now present (e_shoff / e_shnum patched).
     assert_ne!(u64::from_le_bytes(bytes[40..48].try_into().unwrap()), 0);
@@ -612,8 +612,8 @@ fn dynamic_elf_appends_signing_section() {
     )
     .expect("dynamic elf with signing");
     assert!(bytes
-        .windows(b".mfb_sign".len())
-        .any(|window| window == b".mfb_sign"));
+        .windows(b".mfbsign".len())
+        .any(|window| window == b".mfbsign"));
     assert!(bytes
         .windows(br#"{"k":"v"}"#.len())
         .any(|window| window == br#"{"k":"v"}"#));
@@ -907,8 +907,8 @@ fn writes_mfb_sign_section_to_static_elf() {
         .expect("link signed elf");
     let bytes = std::fs::read(path).unwrap();
     assert!(bytes
-        .windows(b".mfb_sign".len())
-        .any(|window| window == b".mfb_sign"));
+        .windows(b".mfbsign".len())
+        .any(|window| window == b".mfbsign"));
     assert!(bytes
         .windows(br#"{"owner":"alice"}"#.len())
         .any(|window| window == br#"{"owner":"alice"}"#));
@@ -1271,7 +1271,7 @@ fn dynamic_elf_carries_the_mfbasic_provenance_note_past_the_interpreter() {
 
 /// plan-43 non-goal: the marker is additive and orthogonal to the `--sign`
 /// feature — an image with `signing_metadata` carries both the note and the
-/// `.mfb_sign` section.
+/// `.mfbsign` section.
 #[test]
 fn provenance_note_coexists_with_the_signing_section() {
     let mut image = glob_dat_image("libc.so.6");
@@ -1298,8 +1298,8 @@ fn provenance_note_coexists_with_the_signing_section() {
             mfb_note_descriptor()
         );
         assert!(bytes
-            .windows(b".mfb_sign".len())
-            .any(|window| window == b".mfb_sign"));
+            .windows(b".mfbsign".len())
+            .any(|window| window == b".mfbsign"));
     }
 }
 
