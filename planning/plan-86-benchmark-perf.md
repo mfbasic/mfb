@@ -284,10 +284,19 @@ The index table above stays as the one-line overview; open a file for the checkl
   rows — `set (State-Dynamic) set` 1723, `list (State-Dynamic) reduce` 2984 — the bug-430 whole-record rebuild
   is exactly this class). Marginal (constant-factor-only) rewrites where the `.mfb` already uses efficient
   native primitives are NOT worth the surface. **Remaining, prioritized:** D2/D3 DEPRIORITIZED (marginal —
-  `.mfb` in-place set already fires). Band-clearers next: **E** (borrow read-only element, dispatch union 160
-  P2 — escape-analysis, scout running), **F** (string case/slice memchr, 48/36 P1/P2), **G** (bounds-check
-  elim, bignum/memo, correctness-critical), **H** (vector inline, 55/30/20 P2). Capped/track: I (regex floor),
-  J (csv borderline), K (COW — defer until copy volume assessed), L (transcendental ceilings; only L1 live).
+  `.mfb` in-place set already fires). **ALL FOUR BAND-CLEARERS ARE NOW FULLY MAPPED with tractable specs +
+  edit points (see each sub-plan doc) — the resume can implement directly:** **E** (borrow read-only element,
+  dispatch union 160 P2 — TRACTABLE big win, rides the existing `aliases_union_variant` no-copy/no-free
+  discipline; UAF if the copy-skip + cleanup-skip aren't gated on the SAME set); **F** (string memchr/word-copy
+  — TRACTABLE near-zero-risk but MARGINAL ~1.3–1.8×, short strings are alloc/call-bound); **G** (bounds-check
+  elim — TRACTABLE but the SAFE cut helps ONLY listchurn, correctness-critical UAF, mandatory negative
+  fixtures; memo/bignum need a bigger symbolic-range pass); **H** (vector inline — H2 relax length/distance
+  gate = tractable, helps vector int; H1 guard-capable normalize = harder, only lever for vector math/float).
+  **Recommended resume order by risk-adjusted ROI: E (big, tractable) → H2 (tractable, vector int) → G-listchurn
+  (careful) → F (marginal, only if cheap) → H1 (harder) → K1 move-elision (`list (Dynamic) copy`).** Capped/
+  track (per plan): I (regex floor), J (csv borderline), K2 (COW — defer), L (transcendental ceilings; only
+  L1 live). The two big wins this session (groupBy, removeKey) confirm: hunt O(container)-copy `.mfb` bodies
+  (the State-Dynamic matrix rows are the next such class).
 - **Sub-plan C: C2 (in-place set `add`) alone retired all 7 P1 rows; C1 (native builders) is unnecessary.**
   The plan ordered C1 (native one-pass builders) first as "biggest" and C2 (in-place add) second. In
   practice the O(n²) was **entirely** the whole-set copy inside `add` — the interpreted
