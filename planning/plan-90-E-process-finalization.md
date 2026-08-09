@@ -159,7 +159,7 @@ Commit: f9cb0bc8d
 Acceptance: acceptance `process*` fixtures pass; byte-identity goldens are
 deterministic across the 4 targets (seed == re-run). **MET** (via rt-behavior +
 byte-identity/process).
-Commit: <goldens commit>
+Commit: e7fdb63d3
 
 ### Phase 3 — riscv64 runtime proof + `.mfp` packaging
 
@@ -172,15 +172,19 @@ Commit: <goldens commit>
 
 Acceptance: the full `process` surface runs correctly on the rv64 remote; the
 `.mfp` carries `process`. **MET** — rv64 outputs match; `process` ships embedded.
-Commit: <goldens commit>
+Commit: e7fdb63d3
 
 ### Phase 4 — Single full artifact-gate
 
-- [ ] `pgrep -f artifact-gate` clear; one `scripts/artifact-gate.sh` over the
-  built targets; root-cause any non-`process` diff.
+- [x] `pgrep -f artifact-gate` clear; ran `scripts/artifact-gate.sh all`.
+  First run surfaced 14 non-`process` diffs (fs/http/thread) — root-caused to
+  plan-90-A's `ErrSpawnFailed` addition to the fs/thread standard-error kitchen
+  sink (see Corrections), NOT re-baselined: regenerated those 14 stale goldens.
+  Definitive re-run: **1206 tests, 1352 builds, 1647 goldens, 0 diff(s).**
 
 Acceptance: `artifact-gate.sh` green; no unexpected non-`process` golden diff.
-Commit: —
+**MET** — `artifact-gate [all]: 1647 golden(s) checked, 0 diff(s)`.
+Commit: <gate commit>
 
 ## Validation Plan
 
@@ -228,6 +232,22 @@ Commit: —
   exitcode, send-grep, send-timeout, sendbytes, receive-lines, receivebytes, poll,
   signal, detach, detach-then-use, drop-reap, spawnenv, spawn-fail-trap), all
   green on the host. Added `tests/byte-identity/process/` for codegen coverage.
+- **fs/http/thread byte-identity churn — root-caused to plan-90-A, NOT
+  re-baselined (Phase 4).** The full gate flagged 14 `.ncode` diffs on the
+  fs/http/thread byte-identity fixtures (non-`process`). Root-cause via a
+  base-vs-HEAD `.ncode` diff at the fork base (`cd69d331f`, a detached worktree
+  where these fixtures PASS): the diff is EXACTLY one added data object,
+  `_mfb_str_error_spawn_failed`, and nothing else. `src/target/shared/code/mod.rs`
+  emits the WHOLE `standard_error_messages()` set for any module using an
+  `_mfb_rt_fs_`/`_mfb_rt_thread_` helper (a "kitchen sink" to avoid dangling
+  relocations — fs programs already emit `audio_device`/`tls_failed` etc. unused).
+  plan-90-A correctly APPENDED `ErrSpawnFailed` to that list (required so a
+  `process` module's ErrSpawnFailed data object resolves via
+  `standard_error_message_symbol`), which legitimately grows every fs/thread
+  program by that one dead-data string — but plan-90-A never regenerated the
+  fs/http/thread byte-identity `.ncodesum` goldens. Regenerated all 14 here (5 fs +
+  5 http + 4 thread, every target). This is a sanctioned, root-caused regen (the
+  diff is precisely the intended string), not a re-baseline to hide a defect.
 - **`.mfp` packaging is N/A for a builtin (Phase 3).** `process` is a built-in
   package (embedded companion `process_package.mfb` via `include_str!`), not a
   distributable consumer package. `sync-package-mfp.sh` only rebuilds package
