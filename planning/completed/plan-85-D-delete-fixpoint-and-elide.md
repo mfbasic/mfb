@@ -239,12 +239,14 @@ citation sweep clean. Commit: (this commit)
       their goldens byte-for-byte via `scripts/p85-sysv-verify.sh`. This is the aligned SysV-x86
       convention running end-to-end. (GTK app-mode is the same shared codegen with a GTK entry;
       the console proof exercises the aligned ABI + fixpoint-free realization it depends on.)
-- [~] **Windows box (2230) is DOWN** (ssh/scp "Connection closed", 2026-08-08) — recorded per
-      plan-71's stance. Best-available Win64 proof: every windows-x86_64 fixture (incl. fs/os)
-      compiles clean under the DEBUG binary (the residual-`x0`-`x8` `debug_assert` never fires,
-      so no unrealized token escapes); `cargo test` exercises the Win64 `realize_abi_operand`/
-      `map_convention_token` arms; Win64 keeps its `rax`-based result bank (the `rcx` shift-count
-      fix). Windows byte-identity is a NON-GOAL. Re-run the Windows suite on 2230 when it returns.
+- [x] **Windows box (2230) EXECUTION-VERIFIED** (came online 2026-08-08). Win64 correctness
+      proven end-to-end (`scripts/p85-win-verify.sh`): arithmetic/record-field, collections×2,
+      bits, math, datetime, os name/executablePath/userName/hasEnv, **fs openFile/close** — all
+      match their goldens. This required Correction **C7** below: the fixpoint deletion initially
+      BROKE Win64 (0 output — a broken arena) because the hand-written `win_x86_64` emitters read
+      Win32-call results through the generic `return_register()` token. Fixed by naming them
+      `c_return` (the whole point of the six-token vocabulary). Windows byte-identity remains a
+      NON-GOAL; correctness is by execution.
 
 **Full-corpus byte-identity gate (`scripts/p85-full-byte-gate.sh`, clean-main `c0c30e70a` vs
 plan-85): linux-aarch64 = ALL 1354 executables BYTE-IDENTICAL; linux-riscv64 = ALL 1352
@@ -276,7 +278,27 @@ byte-identical; Windows box down and recorded. Commit: `838a988f8` + gate logs.
 
 ## Corrections
 
-<Filled in during execution.>
+**C7 (post-completion — the Win64 emitters had to be token-converted too).** Deleting the
+fixpoint and aligning the convention initially left Win64 producing **zero output** (a
+regression undetected because Windows execution was skipped as a byte-identity "non-goal" and
+box 2230 was down). Root cause: the `win_x86_64` HAND-WRITTEN emitters (`emit_write`,
+`emit_arena_map` (VirtualAlloc — the arena, the core cause), `emit_heap_alloc`, `emit_build_argv`,
+`emit_env_get`, `emit_environ_pointer`, `emit_os_wide_string`, the marshal helpers, fs/dir/term
+functions, …) read Win32-call results through the GENERIC `return_register()` token. Under the
+deleted fixpoint that token was context-coloured to the C-return register (`rax`); under direct
+realization it is the aligned MFB result register (`rcx` on Win64), so every Win32 result was
+read from the wrong register. This is EXACTLY the ambiguity the six named tokens remove — the
+sites simply named the wrong one. Fix (this is the plan's own thesis, applied to the win
+emitters): read every Win32 C-result via the explicit `c_return(0)`; keep `%retMFB`/
+`return_register()` for each emitter's own MFB return + its working/scratch/incoming-arg uses;
+where a helper's contract is "returns the result in the return register", explicitly move
+`c_return`→`return_register` at its exit (the sanctioned `%retC`→aligned boundary move, per
+site — NOT a blanket staging pass, which was tried and rejected as it collided with the
+emitters' ABI-token scratch uses). Also aligned Win64 `%retMFB`→`rcx` (§2) and taught the x86
+encoder's `var_shift`/`var_shift_w` to handle a `dst==rcx` variable shift (an aligned result can
+land on rcx; bug-284's blanket rejection is superseded by a correct scratch-based expansion).
+The lesson: **"Windows byte-identity is a non-goal" is about BYTES, not correctness — Windows
+must still be execution-verified.** Recorded in memory ([[windows-byte-identity-is-a-nongoal]]).
 
 ## Summary
 
