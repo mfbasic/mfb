@@ -194,6 +194,7 @@ impl NativeBackend for Backend {
                 "audio.closeInput",
                 "audio.closeOutput",
                 "process.spawn",
+                "process.spawnEnv",
                 "process.shell",
                 "process.pid",
                 "process.isRunning",

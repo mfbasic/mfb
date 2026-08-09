@@ -476,12 +476,14 @@ impl LinuxPlan<'_> {
                 // raw-syscall net write path filters it.
                 let mut imports = [
                     "pipe", "fork", "dup2", "execvp", "close", "waitpid", "kill", "read", "write",
-                    "fcntl", "_exit",
+                    "fcntl", "_exit", "chdir", "setenv", "unsetenv",
                 ]
                 .iter()
                 .map(|base| self.libc_import(base, required_by))
                 .collect::<Vec<_>>();
                 imports.push(self.libc_import("__errno_location", required_by));
+                // `environ` (a data global) is read by spawnEnv's envReplace clear.
+                imports.push(self.libc_import("environ", required_by));
                 imports
             }
             call if crate::builtins::net::is_net_call(call) => {

@@ -1535,6 +1535,19 @@ pub(crate) fn lower_module_for_platform(
     {
         runtime_symbols.push("_mfb_rt_net_net_connectTcpAddr".to_string());
     }
+    // plan-90-A: the 4-arg `spawn(args, cwd, env, envReplace)` overload routes to
+    // `process.spawnEnv`, a synthesized target the NIR never names (it carries only
+    // `process.spawn`), so emit its helper body whenever `spawn` is present —
+    // mirroring `connectTcpAddr`. It shares the process libc imports.
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_process_process_spawn")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_process_process_spawnEnv")
+    {
+        runtime_symbols.push("_mfb_rt_process_process_spawnEnv".to_string());
+    }
     // plan-76-A: the `poll(List OF RES Socket)` overload routes to `net.pollList`,
     // a synthesized target the NIR never names (it carries only `net.poll`), so
     // emit its helper body whenever `poll` is present — mirroring `connectTcpAddr`.
@@ -2260,9 +2273,9 @@ fn lower_runtime_helper(
                     "process.shell" => {
                         process::lower_process_shell_helper(symbol, platform_imports, platform)?
                     }
-                    // "process.spawnEnv" (the cwd+env form) is not yet emitted —
-                    // it falls to the error arm below until plan-90-A implements
-                    // the child-side chdir + environment application.
+                    "process.spawnEnv" => {
+                        process::lower_process_spawnenv_helper(symbol, platform_imports, platform)?
+                    }
                     "process.pid" => {
                         process::lower_process_pid_helper(symbol, platform_imports, platform)?
                     }

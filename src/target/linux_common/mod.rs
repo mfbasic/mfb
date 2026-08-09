@@ -196,6 +196,7 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "audio.closeInput",
     "audio.closeOutput",
     "process.spawn",
+    "process.spawnEnv",
     "process.shell",
     "process.pid",
     "process.isRunning",

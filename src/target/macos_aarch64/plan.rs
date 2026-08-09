@@ -652,7 +652,8 @@ impl plan::NativePlanPlatform for Platform {
                 // so every process helper pulls the shared set.
                 [
                     "_pipe", "_fork", "_dup2", "_execvp", "_close", "_waitpid", "_kill", "_read",
-                    "_write", "_fcntl", "__exit", "___error",
+                    "_write", "_fcntl", "__exit", "___error", "_chdir", "_setenv", "_unsetenv",
+                    "__NSGetEnviron",
                 ]
                 .into_iter()
                 .map(|symbol| PlatformImport {

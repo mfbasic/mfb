@@ -397,6 +397,210 @@ const ERR_P: usize = 24;
 const ERRBUF: usize = 32;
 const SPAWN_LOCAL: usize = 48;
 
+/// Copy `len` bytes from `src` into a freshly arena-allocated NUL-terminated C
+/// string (allocated `len + 1`), returning it in `mfb_return(1)`. Leaves the
+/// result also in the `out` vreg. Runs in the fork child, so the allocation is
+/// never freed (the child execs or _exits). `cnt`/`byte`/`sp`/`dp` are scratch
+/// vregs. `src`/`len` must survive `emit_alloc` (vregs spill).
+#[allow(clippy::too_many_arguments)]
+fn emit_copy_to_cstring(
+    symbol: &str,
+    src: &str,
+    len: &str,
+    out: &str,
+    sp: &str,
+    dp: &str,
+    cnt: &str,
+    byte: &str,
+    loop_label: &str,
+    done_label: &str,
+    alloc_fail: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.extend([
+        abi::add_immediate(abi::return_register(), len, 1),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+    ]);
+    emit_alloc(symbol, instructions, relocations, alloc_fail);
+    instructions.extend([
+        abi::move_register(out, abi::mfb_return(1)),
+        abi::move_register(sp, src),
+        abi::move_register(dp, out),
+        abi::move_immediate(cnt, "Integer", "0"),
+        abi::label(loop_label),
+        abi::compare_registers(cnt, len),
+        abi::branch_eq(done_label),
+        abi::load_u8(byte, sp, 0),
+        abi::store_u8(byte, dp, 0),
+        abi::add_immediate(sp, sp, 1),
+        abi::add_immediate(dp, dp, 1),
+        abi::add_immediate(cnt, cnt, 1),
+        abi::branch(loop_label),
+        abi::label(done_label),
+        abi::store_u8(abi::ZERO, dp, 0),
+    ]);
+}
+
+/// Apply an environment `Map OF String TO String` in the fork child before
+/// `execvp`. When `envreplace` is nonzero, first clear the inherited environment
+/// (portably: `unsetenv` each current `environ` entry's name — `unsetenv` exists
+/// on macOS and Linux, unlike `clearenv`). Then `setenv(name, value, 1)` for each
+/// USED map entry. All C strings are arena-allocated and never freed (the child
+/// execs immediately).
+#[allow(clippy::too_many_arguments)]
+fn emit_child_apply_env(
+    symbol: &str,
+    v: &mut Vregs,
+    map: &str,
+    envreplace: &str,
+    alloc_fail: &str,
+    platform: &dyn CodegenPlatform,
+    platform_imports: &HashMap<String, String>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let map0 = v.next();
+    let ep = v.next();
+    let estr = v.next();
+    let nlen = v.next();
+    let sp = v.next();
+    let dp = v.next();
+    let cnt = v.next();
+    let byte = v.next();
+    let namebuf = v.next();
+    let cap = v.next();
+    let i = v.next();
+    let entry = v.next();
+    let dbase = v.next();
+    let off = v.next();
+    let klen = v.next();
+    let vlen = v.next();
+    let keyc = v.next();
+    let valc = v.next();
+    let flags = v.next();
+
+    // Preserve the map pointer across the environ/unsetenv/setenv libc calls.
+    instructions.push(abi::move_register(&map0, map));
+
+    // --- optional clear ---
+    let no_clear = format!("{symbol}_env_noclear");
+    let clear_loop = format!("{symbol}_env_clear");
+    let clear_done = format!("{symbol}_env_clear_done");
+    let scan_loop = format!("{symbol}_env_scan");
+    let scan_done = format!("{symbol}_env_scan_done");
+    let name_copy = format!("{symbol}_env_name_copy");
+    let name_copy_done = format!("{symbol}_env_name_copy_done");
+    instructions.extend([
+        abi::compare_immediate(envreplace, "0"),
+        abi::branch_eq(&no_clear),
+    ]);
+    platform.emit_environ_pointer(symbol, platform_imports, instructions, relocations)?;
+    instructions.push(abi::move_register(&ep, abi::return_register()));
+    instructions.extend([
+        abi::label(&clear_loop),
+        abi::load_u64(&estr, &ep, 0),
+        abi::compare_immediate(&estr, "0"),
+        abi::branch_eq(&clear_done),
+        // nlen = index of '=' (or NUL) in estr
+        abi::move_register(&sp, &estr),
+        abi::move_immediate(&nlen, "Integer", "0"),
+        abi::label(&scan_loop),
+        abi::load_u8(&byte, &sp, 0),
+        abi::compare_immediate(&byte, "61"), // '='
+        abi::branch_eq(&scan_done),
+        abi::compare_immediate(&byte, "0"),
+        abi::branch_eq(&scan_done),
+        abi::add_immediate(&sp, &sp, 1),
+        abi::add_immediate(&nlen, &nlen, 1),
+        abi::branch(&scan_loop),
+        abi::label(&scan_done),
+    ]);
+    emit_copy_to_cstring(
+        symbol, &estr, &nlen, &namebuf, &sp, &dp, &cnt, &byte, &name_copy,
+        &name_copy_done, alloc_fail, instructions, relocations,
+    );
+    instructions.push(abi::move_register(abi::c_arg(0), &namebuf));
+    platform.emit_libc_call("unsetenv", symbol, platform_imports, instructions, relocations)?;
+    // environ shifted down in place; environ[0] is the next entry. Reload ep in
+    // case the accessor is not stable, then loop.
+    platform.emit_environ_pointer(symbol, platform_imports, instructions, relocations)?;
+    instructions.extend([
+        abi::move_register(&ep, abi::return_register()),
+        abi::branch(&clear_loop),
+        abi::label(&clear_done),
+        abi::label(&no_clear),
+    ]);
+
+    // --- setenv each USED map entry ---
+    let ent_loop = format!("{symbol}_env_ent");
+    let ent_done = format!("{symbol}_env_ent_done");
+    let ent_skip = format!("{symbol}_env_ent_skip");
+    let key_copy = format!("{symbol}_env_key_copy");
+    let key_copy_done = format!("{symbol}_env_key_copy_done");
+    let val_copy = format!("{symbol}_env_val_copy");
+    let val_copy_done = format!("{symbol}_env_val_copy_done");
+    instructions.extend([
+        abi::load_u64(&cap, &map0, LIST_CAP),
+        // dbase = map + HEADER + cap*ENTRY
+        abi::move_immediate(&off, "Integer", &LIST_ENTRY.to_string()),
+        abi::multiply_registers(&dbase, &cap, &off),
+        abi::add_immediate(&dbase, &dbase, LIST_HEADER),
+        abi::add_registers(&dbase, &map0, &dbase),
+        abi::move_immediate(&i, "Integer", "0"),
+        abi::label(&ent_loop),
+        abi::compare_registers(&i, &cap),
+        abi::branch_eq(&ent_done),
+        // entry = map + HEADER + i*ENTRY
+        abi::move_immediate(&off, "Integer", &LIST_ENTRY.to_string()),
+        abi::multiply_registers(&entry, &i, &off),
+        abi::add_immediate(&entry, &entry, LIST_HEADER),
+        abi::add_registers(&entry, &map0, &entry),
+        // skip unused slots (tombstones)
+        abi::load_u8(&flags, &entry, COLLECTION_ENTRY_OFFSET_FLAGS),
+        abi::move_immediate(&byte, "Integer", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+        abi::and_registers(&flags, &flags, &byte),
+        abi::compare_immediate(&flags, "0"),
+        abi::branch_eq(&ent_skip),
+        // key cstr
+        abi::load_u64(&off, &entry, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::add_registers(&sp, &dbase, &off),
+        abi::load_u64(&klen, &entry, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+    ]);
+    emit_copy_to_cstring(
+        symbol, &sp, &klen, &keyc, &dp, &namebuf, &cnt, &byte, &key_copy, &key_copy_done,
+        alloc_fail, instructions, relocations,
+    );
+    instructions.extend([
+        // value cstr — recompute entry (vregs survive, but reload offsets fresh)
+        abi::move_immediate(&off, "Integer", &LIST_ENTRY.to_string()),
+        abi::multiply_registers(&entry, &i, &off),
+        abi::add_immediate(&entry, &entry, LIST_HEADER),
+        abi::add_registers(&entry, &map0, &entry),
+        abi::load_u64(&off, &entry, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::add_registers(&sp, &dbase, &off),
+        abi::load_u64(&vlen, &entry, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+    ]);
+    emit_copy_to_cstring(
+        symbol, &sp, &vlen, &valc, &dp, &namebuf, &cnt, &byte, &val_copy, &val_copy_done,
+        alloc_fail, instructions, relocations,
+    );
+    // setenv(key, value, 1)
+    instructions.extend([
+        abi::move_register(abi::c_arg(0), &keyc),
+        abi::move_register(abi::c_arg(1), &valc),
+        abi::move_immediate(abi::c_arg(2), "Integer", "1"),
+    ]);
+    platform.emit_libc_call("setenv", symbol, platform_imports, instructions, relocations)?;
+    instructions.extend([
+        abi::label(&ent_skip),
+        abi::add_immediate(&i, &i, 1),
+        abi::branch(&ent_loop),
+        abi::label(&ent_done),
+    ]);
+    Ok(())
+}
+
 /// Shared spawn tail: given a fully-built NUL-terminated C `argv` (in the `argv`
 /// vreg), create the three stdio pipes + an O_CLOEXEC self-pipe, fork, and
 /// `execvp` in the child (reporting an exec failure to the parent over the
@@ -410,6 +614,11 @@ fn emit_spawn_tail(
     symbol: &str,
     v: &mut Vregs,
     argv: &str,
+    // Optional child-side setup applied AFTER the dup2/close dance and BEFORE
+    // `execvp`: a working-directory C-string ptr (skipped when its first byte is
+    // NUL, i.e. an empty cwd) and an environment `(map vreg, envReplace vreg)`.
+    cwd: Option<&str>,
+    env: Option<(&str, &str)>,
     alloc_fail: &str,
     fork_fail: &str,
     done: &str,
@@ -522,6 +731,35 @@ fn emit_spawn_tail(
     ] {
         instructions.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), slot));
         platform.emit_libc_call("close", symbol, platform_imports, instructions, relocations)?;
+    }
+    // Child-side working directory + environment, applied before execvp (safe in
+    // the single-threaded fork child). A chdir/env failure is best-effort: the
+    // subsequent execvp still runs and any real failure surfaces via the
+    // self-pipe as ErrSpawnFailed.
+    if let Some(cwd) = cwd {
+        let skip_chdir = format!("{symbol}_skip_chdir");
+        let byte = v.next();
+        instructions.extend([
+            abi::load_u8(&byte, cwd, 0),
+            abi::compare_immediate(&byte, "0"),
+            abi::branch_eq(&skip_chdir),
+            abi::move_register(abi::c_arg(0), cwd),
+        ]);
+        platform.emit_libc_call("chdir", symbol, platform_imports, instructions, relocations)?;
+        instructions.push(abi::label(&skip_chdir));
+    }
+    if let Some((map, envreplace)) = env {
+        emit_child_apply_env(
+            symbol,
+            v,
+            map,
+            envreplace,
+            alloc_fail,
+            platform,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
     }
     instructions.extend([
         abi::load_u64(abi::c_arg(0), argv, 0),
@@ -668,6 +906,8 @@ pub(in crate::target::shared::code) fn lower_process_spawn_helper(
         symbol,
         &mut v,
         &argv,
+        None,
+        None,
         &alloc_fail,
         &fork_fail,
         &done,
@@ -794,6 +1034,8 @@ pub(in crate::target::shared::code) fn lower_process_shell_helper(
         symbol,
         &mut v,
         &argv,
+        None,
+        None,
         &alloc_fail,
         &fork_fail,
         &done,
@@ -807,6 +1049,179 @@ pub(in crate::target::shared::code) fn lower_process_shell_helper(
         symbol,
         ERR_SPAWN_FAILED_CODE,
         ERR_SPAWN_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&alloc_fail));
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LOCAL);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+// ---------------------------------------------------------------------------
+// process.spawnEnv — the full spawn(args, cwd, env, envReplace) form. Builds the
+// C argv from `args` and a cwd C-string from `cwd`, then runs the shared tail
+// with child-side chdir + environment application (setenv per entry; the whole
+// inherited environment cleared first when envReplace is true).
+// ---------------------------------------------------------------------------
+pub(in crate::target::shared::code) fn lower_process_spawnenv_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    const LOCAL: usize = SPAWN_LOCAL;
+    let mut v = Vregs::new();
+    let args = v.next();
+    let cwd_str = v.next();
+    let env_map = v.next();
+    let envrep = v.next();
+    let cwdptr = v.next();
+    let cwdlen = v.next();
+    let cwdcstr = v.next();
+    let n = v.next();
+    let cap = v.next();
+    let dbase = v.next();
+    let argv = v.next();
+    let i = v.next();
+    let entry = v.next();
+    let vlen = v.next();
+    let srcp = v.next();
+    let dstp = v.next();
+    let cstr = v.next();
+    let j = v.next();
+    let byte = v.next();
+    let tmp = v.next();
+    let sp = v.next();
+    let dp = v.next();
+    let cnt = v.next();
+
+    let invalid = format!("{symbol}_invalid_args");
+    let alloc_fail = format!("{symbol}_alloc_fail");
+    let cwd_copy = format!("{symbol}_cwd_copy");
+    let cwd_copy_done = format!("{symbol}_cwd_copy_done");
+    let build_loop = format!("{symbol}_argv_loop");
+    let build_done = format!("{symbol}_argv_done");
+    let copy_loop = format!("{symbol}_copy_loop");
+    let copy_done = format!("{symbol}_copy_done");
+    let fork_fail = format!("{symbol}_fork_fail");
+    let done = format!("{symbol}_done");
+
+    // Capture the four arguments (x0..x3) before any clobbering libc call.
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&args, abi::return_register()),
+        abi::move_register(&cwd_str, abi::c_arg(1)),
+        abi::move_register(&env_map, abi::c_arg(2)),
+        abi::move_register(&envrep, abi::c_arg(3)),
+        abi::load_u64(&n, &args, LIST_COUNT),
+        abi::compare_immediate(&n, "0"),
+        abi::branch_eq(&invalid),
+    ];
+    let mut relocations = Vec::new();
+    // cwd C string (empty cwd → "\0", whose leading NUL makes the child skip chdir).
+    instructions.extend([
+        abi::add_immediate(&cwdptr, &cwd_str, 8),
+        abi::load_u64(&cwdlen, &cwd_str, 0),
+    ]);
+    emit_copy_to_cstring(
+        symbol, &cwdptr, &cwdlen, &cwdcstr, &sp, &dp, &cnt, &byte, &cwd_copy, &cwd_copy_done,
+        &alloc_fail, &mut instructions, &mut relocations,
+    );
+    // Build argv from the args list (same entry-array walk as spawn).
+    instructions.extend([
+        abi::load_u64(&cap, &args, LIST_CAP),
+        abi::move_immediate(&tmp, "Integer", &LIST_ENTRY.to_string()),
+        abi::multiply_registers(&cap, &cap, &tmp),
+        abi::add_immediate(&cap, &cap, LIST_HEADER),
+        abi::add_registers(&dbase, &args, &cap),
+        abi::add_immediate(&tmp, &n, 1),
+        abi::move_immediate(&byte, "Integer", "8"),
+        abi::multiply_registers(&tmp, &tmp, &byte),
+        abi::move_register(abi::return_register(), &tmp),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    instructions.extend([
+        abi::move_register(&argv, abi::mfb_return(1)),
+        abi::move_immediate(&i, "Integer", "0"),
+        abi::label(&build_loop),
+        abi::compare_registers(&i, &n),
+        abi::branch_eq(&build_done),
+        abi::move_immediate(&tmp, "Integer", &LIST_ENTRY.to_string()),
+        abi::multiply_registers(&entry, &i, &tmp),
+        abi::add_immediate(&entry, &entry, LIST_HEADER),
+        abi::add_registers(&entry, &args, &entry),
+        abi::load_u64(&srcp, &entry, ENTRY_VOFF),
+        abi::add_registers(&srcp, &dbase, &srcp),
+        abi::load_u64(&vlen, &entry, ENTRY_VLEN),
+        abi::add_immediate(abi::return_register(), &vlen, 1),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+    ]);
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    instructions.extend([
+        abi::move_register(&cstr, abi::mfb_return(1)),
+        abi::move_immediate(&tmp, "Integer", "8"),
+        abi::multiply_registers(&tmp, &i, &tmp),
+        abi::add_registers(&tmp, &argv, &tmp),
+        abi::store_u64(&cstr, &tmp, 0),
+        abi::move_register(&dstp, &cstr),
+        abi::move_immediate(&j, "Integer", "0"),
+        abi::label(&copy_loop),
+        abi::compare_registers(&j, &vlen),
+        abi::branch_eq(&copy_done),
+        abi::load_u8(&byte, &srcp, 0),
+        abi::store_u8(&byte, &dstp, 0),
+        abi::add_immediate(&srcp, &srcp, 1),
+        abi::add_immediate(&dstp, &dstp, 1),
+        abi::add_immediate(&j, &j, 1),
+        abi::branch(&copy_loop),
+        abi::label(&copy_done),
+        abi::store_u8(abi::ZERO, &dstp, 0),
+        abi::add_immediate(&i, &i, 1),
+        abi::branch(&build_loop),
+        abi::label(&build_done),
+        abi::move_immediate(&tmp, "Integer", "8"),
+        abi::multiply_registers(&tmp, &n, &tmp),
+        abi::add_registers(&tmp, &argv, &tmp),
+        abi::store_u64(abi::ZERO, &tmp, 0),
+    ]);
+    emit_spawn_tail(
+        symbol,
+        &mut v,
+        &argv,
+        Some(&cwdcstr),
+        Some((&env_map, &envrep)),
+        &alloc_fail,
+        &fork_fail,
+        &done,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.push(abi::label(&fork_fail));
+    emit_fail(
+        symbol,
+        ERR_SPAWN_FAILED_CODE,
+        ERR_SPAWN_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&invalid));
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
         &mut instructions,
         &mut relocations,
         &done,
