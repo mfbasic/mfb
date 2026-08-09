@@ -242,7 +242,7 @@ The mechanism/root-cause detail, the **fixes checklist (`[ ]`/`[x]`)**, per-sub-
 Corrections now live in one file per sub-plan (each independently landable and `/follow-plan`-trackable).
 The index table above stays as the one-line overview; open a file for the checklist:
 
-- **A** → [plan-86-A-string-native-lowering.md](plan-86-A-string-native-lowering.md) — partition/sortBy/sort/flatten **DONE**; window/chunks/groupBy/zip/findLastIndex open
+- **A** → [plan-86-A-string-native-lowering.md](plan-86-A-string-native-lowering.md) — partition/sortBy/sort/flatten/**findLastIndex**(P3 clear)/**chunks**/**window**/**zip** DONE (chunks/window/zip marginal/capped, not G1 clears); **groupBy** open (the biggest remaining A win — O(bucket) map-churn in the `.mfb`, NOT marginal)
 - **B** → [plan-86-B-reduce-accumulator.md](plan-86-B-reduce-accumulator.md) — **DONE** (B1+B2; B3 → K)
 - **C** → [plan-86-C-set-algebra.md](plan-86-C-set-algebra.md) — **DONE** (C2 in-place add retired all 7 P1; C1 moot)
 - **D** → [plan-86-D-map-ops.md](plan-86-D-map-ops.md) — open (D1 removeKey / D2 mapValues / D3 merge)
