@@ -3767,32 +3767,46 @@ impl CodeBuilder<'_> {
         self.emit(abi::multiply_registers(&off, &i, &off));
         self.emit(abi::add_registers(&entry, &entry, &off));
         self.emit_collection_data_pointer_for(&bdata, &bptr, &element);
-        // value (fixed-width): v = [bdata + entry.VALUE_OFFSET], stored raw.
-        self.emit(abi::load_u64(
-            &off,
-            &entry,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
+        // Stash key/value byte-address + length to slots BEFORE any materialize:
+        // `emit_materialize_string_from_bytes` clobbers caller-saved / entry / bdata,
+        // and both a String value and the (always-String) key need one. b stores
+        // keys/String-values as RAW bytes at KEY/VALUE_OFFSET with the length in
+        // entry.KEY/VALUE_LENGTH, but `set_in_place` wants a length-prefixed String
+        // value ({length@0, bytes@8}) — so each is rebuilt from (bytes, length).
+        let kaddr_slot = self.allocate_stack_object("merge_kaddr", 8);
+        let klen_slot = self.allocate_stack_object("merge_klen", 8);
+        let vaddr_slot = self.allocate_stack_object("merge_vaddr", 8);
+        let vlen_slot = self.allocate_stack_object("merge_vlen", 8);
+        self.emit(abi::load_u64(&off, &entry, COLLECTION_ENTRY_OFFSET_KEY_OFFSET));
         self.emit(abi::add_registers(&addr, &bdata, &off));
-        self.emit(abi::load_u64(&v, &addr, 0));
-        self.emit(abi::store_u64(&v, abi::stack_pointer(), value_slot));
-        // key: b stores keys as RAW bytes at KEY_OFFSET with the length in
-        // entry.KEY_LENGTH, but `set_in_place` expects a length-prefixed String
-        // value ({length@0, bytes@8}) — materialize one from (bytes, length). This
-        // is the per-key cost, far below the geometric grow it replaces.
-        let klen = self.temporary_vreg();
-        self.emit(abi::load_u64(
-            &off,
-            &entry,
-            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-        ));
+        self.emit(abi::store_u64(&addr, abi::stack_pointer(), kaddr_slot));
+        self.emit(abi::load_u64(&off, &entry, COLLECTION_ENTRY_OFFSET_KEY_LENGTH));
+        self.emit(abi::store_u64(&off, abi::stack_pointer(), klen_slot));
+        self.emit(abi::load_u64(&off, &entry, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET));
         self.emit(abi::add_registers(&addr, &bdata, &off));
-        self.emit(abi::load_u64(
-            &klen,
-            &entry,
-            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-        ));
-        let key_str = self.emit_materialize_string_from_bytes(&addr, &klen)?;
+        self.emit(abi::store_u64(&addr, abi::stack_pointer(), vaddr_slot));
+        self.emit(abi::load_u64(&off, &entry, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH));
+        self.emit(abi::store_u64(&off, abi::stack_pointer(), vlen_slot));
+        // value: String -> materialize length-prefixed; fixed-width -> load 8 bytes.
+        if value_type == "String" {
+            let va = self.temporary_vreg();
+            let vl = self.temporary_vreg();
+            self.emit(abi::load_u64(&va, abi::stack_pointer(), vaddr_slot));
+            self.emit(abi::load_u64(&vl, abi::stack_pointer(), vlen_slot));
+            let val_str = self.emit_materialize_string_from_bytes(&va, &vl)?;
+            self.emit(abi::store_u64(&val_str, abi::stack_pointer(), value_slot));
+        } else {
+            let va = self.temporary_vreg();
+            self.emit(abi::load_u64(&va, abi::stack_pointer(), vaddr_slot));
+            self.emit(abi::load_u64(&v, &va, 0));
+            self.emit(abi::store_u64(&v, abi::stack_pointer(), value_slot));
+        }
+        // key (always String): materialize length-prefixed from (bytes, KEY_LENGTH).
+        let ka = self.temporary_vreg();
+        let kl = self.temporary_vreg();
+        self.emit(abi::load_u64(&ka, abi::stack_pointer(), kaddr_slot));
+        self.emit(abi::load_u64(&kl, abi::stack_pointer(), klen_slot));
+        let key_str = self.emit_materialize_string_from_bytes(&ka, &kl)?;
         self.emit(abi::store_u64(&key_str, abi::stack_pointer(), key_slot));
         self.lower_map_set_in_place(
             result_slot,

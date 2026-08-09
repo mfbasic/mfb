@@ -36,5 +36,16 @@ FUNC main() AS Integer
   LET ma AS Map OF String TO Integer = collections::merge(empty, a, TRUE)
   io::print("emptyB=" & toString(sumv(me)) & " emptyA=" & toString(sumv(ma)))
   io::print("a-sum=" & toString(sumv(a)) & " b-sum=" & toString(sumv(b)))
+  ' String-VALUE merge (native too): b overwrites on TRUE, a wins on FALSE fallback.
+  MUT sa AS Map OF String TO String = Map OF String TO String {}
+  sa = collections::set(sa, "x", "ax")
+  sa = collections::set(sa, "y", "ay")
+  MUT sb AS Map OF String TO String = Map OF String TO String {}
+  sb = collections::set(sb, "y", "by-longer")
+  sb = collections::set(sb, "z", "bz")
+  LET st AS Map OF String TO String = collections::merge(sa, sb, TRUE)
+  io::print("strT n=" & toString(len(collections::keys(st))) & " y=" & collections::get(st, "y") & " z=" & collections::get(st, "z"))
+  LET sf AS Map OF String TO String = collections::merge(sa, sb, FALSE)
+  io::print("strF y=" & collections::get(sf, "y") & " sa-y=" & collections::get(sa, "y"))
   RETURN 0
 END FUNC

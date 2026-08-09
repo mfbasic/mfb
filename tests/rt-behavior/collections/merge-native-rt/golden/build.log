@@ -10,4 +10,6 @@ trueN=25 sum=19605 k17=1700 k24=2400
 falseN=25 sum=11190 k17=17
 emptyB=190 emptyA=190
 a-sum=190 b-sum=19500
+strT n=3 y=by-longer z=bz
+strF y=ay sa-y=ay
 [exit 0]

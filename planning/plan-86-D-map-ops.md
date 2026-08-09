@@ -102,7 +102,13 @@ removeKey matrix rows (`map (State-Dynamic) removeKey` 62.6, `State-Fixed` 17.3)
   geometric grow it replaces). Verified correct: fixture `merge-native-rt` (b-overwrites-on-TRUE / a-wins-on-
   FALSE-fallback / disjoint / empty-a / empty-b / **inputs unchanged = value semantics**; trueN=25 sum=19605
   k17=1700, falseN sum=11190 k17=17) + 3776 unit tests green + full artifact-gate 0 diffs. Commit: `73c380cf8`.
-  Original analysis (kept):
+  **Follow-up — extended the native path to String VALUES** (`$String$String`): the value is materialized as a
+  length-prefixed String from `(bdata+VALUE_OFFSET, entry.VALUE_LENGTH)` via `emit_materialize_string_from_bytes`
+  (same as the key), branched on `value_type == "String"` in `lower_collection_merge_call`, gate relaxed to add
+  `String`. Helps `map str_ops` (a `Map OF String TO String` merge, was the .mfb copy-then-insert slow path):
+  **5.77 → 5.47 ms** (~0.3ms; the merge there is 200+50, smaller than iterate's 1000+10, so a smaller cut —
+  stays P1). Verified (fixture `merge-native-rt` String-VALUE cases: strT y=by-longer overwrites with a longer
+  value, strF a-wins fallback, sa unchanged). Commit: `<pending-D3s>`. Original analysis (kept):
   **MEASURED ~5ms of a P1 row; the earlier "base copy inherent → marginal" note was an UNMEASURED assumption
   and is WRONG.** Decomposed `mapchurn iterate` (14.4ms) this session by editing the benchmark's
   merge line (release `--run 10`, box-local): remove the whole merge line → **5.2ms** (so merge+its `keys(mg)`

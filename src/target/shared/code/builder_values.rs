@@ -853,7 +853,7 @@ impl CodeBuilder<'_> {
                         );
                         let ok = parts.len() == 2
                             && parts[0] == "String"
-                            && matches!(parts[1], "Integer" | "Float" | "Fixed" | "Money")
+                            && matches!(parts[1], "Integer" | "Float" | "Fixed" | "Money" | "String")
                             && prefer_true;
                         if ok {
                             return self.lower_collection_merge_call(args);
