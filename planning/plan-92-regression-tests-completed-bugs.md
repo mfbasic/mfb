@@ -215,7 +215,7 @@ fix, per the per-bug workflow. The evidence names the fixed file/behavior.
 - [ ] **bug-379** (materialize-result-ok-block-leak) — Fix commit f2758d3fa (free the intermediate copied_success block on the OK Result materialization path) touched only builder_arena_transfer.rs and builder_er...
 - [ ] **bug-383** (linux-x86_64-thread-trampoline-stack-misalignment) — Fix confirmed in src/target/shared/code/runtime_helpers.rs (needs_realign = platform.arch() == "x86_64", extending the +8 trampoline realignment to linux-x86...
 - [ ] **bug-384** (win64-external-call-over-4-args) — no dedicated test; fix touched only src net helpers; manual Win11 verification
-- [ ] **sec-3** (macos-confstr-tempdir-overread) — doc admits no assertion exercises the clamp; fs suite staying green only
+- [x] **sec-3** (macos-confstr-tempdir-overread) — Added `tests/rt_fs_temp_directory_clamp.rs` (codegen-inspection, Design §3 shape #4): builds a `fs::tempDirectory()` program, dumps `-ncode`, and asserts `_mfb_rt_fs_fs_tempDirectory` carries the clamp seam `cmp x0,4096` → `b.le …_temp_len_clamped` → `mov x0,4096` before the length drives the String alloc. GREEN via `cargo test --release --test rt_fs_temp_directory_clamp`. RED proof: removed the clamp seam (src/target/shared/code/fs/paths.rs:400-406), rebuilt release → test fails ("has no `…_temp_len_clamped` clamp seam … used unclamped"). Restored. (The >4096 confstr return is not producible on the dev host, so the over-read is codegen-only observable.)
 
 Acceptance: for each ticked bug, a `tests/*` test exists, is discovered by
 `test-accept.sh` (or `cargo test` for a `.rs` test), passes with the fix, and was
