@@ -1,12 +1,15 @@
 ' dom/layout — compute each element's flex geometry from its resolved Style.
 '
-' After resolveStyles() has filled every ElementNode.style, updateLayout(doc, w)
-' walks the tree and fills each ElementNode.layout: an absolute box (x, y, width,
-' height in terminal cells, measured from the viewport's top-left) laid out by a
-' single flex primitive. Every box is flex: display:flex uses its flex-direction;
-' display:block is a flex column; display:inline is a flex row; display:none is
-' removed (a zero box). Layout depends on the viewport width, so it is recomputed
-' on each render/resize rather than stored once by the worker.
+' After resolveStyles() has filled every ElementNode.style, updateLayout(doc, w, m)
+' walks the tree and fills each ElementNode.layout (and each TextNode.layout): an
+' absolute box (x, y, width, height in output cells from the viewport's top-left).
+' A display:flex box uses flex layout along its flex-direction; every other box
+' uses block formatting (block children stack, inline children flow into wrapped
+' runs); display:none is a zero box. Style lengths are authored in CSS px; the
+' Metrics `m` maps px to cells (1:1 for a pixel canvas, scaled down for a text
+' terminal), so the pass first rewrites the styles into cell space. Layout depends
+' on the viewport width and the metric, so it is recomputed on each render/resize
+' rather than stored once by the worker.
 '
 ' Like resolve, this lives in dom so it can recurse over dom's OWN Node union
 ' (native lowering is fine inside the defining package); a consumer that imported
@@ -41,6 +44,113 @@ END TYPE
 ' resolution leave every element here; updateLayout fills it in.
 EXPORT FUNC zeroLayout() AS Layout
   RETURN Layout[0, 0, 0, 0]
+END FUNC
+
+' How CSS pixels map to output cells. Style lengths are authored in device-
+' independent CSS px; a target supplies scaleX / scaleY = output cells PER CSS px
+' so the same stylesheet lays out on any device. A pixel canvas is 1:1; a text
+' terminal has a wide, tall cell (~8x16 px) so it scales down, and asymmetrically
+' because a cell is taller than it is wide. `fitWidth` is a caller policy: when TRUE
+' an explicit width wider than the viewport is treated as auto (fill) so a desktop-
+' width page reflows to the terminal; when FALSE the width is kept and the overflow
+' is left for the viewer to scroll to. Text is measured in cells (glyph columns),
+' not px, so the scale applies only to the authored box lengths.
+EXPORT TYPE Metrics
+  scaleX AS Float
+  scaleY AS Float
+  fitWidth AS Boolean
+END TYPE
+
+' A 1:1 pixel canvas: one CSS px is one cell, no width fitting.
+EXPORT FUNC pixelMetrics() AS Metrics
+  RETURN Metrics[1.0, 1.0, FALSE]
+END FUNC
+
+' A text terminal: a ~8x16 px monospace cell, fitting over-wide pages to the
+' viewport (there is no horizontal scrolling yet).
+EXPORT FUNC terminalMetrics() AS Metrics
+  RETURN Metrics[0.125, 0.0625, TRUE]
+END FUNC
+
+' A custom metric: scaleX / scaleY are output cells per CSS px.
+EXPORT FUNC metrics(scaleX AS Float, scaleY AS Float, fitWidth AS Boolean) AS Metrics
+  RETURN Metrics[scaleX, scaleY, fitWidth]
+END FUNC
+
+' Round a Float to the nearest Integer (half away from zero for non-negative
+' inputs, which is all the lengths here after they are clamped to >= 0).
+FUNC roundF(f AS Float) AS Integer
+  IF f < 0.0 THEN RETURN 0
+  RETURN toInt(f + 0.5)
+END FUNC
+
+' Scale a CSS px length to cells along each axis. The *Auto variants pass the -1
+' "auto" sentinel through unscaled so it keeps its meaning.
+FUNC scaleX(px AS Integer, m AS Metrics) AS Integer
+  RETURN roundF(toFloat(px) * m.scaleX)
+END FUNC
+
+FUNC scaleY(px AS Integer, m AS Metrics) AS Integer
+  RETURN roundF(toFloat(px) * m.scaleY)
+END FUNC
+
+FUNC scaleXAuto(px AS Integer, m AS Metrics) AS Integer
+  IF px < 0 THEN RETURN px
+  RETURN scaleX(px, m)
+END FUNC
+
+FUNC scaleYAuto(px AS Integer, m AS Metrics) AS Integer
+  IF px < 0 THEN RETURN px
+  RETURN scaleY(px, m)
+END FUNC
+
+' Convert one element's Style from CSS px to output cells: width/height and each
+' box-model length scale by the axis they run along, gap by the container's main
+' axis, and flex-basis by the main axis (it is only ever consumed as a row main
+' size here). flex-grow/shrink are unitless. With fitWidth, an explicit width that
+' would exceed the viewport becomes auto so the box fills the available space
+' instead of overflowing. Padding/margin -1 (auto) collapses to 0 as it does at
+' layout, so it is scaled directly.
+FUNC scaleStyle(st AS Style, viewportCols AS Integer, m AS Metrics) AS Style
+  LET colGap AS Boolean = st.display = Display.Flex AND (st.direction = FlexDirection.Column OR st.direction = FlexDirection.ColumnReverse)
+  MUT w AS Integer = st.width
+  IF w >= 0 THEN
+    w = scaleX(w, m)
+    IF m.fitWidth AND w > viewportCols THEN w = -1
+  END IF
+  MUT s AS Style = st
+  s = WITH s { width := w }
+  s = WITH s { height := scaleYAuto(st.height, m) }
+  s = WITH s { flexBasis := scaleXAuto(st.flexBasis, m) }
+  s = WITH s { paddingLeft := scaleX(st.paddingLeft, m) }
+  s = WITH s { paddingRight := scaleX(st.paddingRight, m) }
+  s = WITH s { paddingTop := scaleY(st.paddingTop, m) }
+  s = WITH s { paddingBottom := scaleY(st.paddingBottom, m) }
+  s = WITH s { marginLeft := scaleX(st.marginLeft, m) }
+  s = WITH s { marginRight := scaleX(st.marginRight, m) }
+  s = WITH s { marginTop := scaleY(st.marginTop, m) }
+  s = WITH s { marginBottom := scaleY(st.marginBottom, m) }
+  IF colGap THEN
+    s = WITH s { gap := scaleY(st.gap, m) }
+  ELSE
+    s = WITH s { gap := scaleX(st.gap, m) }
+  END IF
+  RETURN s
+END FUNC
+
+' Rewrite every element's Style from CSS px to output cells before layout. Recurses
+' over dom's own Node union (native inside dom). Text nodes are unchanged.
+FUNC scaleTree(n AS Node, viewportCols AS Integer, m AS Metrics) AS Node
+  MATCH n
+    CASE ElementNode(e)
+      MUT kids AS List OF Node = []
+      FOR EACH c IN e.children
+        kids = collections::append(kids, scaleTree(c, viewportCols, m))
+      NEXT
+      RETURN elementStyled(e.tag, e.attrs, kids, scaleStyle(e.style, viewportCols, m))
+    CASE ELSE
+      RETURN n
+  END MATCH
 END FUNC
 
 ' ----- internal results ---------------------------------------------------------
@@ -545,9 +655,12 @@ FUNC layoutNode(n AS Node, x AS Integer, y AS Integer, availW AS Integer, impose
 END FUNC
 
 ' Fill in every ElementNode.layout across the document by laying the tree out to
-' `viewportWidth` columns. Call after resolveStyles(); re-call when the width
-' changes. Returns the rebuilt document (records are immutable).
-EXPORT FUNC updateLayout(doc AS Node, viewportWidth AS Integer) AS Node
-  LET r AS Sized = layoutNode(doc, 0, 0, maxI(0, viewportWidth), FALSE)
+' `viewportWidth` cells under the metric `m` (which maps the styles' CSS px to
+' cells). Call after resolveStyles(); re-call when the width or metric changes.
+' Returns the rebuilt document (records are immutable).
+EXPORT FUNC updateLayout(doc AS Node, viewportWidth AS Integer, m AS Metrics) AS Node
+  LET vp AS Integer = maxI(0, viewportWidth)
+  LET scaled AS Node = scaleTree(doc, vp, m)
+  LET r AS Sized = layoutNode(scaled, 0, 0, vp, FALSE)
   RETURN r.node
 END FUNC

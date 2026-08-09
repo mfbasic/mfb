@@ -127,8 +127,9 @@ recursing over an *imported* union):
 
 - **`Style`** (`style.mfb`) is the CSS a single element resolves to — a closed
   record with one typed field per supported property (a `Display` / `FlexDirection`
-  / `FlexWrap` / `Justify` / `Align` enum, or an Integer length in terminal cells,
-  with `-1` meaning `auto`), not an open string bag. `dom::resolveStyles(doc)`
+  / `FlexWrap` / `Justify` / `Align` enum, or an Integer length in **device-
+  independent CSS px**, with `-1` meaning `auto`), not an open string bag.
+  `dom::resolveStyles(doc)`
   (`resolve.mfb`) walks the tree and for each element applies the user-agent default
   for its tag, then every matching `StyleNode` rule in document order, then the
   inline `style="…"` attribute. Layout properties do not inherit, so each element
@@ -136,24 +137,32 @@ recursing over an *imported* union):
   runs this once, on its thread, so the fully-styled document is what crosses back.
 
 - **`Layout`** (`layout.mfb`) is the computed geometry: an absolute border box
-  (`x, y, width, height` in cells, from the viewport's top-left), stored on every
-  `ElementNode` *and* every `TextNode` (a text run's box is where it wraps).
-  `dom::updateLayout(doc, width)` derives it from `Style`. A `display:flex` box uses
-  flex layout along its `flex-direction` (honoring `flex-grow`/`shrink`/`basis`,
-  `width`/`height`, `gap`, and `justify-content`); every other box uses **block
-  formatting** — block-level children (`display:block`/`flex`) stack vertically,
-  while consecutive **inline-level** children (text and inline elements like
-  `<a>`/`<b>`/`<em>`) flow *together* into one wrapped run, so a paragraph's inline
-  markup does not break onto separate lines. Vertical spacing between blocks comes
-  from margins; the UA sheet gives paragraphs, lists, and headings a default margin.
-  Text is measured by `strings::displayWidth`. Because layout depends on the
-  viewport width, it is recomputed on each render/resize (in the app), not stored by
-  the worker. (Current subset: single-line flex — `flex-wrap` falls back to nowrap —
-  cross-axis `align-items` is not applied, and inline markup collapses to plain text
-  with no per-glyph styling.)
+  (`x, y, width, height` in output cells, from the viewport's top-left), stored on
+  every `ElementNode` *and* every `TextNode` (a text run's box is where it wraps).
+  `dom::updateLayout(doc, width, metrics)` derives it from `Style`. A `display:flex`
+  box uses flex layout along its `flex-direction` (honoring `flex-grow`/`shrink`/
+  `basis`, `width`/`height`, `gap`, and `justify-content`); every other box uses
+  **block formatting** — block-level children (`display:block`/`flex`) stack
+  vertically, while consecutive **inline-level** children (text and inline elements
+  like `<a>`/`<b>`/`<em>`) flow *together* into one wrapped run, so a paragraph's
+  inline markup does not break onto separate lines. Vertical spacing between blocks
+  comes from margins; the UA sheet gives paragraphs, lists, and headings a default
+  margin. Text is measured by `strings::displayWidth`. Layout is recomputed on each
+  render/resize (in the app), not stored by the worker. (Current subset: single-line
+  flex — `flex-wrap` falls back to nowrap — cross-axis `align-items` is not applied,
+  and inline markup collapses to plain text with no per-glyph styling.)
 
-`display::paint(doc, width)` consumes all of this: it runs `updateLayout` and then
-draws every text run at its box onto a `width`-wide canvas (one String per page
-row) that the app scrolls a window over. Element boxes are invisible containers —
-a text terminal has no backgrounds or borders — so the positioned text is the whole
-picture: flex columns land side by side, padding indents, widths clip.
+  Because `Style` lengths are CSS px but the output is in cells, `updateLayout`
+  first maps px → cells with a **`Metrics`** — `scaleX`/`scaleY` (output cells per
+  CSS px) plus a `fitWidth` policy. `dom::pixelMetrics()` is 1:1 (a pixel canvas);
+  `dom::terminalMetrics()` scales down for a ~8×16px monospace cell (so `width:600px`
+  → 75 cells, `padding:16px` → 2 cols / 1 row) and, with `fitWidth`, treats a width
+  wider than the viewport as auto so a desktop-width page reflows instead of clipping.
+  Text stays cell-measured; only the authored box lengths scale.
+
+`display::paint(doc, width, metrics)` consumes all of this: it runs `updateLayout`
+and then draws every text run at its box onto a `width`-wide canvas (one String per
+page row) that the app scrolls a window over. Element boxes are invisible containers
+— a text terminal has no backgrounds or borders — so the positioned text is the
+whole picture: flex columns land side by side, padding indents, widths clip. The app
+paints with `dom::terminalMetrics()`.

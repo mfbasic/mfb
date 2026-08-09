@@ -228,10 +228,11 @@ FUNC paintRun(canvas AS List OF String, t AS TextNode, width AS Integer) AS List
 END FUNC
 
 ' Render the document to a positioned canvas of `width`-wide rows, one per page
-' row. Lays the tree out to `width`, then paints every text run at its box. Walks
+' row. Lays the tree out to `width` cells under the metric `m` (which maps the
+' styles' CSS px to cells), then paints every text run at its box. Walks
 ' iteratively (the imported Node union does not lower to a recursive function).
-EXPORT FUNC paint(root AS Node, width AS Integer) AS List OF String
-  LET laid AS Node = dom::updateLayout(root, width)
+EXPORT FUNC paint(root AS Node, width AS Integer, m AS Metrics) AS List OF String
+  LET laid AS Node = dom::updateLayout(root, width, m)
   LET h AS Integer = pageHeight(laid)
   MUT canvas AS List OF String = []
   FOR i = 0 TO h - 1

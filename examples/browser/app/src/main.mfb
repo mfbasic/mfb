@@ -381,7 +381,7 @@ FUNC main AS Integer
       ' hard-wrapped to the column width.
       IF needRecontent OR cols <> lastContentWidth THEN
         IF haveDom AND NOT rawMode THEN
-          wrapped = display::paint(pageDoc, cols)
+          wrapped = display::paint(pageDoc, cols, dom::terminalMetrics())
           wrapWidth = cols
           needRewrap = FALSE
           contentDirty = TRUE

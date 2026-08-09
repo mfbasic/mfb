@@ -272,12 +272,13 @@ FUNC uaStyle(tag AS String) AS Style
     RETURN base
   END IF
   base = WITH base { display := Display.Block }
+  ' Default spacing in CSS px (~1em); a metric scales it to about a blank row.
   IF tag = "p" OR tag = "ul" OR tag = "ol" OR tag = "blockquote" OR tag = "pre" OR tag = "figure" OR tag = "dl" OR tag = "table" OR tag = "form" THEN
-    base = WITH base { marginBottom := 1 }
+    base = WITH base { marginBottom := 16 }
   END IF
   IF tag = "h1" OR tag = "h2" OR tag = "h3" OR tag = "h4" OR tag = "h5" OR tag = "h6" THEN
-    base = WITH base { marginTop := 1 }
-    base = WITH base { marginBottom := 1 }
+    base = WITH base { marginTop := 16 }
+    base = WITH base { marginBottom := 16 }
   END IF
   RETURN base
 END FUNC
