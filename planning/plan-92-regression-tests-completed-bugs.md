@@ -221,7 +221,15 @@ Acceptance: for each ticked bug, a `tests/*` test exists, is discovered by
 `test-accept.sh` (or `cargo test` for a `.rs` test), passes with the fix, and was
 observed RED with the fix reverted. Full `cargo test` green; if any byte-identity
 golden was added, `artifact-gate.sh` count updated and green.
-Commit: —
+Progress (2026-08-09): 13 of 63 landed — bug-198 (dd6842130), bug-196/197/220/230
+(0a906e9f4), bug-172/214/231 (8a56d19d2), bug-174/278 (339a23df6), bug-221
+(48dea897d), bug-200 resolved via outcome (b) (738e0499e), sec-3 codegen test
+(4b2b0406e). Full `cargo test` green at 4b2b0406e (all 13 new test files integrated,
+EXIT=0). No byte-identity `.ncodesum` goldens were added (the new codegen test is a
+`cargo` `.rs` inspection, not an artifact-gate golden), so the artifact-gate
+`checked` count is unchanged. Remaining 50 Phase-1 bugs: codegen-inspection +
+environmental (see per-line notes / Corrections); Phase-2 triage in flight.
+Commit: (rolling — see per-bug lines)
 
 ### Phase 2 — covered only by `src/**` unit tests; add a `tests/*` fixture (123)
 
@@ -416,6 +424,29 @@ neither was reclassified to Phase 1.
 Commit: (this commit)
 
 ## Corrections
+
+- **2026-08-09: Phase-2 triage complete — roadmap for the remaining 123.** Each
+  Phase-2 bug classified by whether a black-box `tests/*` test can go RED on the
+  macos-aarch64 host, or it is codegen-inspection-only (existing `src/**` unit test
+  is the guard). Result:
+  - **Needs a new `tests/rt-behavior` fixture (5, BLACKBOX-RUNTIME):**
+    9, 35, 226, 394, 400.
+  - **Needs a `tests/syntax`/`rt-error` fixture (24, BLACKBOX-COMPILE):**
+    11, 12, 19, 26, 36, 40, 41, 43, 98, 108, 173, 194, 195, 212, 213, 223, 227,
+    265, 296, 298, 340, 353, 405, 406.
+  - **Needs a `tests/*.rs` CLI test (12, BLACKBOX-CLI):**
+    24, 25, 27, 29, 30, 58, 210, 279, 281, 293, 299, 336.
+  - **Confirm-and-tick against the existing `src/**` unit test (82,
+    CODEGEN-INSPECT-ONLY):** 14, 15, 16, 17, 18, 20, 21, 31, 32, 33, 37, 38, 39,
+    46, 50, 52, 54, 55, 59, 69, 70, 93, 99, 123, 124, 125, 127, 139, 154, 158,
+    161, 162, 188, 224, 225, 238, 248, 263, 264, 267, 271, 273, 274, 275, 276,
+    277, 282, 284, 294, 297, 313, 317, 319, 321, 325, 328, 329, 338, 350, 351,
+    352, 382, 387, 395, 397, 403, 404, 409, 410, 411, 412, 413, 414, 415, 416,
+    417, 418, 419, 420, 421, 431, 433. These are non-host encoder/linker (x86/
+    riscv/Windows/GTK/ELF), crafted-`.mfp`/binary-IR/registry-server payloads,
+    memory leaks with no output delta, and internal consistency/MIR checks — a
+    black-box `tests/*` fixture is impossible or redundant, so per the resolved
+    Open Decision each is ticked citing its existing `src/**` guard.
 
 - **2026-08-09: Open Decision on Phase-2 scope RESOLVED (toward the recommendation).**
   Phase 2's 123 bugs already have a `src/**` unit-test guard. Requiring a *new*
