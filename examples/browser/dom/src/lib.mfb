@@ -14,10 +14,15 @@
 IMPORT collections
 IMPORT strings
 
+' A tag with its HTML attributes, child nodes, and resolved layout Style. `style`
+' is the CSS resolved for this element (see style.mfb); the parser fills it with
+' defaultStyle() and a later style-resolution pass rebuilds elements with their
+' cascaded styles. It is the input the flex layout pass reads.
 EXPORT TYPE ElementNode
   tag AS String
   attrs AS Map OF String TO String
   children AS List OF Node
+  style AS Style
 END TYPE
 
 EXPORT TYPE TextNode
@@ -54,8 +59,17 @@ FUNC emptyAttrs() AS Map OF String TO String
   RETURN Map OF String TO String {}
 END FUNC
 
+' Build an element with the initial (unresolved) style. Every element enters the
+' tree this way during parsing; styles are resolved in a later pass.
 EXPORT FUNC element(tag AS String, attrs AS Map OF String TO String, children AS List OF Node) AS Node
-  LET n AS Node = ElementNode[tag, attrs, children]
+  LET n AS Node = ElementNode[tag, attrs, children, defaultStyle()]
+  RETURN n
+END FUNC
+
+' Build an element carrying an explicit resolved style. Used by style resolution
+' and by rebuilds that must preserve an element's already-resolved style.
+EXPORT FUNC elementStyled(tag AS String, attrs AS Map OF String TO String, children AS List OF Node, s AS Style) AS Node
+  LET n AS Node = ElementNode[tag, attrs, children, s]
   RETURN n
 END FUNC
 
@@ -140,7 +154,7 @@ EXPORT FUNC attachCss(doc AS Node, extra AS List OF String) AS Node
           newKids = collections::append(newKids, child)
         END IF
       NEXT
-      RETURN element(e.tag, e.attrs, newKids)
+      RETURN elementStyled(e.tag, e.attrs, newKids, e.style)
     CASE ELSE
       RETURN doc
   END MATCH
