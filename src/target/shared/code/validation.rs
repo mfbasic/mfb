@@ -350,6 +350,20 @@ impl TypeModel {
                 ("char".to_string(), "Integer".to_string()),
             ],
         );
+        // plan-89-A: `AttributedString` is an opaque built-in laid out internally
+        // as an ordinary 2-field record — a visible `text` String plus a `spans`
+        // attribute overlay (an empty `List OF Integer` placeholder in A; plan-89-B
+        // refines the element type). Modeling it as a record lets construction
+        // (`astrings::fromString`), value-semantic copy, scope-drop, and defaulting
+        // all reuse the generic record machinery. These fields are codegen-internal
+        // only — the frontend exposes NO user-visible fields (opacity).
+        record_fields.insert(
+            "AttributedString".to_string(),
+            vec![
+                ("text".to_string(), "String".to_string()),
+                ("spans".to_string(), "List OF Integer".to_string()),
+            ],
+        );
         // bug-374: record each user-declared resource's `CLOSE BY` op so
         // scope-drop can call it. Stored as the declared *name*, not a resolved
         // symbol: `resource_cleanup_symbol` resolves it through

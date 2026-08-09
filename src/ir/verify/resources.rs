@@ -299,6 +299,12 @@ impl TypeEnv {
         if is_comparable_defaultable_primitive(type_) {
             return true;
         }
+        // `AttributedString` (plan-89-A) is defaultable (its default is empty
+        // text + empty overlay) but NOT comparable, so it is a defaultable-only
+        // delta here rather than in `is_comparable_defaultable_primitive`.
+        if type_ == "AttributedString" {
+            return true;
+        }
         if let Some(element) = type_.strip_prefix("List OF ") {
             return self.is_defaultable(element, seen);
         }

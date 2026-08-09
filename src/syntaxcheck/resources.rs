@@ -190,7 +190,8 @@ impl<'a> SyntaxChecker<'a> {
         seen: &mut HashSet<String>,
     ) -> bool {
         match type_ {
-            Type::Boolean
+            Type::AttributedString
+            | Type::Boolean
             | Type::Byte
             | Type::Error
             | Type::ErrorLoc
@@ -255,7 +256,8 @@ impl<'a> SyntaxChecker<'a> {
         seen: &mut HashSet<String>,
     ) -> bool {
         match type_ {
-            Type::Boolean
+            Type::AttributedString
+            | Type::Boolean
             | Type::Byte
             | Type::Error
             | Type::ErrorLoc

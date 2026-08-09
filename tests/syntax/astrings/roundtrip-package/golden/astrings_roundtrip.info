@@ -1,0 +1,55 @@
+Package: astrings_roundtrip
+Ident: tests:astrings-roundtrip
+Version: 1.0.0
+Ident Key: <empty>
+Signing Key: <empty>
+Proof: <none>
+Attestation: <none>
+Author: <empty>
+URL: <empty>
+Path: tests/syntax/astrings/roundtrip-package/astrings_roundtrip.mfp
+
+Container:
+  format: MFP
+  version: 1.0
+  binary representation version: 1.0
+  flags: 0x00000000
+  signature type: unsigned
+  signature length: 0
+  package binary hash: 38eef5598b6d34574a63091feed7900533c0c6e128438230068b2ac6b344cf39
+  content hash: f0eae78ade27accf2be5d2bb039a6471267b3f9b58cbf34ed2414e177605ad3f
+  binary representation length: 910
+
+Manifest:
+  name: astrings_roundtrip
+  ident: tests:astrings-roundtrip
+  version: 1.0.0
+  ident key: <empty>
+  ident fingerprint: <empty>
+  signing fingerprint: <empty>
+  author: <empty>
+  url: <empty>
+
+Binary Representation:
+  ABI format version: 1
+  types: 0
+  constants: 0
+  resources: 0
+  functions: 1
+  globals: 0
+  cleanups: 0
+  imports: 0
+  exports: 1
+
+Exports:
+  FUNC wrap
+    sigHash: a047e6144c33c78ffb54681dcb6cf3baa35a36d7bd39af96fdd6158ebe810735
+
+Package State:
+  <none>
+
+Resource Cleanups:
+  <none>
+
+Imports:
+  <none>

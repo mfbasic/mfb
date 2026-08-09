@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/astrings/opacity-invalid
+   6 |   MUT a AS AttributedString
+   7 |   ' Field read on the opaque type: `text` is not user-visible.
+   8 |   LET t AS String = a.text
+     | ^
+tests/syntax/astrings/opacity-invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `t` does not have a known type.
+   8 |   LET t AS String = a.text
+   9 |   ' Record-literal construction is forbidden (use astrings::fromString).
+  10 |   LET b AS AttributedString = AttributedString["hi"]
+     | ^
+tests/syntax/astrings/opacity-invalid/src/main.mfb:10 error[2-203-0039 TYPE_READ_ONLY_RECORD_CONSTRUCTOR]: read-only record cannot be constructed
+               `AttributedString` is an opaque built-in type and cannot be constructed; use `astrings::fromString(text)` to create one.
+  10 |   LET b AS AttributedString = AttributedString["hi"]
+  11 |   ' WITH update is forbidden on the opaque type.
+  12 |   LET c AS AttributedString = WITH a { }
+     | ^
+tests/syntax/astrings/opacity-invalid/src/main.mfb:12 error[2-203-0038 TYPE_READ_ONLY_RECORD_UPDATE]: read-only record cannot be updated
+               `AttributedString` is an opaque built-in type and cannot be updated with `WITH`.
+[exit 1]

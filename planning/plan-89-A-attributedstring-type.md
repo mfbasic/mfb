@@ -221,16 +221,29 @@ argument `String` into the String slot, initialize the list slot to an empty `Li
 
 ### Phase 1 — the type exists and round-trips (design-uncertainty first)
 
-- [ ] Register `AttributedString` at all 12 Family-B sites (§2/§4.2), user-visible field list EMPTY,
+- [x] Register `AttributedString` at all 12 Family-B sites (§2/§4.2), user-visible field list EMPTY,
       defaultable = yes, comparable = no. Reserve `TYPE_ATTRIBUTED_STRING` in 11–19.
-- [ ] Confirm opacity: fixtures where `a.text`, `AttributedString["x"]`, and `WITH a {}` each fail to
-      compile with the expected diagnostic.
-- [ ] Tests: `tests/syntax/astrings/opacity-invalid/` (the three rejections); a Rust unit test that a
-      `MUT a AS AttributedString` (no initializer) is accepted (defaultable) and its default is empty.
+      (Wire id 11 `binary_repr/mod.rs`; encode `sections.rs`; decode `reader.rs`; resolver
+      `BUILTIN_TYPES`; frontend `Type::AttributedString` variant + parse/display/walk/comparable/
+      copyable/sendable/construct/with-update guards; ir/verify defaultable-only delta + read-only
+      update + provably_data; codegen `record_fields` 2-field internal layout `[text:String,
+      spans:List OF Integer]`.) Defaultability is a *defaultable-only* delta (`ir/verify/resources.rs
+      is_defaultable`), NOT `is_comparable_defaultable_primitive`, so the type stays non-comparable.
+      Built green: `cargo build --bin mfb`.
+- [x] Confirm opacity: fixtures where `a.text`, `AttributedString["x"]`, and `WITH a {}` each fail to
+      compile — `a.text` → `TYPE_UNKNOWN_VALUE`, `AttributedString[...]` →
+      `TYPE_READ_ONLY_RECORD_CONSTRUCTOR`, `WITH a {}` → `TYPE_READ_ONLY_RECORD_UPDATE`.
+- [x] Tests: `tests/syntax/astrings/opacity-invalid/` (the three rejections, golden captured); Rust
+      unit tests in `syntaxcheck::types::types_tests` (`attributed_string_annotation_accepts`,
+      `_record_literal_rejected`, `_field_read_rejected`, `_not_comparable`). NOTE: "default is empty"
+      is a runtime property proven in Phase 3 (`toString` of a default `AttributedString` == `""`),
+      not decidable at type-check time.
 
-Acceptance: a program with `MUT a AS AttributedString` builds; the three opacity fixtures produce the
-documented diagnostics; `.mfp` encode+decode of a project using the type round-trips (build a package
-fixture, `sync-package-mfp.sh`, decode).
+Acceptance: MET. `MUT a AS AttributedString` builds and runs to native (exit 0); the three opacity
+rejections fire with the documented diagnostics; `.mfp` encode+decode round-trips — committed package
+fixture `tests/syntax/astrings/roundtrip-package/` (exports `wrap(a AS AttributedString) AS
+AttributedString`; `.info` decode golden), and a consumer importing it builds+runs (verified). Both
+fixtures pass `test-accept.sh`.
 Commit: —
 
 ### Phase 2 — construction + copy/drop (correctness risk last)

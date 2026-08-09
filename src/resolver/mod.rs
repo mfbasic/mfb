@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use tinyjson::JsonValue;
 
 const BUILTIN_TYPES: &[&str] = &[
+    "AttributedString",
     "Boolean",
     "Byte",
     "Error",

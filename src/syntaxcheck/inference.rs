@@ -632,6 +632,28 @@ impl<'a> SyntaxChecker<'a> {
         line: usize,
         _expected: Option<&Type>,
     ) -> Type {
+        // `AttributedString` is an opaque built-in with no user-visible fields
+        // (plan-89-A): it cannot be constructed with `AttributedString[...]`; it is
+        // created with `astrings::fromString(text)`.
+        if type_name == "AttributedString" {
+            self.report(
+                "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
+                "`AttributedString` is an opaque built-in type and cannot be constructed; use `astrings::fromString(text)` to create one.",
+                file,
+                line,
+            );
+            for argument in arguments {
+                self.infer_expression(
+                    file,
+                    constructor_arg_value(argument),
+                    locals,
+                    line,
+                    ExprMode::Transfer,
+                );
+            }
+            return Type::AttributedString;
+        }
+
         // `Error` and `ErrorLoc` are read-only compiler/runtime-generated records.
         // Direct construction is rejected; user errors are created with the
         // `error(code, message)` built-in instead.
@@ -731,7 +753,10 @@ impl<'a> SyntaxChecker<'a> {
         line: usize,
     ) -> Type {
         let target_type = self.infer_expression(file, target, locals, line, ExprMode::Transfer);
-        if matches!(target_type, Type::Error | Type::ErrorLoc) {
+        if matches!(
+            target_type,
+            Type::Error | Type::ErrorLoc | Type::AttributedString
+        ) {
             for update in updates {
                 self.infer_expression(file, &update.value, locals, update.line, ExprMode::Transfer);
             }

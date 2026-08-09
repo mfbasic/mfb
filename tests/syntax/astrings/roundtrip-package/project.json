@@ -1,0 +1,12 @@
+{
+  "name": "astrings_roundtrip",
+  "version": "1.0.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "plan-89-A: exercises the AttributedString wire type-id (11) encode/decode round-trip through the .mfp of an exported AttributedString-typed function.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "ident": "tests:astrings-roundtrip",
+  "identKey": "ed25519-public:test-astrings-roundtrip-ident",
+  "identFingerprint": "sha256:test-astrings-roundtrip-ident",
+  "signingFingerprint": "sha256:test-astrings-roundtrip-signing"
+}

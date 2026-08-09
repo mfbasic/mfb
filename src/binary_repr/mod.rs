@@ -120,6 +120,11 @@ pub(crate) const TYPE_MONEY: u32 = 9;
 // no second renumber, no second golden regeneration. Reserved ids stay unmapped
 // (no name→id entry, no `primitive_type_name` arm); decoding one is an error.
 pub(crate) const TYPE_SCALAR: u32 = 10;
+// `AttributedString` (plan-89-A): an opaque, value-semantic built-in wrapping a
+// visible `String` plus an attribute overlay. It is a primitive-like hardcoded
+// type (modeled on `Error`), so it claims the first reserved primitive-band id
+// (11) as a purely additive edit — no table-id renumber (see `TYPE_SCALAR`).
+pub(crate) const TYPE_ATTRIBUTED_STRING: u32 = 11;
 // `term::` builtin record types live in the high reserved id range alongside the
 // handle types (File/Socket/Listener), not the low primitive range: ids at/above
 // `FIRST_TABLE_TYPE_ID` (20) would collide with per-package user/table type ids,

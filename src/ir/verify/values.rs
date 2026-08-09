@@ -147,7 +147,12 @@ impl TypeEnv {
                         base = resource_base_type(t);
                     }
                 }
-                if matches!(base, "Error" | "ErrorLoc") {
+                if base == "AttributedString" {
+                    self.emit(
+                        "TYPE_READ_ONLY_RECORD_UPDATE",
+                        "`AttributedString` is an opaque built-in type and cannot be updated with `WITH`.".to_string(),
+                    );
+                } else if matches!(base, "Error" | "ErrorLoc") {
                     self.emit(
                         "TYPE_READ_ONLY_RECORD_UPDATE",
                         format!("`{base}` is a read-only built-in record and cannot be updated."),
