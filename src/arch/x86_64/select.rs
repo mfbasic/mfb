@@ -233,13 +233,16 @@ fn realize_abi_operand(
         // from the call-argument bank on both ABIs — unchanged from the legacy
         // realization, so args never move on any target.
         (AbiConvention::Mfb, AbiRole::Arg) | (AbiConvention::C, AbiRole::Arg) => call_args,
-        // The MFB RESULT is where the alignment (and the byte change) lives, and it
-        // is SysV-ONLY: on SysV the result shares the aligned call bank
-        // (`[rdi,rsi,rdx,rcx]`, no `rax`), so an MFB result reused as an argument is
-        // a self-move and needs no staging. On Win64 the result KEEPS its legacy
-        // `rax`-based bank (`RETS_WIN64`) — the census measured zero Win64
-        // divergences from the fixpoint, so Win64 stays byte-identical (and `rax`,
-        // not `rcx`, avoids colliding with the variable-shift count register).
+        // The MFB RESULT alignment is SysV-ONLY: on SysV the result shares the
+        // aligned call bank (`[rdi,rsi,rdx,rcx]`, no `rax`), so an MFB result reused
+        // as an argument is a self-move — the property that lets the fixpoint go.
+        // On Win64 the MFB result uses the `rax`-based bank (`RETS_WIN64`), NOT the
+        // aligned `rcx`, for a hard ENCODING reason: `rcx` is the x86 variable-shift
+        // COUNT register, so an aligned Win64 result feeding a variable shift is
+        // unencodable (the shift guard rejects an `rcx` target). Win64 has no
+        // result→argument reuse needing the aligned self-move, so context-free
+        // realization stays correct without it. (Windows byte-identity is a
+        // non-goal; Win64 correctness is proven by EXECUTION on the Windows box.)
         (AbiConvention::Mfb, AbiRole::Ret) => match abi {
             X86Abi::SysV => CALL_ARGS,
             X86Abi::Win64 => RETS_WIN64,
