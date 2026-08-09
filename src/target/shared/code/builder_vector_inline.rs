@@ -105,7 +105,16 @@ fn vector_op_inlinable(op: &str, argc: usize, type_name: &str, element: &str) ->
     match (op, argc) {
         ("scale", 2) | ("dot", 2) => true,
         ("cross", 2) => type_name.ends_with('3'),
-        ("lerp_unclamped", 3) | ("lerp", 3) | ("length", 1) | ("distance", 2) => element == "Float",
+        // plan-86 H2: length/distance inline for every numeric element — the sum of
+        // squares is `bin(*/+)` (works for Integer/Fixed with their overflow checks),
+        // and the sqrt is the same deterministic helper the FUNC body calls (Float/
+        // Fixed → `math.sqrt` → `emit_fixed_sqrt`; Integer → `#vector_isqrtRound`), so
+        // the inlined result is bit-identical while the operand N×8 block-materialize
+        // is skipped. `lerp`/`lerp_unclamped` STAY Float-only: their Fixed/Integer
+        // FUNC bodies do `toFixed`/`toFloat`/`round` conversions a pure arithmetic
+        // tree would not reproduce.
+        ("lerp_unclamped", 3) | ("lerp", 3) => element == "Float",
+        ("length", 1) | ("distance", 2) => matches!(element, "Float" | "Fixed" | "Integer"),
         _ => false,
     }
 }
@@ -239,6 +248,24 @@ impl CodeBuilder<'_> {
 
     /// Try to inline a `vector::` op call. Returns `Ok(Some(result))` when the op
     /// was inlined, `Ok(None)` to fall back to the ordinary FUNC-call lowering.
+    /// plan-86 H2: the sqrt call `length`/`distance` inlines for an element type.
+    /// Float/Fixed use `math::sqrt` (Fixed lowers to the deterministic
+    /// `emit_fixed_sqrt`); Integer uses the package's rounding integer sqrt
+    /// `#vector_isqrtRound` — the exact helper the Integer FUNC body calls, so the
+    /// inlined result is bit-identical.
+    fn vector_sqrt_of(element: &str, sum: NirValue, loc: NirSourceLoc) -> NirValue {
+        let target = if element == "Integer" {
+            "#vector_isqrtRound"
+        } else {
+            "math.sqrt"
+        };
+        NirValue::Call {
+            target: target.to_string(),
+            args: vec![sum],
+            loc,
+        }
+    }
+
     pub(super) fn try_inline_vector_op(
         &mut self,
         target: &str,
@@ -375,12 +402,7 @@ impl CodeBuilder<'_> {
                 for f in &fields[1..] {
                     sum = bin("+", sum, square(f));
                 }
-                let sqrt = NirValue::Call {
-                    target: "math.sqrt".to_string(),
-                    args: vec![sum],
-                    loc,
-                };
-                self.lower_value(&sqrt)?
+                self.lower_value(&Self::vector_sqrt_of(element, sum, loc))?
             }
             // distance: math::sqrt((a.f0-b.f0)^2 + ...). The FUNC binds each
             // difference to a LET; inlining re-evaluates the (deterministic)
@@ -397,12 +419,7 @@ impl CodeBuilder<'_> {
                 for f in &fields[1..] {
                     sum = bin("+", sum, sq_diff(f));
                 }
-                let sqrt = NirValue::Call {
-                    target: "math.sqrt".to_string(),
-                    args: vec![sum],
-                    loc,
-                };
-                self.lower_value(&sqrt)?
+                self.lower_value(&Self::vector_sqrt_of(element, sum, loc))?
             }
             _ => return Ok(None),
         };
