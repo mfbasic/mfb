@@ -240,7 +240,7 @@ fn com_call(slot: usize, n_args: usize, ins: &mut Vec<CodeInstruction>) {
     // Args 5.. (index 4..) go on the stack above the 32-byte shadow. Four
     // register args on Win64: `this` + three method args.
     for n in 4..n_args {
-        ins.push(abi::outgoing_stack_arg_store(abi::c_arg(n as u8), n - 4));
+        ins.push(abi::outgoing_stack_arg_store(abi::c_arg(n), n - 4));
     }
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), OBJ_OFF), // this -> arg0

@@ -27,7 +27,7 @@ pub(super) fn lower_const_string(symbol: &str, value: &str) -> HelperResult {
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&block, abi::RET[1]),
+        abi::move_register(&block, abi::mfb_return(1)),
         abi::move_immediate(&byte, "Integer", &len.to_string()),
         abi::store_u64(&byte, &block, 0),
     ]);
@@ -476,7 +476,7 @@ pub(super) fn lower_args(symbol: &str) -> HelperResult {
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&collection, abi::RET[1]),
+        abi::move_register(&collection, abi::mfb_return(1)),
         abi::move_immediate(&scratch, "Byte", &COLLECTION_KIND_LIST.to_string()),
         abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_KIND),
         abi::move_immediate(&scratch, "Byte", &COLLECTION_TYPE_NONE.to_string()),

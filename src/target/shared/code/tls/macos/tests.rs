@@ -91,7 +91,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     fn emit_errno(
     &self,
     _from: &str,
-    _dst: &str,
+    _dst: Operand,
     _platform_imports: &HashMap<String, String>,
     _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
     _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
@@ -485,7 +485,7 @@ fn accept_stores_zero_queue_slot() {
     let stores_zero_queue = ins.iter().any(|i| {
         i.op == CodeOp::StrU64
             && i.get("src").as_deref() == Some(abi::ZERO)
-            && i.get("base").as_deref() == Some(abi::RET[1])
+            && i.get("base").as_deref() == Some(abi::mfb_return(1).render().as_str())
             && i.get("offset").as_deref() == Some(&REC_QUEUE.to_string())
     });
     assert!(

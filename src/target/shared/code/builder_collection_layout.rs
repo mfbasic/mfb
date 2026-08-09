@@ -406,7 +406,7 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -494,7 +494,7 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -838,15 +838,15 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         // tag@0, size@8.
         self.emit(abi::move_immediate(&scratch9, "UnionTag", &tag.to_string()));
-        self.emit(abi::store_u64(&scratch9, abi::RET[1], 0));
+        self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 0));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), size_slot));
-        self.emit(abi::store_u64(&scratch9, abi::RET[1], 8));
+        self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 8));
         // Inline the variant record block at +16.
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), result_slot));
         self.emit(abi::add_immediate(&scratch11, &scratch11, 16));
@@ -1021,7 +1021,7 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -1123,7 +1123,7 @@ impl CodeBuilder<'_> {
             self.emit_allocation_error_return()?;
             self.emit(abi::label(&alloc_ok));
             self.emit(abi::store_u64(
-                abi::RET[1],
+                abi::mfb_return(1),
                 abi::stack_pointer(),
                 result_slot,
             ));
@@ -1155,7 +1155,7 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -1166,7 +1166,7 @@ impl CodeBuilder<'_> {
             &size.to_string(),
         ));
         self.emit_copy_bytes(
-            abi::RET[1],
+            abi::mfb_return(1),
             &scratch9,
             &scratch13,
             "inline_value_arena_copy",
@@ -1478,7 +1478,7 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             collection_slot,
         ));
@@ -1523,7 +1523,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch8,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_KIND,
         ));
         self.emit(abi::move_immediate(
@@ -1533,7 +1533,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch8,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_KEY_TYPE,
         ));
         self.emit(abi::move_immediate(
@@ -1543,20 +1543,20 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch8,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_VALUE_TYPE,
         ));
         self.emit(abi::move_immediate(&scratch8, "Byte", "1"));
         self.emit(abi::store_u8(
             &scratch8,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_FLAGS_VERSION,
         ));
         // Map hash index built lazily on first probe (no-op field for lists).
         self.emit(abi::move_immediate(&scratch8, "Byte", "0"));
         self.emit(abi::store_u8(
             &scratch8,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_BUCKETS_READY,
         ));
         self.emit(abi::move_immediate(
@@ -1566,12 +1566,12 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(
             &scratch8,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_COUNT,
         ));
         self.emit(abi::store_u64(
             &scratch8,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_CAPACITY,
         ));
         self.emit(abi::load_u64(
@@ -1581,12 +1581,12 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(
             &scratch8,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
         self.emit(abi::store_u64(
             &scratch8,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_DATA_CAPACITY,
         ));
     }
@@ -2292,13 +2292,13 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), length_slot));
-        self.emit(abi::store_u64(&scratch12, abi::RET[1], 0));
-        self.emit(abi::add_immediate(&scratch13, abi::RET[1], 8));
+        self.emit(abi::store_u64(&scratch12, abi::mfb_return(1), 0));
+        self.emit(abi::add_immediate(&scratch13, abi::mfb_return(1), 8));
         self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), source_slot));
         self.emit(abi::label(&copy_loop));
         self.emit(abi::compare_immediate(&scratch12, "0"));
@@ -2588,7 +2588,7 @@ pub(super) fn emit_alloc_byte_list(
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::move_register("%v15", abi::RET[1]),
+        abi::move_register("%v15", abi::mfb_return(1)),
         abi::store_u64("%v15", abi::stack_pointer(), list_off),
         abi::move_immediate("%v9", "Byte", &byte_list_block_kind().to_string()),
         abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),

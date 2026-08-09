@@ -223,7 +223,7 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
     // goes through libc here, so read the real code from errno (bug-115).
     platform.emit_errno(
         symbol,
-        "%v9",
+        ("%v9").into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -288,7 +288,7 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
     // through libc on every backend, so read the real code from errno.
     platform.emit_errno(
         symbol,
-        "%v9",
+        ("%v9").into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -590,7 +590,7 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), BUF_OFFSET),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUF_OFFSET),
         // read(fd, buf, maxBytes); read_retry reloads the args from the stack so
         // an EINTR retry re-issues the identical call (bug-115).
         abi::label(&read_retry),
@@ -670,7 +670,7 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
         ]);
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
-            abi::move_register("%v15", abi::RET[1]), // alloc result -> vreg base (plan-34-B Phase 3)
+            abi::move_register("%v15", abi::mfb_return(1)), // alloc result -> vreg base (plan-34-B Phase 3)
             abi::move_immediate("%v9", "Byte", &byte_list_block_kind().to_string()),
             abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
             abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
@@ -724,7 +724,7 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
             abi::add_immediate("%v9", "%v9", 1),
             abi::branch(&entry_loop),
             abi::label(&entry_done),
-            abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+            abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
             abi::branch(&done),
         ]);
@@ -742,7 +742,7 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
     instructions.push(abi::label(&read_fail));
     platform.emit_errno(
         symbol,
-        "%v9",
+        ("%v9").into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -951,7 +951,7 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
         // real code behind the `errno` accessor.
         platform.emit_errno(
             symbol,
-            "%v9",
+            ("%v9").into(),
             platform_imports,
             &mut instructions,
             &mut relocations,
@@ -1112,7 +1112,7 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::move_register("%v15", abi::RET[1]), // alloc result -> vreg base (plan-34-B Phase 3)
+        abi::move_register("%v15", abi::mfb_return(1)), // alloc result -> vreg base (plan-34-B Phase 3)
         abi::store_u64("%v15", abi::stack_pointer(), LIST_OFFSET),
         abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
         abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
@@ -1179,9 +1179,9 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
         abi::multiply_registers("%v11", "%v9", "%v10"),
         abi::load_u64("%v12", abi::stack_pointer(), DATA_OFFSET),
         abi::add_registers("%v12", "%v12", "%v11"),
-        abi::load_u64("%v13", abi::RET[1], 0),
+        abi::load_u64("%v13", abi::mfb_return(1), 0),
         abi::store_u64("%v13", "%v12", 0),
-        abi::load_u64("%v13", abi::RET[1], 8),
+        abi::load_u64("%v13", abi::mfb_return(1), 8),
         abi::store_u64("%v13", "%v12", 8),
         // entry descriptor at ENTRY cursor.
         abi::load_u64("%v14", abi::stack_pointer(), ENTRY_OFFSET),
@@ -1552,7 +1552,7 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), BUF_OFFSET),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUF_OFFSET),
         // recv_retry: an EINTR before any byte moved re-issues recvfrom without
         // re-allocating the buffer; fd/buf/max are reloaded from the stack and
         // addrlen is re-initialized so the identical call is repeated (bug-115).
@@ -1622,7 +1622,7 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         &addr_fail,
     )?;
     instructions.push(abi::store_u64(
-        abi::RET[1],
+        abi::mfb_return(1),
         abi::stack_pointer(),
         ADDRPTR_OFFSET,
     ));
@@ -1652,7 +1652,7 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         ]);
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
-            abi::move_register("%v15", abi::RET[1]), // alloc result -> vreg base (plan-34-B Phase 3)
+            abi::move_register("%v15", abi::mfb_return(1)), // alloc result -> vreg base (plan-34-B Phase 3)
             abi::store_u64("%v15", abi::stack_pointer(), STR_OFFSET),
             abi::move_immediate("%v9", "Byte", &byte_list_block_kind().to_string()),
             abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
@@ -1712,12 +1712,12 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::move_register("%v15", abi::RET[1]), // alloc result -> vreg base; x1 kept for RESULT_VALUE_REGISTER
+        abi::move_register("%v15", abi::mfb_return(1)), // alloc result -> vreg base; x1 kept for RESULT_VALUE_REGISTER
         abi::load_u64("%v9", abi::stack_pointer(), ADDRPTR_OFFSET),
         abi::store_u64("%v9", "%v15", 0),
         abi::load_u64("%v9", abi::stack_pointer(), STR_OFFSET),
         abi::store_u64("%v9", "%v15", 8),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
@@ -1726,7 +1726,7 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
     instructions.push(abi::label(&recv_fail));
     platform.emit_errno(
         symbol,
-        "%v9",
+        ("%v9").into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -1985,7 +1985,7 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
     // Capture errno before freeaddrinfo can disturb it.
     platform.emit_errno(
         symbol,
-        "%v9",
+        ("%v9").into(),
         platform_imports,
         &mut instructions,
         &mut relocations,

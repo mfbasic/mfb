@@ -174,11 +174,11 @@ pub(super) fn emit_cstring(
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), out_off),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), out_off),
         abi::load_u64("%v17", abi::stack_pointer(), str_off),
         abi::load_u64("%v18", "%v17", 0),
         abi::add_immediate("%v19", "%v17", 8),
-        abi::move_register("%v20", abi::RET[1]),
+        abi::move_register("%v20", abi::mfb_return(1)),
         abi::move_immediate("%v21", "Integer", "0"),
         abi::label(&copy_loop),
         abi::compare_registers("%v21", "%v18"),
@@ -491,7 +491,7 @@ pub(super) fn lower_tls_poll_list_helper(
     // Loads socks[i]'s record ptr into `dst`: entry = list+HEADER+i*ENTRY_SIZE;
     // rec = load(data_base + load(entry+VALUE_OFFSET)). Uses %v13/%v14 as scratch.
     // (list ptr in LIST_OFF, data_base in DATABASE_OFF, index reg in `idx`.)
-    let load_elem = |ins: &mut Vec<CodeInstruction>, dst: &str, idx: &str| {
+    let load_elem = |ins: &mut Vec<CodeInstruction>, dst: Operand, idx: &str| {
         ins.extend([
             abi::load_u64("%v13", abi::stack_pointer(), LIST_OFF),
             abi::move_immediate("%v14", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),

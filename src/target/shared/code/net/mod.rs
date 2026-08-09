@@ -184,7 +184,7 @@ pub(in crate::target::shared::code) fn emit_string_result_build(
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::move_register("%v15", abi::RET[1]), // alloc result -> vreg base (plan-34-B Phase 3)
+        abi::move_register("%v15", abi::mfb_return(1)), // alloc result -> vreg base (plan-34-B Phase 3)
         abi::load_u64("%v10", abi::stack_pointer(), n_offset),
         abi::store_u64("%v10", "%v15", 0),
         abi::load_u64("%v11", abi::stack_pointer(), buf_offset),
@@ -233,11 +233,11 @@ fn emit_cstring(
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), out_off),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), out_off),
         abi::load_u64("%v9", abi::stack_pointer(), str_off),
         abi::load_u64("%v10", "%v9", 0),
         abi::add_immediate("%v11", "%v9", 8),
-        abi::move_register("%v12", abi::RET[1]),
+        abi::move_register("%v12", abi::mfb_return(1)),
         abi::move_immediate("%v13", "Integer", "0"),
         abi::label(&copy_loop),
         abi::compare_registers("%v13", "%v10"),
@@ -315,7 +315,7 @@ fn emit_address_from_sockaddr(
     ]);
     emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
     ctx.instructions.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), dst_off),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), dst_off),
         // inet_ntop(AF_INET, sockaddr + 4, dst, ADDR_STR_CAP)
         abi::move_immediate(abi::return_register(), "Integer", AF_INET),
         abi::load_u64("%v9", abi::stack_pointer(), sockaddr_off),
@@ -351,7 +351,7 @@ fn emit_address_from_sockaddr(
     ]);
     emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
     ctx.instructions.extend([
-        abi::move_register("%v15", abi::RET[1]), // alloc result → vreg (plan-34-B Phase 3)
+        abi::move_register("%v15", abi::mfb_return(1)), // alloc result → vreg (plan-34-B Phase 3)
         abi::load_u64("%v10", abi::stack_pointer(), len_off),
         abi::store_u64("%v10", "%v15", 0),
         abi::store_u64("%v15", abi::stack_pointer(), host_off),
@@ -375,7 +375,7 @@ fn emit_address_from_sockaddr(
     ]);
     emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
     ctx.instructions.extend([
-        abi::move_register("%v16", abi::RET[1]), // alloc result → vreg (plan-34-B Phase 3)
+        abi::move_register("%v16", abi::mfb_return(1)), // alloc result → vreg (plan-34-B Phase 3)
         abi::load_u64("%v9", abi::stack_pointer(), host_off),
         abi::store_u64("%v9", "%v16", 0),
         // port = (sockaddr[2] << 8) | sockaddr[3]
@@ -408,7 +408,7 @@ fn emit_make_handle(
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::move_register("%v10", abi::RET[1]), // alloc result → vreg base; x1 stays the returned ptr
+        abi::move_register("%v10", abi::mfb_return(1)), // alloc result → vreg base; x1 stays the returned ptr
         abi::move_immediate("%v9", "Integer", tag),
         abi::store_u64("%v9", "%v10", RESOURCE_OFFSET_TAG),
         abi::load_u64("%v9", abi::stack_pointer(), fd_off),
@@ -739,7 +739,7 @@ fn lower_net_endpoint_helper(
         // In progress? Anything other than EINPROGRESS is a hard failure.
         platform.emit_errno(
             symbol,
-            "%v9",
+            ("%v9").into(),
             platform_imports,
             &mut instructions,
             &mut relocations,
@@ -788,7 +788,7 @@ fn lower_net_endpoint_helper(
         // genuine failure. poll goes through libc here, so read errno.
         platform.emit_errno(
             symbol,
-            "%v9",
+            ("%v9").into(),
             platform_imports,
             &mut instructions,
             &mut relocations,

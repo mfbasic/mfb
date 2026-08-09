@@ -184,8 +184,10 @@ impl Operand {
     }
 
     /// A convention-explicit ABI register token (plan-85-A). The `abi.rs`
-    /// accessors (`mfb_arg`/`c_return`/…) are the intended constructors.
-    pub(crate) fn abi(convention: AbiConvention, role: AbiRole, index: u8) -> Self {
+    /// accessors (`mfb_arg`/`c_return`/…) are the intended constructors. `const`
+    /// so the pervasive result-register tokens (`RESULT_TAG_REGISTER` = the
+    /// fallible-call ABI's tag/value/message/source) can be `const Operand`.
+    pub(crate) const fn abi(convention: AbiConvention, role: AbiRole, index: u8) -> Self {
         Operand::Abi {
             convention,
             role,

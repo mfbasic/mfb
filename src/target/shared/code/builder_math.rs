@@ -1075,7 +1075,7 @@ impl CodeBuilder<'_> {
         });
         Ok(ValueResult {
             type_: "Nothing".to_string(),
-            location: abi::return_register().to_string(),
+            location: abi::return_register().render(),
             text,
         })
     }

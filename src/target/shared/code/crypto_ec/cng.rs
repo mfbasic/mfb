@@ -133,7 +133,7 @@ fn bcrypt_call(
         ins.push(abi::subtract_stack(frame));
         for i in 0..stack {
             ins.push(abi::store_u64(
-                abi::c_arg((4 + i) as u8),
+                abi::c_arg(4 + i),
                 abi::stack_pointer(),
                 0x20 + i * 8,
             ));
@@ -279,14 +279,14 @@ fn generate(
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), BLOB));
+    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BLOB));
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", &raw_len.to_string()),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), RAW),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RAW),
         abi::move_immediate("%v9", "Integer", &raw_len.to_string()),
         abi::store_u64("%v9", abi::stack_pointer(), RAWLEN),
     ]);
@@ -342,7 +342,7 @@ fn generate(
         RAW,
         RAWLEN,
         Some(COLL),
-        abi::RET[1],
+        abi::mfb_return(1),
         &alloc_fail,
         &mut ins,
         &mut rel,

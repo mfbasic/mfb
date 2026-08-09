@@ -157,7 +157,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::load_u64(&bin_next, &bin_head, 0),
         abi::store_u64(&bin_next, &bin_slot, ARENA_QUICK_BIN_BASE_OFFSET - 8),
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
-        abi::move_register(abi::RET[1], &bin_head),
+        abi::move_register(abi::mfb_return(1), &bin_head),
         abi::branch("arena_alloc_ret"),
         // Exact bin empty (allocator-01): bump-serve from the designated
         // victim (DV) — one active carve chunk held in the arena state.
@@ -178,7 +178,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::store_u64(&bin_next, ARENA_STATE_REGISTER, ARENA_CARVE_PTR_OFFSET),
         abi::store_u64(&bin_rem, ARENA_STATE_REGISTER, ARENA_CARVE_SIZE_OFFSET),
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
-        abi::move_register(abi::RET[1], &bin_head),
+        abi::move_register(abi::mfb_return(1), &bin_head),
         abi::branch("arena_alloc_ret"),
         // DV exhausted: retire its remnant (park ≤ QUICK_BIN_MAX in its exact
         // bin; a larger remnant joins the coalescing list) and acquire a new
@@ -238,7 +238,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::store_u64(&bin_next, ARENA_STATE_REGISTER, ARENA_CARVE_PTR_OFFSET),
         abi::store_u64(&bin_rem, ARENA_STATE_REGISTER, ARENA_CARVE_SIZE_OFFSET),
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
-        abi::move_register(abi::RET[1], &bin_head),
+        abi::move_register(abi::mfb_return(1), &bin_head),
         abi::branch("arena_alloc_ret"),
         // --- Segregated large-block bin pop (plan-25-A) ------------------------
         // A large request (size > QUICK_BIN_MAX, eff_align ≤ 16 — larger aligns
@@ -281,7 +281,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::load_u64(&lg_next, &lg_cur, 0),
         abi::store_u64(&lg_next, &lg_link, 0),
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
-        abi::move_register(abi::RET[1], &lg_cur),
+        abi::move_register(abi::mfb_return(1), &lg_cur),
         abi::branch("arena_alloc_ret"),
         // --- First-fit walk over the address-ordered free-list -----------------
         abi::label("arena_alloc_walk"),
@@ -400,7 +400,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::store_u64(&link, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
         abi::label("arena_alloc_done"),
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
-        abi::move_register(abi::RET[1], &aligned),
+        abi::move_register(abi::mfb_return(1), &aligned),
         abi::branch("arena_alloc_ret"),
     ]);
     // --- Grow: map a new block and carve the request from it ----------------
@@ -543,11 +543,11 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::branch("arena_alloc_found"),
         abi::label("arena_alloc_invalid"),
         abi::move_immediate(abi::return_register(), "Integer", ERR_INVALID_ARGUMENT_CODE),
-        abi::move_immediate(abi::RET[1], "Integer", "0"),
+        abi::move_immediate(abi::mfb_return(1), "Integer", "0"),
         abi::branch("arena_alloc_ret"),
         abi::label("arena_alloc_oom"),
         abi::move_immediate(abi::return_register(), "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(abi::RET[1], "Integer", "0"),
+        abi::move_immediate(abi::mfb_return(1), "Integer", "0"),
         abi::label("arena_alloc_ret"),
     ]);
     // plan-67-F: close the `mfb_alloc` span at the single exit. The result (tag in
@@ -557,7 +557,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         let saved_tag = vregs.next();
         let saved_ptr = vregs.next();
         instructions.push(abi::move_register(&saved_tag, abi::return_register()));
-        instructions.push(abi::move_register(&saved_ptr, abi::RET[1]));
+        instructions.push(abi::move_register(&saved_ptr, abi::mfb_return(1)));
         emit_perf_arena_call(
             "perf.end",
             ARENA_ALLOC_SYMBOL,
@@ -566,7 +566,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
             &mut relocations,
         );
         instructions.push(abi::move_register(abi::return_register(), &saved_tag));
-        instructions.push(abi::move_register(abi::RET[1], &saved_ptr));
+        instructions.push(abi::move_register(abi::mfb_return(1), &saved_ptr));
     }
     instructions.push(abi::return_());
     Ok(finalize_vreg_helper(
@@ -615,7 +615,7 @@ pub(super) fn lower_simd_alloc_list() -> CodeFunction {
         // else the arena error tag) so the caller can raise the allocation error.
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq("simd_alloc_ok"),
-        abi::move_register(abi::RET[1], abi::return_register()),
+        abi::move_register(abi::mfb_return(1), abi::return_register()),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::branch("simd_alloc_ret"),
         abi::label("simd_alloc_ok"),
@@ -641,7 +641,7 @@ pub(super) fn lower_simd_alloc_list() -> CodeFunction {
         instructions.push(abi::move_immediate(&kind_zero, "Integer", "0"));
     }
     instructions.extend([
-        abi::move_register(&base, abi::RET[1]),
+        abi::move_register(&base, abi::mfb_return(1)),
         // Header: kind, keyType=0, valueType=typeCode, flagsVersion=1. The kind-0
         // build keeps the shared zero register for both stores, so its emitted
         // sequence is unchanged.
@@ -682,7 +682,7 @@ pub(super) fn lower_simd_alloc_list() -> CodeFunction {
     }
     instructions.extend([
         abi::move_register(abi::return_register(), &base),
-        abi::move_immediate(abi::RET[1], "Integer", "0"),
+        abi::move_immediate(abi::mfb_return(1), "Integer", "0"),
         abi::label("simd_alloc_ret"),
         abi::return_(),
     ]);

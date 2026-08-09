@@ -227,7 +227,7 @@ pub(super) fn lower_tls_connect_openssl(
     // In progress? Anything other than EINPROGRESS is a hard failure.
     platform.emit_errno(
         symbol,
-        "%v9",
+        ("%v9").into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -622,7 +622,7 @@ pub(super) fn lower_tls_connect_openssl(
     // generic ErrTlsFailed. Any other failure stays ErrTlsFailed.
     platform.emit_errno(
         symbol,
-        "%v9",
+        ("%v9").into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -688,16 +688,16 @@ pub(super) fn lower_tls_connect_openssl(
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
         abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_OPENSSL),
-        abi::store_u64("%v9", abi::RET[1], RESOURCE_OFFSET_TAG),
-        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_STATE),
+        abi::store_u64("%v9", abi::mfb_return(1), RESOURCE_OFFSET_TAG),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_STATE),
         abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
-        abi::store_u64("%v9", abi::RET[1], TLS_OFFSET_FD),
-        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_CLOSED),
+        abi::store_u64("%v9", abi::mfb_return(1), TLS_OFFSET_FD),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), SSL_OFFSET),
-        abi::store_u64("%v9", abi::RET[1], TLS_OFFSET_SSL),
+        abi::store_u64("%v9", abi::mfb_return(1), TLS_OFFSET_SSL),
         abi::load_u64("%v9", abi::stack_pointer(), CTX_OFFSET),
-        abi::store_u64("%v9", abi::RET[1], TLS_OFFSET_CTX),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::store_u64("%v9", abi::mfb_return(1), TLS_OFFSET_CTX),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
@@ -1383,14 +1383,14 @@ pub(super) fn lower_tls_listen_openssl(
     );
     instructions.extend([
         abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_LISTENER),
-        abi::store_u64("%v9", abi::RET[1], RESOURCE_OFFSET_TAG),
-        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_STATE),
+        abi::store_u64("%v9", abi::mfb_return(1), RESOURCE_OFFSET_TAG),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_STATE),
         abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
-        abi::store_u64("%v9", abi::RET[1], TLS_LISTENER_OFFSET_FD),
-        abi::store_u64(abi::ZERO, abi::RET[1], TLS_LISTENER_OFFSET_CLOSED),
+        abi::store_u64("%v9", abi::mfb_return(1), TLS_LISTENER_OFFSET_FD),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_LISTENER_OFFSET_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), CTX_OFFSET),
-        abi::store_u64("%v9", abi::RET[1], TLS_LISTENER_OFFSET_CTX),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::store_u64("%v9", abi::mfb_return(1), TLS_LISTENER_OFFSET_CTX),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
@@ -1767,7 +1767,7 @@ pub(super) fn lower_tls_accept_openssl(
     // other backends; anything else is a TLS failure.
     platform.emit_errno(
         symbol,
-        "%v9",
+        ("%v9").into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -1814,15 +1814,15 @@ pub(super) fn lower_tls_accept_openssl(
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
         abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_OPENSSL),
-        abi::store_u64("%v9", abi::RET[1], RESOURCE_OFFSET_TAG),
-        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_STATE),
+        abi::store_u64("%v9", abi::mfb_return(1), RESOURCE_OFFSET_TAG),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_STATE),
         abi::load_u64("%v9", abi::stack_pointer(), CONNFD_OFFSET),
-        abi::store_u64("%v9", abi::RET[1], TLS_OFFSET_FD),
-        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_CLOSED),
+        abi::store_u64("%v9", abi::mfb_return(1), TLS_OFFSET_FD),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), SSL_OFFSET),
-        abi::store_u64("%v9", abi::RET[1], TLS_OFFSET_SSL),
-        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_CTX),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::store_u64("%v9", abi::mfb_return(1), TLS_OFFSET_SSL),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_CTX),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
@@ -2021,7 +2021,7 @@ pub(super) fn lower_tls_read_openssl(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.push(abi::store_u64(
-        abi::RET[1],
+        abi::mfb_return(1),
         abi::stack_pointer(),
         BUF_OFFSET,
     ));
@@ -2073,11 +2073,11 @@ pub(super) fn lower_tls_read_openssl(
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
             abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-            abi::store_u64("%v10", abi::RET[1], 0),
+            abi::store_u64("%v10", abi::mfb_return(1), 0),
             abi::load_u64("%v11", abi::stack_pointer(), BUF_OFFSET),
-            abi::add_immediate("%v12", abi::RET[1], 8),
+            abi::add_immediate("%v12", abi::mfb_return(1), 8),
             abi::move_immediate("%v13", "Integer", "0"),
-            abi::store_u64(abi::RET[1], abi::stack_pointer(), STR_OFFSET),
+            abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), STR_OFFSET),
             abi::label(&str_copy),
             abi::compare_registers("%v13", "%v10"),
             abi::branch_eq(&str_done),
@@ -2120,19 +2120,19 @@ pub(super) fn lower_tls_read_openssl(
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
             abi::move_immediate("%v9", "Byte", &byte_list_block_kind().to_string()),
-            abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_KIND),
+            abi::store_u8("%v9", abi::mfb_return(1), COLLECTION_OFFSET_KIND),
             abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
-            abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_KEY_TYPE),
+            abi::store_u8("%v9", abi::mfb_return(1), COLLECTION_OFFSET_KEY_TYPE),
             abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_BYTE.to_string()),
-            abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_VALUE_TYPE),
+            abi::store_u8("%v9", abi::mfb_return(1), COLLECTION_OFFSET_VALUE_TYPE),
             abi::move_immediate("%v9", "Byte", "1"),
-            abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_FLAGS_VERSION),
+            abi::store_u8("%v9", abi::mfb_return(1), COLLECTION_OFFSET_FLAGS_VERSION),
             abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-            abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_COUNT),
-            abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_CAPACITY),
-            abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_DATA_LENGTH),
-            abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_DATA_CAPACITY),
-            abi::add_immediate("%v11", abi::RET[1], COLLECTION_HEADER_SIZE),
+            abi::store_u64("%v10", abi::mfb_return(1), COLLECTION_OFFSET_COUNT),
+            abi::store_u64("%v10", abi::mfb_return(1), COLLECTION_OFFSET_CAPACITY),
+            abi::store_u64("%v10", abi::mfb_return(1), COLLECTION_OFFSET_DATA_LENGTH),
+            abi::store_u64("%v10", abi::mfb_return(1), COLLECTION_OFFSET_DATA_CAPACITY),
+            abi::add_immediate("%v11", abi::mfb_return(1), COLLECTION_HEADER_SIZE),
             abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
             abi::multiply_registers("%v13", "%v10", "%v12"),
             abi::add_registers("%v14", "%v11", "%v13"),
@@ -2156,7 +2156,7 @@ pub(super) fn lower_tls_read_openssl(
             abi::add_immediate("%v9", "%v9", 1),
             abi::branch(&entry_loop),
             abi::label(&entry_done),
-            abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+            abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
             abi::branch(&done),
         ]);
@@ -2362,7 +2362,7 @@ pub(super) fn lower_tls_poll_openssl(
     // check failed, matching net::poll's hard-error class).
     platform.emit_errno(
         symbol,
-        "%v9",
+        ("%v9").into(),
         platform_imports,
         &mut instructions,
         &mut relocations,

@@ -323,9 +323,9 @@ pub(crate) fn emit_reconcile_seam(
     // zero-physical-register invariant (plan-34-D). The allocator/x86 remap place
     // them into the call ABI.
     let mut asm = Asm::new(from_symbol);
-    asm.local_address(abi::ARG[0], RECONCILE_IDLE_SYMBOL); // GSourceFunc
+    asm.local_address(abi::mfb_arg(0), RECONCILE_IDLE_SYMBOL); // GSourceFunc
     asm.push(abi::load_u64(
-        abi::ARG[1],
+        abi::mfb_arg(1),
         code::ARENA_STATE_REGISTER,
         presentation_mode_offset,
     )); // user-data = mode

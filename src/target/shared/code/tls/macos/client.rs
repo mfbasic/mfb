@@ -108,7 +108,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_connect_macos(
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), CTX));
+    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), CTX));
     // endpoint = nw_endpoint_create_host(host, port)
     dlsym(
         &mut EmitCtx {
@@ -602,16 +602,16 @@ pub(in crate::target::shared::code::tls) fn lower_tls_connect_macos(
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
         abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_MACOS),
-        abi::store_u64("%v9", abi::RET[1], REC_TAG),
-        abi::store_u64(abi::ZERO, abi::RET[1], REC_STATE),
-        abi::store_u64(abi::ZERO, abi::RET[1], REC_CLOSED),
+        abi::store_u64("%v9", abi::mfb_return(1), REC_TAG),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), REC_STATE),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), REC_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), CONN),
-        abi::store_u64("%v9", abi::RET[1], REC_CONN),
+        abi::store_u64("%v9", abi::mfb_return(1), REC_CONN),
         abi::load_u64("%v9", abi::stack_pointer(), QUEUE),
-        abi::store_u64("%v9", abi::RET[1], REC_QUEUE),
+        abi::store_u64("%v9", abi::mfb_return(1), REC_QUEUE),
         abi::load_u64("%v9", abi::stack_pointer(), CTX),
-        abi::store_u64("%v9", abi::RET[1], REC_CTX),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::store_u64("%v9", abi::mfb_return(1), REC_CTX),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
@@ -902,7 +902,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_read_macos(
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), PBUF),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), PBUF),
         abi::load_u64("%v9", abi::stack_pointer(), MPTR),
         abi::load_u64("%v10", abi::stack_pointer(), PBUF),
         abi::load_u64("%v11", abi::stack_pointer(), N),
@@ -1117,11 +1117,11 @@ pub(in crate::target::shared::code::tls) fn lower_tls_read_macos(
         emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
         ins.extend([
             abi::load_u64("%v10", abi::stack_pointer(), N),
-            abi::store_u64("%v10", abi::RET[1], 0),
+            abi::store_u64("%v10", abi::mfb_return(1), 0),
             abi::load_u64("%v11", abi::stack_pointer(), MPTR),
-            abi::add_immediate("%v12", abi::RET[1], 8),
+            abi::add_immediate("%v12", abi::mfb_return(1), 8),
             abi::move_immediate("%v13", "Integer", "0"),
-            abi::store_u64(abi::RET[1], abi::stack_pointer(), STR),
+            abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), STR),
             abi::label(&str_copy),
             abi::compare_registers("%v13", "%v10"),
             abi::branch_eq(&str_done),
@@ -1149,21 +1149,21 @@ pub(in crate::target::shared::code::tls) fn lower_tls_read_macos(
         ]);
         emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
         ins.extend([
-            abi::store_u64(abi::RET[1], abi::stack_pointer(), STR),
+            abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), STR),
             abi::move_immediate("%v9", "Byte", &byte_list_block_kind().to_string()),
-            abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_KIND),
+            abi::store_u8("%v9", abi::mfb_return(1), COLLECTION_OFFSET_KIND),
             abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
-            abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_KEY_TYPE),
+            abi::store_u8("%v9", abi::mfb_return(1), COLLECTION_OFFSET_KEY_TYPE),
             abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_BYTE.to_string()),
-            abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_VALUE_TYPE),
+            abi::store_u8("%v9", abi::mfb_return(1), COLLECTION_OFFSET_VALUE_TYPE),
             abi::move_immediate("%v9", "Byte", "1"),
-            abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_FLAGS_VERSION),
+            abi::store_u8("%v9", abi::mfb_return(1), COLLECTION_OFFSET_FLAGS_VERSION),
             abi::load_u64("%v10", abi::stack_pointer(), N),
-            abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_COUNT),
-            abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_CAPACITY),
-            abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_DATA_LENGTH),
-            abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_DATA_CAPACITY),
-            abi::add_immediate("%v11", abi::RET[1], COLLECTION_HEADER_SIZE),
+            abi::store_u64("%v10", abi::mfb_return(1), COLLECTION_OFFSET_COUNT),
+            abi::store_u64("%v10", abi::mfb_return(1), COLLECTION_OFFSET_CAPACITY),
+            abi::store_u64("%v10", abi::mfb_return(1), COLLECTION_OFFSET_DATA_LENGTH),
+            abi::store_u64("%v10", abi::mfb_return(1), COLLECTION_OFFSET_DATA_CAPACITY),
+            abi::add_immediate("%v11", abi::mfb_return(1), COLLECTION_HEADER_SIZE),
             abi::move_immediate("%v12", "Integer", &byte_list_entry_stride().to_string()),
             abi::multiply_registers("%v13", "%v10", "%v12"),
             abi::add_registers("%v14", "%v11", "%v13"),
@@ -1881,7 +1881,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_poll_macos(
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), PBUF),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), PBUF),
         // memcpy(PBUF, MPTR, N)
         abi::load_u64("%v9", abi::stack_pointer(), MPTR),
         abi::load_u64("%v10", abi::stack_pointer(), PBUF),

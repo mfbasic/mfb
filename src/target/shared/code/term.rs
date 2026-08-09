@@ -83,13 +83,14 @@ fn data_reloc(from: &str, symbol: &str, kind: RelocIntent) -> CodeRelocation {
 fn load_data_address(
     from: &str,
     symbol: &str,
-    dst: &str,
+    dst: impl Into<Operand>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    instructions.push(abi::load_page_address(dst, symbol));
+    let dst = dst.into();
+    instructions.push(abi::load_page_address(&dst, symbol));
     relocations.push(data_reloc(from, symbol, RelocIntent::DataAddrHi));
-    instructions.push(abi::add_page_offset(dst, dst, symbol));
+    instructions.push(abi::add_page_offset(&dst, &dst, symbol));
     relocations.push(data_reloc(from, symbol, RelocIntent::DataAddrLo));
 }
 
@@ -2206,9 +2207,9 @@ fn emit_terminal_size(
         abi::label(&alloc_ok),
         abi::load_u64("%v10", abi::stack_pointer(), ARG0_OFFSET),
         abi::load_u64("%v11", abi::stack_pointer(), ARG1_OFFSET),
-        abi::store_u64("%v11", abi::RET[1], 0),
-        abi::store_u64("%v10", abi::RET[1], 8),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::store_u64("%v11", abi::mfb_return(1), 0),
+        abi::store_u64("%v10", abi::mfb_return(1), 8),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(done),
         abi::label(&unsupported),

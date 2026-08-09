@@ -416,7 +416,7 @@ fn lower_open(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::move_register("%v15", abi::RET[1]),
+        abi::move_register("%v15", abi::mfb_return(1)),
         abi::store_u64("%v15", abi::stack_pointer(), HANDLE_OFF),
         // Canonical plan-80 header: tag@0, kind (handle)@8, closed@16, STATE@24.
         abi::move_immediate("%v9", "Integer", RESOURCE_TAG_AUDIO),
@@ -2063,7 +2063,7 @@ fn emit_string_from_cstr(
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::move_register("%v15", abi::RET[1]),
+        abi::move_register("%v15", abi::mfb_return(1)),
         abi::load_u64("%v10", abi::stack_pointer(), N_OFF),
         abi::store_u64("%v10", "%v15", 0),
         abi::store_u64("%v15", abi::stack_pointer(), out_off),
@@ -2161,7 +2161,7 @@ fn lower_devices(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::move_register("%v15", abi::RET[1]),
+        abi::move_register("%v15", abi::mfb_return(1)),
         abi::store_u64("%v15", abi::stack_pointer(), LIST_OFF),
         abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
         abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),

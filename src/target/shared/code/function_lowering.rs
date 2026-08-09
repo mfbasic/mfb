@@ -530,7 +530,7 @@ pub(super) fn lower_function(
             // its `location` records the tail slot instead (never emitted as a
             // register — the prologue below loads it via `incoming_stack_arg_load`).
             let location = if index < abi::REGISTER_ARGUMENT_COUNT {
-                abi::argument_register(index)?
+                abi::argument_register(index)?.render()
             } else {
                 format!("stack{}", index - abi::REGISTER_ARGUMENT_COUNT)
             };
@@ -801,7 +801,7 @@ pub(super) fn lower_builtin_function_wrapper(
     let param = CodeParam {
         name: "value".to_string(),
         type_: params[0].clone(),
-        location: abi::argument_register(0)?,
+        location: abi::argument_register(0)?.render(),
     };
     let mut builder = CodeBuilder {
         current_symbol: symbol.to_string(),
@@ -942,7 +942,7 @@ pub(super) fn lower_thread_copy_function(
     let param = CodeParam {
         name: "source".to_string(),
         type_: type_.to_string(),
-        location: abi::argument_register(0)?,
+        location: abi::argument_register(0)?.render(),
     };
     let mut builder = CodeBuilder {
         current_symbol: symbol.to_string(),

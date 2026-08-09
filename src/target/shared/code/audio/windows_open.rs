@@ -167,7 +167,7 @@ fn lower_open(
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::move_register("%v15", abi::RET[1]),
+        abi::move_register("%v15", abi::mfb_return(1)),
         abi::store_u64("%v15", abi::stack_pointer(), HANDLE_OFF),
         // Canonical plan-80 header: tag@0, kind (handle)@8, closed@16, STATE@24.
         abi::move_immediate("%v9", "Integer", RESOURCE_TAG_AUDIO),
@@ -190,7 +190,7 @@ fn lower_open(
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::move_register("%v15", abi::RET[1]),
+        abi::move_register("%v15", abi::mfb_return(1)),
         abi::store_u64("%v15", abi::stack_pointer(), STATE_OFF),
         abi::load_u64("%v9", abi::stack_pointer(), HANDLE_OFF),
         abi::store_u64("%v15", "%v9", H_STATE),
@@ -362,7 +362,7 @@ fn lower_open(
         emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
         ins.extend([
             abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-            abi::store_u64(abi::RET[1], "%v9", W_CARRY_PTR),
+            abi::store_u64(abi::mfb_return(1), "%v9", W_CARRY_PTR),
         ]);
     }
     // CreateEventW(NULL, FALSE, FALSE, NULL) — auto-reset; NOT sign-extended.

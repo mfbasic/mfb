@@ -322,7 +322,7 @@ fn lower_datetime_windows(
                 ),
             ]);
             call_win("FileTimeToSystemTime", instructions, relocations)?;
-            instructions.push(abi::compare_immediate(abi::RET[0], "0"));
+            instructions.push(abi::compare_immediate(abi::mfb_return(0), "0"));
             instructions.push(abi::branch_eq(range_fail));
             // SystemTimeToTzSpecificLocalTime(NULL, &utc, &local): NULL selects the
             // machine's current time zone, applying its DST rules to the instant.
@@ -340,7 +340,7 @@ fn lower_datetime_windows(
                 ),
             ]);
             call_win("SystemTimeToTzSpecificLocalTime", instructions, relocations)?;
-            instructions.push(abi::compare_immediate(abi::RET[0], "0"));
+            instructions.push(abi::compare_immediate(abi::mfb_return(0), "0"));
             instructions.push(abi::branch_eq(range_fail));
             // SystemTimeToFileTime(&local, &localFt).
             instructions.extend([
@@ -356,7 +356,7 @@ fn lower_datetime_windows(
                 ),
             ]);
             call_win("SystemTimeToFileTime", instructions, relocations)?;
-            instructions.push(abi::compare_immediate(abi::RET[0], "0"));
+            instructions.push(abi::compare_immediate(abi::mfb_return(0), "0"));
             instructions.push(abi::branch_eq(range_fail));
             // offsetSeconds = (localFt − ft) / 1e7, signed (west-of-UTC is negative).
             instructions.extend([

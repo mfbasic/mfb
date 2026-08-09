@@ -740,7 +740,7 @@ pub(super) fn simple_thread_handle_helper(
                 "pthread_cond_timedwait",
             )?;
             instructions.extend([
-                abi::compare_immediate(abi::RET[0], "0"),
+                abi::compare_immediate(abi::mfb_return(0), "0"),
                 abi::branch_ne(&not_ready),
                 abi::branch(&wait_loop),
                 abi::label(&ready),
@@ -950,7 +950,7 @@ pub(super) fn thread_queue_write_helper(
         "pthread_cond_timedwait",
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::RET[0], "0"),
+        abi::compare_immediate(abi::mfb_return(0), "0"),
         abi::branch_ne(&timeout),
         abi::branch(&wait_loop),
         // Unbounded (omit) form: block on the not-full condition until a slot frees
@@ -1298,7 +1298,7 @@ pub(super) fn thread_queue_read_helper(
         "pthread_cond_timedwait",
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::RET[0], "0"),
+        abi::compare_immediate(abi::mfb_return(0), "0"),
         abi::branch_ne(&timeout),
         abi::branch(&wait_loop),
         abi::label(&wait_indefinite),

@@ -96,7 +96,7 @@ fn socket_connect(
         abi::branch_eq(&nb_connected),
     ]);
     // Anything other than "in progress" (WSAEWOULDBLOCK) is a hard failure.
-    platform.emit_errno(symbol, "%v9", imports, ins, rel)?;
+    platform.emit_errno(symbol, ("%v9").into(), imports, ins, rel)?;
     ins.extend([
         abi::compare_immediate("%v9", platform.socket_in_progress_code()),
         abi::branch_ne(fail),
@@ -341,9 +341,9 @@ pub(super) fn lower_tls_connect(
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), STATE));
+    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), STATE));
     // zero the state header (through RECV start) so leftover/recv_len start clean.
-    ins.push(abi::move_register("%v10", abi::RET[1]));
+    ins.push(abi::move_register("%v10", abi::mfb_return(1)));
     for o in (0..st::RECV).step_by(8) {
         ins.push(abi::store_u64(abi::ZERO, "%v10", o));
     }
@@ -353,15 +353,15 @@ pub(super) fn lower_tls_connect(
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), REC),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), REC),
         // Canonical plan-80 header: tag@0, fd@8, closed@16, STATE@24 (the SSPI
         // credential/context block ptr lives in the tail at TLS_SCHANNEL_OFFSET_BLOCK).
         abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_SCHANNEL),
-        abi::store_u64("%v9", abi::RET[1], RESOURCE_OFFSET_TAG),
-        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_STATE),
+        abi::store_u64("%v9", abi::mfb_return(1), RESOURCE_OFFSET_TAG),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_STATE),
         abi::load_u64("%v9", abi::stack_pointer(), FD),
-        abi::store_u64("%v9", abi::RET[1], TLS_OFFSET_FD),
-        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_CLOSED),
+        abi::store_u64("%v9", abi::mfb_return(1), TLS_OFFSET_FD),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_CLOSED),
     ]);
 
     // Build SCHANNEL_CRED at STATE+SC_CRED { dwVersion=4; dwFlags=AUTO|STRONG }.
@@ -461,7 +461,7 @@ pub(super) fn lower_tls_connect(
     // plan-73-D: recv <= 0. An SO_RCVTIMEO expiry on Winsock is WSAETIMEDOUT (10060,
     // not EWOULDBLOCK) — that is a handshake TIMEOUT → ErrTimeout (via the flag);
     // anything else stays ErrNetworkFailed.
-    platform.emit_errno(symbol, "%v9", imports, &mut ins, &mut rel)?;
+    platform.emit_errno(symbol, ("%v9").into(), imports, &mut ins, &mut rel)?;
     ins.extend([
         abi::compare_immediate("%v9", "10060"), // WSAETIMEDOUT
         abi::branch_ne(&fail),

@@ -404,7 +404,7 @@ pub(super) fn lower_resource_path(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&block, abi::RET[1]),
+        abi::move_register(&block, abi::mfb_return(1)),
         abi::store_u64(&total_len, &block, 0),
         abi::add_immediate(&dst, &block, 8),
     ]);

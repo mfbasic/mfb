@@ -157,7 +157,7 @@ pub(super) fn emit_call_validate_utf8(
         library: None,
     });
     instructions.extend([
-        abi::compare_immediate(abi::RET[0], "0"),
+        abi::compare_immediate(abi::mfb_return(0), "0"),
         abi::branch_ne(error_label),
     ]);
 }
@@ -182,10 +182,10 @@ pub(super) fn lower_validate_utf8_helper() -> CodeFunction {
         &mut vregs,
     );
     instructions.extend([
-        abi::move_immediate(abi::RET[0], "Integer", "0"),
+        abi::move_immediate(abi::mfb_return(0), "Integer", "0"),
         abi::return_(),
         abi::label(&invalid),
-        abi::move_immediate(abi::RET[0], "Integer", "1"),
+        abi::move_immediate(abi::mfb_return(0), "Integer", "1"),
         abi::return_(),
     ]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);

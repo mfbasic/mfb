@@ -138,10 +138,10 @@ impl CodeBuilder<'_> {
         let result_base = self.allocate_register()?;
         self.emit(abi::move_register(&result_base, abi::return_register()));
         let alloc_ok = self.label(&format!("{label_prefix}_alloc_ok"));
-        self.emit(abi::compare_immediate(abi::RET[1], "0"));
+        self.emit(abi::compare_immediate(abi::mfb_return(1), "0"));
         self.emit(abi::branch_eq(&alloc_ok));
         // Surface the arena tag (returned in x1) as the allocation error.
-        self.emit(abi::move_register(abi::return_register(), abi::RET[1]));
+        self.emit(abi::move_register(abi::return_register(), abi::mfb_return(1)));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         Ok(result_base)

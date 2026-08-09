@@ -162,7 +162,7 @@ fn sspi_call(
         ins.push(abi::subtract_stack(frame));
         for i in 0..stack {
             ins.push(abi::store_u64(
-                abi::c_arg((4 + i) as u8),
+                abi::c_arg(4 + i),
                 abi::stack_pointer(),
                 0x20 + i * 8,
             ));

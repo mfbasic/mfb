@@ -19,7 +19,7 @@ fn emit_wide_cstring(
         abi::move_immediate(abi::c_arg(1), "Integer", "2"),
     ]);
     emit_alloc(symbol, ins, rel, fail);
-    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), out_off));
+    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), out_off));
     // MultiByteToWideChar(CP_UTF8=65001, 0, str+8, -1, wbuf, 32768). The MFB String
     // is [u64 len][utf8 bytes]; the data starts at +8 and is NUL-terminated by the
     // builder, so cbMultiByte = -1 works. All six args set in ARG roles at DEPTH 0;
@@ -303,7 +303,7 @@ pub(super) fn lower_tls_write(
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), SENDBUF));
+    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), SENDBUF));
 
     ins.extend([
         abi::label(&wloop),

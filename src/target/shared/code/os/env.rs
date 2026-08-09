@@ -213,7 +213,7 @@ pub(super) fn lower_get_env(
             abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
             abi::branch_ne(&alloc_error),
             abi::label(&alloc_ok),
-            abi::move_register(&block, abi::RET[1]),
+            abi::move_register(&block, abi::mfb_return(1)),
             abi::load_u64(&flen, &fallback, 0),
             abi::store_u64(&flen, &block, 0),
             abi::add_immediate(&src, &fallback, 8),
@@ -440,7 +440,7 @@ pub(super) fn lower_set_env(
     // ErrInvalidArgument: empty name, or a name containing '=').
     platform.emit_errno(
         symbol,
-        &errno,
+        (&errno).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -675,7 +675,7 @@ pub(super) fn lower_environ(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&collection, abi::RET[1]),
+        abi::move_register(&collection, abi::mfb_return(1)),
         // Header.
         abi::move_immediate(&scratch, "Byte", &COLLECTION_KIND_MAP.to_string()),
         abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_KIND),

@@ -168,12 +168,12 @@ pub(super) fn lower_tls_read(
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), OUTBUF),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), OUTBUF),
         abi::load_u64("%v9", abi::stack_pointer(), STATE),
         abi::load_u64("%v12", "%v9", st::LEFT_OFF),
         abi::add_immediate("%v7", "%v9", st::LEFT),
         abi::add_registers("%v7", "%v7", "%v12"), // src = LEFT+off
-        abi::move_register("%v6", abi::RET[1]),    // dst = output
+        abi::move_register("%v6", abi::mfb_return(1)),    // dst = output
         abi::load_u64("%v10", abi::stack_pointer(), NOUT),
     ]);
     move_bytes("%v7", "%v6", "%v10", &format!("{symbol}_serve"), &mut ins);
@@ -197,7 +197,7 @@ pub(super) fn lower_tls_read(
         ]);
         emit_fail(symbol, ERR_ENCODING_CODE, ERR_ENCODING_SYMBOL, &mut ins, &mut rel, &done);
     } else {
-        emit_build_byte_list(symbol, &format!("{symbol}_bl"), &format!("{symbol}_bld"), OUTBUF, NOUT, Some(COLL), abi::RET[1], &alloc_fail, &mut ins, &mut rel);
+        emit_build_byte_list(symbol, &format!("{symbol}_bl"), &format!("{symbol}_bld"), OUTBUF, NOUT, Some(COLL), abi::mfb_return(1), &alloc_fail, &mut ins, &mut rel);
         ins.push(abi::branch(&done));
     }
 

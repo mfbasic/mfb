@@ -103,7 +103,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
     // so read the real code from errno.
     platform.emit_errno(
         symbol,
-        "%v9",
+        ("%v9").into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -245,7 +245,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_list_helper(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), BUF_OFF),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUF_OFF),
         // --- Fill pollfd[i] from each socket's fd (i in a vreg; no call in loop) ---
         abi::move_immediate("%v8", "Integer", "0"),
         abi::label(&fill_loop),
@@ -372,7 +372,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_list_helper(
     instructions.push(abi::label(&poll_fail));
     platform.emit_errno(
         symbol,
-        "%v9",
+        ("%v9").into(),
         platform_imports,
         &mut instructions,
         &mut relocations,

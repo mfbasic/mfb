@@ -531,7 +531,7 @@ pub(super) fn lower_float_to_string_helper() -> CodeFunction {
             abi::branch_eq(&alloc_ok),
             abi::branch(&alloc_error),
             abi::label(&alloc_ok),
-            abi::move_register(&string, abi::RET[1]),
+            abi::move_register(&string, abi::mfb_return(1)),
             abi::store_u64(&total, &string, 0),
             abi::add_immediate(&dst, &string, 8),
             // sign

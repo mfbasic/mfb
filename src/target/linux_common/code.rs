@@ -25,6 +25,7 @@ use crate::arch::aarch64::abi;
 use crate::os::linux::flavor::LinuxFlavor;
 use crate::target::linux_gtk as gtk;
 use crate::target::shared::code::AppHookBody;
+use crate::target::shared::code::Operand;
 use crate::target::shared::code::{
     self, AppEntrySpec, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, MirPlan,
     NativeCodePlan, ProgramEntrySpec, RelocIntent, TEMP_DIRECTORY_SCRATCH_BYTES,
@@ -208,11 +209,11 @@ pub(crate) fn emit_asm_generic_arena_map(
 ) -> Result<(), String> {
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::move_register(abi::SYSARG[1], size_reg),
-        abi::move_immediate(abi::SYSARG[2], "Integer", PROT_READ_WRITE),
-        abi::move_immediate(abi::SYSARG[3], "Integer", MAP_PRIVATE_ANON),
-        abi::move_immediate(abi::SYSARG[4], "Integer", &u64::MAX.to_string()),
-        abi::move_immediate(abi::SYSARG[5], "Integer", "0"),
+        abi::move_register(abi::sys_arg(1), size_reg),
+        abi::move_immediate(abi::sys_arg(2), "Integer", PROT_READ_WRITE),
+        abi::move_immediate(abi::sys_arg(3), "Integer", MAP_PRIVATE_ANON),
+        abi::move_immediate(abi::sys_arg(4), "Integer", &u64::MAX.to_string()),
+        abi::move_immediate(abi::sys_arg(5), "Integer", "0"),
         abi::move_immediate(abi::syscall_register(), "Integer", ASM_GENERIC_SYS_MMAP),
         abi::syscall(),
     ]);
@@ -654,7 +655,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        instructions.extend([abi::move_immediate(abi::ARG[1], "Integer", "0")]);
+        instructions.extend([abi::move_immediate(abi::mfb_arg(1), "Integer", "0")]);
         emit_linux_c_call(
             self.target(),
             from,
@@ -745,8 +746,8 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
             .ok_or_else(|| "os.environ runtime helper requires environ import".to_string())?
             .clone();
         let dst = abi::return_register();
-        instructions.push(abi::load_page_address(dst, "environ"));
-        instructions.push(abi::add_page_offset(dst, dst, "environ"));
+        instructions.push(abi::load_page_address(&dst, "environ"));
+        instructions.push(abi::add_page_offset(&dst, &dst, "environ"));
         for kind in [RelocIntent::GotLoadHi, RelocIntent::GotLoadLo] {
             relocations.push(CodeRelocation {
                 from: from.to_string(),
@@ -757,7 +758,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
             });
         }
         for _ in 0..self.arch.environ_got_dereferences() {
-            instructions.push(abi::load_u64(dst, dst, 0));
+            instructions.push(abi::load_u64(&dst, &dst, 0));
         }
         Ok(())
     }
@@ -777,7 +778,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
             code::FsPathOperation::Rmdir => "rmdir",
         };
         if matches!(operation, code::FsPathOperation::Mkdir) {
-            instructions.push(abi::move_immediate(abi::ARG[1], "Integer", "493"));
+            instructions.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "493"));
         }
         emit_linux_c_call(
             self.target(),
@@ -792,7 +793,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
     fn emit_errno(
         &self,
         from: &str,
-        dst: &str,
+        dst: Operand,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
@@ -1014,7 +1015,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
 
         instructions.extend([
             abi::store_u64(abi::return_register(), abi::stack_pointer(), BUFFER_SLOT),
-            abi::store_u64(abi::ARG[1], abi::stack_pointer(), CAPACITY_SLOT),
+            abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), CAPACITY_SLOT),
             abi::move_register(abi::SCRATCH[1], abi::return_register()),
         ]);
         for (offset, byte) in b"TMPDIR\0".iter().enumerate() {
@@ -1245,10 +1246,10 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         // Linux; the caller has already stashed the F_GETFL result at flags_offset.
         instructions.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_offset),
-            abi::move_immediate(abi::ARG[1], "Integer", "4"), // F_SETFL
-            abi::load_u64(abi::ARG[2], abi::stack_pointer(), flags_offset),
+            abi::move_immediate(abi::mfb_arg(1), "Integer", "4"), // F_SETFL
+            abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), flags_offset),
             abi::move_immediate("%v9", "Integer", "2048"),
-            abi::or_registers(abi::ARG[2], abi::ARG[2], "%v9"),
+            abi::or_registers(abi::mfb_arg(2), abi::mfb_arg(2), "%v9"),
         ]);
         self.emit_variadic_call("fcntl", from, platform_imports, instructions, relocations)
     }
@@ -1474,9 +1475,10 @@ mod tests {
         // reference the argc/argv `ARG` tokens the language entry still consumes.
         for inst in &rv.instructions[..done_index] {
             for (_, value) in &inst.fields {
+                let rendered = value.render();
                 assert!(
-                    value != abi::ARG[0] && value != abi::ARG[1],
-                    "the HWCAP scan clobbered an ARG (argc/argv) token: {value}"
+                    rendered != abi::mfb_arg(0).render() && rendered != abi::mfb_arg(1).render(),
+                    "the HWCAP scan clobbered an ARG (argc/argv) token: {rendered}"
                 );
             }
         }

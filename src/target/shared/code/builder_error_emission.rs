@@ -304,23 +304,23 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         // code @0.
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), code_slot));
-        self.emit(abi::store_u64(&scratch9, abi::RET[1], 0));
+        self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 0));
         // message-offset @8 = 24; inline message block at +24.
         self.emit(abi::move_immediate(
             &scratch9,
             "Integer",
             &ERROR_OBJECT_SIZE.to_string(),
         ));
-        self.emit(abi::store_u64(&scratch9, abi::RET[1], 8));
+        self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 8));
         self.emit(abi::add_immediate(
             &scratch10,
-            abi::RET[1],
+            abi::mfb_return(1),
             ERROR_OBJECT_SIZE,
         ));
         self.emit(abi::load_u64(
@@ -337,21 +337,21 @@ impl CodeBuilder<'_> {
         // source-offset @16; inline source block when present.
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), src_off_slot));
         self.emit(abi::load_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
-        self.emit(abi::store_u64(&scratch9, abi::RET[1], 16));
+        self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 16));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
         self.emit(abi::compare_immediate(&scratch8, "0"));
         self.emit(abi::branch_eq(&src_null_fill));
         self.emit(abi::load_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), src_off_slot));
-        self.emit(abi::add_registers(&scratch10, abi::RET[1], &scratch9));
+        self.emit(abi::add_registers(&scratch10, abi::mfb_return(1), &scratch9));
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(
             &scratch12,

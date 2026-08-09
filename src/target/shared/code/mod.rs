@@ -2686,7 +2686,7 @@ fn lower_map_probe_helper() -> CodeFunction {
         abi::subtract_immediate("%v6", "%v6", 1),
         abi::branch(&cloop),
         abi::label(&cmatch),
-        abi::move_register(abi::RET[0], "%v13"),
+        abi::move_register(abi::mfb_return(0), "%v13"),
         abi::branch(&done),
         abi::label(&pnext),
         abi::add_immediate("%v4", "%v4", 1),
@@ -2696,8 +2696,8 @@ fn lower_map_probe_helper() -> CodeFunction {
         abi::label(&nowrap),
         abi::branch(&ploop),
         abi::label(&notfound),
-        abi::move_immediate(abi::RET[0], "Integer", "0"),
-        abi::subtract_immediate(abi::RET[0], abi::RET[0], 1), // -1
+        abi::move_immediate(abi::mfb_return(0), "Integer", "0"),
+        abi::subtract_immediate(abi::mfb_return(0), abi::mfb_return(0), 1), // -1
         abi::label(&done),
         abi::return_(),
     ];

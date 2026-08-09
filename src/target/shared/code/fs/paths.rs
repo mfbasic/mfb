@@ -50,7 +50,7 @@ pub(in crate::target::shared::code) fn lower_fs_exists_helper(
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_ok),
-        abi::move_register(&alloc, abi::RET[1]),
+        abi::move_register(&alloc, abi::mfb_return(1)),
         abi::load_u64(&len, &path, 0),
         abi::add_immediate(&src, &path, 8),
         abi::move_register(&dst, &alloc),
@@ -163,7 +163,7 @@ pub(in crate::target::shared::code) fn lower_fs_kind_exists_helper(
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_ok),
-        abi::move_register(&alloc, abi::RET[1]),
+        abi::move_register(&alloc, abi::mfb_return(1)),
         abi::load_u64(&len, &path, 0),
         abi::add_immediate(&src, &path, 8),
         abi::move_register(&dst, &alloc),
@@ -265,8 +265,8 @@ pub(in crate::target::shared::code) fn lower_fs_current_directory_helper(
         abi::branch_eq(&temp_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&temp_alloc_ok),
-        abi::move_register(&buffer, abi::RET[1]),
-        abi::move_register(abi::return_register(), abi::RET[1]),
+        abi::move_register(&buffer, abi::mfb_return(1)),
+        abi::move_register(abi::return_register(), abi::mfb_return(1)),
         abi::move_immediate(abi::c_arg(1), "Integer", GETCWD_CAPACITY),
     ]);
     platform.emit_current_directory(
@@ -303,9 +303,9 @@ pub(in crate::target::shared::code) fn lower_fs_current_directory_helper(
         abi::branch_eq(&string_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&string_alloc_ok),
-        abi::store_u64(&length, abi::RET[1], 0),
+        abi::store_u64(&length, abi::mfb_return(1), 0),
         abi::move_register(&src, &buffer),
-        abi::add_immediate(&dst, abi::RET[1], 8),
+        abi::add_immediate(&dst, abi::mfb_return(1), 8),
         abi::move_immediate(&index, "Integer", "0"),
     ]);
     emit_cstring_copy(
@@ -321,7 +321,7 @@ pub(in crate::target::shared::code) fn lower_fs_current_directory_helper(
         &copy_done,
     );
     instructions.extend([
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&read_error),
@@ -380,8 +380,8 @@ pub(in crate::target::shared::code) fn lower_fs_temp_directory_helper(
         abi::branch_eq(&temp_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&temp_alloc_ok),
-        abi::move_register(&buffer, abi::RET[1]),
-        abi::move_register(abi::return_register(), abi::RET[1]),
+        abi::move_register(&buffer, abi::mfb_return(1)),
+        abi::move_register(abi::return_register(), abi::mfb_return(1)),
         abi::move_immediate(abi::c_arg(1), "Integer", TEMP_CAPACITY),
     ]);
     platform.emit_temp_directory(
@@ -422,9 +422,9 @@ pub(in crate::target::shared::code) fn lower_fs_temp_directory_helper(
         abi::branch_eq(&string_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&string_alloc_ok),
-        abi::store_u64(&length, abi::RET[1], 0),
+        abi::store_u64(&length, abi::mfb_return(1), 0),
         abi::move_register(&src, &buffer),
-        abi::add_immediate(&dst, abi::RET[1], 8),
+        abi::add_immediate(&dst, abi::mfb_return(1), 8),
         abi::move_immediate(&index, "Integer", "0"),
     ]);
     emit_cstring_copy(
@@ -440,7 +440,7 @@ pub(in crate::target::shared::code) fn lower_fs_temp_directory_helper(
         &copy_done,
     );
     instructions.extend([
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&read_error),
@@ -521,7 +521,7 @@ pub(in crate::target::shared::code) fn lower_fs_path_operation_helper(
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_ok),
-        abi::move_register(&alloc, abi::RET[1]),
+        abi::move_register(&alloc, abi::mfb_return(1)),
         abi::load_u64(&len, &path, 0),
         abi::add_immediate(&src, &path, 8),
         abi::move_register(&dst, &alloc),
@@ -557,7 +557,7 @@ pub(in crate::target::shared::code) fn lower_fs_path_operation_helper(
     let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
-        &errno_reg,
+        (&errno_reg).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -640,7 +640,7 @@ pub(in crate::target::shared::code) fn lower_fs_create_directories_helper(
         abi::branch_eq(&alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&cstring, abi::RET[1]),
+        abi::move_register(&cstring, abi::mfb_return(1)),
         abi::load_u64(&len, &path, 0),
         abi::add_immediate(&src, &path, 8),
         abi::move_register(&dst, &cstring),
@@ -692,7 +692,7 @@ pub(in crate::target::shared::code) fn lower_fs_create_directories_helper(
     let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
-        &errno_reg,
+        (&errno_reg).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -719,7 +719,7 @@ pub(in crate::target::shared::code) fn lower_fs_create_directories_helper(
     ]);
     platform.emit_errno(
         symbol,
-        &errno_reg,
+        (&errno_reg).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -877,7 +877,7 @@ pub(in crate::target::shared::code) fn lower_fs_list_directory_helper(
         abi::branch_eq(&path_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&path_alloc_ok),
-        abi::move_register(&c_path, abi::RET[1]),
+        abi::move_register(&c_path, abi::mfb_return(1)),
         abi::load_u64(&len, &path, 0),
         abi::add_immediate(&src, &path, 8),
         abi::move_register(&dst, &c_path),
@@ -971,7 +971,7 @@ pub(in crate::target::shared::code) fn lower_fs_list_directory_helper(
         abi::branch_eq(&alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&collection, abi::RET[1]),
+        abi::move_register(&collection, abi::mfb_return(1)),
         abi::move_immediate(&scratch, "Byte", &COLLECTION_KIND_LIST.to_string()),
         abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_KIND),
         abi::move_immediate(&scratch, "Byte", &COLLECTION_TYPE_NONE.to_string()),
@@ -1117,7 +1117,7 @@ pub(in crate::target::shared::code) fn lower_fs_list_directory_helper(
     let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
-        &errno_reg,
+        (&errno_reg).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -1211,7 +1211,7 @@ pub(in crate::target::shared::code) fn lower_fs_canonical_path_helper(
         abi::branch_eq(&path_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&path_alloc_ok),
-        abi::move_register(&c_path, abi::RET[1]),
+        abi::move_register(&c_path, abi::mfb_return(1)),
         abi::load_u64(&len, &path, 0),
         abi::add_immediate(&src, &path, 8),
         abi::move_register(&dst, &c_path),
@@ -1244,7 +1244,7 @@ pub(in crate::target::shared::code) fn lower_fs_canonical_path_helper(
         abi::branch_eq(&buffer_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&buffer_alloc_ok),
-        abi::move_register(&buffer, abi::RET[1]),
+        abi::move_register(&buffer, abi::mfb_return(1)),
         abi::move_register(abi::return_register(), &c_path),
         abi::move_register(abi::c_arg(1), &buffer),
     ]);
@@ -1279,7 +1279,7 @@ pub(in crate::target::shared::code) fn lower_fs_canonical_path_helper(
         abi::branch_eq(&result_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&result_alloc_ok),
-        abi::move_register(&result, abi::RET[1]),
+        abi::move_register(&result, abi::mfb_return(1)),
         abi::store_u64(&length, &result, 0),
         abi::move_register(&src, &buffer),
         abi::add_immediate(&dst, &result, 8),
@@ -1303,7 +1303,7 @@ pub(in crate::target::shared::code) fn lower_fs_canonical_path_helper(
     let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
-        &errno_reg,
+        (&errno_reg).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -1389,7 +1389,7 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&base, abi::return_register()),
-        abi::move_register(&child, abi::RET[1]),
+        abi::move_register(&child, abi::mfb_return(1)),
         abi::load_u64(&len, &base, 0),
         abi::compare_immediate(&len, "0"),
         abi::branch_eq(&invalid),
@@ -1406,7 +1406,7 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
         abi::branch_eq(&base_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&base_alloc_ok),
-        abi::move_register(&c_base, abi::RET[1]),
+        abi::move_register(&c_base, abi::mfb_return(1)),
         abi::load_u64(&len, &base, 0),
         abi::add_immediate(&src, &base, 8),
         abi::move_register(&dst, &c_base),
@@ -1437,7 +1437,7 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
         abi::branch_eq(&child_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&child_alloc_ok),
-        abi::move_register(&c_child, abi::RET[1]),
+        abi::move_register(&c_child, abi::mfb_return(1)),
         abi::load_u64(&len, &child, 0),
         abi::add_immediate(&src, &child, 8),
         abi::move_register(&dst, &c_child),
@@ -1469,7 +1469,7 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
         abi::branch_eq(&base_buffer_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&base_buffer_alloc_ok),
-        abi::move_register(&base_buffer, abi::RET[1]),
+        abi::move_register(&base_buffer, abi::mfb_return(1)),
         abi::move_immediate(
             abi::return_register(),
             "Integer",
@@ -1484,7 +1484,7 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
         abi::branch_eq(&child_buffer_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&child_buffer_alloc_ok),
-        abi::move_register(&child_buffer, abi::RET[1]),
+        abi::move_register(&child_buffer, abi::mfb_return(1)),
         abi::move_register(abi::return_register(), &c_base),
         abi::move_register(abi::c_arg(1), &base_buffer),
     ]);
@@ -1564,7 +1564,7 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
     let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
-        &errno_reg,
+        (&errno_reg).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -1684,7 +1684,7 @@ pub(in crate::target::shared::code) fn lower_fs_path_join_helper() -> CodeFuncti
         abi::branch_eq(&alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&result, abi::RET[1]),
+        abi::move_register(&result, abi::mfb_return(1)),
         // Pass 2: build the joined path.
         abi::load_u64(&count, &parts, COLLECTION_OFFSET_COUNT),
         // data base = collection + header + capacity * entry_size (plan-01 §4.2:

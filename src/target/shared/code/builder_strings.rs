@@ -212,7 +212,7 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -221,8 +221,8 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             output_len_slot,
         ));
-        self.emit(abi::store_u64(output_len, abi::RET[1], 0));
-        self.emit(abi::add_immediate(dest, abi::RET[1], 8));
+        self.emit(abi::store_u64(output_len, abi::mfb_return(1), 0));
+        self.emit(abi::add_immediate(dest, abi::mfb_return(1), 8));
         self.emit(abi::load_u64(value_ptr, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(old_ptr, abi::stack_pointer(), old_slot));
         self.emit(abi::load_u64(new_ptr, abi::stack_pointer(), new_slot));
@@ -468,7 +468,7 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -480,7 +480,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_KIND,
         ));
         self.emit(abi::move_immediate(
@@ -490,7 +490,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_KEY_TYPE,
         ));
         self.emit(abi::move_immediate(
@@ -500,13 +500,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_VALUE_TYPE,
         ));
         self.emit(abi::move_immediate(&scratch13, "Byte", "1"));
         self.emit(abi::store_u8(
             &scratch13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_FLAGS_VERSION,
         ));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), value_slot));
@@ -517,12 +517,12 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(
             &scratch11,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_COUNT,
         ));
         self.emit(abi::store_u64(
             &scratch11,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_CAPACITY,
         ));
         self.emit(abi::load_u64(
@@ -532,12 +532,12 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(
             &scratch15,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
         self.emit(abi::store_u64(
             &scratch15,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_DATA_CAPACITY,
         ));
 
@@ -550,7 +550,7 @@ impl CodeBuilder<'_> {
             COLLECTION_OFFSET_COUNT,
         ));
         self.emit(abi::load_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -567,7 +567,7 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::add_immediate(
             &scratch17,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_HEADER_SIZE,
         ));
         self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type);
@@ -981,13 +981,13 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));
-        self.emit(abi::store_u64(length, abi::RET[1], 0));
-        self.emit(abi::add_immediate(dst, abi::RET[1], 8));
+        self.emit(abi::store_u64(length, abi::mfb_return(1), 0));
+        self.emit(abi::add_immediate(dst, abi::mfb_return(1), 8));
         self.emit(abi::load_u64(cursor, abi::stack_pointer(), start_slot));
         self.emit(abi::label(&copy_loop));
         self.emit(abi::compare_immediate(length, "0"));
@@ -1217,13 +1217,13 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));
-        self.emit(abi::store_u64(length, abi::RET[1], 0));
-        self.emit(abi::add_immediate(dst, abi::RET[1], 8));
+        self.emit(abi::store_u64(length, abi::mfb_return(1), 0));
+        self.emit(abi::add_immediate(dst, abi::mfb_return(1), 8));
         self.emit(abi::move_immediate(index, "Integer", "0"));
         self.emit(abi::load_u64(list, abi::stack_pointer(), list_slot));
 
@@ -1443,7 +1443,7 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -1452,8 +1452,8 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             total_len_slot,
         ));
-        self.emit(abi::store_u64(total_len, abi::RET[1], 0));
-        self.emit(abi::add_immediate(dst.clone(), abi::RET[1], 8));
+        self.emit(abi::store_u64(total_len, abi::mfb_return(1), 0));
+        self.emit(abi::add_immediate(dst.clone(), abi::mfb_return(1), 8));
         self.emit(abi::load_u64(
             cursor.clone(),
             abi::stack_pointer(),
@@ -1957,7 +1957,7 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         let result = self.allocate_register()?;
-        self.emit(abi::move_register(&result, abi::RET[1]));
+        self.emit(abi::move_register(&result, abi::mfb_return(1)));
         Ok(ValueResult {
             type_: "String".to_string(),
             location: result.render(),

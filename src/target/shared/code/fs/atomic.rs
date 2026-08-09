@@ -76,7 +76,7 @@ pub(in crate::target::shared::code) fn lower_fs_create_temp_file_helper(
         abi::branch_eq(&alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&path, abi::RET[1]),
+        abi::move_register(&path, abi::mfb_return(1)),
         abi::move_register(&cursor, &path),
         abi::load_u64(&dir_len, &dir, 0),
         abi::add_immediate(&src, &dir, 8),
@@ -184,21 +184,21 @@ pub(in crate::target::shared::code) fn lower_fs_create_temp_file_helper(
         abi::label(&file_alloc_ok),
         // Canonical plan-80 header: tag@0 (x0 is dead after the alloc-ok compare).
         abi::move_immediate(abi::return_register(), "Integer", RESOURCE_TAG_FILE),
-        abi::store_u64(abi::return_register(), abi::RET[1], RESOURCE_OFFSET_TAG),
-        abi::store_u64(&fd, abi::RET[1], FILE_OFFSET_FD),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_CLOSED),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_STATE),
+        abi::store_u64(abi::return_register(), abi::mfb_return(1), RESOURCE_OFFSET_TAG),
+        abi::store_u64(&fd, abi::mfb_return(1), FILE_OFFSET_FD),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_CLOSED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_STATE),
         // Opt-in per-File output buffer (plan-14-B): a fresh handle is unbuffered.
         // Arena memory is poisoned, so zero the buffer fields explicitly.
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_PTR),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_FILLED),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_ENABLED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_PTR),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_FILLED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_ENABLED),
         // Transparent read buffer (plan-14-C): empty cache at the fd's position.
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_PTR),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_POS),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_FILL),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_AT_EOF),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_PTR),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_POS),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_FILL),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_AT_EOF),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&open_error),
@@ -206,7 +206,7 @@ pub(in crate::target::shared::code) fn lower_fs_create_temp_file_helper(
     let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
-        &errno_reg,
+        (&errno_reg).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -421,7 +421,7 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
-        abi::move_register(&value, abi::RET[1]),
+        abi::move_register(&value, abi::mfb_return(1)),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
@@ -438,7 +438,7 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
         abi::branch_eq(&temp_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&temp_alloc_ok),
-        abi::move_register(&temp_path, abi::RET[1]),
+        abi::move_register(&temp_path, abi::mfb_return(1)),
         abi::load_u64(&plen, &path, 0),
         abi::add_immediate(&datalen, &plen, TEMPLATE_SUFFIX.len()),
         abi::store_u64(&datalen, &temp_path, 0),
@@ -574,7 +574,7 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
         abi::branch_eq(&c_temp_alloc_ok),
         abi::branch(&unlink_alloc_error),
         abi::label(&c_temp_alloc_ok),
-        abi::move_register(&c_temp, abi::RET[1]),
+        abi::move_register(&c_temp, abi::mfb_return(1)),
         abi::load_u64(abi::return_register(), &path, 0),
         abi::add_immediate(abi::return_register(), abi::return_register(), 1),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
@@ -586,7 +586,7 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
         abi::branch_eq(&c_final_alloc_ok),
         abi::branch(&unlink_alloc_error),
         abi::label(&c_final_alloc_ok),
-        abi::move_register(&c_final, abi::RET[1]),
+        abi::move_register(&c_final, abi::mfb_return(1)),
         abi::load_u64(&plen, &temp_path, 0),
         abi::add_immediate(&src, &temp_path, 8),
         abi::move_register(&dst, &c_temp),
@@ -723,7 +723,7 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
     let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
-        &errno_reg,
+        (&errno_reg).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -734,7 +734,7 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
     instructions.push(abi::label(&rename_failed));
     platform.emit_errno(
         symbol,
-        &errno_reg,
+        (&errno_reg).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -890,7 +890,7 @@ pub(in crate::target::shared::code) fn lower_fs_write_path_helper(
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
-        abi::move_register(&value, abi::RET[1]),
+        abi::move_register(&value, abi::mfb_return(1)),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
@@ -904,7 +904,7 @@ pub(in crate::target::shared::code) fn lower_fs_write_path_helper(
         abi::branch_eq(&alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&c_path, abi::RET[1]),
+        abi::move_register(&c_path, abi::mfb_return(1)),
         abi::load_u64(&len, &path, 0),
         abi::add_immediate(&src, &path, 8),
         abi::move_register(&dst, &c_path),
@@ -1045,7 +1045,7 @@ pub(in crate::target::shared::code) fn lower_fs_write_path_helper(
     let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
-        &errno_reg,
+        (&errno_reg).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -1151,7 +1151,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
         abi::branch_eq(&alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&c_path, abi::RET[1]),
+        abi::move_register(&c_path, abi::mfb_return(1)),
         abi::load_u64(&len, &path, 0),
         abi::add_immediate(&src, &path, 8),
         abi::move_register(&dst, &c_path),
@@ -1244,7 +1244,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
     instructions.extend([
         abi::branch(&alloc_error),
         abi::label(&string_alloc_ok),
-        abi::move_register(&string, abi::RET[1]),
+        abi::move_register(&string, abi::mfb_return(1)),
         abi::store_u64(&length, &string, 0),
         abi::move_register(&remaining, &length),
         abi::add_immediate(&cursor, &string, 8),
@@ -1333,7 +1333,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
     let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
-        &errno_reg,
+        (&errno_reg).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -1427,7 +1427,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_bytes_path_helper(
         abi::branch_eq(&alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&c_path, abi::RET[1]),
+        abi::move_register(&c_path, abi::mfb_return(1)),
         abi::load_u64(&len, &path, 0),
         abi::add_immediate(&src, &path, 8),
         abi::move_register(&dst, &c_path),
@@ -1488,21 +1488,21 @@ pub(in crate::target::shared::code) fn lower_fs_read_bytes_path_helper(
         abi::label(&file_alloc_ok),
         // Canonical plan-80 header: tag@0 (x0 is dead after the alloc-ok compare).
         abi::move_immediate(abi::return_register(), "Integer", RESOURCE_TAG_FILE),
-        abi::store_u64(abi::return_register(), abi::RET[1], RESOURCE_OFFSET_TAG),
-        abi::store_u64(&fd, abi::RET[1], FILE_OFFSET_FD),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_CLOSED),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_STATE),
+        abi::store_u64(abi::return_register(), abi::mfb_return(1), RESOURCE_OFFSET_TAG),
+        abi::store_u64(&fd, abi::mfb_return(1), FILE_OFFSET_FD),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_CLOSED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_STATE),
         // Opt-in per-File output buffer (plan-14-B): a fresh handle is unbuffered.
         // Arena memory is poisoned, so zero the buffer fields explicitly.
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_PTR),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_FILLED),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_ENABLED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_PTR),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_FILLED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_ENABLED),
         // Transparent read buffer (plan-14-C): empty cache at the fd's position.
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_PTR),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_POS),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_FILL),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_AT_EOF),
-        abi::move_register(abi::return_register(), abi::RET[1]),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_PTR),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_POS),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_FILL),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_AT_EOF),
+        abi::move_register(abi::return_register(), abi::mfb_return(1)),
         abi::branch_link("_mfb_rt_fs_fs_readAllBytes"),
     ]);
     relocations.push(CodeRelocation {
@@ -1534,7 +1534,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_bytes_path_helper(
     let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
-        &errno_reg,
+        (&errno_reg).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,

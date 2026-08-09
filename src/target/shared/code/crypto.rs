@@ -66,7 +66,7 @@ pub(super) fn lower_crypto_random_bytes_helper(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), BUF_OFFSET),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUF_OFFSET),
         // Fill the buffer from OS entropy in <=256-byte chunks.
         abi::move_immediate("%v9", "Integer", "0"),
         abi::store_u64("%v9", abi::stack_pointer(), OFF_OFFSET),
@@ -144,7 +144,7 @@ pub(super) fn lower_crypto_random_bytes_helper(
         BUF_OFFSET,
         COUNT_OFFSET,
         Some(COLLECTION_OFFSET),
-        abi::RET[1],
+        abi::mfb_return(1),
         &alloc_fail,
         &mut instructions,
         &mut relocations,
@@ -178,7 +178,7 @@ pub(super) fn lower_crypto_random_bytes_helper(
     ]);
 
     instructions.extend([
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);

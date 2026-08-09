@@ -46,11 +46,11 @@ pub(super) fn lower_build_error_loc() -> CodeFunction {
     instructions.extend([
         // Fixed slots: filename block-relative offset @0 = OBJECT_SIZE, line @8, char @16.
         abi::move_immediate(&obj_off, "Integer", &ERROR_LOC_OBJECT_SIZE.to_string()),
-        abi::store_u64(&obj_off, abi::RET[1], 0),
-        abi::store_u64(&line, abi::RET[1], 8),
-        abi::store_u64(&char_pos, abi::RET[1], 16),
+        abi::store_u64(&obj_off, abi::mfb_return(1), 0),
+        abi::store_u64(&line, abi::mfb_return(1), 8),
+        abi::store_u64(&char_pos, abi::mfb_return(1), 16),
         // Inline the filename String block (len + 9 bytes) at offset OBJECT_SIZE.
-        abi::add_immediate(&dst, abi::RET[1], ERROR_LOC_OBJECT_SIZE),
+        abi::add_immediate(&dst, abi::mfb_return(1), ERROR_LOC_OBJECT_SIZE),
         abi::move_register(&src, &filename),
         abi::add_immediate(&remaining, &len, 9),
         abi::label("build_error_loc_wloop"),
@@ -72,7 +72,7 @@ pub(super) fn lower_build_error_loc() -> CodeFunction {
         abi::subtract_immediate(&remaining, &remaining, 1),
         abi::branch("build_error_loc_btail"),
         abi::label("build_error_loc_copy_done"),
-        abi::move_register(abi::return_register(), abi::RET[1]),
+        abi::move_register(abi::return_register(), abi::mfb_return(1)),
         abi::label("build_error_loc_ret"),
         abi::return_(),
     ]);

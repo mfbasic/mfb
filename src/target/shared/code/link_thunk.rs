@@ -1440,7 +1440,7 @@ fn lower_link_thunk(
         emit_alloc(&symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
             // record pointer (RET[1]) → scratch; reload handle; store handle@FD.
-            abi::store_u64(abi::RET[1], abi::stack_pointer(), rec_ptr_off),
+            abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), rec_ptr_off),
             abi::load_u64("%v9", abi::stack_pointer(), rec_handle_off),
             abi::load_u64("%v10", abi::stack_pointer(), rec_ptr_off),
             abi::store_u64("%v9", "%v10", FILE_OFFSET_FD),
@@ -1727,7 +1727,7 @@ fn lower_link_thunk(
                     // The wrapper's incoming MFB argument register, as a role
                     // token — the thunk body saves from the same bank
                     // (plan-34-D; ≤8 params, enforced by `argument_register`).
-                    location: abi::argument_register(idx)?,
+                    location: abi::argument_register(idx)?.render(),
                 })
             })
             .collect::<Result<Vec<_>, String>>()?,
@@ -1873,11 +1873,11 @@ fn emit_copy_string_to_cstring(
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), out_off),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), out_off),
         abi::load_u64("%v9", abi::stack_pointer(), str_off),
         abi::load_u64("%v10", "%v9", 0),
         abi::add_immediate("%v11", "%v9", 8),
-        abi::move_register("%v12", abi::RET[1]),
+        abi::move_register("%v12", abi::mfb_return(1)),
         abi::move_immediate("%v13", "Integer", "0"),
         abi::label(&loop_label),
         abi::compare_registers("%v13", "%v10"),
@@ -1949,10 +1949,10 @@ fn emit_copy_cstring_to_string(
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), len_off),
-        abi::store_u64("%v10", abi::RET[1], 0),
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), ret_off),
+        abi::store_u64("%v10", abi::mfb_return(1), 0),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), ret_off),
         abi::load_u64("%v11", abi::stack_pointer(), cret_off),
-        abi::add_immediate("%v12", abi::RET[1], 8),
+        abi::add_immediate("%v12", abi::mfb_return(1), 8),
         abi::move_immediate("%v13", "Integer", "0"),
         abi::label(&copy_loop),
         abi::compare_registers("%v13", "%v10"),
@@ -1981,13 +1981,13 @@ fn emit_copy_cstring_to_string(
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::store_u64(abi::ZERO, abi::RET[1], 0),
-        abi::store_u8(abi::ZERO, abi::RET[1], 8),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), 0),
+        abi::store_u8(abi::ZERO, abi::mfb_return(1), 8),
         // Store on this path too: the save slot must be authoritative on BOTH
         // paths so a caller can read it from the frame rather than trusting a
         // physical register to survive (plan-50-F).
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), ret_off),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), ret_off),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::label(&ret_done),
     ]);
 }
@@ -2451,7 +2451,7 @@ fn marshal_struct_out(
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
-    instructions.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), REC_OFF));
+    instructions.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), REC_OFF));
 
     // Pass 2: write each field. The record pointer is reloaded per field — it did
     // not survive the allocation (`_mfb_arena_alloc` destroys x0-x17).

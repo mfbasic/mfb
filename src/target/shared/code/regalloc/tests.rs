@@ -411,7 +411,7 @@ fn find_physical_operand_catches_every_class_and_passes_tokens() {
             .field("dst", abi::MATH_POOL)
             .field("src", abi::CURRENT_THREAD),
         CodeInstruction::new("ldr_u64")
-            .field("dst", abi::RET[0])
+            .field("dst", abi::mfb_return(0))
             .field("base", "incoming_args")
             .field("offset", "0"),
         CodeInstruction::new("mov_imm")

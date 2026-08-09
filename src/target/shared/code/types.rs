@@ -633,7 +633,7 @@ pub(crate) trait CodegenPlatform {
     fn emit_errno(
         &self,
         from: &str,
-        dst: &str,
+        dst: Operand,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,

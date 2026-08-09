@@ -207,8 +207,8 @@ pub(in crate::target::shared::code) fn emit_append_to_buffer(
     ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_failed),
-        abi::store_u64(abi::RET[1], s.state_reg, s.buf_ptr_off),
-        abi::move_register(s.v[0], abi::RET[1]),
+        abi::store_u64(abi::mfb_return(1), s.state_reg, s.buf_ptr_off),
+        abi::move_register(s.v[0], abi::mfb_return(1)),
         abi::branch(&have_buf),
         // Allocation failed: write this chunk directly so no output is lost. Loop on
         // short writes (bug-51) until nothing remains; %v40/%v41 are vregs, spilled

@@ -264,15 +264,15 @@ pub(super) fn emit_thread_queue_alloc(
     ctx.instructions.extend([
         abi::branch(done_label),
         abi::label(&alloc_queue_ok),
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), queue_stack_offset),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), queue_stack_offset),
         abi::load_u64("%v9", abi::stack_pointer(), cb_stack_offset),
-        abi::store_u64(abi::RET[1], "%v9", cb_queue_offset),
+        abi::store_u64(abi::mfb_return(1), "%v9", cb_queue_offset),
         abi::load_u64("%v10", abi::stack_pointer(), limit_stack_offset),
-        abi::store_u64("%v10", abi::RET[1], THREAD_QUEUE_CAPACITY_OFFSET),
-        abi::store_u64(abi::ZERO, abi::RET[1], THREAD_QUEUE_COUNT_OFFSET),
-        abi::store_u64(abi::ZERO, abi::RET[1], THREAD_QUEUE_HEAD_OFFSET),
-        abi::store_u64(abi::ZERO, abi::RET[1], THREAD_QUEUE_TAIL_OFFSET),
-        abi::store_u64(abi::ZERO, abi::RET[1], THREAD_QUEUE_CLOSED_OFFSET),
+        abi::store_u64("%v10", abi::mfb_return(1), THREAD_QUEUE_CAPACITY_OFFSET),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), THREAD_QUEUE_COUNT_OFFSET),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), THREAD_QUEUE_HEAD_OFFSET),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), THREAD_QUEUE_TAIL_OFFSET),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), THREAD_QUEUE_CLOSED_OFFSET),
         abi::move_immediate("%v11", "Integer", "8"),
         // size = capacity * 8. The limit is upper-bounded in lower_thread_start_helper
         // so this cannot wrap in practice, but trap the high half anyway (defense in
@@ -317,7 +317,7 @@ pub(super) fn emit_thread_queue_alloc(
         abi::branch(done_label),
         abi::label(&alloc_values_ok),
         abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
-        abi::store_u64(abi::RET[1], "%v9", THREAD_QUEUE_VALUES_OFFSET),
+        abi::store_u64(abi::mfb_return(1), "%v9", THREAD_QUEUE_VALUES_OFFSET),
         // Empty pending-free list (bug-147.5b).
         abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
         abi::move_register(abi::c_arg(0), "%v9"),
@@ -334,7 +334,7 @@ pub(super) fn emit_thread_queue_alloc(
         "pthread_mutex_init",
     )?;
     ctx.instructions.extend([
-        abi::compare_immediate(abi::RET[0], "0"),
+        abi::compare_immediate(abi::mfb_return(0), "0"),
         abi::branch_ne(&init_error),
         abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
         abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
@@ -351,7 +351,7 @@ pub(super) fn emit_thread_queue_alloc(
         "pthread_cond_init",
     )?;
     ctx.instructions.extend([
-        abi::compare_immediate(abi::RET[0], "0"),
+        abi::compare_immediate(abi::mfb_return(0), "0"),
         abi::branch_ne(&init_error),
         abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
         abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_FULL_OFFSET),
@@ -368,7 +368,7 @@ pub(super) fn emit_thread_queue_alloc(
         "pthread_cond_init",
     )?;
     ctx.instructions.extend([
-        abi::compare_immediate(abi::RET[0], "0"),
+        abi::compare_immediate(abi::mfb_return(0), "0"),
         abi::branch_ne(&init_error),
         abi::branch(&init_done),
         abi::label(&init_error),
@@ -611,8 +611,8 @@ fn lower_thread_start_helper(
     instructions.extend([
         abi::branch(&parent_done),
         abi::label(&alloc_block_ok),
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), CB_OFFSET),
-        abi::move_register("%v9", abi::RET[1]),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), CB_OFFSET),
+        abi::move_register("%v9", abi::mfb_return(1)),
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_STATE),
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_CANCELLED),
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_RESULT_TAG),
@@ -663,21 +663,21 @@ fn lower_thread_start_helper(
     instructions.extend([
         abi::branch(&parent_done),
         abi::label(&alloc_worker_arena_ok),
-        abi::move_register("%v11", abi::RET[1]),
-        abi::add_immediate("%v12", abi::RET[1], worker_arena_size),
+        abi::move_register("%v11", abi::mfb_return(1)),
+        abi::add_immediate("%v12", abi::mfb_return(1), worker_arena_size),
         abi::label(&child_zero_loop),
         abi::store_u64(abi::ZERO, "%v11", 0),
         abi::add_immediate("%v11", "%v11", 8),
         abi::compare_registers("%v11", "%v12"),
         abi::branch_lo(&child_zero_loop),
         abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-        abi::store_u64(abi::RET[1], "%v9", THREAD_OFFSET_ARENA_STATE),
+        abi::store_u64(abi::mfb_return(1), "%v9", THREAD_OFFSET_ARENA_STATE),
         // Inherit the parent's Money rounding mode (plan-29-D): the child arena was
         // just zeroed (= Commercial), so copy the spawning thread's mode field
         // (`x19` is the parent arena here) into the child, which then diverges
         // independently — consistent with per-thread RNG/state isolation.
         abi::load_u64("%v11", abi::ARENA, ARENA_ROUNDING_MODE_OFFSET),
-        abi::store_u64("%v11", abi::RET[1], ARENA_ROUNDING_MODE_OFFSET),
+        abi::store_u64("%v11", abi::mfb_return(1), ARENA_ROUNDING_MODE_OFFSET),
     ]);
 
     if uses_rng {
@@ -827,8 +827,8 @@ fn lower_thread_start_helper(
         instructions.extend([
             abi::add_stack(0x40),
             abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-            abi::store_u64(abi::RET[0], "%v9", THREAD_OFFSET_OS_HANDLE), // cb.os_handle = HANDLE
-            abi::compare_immediate(abi::RET[0], "0"),
+            abi::store_u64(abi::mfb_return(0), "%v9", THREAD_OFFSET_OS_HANDLE), // cb.os_handle = HANDLE
+            abi::compare_immediate(abi::mfb_return(0), "0"),
             abi::branch_eq(&spawn_error), // NULL = failure
             abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -911,7 +911,7 @@ fn lower_thread_start_helper(
             platform_imports,
         )?);
         instructions.extend([
-            abi::compare_immediate(abi::RET[0], "0"),
+            abi::compare_immediate(abi::mfb_return(0), "0"),
             abi::branch_ne(&spawn_error),
             abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
             abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
@@ -1369,7 +1369,7 @@ pub(crate) fn lower_thread_trampoline(
         "pthread_mutex_unlock",
     )?;
     instructions.extend([
-        abi::move_immediate(abi::RET[0], "Integer", "0"),
+        abi::move_immediate(abi::mfb_return(0), "Integer", "0"),
         abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), ARENA_OFFSET),
         abi::load_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), CLOSURE_OFFSET),
         abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), X20_OFFSET),

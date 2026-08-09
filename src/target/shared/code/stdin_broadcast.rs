@@ -428,7 +428,7 @@ pub(super) fn lower_stdin_next_byte(
     // while it is still unambiguously the read's own errno removes the reliance.
     platform.emit_errno(
         symbol,
-        "%v82",
+        ("%v82").into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -699,7 +699,7 @@ pub(super) fn lower_stdin_next_byte(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&l("err_unlock")),
-        abi::move_register("%v76", abi::RET[1]),
+        abi::move_register("%v76", abi::mfb_return(1)),
     ]);
     field_addr(
         "%v52",

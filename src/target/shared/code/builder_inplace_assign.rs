@@ -607,18 +607,18 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             newbuf_slot,
         ));
         // newbuf[0] = newlen.
         self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
-        self.emit(abi::store_u64(&newlen, abi::RET[1], 0));
+        self.emit(abi::store_u64(&newlen, abi::mfb_return(1), 0));
         // Copy the current bytes (len) to newbuf+8.
         self.emit(abi::load_u64(&ptr, abi::stack_pointer(), name_slot));
         self.emit(abi::load_u64(&len, &ptr, 0)); // len
         self.emit(abi::add_immediate(&ptr, &ptr, 8)); // old data
-        self.emit(abi::add_immediate(&dst, abi::RET[1], 8)); // new data
+        self.emit(abi::add_immediate(&dst, abi::mfb_return(1), 8)); // new data
         self.emit_copy_bytes(&dst, &ptr, &len, "concat_self_old");
         // Copy the operand bytes (rlen) to newbuf+8+len. dst now points at +8+len.
         self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
@@ -647,11 +647,11 @@ impl CodeBuilder<'_> {
         self.emit_arena_free_call();
         // Install new buffer; spare = newcap_payload - newlen.
         self.emit(abi::load_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             newbuf_slot,
         ));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), name_slot));
+        self.emit(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), name_slot));
         self.emit(abi::load_u64(&newcap, abi::stack_pointer(), newcap_slot));
         self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
         self.emit(abi::subtract_registers(&newcap, &newcap, &newlen));

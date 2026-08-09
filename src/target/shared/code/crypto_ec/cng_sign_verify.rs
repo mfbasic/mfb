@@ -316,7 +316,7 @@ fn sign(
             abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         ]);
         emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-        ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), slot));
+        ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), slot));
     }
 
     import_key(curve, true, symbol, PRIVBUF, BLOB, HALG, HKEY, &fail, &fail, imports, platform, &mut ins, &mut rel)?;
@@ -390,7 +390,7 @@ fn sign(
         DERSTART,
         DERLEN,
         Some(COLL),
-        abi::RET[1],
+        abi::mfb_return(1),
         &alloc_fail,
         &mut ins,
         &mut rel,
@@ -477,7 +477,7 @@ fn verify(
             abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         ]);
         emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-        ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), slot));
+        ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), slot));
     }
 
     import_key(curve, false, symbol, PUBBUF, BLOB, HALG, HKEY, &fail, &invalid, imports, platform, &mut ins, &mut rel)?;

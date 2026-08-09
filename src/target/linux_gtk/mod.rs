@@ -374,16 +374,17 @@ impl Asm {
     }
 
     /// Materialize an internal data/text symbol's address into `dst` (adrp/add).
-    fn local_address(&mut self, dst: &str, symbol: &str) {
+    fn local_address(&mut self, dst: impl Into<Operand>, symbol: &str) {
+        let dst = dst.into();
         self.push(
             CodeInstruction::new("adrp")
-                .field("dst", dst)
+                .field("dst", &dst)
                 .field("symbol", symbol),
         );
         self.push(
             CodeInstruction::new("add_pageoff")
-                .field("dst", dst)
-                .field("src", dst)
+                .field("dst", &dst)
+                .field("src", &dst)
                 .field("symbol", symbol),
         );
         for kind in [RelocIntent::DataAddrHi, RelocIntent::DataAddrLo] {

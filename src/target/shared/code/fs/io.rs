@@ -67,11 +67,12 @@ pub(in crate::target::shared::code) fn write_uses_raw_syscall(
 /// established errno scratch and is dead on the negative-return path.
 pub(in crate::target::shared::code) fn emit_eintr_retry_or_error(
     ctx: &mut EmitCtx,
-    ret: &str,
+    ret: impl Into<Operand>,
     raw_return: bool,
     retry_label: &str,
     error_label: &str,
 ) -> Result<(), String> {
+    let ret = ret.into();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
@@ -86,8 +87,8 @@ pub(in crate::target::shared::code) fn emit_eintr_retry_or_error(
         // Raw-`svc` return is `-errno`: EINTR iff `ret == -EINTR`, i.e.
         // `ret + EINTR == 0`.
         ctx.instructions.extend([
-            abi::add_immediate(ret, ret, eintr),
-            abi::compare_immediate(ret, "0"),
+            abi::add_immediate(&ret, &ret, eintr),
+            abi::compare_immediate(&ret, "0"),
             abi::branch_eq(retry_label),
             abi::branch(error_label),
         ]);
@@ -95,13 +96,13 @@ pub(in crate::target::shared::code) fn emit_eintr_retry_or_error(
         // `emit_errno` loads the current `errno` into `ret` (reused).
         platform.emit_errno(
             symbol,
-            ret,
+            (ret.clone()).into(),
             platform_imports,
             ctx.instructions,
             ctx.relocations,
         )?;
         ctx.instructions.extend([
-            abi::compare_immediate(ret, EINTR_ERRNO),
+            abi::compare_immediate(&ret, EINTR_ERRNO),
             abi::branch_eq(retry_label),
             abi::branch(error_label),
         ]);
@@ -121,20 +122,21 @@ pub(in crate::target::shared::code) fn emit_eintr_retry_or_error(
 /// pass `false` for every `read` loop (reads always go through libc).
 pub(in crate::target::shared::code) fn emit_transfer_loop_tail(
     ctx: &mut EmitCtx,
-    ret: &str,
+    ret: impl Into<Operand>,
     raw_return: bool,
     cursor: &str,
     remaining: &str,
     loop_label: &str,
     error_label: &str,
 ) -> Result<(), String> {
+    let ret = ret.into();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
 
     let advance = format!("{loop_label}_advance");
     ctx.instructions.extend([
-        abi::compare_immediate(ret, "0"),
+        abi::compare_immediate(&ret, "0"),
         abi::branch_gt(&advance),
         abi::branch_eq(error_label),
     ]);
@@ -146,15 +148,15 @@ pub(in crate::target::shared::code) fn emit_transfer_loop_tail(
             instructions: ctx.instructions,
             relocations: ctx.relocations,
         },
-        ret,
+        &ret,
         raw_return,
         loop_label,
         error_label,
     )?;
     ctx.instructions.extend([
         abi::label(&advance),
-        abi::add_registers(cursor, cursor, ret),
-        abi::subtract_registers(remaining, remaining, ret),
+        abi::add_registers(cursor, cursor, &ret),
+        abi::subtract_registers(remaining, remaining, &ret),
         abi::branch(loop_label),
     ]);
     Ok(())
@@ -392,7 +394,7 @@ pub(in crate::target::shared::code) fn lower_fs_set_buffered_helper(symbol: &str
     // x0 = File*, x1 = enabled (Boolean).
     let mut instructions = vec![
         abi::label("entry"),
-        abi::compare_immediate(abi::RET[1], "0"),
+        abi::compare_immediate(abi::mfb_return(1), "0"),
         abi::branch_ne(&enable),
         // Disable: drain first (best-effort — setBuffered returns Nothing), then
         // clear the flag. File* is already in x0 for the drain; park it for the store.
@@ -499,7 +501,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
-        abi::move_register(&mode, abi::RET[1]),
+        abi::move_register(&mode, abi::mfb_return(1)),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
@@ -530,7 +532,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_ok),
-        abi::move_register(&c_path, abi::RET[1]),
+        abi::move_register(&c_path, abi::mfb_return(1)),
         abi::load_u64(&len, &path, 0),
         abi::add_immediate(&src, &path, 8),
         abi::move_register(&dst, &c_path),
@@ -636,7 +638,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
         // open below; any other errno is a real failure mapped as usual.
         platform.emit_errno(
             symbol,
-            &openat2_errno,
+            (&openat2_errno).into(),
             platform_imports,
             &mut instructions,
             &mut relocations,
@@ -745,21 +747,21 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
         abi::label(&file_alloc_ok),
         // Canonical plan-80 header: tag@0 (x0 is dead after the alloc-ok compare).
         abi::move_immediate(abi::return_register(), "Integer", RESOURCE_TAG_FILE),
-        abi::store_u64(abi::return_register(), abi::RET[1], RESOURCE_OFFSET_TAG),
-        abi::store_u64(&fd, abi::RET[1], FILE_OFFSET_FD),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_CLOSED),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_STATE),
+        abi::store_u64(abi::return_register(), abi::mfb_return(1), RESOURCE_OFFSET_TAG),
+        abi::store_u64(&fd, abi::mfb_return(1), FILE_OFFSET_FD),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_CLOSED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_STATE),
         // Opt-in per-File output buffer (plan-14-B): a fresh handle is unbuffered.
         // Arena memory is poisoned, so zero the buffer fields explicitly.
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_PTR),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_FILLED),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_ENABLED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_PTR),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_FILLED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_ENABLED),
         // Transparent read buffer (plan-14-C): empty cache at the fd's position.
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_PTR),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_POS),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_FILL),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_AT_EOF),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_PTR),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_POS),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_FILL),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_AT_EOF),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&invalid),
@@ -776,7 +778,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
     let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
-        &errno_reg,
+        (&errno_reg).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -901,8 +903,8 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&root, abi::return_register()),
-        abi::move_register(&rel, abi::RET[1]),
-        abi::move_register(&mode, abi::RET[2]),
+        abi::move_register(&rel, abi::mfb_return(1)),
+        abi::move_register(&mode, abi::mfb_return(2)),
         // root must be non-empty.
         abi::load_u64(&len0, &root, 0),
         abi::compare_immediate(&len0, "0"),
@@ -927,7 +929,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     instructions.extend([
         abi::branch(&done),
         abi::label(&root_alloc_ok),
-        abi::move_register(&root_cstr, abi::RET[1]),
+        abi::move_register(&root_cstr, abi::mfb_return(1)),
         abi::load_u64(&len, &root, 0),
         abi::add_immediate(&src, &root, 8),
         abi::move_register(&dst, &root_cstr),
@@ -969,7 +971,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     instructions.extend([
         abi::branch(&done),
         abi::label(&buffer_alloc_ok),
-        abi::move_register(&c_path, abi::RET[1]),
+        abi::move_register(&c_path, abi::mfb_return(1)),
         // realpath(root_cstr, c_path): canonicalize the trusted root (resolving its
         // own symlinks). NULL return => the root does not resolve.
         abi::move_register(abi::return_register(), &root_cstr),
@@ -1145,7 +1147,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
         ]);
         platform.emit_errno(
             symbol,
-            &openat2_errno,
+            (&openat2_errno).into(),
             platform_imports,
             &mut instructions,
             &mut relocations,
@@ -1245,18 +1247,18 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
         abi::label(&file_alloc_ok),
         // Canonical plan-80 header: tag@0 (x0 is dead after the alloc-ok compare).
         abi::move_immediate(abi::return_register(), "Integer", RESOURCE_TAG_FILE),
-        abi::store_u64(abi::return_register(), abi::RET[1], RESOURCE_OFFSET_TAG),
-        abi::store_u64(&fd, abi::RET[1], FILE_OFFSET_FD),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_CLOSED),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_STATE),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_PTR),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_FILLED),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_ENABLED),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_PTR),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_POS),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_FILL),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_AT_EOF),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::store_u64(abi::return_register(), abi::mfb_return(1), RESOURCE_OFFSET_TAG),
+        abi::store_u64(&fd, abi::mfb_return(1), FILE_OFFSET_FD),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_CLOSED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_STATE),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_PTR),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_FILLED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_ENABLED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_PTR),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_POS),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_FILL),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_AT_EOF),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&invalid),
@@ -1277,7 +1279,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
-        &errno_reg,
+        (&errno_reg).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -1458,7 +1460,7 @@ pub(in crate::target::shared::code) fn lower_fs_write_all_helper(
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
-        abi::move_register(&data, abi::RET[1]),
+        abi::move_register(&data, abi::mfb_return(1)),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
         abi::compare_immediate(&closed_flag, "0"),
         abi::branch_ne(&closed),
@@ -1671,7 +1673,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_helper(
         abi::branch_eq(&alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&string, abi::RET[1]),
+        abi::move_register(&string, abi::mfb_return(1)),
         abi::store_u64(&length, &string, 0),
         abi::move_register(&remaining, &length),
         abi::add_immediate(&cursor, &string, 8),
@@ -1787,7 +1789,7 @@ pub(in crate::target::shared::code) fn lower_fs_write_all_bytes_helper(
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
-        abi::move_register(&bytes, abi::RET[1]),
+        abi::move_register(&bytes, abi::mfb_return(1)),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
         abi::compare_immediate(&closed_flag, "0"),
         abi::branch_ne(&closed),
@@ -2014,7 +2016,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_bytes_helper(
         abi::branch_eq(&alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&collection, abi::RET[1]),
+        abi::move_register(&collection, abi::mfb_return(1)),
         abi::move_immediate(&scratch, "Byte", &byte_list_block_kind().to_string()),
         abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_KIND),
         abi::move_immediate(&scratch, "Byte", &COLLECTION_TYPE_NONE.to_string()),
@@ -2290,7 +2292,7 @@ fn emit_append_to_line_accumulator(
         abi::branch_ne(alloc_error),
         // copy the existing line_len bytes from old(+8) to new(+8)
         abi::add_immediate("%v53", "%v52", 8),
-        abi::add_immediate("%v54", abi::RET[1], 8),
+        abi::add_immediate("%v54", abi::mfb_return(1), 8),
         abi::move_register("%v55", line_len),
         abi::label(&grow_copy),
         abi::compare_immediate("%v55", "0"),
@@ -2302,7 +2304,7 @@ fn emit_append_to_line_accumulator(
         abi::subtract_immediate("%v55", "%v55", 1),
         abi::branch(&grow_copy),
         abi::label(&grow_copy_done),
-        abi::move_register(temp, abi::RET[1]),
+        abi::move_register(temp, abi::mfb_return(1)),
         abi::move_register(temp_cap, "%v51"),
         abi::label(&fits),
         // dst = temp + 8 + line_len; copy `count` bytes from src.
@@ -2443,8 +2445,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_line_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_error),
-        abi::store_u64(abi::RET[1], &file, FILE_OFFSET_READ_PTR),
-        abi::move_register(&read_ptr, abi::RET[1]),
+        abi::store_u64(abi::mfb_return(1), &file, FILE_OFFSET_READ_PTR),
+        abi::move_register(&read_ptr, abi::mfb_return(1)),
         // READ_POS/READ_FILL/READ_AT_EOF are already 0 from the open-time zeroing.
         abi::label(&have_read_buf),
         // Allocate a small growing line accumulator (line bytes at temp+8).
@@ -2456,7 +2458,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_line_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_error),
-        abi::move_register(&temp, abi::RET[1]),
+        abi::move_register(&temp, abi::mfb_return(1)),
         abi::move_immediate(&temp_cap, "Integer", "32"),
         abi::move_immediate(&line_len, "Integer", "0"),
         abi::label(&line_loop),
@@ -2592,7 +2594,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_line_helper(
         abi::branch_eq(&result_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&result_alloc_ok),
-        abi::move_register(&result, abi::RET[1]),
+        abi::move_register(&result, abi::mfb_return(1)),
         abi::store_u64(&line_len, &result, 0),
         abi::add_immediate(&dst, &result, 8),
         abi::add_immediate(&src, &temp, 8),

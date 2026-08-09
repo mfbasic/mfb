@@ -567,7 +567,7 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -578,7 +578,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_KIND,
         ));
         self.emit(abi::move_immediate(
@@ -588,7 +588,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_KEY_TYPE,
         ));
         self.emit(abi::move_immediate(
@@ -598,13 +598,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_VALUE_TYPE,
         ));
         self.emit(abi::move_immediate(&scratch13, "Byte", "1"));
         self.emit(abi::store_u8(
             &scratch13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_FLAGS_VERSION,
         ));
         // `arena_alloc` does not zero the block, so the bucket-index-ready byte is
@@ -613,18 +613,18 @@ impl CodeBuilder<'_> {
         // shape ever changes — zero it like the header writers do (bug-232).
         self.emit(abi::store_u8(
             abi::ZERO,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_BUCKETS_READY,
         ));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(
             &scratch9,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_COUNT,
         ));
         self.emit(abi::store_u64(
             &scratch9,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_CAPACITY,
         ));
         self.emit(abi::load_u64(
@@ -634,12 +634,12 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(
             &scratch11,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
         self.emit(abi::store_u64(
             &scratch11,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_DATA_CAPACITY,
         ));
 
@@ -649,7 +649,7 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         self.emit(abi::load_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -661,7 +661,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::add_immediate(
             &scratch17,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_HEADER_SIZE,
         ));
         self.emit_collection_data_pointer_for(&scratch20, &scratch8, "");
@@ -906,7 +906,7 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -916,13 +916,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&s16, "Integer", &REC.to_string()));
         self.emit(abi::multiply_registers(&s16, &s9, &s16));
         self.emit(abi::move_immediate(&s13, "Byte", &layout.kind.to_string()));
-        self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_KIND));
+        self.emit(abi::store_u8(&s13, abi::mfb_return(1), COLLECTION_OFFSET_KIND));
         self.emit(abi::move_immediate(
             &s13,
             "Byte",
             &layout.key_type_code.to_string(),
         ));
-        self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_KEY_TYPE));
+        self.emit(abi::store_u8(&s13, abi::mfb_return(1), COLLECTION_OFFSET_KEY_TYPE));
         self.emit(abi::move_immediate(
             &s13,
             "Byte",
@@ -930,32 +930,32 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &s13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_VALUE_TYPE,
         ));
         self.emit(abi::move_immediate(&s13, "Byte", "1"));
         self.emit(abi::store_u8(
             &s13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_FLAGS_VERSION,
         ));
         // `arena_alloc` does not zero the block: zero the bucket-index-ready byte
         // rather than leaving stale poison (bug-232).
         self.emit(abi::store_u8(
             abi::ZERO,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_BUCKETS_READY,
         ));
-        self.emit(abi::store_u64(&s9, abi::RET[1], COLLECTION_OFFSET_COUNT));
-        self.emit(abi::store_u64(&s9, abi::RET[1], COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::store_u64(&s9, abi::mfb_return(1), COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64(&s9, abi::mfb_return(1), COLLECTION_OFFSET_CAPACITY));
         self.emit(abi::store_u64(
             &s16,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
         self.emit(abi::store_u64(
             &s16,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_DATA_CAPACITY,
         ));
 
@@ -963,7 +963,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&s8, abi::stack_pointer(), a_slot));
         self.emit(abi::load_u64(&s10, abi::stack_pointer(), b_slot));
         self.emit(abi::load_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -997,7 +997,7 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::add_immediate(
             &s17,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_HEADER_SIZE,
         ));
         self.emit_collection_data_pointer_for(&s20, &s8, &a_element);
@@ -1290,20 +1290,20 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
 
         // Header.
         self.emit(abi::move_immediate(&s13, "Byte", &layout.kind.to_string()));
-        self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_KIND));
+        self.emit(abi::store_u8(&s13, abi::mfb_return(1), COLLECTION_OFFSET_KIND));
         self.emit(abi::move_immediate(
             &s13,
             "Byte",
             &layout.key_type_code.to_string(),
         ));
-        self.emit(abi::store_u8(&s13, abi::RET[1], COLLECTION_OFFSET_KEY_TYPE));
+        self.emit(abi::store_u8(&s13, abi::mfb_return(1), COLLECTION_OFFSET_KEY_TYPE));
         self.emit(abi::move_immediate(
             &s13,
             "Byte",
@@ -1311,38 +1311,38 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &s13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_VALUE_TYPE,
         ));
         self.emit(abi::move_immediate(&s13, "Byte", "1"));
         self.emit(abi::store_u8(
             &s13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_FLAGS_VERSION,
         ));
         // `arena_alloc` does not zero the block: zero the bucket-index-ready byte
         // rather than leaving stale poison (bug-232).
         self.emit(abi::store_u8(
             abi::ZERO,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_BUCKETS_READY,
         ));
         self.emit(abi::load_u64(&s12, abi::stack_pointer(), count_slot));
-        self.emit(abi::store_u64(&s12, abi::RET[1], COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64(&s12, abi::mfb_return(1), COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(
             &s12,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_CAPACITY,
         ));
         self.emit(abi::load_u64(&s13, abi::stack_pointer(), data_len_slot));
         self.emit(abi::store_u64(
             &s13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
         self.emit(abi::store_u64(
             &s13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_DATA_CAPACITY,
         ));
 
@@ -1350,7 +1350,7 @@ impl CodeBuilder<'_> {
         // into the new blob and rewrite the entry's value_offset to the running one.
         self.emit(abi::load_u64(&s8, abi::stack_pointer(), collection_slot));
         self.emit(abi::load_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -1366,7 +1366,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(&s12, &s12, &s13));
         self.emit(abi::add_immediate(
             &s17,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_HEADER_SIZE,
         ));
         self.emit_collection_data_pointer_for(&s20, &s8, element_type);
@@ -1388,13 +1388,13 @@ impl CodeBuilder<'_> {
             self.emit(abi::multiply_registers(&s13, &s10, &s14)); // start * payload
             self.emit(abi::add_registers(&s24, &s20, &s13)); // src.data + start*p
             self.emit(abi::load_u64(
-                abi::RET[1],
+                abi::mfb_return(1),
                 abi::stack_pointer(),
                 result_slot,
             ));
             self.emit(abi::add_immediate(
                 &s25,
-                abi::RET[1],
+                abi::mfb_return(1),
                 COLLECTION_HEADER_SIZE,
             ));
             self.emit(abi::multiply_registers(&s23, &s9, &s14)); // count * payload
@@ -2642,7 +2642,7 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -3377,7 +3377,7 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -3580,7 +3580,7 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -3801,7 +3801,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::branch_eq(&ok));
             self.emit_allocation_error_return()?;
             self.emit(abi::label(&ok));
-            self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), dst_slot));
+            self.emit(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), dst_slot));
             self.emit(abi::load_u64(&r, abi::stack_pointer(), cap_slot));
             let dl = self.temporary_vreg();
             self.emit(abi::shift_left_immediate(&dl, &r, 3));
@@ -3918,7 +3918,7 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&ins_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             bucket_slot,
         ));

@@ -85,7 +85,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::move_register(&record, abi::RET[1]));
+        self.emit(abi::move_register(&record, abi::mfb_return(1)));
         // Zero the record (invalid internals), then mark it closed.
         let bytes: usize = RESOURCE_RECORD_SIZE_BYTES;
         let mut offset = 0;
@@ -170,7 +170,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(&alloc_ok));
                 self.emit_allocation_error_return()?;
                 self.emit(abi::label(&alloc_ok));
-                self.emit(abi::move_register(&block, abi::RET[1]));
+                self.emit(abi::move_register(&block, abi::mfb_return(1)));
                 let variants = self.resource_union_cleanup(type_).ok_or_else(|| {
                     format!("native code cannot resolve resource-union variants for '{type_}'")
                 })?;
@@ -555,7 +555,7 @@ impl CodeBuilder<'_> {
         // break the result-vs-argument dataflow, so a later consumer would
         // arg-map the value. A neutral register carries it safely.
         let result_ptr = self.allocate_register()?;
-        self.emit(abi::move_register(&result_ptr, abi::RET[1]));
+        self.emit(abi::move_register(&result_ptr, abi::mfb_return(1)));
         self.emit(abi::load_u64(left_cur, abi::stack_pointer(), left_slot));
         self.emit(abi::load_u64(right_cur, abi::stack_pointer(), right_slot));
         self.emit(abi::add_immediate(right_cur, right_cur, 8));

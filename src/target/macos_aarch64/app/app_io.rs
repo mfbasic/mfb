@@ -285,11 +285,11 @@ fn emit_set_input_mode_instructions(asm: &mut Asm, mode: &str) {
     // which the plan-34-D stream guard requires to be token-pure. The tokens
     // realize to the same x0–x3 at the selection seam.
     asm.load_selector(SEL_SHARED_APPLICATION.0);
-    asm.external_data(abi::ARG[0], CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.external_data(abi::mfb_arg(0), CLASS_NS_APPLICATION, LIB_APPKIT);
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.local_address(abi::ARG[1], INPUT_MODE_KEY);
-    asm.push(abi::move_immediate(abi::ARG[2], "Integer", mode));
-    asm.push(abi::move_immediate(abi::ARG[3], "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
+    asm.local_address(abi::mfb_arg(1), INPUT_MODE_KEY);
+    asm.push(abi::move_immediate(abi::mfb_arg(2), "Integer", mode));
+    asm.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
     asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
 }
 

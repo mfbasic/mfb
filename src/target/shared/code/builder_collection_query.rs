@@ -409,13 +409,13 @@ impl CodeBuilder<'_> {
             library: None,
         });
         // x0 = entry index, or -1 (signed negative) when absent.
-        self.emit(abi::compare_immediate(abi::RET[0], "0"));
+        self.emit(abi::compare_immediate(abi::mfb_return(0), "0"));
         self.emit(abi::branch_lt(not_found_label));
         let fb_scratch = self.temporary_vreg();
         let fb_map = self.temporary_vreg();
         let fb_entry = self.temporary_vreg();
         self.emit(abi::move_immediate(&fb_scratch, "Integer", &entry_size));
-        self.emit(abi::multiply_registers(&fb_entry, abi::RET[0], &fb_scratch));
+        self.emit(abi::multiply_registers(&fb_entry, abi::mfb_return(0), &fb_scratch));
         self.emit(abi::load_u64(
             &fb_map,
             abi::stack_pointer(),

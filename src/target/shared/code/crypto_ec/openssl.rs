@@ -587,8 +587,8 @@ fn generate(
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), SEC1PTR),
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), SEC1PP),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), SEC1PTR),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), SEC1PP),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PKEY),
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), SEC1PP),
     ]);
@@ -630,8 +630,8 @@ fn generate(
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), SPKIPTR),
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), SPKIPP),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), SPKIPTR),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), SPKIPP),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PKEY),
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), SPKIPP),
     ]);
@@ -652,7 +652,7 @@ fn generate(
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), RAWBUF));
+    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RAWBUF));
     // Bounds-guard the SPKI DER before slicing out the public point. The point sits
     // at the fixed constant-length SPKI prefix; a shorter-than-expected SPKI would
     // otherwise read point_len bytes past the SPKILEN-sized buffer (mirroring the
@@ -706,7 +706,7 @@ fn generate(
         RAWBUF,
         RAWLEN,
         Some(COLL),
-        abi::RET[1],
+        abi::mfb_return(1),
         &alloc_fail,
         &mut ins,
         &mut rel,
@@ -913,8 +913,8 @@ fn sign(
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), DERBUF),
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), DERPP),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), DERBUF),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), DERPP),
     ]);
     emit_data_address(
         symbol,
@@ -1073,7 +1073,7 @@ fn sign(
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), SIGBUF));
+    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), SIGBUF));
     // EVP_DigestSign(ctx, sig, &siglen, msg, msglen)
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), MDCTX),
@@ -1095,7 +1095,7 @@ fn sign(
         SIGBUF,
         SIGLEN,
         Some(COLL),
-        abi::RET[1],
+        abi::mfb_return(1),
         &alloc_fail,
         &mut ins,
         &mut rel,
@@ -1331,8 +1331,8 @@ fn verify(
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), DERBUF),
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), DERPP),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), DERBUF),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), DERPP),
     ]);
     emit_data_address(
         symbol,

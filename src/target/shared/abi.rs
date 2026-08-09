@@ -9,9 +9,9 @@ use crate::target::shared::code::{AbiConvention, AbiRole, CodeInstruction, Opera
 // specs' unread `abi.clobbers` field, deleted with it by bug-329 (bug-120
 // records why a per-call reader must never trust such a list).
 
-pub(crate) fn argument_register(index: usize) -> Result<String, String> {
-    if index < ARG.len() {
-        Ok(ARG[index].to_string())
+pub(crate) fn argument_register(index: usize) -> Result<Operand, String> {
+    if index < REGISTER_ARGUMENT_COUNT {
+        Ok(mfb_arg(index))
     } else {
         Err(format!(
             "aarch64 code plan cannot pass argument {index}; stack arguments are not implemented"
@@ -92,8 +92,8 @@ pub(crate) fn fp_temporary_register(allocation: usize) -> Result<String, String>
     }
 }
 
-pub(crate) fn return_register() -> &'static str {
-    RET[0]
+pub(crate) fn return_register() -> Operand {
+    mfb_return(0)
 }
 
 // --- plan-85-A: convention-explicit ABI token accessors ---
@@ -111,38 +111,33 @@ pub(crate) fn return_register() -> &'static str {
 // `Operand::vreg`'s (plan-82): the primitive lands before its production writers.
 
 /// MFB internal-convention argument register `index` (0..8).
-#[allow(dead_code)] // plan-85-A primitive; production callers land in plan-85-B/C
-pub(crate) fn mfb_arg(index: u8) -> Operand {
-    Operand::abi(AbiConvention::Mfb, AbiRole::Arg, index)
+pub(crate) const fn mfb_arg(index: usize) -> Operand {
+    Operand::abi(AbiConvention::Mfb, AbiRole::Arg, index as u8)
 }
 
 /// MFB internal-convention result register `index` (0..4).
-#[allow(dead_code)] // plan-85-A primitive; production callers land in plan-85-B/C
-pub(crate) fn mfb_return(index: u8) -> Operand {
-    Operand::abi(AbiConvention::Mfb, AbiRole::Ret, index)
+pub(crate) const fn mfb_return(index: usize) -> Operand {
+    Operand::abi(AbiConvention::Mfb, AbiRole::Ret, index as u8)
 }
 
 /// Platform C-ABI argument register `index` (0..8).
-#[allow(dead_code)] // plan-85-A primitive; production callers land in plan-85-B/C
-pub(crate) fn c_arg(index: u8) -> Operand {
-    Operand::abi(AbiConvention::C, AbiRole::Arg, index)
+pub(crate) const fn c_arg(index: usize) -> Operand {
+    Operand::abi(AbiConvention::C, AbiRole::Arg, index as u8)
 }
 
 /// Platform C-ABI result register `index` (0..2; `rax`/`rdx` on x86).
-#[allow(dead_code)] // plan-85-A primitive; production callers land in plan-85-B/C
-pub(crate) fn c_return(index: u8) -> Operand {
-    Operand::abi(AbiConvention::C, AbiRole::Ret, index)
+pub(crate) const fn c_return(index: usize) -> Operand {
+    Operand::abi(AbiConvention::C, AbiRole::Ret, index as u8)
 }
 
 /// Syscall-convention argument register `index` (0..6).
-#[allow(dead_code)] // plan-85-A primitive; production callers land in plan-85-B/C
-pub(crate) fn sys_arg(index: u8) -> Operand {
-    Operand::abi(AbiConvention::Sys, AbiRole::Arg, index)
+pub(crate) const fn sys_arg(index: usize) -> Operand {
+    Operand::abi(AbiConvention::Sys, AbiRole::Arg, index as u8)
 }
 
 /// Syscall-convention result register (`rax` on x86).
-#[allow(dead_code)] // plan-85-A primitive; production callers land in plan-85-B/C
-pub(crate) fn sys_return() -> Operand {
+#[allow(dead_code)] // no emitter stages a syscall result explicitly today (they reuse mfb_return(0))
+pub(crate) const fn sys_return() -> Operand {
     Operand::abi(AbiConvention::Sys, AbiRole::Ret, 0)
 }
 
@@ -213,53 +208,34 @@ pub(crate) const LR: &str = "lr";
 /// `r15`). Never `"x19"`. (plan-34-A)
 pub(crate) const ARENA: &str = crate::target::shared::code::mir::ARENA_BASE;
 
-// --- plan-34-B Phase 3b: role-named call-boundary tokens ---
+// --- neutral `%`-sentinel call-boundary tokens ---
 //
 // These `%`-sentinel tokens name a call boundary by ROLE, not by an AArch64
 // register number, so the three genuinely-distinct SysV banks (call args, syscall
-// args, results) are no longer collapsed into one `x0..x7` namespace that the x86
-// backend has to reconstruct via `remap_x86_abi`'s CFG dataflow. The `%` prefix
+// args, results) are not collapsed into one `x0..x7` namespace. The `%` prefix
 // cannot collide with a physical register, immediate, symbol, label, or type name
-// (the same guarantee `regalloc`'s vreg sentinel relies on). During Phase 3b a
-// seam translates each back to its AArch64 spelling (`ARG[n]`/`RET[n]`/`SYSARG[n]`
-// → `x{n}`, `SYSNR` → `x8`, `CLOSURE_ENV` → `x28`) before
-// instruction selection, so the three backends see today's input unchanged and
-// the migration is byte-identical; Phase 4 deletes the seam and teaches each
-// backend to realize the tokens directly (AArch64/riscv positional, x86 by table
-// lookup — no inference).
+// (the same guarantee `regalloc`'s vreg sentinel relies on). The arg/result banks
+// are now the typed `Operand::Abi` six-token vocabulary (plan-85); the remaining
+// `%`-string tokens below are the ones with no convention accessor (the
+// syscall-number register, the scratch/local pools, and the pinned
+// arena/closure/thread registers). Each backend realizes them during selection:
+// AArch64 positional (`SYSNR` → `x8`, `CLOSURE_ENV` → `x28`), riscv64 remaps the
+// `xN`, x86-64 by direct table lookup — no CFG inference (`remap_x86_abi` deleted).
 
-/// A call's Nth outgoing argument (0..8; 8 in registers per
-/// [`REGISTER_ARGUMENT_COUNT`], the rest in a stack tail — bug-08). Never
-/// allocator-colored.
-// plan-85-B/D: the single-role arg/result/syscall-arg arrays now emit the
-// convention-EXPLICIT tokens (plan-85-A vocabulary) directly, so every emission
-// site is aligned without editing thousands of call sites. `ARG` is the MFB
-// internal-call argument bank — register-identical to `%argC` on every target (the
-// aligned call bank), so a `_mfb_*`/arena/C-boundary arg staged through `ARG`
-// realizes to the same register whether it is spelled `%argMFB` or `%argC`; only a
-// genuine C/kernel RETURN (`%retC`/`%retSys`, in `rax`) diverges and is spelled at
-// its site with `c_return`/`sys_return`. On AArch64/RISC-V every one collapses to
-// the positional `xN`/`aN` (byte-identical); on SysV-x86 the aligned bank
-// `[rdi,rsi,rdx,rcx]` replaces the legacy split (byte-changing, by design).
-pub(crate) const ARG: [&str; 8] = [
-    "%argMFB0", "%argMFB1", "%argMFB2", "%argMFB3", "%argMFB4", "%argMFB5", "%argMFB6", "%argMFB7",
-];
-
-/// A call's Nth result. `RET[0..4]` are the fallible-call ABI's tag / value /
-/// error-message / error-source (`spec: memory/02_fallible-call-abi.md`); an
-/// infallible call uses `RET[0]` only.
-pub(crate) const RET: [&str; 4] = ["%retMFB0", "%retMFB1", "%retMFB2", "%retMFB3"];
+// plan-85-B/D: the single-role arg/result/syscall-arg string arrays (`ARG`/`RET`/
+// `SYSARG`) are gone — every emission site now names a typed `Operand::Abi` via the
+// convention-explicit accessors (`mfb_arg`/`mfb_return`/`c_arg`/`c_return`/`sys_arg`;
+// `return_register`/`argument_register`/`string_{length,data}_register` are typed
+// aliases). The tokens no longer flow as `Raw` strings at emission, so there is no
+// string to realize except where a codegen pass renders one (the fused
+// compare-branch expansion), which the string realizers still cover.
 
 /// The syscall-number register — AArch64/Linux `x8`, AArch64/macOS `x16`, riscv64
 /// `a7`, x86-64 `rax`. Four realizations of one role, which is exactly why it
-/// cannot be spelled as a register number.
+/// cannot be spelled as a register number. Kept as a neutral `%`-token (there is
+/// no convention accessor for the syscall *number* — the six-token vocabulary
+/// covers arg/result only).
 pub(crate) const SYSNR: &str = "%sysnr";
-
-/// A syscall's Nth argument. Distinct from [`ARG`]: x86-64 passes syscall arg 3 in
-/// `r10`, not `rcx`, because the `syscall` instruction clobbers `rcx`.
-pub(crate) const SYSARG: [&str; 6] = [
-    "%argSys0", "%argSys1", "%argSys2", "%argSys3", "%argSys4", "%argSys5",
-];
 
 /// The Darwin syscall-number register — macOS/AArch64 delivers the number in
 /// `x16` (IP1), not Linux's `x8`, and the Phase-3b seam is ISA-wide (one
@@ -516,16 +492,15 @@ pub(crate) fn syscall_register() -> &'static str {
     SYSNR
 }
 
-/// The print/write helpers' length argument — argument role 2, spelled as its
-/// token (plan-34-D). Realized `x2` at the Phase-3b seam, exactly the register
-/// the helpers have always read.
-pub(crate) fn string_length_register() -> &'static str {
-    ARG[2]
+/// The print/write helpers' length argument — MFB argument role 2 (plan-34-D),
+/// realized `x2`/`rdx`/… exactly the register the helpers have always read.
+pub(crate) fn string_length_register() -> Operand {
+    mfb_arg(2)
 }
 
-/// The print/write helpers' data-pointer argument — argument role 1 (plan-34-D).
-pub(crate) fn string_data_register() -> &'static str {
-    ARG[1]
+/// The print/write helpers' data-pointer argument — MFB argument role 1 (plan-34-D).
+pub(crate) fn string_data_register() -> Operand {
+    mfb_arg(1)
 }
 
 pub(crate) fn is_callee_saved(register: &str) -> bool {
@@ -1691,8 +1666,8 @@ mod tests {
         // plan-85-B/D: arguments are named by the convention-EXPLICIT token
         // (`%argMFB`, the aligned MFB call bank), realized to the AArch64 register
         // positionally by the selection seam (byte-identical to the legacy `%arg`).
-        assert_eq!(argument_register(0).unwrap(), "%argMFB0");
-        assert_eq!(argument_register(7).unwrap(), "%argMFB7");
+        assert_eq!(argument_register(0).unwrap().render(), "%argMFB0");
+        assert_eq!(argument_register(7).unwrap().render(), "%argMFB7");
         assert_eq!(realize_abi_token("%argMFB0"), Some("x0"));
         assert_eq!(realize_abi_token("%argMFB7"), Some("x7"));
         assert!(argument_register(8).is_err());
@@ -1739,10 +1714,10 @@ mod tests {
             let expected = format!("d{i}");
             assert_eq!(realize_abi_token(token), Some(expected.as_str()));
         }
-        assert_eq!(string_length_register(), "%argMFB2");
-        assert_eq!(realize_abi_token(string_length_register()), Some("x2"));
-        assert_eq!(string_data_register(), "%argMFB1");
-        assert_eq!(realize_abi_token(string_data_register()), Some("x1"));
+        assert_eq!(string_length_register().render(), "%argMFB2");
+        assert_eq!(realize_abi_token(&string_length_register().render()), Some("x2"));
+        assert_eq!(string_data_register().render(), "%argMFB1");
+        assert_eq!(realize_abi_token(&string_data_register().render()), Some("x1"));
         assert!(is_callee_saved("x19"));
         assert!(is_callee_saved("x28"));
         assert!(!is_callee_saved("x0"));

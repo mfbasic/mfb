@@ -115,7 +115,7 @@ fn emit_read_whole_file(
     ]);
     emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
     ctx.instructions.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), buf_off),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), buf_off),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), readoff_off),
         abi::label(&read_loop),
         abi::load_u64("%v9", abi::stack_pointer(), readoff_off),
@@ -924,7 +924,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_listen_macos(
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), LCTX));
+    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), LCTX));
     dlsym(
         &mut EmitCtx {
             symbol,
@@ -1138,16 +1138,16 @@ pub(in crate::target::shared::code::tls) fn lower_tls_listen_macos(
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
         abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_LISTENER),
-        abi::store_u64("%v9", abi::RET[1], REC_TAG),
-        abi::store_u64(abi::ZERO, abi::RET[1], REC_STATE),
-        abi::store_u64(abi::ZERO, abi::RET[1], REC_CLOSED),
+        abi::store_u64("%v9", abi::mfb_return(1), REC_TAG),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), REC_STATE),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), REC_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), LISTENER),
-        abi::store_u64("%v9", abi::RET[1], REC_CONN),
+        abi::store_u64("%v9", abi::mfb_return(1), REC_CONN),
         abi::load_u64("%v9", abi::stack_pointer(), QUEUE),
-        abi::store_u64("%v9", abi::RET[1], REC_QUEUE),
+        abi::store_u64("%v9", abi::mfb_return(1), REC_QUEUE),
         abi::load_u64("%v9", abi::stack_pointer(), LCTX),
-        abi::store_u64("%v9", abi::RET[1], REC_CTX),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::store_u64("%v9", abi::mfb_return(1), REC_CTX),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
@@ -1439,7 +1439,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), CCTX));
+    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), CCTX));
     dlsym(
         &mut EmitCtx {
             symbol,
@@ -1601,15 +1601,15 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
         abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_MACOS),
-        abi::store_u64("%v9", abi::RET[1], REC_TAG),
-        abi::store_u64(abi::ZERO, abi::RET[1], REC_STATE),
-        abi::store_u64(abi::ZERO, abi::RET[1], REC_CLOSED),
+        abi::store_u64("%v9", abi::mfb_return(1), REC_TAG),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), REC_STATE),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), REC_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), CONN),
-        abi::store_u64("%v9", abi::RET[1], REC_CONN),
-        abi::store_u64(abi::ZERO, abi::RET[1], REC_QUEUE),
+        abi::store_u64("%v9", abi::mfb_return(1), REC_CONN),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), REC_QUEUE),
         abi::load_u64("%v9", abi::stack_pointer(), CCTX),
-        abi::store_u64("%v9", abi::RET[1], REC_CTX),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::store_u64("%v9", abi::mfb_return(1), REC_CTX),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);

@@ -368,12 +368,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch10, &scratch9, 0));
         self.emit(abi::add_immediate(&scratch11, &scratch9, 8));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
-        self.emit(abi::store_u64(abi::ZERO, abi::RET[1], 0));
-        self.emit(abi::store_u8(abi::ZERO, abi::RET[1], 8));
+        self.emit(abi::store_u64(abi::ZERO, abi::mfb_return(1), 0));
+        self.emit(abi::store_u8(abi::ZERO, abi::mfb_return(1), 8));
         self.emit(abi::store_u64(
             abi::ZERO,
             abi::stack_pointer(),

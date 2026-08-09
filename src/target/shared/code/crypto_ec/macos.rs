@@ -1322,7 +1322,7 @@ fn emit_cfdata_to_list(
         byteptr_off,
         bytelen_off,
         Some(coll_off),
-        abi::RET[1],
+        abi::mfb_return(1),
         alloc_fail,
         ins,
         rel,

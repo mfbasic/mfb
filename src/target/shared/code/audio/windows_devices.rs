@@ -46,7 +46,7 @@ fn emit_string_from_wstr(
     ]);
     emit_alloc(symbol, ins, rel, alloc_fail);
     ins.extend([
-        abi::move_register("%v15", abi::RET[1]),
+        abi::move_register("%v15", abi::mfb_return(1)),
         abi::load_u64("%v10", abi::stack_pointer(), TOTAL_OFF),
         abi::store_u64("%v10", "%v15", 0),
         abi::store_u64("%v15", abi::stack_pointer(), out_off),
@@ -142,7 +142,7 @@ fn lower_devices(
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::move_register("%v15", abi::RET[1]),
+        abi::move_register("%v15", abi::mfb_return(1)),
         abi::store_u64("%v15", abi::stack_pointer(), LIST_OFF),
         abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
         abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
