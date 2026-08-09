@@ -54,7 +54,23 @@ bounds-check row, not an algorithm swap — the C mirror `benchmark/c/main.c:365
   that may only SIGSEGV past a threshold** (`.ai/compiler.md:80-90`). Land the FOR/`len`-exact cut first
   (listchurn); memo/bignum need a genuine symbolic-upper-bound range pass (extend `integer_strict_upper` to
   carry `< len(L)` + prove in-place `set` preserves `len`) — separately justified, runtime-validated.
-- [ ] **G2 (memo only)** — strength-reduce constant `MOD 1000000007` to a conditional subtract. Lowering:
+- [~] **G2 (memo only) — ANALYSIS COMPLETE, implementation is a correctness-critical marathon; UNDONE at an
+  explicit USER STAND-DOWN ("stop after current item is complete"), NOT a self-declared stop.** The plan's stated
+  narrow-fact approach is UNDER-SPECIFIED for the actual memo shape (evidence from `mathpipe.mfb:191`):
+  `LET updated = (collections::get(ways, a) + collections::get(ways, a - c)) MOD 1000000007`. The two `+`
+  operands are `collections::get(ways, …)` — **list loads, NOT syntactic `x MOD constM` results** — so the
+  plan's proposed fact ("a `MOD constM` result is in `[0,constM)`") never attaches to them. To make the
+  conditional-subtract sound you must prove `get(ways,i) < m`, which needs a **whole-list value-range invariant**:
+  `ways` is written only by `set(ways,0,1)` (=1<m), the `append(ways,0)` fill (=0<m), and `set(ways,a,updated)`
+  where `updated = (…)MOD m` (<m) — so ALL elements `< m`, but establishing that is a new whole-list dataflow
+  pass (track every writer of a list, prove each stored value `< m`, survive the `ways = set(…)` reassignment and
+  append) — comparable in size/risk to the G1 pass. The sound general alternative is a MOD-by-constant →
+  signed magic multiply-shift (Granlund-Montgomery `smulh`-based; `signed_multiply_high_registers` exists at
+  `builder_numeric.rs:1213`), which is sound for ALL dividends but is a fiddly correctness-critical algorithm
+  with BROAD `.ncode` churn (every `x MOD const` fixture). memo is **P3 (11.5ms)**. Both paths are marathons;
+  neither is the "narrow cheap fact" the box implied. Left `[~]` with this scoping for a fresh-context resume
+  per the user's stand-down. Original spec kept below:
+  <br>**strength-reduce constant `MOD 1000000007` to a conditional subtract.** Lowering:
   `emit_integer_binary` MOD arm (`builder_numeric.rs:906-921`) is a full `sdiv`+`msub`; replace with
   `dst=left; if dst>=m: dst-=m` when `right` is the const `m` AND `left` (= `A+B` where each of A,B is a prior
   `MOD m` result, so `∈[0,2m)`) is provably non-negative and `< 2m`. **Gap: no existing "value < m" fact** —
