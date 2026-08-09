@@ -1,0 +1,127 @@
+' Unicode display-width benchmarks (plan-87 Theme 1) — tracks
+' `strings::displayWidth` (plan-70), which had ZERO benchmark coverage. Display
+' width is a distinct fourth string measure (vs `len` = scalars, `byteLen` =
+' UTF-8 bytes, `graphemesCount` = clusters): it segments the string into UAX #29
+' extended grapheme clusters and sums each cluster's terminal column width
+' (0/1/2) from the vendored utf8proc charwidth table — exactly the layout hot
+' path a terminal renderer runs. Group `width`.
+'
+' The C/Python peers hand-roll the same width logic over the *controlled* corpus
+' so the column totals match bit-for-bit: a small per-scalar width table (ASCII
+' and most = 1, East-Asian-Wide/emoji = 2, combining/ZWJ = 0) plus a one-scalar
+' lookahead that collapses a ZWJ sequence (`ZWJ` and the scalar after it count 0)
+' and a combining mark (counts 0) into their lead cluster. Over this corpus that
+' reproduces `displayWidth`/`graphemesCount` exactly (verified per component:
+' abc=3cols/3clusters, 日本語=6/3, e+U+0301=1/1, 👨‍👩‍👧=2/1).
+IMPORT io
+IMPORT strings
+IMPORT collections
+IMPORT datetime
+
+' ---- width ascii: all-narrow fast path over a fixed ~4 KB ASCII buffer ------
+'
+' The segmentation hot path with no wide / zero-width / emoji clusters — raw
+' EGC-walk throughput. One fixed buffer, `reps` folds summing the width.
+' Same-buffer (not grapheme churn), so realistic N. checksum = total columns.
+FUNC widthAsciiBase() AS String
+  LET frag AS String = "The quick brown fox jumps over the lazy dog 0123456789 "
+  MUT base AS String = ""
+  FOR i = 0 TO 74
+    base = base & frag
+  NEXT
+  RETURN base
+END FUNC
+
+FUNC test_width_ascii(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS String = widthAsciiBase()
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT cols AS Integer = 0
+    FOR rep = 0 TO 1999
+      cols = cols + strings::displayWidth(base)
+    NEXT
+    checksum = cols
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("width_ascii = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("width", "ascii", times))
+END FUNC
+
+' ---- width mixed: the slow path — wide / zero-width / emoji / real EGCs -------
+'
+' A fixed curated buffer mixing ASCII, CJK wide ideographs (2 cols), a combining
+' mark (0), and a ZWJ emoji family (1 cluster, 2 cols). Exercises the
+' wide/zero-width/emoji branches and real EGC boundaries — the terminal grid's
+' slow path. Same-buffer, realistic N. checksum folds the column total and the
+' companion `graphemesCount`.
+'
+' Only `strings::displayWidth` runs in the timed `reps` loop: it does streaming
+' EGC segmentation with no retained temporary, so it stays flat across the run
+' loop (verified: the `ascii` row is dead flat). `strings::graphemesCount`, by
+' contrast, is one of the grapheme members that allocates a transient the arena
+' residual (`[[arena-transient-churn-quadratic-graphemes]]`) degrades on, so it
+' is called ONCE for the companion count rather than per rep — keeping this a
+' realistic-N same-buffer row instead of an arena-gated one.
+FUNC widthMixedBase() AS String
+  ' abc | 日本語 | e + U+0301 (combining) | 👨‍👩‍👧 (man ZWJ woman ZWJ girl)
+  LET frag AS String = "abc\u{65E5}\u{672C}\u{8A9E}e\u{0301}\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"
+  MUT base AS String = ""
+  FOR i = 0 TO 39
+    base = base & frag
+  NEXT
+  RETURN base
+END FUNC
+
+FUNC test_width_mixed(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS String = widthMixedBase()
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT cols AS Integer = 0
+    FOR rep = 0 TO 999
+      cols = cols + strings::displayWidth(base)
+    NEXT
+    LET clusters AS Integer = strings::graphemesCount(base)
+    checksum = cols + clusters
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("width_mixed = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("width", "mixed", times))
+END FUNC
+
+' ---- width churn (arena-gated): displayWidth over many FRESH short strings ----
+'
+' The realistic "measure each row of a table" pattern — per-call grapheme
+' segmentation over fresh String temporaries. This is the grapheme-transient-
+' churn path.
+'
+' TODO(arena grapheme-churn): the residual grapheme-transient-churn quadratic
+' (see benchmark/README.md) still degrades under fresh-String segmentation, so
+' the row/pass counts (8 rows x 5 passes) are deliberately TINY. Raise them when
+' that residual lands — this row then doubles as its regression gate (must jump
+' from tiny to realistic and stay linear). API: displayWidth + toString.
+FUNC test_width_churn(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET cjk AS String = "\u{65E5}\u{672C}"
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR pass = 0 TO 4
+      FOR i = 0 TO 7
+        LET row AS String = "row" & toString(i) & " " & cjk
+        acc = acc + strings::displayWidth(row)
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("width_churn = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("width", "churn", times))
+END FUNC
