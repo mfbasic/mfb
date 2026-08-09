@@ -50,25 +50,29 @@ into the produced machine instruction. [[src/arch/x86_64/select.rs:select_x86]] 
 (plan-85, bug-387).** Shared lowering names each call-boundary register by a token
 that states its calling CONVENTION and role — the six-token vocabulary
 `%argMFB`/`%retMFB` (MFB internal), `%argC`/`%retC` (platform C ABI), `%argSys`/
-`%retSys` (kernel syscall), carried either as a typed `Operand::Abi` or the
-equivalent `Raw` string. `select_x86` realizes each one directly:
+`%retSys` (kernel syscall). Every convention token is a typed
+`Operand::Abi{convention, role, index}` — plan-85-D typed every emission site, every
+parameter/result `location`, and the fused compare-branch / `addr_of` expansion, so
+a convention token never flows as a `Raw` string and there is no string-form realizer
+(the earlier `map_convention_token` seam was deleted with the last erasure).
+`select_x86` realizes each one directly:
 
-- A typed `Operand::Abi{convention, role, index}` → `realize_abi_operand`; the
-  string form → `map_convention_token` (identical table). MFB's convention is
-  **aligned**: `%argMFB`, `%retMFB`, and `%argC` all draw from the call-argument
-  bank (`[rdi,rsi,rdx,rcx,…]` on SysV — an MFB result and its reuse as an argument
-  are the SAME register, no staging move). Only a genuine C/kernel RETURN keeps
-  `rax`: `%retC` → `rax:rdx`, `%retSys` → `rax`, `%argSys` → the syscall file
-  (`rdi,rsi,rdx,r10,r8,r9`).
-- Any transitional legacy `%arg`/`%ret`/`%sysarg`/`%sysnr`/`%sysret` string →
-  `map_token_direct` (the same context-free table).
+- A typed `Operand::Abi{convention, role, index}` → `realize_abi_operand` (a direct
+  table lookup). MFB's convention is **aligned**: `%argMFB`, `%retMFB`, and `%argC`
+  all draw from the call-argument bank (`[rdi,rsi,rdx,rcx,…]` on SysV — an MFB result
+  and its reuse as an argument are the SAME register, no staging move). Only a genuine
+  C/kernel RETURN keeps `rax`: `%retC` → `rax:rdx`, `%retSys` → `rax`, `%argSys` → the
+  syscall file (`rdi,rsi,rdx,r10,r8,r9`).
+- The syscall-number register `%sysnr` (the one neutral token with no convention
+  spelling) realizes to `rax`.
 - `realize_x86_residual` then maps the mechanical leftover a selected stream still
-  carries — scratch `x9`–`x30` via `map_scratch_register` (avoiding `rax`/`rdx`,
-  which `mul`/`div` use implicitly, and landing AArch64 callee-saved `x19`–`x28` on
-  x86 callee-saved `rbx`/`rbp`/`r12`/`r13`), `sp` → `rsp`, `x31`/`xzr` → the zero
-  token, the `dN`/`vN`/`qN` float bank → `xmmN`, and the link register `x30`/`lr`
-  dropped (`call` pushes / `ret` pops). A residual `x0`–`x8` would mean an
-  unrealized ABI token escaped stage 1 and trips a `debug_assert`.
+  carries — the remaining neutral tokens (`%scratchN`/`%localN`/…) via
+  `realize_abi_token` to `x9`–`x30`, then scratch `x9`–`x30` via `map_scratch_register`
+  (avoiding `rax`/`rdx`, which `mul`/`div` use implicitly, and landing AArch64
+  callee-saved `x19`–`x28` on x86 callee-saved `rbx`/`rbp`/`r12`/`r13`), `sp` → `rsp`,
+  `x31`/`xzr` → the zero token, the `dN`/`vN`/`qN` float bank → `xmmN`, and the link
+  register `x30`/`lr` dropped (`call` pushes / `ret` pops). A residual `x0`–`x8` would
+  mean an unrealized ABI token escaped stage 1 and trips a `debug_assert`.
 
 > **Why there is no CFG inference (and why there used to be).** Before plan-85 the
 > shared stream named call-boundary registers by an *overloaded* role token
@@ -84,7 +88,7 @@ equivalent `Raw` string. `select_x86` realizes each one directly:
 > the aligned bank once, at the `emit_linux_c_call` chokepoint, on `linux-x86_64`
 > only.
 
-[[src/arch/x86_64/select.rs:realize_abi_operand]] [[src/arch/x86_64/select.rs:map_convention_token]] [[src/arch/x86_64/select.rs:realize_x86_residual]] [[src/arch/x86_64/select.rs:map_scratch_register]]
+[[src/arch/x86_64/select.rs:realize_abi_operand]] [[src/arch/x86_64/select.rs:realize_x86_residual]] [[src/arch/x86_64/select.rs:map_scratch_register]]
 
 ## Encoding (REX / ModRM / SIB)
 

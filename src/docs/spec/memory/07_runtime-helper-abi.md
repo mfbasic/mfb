@@ -63,10 +63,11 @@ The spec deliberately states nothing that is owned elsewhere (bug-329):
   every spec. [[src/target/shared/runtime/mod.rs:symbol_for_call]]
 - **Argument shapes are owned by the front-end tables** in `src/builtins/`
   (they are what accepts or rejects user code). Arguments are marshalled
-  strictly by position into the argument-bank role tokens `%arg0..%arg7`,
-  realized per target onto the physical argument registers (AArch64
-  `x0..x7`; see `./mfb spec memory native-calling-convention`). There are no
-  stack arguments. [[src/target/shared/abi.rs:ARG]]
+  strictly by position into the MFB argument-convention tokens
+  `%argMFB0..%argMFB7` (a typed `Operand::Abi`), realized per target onto the
+  physical argument registers (AArch64 `x0..x7`; see `./mfb spec memory
+  native-calling-convention`). There are no stack arguments.
+  [[src/target/shared/abi.rs:mfb_arg]]
 - **The clobber model is owned by the register allocator**: every internal
   `bl _mfb_*` call destroys the entire caller-saved integer file `x0`–`x17`
   (and `v0`–`v7`), modelled by the allocator's call-clobber masks. Earlier
@@ -80,29 +81,29 @@ The spec deliberately states nothing that is owned elsewhere (bug-329):
 
 ```text
 symbol   _mfb_rt_io_io_print     ; symbol_for_call(Io, "io.print")
-args     value : String in %arg0 ; by position, per the front-end table
+args     value : String in %argMFB0 ; by position, per the front-end table
 returns  Nothing
 ```
 
 ## Return Convention
 
 Every gated runtime helper returns through the **four-register fallible result
-form** — tag in `%ret0`, value in `%ret1`, error message in `%ret2`, error
-source in `%ret3` (AArch64 `x0..x3`) — regardless of whether the helper can
+form** — tag in `%retMFB0`, value in `%retMFB1`, error message in `%retMFB2`, error
+source in `%retMFB3` (AArch64 `x0..x3`) — regardless of whether the helper can
 actually fail. That ABI (the three tags and the four register roles) is owned
 by `./mfb spec memory fallible-call-abi`. The dispatch site always compares the
-tag in `%ret0` against the OK tag and, on a non-OK tag, stamps the call-site
-origin and propagates; on the OK tag it reads the result value from `%ret1`. [[src/target/shared/code/builder_emit_helpers.rs:emit_runtime_helper_call]] [[src/target/shared/code/error_constants.rs:RESULT_VALUE_REGISTER]]
+tag in `%retMFB0` against the OK tag and, on a non-OK tag, stamps the call-site
+origin and propagates; on the OK tag it reads the result value from `%retMFB1`. [[src/target/shared/code/builder_emit_helpers.rs:emit_runtime_helper_call]] [[src/target/shared/code/error_constants.rs:RESULT_VALUE_REGISTER]]
 
 A helper that **cannot fail** therefore does not return its value bare in
-`%ret0` in the way an ordinary infallible callable does (see
+`%retMFB0` in the way an ordinary infallible callable does (see
 `./mfb spec memory native-calling-convention`); instead it sets the OK tag in
-`%ret0` and places its value in `%ret1`. `datetime.nowNanos` and
+`%retMFB0` and places its value in `%retMFB1`. `datetime.nowNanos` and
 `datetime.monotonicNanos` are the canonical infallible-but-result-form helpers:
 each returns an `Integer` with the OK tag set. [[src/target/shared/runtime/datetime_specs.rs:DATETIME_NOW_NANOS_SPEC]] `datetime.localOffset` uses the same
 result form but *can* fail: it raises `ErrInvalidArgument` (setting the ERR tag)
 when `localtime_r` cannot break the instant down into calendar fields, so it must
-never be read as a bare `%ret0` result either. A helper whose `returns` is `Nothing`
+never be read as a bare `%retMFB0` result either. A helper whose `returns` is `Nothing`
 yields no value register; only the tag (and, on error, the message/source) is
 meaningful.
 
