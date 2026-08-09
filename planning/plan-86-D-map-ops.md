@@ -101,7 +101,8 @@ removeKey matrix rows (`map (State-Dynamic) removeKey` 62.6, `State-Fixed` 17.3)
   `emit_materialize_string_from_bytes(keyAddr, KEY_LENGTH)` before the insert (the per-key cost, far below the
   geometric grow it replaces). Verified correct: fixture `merge-native-rt` (b-overwrites-on-TRUE / a-wins-on-
   FALSE-fallback / disjoint / empty-a / empty-b / **inputs unchanged = value semantics**; trueN=25 sum=19605
-  k17=1700, falseN sum=11190 k17=17) + 3776 unit tests green. Commit: `<pending>`. Original analysis (kept):
+  k17=1700, falseN sum=11190 k17=17) + 3776 unit tests green + full artifact-gate 0 diffs. Commit: `73c380cf8`.
+  Original analysis (kept):
   **MEASURED ~5ms of a P1 row; the earlier "base copy inherent → marginal" note was an UNMEASURED assumption
   and is WRONG.** Decomposed `mapchurn iterate` (14.4ms) this session by editing the benchmark's
   merge line (release `--run 10`, box-local): remove the whole merge line → **5.2ms** (so merge+its `keys(mg)`
