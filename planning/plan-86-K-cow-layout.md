@@ -35,7 +35,11 @@ COW-fixable.
   double-free/UAF this session caught + fixed). 3776 unit tests green; full acceptance green; artifact-gate
   clean/re-synced. **Measured (isolated replica of `test_ld_copy`, 10×1000 `len(copyStrs(base))` over a
   1000-element String list): ~132,000µs → ~45µs, a ~2900× drop** — the per-call whole-list deep-copy is gone
-  (`passStr` ncode: 8 instrs, no arena_alloc). Retires `list (Dynamic) copy` (P1 12.5ms). Commit: `PENDING`.
+  (`passStr` ncode: 8 instrs, no arena_alloc). Retires `list (Dynamic) copy` (P1 12.5ms). **Full-suite before/after (`benchmark/mfb`, `--run 10`, base
+`0eb7eb7af` vs K1): ALL SIX list `copy` rows retired** — Fixed 2.29→0.005, Dynamic 12.20→0.005, Record-Fixed
+2.24→0.005, Record-Dynamic 12.22→0.006, State-Fixed 2.26→0.005, State-Dynamic 12.28→0.006 ms (~43ms of copy
+cost → ~0.03ms; copyInts + copyStrs passthroughs across every list flavor). Every non-copy row unchanged
+within noise (e.g. `set` 13.995→14.131). Commit: `ba268da6c`.
 - [~] **K2 (large) — DEFERRED by explicit user decision (2026-08-09); reassess as its own plan, may never be
   built.** — add a refcount/version word + copy-on-write to `copy_collection_tight` — share on
   RETURN/param-alias, split on first mutation. Makes A/B/D's buffer copies free too. Largest design change
