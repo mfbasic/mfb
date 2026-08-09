@@ -27,6 +27,18 @@ The strings family copies **byte-at-a-time** through `emit_materialize_string_fr
 > `.ncode`.** Real-but-small win, prohibitive golden churn, does not clear either row — LOW priority; if pursued,
 > do the 4 byte-exact `emit_block_copy_advance` swaps together in ONE pass and budget a full multi-builtin
 > `.ncodesum` regen. The edit points below are precise and correct.
+>
+> **CHURN NOW MEASURED (this session):** I implemented swap #1 alone (`emit_materialize_string_from_bytes`
+> byte-loop → `emit_block_copy_advance` + drop the two now-unused `copy_loop`/`copy_done` labels), verified it
+> **byte-exact-correct** (upper/lower/mid/repeat/trim across 0/1/7/8/9/16-byte lengths + multi-byte UTF-8 + the
+> ß→SS width-change case, all identical) — then ran `artifact-gate all`: **47 byte-identity `.ncode` DIFFs before
+> the gate even left the byte-identity phase** (the widest funnel touches ~every string-materializing builtin),
+> heading to ~75-100+ with rt-behavior. Regenerating that many goldens exceeds a tail-of-session budget, so swap
+> #1 was REVERTED (HEAD stays clean) and F2 left for a dedicated pass. **The swap is correct and ready** — a
+> resume should: do all 4 swaps (+ optionally the SWAR memchr), build, verify string output byte-exact, run
+> `artifact-gate all`, regen EVERY reported `.ncode`/`.ncodesum` (one loop over the churned byte-identity
+> builtins like `planning/todo/regen-collections.sh` + `sync-goldens.sh` for rt-behavior), re-gate to 0, commit.
+> Given F2 is measured non-clearing (~+6%), this is genuinely LOW priority vs the real remaining levers G1/K1.
 - [x] **F1** — case_map ASCII quick-check (landed plan-64).
 - [ ] **F2** — 8-byte word-copy + SWAR memchr. **TRACTABLE + near-zero-risk (scout, plan-86-A session), but
   MARGINAL (~1.3–1.8×, NOT band-clearing).** The word-copy helper ALREADY EXISTS: `emit_block_copy_advance`
