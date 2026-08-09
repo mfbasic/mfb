@@ -702,12 +702,46 @@ mod tests {
     }
 
     /// bug-432 non-goal guard: an unsigned build (the common case) emits no
-    /// `.mfbsign` section and stays byte-identical to the pre-fix writer.
+    /// `.mfbsign` section (though it still carries the unconditional `.mfbnote`).
     #[test]
     fn unsigned_build_emits_no_mfbsign_section() {
         let img = image(vec![0xc3]); // signing_metadata == None
         let bytes = write_executable(&img, false, None, None).expect("link");
         assert!(section_named(&bytes, b".mfbsign").is_none());
+    }
+
+    /// The virtual `(address, size)` extent of a named section, if present.
+    fn section_extent(image: &[u8], name: &[u8]) -> Option<(u32, u32)> {
+        let e_lfanew = le_u32(image, 0x3C) as usize;
+        let n = le_u16(image, e_lfanew + 6) as usize;
+        let sect_table = e_lfanew + 4 + 20 + 240;
+        let mut field = [0u8; 8];
+        field[..name.len().min(8)].copy_from_slice(&name[..name.len().min(8)]);
+        for i in 0..n {
+            let s = sect_table + i * 40;
+            if image[s..s + 8] == field {
+                return Some((le_u32(image, s + 12), le_u32(image, s + 8)));
+            }
+        }
+        None
+    }
+
+    /// bug-432 ∩ bug-433: a signed build carries BOTH trailing sections — the
+    /// unconditional `.mfbnote` provenance marker and the `.mfbsign` signing blob —
+    /// and their virtual ranges must not overlap (the merge hazard: both were once
+    /// placed in the same post-`.rsrc` slot).
+    #[test]
+    fn signed_build_emits_both_mfbnote_and_mfbsign_disjoint() {
+        let mut img = image(vec![0xc3]);
+        img.signing_metadata = Some(b"{\"format\":\"mfb-signing-v1\"}".to_vec());
+        let bytes = write_executable(&img, false, None, None).expect("link");
+        let (note_va, note_sz) = section_extent(&bytes, b".mfbnote").expect(".mfbnote present");
+        let (sign_va, sign_sz) = section_extent(&bytes, b".mfbsign").expect(".mfbsign present");
+        // Disjoint virtual ranges (neither starts inside the other's extent).
+        assert!(
+            sign_va >= note_va + note_sz || note_va >= sign_va + sign_sz,
+            ".mfbnote [{note_va:#x}, +{note_sz:#x}) and .mfbsign [{sign_va:#x}, +{sign_sz:#x}) overlap"
+        );
     }
 
     #[test]
