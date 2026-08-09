@@ -66,7 +66,7 @@ element move**, not an 8-byte word copy. Gates: `builder_values.rs` sortBy/windo
   copied record (`emit_free_owned_inlined_block`). **zip 24.7 → 23.14 ms** (~6% marginal, checksum `100000`
   unchanged); **NOT a G1 clear** (capped vs Python 1.77 — same String-copy pattern as the `.mfb`'s
   get+append). Native/`.mfb` byte-identical across equal/uneven/empty/empty-string + 1000-round churn.
-  Fixture: `zip-string-native-rt`. Commit: `PENDING`.
+  Fixture: `zip-string-native-rt`. Commit: `6233dc537`.
 - [x] **A3-findLastIndex** — native reverse-scan lowering (`lower_collection_find_last_index_call`,
   gated on `#collections_findLastIndex$String`) reusing B2's `initialize_collection_loop_slots_reverse`/
   `advance_collection_loop_reverse`; predicate scan + two FAIL error paths (bounds `77050001`, not-found
