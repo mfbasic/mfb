@@ -329,17 +329,17 @@ The mechanism. Highest blast radius; lands behind runtime tests.
 - [x] `RuntimeHelper::Process` + `runtime/process_specs.rs` + `catalog.rs` wiring.
   (Commit `4f283bc3a`: `Process` variant, `is_process_runtime_call`, 8 specs
   incl. code-layer-only `spawnEnv`, `catalog_is_consistent` green.)
-- [~] `src/target/shared/code/process/{mod,unix}.rs`: native lowering. DONE for
-  the argv-only `spawn` + `pid`/`isRunning`/`waitFor`/`close`/`__drop` (commit
-  `145c946ae`), with numeric `Vregs`. Record tail: stdin-w@32/stdout-r@40/
-  stderr-r@48/reaped@56/status@64/exitcode@72; waitpid decode
-  `termsig=status&0x7f`, `WEXITSTATUS=(status>>8)&0xff`, signal→-1 (via
-  `bitwise_not(ZERO)` — `-1` is not a valid `move_immediate`). spawn = argv build
-  from the `List OF String` entry array + 3 stdio pipes + O_CLOEXEC self-pipe +
-  fork/execvp + exec-failure-over-self-pipe. `shell` DONE (`f43a36703`):
-  `["/bin/sh","-c",cmd]` over the shared `emit_spawn_tail` (extracted from spawn),
-  verified `shell("exit 7")`→waitFor==7. REMAINING: `spawnEnv` (child chdir +
-  environment application).
+- [x] `src/target/shared/code/process/{mod,unix}.rs`: native lowering COMPLETE
+  (numeric `Vregs`). `spawn` (argv) + `pid`/`isRunning`/`waitFor`/`close`/`__drop`
+  (`145c946ae`); `shell` `["/bin/sh","-c",cmd]` (`f43a36703`); `spawnEnv`
+  (cwd chdir + env setenv-per-entry + envReplace clear via `unsetenv`-loop)
+  (`f45aa0032`). Record tail stdin-w@32/stdout-r@40/stderr-r@48/reaped@56/
+  status@64/exitcode@72; waitpid decode `termsig=status&0x7f`,
+  `WEXITSTATUS=(status>>8)&0xff`, signal→-1 (via `bitwise_not(ZERO)` — `-1` is not
+  a valid `move_immediate`). spawn = argv build from the `List OF String` entry
+  array + 3 stdio pipes + O_CLOEXEC self-pipe + fork/execvp + exec-failure over
+  the self-pipe. `spawnEnv` is force-emitted whenever `spawn` is present (like
+  `net.connectTcpAddr`); shares the process imports + chdir/setenv/unsetenv/environ.
 - [x] Error block 7708 (`ERR_SPAWN_FAILED_*`) + `RESOURCE_TAG_PROCESS=10` +
   `02_error-codes.md` row (`4f283bc3a`); `data_objects.rs` per-package error-string
   gate + `standard_error_messages` `ErrSpawnFailed` row + raising at the self-pipe
@@ -457,6 +457,17 @@ Commit: e9ae09408
   with `RES` (like `net`/`fs`), so the runtime `_valid` fixtures (Phase 3) and any
   program use `RES p = process::spawn(...)`. A `LET` binding raises
   `TYPE_RESOURCE_REQUIRES_RES`.
+- **`spawnEnv` (the 4-arg `spawn`) wiring — three non-obvious pieces.** (1) It is a
+  code-layer-only synthesized target (`builder_values` rewrites the 4-arg
+  `process.spawn`), so its helper symbol `_mfb_rt_process_process_spawnEnv` must be
+  FORCE-emitted whenever `_mfb_rt_process_process_spawn` is present (in
+  `code/mod.rs`'s runtime-symbols pass, mirroring `net.connectTcpAddr`) — else a
+  4-arg call links against an undefined symbol. (2) The `envReplace` clear reads the
+  live `environ` via `platform.emit_environ_pointer` (macOS `_NSGetEnviron`, Linux
+  the `environ` GOT global), so `__NSGetEnviron`/`environ` must be imported by the
+  process arm (Linux's `os.environ` gate demands the `environ` import). (3) There is
+  no portable `clearenv` (macOS lacks it), so the clear is an `unsetenv`-per-name
+  loop over the current `environ`. Verified cwd+merge+replace on all 4 arches.
 - **D2 resolved: `shell` uses `/bin/sh` on both platforms, not bash-on-macOS.**
   Open Decision D2 recommended `bash -c` on macOS / `sh -c` on Linux. Chosen: the
   documented simpler alternative — `["/bin/sh","-c",cmd]` everywhere. `/bin/sh`
