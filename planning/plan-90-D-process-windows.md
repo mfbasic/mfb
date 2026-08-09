@@ -163,19 +163,46 @@ constraints.
 
 ## Phases
 
-### Phase 1 — Windows lifecycle (spawn/shell/pid/isRunning/waitFor/close + drop)
+> **Prerequisites (A/B/C) MET.** Sub-plans A, B, C are complete and runtime-
+> verified on macOS-aarch64 + Linux x86_64/aarch64/riscv64 (the whole `process`
+> surface, ~30 rt-behavior fixtures). Box 2230 (Win11 x86_64) is reachable.
+> **Platform-dispatch scaffold landed** (`019542919`): `process/mod.rs`'s
+> `process_dispatch!` routes each helper to `windows::` on
+> `PlatformFamily::Windows`, `unix::` elsewhere; `process/windows.rs` holds an
+> unreachable "not yet emitted" arm per op (gated by the `win_x86_64` capability
+> list, which advertises no `process.*` yet). The Win32 emission below replaces
+> those arms and adds the capability entries + imports.
 
-- [ ] `process/windows.rs`: `CreateProcess` + 3 anonymous pipes + record
+- [~] `process/windows.rs`: `CreateProcessA` + 3 anonymous pipes + record
   alloc/stamp; `WaitForSingleObject`/`GetExitCodeProcess` cache;
-  `TerminateProcess`+`CloseHandle` drop; `ErrSpawnFailed` TRAP.
-- [ ] Register the lifecycle Win32 imports in `src/target/win_x86_64/`.
-- [ ] Tests: `tests/cli_process_windows_spawn_build.rs` (compiles the spawn
-  program for Windows) + on-box execution of A's spawn/waitFor/no-orphan program.
+  `TerminateProcess`+`CloseHandle` drop; `ErrSpawnFailed` TRAP. **Dispatch scaffold
+  done (`019542919`); the Win32 emission is the remaining work.** Design: build a
+  command line from the argv `List OF String` (space-joined, quote args with
+  spaces); `CreatePipe` ×3 with `SECURITY_ATTRIBUTES{nLength=12, lpSD=0,
+  bInheritHandle=1}`; `SetHandleInformation(parent-end, HANDLE_FLAG_INHERIT, 0)`;
+  `STARTUPINFOA{cb=104, dwFlags=STARTF_USESTDHANDLES(0x100), hStdInput/Output/Error}`;
+  `CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)` — a
+  10-arg call via `emit_external_int_call(platform, "CreateProcessA", from, 10, …)`
+  (args 4–9 staged with `outgoing_stack_arg_store`, 32-byte shadow handled by the
+  Win64 call emitter); `CloseHandle` the child ends + `pi.hThread`; store
+  `pi.hProcess`@8 and the parent pipe handles in the tail (handles are 64-bit).
+  `waitFor` = `WaitForSingleObject(hProcess, INFINITE)` + `GetExitCodeProcess`;
+  `isRunning` = `GetExitCodeProcess`==`STILL_ACTIVE(259)`; `close` = `CloseHandle`
+  the stdin write handle; `__drop` = `TerminateProcess(hProcess,1)` +
+  `CloseHandle`. `pid` = `pi.dwProcessId` (cache in a tail slot at spawn).
+- [ ] Register the lifecycle Win32 imports (kernel32: `CreateProcessA`,
+  `CreatePipe`, `SetHandleInformation`, `WaitForSingleObject`,
+  `GetExitCodeProcess`, `TerminateProcess`, `CloseHandle`, `GetLastError`) in
+  `src/target/win_x86_64/plan.rs` + add the lifecycle calls to the `win_x86_64`
+  capability list.
+- [ ] Tests: `cli_process_windows_spawn_build.rs` (emit-inspection on macOS) +
+  on-box execution on 2230 of A's spawn/waitFor program (`["cmd","/c","echo hi"]`
+  → exit 0; bogus path → TRAP `ErrSpawnFailed`).
 
 Acceptance (execution on box 2230): the A spawn/waitFor program, compiled for
 Windows, prints exit code `0` for `["cmd","/c","echo hi"]` and leaves no orphaned
 handle; a bogus path TRAPs `ErrSpawnFailed`.
-Commit: —
+Commit: 019542919 (scaffold; Win32 emission pending)
 
 ### Phase 2 — Windows I/O (send/receive/poll)
 
