@@ -166,3 +166,11 @@ page row) that the app scrolls a window over. Element boxes are invisible contai
 — a text terminal has no backgrounds or borders — so the positioned text is the
 whole picture: flex columns land side by side, padding indents, widths clip. The app
 paints with `dom::terminalMetrics()`.
+
+**Form controls and links** would otherwise be invisible (an `<input>` has no text,
+a link looks like plain words), so the inline layout decorates them into the flowed
+text: a link's text is wrapped in `[brackets]`, a `<button>`/`<input type=submit>`
+label in `<angle brackets>`, and an `<input>` becomes a field glyph — `|S:----|` for
+text, `|N:----|` for a number (the dashes span its `size`), `[ ]`/`( )` for a
+checkbox/radio. A `<textarea>` is a replaced block drawn as `rows` lines of
+`|----|` (each `cols` wide). These are plain glyphs today (no color).

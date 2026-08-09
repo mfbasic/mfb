@@ -255,7 +255,7 @@ FUNC selectorMatches(sel AS String, tag AS String, classes AS List OF String, at
 END FUNC
 
 FUNC isBlockTag(tag AS String) AS Boolean
-  RETURN tag = "#document" OR tag = "html" OR tag = "body" OR tag = "div" OR tag = "p" OR tag = "section" OR tag = "article" OR tag = "header" OR tag = "footer" OR tag = "nav" OR tag = "aside" OR tag = "main" OR tag = "ul" OR tag = "ol" OR tag = "li" OR tag = "table" OR tag = "tr" OR tag = "blockquote" OR tag = "pre" OR tag = "figure" OR tag = "figcaption" OR tag = "dl" OR tag = "dd" OR tag = "dt" OR tag = "form" OR tag = "h1" OR tag = "h2" OR tag = "h3" OR tag = "h4" OR tag = "h5" OR tag = "h6" OR tag = "hr"
+  RETURN tag = "#document" OR tag = "html" OR tag = "body" OR tag = "div" OR tag = "p" OR tag = "section" OR tag = "article" OR tag = "header" OR tag = "footer" OR tag = "nav" OR tag = "aside" OR tag = "main" OR tag = "ul" OR tag = "ol" OR tag = "li" OR tag = "table" OR tag = "tr" OR tag = "blockquote" OR tag = "pre" OR tag = "figure" OR tag = "figcaption" OR tag = "dl" OR tag = "dd" OR tag = "dt" OR tag = "form" OR tag = "textarea" OR tag = "h1" OR tag = "h2" OR tag = "h3" OR tag = "h4" OR tag = "h5" OR tag = "h6" OR tag = "hr"
 END FUNC
 
 ' The user-agent default Style for a tag: display None for non-visual elements,

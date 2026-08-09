@@ -412,24 +412,61 @@ FUNC isBlockLevel(n AS Node) AS Boolean
   END MATCH
 END FUNC
 
-' Concatenate the text of a subtree, treating inline elements as transparent (a
-' display:none subtree contributes nothing). Used to flatten a run of inline
-' content into a single flowed text run — the browser has no per-glyph inline
-' styling, so a paragraph's words, <b>, <a>, <em>… collapse to one wrapped run.
+' An HTML attribute parsed as a positive Integer (its `size`/`rows`/`cols` count),
+' or `dflt` when absent or non-numeric.
+FUNC attrInt(attrs AS Map OF String TO String, key AS String, dflt AS Integer) AS Integer
+  LET raw AS String = strings::trim(collections::getOr(attrs, key, ""))
+  IF raw = "" THEN RETURN dflt
+  LET v AS Integer = toInt(raw, 10) TRAP(e)
+    RECOVER dflt
+  END TRAP
+  RETURN maxI(1, v)
+END FUNC
+
+' The visible glyph an <input> renders as, so the field shows in the flowed text.
+' A single-line text field is |S:----|, a number field |N:----| (the dashes span
+' its `size`); a submit/reset/button becomes a <label>; check/radio are [ ]/( );
+' a hidden field renders nothing.
+FUNC inputBox(e AS ElementNode) AS String
+  LET t AS String = strings::lower(strings::trim(collections::getOr(e.attrs, "type", "text")))
+  IF t = "hidden" THEN RETURN ""
+  IF t = "submit" THEN RETURN "<" & collections::getOr(e.attrs, "value", "Submit") & ">"
+  IF t = "reset" THEN RETURN "<" & collections::getOr(e.attrs, "value", "Reset") & ">"
+  IF t = "button" THEN RETURN "<" & collections::getOr(e.attrs, "value", "Button") & ">"
+  IF t = "checkbox" THEN RETURN "[ ]"
+  IF t = "radio" THEN RETURN "( )"
+  LET n AS Integer = attrInt(e.attrs, "size", 20)
+  IF t = "number" THEN RETURN "|N:" & strings::repeat("-", n) & "|"
+  RETURN "|S:" & strings::repeat("-", n) & "|"
+END FUNC
+
+' Concatenate the visible text of an inline subtree, decorating the controls that
+' would otherwise be invisible so the reader can see them: a link's text is wrapped
+' in [brackets], a <button>'s label in <angle brackets>, and an <input> becomes a
+' field glyph (see inputBox). Other inline elements (<b>, <em>, <span>…) are
+' transparent, and a display:none subtree contributes nothing. Used to flatten a run
+' of inline content into one flowed text run.
 FUNC gatherText(n AS Node) AS String
   MATCH n
     CASE ElementNode(e)
       IF e.style.display = Display.None THEN RETURN ""
-      MUT s AS String = ""
-      FOR EACH c IN e.children
-        s = s & gatherText(c)
-      NEXT
-      RETURN s
+      IF e.tag = "a" THEN RETURN "[" & gatherChildren(e) & "]"
+      IF e.tag = "button" THEN RETURN "<" & gatherChildren(e) & ">"
+      IF e.tag = "input" THEN RETURN inputBox(e)
+      RETURN gatherChildren(e)
     CASE TextNode(t)
       RETURN t.text
     CASE ELSE
       RETURN ""
   END MATCH
+END FUNC
+
+FUNC gatherChildren(e AS ElementNode) AS String
+  MUT s AS String = ""
+  FOR EACH c IN e.children
+    s = s & gatherText(c)
+  NEXT
+  RETURN s
 END FUNC
 
 ' Lay a run of inline-level nodes as one flowed text box at (x, y), wrapping to the
@@ -588,6 +625,44 @@ END FUNC
 
 ' ----- per-node layout ---------------------------------------------------------
 
+' A replaced element renders as a fixed glyph box rather than laying out its
+' children. Today that is <textarea> (a multi-line field box); single-line inputs
+' and buttons flow inline as decorated text (see gatherText).
+FUNC isReplaced(e AS ElementNode) AS Boolean
+  RETURN e.tag = "textarea"
+END FUNC
+
+' Lay out a replaced element: build the field box as `rows` synthetic text runs of
+' |----| (each `cols` dashes wide), size the element to that box plus padding, and
+' return it. The element's own children (a textarea's default text) are dropped.
+FUNC layoutReplaced(e AS ElementNode, x AS Integer, y AS Integer) AS Sized
+  LET st AS Style = e.style
+  LET ml AS Integer = maxI(0, st.marginLeft)
+  LET mr AS Integer = maxI(0, st.marginRight)
+  LET mt AS Integer = maxI(0, st.marginTop)
+  LET mb AS Integer = maxI(0, st.marginBottom)
+  LET pl AS Integer = maxI(0, st.paddingLeft)
+  LET pr AS Integer = maxI(0, st.paddingRight)
+  LET pt AS Integer = maxI(0, st.paddingTop)
+  LET pb AS Integer = maxI(0, st.paddingBottom)
+  LET rows AS Integer = attrInt(e.attrs, "rows", 3)
+  LET cols AS Integer = attrInt(e.attrs, "cols", 20)
+  LET line AS String = "|" & strings::repeat("-", cols) & "|"
+  LET boxW AS Integer = cols + 2
+  LET contentX AS Integer = x + ml + pl
+  LET contentY AS Integer = y + mt + pt
+  MUT kids AS List OF Node = []
+  MUT i AS Integer = 0
+  DO WHILE i < rows
+    kids = collections::append(kids, textLaid(line, Layout[contentX, contentY + i, boxW, 1]))
+    i = i + 1
+  LOOP
+  LET borderW AS Integer = boxW + pl + pr
+  LET borderH AS Integer = rows + pt + pb
+  LET box AS Layout = Layout[x + ml, y + mt, borderW, borderH]
+  RETURN Sized[elementLaid(e.tag, e.attrs, kids, st, box), borderW + ml + mr, borderH + mt + mb]
+END FUNC
+
 ' Lay out one element at (x, y) given the width available to its margin box, and
 ' return the rebuilt element (with its Layout set) plus its outer size. When
 ' `imposeWidth` is TRUE the border box is forced to fill the available width less
@@ -597,6 +672,9 @@ FUNC layoutElement(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integ
   LET st AS Style = e.style
   IF st.display = Display.None THEN
     RETURN Sized[elementLaid(e.tag, e.attrs, e.children, st, Layout[x, y, 0, 0]), 0, 0]
+  END IF
+  IF isReplaced(e) THEN
+    RETURN layoutReplaced(e, x, y)
   END IF
 
   LET ml AS Integer = maxI(0, st.marginLeft)
