@@ -200,6 +200,21 @@ impl TypeTable {
                     // empty-record placeholder (the old fallback below, which then
                     // failed with `truncated binary representation`).
                     self.foreign_type(strings, name, &fref)
+                } else if let Some((bare, fref)) = name
+                    .rsplit_once('.')
+                    .and_then(|(_, bare)| self.foreign_types.get(bare).cloned().map(|f| (bare, f)))
+                {
+                    // bug-436: a package-qualified imported type (`leaf435::Node`)
+                    // lowers to the dotted IR type name `leaf435.Node`, but the
+                    // foreign-type identities are keyed by bare exported name
+                    // (`Node`). Resolve the dotted reference to the same foreign
+                    // entry the unqualified spelling produces — interned under the
+                    // bare name so both spellings emit an identical type table —
+                    // rather than degrading to an empty-record placeholder that
+                    // fails read-back with `truncated binary representation`.
+                    // (The composite-type keys use `#`, never `.`, so only a
+                    // qualified `pkg.Type` reference reaches this arm.)
+                    self.foreign_type(strings, bare, &fref)
                 } else {
                     self.add_entry(strings, "", name, 1, Vec::new())
                 }
