@@ -345,34 +345,39 @@ The mechanism. Highest blast radius; lands behind runtime tests.
   gate + `standard_error_messages` `ErrSpawnFailed` row + raising at the self-pipe
   site / empty-argv `ErrInvalidArgument` / dropped-handle `ErrResourceClosed`
   (`145c946ae`).
-- [~] libc imports + capabilities: macOS `libSystem` (`_pipe`/`_fork`/`_dup2`/
-  `_execvp`/`_close`/`_waitpid`/`_kill`/`_read`/`_write`/`_fcntl`/`__exit`/
-  `___error`) + `macos_aarch64` `runtime_calls` DONE (`145c946ae`). The 3 Linux
-  arches (`linux_common` imports + each `mod.rs` capability list) REMAIN.
+- [x] libc imports + capabilities: macOS `libSystem` (`145c946ae`) AND the 3 Linux
+  arches — `linux_common/plan.rs` imports (`pipe`/`fork`/`dup2`/`execvp`/`close`/
+  `waitpid`/`kill`/`read`/`write`/`fcntl`/`_exit`/`__errno_location`) +
+  `linux_common` `RUNTIME_CALLS` capability list (`e9ae09408`). `write` is NOT
+  filtered for process (unlike net's raw-syscall write path).
 - [x] `process.__drop` scope-drop wiring: works via `resource.rs`'s
   `close_function="process.__drop"` — the drop-reap fixture confirms scope exit
   emits `__drop` (no extra `builder_resource_cleanup.rs` edit was needed).
-- [~] Tests: `tests/rt-behavior/process/{spawn-waitfor,spawn-fail-trap,drop-reap}`
-  runtime fixtures pass on macOS (`test-accept` green, 3 tests). REMAINING: an
-  `isRunning`-only fixture (covered incidentally by drop-reap) and Linux/rv64 runs.
-  (New-layout `tests/rt-behavior/`, NOT the `tests/rt_*.rs` path the plan named.)
+- [x] Tests: `tests/rt-behavior/process/{spawn-waitfor,spawn-fail-trap,drop-reap,
+  shell-exitcode}` runtime fixtures pass on macOS (`test-accept` green, 4 tests).
+  `isRunning` true→false is covered by drop-reap; the shell fixture covers
+  `shell`+`waitFor`. (New-layout `tests/rt-behavior/`, NOT `tests/rt_*.rs`.)
 
-Acceptance (runtime proof): on macOS a compiled program spawns `["echo","hi"]`,
-`waitFor` returns `0`, `pid` is plausible, `isRunning` flips true→false, and a
-dropped live `sleep 30` child is SIGKILL'd + reaped (program exits in 0.16s, no
-hang, no zombie). Spawn of a bogus path TRAPs `ErrSpawnFailed` (7-708-0001).
-`cargo test --bin mfb` green (3795). ⚠️ Linux x86_64/aarch64 + rv64 runtime proof
-REMAINS (imports/capabilities not yet added for those targets).
-Commit: 145c946ae (macOS argv-spawn + lifecycle + drop-reap; env/shell/Linux pending)
+Acceptance (runtime proof): VERIFIED on ALL FOUR targets — macOS-aarch64 (local),
+linux-x86_64 musl (box 2227), linux-aarch64 glibc (box 2223), linux-riscv64 musl
+(box 2229). Each: spawn `["echo","hi"]`→pid>0/waitFor==0; `sleep 30` scope-drop
+SIGKILL'd+reaped (exits ~0.00s, no hang, no zombie); bogus path TRAPs
+`ErrSpawnFailed` (7-708-0001, exit 255). `cargo test --bin mfb` green (3795).
+Commit: e9ae09408 (macOS + all 3 Linux arches; only `spawnEnv` cwd/env remains)
 
 ### Phase 4 — riscv64 backend parity + runtime proof
 
-- [ ] Register the same libc imports in `linux_riscv64` `code.rs`/`plan.rs`.
-- [ ] Runtime proof on the rv64 remote (`ssh -p 2229`): cross-compile, ship, run
-  the Phase-3 programs; confirm exit code + no-zombie.
+- [x] Register the same libc imports for `linux_riscv64` — done via
+  `linux_common` (the 3 Linux arches share `runtime_imports`/`RUNTIME_CALLS`), so
+  no rv64-specific `plan.rs` edit was needed (Correction to the plan's assumption
+  of a per-arch edit).
+- [x] Runtime proof on the rv64 remote (`ssh -p 2229`, Alpine riscv64 musl):
+  cross-compiled here, shipped, ran the Phase-3 programs — spawn-waitfor
+  (pid-ok/exit 0), drop-reap (`running`, 0.00s, no zombie), fail-trap
+  (`ErrSpawnFailed`, exit 255). All pass.
 
-Acceptance: the Phase-3 runtime programs pass on the riscv64 remote.
-Commit: —
+Acceptance: the Phase-3 runtime programs pass on the riscv64 remote. MET.
+Commit: e9ae09408
 
 ## Validation Plan
 
