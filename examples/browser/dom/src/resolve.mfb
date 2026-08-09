@@ -249,22 +249,99 @@ FUNC listHasStr(items AS List OF String, name AS String) AS Boolean
   RETURN FALSE
 END FUNC
 
-' Does a single simple selector match this element? Supported: "*", ".class",
-' "#id", and a bare tag name (case-insensitive). Compound ("div.box") and
-' descendant ("ul li") selectors do not match yet — they never apply rather than
-' matching wrongly. `classes` is the element's pre-split class list, computed once
-' per element in resolveOne so the class attribute is not re-split per rule.
-FUNC selectorMatches(sel AS String, tag AS String, classes AS List OF String, attrs AS Map OF String TO String) AS Boolean
-  LET s AS String = strings::trim(sel)
+' A lightweight identity of one element for selector matching: its tag, id, and
+' class list. resolveOne threads the ancestor chain of these so descendant
+' selectors can look upward.
+TYPE ElemDesc
+  tag AS String
+  id AS String
+  classes AS List OF String
+END TYPE
+
+' Does a COMPOUND selector — a run of simple selectors with no combinator, e.g.
+' "a.gb_4a", ".x.y", "div#id" — match an element with this tag/id/classes? "*"
+' matches anything. A leading tag name is matched case-insensitively; each `.name`
+' must be in the class list and each `#name` must equal the id. An unsupported
+' piece (a `:pseudo`, `[attr]`) is folded into the preceding token so it simply
+' fails to match rather than matching wrongly.
+FUNC compoundMatches(comp AS String, tag AS String, id AS String, classes AS List OF String) AS Boolean
+  LET s AS String = strings::trim(comp)
   IF s = "" THEN RETURN FALSE
   IF s = "*" THEN RETURN TRUE
-  IF strings::startsWith(s, ".") THEN
-    RETURN listHasStr(classes, strings::mid(s, 1, len(s) - 1))
+  LET n AS Integer = len(s)
+  ' Leading tag name (up to the first '.' or '#').
+  MUT i AS Integer = 0
+  MUT tagPart AS String = ""
+  DO WHILE i < n
+    LET ch AS String = strings::mid(s, i, 1)
+    IF ch = "." OR ch = "#" THEN EXIT DO
+    tagPart = tagPart & ch
+    i = i + 1
+  LOOP
+  IF tagPart <> "" AND tagPart <> "*" THEN
+    IF strings::lower(tagPart) <> tag THEN RETURN FALSE
   END IF
-  IF strings::startsWith(s, "#") THEN
-    RETURN collections::getOr(attrs, "id", "") = strings::mid(s, 1, len(s) - 1)
-  END IF
-  RETURN strings::lower(s) = tag
+  ' Remaining '.class' / '#id' tokens.
+  DO WHILE i < n
+    LET marker AS String = strings::mid(s, i, 1)
+    i = i + 1
+    MUT tok AS String = ""
+    DO WHILE i < n AND strings::mid(s, i, 1) <> "." AND strings::mid(s, i, 1) <> "#"
+      tok = tok & strings::mid(s, i, 1)
+      i = i + 1
+    LOOP
+    IF tok = "" THEN RETURN FALSE
+    IF marker = "." THEN
+      IF NOT listHasStr(classes, tok) THEN
+        RETURN FALSE
+      END IF
+    ELSEIF marker = "#" THEN
+      IF id <> tok THEN
+        RETURN FALSE
+      END IF
+    ELSE
+      RETURN FALSE
+    END IF
+  LOOP
+  RETURN TRUE
+END FUNC
+
+' Split a complex selector into its compound parts by combinator. A child
+' combinator ">" is treated as a descendant (a looser but safe approximation); any
+' sibling combinator left as its own token simply fails to match.
+FUNC splitCompounds(sel AS String) AS List OF String
+  LET s AS String = strings::replace(sel, ">", " ")
+  MUT out AS List OF String = []
+  FOR EACH p IN strings::split(s, " ")
+    LET q AS String = strings::trim(p)
+    IF q <> "" THEN out = collections::append(out, q)
+  NEXT
+  RETURN out
+END FUNC
+
+' Does a full selector match this element? Supports compound selectors and the
+' descendant combinator (space): the rightmost compound must match the element and
+' each earlier compound must match an ancestor, nearest-first (greedy). `ancestors`
+' is the element's ancestor chain (root first). `classes` is the element's pre-split
+' class list; `attrs` supplies its id.
+FUNC selectorMatches(sel AS String, tag AS String, classes AS List OF String, attrs AS Map OF String TO String, ancestors AS List OF ElemDesc) AS Boolean
+  LET id AS String = collections::getOr(attrs, "id", "")
+  LET parts AS List OF String = splitCompounds(sel)
+  LET np AS Integer = len(parts)
+  IF np = 0 THEN RETURN FALSE
+  IF NOT compoundMatches(collections::get(parts, np - 1), tag, id, classes) THEN RETURN FALSE
+  IF np = 1 THEN RETURN TRUE
+  ' Match the remaining compounds against ancestors, nearest ancestor first.
+  MUT need AS Integer = np - 2
+  MUT ai AS Integer = len(ancestors) - 1
+  DO WHILE ai >= 0 AND need >= 0
+    LET anc AS ElemDesc = collections::get(ancestors, ai)
+    IF compoundMatches(collections::get(parts, need), anc.tag, anc.id, anc.classes) THEN
+      need = need - 1
+    END IF
+    ai = ai - 1
+  LOOP
+  RETURN need < 0
 END FUNC
 
 FUNC isBlockTag(tag AS String) AS Boolean
@@ -301,7 +378,7 @@ END FUNC
 ' rule in document order, then the inline `style="…"` attribute. `inherited` is the
 ' parent's resolved text-align — the one property that inherits, so <center> or a
 ' text-align on an ancestor centers this element's text unless it overrides.
-FUNC resolveOne(tag AS String, attrs AS Map OF String TO String, rules AS List OF StyleNode, inherited AS Justify) AS Style
+FUNC resolveOne(tag AS String, attrs AS Map OF String TO String, rules AS List OF StyleNode, inherited AS Justify, ancestors AS List OF ElemDesc) AS Style
   ' Split the class attribute once, not once per class-selector below.
   LET classes AS List OF String = splitWs(collections::getOr(attrs, "class", ""))
   MUT s AS Style = uaStyle(tag)
@@ -315,7 +392,7 @@ FUNC resolveOne(tag AS String, attrs AS Map OF String TO String, rules AS List O
   IF alignAttr = "left" THEN ta = Justify.FlexStart
   s = WITH s { textAlign := ta }
   FOR EACH r IN rules
-    IF selectorMatches(r.selector, tag, classes, attrs) THEN
+    IF selectorMatches(r.selector, tag, classes, attrs, ancestors) THEN
       s = applyDeclarations(s, r.props)
     END IF
   NEXT
@@ -351,15 +428,22 @@ END FUNC
 ' `s` is declared before the MATCH: binding a call result with LET *inside* a CASE
 ' mis-types to Unknown at native codegen, so resolveOne is assigned to a pre-declared
 ' MUT instead.
-FUNC rebuild(n AS Node, rules AS List OF StyleNode, inherited AS Justify) AS Node
+' The element's own identity for descendant matching by its children.
+FUNC descOf(e AS ElementNode) AS ElemDesc
+  RETURN ElemDesc[e.tag, collections::getOr(e.attrs, "id", ""), splitWs(collections::getOr(e.attrs, "class", ""))]
+END FUNC
+
+FUNC rebuild(n AS Node, rules AS List OF StyleNode, inherited AS Justify, ancestors AS List OF ElemDesc) AS Node
   MUT out AS Node = n
   MUT s AS Style = defaultStyle()
+  MUT childAncestors AS List OF ElemDesc = ancestors
   MATCH n
     CASE ElementNode(e)
-      s = resolveOne(e.tag, e.attrs, rules, inherited)
+      s = resolveOne(e.tag, e.attrs, rules, inherited, ancestors)
+      childAncestors = collections::append(ancestors, descOf(e))
       MUT kids AS List OF Node = []
       FOR EACH c IN e.children
-        kids = collections::append(kids, rebuild(c, rules, s.textAlign))
+        kids = collections::append(kids, rebuild(c, rules, s.textAlign, childAncestors))
       NEXT
       out = elementStyled(e.tag, e.attrs, kids, s)
     CASE ELSE
@@ -371,5 +455,6 @@ END FUNC
 ' and inline styles. Call after parse() and attachCss().
 EXPORT FUNC resolveStyles(doc AS Node) AS Node
   LET rules AS List OF StyleNode = docRules(doc)
-  RETURN rebuild(doc, rules, Justify.FlexStart)
+  LET noAncestors AS List OF ElemDesc = []
+  RETURN rebuild(doc, rules, Justify.FlexStart, noAncestors)
 END FUNC

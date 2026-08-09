@@ -412,6 +412,10 @@ END FUNC
 FUNC isBlockLevel(n AS Node) AS Boolean
   MATCH n
     CASE ElementNode(e)
+      ' Decorated controls always flow inline so they keep their glyphs ([link],
+      ' <button>, |field|): a real page may set display:block on a link, but as a
+      ' text control it still reads best inline and bracketed, not as a bare block.
+      IF e.tag = "a" OR e.tag = "button" OR e.tag = "input" THEN RETURN FALSE
       IF e.style.display = Display.Block OR e.style.display = Display.Flex THEN RETURN TRUE
       ' <br> is a forced line break: treating it as a (zero-height) block flushes
       ' the inline run before it, so the content after it starts a new line.
@@ -467,12 +471,21 @@ END FUNC
 ' field glyph (see inputBox). Other inline elements (<b>, <em>, <span>…) are
 ' transparent, and a display:none subtree contributes nothing. Used to flatten a run
 ' of inline content into one flowed text run.
+' Wrap an element's inline content in `open`/`close`, or render nothing when the
+' content is empty (so an icon-only link is not a bare "[]"). A top-level helper
+' because a LET-bound call inside a MATCH CASE mis-types to Unknown at codegen.
+FUNC wrapChildren(e AS ElementNode, open AS String, close AS String) AS String
+  LET inner AS String = gatherChildren(e)
+  IF strings::trim(inner) = "" THEN RETURN ""
+  RETURN open & inner & close
+END FUNC
+
 FUNC gatherText(n AS Node) AS String
   MATCH n
     CASE ElementNode(e)
       IF e.style.display = Display.None THEN RETURN ""
-      IF e.tag = "a" THEN RETURN "[" & gatherChildren(e) & "]"
-      IF e.tag = "button" THEN RETURN "<" & gatherChildren(e) & ">"
+      IF e.tag = "a" THEN RETURN wrapChildren(e, "[", "]")
+      IF e.tag = "button" THEN RETURN wrapChildren(e, "<", ">")
       IF e.tag = "input" THEN RETURN inputBox(e)
       RETURN gatherChildren(e)
     CASE TextNode(t)

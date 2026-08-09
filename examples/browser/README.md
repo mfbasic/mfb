@@ -132,9 +132,15 @@ recursing over an *imported* union):
   `dom::resolveStyles(doc)`
   (`resolve.mfb`) walks the tree and for each element applies the user-agent default
   for its tag, then every matching `StyleNode` rule in document order, then the
-  inline `style="…"` attribute. Layout properties do not inherit, so each element
-  resolves from only its own tag/attrs and the global rule set. The `fetch` worker
-  runs this once, on its thread, so the fully-styled document is what crosses back.
+  inline `style="…"` attribute. Selectors support **compound** simple-selectors
+  (`a.gb_4a`, `.a.b`, `div#id`, `*`) and the **descendant** combinator (`.box a` — a
+  child combinator `>` is treated as descendant); the rightmost compound must match
+  the element and each earlier compound must match an ancestor, so the resolver
+  threads each element's ancestor chain down the tree. Unsupported pieces (a
+  `:pseudo`, `[attr]`) simply fail to match rather than matching wrongly. Layout
+  properties do not inherit (except `text-align`), so each element resolves from its
+  own tag/attrs, its ancestors, and the global rule set. The `fetch` worker runs this
+  once, on its thread, so the fully-styled document is what crosses back.
 
 - **`Layout`** (`layout.mfb`) is the computed geometry: an absolute border box
   (`x, y, width, height` in output cells, from the viewport's top-left), stored on
