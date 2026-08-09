@@ -77,12 +77,18 @@ COFF characteristics word:
 .data   0xC000_0040  INITIALIZED_DATA | READ | WRITE program constants + main-arena global
 .idata  0xC000_0040  INITIALIZED_DATA | READ | WRITE import tables (the loader writes the IAT)
 .rsrc   0x4000_0040  INITIALIZED_DATA | READ        app-mode resources (GUI builds only)
+.mfbnote 0x4000_0040 INITIALIZED_DATA | READ        MFBasic provenance marker (always)
 ```
 
 `.rdata` and `.data` come from one `image.data` blob split at `rodata_size`; they
 are laid out contiguously so a data symbol's RVA is the same whichever partition
 it lands in, and one `data_base_rva` serves both. A program with only writable
 data emits `.data` and no `.rdata`, and vice versa.
+
+`.mfbnote` is the sole **unconditional** section: it is placed last (after `.rsrc`
+when present) and carries the `MFBasic\0` owner plus the shared 16-byte descriptor
+so every `.exe` is identifiable as MFBASIC-produced. It has no data-directory
+entry. See **./mfb spec linker provenance-marker**.
 
 ## Imports: `.idata` and the IAT thunk
 

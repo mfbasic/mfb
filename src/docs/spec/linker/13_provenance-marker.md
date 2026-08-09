@@ -1,10 +1,11 @@
 # Provenance Marker
 
-Every executable either in-tree linker emits carries a vendor note that
+Every executable any in-tree linker emits carries a vendor note that
 positively identifies it as MFBASIC-produced and exposes a small versioned
 descriptor. It is **unconditional**: it does not depend on `--sign`, on imports,
-or on the build mode, and it is emitted for both formats using that format's
-standard vendor-note mechanism.
+or on the build mode, and it is emitted for all three formats — ELF, Mach-O, and
+PE — using that format's carrier (a vendor-note command where one exists, a
+dedicated read-only section on PE, which has none).
 
 The marker is inert metadata. It does not change the entry point, any code or
 data address, or any runtime semantics.
@@ -12,17 +13,17 @@ data address, or any runtime semantics.
 ## Owner
 
 The vendor string is exactly the 8 bytes `MFBasic\0` (NUL included) — the ELF
-note *name* and the Mach-O `data_owner`. It is what identifies the note; a reader
-must match on it, not on the note type. Eight bytes keeps the ELF note name
-4-aligned (so the note needs no name padding) and fits the Mach-O
-`data_owner[16]` field, which is zero-padded to its full width.
-[[src/os/note.rs:MFB_NOTE_OWNER]]
+note *name*, the Mach-O `data_owner`, and the first bytes of the PE `.mfbnote`
+section. It is what identifies the note; a reader must match on it, not on the
+note type. Eight bytes keeps the ELF note name 4-aligned (so the note needs no
+name padding) and fits the Mach-O `data_owner[16]` field, which is zero-padded to
+its full width. [[src/os/note.rs:MFB_NOTE_OWNER]]
 
 ## Descriptor
 
-Both formats carry the **same** 16-byte descriptor as the note contents. All
-fields are little-endian. The `MFBasic\0` string is the note name / `data_owner`,
-not part of this payload. [[src/os/note.rs:mfb_note_descriptor]]
+All three formats carry the **same** 16-byte descriptor as the note contents. All
+fields are little-endian. The `MFBasic\0` string is the note name / `data_owner` /
+section prefix, not part of this payload. [[src/os/note.rs:mfb_note_descriptor]]
 
 ```text
 off  size  field               value
@@ -83,6 +84,22 @@ Because the payload sits below the `LC_CODE_SIGNATURE` blob it is inside
 verifies — page hashing is file-offset based, not segment based. The command and
 the payload are the same size on both passes of the two-pass signing encode, so
 the signature-length settle still converges (see `macos-aarch64`).
+
+## PE: `.mfbnote` section
+
+PE has no `PT_NOTE`/`LC_NOTE` equivalent, so the marker rides in a dedicated
+read-only section named `.mfbnote` (exactly 8 bytes, so the COFF section-name
+field holds it with no truncation). Its body is the `MFBasic\0` owner followed
+immediately by the same 16-byte descriptor — the identical owner+descriptor
+framing the ELF note uses, so a reader locates `MFBasic\0` and reads the
+descriptor the same way in all three formats. [[src/os/windows/link/mod.rs:write_executable]]
+
+The section is **unconditional** (console and GUI, signed or not) and carries no
+data-directory entry. It is placed last — after `.rsrc` when a GUI build has one,
+otherwise after the final functional section — at the next section/file-alignment
+boundary, with characteristics `CNT_INITIALIZED_DATA | READ`. Because it follows
+every other section, its presence shifts only `NumberOfSections` and
+`SizeOfImage`; no earlier RVA, the entry point, or any code/data address moves.
 
 ## Relationship to executable signing
 
