@@ -74,6 +74,22 @@ pub(crate) const PROCESS_SEND_BYTES_TIMEOUT_SPEC: RuntimeHelperSpec = RuntimeHel
     abi: RuntimeHelperAbi { returns: "Nothing" },
 };
 
+pub(crate) const PROCESS_RECEIVE_BYTES_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Process,
+    call: "process.receiveBytes",
+    abi: RuntimeHelperAbi {
+        returns: "List OF Byte",
+    },
+};
+
+pub(crate) const PROCESS_RECEIVE_BYTES_FROM_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Process,
+    call: "process.receiveBytesFrom",
+    abi: RuntimeHelperAbi {
+        returns: "List OF Byte",
+    },
+};
+
 pub(crate) const PROCESS_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Process,
     call: "process.poll",

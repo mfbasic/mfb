@@ -1558,6 +1558,10 @@ pub(crate) fn lower_module_for_platform(
             "_mfb_rt_process_process_sendBytesTimeout",
         ),
         ("_mfb_rt_process_process_poll", "_mfb_rt_process_process_pollFrom"),
+        (
+            "_mfb_rt_process_process_receiveBytes",
+            "_mfb_rt_process_process_receiveBytesFrom",
+        ),
     ] {
         if runtime_symbols.iter().any(|symbol| symbol == base)
             && !runtime_symbols.iter().any(|symbol| symbol == timed)
@@ -2333,6 +2337,18 @@ fn lower_runtime_helper(
                         platform_imports,
                         platform,
                         true,
+                        true,
+                    )?,
+                    "process.receiveBytes" => process::lower_process_receivebytes_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
+                    "process.receiveBytesFrom" => process::lower_process_receivebytes_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
                         true,
                     )?,
                     "process.poll" => {

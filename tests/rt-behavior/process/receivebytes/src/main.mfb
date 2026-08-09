@@ -1,0 +1,13 @@
+' plan-90-B Phase 2: process::receiveBytes returns the next chunk of raw bytes
+' from the child's stdout. `printf hi` writes exactly "hi" (104, 105).
+IMPORT process
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  RES p = process::spawn(["printf", "hi"])
+  LET b = process::receiveBytes(p)
+  io::print(toString(collections::get(b, 0)))
+  io::print(toString(collections::get(b, 1)))
+  RETURN 0
+END FUNC
