@@ -1,0 +1,42 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 A3: native `collections::findLastIndex` for a `List OF String`
+' (`#collections_findLastIndex$String`). A reverse predicate scan that returns
+' the highest matching index. The 2-arg source form is padded to the default
+' `endIndex = -1`, so the native body always sees `(list, predicate, endIndex)`
+' and reproduces the interpreted `.mfb` body exactly: negative `endIndex`
+' normalizes as `endIndex + len`, an out-of-range start traps bounds (77050001),
+' scanning past index 0 with no match traps not-found (77050004; covered by the
+' rt-error sibling), and String items are materialized fresh and freed after the
+' predicate call (no leak/UAF across repeats).
+
+FUNC isShort(s AS String) AS Boolean
+  RETURN len(s) < 3
+END FUNC
+
+FUNC main AS Integer
+  LET xs AS List OF String = ["aa", "bbbb", "cc", "dddd", "e"]
+  ' Default endIndex (-1): the last short element is index 4 ("e").
+  io::print("default: " & toString(collections::findLastIndex(xs, isShort)))
+  ' Explicit endIndex 3: search 0..3, last short is index 2 ("cc").
+  io::print("end3: " & toString(collections::findLastIndex(xs, isShort, 3)))
+  ' Explicit endIndex 0: only index 0 ("aa") is in range and short.
+  io::print("end0: " & toString(collections::findLastIndex(xs, isShort, 0)))
+  ' Negative endIndex -2: normalizes to 5 + (-2) = 3; last short in 0..3 is 2.
+  io::print("neg2: " & toString(collections::findLastIndex(xs, isShort, 0 - 2)))
+  ' Single element that matches.
+  io::print("one: " & toString(collections::findLastIndex(["x"], isShort)))
+  ' Only the first element matches (reverse scan must walk all the way to 0).
+  io::print("first: " & toString(collections::findLastIndex(["a", "bbbb", "cccc"], isShort)))
+  ' The source is not mutated by the scan.
+  io::print("src: " & toString(len(xs)))
+  ' Repeated scans: a leak/UAF of the materialized String item would corrupt
+  ' output or crash across 1000 iterations.
+  MUT acc AS Integer = 0
+  FOR r = 0 TO 999
+    acc = acc + collections::findLastIndex(xs, isShort)
+  NEXT
+  io::print("stress: " & toString(acc))
+  RETURN 0
+END FUNC

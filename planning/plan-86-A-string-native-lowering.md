@@ -44,8 +44,17 @@ element move**, not an 8-byte word copy. Gates: `builder_values.rs` sortBy/windo
   already uses native `slice`+`append`, so a worthwhile native chunks needs direct nested-block construction.
 - [ ] **A3-zip (String)** — native String `zip` → `List OF Pair OF A, B`. Needs Pair-of-Strings
   variable-width fields (the fixed-width `try_inline_zip_op` hard-codes `REC=16`). Clears zip (26).
-- [ ] **A3-findLastIndex** — native reverse-scan lowering (predicate + two FAIL error paths: bounds
-  77050001, not-found 77050004; the reverse loop helpers exist from B2). Clears findLastIndex (11.1, P3).
+- [x] **A3-findLastIndex** — native reverse-scan lowering (`lower_collection_find_last_index_call`,
+  gated on `#collections_findLastIndex$String`) reusing B2's `initialize_collection_loop_slots_reverse`/
+  `advance_collection_loop_reverse`; predicate scan + two FAIL error paths (bounds `77050001`, not-found
+  `77050004` via `emit_index_out_of_range_return`/`emit_not_found_return`). The 2-arg source form is padded
+  to 3 (default `endIndex = -1`), so the body handles the default, explicit, and negative `endIndex` cases
+  uniformly (normalize `e += len`, bounds-check the start, seat the reverse cursor at `e` with
+  `remaining = e+1`). **findLastIndex 11.18 → 5.66 ms** (~2×; clears P3, ΔO0 +9.9 → +4.47); checksum `4500`
+  unchanged; native/`​.mfb` output byte-identical across default/explicit/negative/empty/no-match + 1000-round
+  UAF stress. Fixtures: `findlast-native-rt`, `func_collection_findLastIndex_{not_found,out_of_range}`.
+  Corrections: predicate boolean must be tested BEFORE `free_collection_loop_item` (its `bl _mfb_arena_free`
+  clobbers the caller-saved RESULT_VALUE_REGISTER). Commit: `PENDING`.
 
 ## Acceptance
 Per-op `list (Dynamic)` checksums unchanged (order-sensitive for sort rows) + `scripts/artifact-gate.sh` +

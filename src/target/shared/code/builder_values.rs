@@ -909,6 +909,17 @@ impl CodeBuilder<'_> {
                         return self.lower_collection_partition_call(args, t);
                     }
                 }
+                // plan-86 A3: native `collections::findLastIndex` reverse predicate
+                // scan for a String item list (`#collections_findLastIndex$String`).
+                // The 2-arg source form is padded to 3 (default `endIndex = -1`), so
+                // the native body always sees `(list, predicate, endIndex)` and
+                // handles the negative/default and explicit-endIndex cases uniformly.
+                // Other element types fall through to the `.mfb` body.
+                if let Some(t) = target.strip_prefix("#collections_findLastIndex$") {
+                    if t == "String" && args.len() == 3 {
+                        return self.lower_collection_find_last_index_call(args);
+                    }
+                }
                 if native == Some("reduce") && args.len() == 3 {
                     return self.lower_collection_reduce_call(args);
                 }
