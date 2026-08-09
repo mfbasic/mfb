@@ -222,9 +222,22 @@ EXPORT FUNC applyDeclarations(base AS Style, props AS Map OF String TO String) A
   IF ht <> "" THEN s = WITH s { height := lengthOf(ht, s.height) }
   LET gp AS String = collections::getOr(props, "gap", "")
   IF gp <> "" THEN s = WITH s { gap := lengthOf(gp, s.gap) }
+  LET ta AS String = collections::getOr(props, "text-align", "")
+  IF ta <> "" THEN s = WITH s { textAlign := textAlignOf(ta, s.textAlign) }
   s = applyPadding(s, props)
   s = applyMargin(s, props)
   RETURN s
+END FUNC
+
+' Map a text-align keyword to the shared Justify vocabulary: left/start -> FlexStart,
+' center -> Center, right/end -> FlexEnd. `justify` (full text justification) has no
+' terminal analogue, so it falls back to left.
+FUNC textAlignOf(v AS String, fb AS Justify) AS Justify
+  LET t AS String = normalize(v)
+  IF t = "left" OR t = "start" OR t = "justify" THEN RETURN Justify.FlexStart
+  IF t = "center" THEN RETURN Justify.Center
+  IF t = "right" OR t = "end" THEN RETURN Justify.FlexEnd
+  RETURN fb
 END FUNC
 
 ' ----- selector matching + the user-agent default sheet -----
@@ -283,12 +296,24 @@ FUNC uaStyle(tag AS String) AS Style
   RETURN base
 END FUNC
 
-' The resolved Style for one element: UA default, then each matching rule in
-' document order, then the inline `style="…"` attribute.
-FUNC resolveOne(tag AS String, attrs AS Map OF String TO String, rules AS List OF StyleNode) AS Style
+' The resolved Style for one element: the UA default seeded with the inherited
+' text-align, then the presentational `align=`/`<center>` hint, then each matching
+' rule in document order, then the inline `style="…"` attribute. `inherited` is the
+' parent's resolved text-align — the one property that inherits, so <center> or a
+' text-align on an ancestor centers this element's text unless it overrides.
+FUNC resolveOne(tag AS String, attrs AS Map OF String TO String, rules AS List OF StyleNode, inherited AS Justify) AS Style
   ' Split the class attribute once, not once per class-selector below.
   LET classes AS List OF String = splitWs(collections::getOr(attrs, "class", ""))
   MUT s AS Style = uaStyle(tag)
+  ' text-align inherits; <center> and an align= attribute are presentational seeds
+  ' that a matching CSS rule (applied below) can still override.
+  MUT ta AS Justify = inherited
+  IF tag = "center" THEN ta = Justify.Center
+  LET alignAttr AS String = strings::lower(strings::trim(collections::getOr(attrs, "align", "")))
+  IF alignAttr = "center" THEN ta = Justify.Center
+  IF alignAttr = "right" THEN ta = Justify.FlexEnd
+  IF alignAttr = "left" THEN ta = Justify.FlexStart
+  s = WITH s { textAlign := ta }
   FOR EACH r IN rules
     IF selectorMatches(r.selector, tag, classes, attrs) THEN
       s = applyDeclarations(s, r.props)
@@ -320,25 +345,31 @@ FUNC docRules(doc AS Node) AS List OF StyleNode
   END MATCH
 END FUNC
 
-' Rebuild a node with its resolved style, recursing into element children. Text
-' and header nodes are returned unchanged. Recursion over dom's own Node union is
-' fine (this is inside dom, not a consumer).
-FUNC rebuild(n AS Node, rules AS List OF StyleNode) AS Node
+' Rebuild a node with its resolved style, recursing into element children which
+' inherit this element's resolved text-align. Text and header nodes are returned
+' unchanged. Recursion over dom's own Node union is fine (this is inside dom).
+' `s` is declared before the MATCH: binding a call result with LET *inside* a CASE
+' mis-types to Unknown at native codegen, so resolveOne is assigned to a pre-declared
+' MUT instead.
+FUNC rebuild(n AS Node, rules AS List OF StyleNode, inherited AS Justify) AS Node
+  MUT out AS Node = n
+  MUT s AS Style = defaultStyle()
   MATCH n
     CASE ElementNode(e)
+      s = resolveOne(e.tag, e.attrs, rules, inherited)
       MUT kids AS List OF Node = []
       FOR EACH c IN e.children
-        kids = collections::append(kids, rebuild(c, rules))
+        kids = collections::append(kids, rebuild(c, rules, s.textAlign))
       NEXT
-      RETURN elementStyled(e.tag, e.attrs, kids, resolveOne(e.tag, e.attrs, rules))
+      out = elementStyled(e.tag, e.attrs, kids, s)
     CASE ELSE
-      RETURN n
   END MATCH
+  RETURN out
 END FUNC
 
 ' Fill in every ElementNode.style across the document from the parsed CSS rules
 ' and inline styles. Call after parse() and attachCss().
 EXPORT FUNC resolveStyles(doc AS Node) AS Node
   LET rules AS List OF StyleNode = docRules(doc)
-  RETURN rebuild(doc, rules)
+  RETURN rebuild(doc, rules, Justify.FlexStart)
 END FUNC

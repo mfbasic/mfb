@@ -211,6 +211,14 @@ FUNC pageHeight(root AS Node) AS Integer
 END FUNC
 
 ' Draw one text run onto the canvas at its layout box.
+' The column offset within a run's box for one wrapped line, honoring the run's
+' horizontal alignment: left flush (0), centered, or right flush.
+FUNC alignOffset(align AS Justify, boxWidth AS Integer, lineWidth AS Integer) AS Integer
+  IF align = Justify.Center THEN RETURN maxOf(0, (boxWidth - lineWidth) / 2)
+  IF align = Justify.FlexEnd THEN RETURN maxOf(0, boxWidth - lineWidth)
+  RETURN 0
+END FUNC
+
 FUNC paintRun(canvas AS List OF String, t AS TextNode, width AS Integer) AS List OF String
   LET box AS Layout = t.layout
   IF box.width <= 0 THEN RETURN canvas
@@ -220,7 +228,8 @@ FUNC paintRun(canvas AS List OF String, t AS TextNode, width AS Integer) AS List
   FOR EACH line IN lines
     LET row AS Integer = box.y + i
     IF row >= 0 AND row < len(out) THEN
-      out = collections::set(out, row, overlay(collections::get(out, row), box.x, line, width))
+      LET off AS Integer = alignOffset(t.align, box.width, strings::displayWidth(line))
+      out = collections::set(out, row, overlay(collections::get(out, row), box.x + off, line, width))
     END IF
     i = i + 1
   NEXT

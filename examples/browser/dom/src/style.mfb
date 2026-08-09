@@ -65,12 +65,17 @@ EXPORT TYPE Style
   marginBottom AS Integer
   marginLeft AS Integer
   gap AS Integer
+  ' horizontal alignment of inline content within this block (text-align), reusing
+  ' the flex Justify vocabulary: FlexStart = left, Center, FlexEnd = right. Unlike
+  ' the other layout properties this one INHERITS, so <center> / text-align on an
+  ' ancestor centers descendant text.
+  textAlign AS Justify
 END TYPE
 
 ' The initial style: every property at its CSS initial value (display:inline,
 ' flex-direction:row, flex-wrap:nowrap, justify-content:flex-start,
-' align-items:stretch, flex-grow:0, flex-shrink:1, everything else auto/zero).
-' Callers start here and override with WITH for the declarations they resolved.
+' align-items:stretch, flex-grow:0, flex-shrink:1, text-align:left, everything else
+' auto/zero). Callers start here and override with WITH for what they resolved.
 EXPORT FUNC defaultStyle() AS Style
-  RETURN Style[Display.Inline, FlexDirection.Row, FlexWrap.NoWrap, Justify.FlexStart, Align.Stretch, 0, 1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  RETURN Style[Display.Inline, FlexDirection.Row, FlexWrap.NoWrap, Justify.FlexStart, Align.Stretch, 0, 1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, Justify.FlexStart]
 END FUNC

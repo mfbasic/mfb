@@ -485,15 +485,16 @@ FUNC gatherChildren(e AS ElementNode) AS String
 END FUNC
 
 ' Lay a run of inline-level nodes as one flowed text box at (x, y), wrapping to the
-' content width. Returns the synthetic text run (empty height if it has no text).
-FUNC inlineRun(pending AS List OF Node, x AS Integer, y AS Integer, contentW AS Integer) AS Sized
+' content width and taking its line alignment from the block's text-align. Returns
+' the synthetic text run (empty height if it has no text).
+FUNC inlineRun(pending AS List OF Node, st AS Style, x AS Integer, y AS Integer, contentW AS Integer) AS Sized
   MUT text AS String = ""
   FOR EACH k IN pending
     text = text & gatherText(k)
   NEXT
   LET h AS Integer = textHeight(text, contentW)
   LET box AS Layout = Layout[x, y, contentW, h]
-  RETURN Sized[textLaid(text, box), contentW, h]
+  RETURN Sized[textLaid(text, box, st.textAlign), contentW, h]
 END FUNC
 
 ' Block formatting: stack the children vertically, each filling the content width.
@@ -511,7 +512,7 @@ FUNC layoutBlock(kids AS List OF Node, st AS Style, originX AS Integer, originY 
       outKids = collections::append(outKids, rn.node)
     ELSEIF isBlockLevel(k) THEN
       IF len(pending) > 0 THEN
-        LET run AS Sized = inlineRun(pending, originX, curY, contentW)
+        LET run AS Sized = inlineRun(pending, st, originX, curY, contentW)
         IF run.height > 0 THEN
           outKids = collections::append(outKids, run.node)
           curY = curY + run.height
@@ -526,7 +527,7 @@ FUNC layoutBlock(kids AS List OF Node, st AS Style, originX AS Integer, originY 
     END IF
   NEXT
   IF len(pending) > 0 THEN
-    LET run AS Sized = inlineRun(pending, originX, curY, contentW)
+    LET run AS Sized = inlineRun(pending, st, originX, curY, contentW)
     IF run.height > 0 THEN
       outKids = collections::append(outKids, run.node)
       curY = curY + run.height
@@ -669,7 +670,7 @@ FUNC layoutReplaced(e AS ElementNode, x AS Integer, y AS Integer) AS Sized
   MUT kids AS List OF Node = []
   MUT i AS Integer = 0
   DO WHILE i < rows
-    kids = collections::append(kids, textLaid(line, Layout[contentX, contentY + i, boxW, 1]))
+    kids = collections::append(kids, textLaid(line, Layout[contentX, contentY + i, boxW, 1], Justify.FlexStart))
     i = i + 1
   LOOP
   LET borderW AS Integer = boxW + pl + pr
@@ -728,7 +729,7 @@ END FUNC
 FUNC layoutText(s AS String, x AS Integer, y AS Integer, availW AS Integer) AS Sized
   LET h AS Integer = textHeight(s, availW)
   LET box AS Layout = Layout[x, y, availW, h]
-  RETURN Sized[textLaid(s, box), minI(availW, textWidth(s)), h]
+  RETURN Sized[textLaid(s, box, Justify.FlexStart), minI(availW, textWidth(s)), h]
 END FUNC
 
 ' Lay out any node, returning the rebuilt node (with its box set) and its outer

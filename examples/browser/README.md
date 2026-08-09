@@ -150,7 +150,13 @@ recursing over an *imported* union):
   `<div>`s, as real pages often do) breaks out as a block rather than flattening its
   blocks into one crammed run. Table cells (`td`/`th`), `center`, and the sectioning
   wrappers are block by default. Vertical spacing between blocks comes from margins;
-  the UA sheet gives paragraphs, lists, and headings a default margin. Text is
+  the UA sheet gives paragraphs, lists, and headings a default margin. **Horizontal
+  alignment** is unified into the flex vocabulary: `text-align`, a `<center>`
+  element, and an `align="center"`/`"right"` attribute all resolve into the shared
+  `Justify` enum (`FlexStart`/`Center`/`FlexEnd`) on the block, and each wrapped line
+  of its inline content is placed accordingly — the same `Justify` that drives a flex
+  row's `justify-content`. Alone among the layout properties this one **inherits**, so
+  a `<center>` (or `text-align` on an ancestor) centers all descendant text. Text is
   measured by `strings::displayWidth`. Layout is recomputed on each
   render/resize (in the app), not stored by the worker. (Current subset: single-line
   flex — `flex-wrap` falls back to nowrap — cross-axis `align-items` is not applied,
