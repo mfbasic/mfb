@@ -395,7 +395,11 @@ impl CodeBuilder<'_> {
         // plan-71-C Family-1a: the size is arg 0 of the arena-alloc call — emit it into
         // `%arg0`, not `return_register()` (`%ret0`). Byte-identical; clears
         // `builder_collection_layout.rs:332`.
-        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            size_slot,
+        ));
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
@@ -823,7 +827,11 @@ impl CodeBuilder<'_> {
         let result_slot = self.allocate_stack_object("union_wrap_result", 8);
         let alloc_ok = self.label("union_wrap_alloc_ok");
         // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not `return_register()`.
-        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            size_slot,
+        ));
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
@@ -1002,7 +1010,11 @@ impl CodeBuilder<'_> {
         }
 
         // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not `return_register()`.
-        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            size_slot,
+        ));
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
@@ -1100,7 +1112,11 @@ impl CodeBuilder<'_> {
                 self.emit_record_block_size_to_slot(type_, source_slot, size_slot)?;
             }
             // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not `return_register()`.
-            self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), size_slot));
+            self.emit(abi::load_u64(
+                abi::c_arg(0),
+                abi::stack_pointer(),
+                size_slot,
+            ));
             self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
             self.emit_arena_alloc_call();
             self.emit(abi::branch_eq(&alloc_ok));

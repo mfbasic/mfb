@@ -294,7 +294,11 @@ impl CodeBuilder<'_> {
         // `return_register()` (`%ret0`). Byte-identical (both realize to x0/a0 on
         // AArch64/RISC-V; `map_token_direct(%arg0)=rdi` = the x86 fixpoint's inferred
         // register), and it clears the `builder_error_emission.rs:278` divergence.
-        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            size_slot,
+        ));
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
@@ -804,7 +808,11 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             ptr_slot,
         ));
-        self.emit(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            size_slot,
+        ));
         self.emit_arena_free_call();
         Ok(())
     }

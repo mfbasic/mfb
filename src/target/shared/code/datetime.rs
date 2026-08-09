@@ -315,7 +315,11 @@ fn lower_datetime_windows(
                 abi::add_registers("%v9", "%v9", "%v10"), // FILETIME
                 abi::store_u64("%v9", abi::stack_pointer(), WIN_FILETIME_OFFSET),
                 abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), WIN_FILETIME_OFFSET),
-                abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), WIN_UTC_SYSTEMTIME_OFFSET),
+                abi::add_immediate(
+                    abi::c_arg(1),
+                    abi::stack_pointer(),
+                    WIN_UTC_SYSTEMTIME_OFFSET,
+                ),
             ]);
             call_win("FileTimeToSystemTime", instructions, relocations)?;
             instructions.push(abi::compare_immediate(abi::RET[0], "0"));
@@ -324,7 +328,11 @@ fn lower_datetime_windows(
             // machine's current time zone, applying its DST rules to the instant.
             instructions.extend([
                 abi::move_immediate(abi::c_arg(0), "Integer", "0"),
-                abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), WIN_UTC_SYSTEMTIME_OFFSET),
+                abi::add_immediate(
+                    abi::c_arg(1),
+                    abi::stack_pointer(),
+                    WIN_UTC_SYSTEMTIME_OFFSET,
+                ),
                 abi::add_immediate(
                     abi::c_arg(2),
                     abi::stack_pointer(),
@@ -341,7 +349,11 @@ fn lower_datetime_windows(
                     abi::stack_pointer(),
                     WIN_LOCAL_SYSTEMTIME_OFFSET,
                 ),
-                abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), WIN_LOCAL_FILETIME_OFFSET),
+                abi::add_immediate(
+                    abi::c_arg(1),
+                    abi::stack_pointer(),
+                    WIN_LOCAL_FILETIME_OFFSET,
+                ),
             ]);
             call_win("SystemTimeToFileTime", instructions, relocations)?;
             instructions.push(abi::compare_immediate(abi::RET[0], "0"));

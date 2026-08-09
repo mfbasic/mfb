@@ -739,7 +739,11 @@ fn emit_configure_hw_params(
         ]);
     };
     let params = |ins: &mut Vec<CodeInstruction>| {
-        ins.push(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), PARAMS_OFF));
+        ins.push(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            PARAMS_OFF,
+        ));
     };
     let check = |ins: &mut Vec<CodeInstruction>, fail: &str| {
         ins.extend([

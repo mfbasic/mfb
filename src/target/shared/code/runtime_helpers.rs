@@ -135,7 +135,7 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
             ctx.instructions.extend([
                 abi::move_immediate(abi::c_arg(2), "Integer", "0"),
                 abi::subtract_immediate(abi::c_arg(2), abi::c_arg(2), 1), // INFINITE = (DWORD)-1
-                abi::move_immediate(abi::c_arg(3), "Integer", "0"),     // Flags (exclusive)
+                abi::move_immediate(abi::c_arg(3), "Integer", "0"),       // Flags (exclusive)
             ]);
             call(ctx, from, "SleepConditionVariableSRW")?;
             ctx.instructions
@@ -199,13 +199,13 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
                 abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 0x20), // ft
                 abi::move_immediate(abi::c_arg(1), "Integer", "10000000"),
                 abi::unsigned_divide_registers(abi::c_arg(2), abi::c_arg(0), abi::c_arg(1)), // sec
-                abi::multiply_registers(abi::c_arg(3), abi::c_arg(2), abi::c_arg(1)),        // sec*1e7
-                abi::subtract_registers(abi::c_arg(3), abi::c_arg(0), abi::c_arg(3)),        // ft % 1e7
+                abi::multiply_registers(abi::c_arg(3), abi::c_arg(2), abi::c_arg(1)), // sec*1e7
+                abi::subtract_registers(abi::c_arg(3), abi::c_arg(0), abi::c_arg(3)), // ft % 1e7
                 abi::move_immediate(abi::c_arg(1), "Integer", "100"),
                 abi::multiply_registers(abi::c_arg(3), abi::c_arg(3), abi::c_arg(1)), // nsec
-                abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 0x28),         // &ts
-                abi::store_u64(abi::c_arg(2), abi::c_arg(0), 0),                    // tv_sec
-                abi::store_u64(abi::c_arg(3), abi::c_arg(0), 8),                    // tv_nsec
+                abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 0x28),             // &ts
+                abi::store_u64(abi::c_arg(2), abi::c_arg(0), 0),                      // tv_sec
+                abi::store_u64(abi::c_arg(3), abi::c_arg(0), 8),                      // tv_nsec
                 abi::move_immediate(abi::return_register(), "Integer", "0"),
                 abi::add_stack(0x30),
             ]);
@@ -239,7 +239,11 @@ pub(super) fn emit_thread_queue_alloc(
     let init_done = format!("{symbol}_queue_{cb_queue_offset}_init_done");
 
     ctx.instructions.extend([
-        abi::move_immediate(abi::c_arg(0), "Integer", &THREAD_QUEUE_BLOCK_SIZE.to_string()),
+        abi::move_immediate(
+            abi::c_arg(0),
+            "Integer",
+            &THREAD_QUEUE_BLOCK_SIZE.to_string(),
+        ),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -782,7 +786,11 @@ fn lower_thread_start_helper(
         // to the function frame, so reading it after subtract_stack would be off by
         // 0x40. ARG[3] (r9) is not touched by the trampoline-address load below, so
         // it survives to the CreateThread call.
-        instructions.push(abi::load_u64(abi::c_arg(3), abi::stack_pointer(), CB_OFFSET));
+        instructions.push(abi::load_u64(
+            abi::c_arg(3),
+            abi::stack_pointer(),
+            CB_OFFSET,
+        ));
         instructions.push(abi::subtract_stack(0x40));
         instructions.push(abi::load_page_address(
             abi::c_arg(2),
@@ -1124,7 +1132,11 @@ pub(crate) fn lower_thread_trampoline(
         ),
         abi::move_immediate(abi::SCRATCH[5], "Integer", "1"),
         abi::store_u64(abi::SCRATCH[5], abi::SCRATCH[4], THREAD_QUEUE_CLOSED_OFFSET),
-        abi::add_immediate(abi::c_arg(0), abi::SCRATCH[4], THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::add_immediate(
+            abi::c_arg(0),
+            abi::SCRATCH[4],
+            THREAD_QUEUE_NOT_EMPTY_OFFSET,
+        ),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -1200,7 +1212,11 @@ pub(crate) fn lower_thread_trampoline(
             abi::load_u64(abi::SCRATCH[4], abi::CURRENT_THREAD, resource_queue_offset),
             abi::move_immediate(abi::SCRATCH[5], "Integer", "1"),
             abi::store_u64(abi::SCRATCH[5], abi::SCRATCH[4], THREAD_QUEUE_CLOSED_OFFSET),
-            abi::add_immediate(abi::c_arg(0), abi::SCRATCH[4], THREAD_QUEUE_NOT_EMPTY_OFFSET),
+            abi::add_immediate(
+                abi::c_arg(0),
+                abi::SCRATCH[4],
+                THREAD_QUEUE_NOT_EMPTY_OFFSET,
+            ),
         ]);
         emit_thread_external_call(
             &mut EmitCtx {
@@ -1298,7 +1314,11 @@ pub(crate) fn lower_thread_trampoline(
             abi::CURRENT_THREAD,
             THREAD_OFFSET_OUTBOUND_QUEUE,
         ),
-        abi::add_immediate(abi::c_arg(0), abi::SCRATCH[4], THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::add_immediate(
+            abi::c_arg(0),
+            abi::SCRATCH[4],
+            THREAD_QUEUE_NOT_EMPTY_OFFSET,
+        ),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {

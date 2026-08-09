@@ -623,8 +623,14 @@ mod tests {
         // vocabularies coexist during plan-85-B/C).
         assert!(matches!(Operand::parse("%argMFB0"), Operand::Raw(_)));
         assert!(matches!(Operand::parse("%retMFB0"), Operand::Raw(_)));
-        assert_ne!(Operand::abi(AbiConvention::Mfb, AbiRole::Ret, 0).render(), "%ret0");
-        assert_ne!(Operand::abi(AbiConvention::Mfb, AbiRole::Arg, 0).render(), "%arg0");
+        assert_ne!(
+            Operand::abi(AbiConvention::Mfb, AbiRole::Ret, 0).render(),
+            "%ret0"
+        );
+        assert_ne!(
+            Operand::abi(AbiConvention::Mfb, AbiRole::Arg, 0).render(),
+            "%arg0"
+        );
     }
 
     #[test]

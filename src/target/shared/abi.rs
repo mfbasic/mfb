@@ -1648,10 +1648,7 @@ mod tests {
             mfb_arg(1),
             Operand::abi(AbiConvention::Mfb, AbiRole::Arg, 1)
         );
-        assert_eq!(
-            c_return(1),
-            Operand::abi(AbiConvention::C, AbiRole::Ret, 1)
-        );
+        assert_eq!(c_return(1), Operand::abi(AbiConvention::C, AbiRole::Ret, 1));
     }
 
     #[test]
@@ -1678,7 +1675,10 @@ mod tests {
         // And the string realization matches the TYPED positional realization, so a
         // stringified token and a typed token land on the same register.
         for (tok, idx) in [("%argC1", 1u8), ("%retMFB3", 3), ("%argSys5", 5)] {
-            assert_eq!(realize_convention_token(tok), Some(realize_abi_positional(idx)));
+            assert_eq!(
+                realize_convention_token(tok),
+                Some(realize_abi_positional(idx))
+            );
         }
         // The shared string seam picks it up too (what the backends call).
         assert_eq!(realize_abi_token("%argC1"), Some("x1"));

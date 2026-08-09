@@ -298,7 +298,6 @@ fn realize_x86_residual(instructions: &mut Vec<CodeInstruction>, abi: X86Abi) {
     }
 }
 
-
 /// Rewrite the flag-reading branch of a fused *float* compare into the x86
 /// branch(es) that read `ucomisd`'s CF/ZF/PF with IEEE-754 unordered semantics.
 ///

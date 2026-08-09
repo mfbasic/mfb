@@ -166,7 +166,10 @@ mod tests {
                 .field("src", abi::c_arg(7)),
         ]));
         let vals = values(&out);
-        assert!(vals.contains(&"x0".to_string()), "%retMFB0/%retSys → x0: {vals:?}");
+        assert!(
+            vals.contains(&"x0".to_string()),
+            "%retMFB0/%retSys → x0: {vals:?}"
+        );
         assert!(vals.contains(&"x2".to_string()), "%argMFB2 → x2: {vals:?}");
         assert!(vals.contains(&"x1".to_string()), "%retC1 → x1: {vals:?}");
         assert!(vals.contains(&"x3".to_string()), "%argSys3 → x3: {vals:?}");

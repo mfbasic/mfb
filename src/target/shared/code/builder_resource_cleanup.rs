@@ -471,7 +471,11 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             state_slot,
         ));
-        self.emit(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            size_slot,
+        ));
         self.emit_arena_free_call();
         let ptr_after = self.allocate_register()?;
         self.emit(abi::load_u64(

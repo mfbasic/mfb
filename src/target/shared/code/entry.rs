@@ -313,7 +313,11 @@ pub(crate) fn lower_program_entry(
                 abi::stack_pointer(),
                 ENTRY_SEED_SCRATCH_OFFSET,
             ),
-            abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), ENTRY_SEED_SCRATCH_OFFSET),
+            abi::add_immediate(
+                abi::c_arg(0),
+                abi::stack_pointer(),
+                ENTRY_SEED_SCRATCH_OFFSET,
+            ),
             abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         ]);
         platform.emit_random_bytes(
@@ -323,7 +327,11 @@ pub(crate) fn lower_program_entry(
             &mut relocations,
         )?;
         instructions.extend([
-            abi::load_u64(abi::c_arg(1), abi::stack_pointer(), ENTRY_SEED_SCRATCH_OFFSET),
+            abi::load_u64(
+                abi::c_arg(1),
+                abi::stack_pointer(),
+                ENTRY_SEED_SCRATCH_OFFSET,
+            ),
             abi::move_register(abi::c_arg(0), ARENA_STATE_REGISTER),
             abi::branch_link(RNG_SEED_SYMBOL),
         ]);

@@ -248,7 +248,11 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             cleanup.stack_offset,
         ));
-        self.emit(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            size_slot,
+        ));
         self.emit_arena_free_call();
         self.emit(abi::label(&skip));
         Ok(())
@@ -301,7 +305,11 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 cap_slot,
             ));
-            self.emit(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), size_slot));
+            self.emit(abi::load_u64(
+                abi::c_arg(1),
+                abi::stack_pointer(),
+                size_slot,
+            ));
             self.emit_arena_free_call();
             self.emit(abi::label(&cap_skip));
         }

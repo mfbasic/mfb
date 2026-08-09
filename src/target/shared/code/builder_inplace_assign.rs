@@ -634,7 +634,11 @@ impl CodeBuilder<'_> {
         // spilled in newbuf_slot, so it survives this call. arena_free clobbers
         // all caller-saved registers. This free runs exactly once per regrow.
         // plan-71-C Family-1a: ptr is arg 0 of arena-free → `%arg0`.
-        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), name_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            name_slot,
+        ));
         self.emit(abi::load_u64(
             abi::c_arg(1),
             abi::stack_pointer(),

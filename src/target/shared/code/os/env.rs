@@ -127,7 +127,10 @@ pub(super) fn lower_get_env(
     let fallback = vregs.next();
     let cname = vregs.next();
     let value = vregs.next();
-    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, abi::c_arg(0))];
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&name, abi::c_arg(0)),
+    ];
     if with_fallback {
         instructions.push(abi::move_register(&fallback, abi::c_arg(1)));
     }
@@ -274,7 +277,10 @@ pub(super) fn lower_has_env(
     let mut vregs = Vregs::new();
     let name = vregs.next();
     let cname = vregs.next();
-    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, abi::c_arg(0))];
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&name, abi::c_arg(0)),
+    ];
     let mut relocations = Vec::new();
     // Serialize the `getenv` probe against a concurrent `os::setEnv` relocating
     // `environ` (bug-64).
@@ -482,7 +488,10 @@ pub(super) fn lower_unset_env(
     let mut vregs = Vregs::new();
     let name = vregs.next();
     let cname = vregs.next();
-    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, abi::c_arg(0))];
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&name, abi::c_arg(0)),
+    ];
     let mut relocations = Vec::new();
     // Hold the lock across `unsetenv` so a concurrent env reader on another thread
     // never observes a half-relocated `environ` (bug-64).

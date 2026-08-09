@@ -65,7 +65,11 @@ impl CodeBuilder<'_> {
         let parts_slot = self.spill_to_slot("fs_path_join_parts", &parts.location);
         let alloc_ok = self.label("fs_path_join_alloc_ok");
         // plan-71-C Family-1a: the parts pointer is arg 0 of the fs_path_join call → `%arg0`.
-        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), parts_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            parts_slot,
+        ));
         self.emit(abi::branch_link(FS_PATH_JOIN_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),

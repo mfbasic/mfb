@@ -565,7 +565,11 @@ pub(super) fn lower_stdin_next_byte(
         "free",
     )?;
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
-    instructions.push(abi::add_immediate(abi::c_arg(0), "%v78", STDIN_LOG_CV_OFFSET));
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        "%v78",
+        STDIN_LOG_CV_OFFSET,
+    ));
     emit_libc(
         &mut EmitCtx {
             symbol,
@@ -777,7 +781,11 @@ pub(super) fn lower_stdin_next_byte(
     instructions.push(abi::branch_link(STDIN_RECOMPUTE_BASE_SYMBOL));
     relocations.push(internal_branch(symbol, STDIN_RECOMPUTE_BASE_SYMBOL));
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
-    instructions.push(abi::add_immediate(abi::c_arg(0), "%v78", STDIN_LOG_CV_OFFSET));
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        "%v78",
+        STDIN_LOG_CV_OFFSET,
+    ));
     emit_libc(
         &mut EmitCtx {
             symbol,
@@ -1159,7 +1167,11 @@ pub(super) fn lower_stdin_unsubscribe(
     instructions.push(abi::branch_link(STDIN_RECOMPUTE_BASE_SYMBOL));
     relocations.push(internal_branch(symbol, STDIN_RECOMPUTE_BASE_SYMBOL));
     push_log_address(symbol, "%v78", &mut instructions, &mut relocations);
-    instructions.push(abi::add_immediate(abi::c_arg(0), "%v78", STDIN_LOG_CV_OFFSET));
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        "%v78",
+        STDIN_LOG_CV_OFFSET,
+    ));
     emit_libc(
         &mut EmitCtx {
             symbol,
