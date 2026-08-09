@@ -321,10 +321,14 @@ The index table above stays as the one-line overview; open a file for the checkl
   (measured: .mfb mapValues is already from-scratch in-place optimal, ~12ns/entry — native constant-factor-only,
   won't clear the row); **F2/F3 measured** marginal — `string case`/`slice` are ALLOC/CALL-bound (400K ops ×
   ~20-byte strings, copy <10% of ~118ns/op), F2 ~+6%, non-clearing, ~75-100-golden churn. **Sub-plan D COMPLETE.]**
+  **UPDATE: F1+F2+F3 DONE (word-copy + SWAR quick-check, byte-exact); G1 SAFE CUT DONE** (`b6bf966fb` — sound
+  get-elision for `FOR i=0 TO len(L)-k`, listchurn 10.6→10.36ms ~2%, 3 negative soundness fixtures, gate 0-diff;
+  built the reusable `provable_index_locals`/`len_of_local`/`for_bound_expr`/`collect_reassigned_locals`
+  infrastructure — the $for_iter/$for_end IR-desugar + alias-propagation pattern any FOR-loop dataflow needs).
   **Remaining open boxes (all correctness-critical or large — need fresh context, prioritized by measured
-  value):** **G1** (bounds-check elim: safe listchurn cut needs `n=len(L)` binding-tracking [NO existing
-  facility — confirmed] + `unchecked` plumbing through `lower_list_get_common`, correctness-critical UAF,
-  mandatory negative fixtures; bignum modmul 19.5 P2 / memo need a bigger symbolic-range pass); **K1** (list
+  value):** **G1-symbolic-pass** (bignum modmul 19.5 P2 / modexp 10.9 P3 / memo 11.5 P3: extend the G1 infra to
+  WHILE loops with `r=set(r,i,v)` — prove in-place set preserves `len`; the highest remaining value, riskier);
+  **K1** (list
   copy 12.5 P1: `plan_returned_move` move-elides owned locals but NOT params — `copyStrs(xs) RETURN xs` needs
   caller-side read-only/liveness analysis, aliasing-risk); **F2/F3** (measured marginal + prohibitive churn,
   low priority, edit points in plan-86-F); **L1** (finiteness coalescing, bounded ~tens%, observation-sensitive,
