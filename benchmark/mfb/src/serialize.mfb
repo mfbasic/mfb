@@ -11,7 +11,8 @@
 ' canonical inputs below guarantee. Verified byte-identical against Python
 ' json.dumps(...,separators=(',',':')) and a matching csv join.
 '
-' Rows (all arena-gated on plan-64-A — per-call String building — so authored tiny):
+' Rows (all were arena-gated on plan-64-A — per-call String building; the arena
+' mixed-transient-churn quadratic was fixed by plan-64-A1, so raised to target):
 '   json      build a Json tree once, stringify it many times
 '   roundtrip parse+stringify each rep (the load/modify/save seam end-to-end)
 '   csv       render a String grid to RFC-4180 text, quoting only where needed
@@ -35,10 +36,10 @@ END FUNC
 
 ' json stringify — build the value tree once (outside timing), then stringify it
 ' many times: escape + number formatting + map iteration-order emission.
-' Arena-gated (plan-64-A): per-call String building — authored tiny.
+' Arena-gated (plan-64-A): per-call String building (arena quadratic fixed by A1).
 FUNC test_serialize_json(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET tree AS Json = json::parse(serializeJsonText())
-  LET reps AS Integer = 4   ' TODO(plan-64-A): raise to 200
+  LET reps AS Integer = 200
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -60,7 +61,7 @@ END FUNC
 ' Arena-gated (plan-64-A).
 FUNC test_serialize_roundtrip(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET text AS String = serializeJsonText()
-  LET reps AS Integer = 4   ' TODO(plan-64-A): raise to 100
+  LET reps AS Integer = 100
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -83,7 +84,7 @@ END FUNC
 ' Arena-gated (plan-64-A) for the per-call String churn.
 FUNC test_serialize_csv(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET grid AS List OF List OF String = serializeGrid()
-  LET reps AS Integer = 4   ' TODO(plan-64-A): raise to 200
+  LET reps AS Integer = 200
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1

@@ -22,6 +22,10 @@ mod rsrc;
 mod spike;
 
 use crate::arch::image::{EncodedImage, EncodedSection, ImportKind};
+// bug-433: the shared provenance marker every in-tree linker emits. PE has no
+// `PT_NOTE`/`LC_NOTE` equivalent, so it carries the same owner+descriptor bytes
+// in a dedicated read-only `.mfbnote` section.
+use crate::os::note::{mfb_note_descriptor, MFB_NOTE_OWNER};
 use pe::{
     align_up, section_name, size_of_headers, ImportDirectories, Section, SCN_DATA, SCN_IDATA,
     SCN_RDATA, SCN_TEXT,
@@ -307,12 +311,15 @@ pub(crate) fn write_executable(
     // Authenticode. Unsigned builds omit it and stay byte-identical to before.
     let has_sign = image.signing_metadata.is_some();
 
-    // Count sections to size the headers, then lay out RVAs/file offsets.
+    // Count sections to size the headers, then lay out RVAs/file offsets. The
+    // `.mfbnote` provenance section (bug-433) is unconditional — the trailing +1;
+    // the `.mfbsign` signing section (bug-432) is present only on a signed build.
     let section_count = 1
         + has_rdata as usize
         + has_data as usize
         + has_idata as usize
         + has_rsrc as usize
+        + 1
         + has_sign as usize;
     let headers = size_of_headers(section_count);
     let text_rva = align_up(headers, SECTION_ALIGNMENT);
@@ -406,6 +413,24 @@ pub(crate) fn write_executable(
         Vec::new()
     };
 
+    // bug-433: the unconditional `.mfbnote` provenance section sits last (after
+    // `.rsrc`, or its reserved slot when there is no `.rsrc`), so its size affects
+    // no earlier RVA and it carries no data-directory entry. Body is the same
+    // owner+descriptor framing the ELF `PT_NOTE`/Mach-O `LC_NOTE` use, so a reader
+    // can locate `MFBasic\0` and read the 16-byte descriptor in any of the three
+    // formats.
+    let (mfbnote_rva, mfbnote_file) = if has_rsrc {
+        (
+            align_up(rsrc_rva + rsrc_bytes.len() as u32, SECTION_ALIGNMENT),
+            align_up(rsrc_file + rsrc_bytes.len() as u32, FILE_ALIGNMENT),
+        )
+    } else {
+        (rsrc_rva, rsrc_file)
+    };
+    let mut mfbnote_bytes = Vec::with_capacity(MFB_NOTE_OWNER.len() + mfb_note_descriptor().len());
+    mfbnote_bytes.extend_from_slice(MFB_NOTE_OWNER);
+    mfbnote_bytes.extend_from_slice(&mfb_note_descriptor());
+
     let mut sections = vec![Section {
         name: section_name(".text"),
         characteristics: SCN_TEXT,
@@ -464,19 +489,23 @@ pub(crate) fn write_executable(
             bytes: &rsrc_bytes,
         });
     }
+    // bug-433: `.mfbnote` — unconditional, no data directory. `.mfbnote` is exactly
+    // 8 chars, fitting PE's 8-byte section-name field with no truncation.
+    sections.push(Section {
+        name: section_name(".mfbnote"),
+        characteristics: SCN_RDATA, // initialized data, read-only
+        virtual_address: mfbnote_rva,
+        virtual_size: mfbnote_bytes.len() as u32,
+        file_offset: mfbnote_file,
+        bytes: &mfbnote_bytes,
+    });
 
-    // bug-432: the `.mfbsign` section goes last (after `.rsrc`, or in `.rsrc`'s
-    // free post-`.idata` slot when there is no `.rsrc`), so its size shifts no
+    // bug-432: the `.mfbsign` section goes last — after the unconditional
+    // `.mfbnote`, so the two trailing sections never overlap — so its size shifts no
     // earlier RVA. It carries the blob verbatim, read-only, with no data directory.
     if let Some(metadata) = image.signing_metadata.as_deref() {
-        let (sign_rva, sign_file) = if has_rsrc {
-            (
-                align_up(rsrc_rva + rsrc_bytes.len() as u32, SECTION_ALIGNMENT),
-                align_up(rsrc_file + rsrc_bytes.len() as u32, FILE_ALIGNMENT),
-            )
-        } else {
-            (rsrc_rva, rsrc_file)
-        };
+        let sign_rva = align_up(mfbnote_rva + mfbnote_bytes.len() as u32, SECTION_ALIGNMENT);
+        let sign_file = align_up(mfbnote_file + mfbnote_bytes.len() as u32, FILE_ALIGNMENT);
         sections.push(Section {
             name: section_name(".mfbsign"),
             characteristics: SCN_RDATA, // initialized data, read-only
@@ -686,9 +715,10 @@ mod tests {
         let img = image(vec![0xc3]); // ret
         let bytes = write_executable(&img, false, None, None).expect("link");
         assert_eq!(&bytes[0..2], b"MZ");
-        // One section (.text), no import directories.
+        // Two sections: .text plus the unconditional .mfbnote provenance section
+        // (bug-433); no import directories.
         let e_lfanew = le_u32(&bytes, 0x3C) as usize;
-        assert_eq!(le_u16(&bytes, e_lfanew + 6), 1);
+        assert_eq!(le_u16(&bytes, e_lfanew + 6), 2);
     }
 
     #[test]
@@ -770,8 +800,9 @@ mod tests {
     fn exit_process_image_has_text_and_idata_and_bound_call() {
         let bytes = write_executable(&exit_process_42_image(), false, None, None).expect("link");
         let e_lfanew = le_u32(&bytes, 0x3C) as usize;
-        // Two sections: .text (with the appended thunk) and .idata.
-        assert_eq!(le_u16(&bytes, e_lfanew + 6), 2);
+        // Three sections: .text (with the appended thunk), .idata, and the
+        // unconditional .mfbnote provenance section (bug-433).
+        assert_eq!(le_u16(&bytes, e_lfanew + 6), 3);
         // Data directory [1] Import and [12] IAT are populated.
         let dd = e_lfanew + 4 + 20 + 112;
         let import_rva = le_u32(&bytes, dd + 8);
@@ -857,8 +888,8 @@ mod tests {
         img.rodata_size = SECTION_ALIGNMENT as usize;
         let bytes = write_executable(&img, false, None, None).expect("link");
         let e_lfanew = le_u32(&bytes, 0x3C) as usize;
-        // .text + .rdata + .data == 3 sections.
-        assert_eq!(le_u16(&bytes, e_lfanew + 6), 3);
+        // .text + .rdata + .data + the unconditional .mfbnote (bug-433) == 4 sections.
+        assert_eq!(le_u16(&bytes, e_lfanew + 6), 4);
         // The .data section's first byte round-trips.
         let sect_table = e_lfanew + 4 + 20 + 240;
         let data_vaddr = le_u32(&bytes, sect_table + 2 * 40 + 12);
@@ -972,6 +1003,35 @@ mod tests {
         let bytes = write_executable(&runnable_exit42_image(), false, None, None)
             .expect("link runnable exit42");
         assert_eq!(&bytes[0..2], b"MZ");
+    }
+
+    /// bug-433: every Windows `.exe` — like every ELF/Mach-O the linker emits —
+    /// carries the unconditional `MFBasic\0` provenance marker, whose 16-byte
+    /// descriptor is the shared `note.rs` payload, in a dedicated `.mfbnote`
+    /// section. Even a bare console image must carry it.
+    #[test]
+    fn provenance_marker_emitted_unconditionally() {
+        use crate::os::note::{mfb_note_descriptor, MFB_NOTE_OWNER};
+        let bytes = write_executable(&image(vec![0xc3]), false, None, None).expect("link");
+
+        // The marker is a discoverable section-table entry named ".mfbnote", not a
+        // stray byte match — locate it in the section table and read its body at
+        // that section's RVA.
+        let e_lfanew = le_u32(&bytes, 0x3C) as usize;
+        let n = le_u16(&bytes, e_lfanew + 6) as usize;
+        let sect_table = e_lfanew + 4 + 20 + 240;
+        let mfbnote_rva = (0..n)
+            .map(|i| sect_table + i * 40)
+            .find(|&s| &bytes[s..s + 8] == section_name(".mfbnote").as_slice())
+            .map(|s| le_u32(&bytes, s + 12))
+            .expect(".mfbnote section present in the table");
+
+        // Body: the MFBasic\0 owner followed verbatim by the shared 16-byte
+        // descriptor — the identical owner+descriptor framing ELF/Mach-O use.
+        let descriptor = mfb_note_descriptor();
+        let body = read_at_rva(&bytes, mfbnote_rva, MFB_NOTE_OWNER.len() + descriptor.len());
+        assert_eq!(&body[..MFB_NOTE_OWNER.len()], MFB_NOTE_OWNER);
+        assert_eq!(&body[MFB_NOTE_OWNER.len()..], descriptor.as_slice());
     }
 
     /// plan-66-I: `gui = true` links the GUI subsystem (WINDOWS_GUI = 2), `false`

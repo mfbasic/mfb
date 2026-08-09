@@ -118,7 +118,7 @@ mod datetime;
 /// plan-46-D's vendor copy via `dlopen_name`, so the emitted string and the
 /// copied filename cannot diverge.
 pub(crate) mod link_locator;
-mod link_thunk;
+pub(crate) mod link_thunk;
 mod list_mutate;
 mod map_mutate;
 mod net;

@@ -55,10 +55,10 @@ FUNC test_datetime_civil(run AS Integer, tests AS List OF BenchResult) AS List O
 END FUNC
 
 ' ISO format/parse round-trip. Arena-gated (plan-44-J): per-call String churn,
-' so authored tiny — raise `reps` in the commit that lands plan-44-J.
+' arena quadratic fixed by plan-64-A1 (successor to plan-44-J); `reps` raised to target.
 FUNC test_datetime_iso(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET z AS Zone = datetime::utc()
-  LET reps AS Integer = 8      ' TODO(plan-44-J): raise to 2000
+  LET reps AS Integer = 2000
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
