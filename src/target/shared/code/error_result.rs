@@ -22,13 +22,13 @@ pub(super) fn lower_build_error_loc() -> CodeFunction {
     let len = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::move_register(&filename, abi::ARG[0]),
-        abi::move_register(&line, abi::ARG[1]),
-        abi::move_register(&char_pos, abi::ARG[2]),
+        abi::move_register(&filename, abi::c_arg(0)),
+        abi::move_register(&line, abi::c_arg(1)),
+        abi::move_register(&char_pos, abi::c_arg(2)),
         // len = *filename; size = ERROR_LOC_OBJECT_SIZE + len + 9 (inlined String).
         abi::load_u64(&len, &filename, 0),
         abi::add_immediate(abi::return_register(), &len, ERROR_LOC_OBJECT_SIZE + 9),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
         // x0 = result tag, x1 = pointer. On OOM (tag != ok) return a null pointer.
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
@@ -46,11 +46,11 @@ pub(super) fn lower_build_error_loc() -> CodeFunction {
     instructions.extend([
         // Fixed slots: filename block-relative offset @0 = OBJECT_SIZE, line @8, char @16.
         abi::move_immediate(&obj_off, "Integer", &ERROR_LOC_OBJECT_SIZE.to_string()),
-        abi::store_u64(&obj_off, abi::RET[1], 0),
-        abi::store_u64(&line, abi::RET[1], 8),
-        abi::store_u64(&char_pos, abi::RET[1], 16),
+        abi::store_u64(&obj_off, abi::mfb_return(1), 0),
+        abi::store_u64(&line, abi::mfb_return(1), 8),
+        abi::store_u64(&char_pos, abi::mfb_return(1), 16),
         // Inline the filename String block (len + 9 bytes) at offset OBJECT_SIZE.
-        abi::add_immediate(&dst, abi::RET[1], ERROR_LOC_OBJECT_SIZE),
+        abi::add_immediate(&dst, abi::mfb_return(1), ERROR_LOC_OBJECT_SIZE),
         abi::move_register(&src, &filename),
         abi::add_immediate(&remaining, &len, 9),
         abi::label("build_error_loc_wloop"),
@@ -72,7 +72,7 @@ pub(super) fn lower_build_error_loc() -> CodeFunction {
         abi::subtract_immediate(&remaining, &remaining, 1),
         abi::branch("build_error_loc_btail"),
         abi::label("build_error_loc_copy_done"),
-        abi::move_register(abi::return_register(), abi::RET[1]),
+        abi::move_register(abi::return_register(), abi::mfb_return(1)),
         abi::label("build_error_loc_ret"),
         abi::return_(),
     ]);
@@ -104,8 +104,8 @@ pub(super) fn lower_make_error_result() -> CodeFunction {
     let message = vregs.next();
     let instructions = vec![
         abi::label("entry"),
-        abi::move_register(&code, abi::ARG[3]),
-        abi::move_register(&message, abi::ARG[4]),
+        abi::move_register(&code, abi::c_arg(3)),
+        abi::move_register(&message, abi::c_arg(4)),
         abi::branch_link(BUILD_ERROR_LOC_SYMBOL),
         // Land the Result: tag=ERR, value=code, message=message, source=ErrorLoc.
         // Set source (x3) from the call result (x0) before x0 is reused for the tag.

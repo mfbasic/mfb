@@ -284,7 +284,7 @@ impl ToCodeJson for CodeParam {
             pad,
             json_string(&self.name),
             json_string(&self.type_),
-            json_string(&self.location)
+            json_string(&self.location.render())
         )
     }
 }

@@ -266,7 +266,7 @@ impl CodeBuilder<'_> {
     /// length — anything that fits a word. (It was `spill_to_slot`, a name
     /// that asserted a `String` type this helper never checked and that ~4 of its
     /// call sites did not hold.)
-    pub(super) fn spill_to_slot(&mut self, label: &str, register: &str) -> usize {
+    pub(super) fn spill_to_slot(&mut self, label: &str, register: impl Into<Operand>) -> usize {
         let slot = self.allocate_stack_object(label, 8);
         self.emit(abi::store_u64(register, abi::stack_pointer(), slot));
         slot

@@ -202,7 +202,7 @@ impl CodeBuilder<'_> {
                 return Ok((
                     ValueResult {
                         type_: lowered.type_,
-                        location: copied.render(),
+                        location: Operand::from(copied.render()),
                         text: lowered.text,
                     },
                     true,
@@ -306,8 +306,10 @@ impl CodeBuilder<'_> {
                     let location = if !already_standalone
                         && self.inline_collection_payload_size(&result.type_).is_some()
                     {
-                        self.materialize_inline_value_in_arena(&result.type_, &result.location)?
-                            .render()
+                        Operand::from(
+                            self.materialize_inline_value_in_arena(&result.type_, &result.location)?
+                                .render(),
+                        )
                     } else {
                         result.location.clone()
                     };

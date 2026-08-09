@@ -23,8 +23,8 @@ pub(super) fn emit_thread_deadline(
         abi::load_u64("%v9", abi::stack_pointer(), timeout_stack_offset),
         abi::compare_immediate("%v9", "0"),
         abi::branch_le(&done),
-        abi::move_immediate(abi::ARG[0], "Integer", "0"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), timespec_stack_offset),
+        abi::move_immediate(abi::c_arg(0), "Integer", "0"),
+        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), timespec_stack_offset),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -77,7 +77,7 @@ pub(super) fn simple_thread_handle_helper(
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     instructions.extend([abi::store_u64(
-        abi::ARG[0],
+        abi::c_arg(0),
         abi::stack_pointer(),
         HANDLE_OFFSET,
     )]);
@@ -87,8 +87,8 @@ pub(super) fn simple_thread_handle_helper(
             let closed = format!("{symbol}_closed");
             let done = format!("{symbol}_done");
             instructions.extend([
-                abi::load_u64("%v9", abi::ARG[0], THREAD_OFFSET_OUTBOUND_QUEUE),
-                abi::move_register(abi::ARG[0], "%v9"),
+                abi::load_u64("%v9", abi::c_arg(0), THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::move_register(abi::c_arg(0), "%v9"),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -104,7 +104,7 @@ pub(super) fn simple_thread_handle_helper(
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64("%v9", "%v8", THREAD_OFFSET_STATE),
                 abi::store_u64("%v9", abi::stack_pointer(), VALUE_OFFSET),
-                abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::load_u64(abi::c_arg(0), "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -147,8 +147,8 @@ pub(super) fn simple_thread_handle_helper(
             let result_ready = format!("{symbol}_result_ready");
             let done = format!("{symbol}_done");
             instructions.extend([
-                abi::load_u64("%v9", abi::ARG[0], THREAD_OFFSET_OUTBOUND_QUEUE),
-                abi::move_register(abi::ARG[0], "%v9"),
+                abi::load_u64("%v9", abi::c_arg(0), THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::move_register(abi::c_arg(0), "%v9"),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -169,8 +169,8 @@ pub(super) fn simple_thread_handle_helper(
                 abi::compare_immediate("%v9", THREAD_STATE_COMPLETED),
                 abi::branch_eq(&result_ready),
                 abi::load_u64("%v9", "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
-                abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
-                abi::move_register(abi::ARG[1], "%v9"),
+                abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+                abi::move_register(abi::c_arg(1), "%v9"),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -215,7 +215,7 @@ pub(super) fn simple_thread_handle_helper(
                 abi::load_u64("%v10", "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
                 abi::store_u64("%v9", "%v10", THREAD_QUEUE_CLOSED_OFFSET),
                 abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_COUNT_OFFSET),
-                abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::load_u64(abi::c_arg(0), "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -229,7 +229,7 @@ pub(super) fn simple_thread_handle_helper(
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OS_HANDLE),
+                abi::load_u64(abi::c_arg(0), "%v8", THREAD_OFFSET_OS_HANDLE),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -271,7 +271,7 @@ pub(super) fn simple_thread_handle_helper(
                 // waitFor's own error (resource closed): no worker origin.
                 abi::store_u64(abi::ZERO, abi::stack_pointer(), SOURCE_OFFSET),
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::load_u64(abi::c_arg(0), "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -310,8 +310,8 @@ pub(super) fn simple_thread_handle_helper(
             let closed_unlocked = format!("{symbol}_closed_unlocked");
             let inbound_unlocked = format!("{symbol}_inbound_unlocked");
             instructions.extend([
-                abi::load_u64("%v9", abi::ARG[0], THREAD_OFFSET_INBOUND_QUEUE),
-                abi::move_register(abi::ARG[0], "%v9"),
+                abi::load_u64("%v9", abi::c_arg(0), THREAD_OFFSET_INBOUND_QUEUE),
+                abi::move_register(abi::c_arg(0), "%v9"),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -332,7 +332,7 @@ pub(super) fn simple_thread_handle_helper(
                 abi::store_u64("%v9", "%v8", THREAD_OFFSET_CANCELLED),
                 abi::load_u64("%v10", "%v8", THREAD_OFFSET_INBOUND_QUEUE),
                 abi::store_u64("%v9", "%v10", THREAD_QUEUE_CLOSED_OFFSET),
-                abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+                abi::add_immediate(abi::c_arg(0), "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -347,7 +347,7 @@ pub(super) fn simple_thread_handle_helper(
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64("%v10", "%v8", THREAD_OFFSET_INBOUND_QUEUE),
-                abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
+                abi::add_immediate(abi::c_arg(0), "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -361,7 +361,7 @@ pub(super) fn simple_thread_handle_helper(
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_INBOUND_QUEUE),
+                abi::load_u64(abi::c_arg(0), "%v8", THREAD_OFFSET_INBOUND_QUEUE),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -377,7 +377,7 @@ pub(super) fn simple_thread_handle_helper(
                 abi::label(&inbound_unlocked),
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64("%v9", "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
-                abi::move_register(abi::ARG[0], "%v9"),
+                abi::move_register(abi::c_arg(0), "%v9"),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -394,7 +394,7 @@ pub(super) fn simple_thread_handle_helper(
                 abi::move_immediate("%v9", "Integer", "1"),
                 abi::load_u64("%v10", "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
                 abi::store_u64("%v9", "%v10", THREAD_QUEUE_CLOSED_OFFSET),
-                abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+                abi::add_immediate(abi::c_arg(0), "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -409,7 +409,7 @@ pub(super) fn simple_thread_handle_helper(
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64("%v10", "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
-                abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
+                abi::add_immediate(abi::c_arg(0), "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -423,7 +423,7 @@ pub(super) fn simple_thread_handle_helper(
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::load_u64(abi::c_arg(0), "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -468,7 +468,7 @@ pub(super) fn simple_thread_handle_helper(
                     ERROR_OFFSET,
                 ),
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_INBOUND_QUEUE),
+                abi::load_u64(abi::c_arg(0), "%v8", THREAD_OFFSET_INBOUND_QUEUE),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -497,8 +497,8 @@ pub(super) fn simple_thread_handle_helper(
             let inbound_unlocked = format!("{symbol}_inbound_unlocked");
             let done = format!("{symbol}_done");
             instructions.extend([
-                abi::load_u64("%v9", abi::ARG[0], THREAD_OFFSET_OUTBOUND_QUEUE),
-                abi::move_register(abi::ARG[0], "%v9"),
+                abi::load_u64("%v9", abi::c_arg(0), THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::move_register(abi::c_arg(0), "%v9"),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -523,7 +523,7 @@ pub(super) fn simple_thread_handle_helper(
                 abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_COUNT_OFFSET),
                 abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_HEAD_OFFSET),
                 abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_TAIL_OFFSET),
-                abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+                abi::add_immediate(abi::c_arg(0), "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -538,7 +538,7 @@ pub(super) fn simple_thread_handle_helper(
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64("%v10", "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
-                abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
+                abi::add_immediate(abi::c_arg(0), "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -553,7 +553,7 @@ pub(super) fn simple_thread_handle_helper(
             instructions.push(abi::label(&already_closed));
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::load_u64(abi::c_arg(0), "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -572,7 +572,7 @@ pub(super) fn simple_thread_handle_helper(
                 abi::label(&outbound_unlocked),
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64("%v9", "%v8", THREAD_OFFSET_INBOUND_QUEUE),
-                abi::move_register(abi::ARG[0], "%v9"),
+                abi::move_register(abi::c_arg(0), "%v9"),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -593,7 +593,7 @@ pub(super) fn simple_thread_handle_helper(
                 abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_COUNT_OFFSET),
                 abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_HEAD_OFFSET),
                 abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_TAIL_OFFSET),
-                abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+                abi::add_immediate(abi::c_arg(0), "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -608,7 +608,7 @@ pub(super) fn simple_thread_handle_helper(
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64("%v10", "%v8", THREAD_OFFSET_INBOUND_QUEUE),
-                abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
+                abi::add_immediate(abi::c_arg(0), "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -622,7 +622,7 @@ pub(super) fn simple_thread_handle_helper(
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_INBOUND_QUEUE),
+                abi::load_u64(abi::c_arg(0), "%v8", THREAD_OFFSET_INBOUND_QUEUE),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -650,7 +650,7 @@ pub(super) fn simple_thread_handle_helper(
             )?;
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OS_HANDLE),
+                abi::load_u64(abi::c_arg(0), "%v8", THREAD_OFFSET_OS_HANDLE),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -677,9 +677,9 @@ pub(super) fn simple_thread_handle_helper(
             let locked_done = format!("{symbol}_locked_done");
             let done = format!("{symbol}_done");
             instructions.extend([
-                abi::compare_immediate(abi::ARG[1], "0"),
+                abi::compare_immediate(abi::c_arg(1), "0"),
                 abi::branch_lt(&invalid),
-                abi::store_u64(abi::ARG[1], abi::stack_pointer(), VALUE_OFFSET),
+                abi::store_u64(abi::c_arg(1), abi::stack_pointer(), VALUE_OFFSET),
             ]);
             emit_thread_deadline(
                 &mut EmitCtx {
@@ -695,7 +695,7 @@ pub(super) fn simple_thread_handle_helper(
             instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64("%v9", "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
-                abi::move_register(abi::ARG[0], "%v9"),
+                abi::move_register(abi::c_arg(0), "%v9"),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -725,9 +725,9 @@ pub(super) fn simple_thread_handle_helper(
                 abi::branch_gt(&wait_timed),
                 abi::branch(&not_ready),
                 abi::label(&wait_timed),
-                abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
-                abi::move_register(abi::ARG[1], "%v9"),
-                abi::add_immediate(abi::ARG[2], abi::stack_pointer(), ERROR_OFFSET),
+                abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+                abi::move_register(abi::c_arg(1), "%v9"),
+                abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), ERROR_OFFSET),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -740,7 +740,7 @@ pub(super) fn simple_thread_handle_helper(
                 "pthread_cond_timedwait",
             )?;
             instructions.extend([
-                abi::compare_immediate(abi::RET[0], "0"),
+                abi::compare_immediate(abi::mfb_return(0), "0"),
                 abi::branch_ne(&not_ready),
                 abi::branch(&wait_loop),
                 abi::label(&ready),
@@ -784,7 +784,7 @@ pub(super) fn simple_thread_handle_helper(
                     ERROR_OFFSET,
                 ),
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64(abi::ARG[0], "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::load_u64(abi::c_arg(0), "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
             ]);
             emit_thread_external_call(
                 &mut EmitCtx {
@@ -849,18 +849,18 @@ pub(super) fn thread_queue_write_helper(
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     instructions.extend([
-        abi::store_u64(abi::ARG[0], abi::stack_pointer(), HANDLE_OFFSET),
-        abi::store_u64(abi::ARG[1], abi::stack_pointer(), DATA_OFFSET),
-        abi::store_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::store_u64(abi::ARG[3], abi::stack_pointer(), DATA_SIZE_OFFSET),
+        abi::store_u64(abi::c_arg(0), abi::stack_pointer(), HANDLE_OFFSET),
+        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), DATA_OFFSET),
+        abi::store_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::store_u64(abi::c_arg(3), abi::stack_pointer(), DATA_SIZE_OFFSET),
         // plan-73-A: a non-negative `timeoutMs` is a real timeout (0 = one immediate
         // attempt, N = wait N ms). The unbounded sentinel (i64::MIN) is the omit=block
         // form and is accepted; any OTHER negative value is rejected with
         // `ErrInvalidArgument`. Mirrors the read helper's prologue.
-        abi::compare_immediate(abi::ARG[2], "0"),
+        abi::compare_immediate(abi::c_arg(2), "0"),
         abi::branch_ge(&timeout_ok),
         abi::move_immediate("%v9", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
-        abi::compare_registers(abi::ARG[2], "%v9"),
+        abi::compare_registers(abi::c_arg(2), "%v9"),
         abi::branch_ne(&invalid),
         abi::label(&timeout_ok),
     ]);
@@ -868,7 +868,7 @@ pub(super) fn thread_queue_write_helper(
         // Re-establish the current-thread register `x20` from the worker's own
         // control block (`x0`) rather than asserting equality; see the matching
         // note in `thread_queue_read_helper`.
-        instructions.push(abi::move_register(abi::CURRENT_THREAD, abi::ARG[0]));
+        instructions.push(abi::move_register(abi::CURRENT_THREAD, abi::c_arg(0)));
     }
     emit_thread_deadline(
         &mut EmitCtx {
@@ -885,7 +885,7 @@ pub(super) fn thread_queue_write_helper(
         abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
         abi::load_u64("%v9", "%v8", queue_offset),
         abi::store_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
-        abi::move_register(abi::ARG[0], "%v9"),
+        abi::move_register(abi::c_arg(0), "%v9"),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -935,9 +935,9 @@ pub(super) fn thread_queue_write_helper(
         abi::branch_eq(&timeout),
         abi::branch_lt(&wait_indefinite),
         abi::label(&wait_timed),
-        abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_FULL_OFFSET),
-        abi::move_register(abi::ARG[1], "%v9"),
-        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), TIMESPEC_OFFSET),
+        abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_FULL_OFFSET),
+        abi::move_register(abi::c_arg(1), "%v9"),
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), TIMESPEC_OFFSET),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -950,14 +950,14 @@ pub(super) fn thread_queue_write_helper(
         "pthread_cond_timedwait",
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::RET[0], "0"),
+        abi::compare_immediate(abi::mfb_return(0), "0"),
         abi::branch_ne(&timeout),
         abi::branch(&wait_loop),
         // Unbounded (omit) form: block on the not-full condition until a slot frees
         // or the queue/thread closes (re-checked at the top of `wait_loop`).
         abi::label(&wait_indefinite),
-        abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_FULL_OFFSET),
-        abi::move_register(abi::ARG[1], "%v9"),
+        abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_FULL_OFFSET),
+        abi::move_register(abi::c_arg(1), "%v9"),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -989,7 +989,7 @@ pub(super) fn thread_queue_write_helper(
         abi::load_u64("%v10", "%v9", THREAD_QUEUE_COUNT_OFFSET),
         abi::add_immediate("%v10", "%v10", 1),
         abi::store_u64("%v10", "%v9", THREAD_QUEUE_COUNT_OFFSET),
-        abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -1084,7 +1084,7 @@ pub(super) fn thread_queue_write_helper(
             abi::stack_pointer(),
             TIMESPEC_OFFSET,
         ),
-        abi::load_u64(abi::ARG[0], abi::stack_pointer(), QUEUE_OFFSET),
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), QUEUE_OFFSET),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -1171,8 +1171,8 @@ pub(super) fn thread_queue_read_helper(
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     instructions.extend([
-        abi::store_u64(abi::ARG[0], abi::stack_pointer(), HANDLE_OFFSET),
-        abi::store_u64(abi::ARG[1], abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::store_u64(abi::c_arg(0), abi::stack_pointer(), HANDLE_OFFSET),
+        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT_OFFSET),
     ]);
     if worker_self {
         // The caller's `x0` is this worker's own control block (the handle is
@@ -1180,17 +1180,17 @@ pub(super) fn thread_queue_read_helper(
         // register `x20` from it rather than asserting equality: arbitrary
         // generated code between worker ops (e.g. arena allocation) may clobber
         // `x20`, so we restore the invariant here instead of failing on it.
-        instructions.push(abi::move_register(abi::CURRENT_THREAD, abi::ARG[0]));
+        instructions.push(abi::move_register(abi::CURRENT_THREAD, abi::c_arg(0)));
     }
     // bug-181: the no-arg `receive`/`accept` overload passes the block sentinel
     // (i64::MIN) to wait indefinitely; a non-negative `timeoutMs` is a real timeout
     // (0 = poll, N = wait N ms). Any other negative value is an explicit user
     // timeout below zero and is rejected with `ErrInvalidArgument`.
     instructions.extend([
-        abi::compare_immediate(abi::ARG[1], "0"),
+        abi::compare_immediate(abi::c_arg(1), "0"),
         abi::branch_ge(&timeout_ok),
         abi::move_immediate("%v9", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
-        abi::compare_registers(abi::ARG[1], "%v9"),
+        abi::compare_registers(abi::c_arg(1), "%v9"),
         abi::branch_ne(&invalid),
         abi::label(&timeout_ok),
     ]);
@@ -1209,7 +1209,7 @@ pub(super) fn thread_queue_read_helper(
         abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
         abi::load_u64("%v9", "%v8", queue_offset),
         abi::store_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
-        abi::move_register(abi::ARG[0], "%v9"),
+        abi::move_register(abi::c_arg(0), "%v9"),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -1237,8 +1237,8 @@ pub(super) fn thread_queue_read_helper(
         abi::branch_eq(&drain_done),
         abi::load_u64("%v11", "%v10", 0),
         abi::store_u64("%v11", "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
-        abi::load_u64(abi::ARG[1], "%v10", 8),
-        abi::move_register(abi::ARG[0], "%v10"),
+        abi::load_u64(abi::c_arg(1), "%v10", 8),
+        abi::move_register(abi::c_arg(0), "%v10"),
         abi::branch_link(ARENA_FREE_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
@@ -1283,9 +1283,9 @@ pub(super) fn thread_queue_read_helper(
         abi::branch_eq(&timeout),
         abi::branch_lt(&wait_indefinite),
         abi::label(&wait_timed),
-        abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
-        abi::move_register(abi::ARG[1], "%v9"),
-        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), TIMESPEC_OFFSET),
+        abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::move_register(abi::c_arg(1), "%v9"),
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), TIMESPEC_OFFSET),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -1298,12 +1298,12 @@ pub(super) fn thread_queue_read_helper(
         "pthread_cond_timedwait",
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::RET[0], "0"),
+        abi::compare_immediate(abi::mfb_return(0), "0"),
         abi::branch_ne(&timeout),
         abi::branch(&wait_loop),
         abi::label(&wait_indefinite),
-        abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
-        abi::move_register(abi::ARG[1], "%v9"),
+        abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::move_register(abi::c_arg(1), "%v9"),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -1335,7 +1335,7 @@ pub(super) fn thread_queue_read_helper(
         abi::subtract_immediate("%v10", "%v10", 1),
         abi::store_u64("%v10", "%v9", THREAD_QUEUE_COUNT_OFFSET),
         abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
-        abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_FULL_OFFSET),
+        abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_FULL_OFFSET),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -1419,7 +1419,7 @@ pub(super) fn thread_queue_read_helper(
             abi::stack_pointer(),
             ERROR_OFFSET,
         ),
-        abi::load_u64(abi::ARG[0], abi::stack_pointer(), QUEUE_OFFSET),
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), QUEUE_OFFSET),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -1492,7 +1492,7 @@ fn emit_close_resource_queues(ctx: &mut EmitCtx, handle_offset: usize) -> Result
         ctx.instructions.extend([
             abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
             abi::load_u64("%v10", "%v8", resource_queue_offset),
-            abi::move_register(abi::ARG[0], "%v10"),
+            abi::move_register(abi::c_arg(0), "%v10"),
         ]);
         emit_thread_external_call(
             &mut EmitCtx {
@@ -1509,7 +1509,7 @@ fn emit_close_resource_queues(ctx: &mut EmitCtx, handle_offset: usize) -> Result
             abi::load_u64("%v10", "%v8", resource_queue_offset),
             abi::move_immediate("%v9", "Integer", "1"),
             abi::store_u64("%v9", "%v10", THREAD_QUEUE_CLOSED_OFFSET),
-            abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+            abi::add_immediate(abi::c_arg(0), "%v10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
         ]);
         emit_thread_external_call(
             &mut EmitCtx {
@@ -1524,7 +1524,7 @@ fn emit_close_resource_queues(ctx: &mut EmitCtx, handle_offset: usize) -> Result
         ctx.instructions.extend([
             abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
             abi::load_u64("%v10", "%v8", resource_queue_offset),
-            abi::add_immediate(abi::ARG[0], "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
+            abi::add_immediate(abi::c_arg(0), "%v10", THREAD_QUEUE_NOT_FULL_OFFSET),
         ]);
         emit_thread_external_call(
             &mut EmitCtx {
@@ -1538,7 +1538,7 @@ fn emit_close_resource_queues(ctx: &mut EmitCtx, handle_offset: usize) -> Result
         )?;
         ctx.instructions.extend([
             abi::load_u64("%v8", abi::stack_pointer(), handle_offset),
-            abi::load_u64(abi::ARG[0], "%v8", resource_queue_offset),
+            abi::load_u64(abi::c_arg(0), "%v8", resource_queue_offset),
         ]);
         emit_thread_external_call(
             &mut EmitCtx {

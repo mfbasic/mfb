@@ -62,11 +62,11 @@ pub(super) fn lower_crypto_random_bytes_helper(
         // zero request still yields a valid pointer we simply never read). `count`
         // already sits in return_register() == ARG[0] for the alloc (bug-138
         // removed a dead x0<-x0 self-move here).
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), BUF_OFFSET),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUF_OFFSET),
         // Fill the buffer from OS entropy in <=256-byte chunks.
         abi::move_immediate("%v9", "Integer", "0"),
         abi::store_u64("%v9", abi::stack_pointer(), OFF_OFFSET),
@@ -85,7 +85,7 @@ pub(super) fn lower_crypto_random_bytes_helper(
         // getentropy(buf + off, chunk)
         abi::load_u64("%v13", abi::stack_pointer(), BUF_OFFSET),
         abi::add_registers(abi::return_register(), "%v13", "%v9"),
-        abi::move_register(abi::ARG[1], "%v11"),
+        abi::move_register(abi::c_arg(1), "%v11"),
     ]);
     if platform.family() == PlatformFamily::Windows {
         // Windows has no getentropy: BCryptGenRandom(NULL, buf+off, chunk,
@@ -93,10 +93,10 @@ pub(super) fn lower_crypto_random_bytes_helper(
         // (STATUS_SUCCESS) on success, matching the getentropy contract the loop
         // and the `!= 0` check below expect.
         instructions.extend([
-            abi::move_register(abi::ARG[2], abi::ARG[1]), // chunk  -> r8
-            abi::move_register(abi::ARG[1], abi::return_register()), // buf+off -> rdx
+            abi::move_register(abi::c_arg(2), abi::c_arg(1)), // chunk  -> r8
+            abi::move_register(abi::c_arg(1), abi::return_register()), // buf+off -> rdx
             abi::move_immediate(abi::return_register(), "Integer", "0"), // hAlg = NULL
-            abi::move_immediate(abi::ARG[3], "Integer", "2"), // BCRYPT_USE_SYSTEM_PREFERRED_RNG
+            abi::move_immediate(abi::c_arg(3), "Integer", "2"), // BCRYPT_USE_SYSTEM_PREFERRED_RNG
         ]);
         platform.emit_libc_call(
             "BCryptGenRandom",
@@ -144,7 +144,7 @@ pub(super) fn lower_crypto_random_bytes_helper(
         BUF_OFFSET,
         COUNT_OFFSET,
         Some(COLLECTION_OFFSET),
-        abi::RET[1],
+        abi::mfb_return(1),
         &alloc_fail,
         &mut instructions,
         &mut relocations,
@@ -178,7 +178,7 @@ pub(super) fn lower_crypto_random_bytes_helper(
     ]);
 
     instructions.extend([
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);

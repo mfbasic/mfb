@@ -170,15 +170,15 @@ pub(super) fn emit_cstring(
         abi::load_u64("%v17", abi::stack_pointer(), str_off),
         abi::load_u64("%v18", "%v17", 0),
         abi::add_immediate(abi::return_register(), "%v18", 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), out_off),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), out_off),
         abi::load_u64("%v17", abi::stack_pointer(), str_off),
         abi::load_u64("%v18", "%v17", 0),
         abi::add_immediate("%v19", "%v17", 8),
-        abi::move_register("%v20", abi::RET[1]),
+        abi::move_register("%v20", abi::mfb_return(1)),
         abi::move_immediate("%v21", "Integer", "0"),
         abi::label(&copy_loop),
         abi::compare_registers("%v21", "%v18"),
@@ -214,7 +214,7 @@ pub(super) fn emit_dlopen_libssl(
         ctx.relocations,
     );
     ctx.instructions
-        .push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
+        .push(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
     platform.emit_libc_call(
         "dlopen",
         symbol,
@@ -235,7 +235,7 @@ pub(super) fn emit_dlopen_libssl(
         ctx.relocations,
     );
     ctx.instructions
-        .push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
+        .push(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
     platform.emit_libc_call(
         "dlopen",
         symbol,
@@ -271,7 +271,7 @@ pub(super) fn emit_dlsym(
     ));
     emit_data_address(
         symbol,
-        abi::ARG[1],
+        abi::c_arg(1),
         &sym_data_symbol(name),
         ctx.instructions,
         ctx.relocations,
@@ -318,10 +318,10 @@ pub(super) fn emit_set_sock_timeouts(
     for opt in [platform.so_rcvtimeo(), platform.so_sndtimeo()] {
         ctx.instructions.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_off),
-            abi::move_immediate(abi::ARG[1], "Integer", platform.sol_socket()),
-            abi::move_immediate(abi::ARG[2], "Integer", opt),
-            abi::add_immediate(abi::ARG[3], abi::stack_pointer(), tv_off),
-            abi::move_immediate(abi::ARG[4], "Integer", optlen),
+            abi::move_immediate(abi::c_arg(1), "Integer", platform.sol_socket()),
+            abi::move_immediate(abi::c_arg(2), "Integer", opt),
+            abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), tv_off),
+            abi::move_immediate(abi::c_arg(4), "Integer", optlen),
         ]);
         // plan-73-D: setsockopt has 5 int args; on Win64 the 5th (optlen) is a stack
         // argument above the shadow, not a register (bug-384) — a garbage optlen makes
@@ -491,7 +491,7 @@ pub(super) fn lower_tls_poll_list_helper(
     // Loads socks[i]'s record ptr into `dst`: entry = list+HEADER+i*ENTRY_SIZE;
     // rec = load(data_base + load(entry+VALUE_OFFSET)). Uses %v13/%v14 as scratch.
     // (list ptr in LIST_OFF, data_base in DATABASE_OFF, index reg in `idx`.)
-    let load_elem = |ins: &mut Vec<CodeInstruction>, dst: &str, idx: &str| {
+    let load_elem = |ins: &mut Vec<CodeInstruction>, dst: Operand, idx: &str| {
         ins.extend([
             abi::load_u64("%v13", abi::stack_pointer(), LIST_OFF),
             abi::move_immediate("%v14", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
@@ -522,15 +522,15 @@ pub(super) fn lower_tls_poll_list_helper(
         // no wait; >0 = ceil(t / SLICE) rounds.
         abi::store_u64(abi::ZERO, abi::stack_pointer(), INFINITE_OFF),
         abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
-        abi::compare_registers(abi::ARG[1], "%v10"),
+        abi::compare_registers(abi::c_arg(1), "%v10"),
         abi::branch_eq(&mode_infinite),
-        abi::compare_immediate(abi::ARG[1], "0"),
+        abi::compare_immediate(abi::c_arg(1), "0"),
         abi::branch_lt(&invalid),
         abi::branch_eq(&mode_zero),
         // rounds = (t + SLICE - 1) / SLICE
         abi::move_immediate("%v10", "Integer", SLICE_MS),
-        abi::add_immediate(abi::ARG[1], abi::ARG[1], 19),
-        abi::unsigned_divide_registers("%v9", abi::ARG[1], "%v10"),
+        abi::add_immediate(abi::c_arg(1), abi::c_arg(1), 19),
+        abi::unsigned_divide_registers("%v9", abi::c_arg(1), "%v10"),
         abi::store_u64("%v9", abi::stack_pointer(), ROUNDS_OFF),
         abi::branch(&rounds_done),
         abi::label(&mode_infinite),
@@ -553,7 +553,7 @@ pub(super) fn lower_tls_poll_list_helper(
     ]);
     load_elem(&mut ins, abi::return_register(), "%v9");
     ins.extend([
-        abi::move_immediate(abi::ARG[1], "Integer", "0"), // non-blocking check
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"), // non-blocking check
         abi::branch_link(SCALAR),
         // Propagate any scalar error (closed socket etc.).
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
@@ -581,7 +581,7 @@ pub(super) fn lower_tls_poll_list_helper(
     ]);
     load_elem(&mut ins, abi::return_register(), "%v9");
     ins.extend([
-        abi::move_immediate(abi::ARG[1], "Integer", SLICE_MS),
+        abi::move_immediate(abi::c_arg(1), "Integer", SLICE_MS),
         abi::branch_link(SCALAR),
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
         abi::branch_ne(&done), // propagate a wait-time error

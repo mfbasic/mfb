@@ -395,7 +395,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "List OF Float".to_string(),
-            location: result_base.render(),
+            location: Operand::from(result_base.render()),
             text,
         })
     }
@@ -467,7 +467,7 @@ impl CodeBuilder<'_> {
     pub(super) fn lower_simd_float_scalar(
         &mut self,
         kernel: FloatKernel,
-        value_loc: &str,
+        value_loc: impl Into<Operand>,
         text: String,
     ) -> Result<ValueResult, String> {
         self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[0], value_loc));
@@ -497,7 +497,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_extract_to_x(&dst, abi::VEC_SCRATCH[0], 0));
         Ok(ValueResult {
             type_: "Float".to_string(),
-            location: dst.render(),
+            location: Operand::from(dst.render()),
             text,
         })
     }
@@ -2099,7 +2099,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "List OF Float".to_string(),
-            location: result_base.render(),
+            location: Operand::from(result_base.render()),
             text,
         })
     }
@@ -2130,7 +2130,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_extract_to_x(&dst, abi::VEC_SCRATCH[0], 0));
         Ok(ValueResult {
             type_: "Float".to_string(),
-            location: dst.render(),
+            location: Operand::from(dst.render()),
             text,
         })
     }

@@ -107,7 +107,7 @@ pub(crate) fn data_objects() -> Vec<CodeDataObject> {
 
 fn wide_addr(
     from: &str,
-    dst: &str,
+    dst: impl Into<Operand>,
     id: &str,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
@@ -133,7 +133,7 @@ fn bcrypt_call(
         ins.push(abi::subtract_stack(frame));
         for i in 0..stack {
             ins.push(abi::store_u64(
-                abi::ARG[4 + i],
+                abi::c_arg(4 + i),
                 abi::stack_pointer(),
                 0x20 + i * 8,
             ));
@@ -225,10 +225,10 @@ fn generate(
         abi::stack_pointer(),
         HALG,
     ));
-    wide_addr(symbol, abi::ARG[1], curve.algo_id(), &mut ins, &mut rel);
+    wide_addr(symbol, abi::c_arg(1), curve.algo_id(), &mut ins, &mut rel);
     ins.extend([
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
-        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
     bcrypt_call(
         symbol,
@@ -243,9 +243,9 @@ fn generate(
 
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), HALG),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), HKEY),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
-        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), HKEY),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
     bcrypt_call(
         symbol,
@@ -260,7 +260,7 @@ fn generate(
 
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), HKEY),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
     bcrypt_call(
         symbol,
@@ -276,17 +276,17 @@ fn generate(
     // Allocate blob buffer + raw-key output buffer.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", &BLOBCAP.to_string()),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), BLOB));
+    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BLOB));
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", &raw_len.to_string()),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), RAW),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RAW),
         abi::move_immediate("%v9", "Integer", &raw_len.to_string()),
         abi::store_u64("%v9", abi::stack_pointer(), RAWLEN),
     ]);
@@ -294,14 +294,14 @@ fn generate(
     // BCryptExportKey(hKey, NULL, L"ECCPRIVATEBLOB", blob, BLOBCAP, &cbResult, 0)
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), HKEY),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
-    wide_addr(symbol, abi::ARG[2], "ECCPRIVATEBLOB", &mut ins, &mut rel);
+    wide_addr(symbol, abi::c_arg(2), "ECCPRIVATEBLOB", &mut ins, &mut rel);
     ins.extend([
-        abi::load_u64(abi::ARG[3], abi::stack_pointer(), BLOB),
-        abi::move_immediate(abi::ARG[4], "Integer", &BLOBCAP.to_string()),
-        abi::add_immediate(abi::ARG[5], abi::stack_pointer(), CBRES),
-        abi::move_immediate(abi::ARG[6], "Integer", "0"),
+        abi::load_u64(abi::c_arg(3), abi::stack_pointer(), BLOB),
+        abi::move_immediate(abi::c_arg(4), "Integer", &BLOBCAP.to_string()),
+        abi::add_immediate(abi::c_arg(5), abi::stack_pointer(), CBRES),
+        abi::move_immediate(abi::c_arg(6), "Integer", "0"),
     ]);
     bcrypt_call(
         symbol,
@@ -342,7 +342,7 @@ fn generate(
         RAW,
         RAWLEN,
         Some(COLL),
-        abi::RET[1],
+        abi::mfb_return(1),
         &alloc_fail,
         &mut ins,
         &mut rel,
@@ -405,7 +405,7 @@ fn emit_cleanup(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), halg_off),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&no_alg),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
     bcrypt_call(
         symbol,

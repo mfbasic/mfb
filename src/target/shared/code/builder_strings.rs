@@ -197,7 +197,7 @@ impl CodeBuilder<'_> {
         ));
         // allocate output_len + 9 (block header), trapping the header add's wrap.
         self.emit_checked_size_add_immediate(abi::return_register(), output_len, 9, &overflow);
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -212,7 +212,7 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -221,8 +221,8 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             output_len_slot,
         ));
-        self.emit(abi::store_u64(output_len, abi::RET[1], 0));
-        self.emit(abi::add_immediate(dest, abi::RET[1], 8));
+        self.emit(abi::store_u64(output_len, abi::mfb_return(1), 0));
+        self.emit(abi::add_immediate(dest, abi::mfb_return(1), 8));
         self.emit(abi::load_u64(value_ptr, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(old_ptr, abi::stack_pointer(), old_slot));
         self.emit(abi::load_u64(new_ptr, abi::stack_pointer(), new_slot));
@@ -302,7 +302,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "replace(String, String, String)".to_string(),
         })
     }
@@ -454,7 +454,7 @@ impl CodeBuilder<'_> {
             &scratch15,
             &overflow,
         );
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -468,7 +468,7 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -480,7 +480,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_KIND,
         ));
         self.emit(abi::move_immediate(
@@ -490,7 +490,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_KEY_TYPE,
         ));
         self.emit(abi::move_immediate(
@@ -500,13 +500,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_VALUE_TYPE,
         ));
         self.emit(abi::move_immediate(&scratch13, "Byte", "1"));
         self.emit(abi::store_u8(
             &scratch13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_FLAGS_VERSION,
         ));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), value_slot));
@@ -517,12 +517,12 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(
             &scratch11,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_COUNT,
         ));
         self.emit(abi::store_u64(
             &scratch11,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_CAPACITY,
         ));
         self.emit(abi::load_u64(
@@ -532,12 +532,12 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(
             &scratch15,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
         self.emit(abi::store_u64(
             &scratch15,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_DATA_CAPACITY,
         ));
 
@@ -550,7 +550,7 @@ impl CodeBuilder<'_> {
             COLLECTION_OFFSET_COUNT,
         ));
         self.emit(abi::load_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -567,7 +567,7 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::add_immediate(
             &scratch17,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_HEADER_SIZE,
         ));
         self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type);
@@ -749,7 +749,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("replace({list_type}, {element_type}, {element_type})"),
         })
     }
@@ -808,7 +808,7 @@ impl CodeBuilder<'_> {
         match value.type_.as_str() {
             "String" => Ok(ValueResult {
                 type_: "String".to_string(),
-                location: value_register.render(),
+                location: Operand::from(value_register.render()),
                 text: format!("toString({})", value.text),
             }),
             "Boolean" => self.lower_boolean_to_string(&value_register),
@@ -865,7 +865,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "toString(Boolean)".to_string(),
         })
     }
@@ -974,20 +974,20 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(cursor, abi::stack_pointer(), start_slot));
 
         // plan-71-C Family-1a: alloc size is arg 0 of the arena-alloc call → `%arg0`.
-        self.emit(abi::add_immediate(abi::ARG[0], length, 9));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::add_immediate(abi::c_arg(0), length, 9));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));
-        self.emit(abi::store_u64(length, abi::RET[1], 0));
-        self.emit(abi::add_immediate(dst, abi::RET[1], 8));
+        self.emit(abi::store_u64(length, abi::mfb_return(1), 0));
+        self.emit(abi::add_immediate(dst, abi::mfb_return(1), 8));
         self.emit(abi::load_u64(cursor, abi::stack_pointer(), start_slot));
         self.emit(abi::label(&copy_loop));
         self.emit(abi::compare_immediate(length, "0"));
@@ -1006,7 +1006,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "toString(Integer)".to_string(),
         })
     }
@@ -1210,20 +1210,20 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&validate_done));
         self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));
         // plan-71-C Family-1a: alloc size is arg 0 of the arena-alloc call → `%arg0`.
-        self.emit(abi::add_immediate(abi::ARG[0], length, 9));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::add_immediate(abi::c_arg(0), length, 9));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));
-        self.emit(abi::store_u64(length, abi::RET[1], 0));
-        self.emit(abi::add_immediate(dst, abi::RET[1], 8));
+        self.emit(abi::store_u64(length, abi::mfb_return(1), 0));
+        self.emit(abi::add_immediate(dst, abi::mfb_return(1), 8));
         self.emit(abi::move_immediate(index, "Integer", "0"));
         self.emit(abi::load_u64(list, abi::stack_pointer(), list_slot));
 
@@ -1245,7 +1245,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.to_string(),
+            location: Operand::from(result.to_string()),
             text: "toString(List OF Byte)".to_string(),
         })
     }
@@ -1437,13 +1437,13 @@ impl CodeBuilder<'_> {
             total_len.clone(),
             9,
         ));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -1452,8 +1452,8 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             total_len_slot,
         ));
-        self.emit(abi::store_u64(total_len, abi::RET[1], 0));
-        self.emit(abi::add_immediate(dst.clone(), abi::RET[1], 8));
+        self.emit(abi::store_u64(total_len, abi::mfb_return(1), 0));
+        self.emit(abi::add_immediate(dst.clone(), abi::mfb_return(1), 8));
         self.emit(abi::load_u64(
             cursor.clone(),
             abi::stack_pointer(),
@@ -1734,7 +1734,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "toString(Fixed)".to_string(),
         })
     }
@@ -1923,7 +1923,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "toString(Money)".to_string(),
         })
     }
@@ -1939,8 +1939,8 @@ impl CodeBuilder<'_> {
         precision_register: impl Into<Operand>,
     ) -> Result<ValueResult, String> {
         let alloc_ok = self.label("float_string_alloc_ok");
-        self.emit(abi::move_register(abi::ARG[0], source_register));
-        self.emit(abi::move_register(abi::ARG[1], precision_register));
+        self.emit(abi::move_register(abi::c_arg(0), source_register));
+        self.emit(abi::move_register(abi::c_arg(1), precision_register));
         self.emit(abi::branch_link(FLOAT_TO_STRING_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -1957,10 +1957,10 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         let result = self.allocate_register()?;
-        self.emit(abi::move_register(&result, abi::RET[1]));
+        self.emit(abi::move_register(&result, abi::mfb_return(1)));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "toString(Float)".to_string(),
         })
     }
@@ -2031,7 +2031,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("({} {op} {})", left.text, right.text),
         })
     }
@@ -2126,7 +2126,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("({} {op} {})", left.text, right.text),
         })
     }

@@ -43,7 +43,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("({} AND {})", left.text, right.text),
         })
     }
@@ -67,7 +67,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("({} OR {})", left.text, right.text),
         })
     }
@@ -118,7 +118,7 @@ impl CodeBuilder<'_> {
         ));
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("({left_text} XOR {right_text})"),
         })
     }
@@ -166,7 +166,7 @@ impl CodeBuilder<'_> {
         // Carry FP-residency (plan-03 Stage C) across the operand slot
         // round-trip: the reloaded operand register holds the same value, so it
         // is resident in the same `d`-register.
-        let left_resident = self.float_residents.get(&left.location).cloned();
+        let left_resident = self.float_residents.get(&left.location.render()).cloned();
         let left_slot = self.allocate_stack_object("arith_left", 8);
         // A `d`-native float operand (possible here only as the right operand of
         // an `Integer op Float`) materializes its bits into a GPR before the
@@ -175,7 +175,7 @@ impl CodeBuilder<'_> {
         let left_spill = self.float_value_as_gpr(&left)?;
         self.emit(abi::store_u64(&left_spill, abi::stack_pointer(), left_slot));
         let right = self.lower_value(right)?;
-        let right_resident = self.float_residents.get(&right.location).cloned();
+        let right_resident = self.float_residents.get(&right.location.render()).cloned();
         let right_slot = self.allocate_stack_object("arith_right", 8);
         let right_spill = self.float_value_as_gpr(&right)?;
         self.emit(abi::store_u64(
@@ -207,12 +207,12 @@ impl CodeBuilder<'_> {
         }
         let left = ValueResult {
             type_: left.type_,
-            location: left_register.render(),
+            location: Operand::from(left_register.render()),
             text: left_text,
         };
         let right = ValueResult {
             type_: right.type_,
-            location: right_register.render(),
+            location: Operand::from(right_register.render()),
             text: right_text,
         };
         let register = self.allocate_register()?;
@@ -264,12 +264,12 @@ impl CodeBuilder<'_> {
                     ));
                     let left = ValueResult {
                         type_: "Fixed".to_string(),
-                        location: left_fixed.render(),
+                        location: Operand::from(left_fixed.render()),
                         text: left.text.clone(),
                     };
                     let right = ValueResult {
                         type_: "Fixed".to_string(),
-                        location: right_fixed.render(),
+                        location: Operand::from(right_fixed.render()),
                         text: right.text.clone(),
                     };
                     self.emit_fixed_binary(op, &left, &right, &register)?;
@@ -298,7 +298,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: result_type,
-            location: result_location,
+            location: Operand::from(result_location),
             text: format!("({} {op} {})", left.text, right.text),
         })
     }
@@ -326,7 +326,7 @@ impl CodeBuilder<'_> {
         let location = self.emit_float_binary(op, &left, &right, &dst)?;
         Ok(ValueResult {
             type_: result_type,
-            location,
+            location: Operand::from(location),
             text: format!(
                 "({op_left} {op} {op_right})",
                 op_left = left_text,
@@ -404,7 +404,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: operand.type_,
-            location: location.render(),
+            location: Operand::from(location.render()),
             text: format!("(-{})", operand.text),
         })
     }
@@ -456,12 +456,12 @@ impl CodeBuilder<'_> {
             ));
             let left = ValueResult {
                 type_: left.type_,
-                location: left_register.render(),
+                location: Operand::from(left_register.render()),
                 text: left.text,
             };
             let right = ValueResult {
                 type_: right.type_,
-                location: right_register.render(),
+                location: Operand::from(right_register.render()),
                 text: right.text,
             };
             return self.lower_string_comparison_binary(op, &left, &right);
@@ -493,12 +493,12 @@ impl CodeBuilder<'_> {
             ));
             let left = ValueResult {
                 type_: left.type_,
-                location: left_register.render(),
+                location: Operand::from(left_register.render()),
                 text: left.text,
             };
             let right = ValueResult {
                 type_: right.type_,
-                location: right_register.render(),
+                location: Operand::from(right_register.render()),
                 text: right.text,
             };
             return self.lower_numeric_comparison_binary(op, &left, &right);
@@ -562,7 +562,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done_label));
             return Ok(ValueResult {
                 type_: "Boolean".to_string(),
-                location: result.render(),
+                location: Operand::from(result.render()),
                 text: format!("({} {op} {})", left.text, right.text),
             });
         }
@@ -610,7 +610,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("({} {op} {})", left.text, right.text),
         })
     }
@@ -649,12 +649,12 @@ impl CodeBuilder<'_> {
         ));
         let left = ValueResult {
             type_: left.type_.clone(),
-            location: left_register.render(),
+            location: Operand::from(left_register.render()),
             text: left.text.clone(),
         };
         let right = ValueResult {
             type_: right.type_.clone(),
-            location: right_register.render(),
+            location: Operand::from(right_register.render()),
             text: right.text.clone(),
         };
 
@@ -734,7 +734,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("({} {op} {})", left.text, right.text),
         })
     }
@@ -1091,7 +1091,7 @@ impl CodeBuilder<'_> {
     /// store) and materialized into a GPR on demand by [`Self::float_value_as_gpr`]
     /// for every site that needs the raw bits.
     pub(super) fn float_is_dnative(value: &ValueResult) -> bool {
-        value.type_ == "Float" && regalloc::parse_fp_vreg(&value.location).is_some()
+        value.type_ == "Float" && regalloc::parse_fp_vreg(&value.location.render()).is_some()
     }
 
     /// The single choke point every consumer that needs a `Float`'s **bit
@@ -1108,7 +1108,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::float_move_x_from_d(&gpr, &value.location));
             return Ok(gpr.render());
         }
-        Ok(value.location.clone())
+        Ok(value.location.render())
     }
 
     /// Return `value` with its bits in a GPR (plan-01 float-dnative): a `d`-native
@@ -1123,7 +1123,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::float_move_x_from_d(&gpr, &value.location));
             return Ok(ValueResult {
                 type_: value.type_,
-                location: gpr.render(),
+                location: Operand::from(gpr.render()),
                 text: value.text,
             });
         }
@@ -1150,10 +1150,10 @@ impl CodeBuilder<'_> {
     /// virtual register is loaded (plan-03 Stage C / plan-01 float-dnative).
     pub(super) fn operand_as_double(&mut self, value: &ValueResult) -> Result<String, String> {
         if Self::float_is_dnative(value) {
-            return Ok(value.location.clone());
+            return Ok(value.location.render());
         }
         if value.type_ == "Float" {
-            if let Some(resident) = self.float_residents.get(&value.location).cloned() {
+            if let Some(resident) = self.float_residents.get(&value.location.render()).cloned() {
                 return Ok(resident);
             }
         }

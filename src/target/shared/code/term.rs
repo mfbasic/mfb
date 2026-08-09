@@ -83,13 +83,14 @@ fn data_reloc(from: &str, symbol: &str, kind: RelocIntent) -> CodeRelocation {
 fn load_data_address(
     from: &str,
     symbol: &str,
-    dst: &str,
+    dst: impl Into<Operand>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    instructions.push(abi::load_page_address(dst, symbol));
+    let dst = dst.into();
+    instructions.push(abi::load_page_address(&dst, symbol));
     relocations.push(data_reloc(from, symbol, RelocIntent::DataAddrHi));
-    instructions.push(abi::add_page_offset(dst, dst, symbol));
+    instructions.push(abi::add_page_offset(&dst, &dst, symbol));
     relocations.push(data_reloc(from, symbol, RelocIntent::DataAddrLo));
 }
 
@@ -485,9 +486,9 @@ fn emit_off(ctx: &mut EmitCtx, term_state_offset: usize, done: &str) -> Result<(
     ctx.instructions
         .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
     ctx.instructions
-        .push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
+        .push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     ctx.instructions.push(abi::add_immediate(
-        abi::ARG[2],
+        abi::c_arg(2),
         ARENA_STATE_REGISTER,
         term_state_offset + TERM_STATE_COOKED_TERMIOS_OFFSET,
     ));
@@ -561,9 +562,9 @@ fn emit_set_color(
     let inactive = format!("{symbol}_inactive");
     emit_gate_inactive(term_state_offset, &inactive, instructions);
     instructions.extend([
-        abi::move_register("%v9", abi::ARG[0]),
-        abi::move_register("%v10", abi::ARG[1]),
-        abi::move_register("%v11", abi::ARG[2]),
+        abi::move_register("%v9", abi::c_arg(0)),
+        abi::move_register("%v10", abi::c_arg(1)),
+        abi::move_register("%v11", abi::c_arg(2)),
         abi::shift_left_immediate("%v10", "%v10", 8),
         abi::shift_left_immediate("%v11", "%v11", 16),
         abi::or_registers("%v9", "%v9", "%v10"),
@@ -588,7 +589,7 @@ fn emit_set_attr(
 ) {
     let inactive = format!("{symbol}_inactive");
     emit_gate_inactive(term_state_offset, &inactive, instructions);
-    instructions.push(abi::move_register("%v9", abi::ARG[0]));
+    instructions.push(abi::move_register("%v9", abi::c_arg(0)));
     instructions.push(abi::store_u64("%v9", ARENA_STATE_REGISTER, state_offset));
     instructions.push(abi::label(&inactive));
     instructions.push(abi::move_immediate(
@@ -692,7 +693,7 @@ fn emit_move_to(symbol: &str, term_state_offset: usize, instructions: &mut Vec<C
         abi::load_u64("%v10", "%v9", 0), // rows
         abi::load_u64("%v11", "%v9", 8), // cols
         // row = clamp(ARG[0], 0, rows-1)
-        abi::move_register("%v12", abi::ARG[0]),
+        abi::move_register("%v12", abi::c_arg(0)),
         abi::compare_immediate("%v12", "0"),
         abi::branch_ge(&row_lo),
         abi::move_immediate("%v12", "Integer", "0"),
@@ -702,7 +703,7 @@ fn emit_move_to(symbol: &str, term_state_offset: usize, instructions: &mut Vec<C
         abi::subtract_immediate("%v12", "%v10", 1),
         abi::label(&row_hi),
         // col = clamp(ARG[1], 0, cols-1)
-        abi::move_register("%v13", abi::ARG[1]),
+        abi::move_register("%v13", abi::c_arg(1)),
         abi::compare_immediate("%v13", "0"),
         abi::branch_ge(&col_lo),
         abi::move_immediate("%v13", "Integer", "0"),
@@ -1073,10 +1074,10 @@ fn emit_draw_line(
 
     emit_gate_inactive(term_state_offset, &inactive, instructions);
     instructions.extend([
-        abi::move_register(ord, abi::ARG[0]),
-        abi::move_register(fixed, abi::ARG[1]),
-        abi::move_register(ea, abi::ARG[2]),
-        abi::move_register(eb, abi::ARG[3]),
+        abi::move_register(ord, abi::c_arg(0)),
+        abi::move_register(fixed, abi::c_arg(1)),
+        abi::move_register(ea, abi::c_arg(2)),
+        abi::move_register(eb, abi::c_arg(3)),
     ]);
     emit_load_grid(
         term_state_offset,
@@ -1174,11 +1175,11 @@ fn emit_draw_box(symbol: &str, term_state_offset: usize, instructions: &mut Vec<
 
     emit_gate_inactive(term_state_offset, &inactive, instructions);
     instructions.extend([
-        abi::move_register(ord, abi::ARG[0]),
-        abi::move_register(ax1, abi::ARG[1]),
-        abi::move_register(ay1, abi::ARG[2]),
-        abi::move_register(ax2, abi::ARG[3]),
-        abi::move_register(ay2, abi::ARG[4]),
+        abi::move_register(ord, abi::c_arg(0)),
+        abi::move_register(ax1, abi::c_arg(1)),
+        abi::move_register(ay1, abi::c_arg(2)),
+        abi::move_register(ax2, abi::c_arg(3)),
+        abi::move_register(ay2, abi::c_arg(4)),
     ]);
     emit_load_grid(
         term_state_offset,
@@ -1345,11 +1346,11 @@ fn emit_fill_rect(symbol: &str, term_state_offset: usize, instructions: &mut Vec
 
     emit_gate_inactive(term_state_offset, &inactive, instructions);
     instructions.extend([
-        abi::move_register(ord, abi::ARG[0]),
-        abi::move_register(ax1, abi::ARG[1]),
-        abi::move_register(ay1, abi::ARG[2]),
-        abi::move_register(ax2, abi::ARG[3]),
-        abi::move_register(ay2, abi::ARG[4]),
+        abi::move_register(ord, abi::c_arg(0)),
+        abi::move_register(ax1, abi::c_arg(1)),
+        abi::move_register(ay1, abi::c_arg(2)),
+        abi::move_register(ax2, abi::c_arg(3)),
+        abi::move_register(ay2, abi::c_arg(4)),
     ]);
     emit_load_grid(
         term_state_offset,
@@ -1573,9 +1574,9 @@ fn emit_draw_glyph(
 
     emit_gate_inactive(term_state_offset, &inactive, instructions);
     instructions.extend([
-        abi::move_register(x, abi::ARG[0]),
-        abi::move_register(y, abi::ARG[1]),
-        abi::move_register(cp, abi::ARG[2]),
+        abi::move_register(x, abi::c_arg(0)),
+        abi::move_register(y, abi::c_arg(1)),
+        abi::move_register(cp, abi::c_arg(2)),
     ]);
     emit_load_grid(
         term_state_offset,
@@ -1759,9 +1760,9 @@ fn emit_draw_text(
 
     emit_gate_inactive(term_state_offset, &inactive, instructions);
     instructions.extend([
-        abi::move_register(x, abi::ARG[0]),
-        abi::move_register(y, abi::ARG[1]),
-        abi::move_register(strobj, abi::ARG[2]),
+        abi::move_register(x, abi::c_arg(0)),
+        abi::move_register(y, abi::c_arg(1)),
+        abi::move_register(strobj, abi::c_arg(2)),
     ]);
     emit_load_grid(
         term_state_offset,
@@ -2082,7 +2083,7 @@ fn emit_get_color(
             "Integer",
             &TERM_COLOR_RECORD_SIZE.to_string(),
         ),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -2174,8 +2175,8 @@ fn emit_terminal_size(
     ctx.instructions.push(abi::label(&active));
     ctx.instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "1"),
-        abi::move_immediate(abi::ARG[1], "Integer", request),
-        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), SCRATCH_OFFSET),
+        abi::move_immediate(abi::c_arg(1), "Integer", request),
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), SCRATCH_OFFSET),
     ]);
     platform.emit_terminal_size(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
     ctx.instructions.extend([
@@ -2194,7 +2195,7 @@ fn emit_terminal_size(
             "Integer",
             &TERM_SIZE_RECORD_SIZE.to_string(),
         ),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     ctx.relocations
@@ -2206,9 +2207,9 @@ fn emit_terminal_size(
         abi::label(&alloc_ok),
         abi::load_u64("%v10", abi::stack_pointer(), ARG0_OFFSET),
         abi::load_u64("%v11", abi::stack_pointer(), ARG1_OFFSET),
-        abi::store_u64("%v11", abi::RET[1], 0),
-        abi::store_u64("%v10", abi::RET[1], 8),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::store_u64("%v11", abi::mfb_return(1), 0),
+        abi::store_u64("%v10", abi::mfb_return(1), 8),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(done),
         abi::label(&unsupported),

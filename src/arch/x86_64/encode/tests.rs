@@ -3422,11 +3422,9 @@ fn fixed_register_aliasing_is_rejected_rather_than_miscompiled() {
         }
     };
 
-    // rcx is the architectural shift count: staging it destroys a dst on rcx.
-    for op in ["lslv", "lsrv", "asrv", "rorv"] {
-        let message = err(op, &[("dst", "rcx"), ("lhs", "r10"), ("rhs", "r11")]);
-        assert!(message.contains("rcx"), "{op}: unexpected error: {message}");
-    }
+    // (plan-85: a variable shift with dst==rcx is NO LONGER rejected — the encoder
+    // shifts in a scratch and moves the result into rcx; see
+    // `variable_shift_targeting_rcx_shifts_in_a_scratch`.)
 
     // msub stages the product in rax: a dst there is subtracted from itself (0),
     // and an rhs there is destroyed before the multiply (yielding lhs*lhs).
@@ -3661,15 +3659,18 @@ fn store_zero_immediate_by_width() {
 }
 
 #[test]
-fn variable_shift_targeting_rcx_is_rejected() {
-    // rcx carries the shift count, so a `dst == rcx` shift has no correct
-    // expansion — it must be an encoding error.
-    let mut ins = CodeInstruction::new("lslv");
-    ins = ins
-        .field("dst", "rcx")
-        .field("lhs", "rax")
-        .field("rhs", "rdx");
-    assert!(enc_err(&ins).contains("cannot target rcx"));
+fn variable_shift_targeting_rcx_shifts_in_a_scratch() {
+    // plan-85: Win64's aligned MFB result bank starts at rcx, so a variable-shifted
+    // result can legitimately land on rcx. rcx carries the shift COUNT, so the shift
+    // runs in a scratch register (the first reg != rcx/value/amount, here rbx),
+    // preserved with push/pop, then the result is moved into rcx.
+    // lslv rcx, rax, rdx: push rbx (53) ; mov rbx,rax (48 89 C3) ;
+    // mov rcx,rdx (48 89 D1) ; shl rbx,cl (48 D3 E3) ; mov rcx,rbx (48 89 D9) ;
+    // pop rbx (5B).
+    assert_eq!(
+        bytes("lslv", &[("dst", "rcx"), ("lhs", "rax"), ("rhs", "rdx")]),
+        [0x53, 0x48, 0x89, 0xC3, 0x48, 0x89, 0xD1, 0x48, 0xD3, 0xE3, 0x48, 0x89, 0xD9, 0x5B]
+    );
 }
 
 #[test]

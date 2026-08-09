@@ -530,9 +530,13 @@ pub(super) fn lower_function(
             // its `location` records the tail slot instead (never emitted as a
             // register — the prologue below loads it via `incoming_stack_arg_load`).
             let location = if index < abi::REGISTER_ARGUMENT_COUNT {
+                // Typed convention token — a parameter's register location stays
+                // Operand::Abi so it is realized by each backend's typed handler
+                // (never a Raw convention string). plan-85-D Phase 3.
                 abi::argument_register(index)?
             } else {
-                format!("stack{}", index - abi::REGISTER_ARGUMENT_COUNT)
+                // Stack-tail sentinel (bug-08); a Raw marker the prologue interprets.
+                Operand::from(format!("stack{}", index - abi::REGISTER_ARGUMENT_COUNT))
             };
             Ok(CodeParam {
                 name: param.name.clone(),

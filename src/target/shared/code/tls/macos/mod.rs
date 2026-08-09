@@ -540,8 +540,8 @@ fn emit_wait(
     ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), ctx_off),
         abi::load_u64(abi::return_register(), "%v9", CTX_SEM),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::bitwise_not(abi::ARG[1], abi::ARG[1]),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::bitwise_not(abi::c_arg(1), abi::c_arg(1)),
         abi::load_u64("%v10", abi::stack_pointer(), fnptr_off),
         abi::branch_link_register("%v10"),
     ]);
@@ -587,7 +587,7 @@ fn emit_dlopen_at(
         ctx.relocations,
     );
     ctx.instructions
-        .push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
+        .push(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
     platform.emit_libc_call(
         "dlopen",
         symbol,

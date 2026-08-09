@@ -137,6 +137,13 @@ impl LinuxArch for X86_64 {
         instructions.extend([
             abi::move_immediate(abi::syscall_register(), "Integer", SYS_WRITE),
             abi::syscall(),
+            // plan-85: the SysV syscall RESULT comes back in `rax` (`%retSys`), but
+            // the aligned MFB convention reads a call result in the aligned bank
+            // (`return_register()` → `rdi`). Stage the kernel return into the MFB
+            // result register so the shared caller's `return_register()` read is
+            // correct. (On AArch64/RISC-V both are `x0`, so those backends never
+            // reach this x86-only method and need no staging.)
+            abi::move_register(abi::return_register(), abi::sys_return()),
         ]);
         Ok(())
     }
@@ -152,9 +159,12 @@ impl LinuxArch for X86_64 {
         // in the return register (→ rdi) and the length in x1 (→ rsi); set flags
         // and the syscall number.
         instructions.extend([
-            abi::move_immediate(abi::SYSARG[2], "Integer", "0"),
+            abi::move_immediate(abi::sys_arg(2), "Integer", "0"),
             abi::move_immediate(abi::syscall_register(), "Integer", SYS_GETRANDOM),
             abi::syscall(),
+            // plan-85: stage the kernel return (`rax`) into the aligned MFB result
+            // register (`rdi`) — see `emit_write`.
+            abi::move_register(abi::return_register(), abi::sys_return()),
         ]);
         Ok(())
     }
@@ -167,15 +177,18 @@ impl LinuxArch for X86_64 {
         // mmap(0, size, PROT_RW, MAP_PRIVATE|ANON, -1, 0) — nr 9.
         // x86-64 syscall ABI: nr=rax, args rdi,rsi,rdx,r10,r8,r9, ret=rax.
         instructions.extend([
-            abi::move_immediate(abi::SYSARG[0], "Integer", "0"),
-            abi::move_register(abi::SYSARG[1], size_reg),
-            abi::move_immediate(abi::SYSARG[2], "Integer", PROT_READ_WRITE),
-            abi::move_immediate(abi::SYSARG[3], "Integer", MAP_PRIVATE_ANON),
+            abi::move_immediate(abi::sys_arg(0), "Integer", "0"),
+            abi::move_register(abi::sys_arg(1), size_reg),
+            abi::move_immediate(abi::sys_arg(2), "Integer", PROT_READ_WRITE),
+            abi::move_immediate(abi::sys_arg(3), "Integer", MAP_PRIVATE_ANON),
             // r8 = -1 (no fd) — immediates parse as u64, so use the bit pattern.
-            abi::move_immediate(abi::SYSARG[4], "Integer", &u64::MAX.to_string()),
-            abi::move_immediate(abi::SYSARG[5], "Integer", "0"),
+            abi::move_immediate(abi::sys_arg(4), "Integer", &u64::MAX.to_string()),
+            abi::move_immediate(abi::sys_arg(5), "Integer", "0"),
             abi::move_immediate(abi::syscall_register(), "Integer", SYS_MMAP),
             abi::syscall(),
+            // plan-85: stage the mmap return (`rax`, the arena base) into the aligned
+            // MFB result register (`rdi`) — see `emit_write`.
+            abi::move_register(abi::return_register(), abi::sys_return()),
         ]);
         Ok(())
     }

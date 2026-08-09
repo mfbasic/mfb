@@ -65,7 +65,11 @@ impl CodeBuilder<'_> {
         let parts_slot = self.spill_to_slot("fs_path_join_parts", &parts.location);
         let alloc_ok = self.label("fs_path_join_alloc_ok");
         // plan-71-C Family-1a: the parts pointer is arg 0 of the fs_path_join call → `%arg0`.
-        self.emit(abi::load_u64(abi::ARG[0], abi::stack_pointer(), parts_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            parts_slot,
+        ));
         self.emit(abi::branch_link(FS_PATH_JOIN_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -82,7 +86,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "fs.pathJoin".to_string(),
         })
     }
@@ -146,7 +150,7 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&start, &span)?;
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "fs.pathBaseName".to_string(),
         })
     }
@@ -229,7 +233,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&out, abi::stack_pointer(), final_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: out.render(),
+            location: Operand::from(out.render()),
             text: "fs.pathDirName".to_string(),
         })
     }
@@ -292,7 +296,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "fs.pathExtension".to_string(),
         })
     }
@@ -354,8 +358,8 @@ impl CodeBuilder<'_> {
         // offset 9 -- one past a `length + 9` request. Reserve `length + 10` so that
         // fallback's terminator stays in-bounds without relying on arena size rounding.
         // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
-        self.emit(abi::add_immediate(abi::ARG[0], &scratch10, 10));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::add_immediate(abi::c_arg(0), &scratch10, 10));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -364,12 +368,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch10, &scratch9, 0));
         self.emit(abi::add_immediate(&scratch11, &scratch9, 8));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
-        self.emit(abi::store_u64(abi::ZERO, abi::RET[1], 0));
-        self.emit(abi::store_u8(abi::ZERO, abi::RET[1], 8));
+        self.emit(abi::store_u64(abi::ZERO, abi::mfb_return(1), 0));
+        self.emit(abi::store_u8(abi::ZERO, abi::mfb_return(1), 8));
         self.emit(abi::store_u64(
             abi::ZERO,
             abi::stack_pointer(),
@@ -692,7 +696,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "fs.pathNormalize".to_string(),
         })
     }

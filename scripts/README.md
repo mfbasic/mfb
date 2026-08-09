@@ -41,6 +41,24 @@ unintentionally) across a refactor.
   lacks. Cross-compiles on the host; no Linux box needed. Usage:
   `linux-artifact-baseline.sh <mfb-exe> capture|verify <manifest>`.
 
+### plan-85 remote-execution verification
+
+Byte-identity proves the *bytes* did not change; these prove the emitted code
+actually *runs* on a real box of each ISA/ABI — the correctness check for the
+targets plan-85's ABI rework changes by design (SysV-x86, Win64) and for RISC-V
+where the codegen (fused/`addr_of`) was reworked. Each cross-compiles a fixture,
+ships the executable to its box, runs it, and diffs stdout against the golden's
+execution section (`golden/build.log`). Usage: `<script> <fixture-dir>...`.
+
+- **p85-riscv-verify.sh** — Ships the `linux-riscv64` **musl** ELF to the riscv64
+  box (port 2229) and runs it.
+- **p85-x86-verify.sh** — Ships the `linux-x86_64` musl ELF to the x86_64 box
+  (port 2227). SysV-x86 is byte-*changing* under plan-85's aligned ABI, so
+  execution — not bytes — is its correctness gate.
+- **p85-win-verify.sh** — The Win64 sibling: ships the `.exe` to the Windows box
+  (port 2230), runs it via `cmd`, and diffs stdout (Windows byte-identity is a
+  non-goal, so execution is the only Win64 check).
+
 ## Acceptance / runtime harness
 
 Build fixture programs, run them, and diff their behavior against goldens.

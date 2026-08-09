@@ -168,7 +168,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: element_type.to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text,
         })
     }
@@ -196,24 +196,24 @@ impl CodeBuilder<'_> {
         match key_type {
             "String" => {
                 self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), key_slot));
-                self.emit(abi::load_u64(abi::ARG[2], &scratch9, 0));
-                self.emit(abi::add_immediate(abi::ARG[1], &scratch9, 8));
+                self.emit(abi::load_u64(abi::c_arg(2), &scratch9, 0));
+                self.emit(abi::add_immediate(abi::c_arg(1), &scratch9, 8));
             }
             "Boolean" | "Byte" => {
                 self.emit(abi::add_immediate(
-                    abi::ARG[1],
+                    abi::c_arg(1),
                     abi::stack_pointer(),
                     key_slot,
                 ));
-                self.emit(abi::move_immediate(abi::ARG[2], "Integer", "1"));
+                self.emit(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
             }
             "Integer" | "Float" | "Fixed" => {
                 self.emit(abi::add_immediate(
-                    abi::ARG[1],
+                    abi::c_arg(1),
                     abi::stack_pointer(),
                     key_slot,
                 ));
-                self.emit(abi::move_immediate(abi::ARG[2], "Integer", "8"));
+                self.emit(abi::move_immediate(abi::c_arg(2), "Integer", "8"));
             }
             other => {
                 return Err(format!(
@@ -252,8 +252,8 @@ impl CodeBuilder<'_> {
         self.emit_map_query_key(key_type, key_slot)?;
         let key_ptr = self.temporary_vreg();
         let key_len = self.temporary_vreg();
-        self.emit(abi::move_register(&key_ptr, abi::ARG[1]));
-        self.emit(abi::move_register(&key_len, abi::ARG[2]));
+        self.emit(abi::move_register(&key_ptr, abi::c_arg(1)));
+        self.emit(abi::move_register(&key_len, abi::c_arg(2)));
 
         let map = self.temporary_vreg();
         self.emit(abi::load_u64(&map, abi::stack_pointer(), collection_slot));
@@ -394,12 +394,12 @@ impl CodeBuilder<'_> {
         // Fallback: full probe via `_mfb_rt_map_probe` (also lazily builds buckets).
         self.emit(abi::label(&fallback));
         self.emit(abi::load_u64(
-            abi::ARG[0],
+            abi::c_arg(0),
             abi::stack_pointer(),
             collection_slot,
         ));
-        self.emit(abi::move_register(abi::ARG[1], &key_ptr));
-        self.emit(abi::move_register(abi::ARG[2], &key_len));
+        self.emit(abi::move_register(abi::c_arg(1), &key_ptr));
+        self.emit(abi::move_register(abi::c_arg(2), &key_len));
         self.emit(abi::branch_link(MAP_PROBE_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -409,13 +409,13 @@ impl CodeBuilder<'_> {
             library: None,
         });
         // x0 = entry index, or -1 (signed negative) when absent.
-        self.emit(abi::compare_immediate(abi::RET[0], "0"));
+        self.emit(abi::compare_immediate(abi::mfb_return(0), "0"));
         self.emit(abi::branch_lt(not_found_label));
         let fb_scratch = self.temporary_vreg();
         let fb_map = self.temporary_vreg();
         let fb_entry = self.temporary_vreg();
         self.emit(abi::move_immediate(&fb_scratch, "Integer", &entry_size));
-        self.emit(abi::multiply_registers(&fb_entry, abi::RET[0], &fb_scratch));
+        self.emit(abi::multiply_registers(&fb_entry, abi::mfb_return(0), &fb_scratch));
         self.emit(abi::load_u64(
             &fb_map,
             abi::stack_pointer(),
@@ -475,7 +475,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done));
             return Ok(ValueResult {
                 type_: value_type.to_string(),
-                location: result.render(),
+                location: Operand::from(result.render()),
                 text: format!("get({collection_type}, {key_type}) [hash]"),
             });
         }
@@ -547,7 +547,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: value_type.to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("get({collection_type}, {key_type})"),
         })
     }
@@ -627,7 +627,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done));
             return Ok(ValueResult {
                 type_: value_type.to_string(),
-                location: result.render(),
+                location: Operand::from(result.render()),
                 text: format!("getOr({collection_type}, {key_type}, {value_type}) [hash]"),
             });
         }
@@ -714,7 +714,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: value_type.to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("getOr({collection_type}, {key_type}, {value_type})"),
         })
     }

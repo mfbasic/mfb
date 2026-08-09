@@ -283,7 +283,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: result_type.to_string(),
-            location: "void".to_string(),
+            location: Operand::from("void"),
             text: format!("call {target}({})", join_texts(&arg_values)),
         })
     }

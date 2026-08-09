@@ -7,6 +7,18 @@ that is now disproven.
 Severity: LOW
 Class: Footgun / Other (drifted abstraction)
 
+> **✅ RESOLVED by plan-85 (2026-08-08).** The neutral MIR stream no longer carries
+> AArch64 physical register names for ABI roles — the overloaded `%arg`/`%ret` tokens
+> are replaced by six convention-EXPLICIT tokens (`%argMFB`/`%retMFB`, `%argC`/`%retC`,
+> `%argSys`/`%retSys`), and MFB's ABI is aligned (SysV `%retMFB`=`%argMFB`=`[rdi,rsi,
+> rdx,rcx]`). `select_x86` now realizes every operand by a direct table lookup on its
+> explicit token, and the `remap_x86_abi` CFG fixpoint (the "un-AArch64 the stream"
+> pass this bug is about) is **DELETED** (commit `838a988f8`). AArch64/RISC-V stay
+> byte-identical (their realization was already positional); SysV-x86 changes to the
+> aligned layout, proven correct by rt-behavior on a real Linux-x86 box (2228). Move to
+> `completed-bugs/` when plan-85 merges. See `planning/plan-85-*.md` (esp. `-A` §2 and
+> the `-B` §C6 correction for the execution-proven approach).
+
 Status: Open — Phase 1 (audit + byte-identity oracle) and Phase 2 for the **macOS**
 platform emitters landed on `main` (byte-identical, verified). A 2026-07-28 session
 added the **windows-x86_64 byte-identity goldens** the fixpoint deletion needs

@@ -75,7 +75,7 @@ impl CodeBuilder<'_> {
             "Integer",
             RESOURCE_RECORD_SIZE,
         ));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_symbol_call(ARENA_ALLOC_SYMBOL);
         let alloc_ok = self.label("default_resource_alloc_ok");
         self.emit(abi::compare_immediate(
@@ -85,7 +85,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::move_register(&record, abi::RET[1]));
+        self.emit(abi::move_register(&record, abi::mfb_return(1)));
         // Zero the record (invalid internals), then mark it closed.
         let bytes: usize = RESOURCE_RECORD_SIZE_BYTES;
         let mut offset = 0;
@@ -109,7 +109,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, "Integer", "0"));
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register.render(),
+                    location: Operand::from(register.render()),
                     text: "default Nothing".to_string(),
                 })
             }
@@ -118,7 +118,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, "Boolean", "0"));
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register.render(),
+                    location: Operand::from(register.render()),
                     text: "default Boolean".to_string(),
                 })
             }
@@ -127,7 +127,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, type_, "0"));
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register.render(),
+                    location: Operand::from(register.render()),
                     text: format!("default {type_}"),
                 })
             }
@@ -135,7 +135,7 @@ impl CodeBuilder<'_> {
                 let register = self.load_empty_string_constant()?;
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register.render(),
+                    location: Operand::from(register.render()),
                     text: "default String".to_string(),
                 })
             }
@@ -164,13 +164,13 @@ impl CodeBuilder<'_> {
                 // The union block: `{tag@0, record-ptr@8}`, 16 bytes.
                 let block = self.allocate_register()?;
                 self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
-                self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+                self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
                 self.emit_arena_alloc_call();
                 let alloc_ok = self.label("default_union_alloc_ok");
                 self.emit(abi::branch_eq(&alloc_ok));
                 self.emit_allocation_error_return()?;
                 self.emit(abi::label(&alloc_ok));
-                self.emit(abi::move_register(&block, abi::RET[1]));
+                self.emit(abi::move_register(&block, abi::mfb_return(1)));
                 let variants = self.resource_union_cleanup(type_).ok_or_else(|| {
                     format!("native code cannot resolve resource-union variants for '{type_}'")
                 })?;
@@ -204,7 +204,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: block.render(),
+                    location: Operand::from(block.render()),
                     text: format!("closed union {type_}"),
                 })
             }
@@ -236,7 +236,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: record.render(),
+                    location: Operand::from(record.render()),
                     text: format!("closed {type_}"),
                 })
             }
@@ -258,7 +258,7 @@ impl CodeBuilder<'_> {
                 let register = self.emit_build_inlined_record(type_, &field_slots)?;
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register.render(),
+                    location: Operand::from(register.render()),
                     text: format!("default {type_}"),
                 })
             }
@@ -293,7 +293,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, &record, RESOURCE_OFFSET_STATE));
                 return Ok(ValueResult {
                     type_: state_type,
-                    location: register.render(),
+                    location: Operand::from(register.render()),
                     text: "state".to_string(),
                 });
             }
@@ -387,7 +387,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: field_type,
-            location: register.render(),
+            location: Operand::from(register.render()),
             text: format!("{}.{}", target_value.text, member),
         })
     }
@@ -467,7 +467,7 @@ impl CodeBuilder<'_> {
         let register = self.emit_build_inlined_record(type_, &field_slots)?;
         Ok(ValueResult {
             type_: type_.to_string(),
-            location: register.render(),
+            location: Operand::from(register.render()),
             text: format!("with {}", target_value.text),
         })
     }
@@ -542,8 +542,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(total_len, left_len, right_len));
         self.emit(abi::store_u64(total_len, abi::stack_pointer(), total_slot));
         // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
-        self.emit(abi::add_immediate(abi::ARG[0], total_len, 9));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::add_immediate(abi::c_arg(0), total_len, 9));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -555,7 +555,7 @@ impl CodeBuilder<'_> {
         // break the result-vs-argument dataflow, so a later consumer would
         // arg-map the value. A neutral register carries it safely.
         let result_ptr = self.allocate_register()?;
-        self.emit(abi::move_register(&result_ptr, abi::RET[1]));
+        self.emit(abi::move_register(&result_ptr, abi::mfb_return(1)));
         self.emit(abi::load_u64(left_cur, abi::stack_pointer(), left_slot));
         self.emit(abi::load_u64(right_cur, abi::stack_pointer(), right_slot));
         self.emit(abi::add_immediate(right_cur, right_cur, 8));
@@ -593,7 +593,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result_ptr.render(),
+            location: Operand::from(result_ptr.render()),
             text: format!("({} & {})", left.text, right.text),
         })
     }

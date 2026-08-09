@@ -1,4 +1,4 @@
-use crate::target::shared::code::{CodeInstruction, Operand};
+use crate::target::shared::code::{AbiConvention, AbiRole, CodeInstruction, Operand};
 
 // There is deliberately no per-helper clobber list here: every internal
 // `bl _mfb_*` runtime call destroys the entire caller-saved integer file
@@ -9,9 +9,9 @@ use crate::target::shared::code::{CodeInstruction, Operand};
 // specs' unread `abi.clobbers` field, deleted with it by bug-329 (bug-120
 // records why a per-call reader must never trust such a list).
 
-pub(crate) fn argument_register(index: usize) -> Result<String, String> {
-    if index < ARG.len() {
-        Ok(ARG[index].to_string())
+pub(crate) fn argument_register(index: usize) -> Result<Operand, String> {
+    if index < REGISTER_ARGUMENT_COUNT {
+        Ok(mfb_arg(index))
     } else {
         Err(format!(
             "aarch64 code plan cannot pass argument {index}; stack arguments are not implemented"
@@ -92,8 +92,72 @@ pub(crate) fn fp_temporary_register(allocation: usize) -> Result<String, String>
     }
 }
 
-pub(crate) fn return_register() -> &'static str {
-    RET[0]
+pub(crate) fn return_register() -> Operand {
+    mfb_return(0)
+}
+
+// --- plan-85-A: convention-explicit ABI token accessors ---
+//
+// The six-token vocabulary that supersedes the two overloaded `%arg`/`%ret` role
+// tokens. Each returns a typed [`Operand::Abi`] (a `Copy` payload — no
+// `Box<str>`), realized per backend by a direct table lookup to its **final
+// aligned** physical register (plan-85-A §2): on SysV `%argMFB`/`%retMFB`/`%argC`
+// all collapse to the aligned bank `[rdi,rsi,rdx,rcx]` and `%retC` keeps `rax`,
+// so a dual-role MFB value sits in the argument register with no staging hop.
+//
+// These are the constructors the emission-site conversion (plan-85-B/C) calls;
+// they are a dormant primitive in plan-85-A (nothing emits them yet), exercised
+// by the `abi::tests` round-trip below. The `#[allow(dead_code)]` mirrors
+// `Operand::vreg`'s (plan-82): the primitive lands before its production writers.
+
+/// MFB internal-convention argument register `index` (0..8).
+pub(crate) const fn mfb_arg(index: usize) -> Operand {
+    Operand::abi(AbiConvention::Mfb, AbiRole::Arg, index as u8)
+}
+
+/// MFB internal-convention result register `index` (0..4).
+pub(crate) const fn mfb_return(index: usize) -> Operand {
+    Operand::abi(AbiConvention::Mfb, AbiRole::Ret, index as u8)
+}
+
+/// Platform C-ABI argument register `index` (0..8).
+pub(crate) const fn c_arg(index: usize) -> Operand {
+    Operand::abi(AbiConvention::C, AbiRole::Arg, index as u8)
+}
+
+/// Platform C-ABI result register `index` (0..2; `rax`/`rdx` on x86).
+pub(crate) const fn c_return(index: usize) -> Operand {
+    Operand::abi(AbiConvention::C, AbiRole::Ret, index as u8)
+}
+
+/// Syscall-convention argument register `index` (0..6).
+pub(crate) const fn sys_arg(index: usize) -> Operand {
+    Operand::abi(AbiConvention::Sys, AbiRole::Arg, index as u8)
+}
+
+/// Syscall-convention result register (`rax` on x86).
+#[allow(dead_code)] // no emitter stages a syscall result explicitly today (they reuse mfb_return(0))
+pub(crate) const fn sys_return() -> Operand {
+    Operand::abi(AbiConvention::Sys, AbiRole::Ret, 0)
+}
+
+/// The AArch64 `xN` bank an explicit ABI token realizes to (plan-85-A §2). On
+/// AArch64 args and results coincide (the k-th argument and k-th result are both
+/// `xN`), so **every** convention and role collapses to `x{index}` — the property
+/// that makes the six-token vocabulary byte-identical on AArch64/RISC-V. The
+/// `retC`/`argSys`/`retSys` indices all fall inside `x0..x7`.
+const ABI_POSITIONAL_XREGS: [&str; 8] = ["x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"];
+
+/// Realize an explicit ABI token to its AArch64 `xN` spelling (plan-85-A §2).
+/// Convention and role are irrelevant on AArch64 — the bank is positional — so
+/// only `index` is taken. RISC-V selection calls this too and then remaps
+/// `xN`→`aN` through its existing positional `remap_register`, exactly as the
+/// legacy tokens flowed. Panics on an out-of-range index (a construction bug).
+pub(crate) fn realize_abi_positional(index: u8) -> &'static str {
+    ABI_POSITIONAL_XREGS
+        .get(index as usize)
+        .copied()
+        .unwrap_or_else(|| panic!("ABI token index {index} out of AArch64 positional range"))
 }
 
 /// The zero register as a register operand — the constant 0 readable as a source,
@@ -118,54 +182,34 @@ pub(crate) const LR: &str = "lr";
 /// `r15`). Never `"x19"`. (plan-34-A)
 pub(crate) const ARENA: &str = crate::target::shared::code::mir::ARENA_BASE;
 
-// --- plan-34-B Phase 3b: role-named call-boundary tokens ---
+// --- neutral `%`-sentinel call-boundary tokens ---
 //
 // These `%`-sentinel tokens name a call boundary by ROLE, not by an AArch64
 // register number, so the three genuinely-distinct SysV banks (call args, syscall
-// args, results) are no longer collapsed into one `x0..x7` namespace that the x86
-// backend has to reconstruct via `remap_x86_abi`'s CFG dataflow. The `%` prefix
+// args, results) are not collapsed into one `x0..x7` namespace. The `%` prefix
 // cannot collide with a physical register, immediate, symbol, label, or type name
-// (the same guarantee `regalloc`'s vreg sentinel relies on). During Phase 3b a
-// seam translates each back to its AArch64 spelling (`ARG[n]`/`RET[n]`/`SYSARG[n]`
-// → `x{n}`, `SYSNR` → `x8`, `SYSRET` → `x0`, `CLOSURE_ENV` → `x28`) before
-// instruction selection, so the three backends see today's input unchanged and
-// the migration is byte-identical; Phase 4 deletes the seam and teaches each
-// backend to realize the tokens directly (AArch64/riscv positional, x86 by table
-// lookup — no inference).
+// (the same guarantee `regalloc`'s vreg sentinel relies on). The arg/result banks
+// are now the typed `Operand::Abi` six-token vocabulary (plan-85); the remaining
+// `%`-string tokens below are the ones with no convention accessor (the
+// syscall-number register, the scratch/local pools, and the pinned
+// arena/closure/thread registers). Each backend realizes them during selection:
+// AArch64 positional (`SYSNR` → `x8`, `CLOSURE_ENV` → `x28`), riscv64 remaps the
+// `xN`, x86-64 by direct table lookup — no CFG inference (`remap_x86_abi` deleted).
 
-/// A call's Nth outgoing argument (0..8; 8 in registers per
-/// [`REGISTER_ARGUMENT_COUNT`], the rest in a stack tail — bug-08). Never
-/// allocator-colored.
-pub(crate) const ARG: [&str; 8] = [
-    "%arg0", "%arg1", "%arg2", "%arg3", "%arg4", "%arg5", "%arg6", "%arg7",
-];
-
-/// A call's Nth result. `RET[0..4]` are the fallible-call ABI's tag / value /
-/// error-message / error-source (`spec: memory/02_fallible-call-abi.md`); an
-/// infallible call uses `RET[0]` only.
-pub(crate) const RET: [&str; 4] = ["%ret0", "%ret1", "%ret2", "%ret3"];
+// plan-85-B/D: the single-role arg/result/syscall-arg string arrays (`ARG`/`RET`/
+// `SYSARG`) are gone — every emission site now names a typed `Operand::Abi` via the
+// convention-explicit accessors (`mfb_arg`/`mfb_return`/`c_arg`/`c_return`/`sys_arg`;
+// `return_register`/`argument_register`/`string_{length,data}_register` are typed
+// aliases). The tokens no longer flow as `Raw` strings at emission, so there is no
+// string to realize except where a codegen pass renders one (the fused
+// compare-branch expansion), which the string realizers still cover.
 
 /// The syscall-number register — AArch64/Linux `x8`, AArch64/macOS `x16`, riscv64
 /// `a7`, x86-64 `rax`. Four realizations of one role, which is exactly why it
-/// cannot be spelled as a register number.
+/// cannot be spelled as a register number. Kept as a neutral `%`-token (there is
+/// no convention accessor for the syscall *number* — the six-token vocabulary
+/// covers arg/result only).
 pub(crate) const SYSNR: &str = "%sysnr";
-
-/// A syscall's Nth argument. Distinct from [`ARG`]: x86-64 passes syscall arg 3 in
-/// `r10`, not `rcx`, because the `syscall` instruction clobbers `rcx`.
-pub(crate) const SYSARG: [&str; 6] = [
-    "%sysarg0", "%sysarg1", "%sysarg2", "%sysarg3", "%sysarg4", "%sysarg5",
-];
-
-/// A syscall's result (AArch64 `x0`, riscv64 `a0`, x86-64 `rax`).
-///
-/// Never emitted, and not expected to be: emitters stage a syscall result
-/// through `RET[0]`, which realizes to the same register. It is kept because
-/// [`realize_abi_token`] spells every token in this family literally, so
-/// deleting the one unread member would leave the `"%sysret"` arm there as a
-/// magic string with no name anywhere (bug-326-A2 — a deliberate keep, not an
-/// oversight and not a promise about a later phase).
-#[allow(dead_code)]
-pub(crate) const SYSRET: &str = "%sysret";
 
 /// The Darwin syscall-number register — macOS/AArch64 delivers the number in
 /// `x16` (IP1), not Linux's `x8`, and the Phase-3b seam is ISA-wide (one
@@ -318,24 +362,21 @@ pub(crate) fn fp_argument_register(index: usize) -> Result<&'static str, String>
     })
 }
 
-/// Translate a call-boundary role token to its AArch64 register spelling — the
+/// Translate a neutral call-boundary token to its AArch64 register spelling — the
 /// seam **all three** backends apply during selection before their per-ISA remap
 /// (AArch64 uses `xN` directly; riscv64 then remaps `xN` to its own file; x86-64
-/// then runs `remap_x86_abi`'s CFG role-inference to reach its SysV home). This is
-/// the plan-34-B Phase 3b state: Phase 4's x86 direct-lookup (`map_x86_operand`)
-/// was reverted because the entry stub and runtime-helper bodies stage arguments
-/// with result-accessors that only the inference disambiguates on x86 (bug-85). A
-/// non-token value passes through unchanged.
+/// realizes it directly too, no CFG inference — `remap_x86_abi` was deleted in
+/// plan-85-D). This covers only the neutral tokens with **no** convention spelling —
+/// the syscall-number register (`%sysnr`/`%sysnr_darwin`), the machine-floor scratch
+/// pools (`%scratchN`/`%fscratchN`/`%vscratchN`), the callee-saved persistent
+/// locals (`%localN`), and the pinned `%closure_env`/`%thread`/`%mathpool`. The
+/// convention-explicit six-token vocabulary is a typed `Operand::Abi` realized
+/// directly by each backend's `Operand::Abi` handler and never reaches this string
+/// seam: plan-85-D made every emission, every parameter/result `location`, and the
+/// fused compare-branch expansion carry the typed operand. A non-token value passes
+/// through unchanged.
 pub(crate) fn realize_abi_token(value: &str) -> Option<&'static str> {
     Some(match value {
-        "%arg0" | "%ret0" | "%sysarg0" | "%sysret" => "x0",
-        "%arg1" | "%ret1" | "%sysarg1" => "x1",
-        "%arg2" | "%ret2" | "%sysarg2" => "x2",
-        "%arg3" | "%ret3" | "%sysarg3" => "x3",
-        "%arg4" | "%sysarg4" => "x4",
-        "%arg5" | "%sysarg5" => "x5",
-        "%arg6" => "x6",
-        "%arg7" => "x7",
         "%sysnr" => "x8",
         "%sysnr_darwin" => "x16",
         "%closure_env" => "x28",
@@ -415,16 +456,15 @@ pub(crate) fn syscall_register() -> &'static str {
     SYSNR
 }
 
-/// The print/write helpers' length argument — argument role 2, spelled as its
-/// token (plan-34-D). Realized `x2` at the Phase-3b seam, exactly the register
-/// the helpers have always read.
-pub(crate) fn string_length_register() -> &'static str {
-    ARG[2]
+/// The print/write helpers' length argument — MFB argument role 2 (plan-34-D),
+/// realized `x2`/`rdx`/… exactly the register the helpers have always read.
+pub(crate) fn string_length_register() -> Operand {
+    mfb_arg(2)
 }
 
-/// The print/write helpers' data-pointer argument — argument role 1 (plan-34-D).
-pub(crate) fn string_data_register() -> &'static str {
-    ARG[1]
+/// The print/write helpers' data-pointer argument — MFB argument role 1 (plan-34-D).
+pub(crate) fn string_data_register() -> Operand {
+    mfb_arg(1)
 }
 
 pub(crate) fn is_callee_saved(register: &str) -> bool {
@@ -1516,13 +1556,52 @@ mod tests {
     }
 
     #[test]
+    fn convention_explicit_abi_accessors() {
+        // plan-85-A: each accessor yields the expected typed `Operand::Abi`
+        // variant and renders to its convention-explicit token spelling.
+        assert_eq!(mfb_arg(0).render(), "%argMFB0");
+        assert_eq!(mfb_arg(7).render(), "%argMFB7");
+        assert_eq!(mfb_return(0).render(), "%retMFB0");
+        assert_eq!(mfb_return(3).render(), "%retMFB3");
+        assert_eq!(c_arg(2).render(), "%argC2");
+        assert_eq!(c_return(0).render(), "%retC0");
+        assert_eq!(c_return(1).render(), "%retC1");
+        assert_eq!(sys_arg(3).render(), "%argSys3");
+        assert_eq!(sys_return().render(), "%retSys");
+        assert_eq!(
+            mfb_arg(1),
+            Operand::abi(AbiConvention::Mfb, AbiRole::Arg, 1)
+        );
+        assert_eq!(c_return(1), Operand::abi(AbiConvention::C, AbiRole::Ret, 1));
+    }
+
+    #[test]
+    fn abi_positional_realization_collapses_every_convention() {
+        // plan-85-A §2: on the positional ABIs (AArch64 `xN`, RISC-V remaps to
+        // `aN`) every convention and role collapses to `x{index}`. Assert that
+        // realize_abi_positional matches x{index} across the whole index range and
+        // is convention/role-agnostic.
+        for index in 0u8..8 {
+            assert_eq!(realize_abi_positional(index), format!("x{index}"));
+        }
+        // The retC / argSys / retSys indices all fall inside x0..x7 and realize the
+        // same way (positional), which is why AArch64/RISC-V are byte-identical.
+        assert_eq!(realize_abi_positional(0), "x0"); // %retSys / %retC0 / %retMFB0
+        assert_eq!(realize_abi_positional(1), "x1"); // %retC1
+        assert_eq!(realize_abi_positional(5), "x5"); // %argSys5
+    }
+
+    #[test]
     fn register_role_helpers() {
-        // plan-34-B Phase 3b: arguments are named by the role token, realized to
-        // the AArch64 register by the selection seam.
-        assert_eq!(argument_register(0).unwrap(), "%arg0");
-        assert_eq!(argument_register(7).unwrap(), "%arg7");
-        assert_eq!(realize_abi_token("%arg0"), Some("x0"));
-        assert_eq!(realize_abi_token("%arg7"), Some("x7"));
+        // plan-85-B/D: arguments are named by the convention-EXPLICIT token
+        // (`%argMFB`, the aligned MFB call bank), a typed `Operand::Abi` realized to
+        // the AArch64 register positionally by each backend's `Operand::Abi` handler
+        // (`realize_abi_positional`) — it never reaches the string `realize_abi_token`
+        // seam, which now covers only the neutral no-convention tokens.
+        assert_eq!(argument_register(0).unwrap().render(), "%argMFB0");
+        assert_eq!(argument_register(7).unwrap().render(), "%argMFB7");
+        assert_eq!(realize_abi_positional(0), "x0");
+        assert_eq!(realize_abi_positional(7), "x7");
         assert!(argument_register(8).is_err());
         // bug-08: arguments beyond the register window go through the stack-tail
         // sentinels, resolved to concrete `sp`-relative accesses in the frame.
@@ -1553,9 +1632,10 @@ mod tests {
         assert_eq!(fp_temporary_register(0).unwrap(), "d0");
         assert_eq!(fp_temporary_register(7).unwrap(), "d7");
         assert!(fp_temporary_register(8).is_err());
-        // Named ABI registers.
-        assert_eq!(return_register(), "%ret0");
-        assert_eq!(realize_abi_token("%ret0"), Some("x0"));
+        // Named ABI registers. The MFB result is a typed convention token realized
+        // positionally by each backend's `Operand::Abi` handler (not the string seam).
+        assert_eq!(return_register().render(), "%retMFB0");
+        assert_eq!(realize_abi_positional(0), "x0");
         assert_eq!(link_register(), "lr");
         assert_eq!(stack_pointer(), "sp");
         assert_eq!(syscall_register(), "%sysnr");
@@ -1567,10 +1647,10 @@ mod tests {
             let expected = format!("d{i}");
             assert_eq!(realize_abi_token(token), Some(expected.as_str()));
         }
-        assert_eq!(string_length_register(), "%arg2");
-        assert_eq!(realize_abi_token(string_length_register()), Some("x2"));
-        assert_eq!(string_data_register(), "%arg1");
-        assert_eq!(realize_abi_token(string_data_register()), Some("x1"));
+        assert_eq!(string_length_register().render(), "%argMFB2");
+        assert_eq!(realize_abi_positional(2), "x2");
+        assert_eq!(string_data_register().render(), "%argMFB1");
+        assert_eq!(realize_abi_positional(1), "x1");
         assert!(is_callee_saved("x19"));
         assert!(is_callee_saved("x28"));
         assert!(!is_callee_saved("x0"));

@@ -600,25 +600,25 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&newcap, abi::stack_pointer(), newcap_slot));
         // alloc size = 8 (len word) + newcap_payload + 1 (NUL).
         // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
-        self.emit(abi::add_immediate(abi::ARG[0], &newcap, 9));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::add_immediate(abi::c_arg(0), &newcap, 9));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             newbuf_slot,
         ));
         // newbuf[0] = newlen.
         self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
-        self.emit(abi::store_u64(&newlen, abi::RET[1], 0));
+        self.emit(abi::store_u64(&newlen, abi::mfb_return(1), 0));
         // Copy the current bytes (len) to newbuf+8.
         self.emit(abi::load_u64(&ptr, abi::stack_pointer(), name_slot));
         self.emit(abi::load_u64(&len, &ptr, 0)); // len
         self.emit(abi::add_immediate(&ptr, &ptr, 8)); // old data
-        self.emit(abi::add_immediate(&dst, abi::RET[1], 8)); // new data
+        self.emit(abi::add_immediate(&dst, abi::mfb_return(1), 8)); // new data
         self.emit_copy_bytes(&dst, &ptr, &len, "concat_self_old");
         // Copy the operand bytes (rlen) to newbuf+8+len. dst now points at +8+len.
         self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
@@ -634,20 +634,24 @@ impl CodeBuilder<'_> {
         // spilled in newbuf_slot, so it survives this call. arena_free clobbers
         // all caller-saved registers. This free runs exactly once per regrow.
         // plan-71-C Family-1a: ptr is arg 0 of arena-free → `%arg0`.
-        self.emit(abi::load_u64(abi::ARG[0], abi::stack_pointer(), name_slot));
         self.emit(abi::load_u64(
-            abi::ARG[1],
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            name_slot,
+        ));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
             abi::stack_pointer(),
             oldsize_slot,
         ));
         self.emit_arena_free_call();
         // Install new buffer; spare = newcap_payload - newlen.
         self.emit(abi::load_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             newbuf_slot,
         ));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), name_slot));
+        self.emit(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), name_slot));
         self.emit(abi::load_u64(&newcap, abi::stack_pointer(), newcap_slot));
         self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
         self.emit(abi::subtract_registers(&newcap, &newcap, &newlen));

@@ -12,26 +12,7 @@ use crate::target::shared::code::mir::{
     FUSED_SHARE_FIELD,
 };
 use crate::target::shared::code::CodeInstruction;
-use crate::target::shared::code::Operand;
-
-/// A call/return boundary that fixes the SysV ABI role of an `x0`–`x8` operand.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum AbiBoundary {
-    Call,
-    Syscall,
-    Ret,
-}
-
-fn abi_boundary_of(instruction: &CodeInstruction) -> Option<AbiBoundary> {
-    match instruction.op {
-        CodeOp::BranchLink | CodeOp::BranchLinkRegister => Some(AbiBoundary::Call),
-        CodeOp::Svc => Some(AbiBoundary::Syscall),
-        CodeOp::Ret => Some(AbiBoundary::Ret),
-        _ => None,
-    }
-}
-
-const X86_DEF_FIELDS: &[&str] = &["dst", "carry_out", "borrow_out"];
+use crate::target::shared::code::{AbiConvention, AbiRole, Operand};
 
 /// Map residual AArch64 scratch `xN` (N ≥ 9) to an x86 GPR (encoding-only; see
 /// the call site). Avoids `r14` (zero), `r15` (arena_base), and `rsp`.
@@ -81,13 +62,6 @@ fn map_scratch_register(n: usize) -> &'static str {
 // in practice.
 const CALL_ARGS: &[&str] = &["rdi", "rsi", "rdx", "rcx", "r8", "r9", "rax", "rbp"];
 const SYS_ARGS: &[&str] = &["rdi", "rsi", "rdx", "r10", "r8", "r9"];
-// x0/x1 are the SysV return registers (rax/rdx). x2/x3 extend the set only for
-// the runtime's 4-register error-Result convention (tag=x0, value=x1,
-// message=x2, source=x3), which `make_error_result` produces and the error/TRAP
-// path consumes immediately (no intervening call), so caller-saved rcx/rsi are
-// safe distinct homes. Without these, x2/x3 fell back to rax and aliased,
-// corrupting propagated errors.
-const RETS: &[&str] = &["rax", "rdx", "rcx", "rsi"];
 
 /// Which x86-64 calling convention `select_x86` realizes the residual ABI
 /// registers against (plan-47-B). `SysV` reads the constants above unchanged —
@@ -114,571 +88,96 @@ pub(crate) enum X86Abi {
 // even allocate `add_carry` (which needs 4 simultaneously-live), so the plan's
 // "accepted 3-register regression" was in fact a hard failure (§Corrections).
 const CALL_ARGS_WIN64: &[&str] = &["rcx", "rdx", "r8", "r9", "rdi", "rsi", "rax", "rbp"];
-// Win64 result bank: SysV's rcx/rsi (slots 2/3 of the 4-register fallible-result
-// convention) collide with Win64 argument register rcx, so use r8/r9 — caller-saved,
-// unpinned, and consumed by the error/TRAP path with no intervening call (§4.1).
-const RETS_WIN64: &[&str] = &["rax", "rdx", "r8", "r9"];
 
-/// Map an AArch64 ABI register `xN` (N ≤ 8) to its x86-64 home given its role
-/// (an argument flowing into the next call/syscall, a return value, or a result
-/// coming out of a preceding call/syscall) and the active `abi`.
-fn map_abi_register(n: usize, role: Option<AbiBoundary>, is_result: bool, abi: X86Abi) -> String {
-    let (call_args, rets): (&[&str], &[&str]) = match abi {
-        X86Abi::SysV => (CALL_ARGS, RETS),
-        X86Abi::Win64 => (CALL_ARGS_WIN64, RETS_WIN64),
-    };
-    let reg = if is_result {
-        rets.get(n).copied().unwrap_or("rax")
-    } else {
-        match role {
-            Some(AbiBoundary::Call) => call_args.get(n).copied().unwrap_or("rax"),
-            // Windows has no stable syscall ABI — every OS call is an imported-DLL
-            // call through the IAT (master §3), so a syscall boundary never reaches
-            // the Win64 arm. SysV keeps its raw-syscall register file.
-            Some(AbiBoundary::Syscall) => match abi {
-                X86Abi::SysV if n == 8 => "rax", // syscall number
-                X86Abi::SysV => SYS_ARGS.get(n).copied().unwrap_or("rax"),
-                X86Abi::Win64 => {
-                    unreachable!("Win64 emits no syscall boundary; OS calls go through the IAT")
-                }
-            },
-            Some(AbiBoundary::Ret) => rets.get(n).copied().unwrap_or("rax"),
-            // No following boundary: a leftover ABI register used as a plain value
-            // — most often a call RESULT whose boundary the dataflow lost (e.g. an
-            // arena pointer `x1` copied in a loop, where the loop back-edge poisons
-            // `boundary_before` so `is_result` is false at the copy). Fall back to
-            // that index's RESULT register (`x1`→rdx), NOT always rax — mapping a
-            // leftover `x1` to rax (the OK tag = 0) gave a null-dst copy → SIGSEGV
-            // in the datetime/json/regex/lambda/resource record builders.
-            None => rets.get(n).copied().unwrap_or("rax"),
-        }
-    };
-    reg.to_string()
-}
+/// The C-ABI return bank (plan-85-A §2): `rax:rdx`, the ≤2 registers the platform
+/// C ABI returns in, identical on SysV and Win64. `%retC` keeps `rax` — the one
+/// register MFB's aligned convention does *not* claim — so a genuine C boundary is
+/// the sole `rax`-bearing site.
+const C_RETS: &[&str] = &["rax", "rdx"];
 
-/// Context-free direct map from an ABI *role token* to its x86-64 register under
-/// `abi` — **no CFG role inference** (`%argN` → `CALL_ARGS[N]`, `%sysargN` →
-/// `SYS_ARGS[N]`, `%retN` → `RETS[N]`, `%sysnr`/`%sysret` → `rax`); `None` for any
-/// non-role value. This is the map bug-85 tried to realize directly and
-/// `remap_x86_abi`'s fixpoint replaced. plan-71 drives the fixpoint toward it: at a
-/// site where this map and the inference AGREE the fixpoint is deletable
-/// byte-identically; where they DISAGREE a later letter must re-tokenize (Category
-/// 1) or stage a move (Category 2). The audit in `remap_x86_abi` reports every
-/// disagreement so plan-71-A can census the split (plan-71-A §3/§4).
-fn map_token_direct(value: &str, abi: X86Abi) -> Option<String> {
-    let (call_args, sys_args, rets): (&[&str], &[&str], &[&str]) = match abi {
-        X86Abi::SysV => (CALL_ARGS, SYS_ARGS, RETS),
+/// Realize a **convention-explicit** ABI token (plan-85-A `Operand::Abi`) to its
+/// final **aligned** x86-64 register under `abi`, by a direct table lookup — the
+/// whole point of the six-token vocabulary (no CFG role inference). Per §2:
+/// `%argMFB`/`%retMFB`/`%argC` all draw from the call-argument bank (on SysV the
+/// aligned `[rdi,rsi,rdx,rcx,…]`, so a result register == the argument register),
+/// `%retC` from `rax:rdx`, `%argSys`/`%retSys` from the syscall file. This is the
+/// map `select_x86` applies directly, bypassing `remap_x86_abi` (deleted in
+/// plan-85-D). Panics on an out-of-range index (a construction bug).
+fn realize_abi_operand(
+    convention: AbiConvention,
+    role: AbiRole,
+    index: usize,
+    abi: X86Abi,
+) -> &'static str {
+    let (call_args, sys_args): (&[&str], &[&str]) = match abi {
+        X86Abi::SysV => (CALL_ARGS, SYS_ARGS),
         // Win64 emits no raw syscall (OS calls go through the IAT), so `SYS_ARGS`
         // is unreachable under Win64; it is passed only to keep the arity uniform.
-        X86Abi::Win64 => (CALL_ARGS_WIN64, SYS_ARGS, RETS_WIN64),
+        X86Abi::Win64 => (CALL_ARGS_WIN64, SYS_ARGS),
     };
-    let index_after = |prefix: &str| {
-        value
-            .strip_prefix(prefix)
-            .and_then(|rest| rest.parse::<usize>().ok())
+    let bank: &[&str] = match (convention, role) {
+        // MFB's ALIGNED convention (plan-85-A §2): an MFB argument, an MFB result, and
+        // a C-call argument ALL draw from the call-argument bank on BOTH ABIs (SysV
+        // `[rdi,rsi,rdx,rcx]`, Win64 `[rcx,rdx,r8,r9]`). Alignment is the whole point:
+        // an MFB result reused as an argument is the SAME register (a self-move), so
+        // no staging is needed and the CFG fixpoint is deletable. This MUST hold on
+        // Win64 too — the shared lowering relies on result==arg register coincidence
+        // everywhere, so a non-aligned Win64 result (e.g. `rax`) silently corrupts a
+        // result-fed argument (breaks `io` end-to-end). The consequence — a Win64
+        // result landing on `rcx` that then feeds a variable shift — is handled in the
+        // encoder (`var_shift` shifts in a scratch when dst==rcx), NOT by de-aligning.
+        (AbiConvention::Mfb, _) | (AbiConvention::C, AbiRole::Arg) => call_args,
+        (AbiConvention::C, AbiRole::Ret) => C_RETS,
+        (AbiConvention::Sys, AbiRole::Arg) => match abi {
+            X86Abi::SysV => sys_args,
+            X86Abi::Win64 => {
+                unreachable!("Win64 emits no syscall boundary; OS calls go through the IAT")
+            }
+        },
+        (AbiConvention::Sys, AbiRole::Ret) => match abi {
+            X86Abi::SysV => return "rax",
+            X86Abi::Win64 => {
+                unreachable!("Win64 emits no syscall boundary; OS calls go through the IAT")
+            }
+        },
     };
-    if let Some(n) = index_after("%arg") {
-        return call_args.get(n).map(|reg| reg.to_string());
-    }
-    if let Some(n) = index_after("%sysarg") {
-        return sys_args.get(n).map(|reg| reg.to_string());
-    }
-    if let Some(n) = index_after("%ret") {
-        return rets.get(n).map(|reg| reg.to_string());
-    }
-    if value == "%sysnr" || value == "%sysret" {
-        // The syscall number lives in `rax` (SysV) and a syscall's result comes
-        // back in `rax`; both agree with the inference's `x8`→rax / `x0`-result
-        // coloring at a syscall boundary.
-        return Some("rax".to_string());
-    }
-    None
+    bank.get(index).copied().unwrap_or_else(|| {
+        panic!("ABI token index {index} out of range for {convention:?}/{role:?} on x86")
+    })
 }
 
-/// Is `value` one of the deferred ABI *role tokens* (`%argN`/`%sysargN`/`%retN`/
-/// `%sysnr`/`%sysret`)? These are the tokens `select_x86` leaves un-realized so
-/// `remap_x86_abi` can both realize them (byte-identically) and cross-check them.
-fn is_abi_role_token(value: &str) -> bool {
-    map_token_direct(value, X86Abi::SysV).is_some()
-}
 
-/// Remap the residual AArch64 physical registers a selected stream still carries
-/// (the ABI registers `x0`–`x8`, `sp`, `xzr`/`x31`, the link register `x30`, and
-/// leftover scratch) to their x86-64 / SysV homes. Virtual registers (`%vN`) and
-/// `arena_base` (already realized to `r15`) pass through. The hard case is
-/// `x0`–`x8`, whose role depends on the nearest call/`svc`/`ret` boundary.
-fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>, abi: X86Abi) {
-    // plan-71-A cross-check gate. `select_x86` now DEFERS the ABI role tokens into
-    // this pass (rather than realizing them to `xN` up front); the audit reports
-    // where the context-free `map_token_direct` disagrees with the inference. With
-    // `MFB_BUG387_AUDIT` unset every emitted byte is unchanged: the deferred tokens
-    // are realized to exactly the `xN` `select_x86` used to hand us, and `mapped`
-    // is still what gets written. See the `audit`/pre-pass block below.
-    let mismatches = remap_x86_abi_inner(
-        instructions,
-        abi,
-        std::env::var_os("MFB_BUG387_AUDIT").is_some(),
-    );
-    for line in mismatches {
-        eprintln!("{line}");
-    }
-}
-
-/// The body of [`remap_x86_abi`], parameterized on `audit` so the unit tests can
-/// force the cross-check on regardless of the environment. Returns the
-/// `BUG387-MISMATCH` report lines (empty unless `audit`); the register rewriting it
-/// performs on `instructions` is byte-identical whether or not `audit` is set.
-fn remap_x86_abi_inner(
-    instructions: &mut Vec<CodeInstruction>,
-    abi: X86Abi,
-    audit: bool,
-) -> Vec<String> {
-    // The argument/result register files for the active convention. `SysV` reads
-    // the module constants unchanged (byte-identical); `Win64` reads the `*_WIN64`
-    // tables. Both result banks are 4 wide, so every `rets.len()` guard is
-    // convention-independent.
-    let (call_args, rets): (&[&str], &[&str]) = match abi {
-        X86Abi::SysV => (CALL_ARGS, RETS),
-        X86Abi::Win64 => (CALL_ARGS_WIN64, RETS_WIN64),
-    };
-    // The link register has no x86 equivalent — `call` pushes / `ret` pops the
-    // return address — so drop the frame's LR save/restore entirely. Shared code
-    // now spells it with the neutral `abi::LR` token (`"lr"`); the `"x30"`
-    // spelling is still accepted from any non-shared producer (plan-34-A).
+/// Map the MECHANICAL residual an already-ABI-realized x86 stream still carries
+/// (plan-85-D — the replacement for the deleted `remap_x86_abi` CFG fixpoint). By
+/// the time this runs, `select_x86` stage 1 has realized every ABI *role*/convention
+/// token directly to its x86 register, so the ONLY `xN` left are leftover physical
+/// scratch (`x9`–`x30`, from `realize_abi_token` of `%scratchN`/`%localN`), plus
+/// `sp`, the `x31` zero spelling, the `x30`/`lr` link register (dropped — `call`
+/// pushes/pops the return address), and the `dN`/`vN`/`qN` float bank. There is no
+/// role inference: an `x0`–`x8` here would mean an unrealized ABI token escaped
+/// stage 1, which a `debug_assert` flags (release maps it context-free so it still
+/// encodes). This is the mechanical tail of the old fixpoint, verbatim.
+fn realize_x86_residual(instructions: &mut Vec<CodeInstruction>, abi: X86Abi) {
+    // The link register has no x86 equivalent — drop its frame save/restore.
     instructions.retain(|inst| {
         !inst
             .fields
             .iter()
             .any(|(_, value)| value == "x30" || value == "lr")
     });
-
-    // plan-71-A: realize the deferred ABI role tokens back to their `xN` spelling
-    // so the inference below runs byte-identically to the pre-plan-71 world (where
-    // `select_x86` realized them itself). Remember, per (instruction, field), which
-    // operand was a role token and its original spelling, so the rewrite loop can
-    // cross-check the inference's chosen register against `map_token_direct`. Under
-    // `audit`, also snapshot each such instruction's original op + token fields for
-    // the divergence report (`role_site[i]`). This runs after the `x30`/`lr` retain
-    // so the indices it records match the ones the analyses below use.
-    let mut role_token: std::collections::HashMap<(usize, usize), String> =
-        std::collections::HashMap::new();
-    let mut role_site: Vec<Option<String>> = vec![None; instructions.len()];
-    for (i, inst) in instructions.iter_mut().enumerate() {
-        if !inst
-            .fields
-            .iter()
-            .any(|(_, v)| is_abi_role_token(&v.render()))
-        {
-            continue;
-        }
-        if audit {
-            let fields = inst
-                .fields
-                .iter()
-                .map(|(k, v)| format!("{k}={v}"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            // plan-71-C Phase 0: append the builder source (`file:line`) captured
-            // through the CodeInstruction→MIR→select pipeline, so the audit names
-            // the exact emission site the re-tokenization work-list needs.
-            let src = inst
-                .source
-                .map(|loc| format!(" @src={}:{}", loc.file(), loc.line()))
-                .unwrap_or_default();
-            role_site[i] = Some(format!("{} [{fields}]{src}", inst.op.mnemonic()));
-        }
-        for (p, (_, value)) in inst.fields.iter_mut().enumerate() {
-            let rendered = value.render();
-            if is_abi_role_token(&rendered) {
-                role_token.insert((i, p), rendered.clone());
-                if let Some(reg) = crate::target::shared::abi::realize_abi_token(&rendered) {
-                    *value = Operand::from(reg);
-                }
-            }
-        }
-    }
-    let mut mismatches: Vec<String> = Vec::new();
-
-    let count = instructions.len();
-    // The boundary each register's value flows into, resolved along CONTROL FLOW
-    // (not just linear order). A value set right before `b <label>` flows to the
-    // branch target, so an unconditional branch must be followed — otherwise a
-    // return value set before `b <ret_label>` would be misread as an argument to
-    // whatever call happens to sit linearly after the branch (e.g. the grow
-    // block after `arena_alloc_done`), sending the status/pointer to `rdi`/`rsi`
-    // instead of `rax`/`rdx`.
-    let label_index: std::collections::HashMap<String, usize> = instructions
-        .iter()
-        .enumerate()
-        .filter(|(_, inst)| inst.op == CodeOp::Label)
-        .filter_map(|(i, inst)| {
-            inst.fields
-                .iter()
-                .find(|(key, _)| *key == "name")
-                .map(|(_, name)| (name.render(), i))
-        })
-        .collect();
-    let branch_target = |i: usize| -> Option<usize> {
-        instructions[i]
-            .fields
-            .iter()
-            .find(|(key, _)| *key == "target")
-            .and_then(|(_, name)| label_index.get(&name.render()).copied())
-    };
-    // First boundary reached when execution begins at index `start`, following
-    // fall-through and unconditional branches (a cycle with no boundary → None).
-    let first_boundary_from = |start: usize| -> Option<AbiBoundary> {
-        let mut j = start;
-        let mut seen = vec![false; count];
-        loop {
-            if j >= count || seen[j] {
-                return None;
-            }
-            seen[j] = true;
-            if let Some(b) = abi_boundary_of(&instructions[j]) {
-                return Some(b);
-            }
-            if instructions[j].op == CodeOp::Branch {
-                match branch_target(j) {
-                    Some(target) => j = target,
-                    None => return None,
-                }
-            } else {
-                j += 1;
-            }
-        }
-    };
-    // Nearest boundary strictly AFTER each index (the one its value flows into),
-    // where "after" follows the control transfer that index performs.
-    let next_after: Vec<Option<AbiBoundary>> = (0..count)
-        .map(|i| {
-            let next = if instructions[i].op == CodeOp::Branch {
-                branch_target(i).unwrap_or(count)
-            } else {
-                i + 1
-            };
-            first_boundary_from(next)
-        })
-        .collect();
-
-    // The call/syscall boundary in effect when CONTROL FLOW reaches each index —
-    // the mirror of `next_after`, for the result direction. An `x0`/`x1` read at a
-    // point whose boundary is a call/syscall is that call's result. Computed as a
-    // forward dataflow over the CFG (not the linear predecessor): a label reached
-    // only through `b.eq call_ok` (its fall-through blocked by the error path's
-    // `ret`) inherits the boundary from the branch source — the original call —
-    // instead of whatever call the error path happened to make (e.g. `arena_free`
-    // in a scope-drop), which would make the result read the wrong register.
-    let mut branch_preds: std::collections::HashMap<usize, Vec<usize>> =
-        std::collections::HashMap::new();
-    for j in 0..count {
-        if let Some(target) = branch_target(j) {
-            branch_preds.entry(target).or_default().push(j);
-        }
-    }
-    let falls_into = |i: usize| -> bool {
-        // The instruction before index i transfers control to i by fall-through
-        // unless it ends the block (an unconditional branch or a return).
-        i > 0 && instructions[i - 1].op != CodeOp::Branch && instructions[i - 1].op != CodeOp::Ret
-    };
-    let out_boundary = |i: usize, before: Option<AbiBoundary>| -> Option<AbiBoundary> {
-        match abi_boundary_of(&instructions[i]) {
-            Some(b @ (AbiBoundary::Call | AbiBoundary::Syscall)) => Some(b),
-            _ => before, // a `ret`/non-boundary passes the incoming context through
-        }
-    };
-    let mut boundary_before: Vec<Option<AbiBoundary>> = vec![None; count];
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for i in 0..count {
-            // Merge the boundary out of every control-flow predecessor. `merged`
-            // is `None` until a predecessor is seen. A call/syscall boundary wins
-            // over a no-boundary path: the error-Result staging block
-            // (`raw_conversion_done_0`) is entered both from `make_error_result`
-            // calls (which deliver x0–x3 in RETS) AND by fall-through from the
-            // success path (which sets x0/x1 manually with no call). Both paths
-            // MUST read x0–x3 from RETS to match the callee, so the block's
-            // in-effect boundary is the call.
-            let mut merged: Option<Option<AbiBoundary>> = None;
-            let mut absorb = |val: Option<AbiBoundary>| match merged {
-                None => merged = Some(val),
-                Some(cur) => {
-                    merged = Some(match (cur, val) {
-                        (Some(a), _) => Some(a), // a boundary wins over anything
-                        (None, other) => other,
-                    })
-                }
-            };
-            if falls_into(i) {
-                absorb(out_boundary(i - 1, boundary_before[i - 1]));
-            }
-            if let Some(preds) = branch_preds.get(&i) {
-                for &j in preds {
-                    absorb(out_boundary(j, boundary_before[j]));
-                }
-            }
-            let new_val = merged.unwrap_or(None);
-            if new_val != boundary_before[i] {
-                boundary_before[i] = new_val;
-                changed = true;
-            }
-        }
-    }
-    // A block-entry index resets the linear def state: either it is reached ONLY
-    // through branches (no fall-through), or it is a MERGE — reachable by a branch
-    // from another block as well as by fall-through. In the merge case the
-    // fall-through path's defs did not happen on the branch-in paths, so a use
-    // here must not be treated as "still defined since the boundary" based on the
-    // fall-through predecessor alone (that is what let the error-Result staging
-    // stores read CALL_ARGS instead of the call's RETS).
-    let block_entry: Vec<bool> = (0..count)
-        .map(|i| !falls_into(i) || branch_preds.contains_key(&i))
-        .collect();
-
-    // A def of `xK` (K < rets.len()) is a *staged result* — part of the
-    // 4-register error-Result convention — when the first thing that consumes it
-    // along control flow is a result-read USE: a use in a block whose in-effect
-    // boundary is a call/syscall (e.g. `error_label`'s `store x1,[arena+32]` and
-    // `mov x20,x2`), reached BEFORE the value flows into any call/syscall
-    // boundary. Such a def must be colored `RETS[K]` to agree with that consumer.
-    // `next_after` alone would see the later code-printing `write` syscall and
-    // miscolor the def `SYS_ARGS[K]` (rdi/rsi/rdx) — so the exit-range error
-    // report would store the message pointer into the code slot and read the
-    // message back from the wrong register. A value consumed directly BY a
-    // boundary instead (the program-exit code handed to the `exit` syscall with
-    // no intervening use) is NOT staged and keeps its arg mapping.
-    let def_is_staged_result = |def_idx: usize, n: usize| -> bool {
-        let target = format!("x{n}");
-        // BFS over control flow following BOTH edges of conditional branches:
-        // the SIMD binary tail's select (`ldr x0,[a]; …; b.le done; mov x0,x1;
-        // done: str x0`) delivers the first def to the reset-block store along
-        // the TAKEN edge while the fall-through path redefines it — the def is
-        // staged if ANY path reaches a qualifying reset-block result read.
-        let mut work: Vec<(usize, bool)> = vec![(def_idx + 1, false)];
-        let mut seen = std::collections::HashSet::new();
-        let mut staged = false;
-        while let Some((mut j, mut entered_reset)) = work.pop() {
-            loop {
-                if j >= count || !seen.insert((j, entered_reset)) {
-                    break;
-                }
-                // Passing into a reset block (a branch-only target or a merge)
-                // means a use there is colored `is_result` (its
-                // `defined_since_boundary` is cleared) — so the def must be RETS
-                // to match. A read in the SAME straight-line block does not
-                // finalize the coloring — the value stays live past it (the
-                // entry's exit path is `mov x0,x1; cmp x0,255; ja …; jmp
-                // exit_label`, where the decisive consumer is the exit label's
-                // arena-staging store); such a use is forced to the matching
-                // RETS color by `staged_live` below.
-                if block_entry[j] {
-                    entered_reset = true;
-                }
-                if abi_boundary_of(&instructions[j]).is_some() {
-                    break; // this path consumes it at a call/syscall boundary
-                }
-                let mut reads = false;
-                let mut redefines = false;
-                for (k, v) in &instructions[j].fields {
-                    if v == target.as_str() {
-                        if X86_DEF_FIELDS.contains(k) {
-                            redefines = true;
-                        } else {
-                            reads = true;
-                        }
-                    }
-                }
-                if reads
-                    && entered_reset
-                    && matches!(
-                        boundary_before[j],
-                        Some(AbiBoundary::Call) | Some(AbiBoundary::Syscall)
-                    )
-                {
-                    staged = true;
-                    break;
-                }
-                if redefines {
-                    break; // overwritten on this path before a deciding use
-                }
-                if instructions[j].op == CodeOp::Branch {
-                    match branch_target(j) {
-                        Some(t) => j = t,
-                        None => break,
-                    }
-                } else {
-                    // A conditional branch (any non-Branch op with a target —
-                    // b.cc / cbz-style / x86.jcc) forks: queue the taken edge
-                    // and continue on the fall-through.
-                    if let Some(t) = branch_target(j) {
-                        work.push((t, entered_reset));
-                    }
-                    j += 1;
-                }
-            }
-            if staged {
-                break;
-            }
-        }
-        staged
-    };
-    let staged_result_def: Vec<bool> = (0..count)
-        .map(|i| {
-            let def_n = instructions[i].fields.iter().find_map(|(k, v)| {
-                if X86_DEF_FIELDS.contains(k) {
-                    v.render()
-                        .strip_prefix('x')
-                        .and_then(|rest| rest.parse::<usize>().ok())
-                        .filter(|n| *n < rets.len())
-                } else {
-                    None
-                }
-            });
-            match def_n {
-                Some(n) => def_is_staged_result(i, n),
-                None => false,
-            }
-        })
-        .collect();
-
-    // Incoming-parameter reachability, as a forward MUST dataflow over the CFG
-    // (bug-362). The two facts an incoming-parameter use rests on — "no
-    // call/syscall has executed yet" and "`xN` has not been redefined yet" —
-    // are properties of the paths from the function entry to an instruction,
-    // NOT of the instructions that happen to precede it in the emitted order.
-    //
-    // Tracking them with a linear flag made any block *branched into from
-    // before* a call inherit that call's state, because the call was emitted
-    // first. `fs::setBuffered`'s enable arm is exactly that shape: it reads its
-    // `File*` parameter, but the disable arm's `bl _mfb_rt_fs_file_drain` sits
-    // above it in the stream, so the parameter stopped being recognized as one
-    // and `map_abi_register` colored it by its next boundary (`ret`) into the
-    // RESULT register `rax` instead of the argument register `rdi`. The helper
-    // then stored the buffering flag through whatever `rax` held — a SIGSEGV in
-    // every x86-64 program that enabled per-file buffering.
-    //
-    // Meet is intersection (a fact must hold on EVERY path), so a block reached
-    // both before and after a call is correctly *not* treated as parameter-live.
-    // Unreachable indices have no predecessors and keep the "top" value; they
-    // never execute, so the coloring there cannot matter.
-    let def_mask_at = |i: usize| -> u32 {
-        instructions[i]
-            .fields
-            .iter()
-            .filter(|(key, _)| X86_DEF_FIELDS.contains(key))
-            .filter_map(|(_, value)| {
-                value
-                    .render()
-                    .strip_prefix('x')
-                    .and_then(|rest| rest.parse::<u32>().ok())
-            })
-            .filter(|n| *n <= 7)
-            .fold(0u32, |mask, n| mask | (1 << n))
-    };
-    const PARAM_BITS: u32 = 0xff; // x0–x7, the SysV-deliverable argument registers
-                                  // `entry_clean[i]`: no call/syscall boundary executes on any path entry → i.
-                                  // `entry_undef[i]`: bit n set means `xN` is undefined on every such path.
-    let mut entry_clean: Vec<bool> = vec![true; count];
-    let mut entry_undef: Vec<u32> = vec![PARAM_BITS; count];
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for i in 1..count {
-            let mut merged: Option<(bool, u32)> = None;
-            let mut absorb = |clean: bool, undef: u32| {
-                merged = Some(match merged {
-                    None => (clean, undef),
-                    Some((c, u)) => (c && clean, u & undef),
-                });
-            };
-            let out_of = |j: usize, clean: &[bool], undef: &[u32]| -> (bool, u32) {
-                let still_clean = clean[j]
-                    && !matches!(
-                        abi_boundary_of(&instructions[j]),
-                        Some(AbiBoundary::Call) | Some(AbiBoundary::Syscall)
-                    );
-                (still_clean, undef[j] & !def_mask_at(j))
-            };
-            if falls_into(i) {
-                let (c, u) = out_of(i - 1, &entry_clean, &entry_undef);
-                absorb(c, u);
-            }
-            if let Some(preds) = branch_preds.get(&i) {
-                for &j in preds {
-                    let (c, u) = out_of(j, &entry_clean, &entry_undef);
-                    absorb(c, u);
-                }
-            }
-            let (clean, undef) = merged.unwrap_or((true, PARAM_BITS));
-            if clean != entry_clean[i] || undef != entry_undef[i] {
-                entry_clean[i] = clean;
-                entry_undef[i] = undef;
-                changed = true;
-            }
-        }
-    }
-
-    // Walk forward tracking, per ABI register, whether it has been (re)defined
-    // since the last boundary — an `x0`/`x1` USE not redefined since its CFG
-    // boundary is that call's result. `defined_since_boundary` is reset at a
-    // branch-entered block, since its defs come from a different linear path.
-    let mut defined_since_boundary: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
-
-    // Incoming-parameter tracking, scoped to the whole function (not reset at
-    // boundaries). An incoming parameter is a *live-in* ABI register: `xK`
-    // (K ≤ 7) read before it is defined and before any call/syscall, on every
-    // path from the entry (`entry_clean`/`entry_undef` above — bug-362). SysV
-    // delivers it in `CALL_ARGS[K]` (rdi, rsi, …), but a vreg-pure helper copies
-    // it into a vreg at entry via `mov %vK, xK`, where the body maps that `xK`
-    // use by its role (e.g. `rax` in a call-free leaf). We bridge the two with a
-    // `mov <home>, CALL_ARGS[K]` prologue so the copy reads the real argument.
-    let mut param_home: std::collections::BTreeMap<usize, String> =
-        std::collections::BTreeMap::new();
-
-    // Registers whose live def was colored RETS as a staged result: same-block
-    // uses (the exit path's `cmp x0,255` between the staged `mov x0,x1` and the
-    // exit label's arena-staging store) must read the SAME register the def
-    // wrote, not the role-based coloring (whose next boundary is the shutdown
-    // call, giving CALL_ARGS). Cleared on redefinition, at boundaries, and at
-    // block entries (a reset block's uses are colored `is_result` = RETS
-    // directly, so the def and the cross-block consumer already agree).
-    let mut staged_live: std::collections::HashSet<usize> = std::collections::HashSet::new();
-
-    for i in 0..count {
-        let role = next_after[i];
-        // A block reached only by branches starts its def tracking fresh (its
-        // linear predecessor is a different control-flow path).
-        if block_entry[i] {
-            defined_since_boundary.clear();
-            staged_live.clear();
-        }
-        let mut new_defs: Vec<String> = Vec::new();
-        for (p, (key, value)) in instructions[i].fields.iter_mut().enumerate() {
-            let value_str = value.render();
-            let value_str = value_str.as_str();
-            if value_str == "sp" {
+    for inst in instructions.iter_mut() {
+        for (_, value) in inst.fields.iter_mut() {
+            let text = value.render();
+            let text = text.as_str();
+            if text == "sp" {
                 *value = Operand::from("rsp");
                 continue;
             }
-            if value_str == "x31" {
-                // The legacy zero spelling → the neutral zero token, which the
-                // encoder emits as an immediate zero (`store xzr` → `mov r/m, 0`).
-                // r14 is no longer pinned at 0 (plan-34-C freed it for allocation),
-                // so x31 must NOT map to r14 — that now holds an allocated value.
+            if text == "x31" {
                 *value = Operand::from(crate::target::shared::abi::ZERO);
                 continue;
             }
-            // Physical FP registers `dN` (the AArch64 double bank, used by the
-            // float builders/kernels) map 1:1 to `xmmN`. The `vN`/`qN` SIMD banks
-            // alias the same register file (NEON `v`/`q` = the `d` register's full
-            // 128 bits), so they map to the same `xmmN`. FP virtual registers
-            // (`%fN`) are colored to xmm by the allocator and pass through here.
-            // `abi::FP_SCRATCH` tokens (plan-34-D) never reach this arm: the
-            // Phase-3b seam in `select_x86` realizes every token to its AArch64
-            // spelling (`%fscratch0` → `d0`) before `remap_x86_abi` runs.
-            if let Some(fp) = value_str
+            if let Some(fp) = text
                 .strip_prefix(['d', 'v', 'q'])
                 .and_then(|rest| rest.parse::<usize>().ok())
                 .filter(|n| *n < 16)
@@ -686,7 +185,7 @@ fn remap_x86_abi_inner(
                 *value = Operand::from(format!("xmm{fp}"));
                 continue;
             }
-            let Some(n) = value_str
+            let Some(n) = text
                 .strip_prefix('x')
                 .and_then(|rest| rest.parse::<usize>().ok())
                 .filter(|n| *n <= 30)
@@ -694,161 +193,25 @@ fn remap_x86_abi_inner(
                 continue;
             };
             if n > 8 {
-                // Residual AArch64 caller/callee-saved scratch (`x9`–`x30`). The
-                // vreg-migrated helpers are mostly pure, but a few (arena_alloc's
-                // reserved-survivor save/restore around its nested fill call,
-                // errno bridges) still name physical scratch. Map it to an x86
-                // GPR so it ENCODES; such helpers may not be correct on x86 yet
-                // (Phase 1 runs integer programs that don't call them), tracked
-                // as the helper-purity follow-up.
                 *value = Operand::from(map_scratch_register(n));
-                continue;
-            }
-            let is_def = X86_DEF_FIELDS.contains(key);
-            // x0/x1 are the standard results; x2/x3 are results only for the
-            // 4-register error-Result convention (a callee that returns them
-            // without the caller redefining them since the call — regular calls
-            // return x0/x1, so this only fires for a propagated error).
-            let is_result = !is_def
-                && n < rets.len()
-                && !defined_since_boundary.contains(value_str)
-                && matches!(
-                    boundary_before[i],
-                    Some(AbiBoundary::Call) | Some(AbiBoundary::Syscall)
-                );
-            // An incoming parameter USE reached before any def of `xK` and before
-            // any call/syscall boundary consumes the SysV-delivered value, which
-            // lives in `CALL_ARGS[k]` (rdi, rsi, …). The role-based `map_abi_register`
-            // resolves `xK`'s home by the NEXT boundary its value flows into, but a
-            // parameter that is spilled straight to a stack slot (e.g. the Fixed
-            // toString formatter's `str x0,[sp]; str x1,[sp+8]` prologue) has no such
-            // downstream boundary along its control-flow path, so the role collapses
-            // to `None` → the rax fallback. Two such params (x0 and x1) then both map
-            // to rax, and the incoming-param bridge emits `mov rax,rdi; mov rax,rsi`,
-            // clobbering the first before its store — corrupting both spilled values.
-            // Pin such a use to its argument register so the store reads the real
-            // parameter and `param_home == arg` suppresses a bogus bridge.
-            let is_param_use =
-                !is_def && n <= 7 && entry_clean[i] && (entry_undef[i] >> n) & 1 == 1;
-            let mapped = if is_def && n < rets.len() && staged_result_def[i] {
-                staged_live.insert(n);
-                rets[n].to_string()
-            } else if !is_def && n < rets.len() && staged_live.contains(&n) {
-                // A same-block use of a staged-result def reads the register the
-                // def actually wrote (RETS), not the role-based coloring.
-                rets[n].to_string()
-            } else if is_param_use {
-                call_args
-                    .get(n)
-                    .map(|reg| reg.to_string())
-                    .unwrap_or_else(|| map_abi_register(n, role, is_result, abi))
             } else {
-                if is_def {
-                    staged_live.remove(&n);
-                }
-                map_abi_register(n, role, is_result, abi)
-            };
-            if is_param_use {
-                param_home.entry(n).or_insert_with(|| mapped.clone());
-            }
-            if is_def {
-                new_defs.push(value_str.to_string());
-            }
-            // plan-71-A cross-check: if this operand was a deferred role token,
-            // compare the context-free `map_token_direct` against the register the
-            // fixpoint chose. A disagreement is a site a later letter must handle
-            // (Category 1 re-tokenize / Category 2 stage); report it under `audit`.
-            // This is inspection only — `mapped` is still written unchanged.
-            if audit {
-                if let Some(token) = role_token.get(&(i, p)) {
-                    if let Some(direct) = map_token_direct(token, abi) {
-                        if direct != mapped {
-                            mismatches.push(format!(
-                                "BUG387-MISMATCH abi={} token={token} direct={direct} inferred={mapped} | site: {}",
-                                match abi {
-                                    X86Abi::SysV => "sysv",
-                                    X86Abi::Win64 => "win64",
-                                },
-                                role_site[i].as_deref().unwrap_or("?"),
-                            ));
-                        }
-                    }
-                }
-            }
-            *value = Operand::from(mapped);
-        }
-        match abi_boundary_of(&instructions[i]) {
-            // Only a call/syscall produces an x0/x1 result and opens a new result
-            // context. A `ret` does NOT — and crucially the error-check path puts
-            // a `ret` between a call and the `call_ok` label where its result is
-            // consumed, so treating `ret` as the last boundary would misread the
-            // result as an argument to the *next* call.
-            Some(AbiBoundary::Call | AbiBoundary::Syscall) => {
-                defined_since_boundary.clear();
-                staged_live.clear();
-            }
-            Some(AbiBoundary::Ret) => {}
-            None => {
-                for def in new_defs {
-                    defined_since_boundary.insert(def);
-                }
+                // A residual `x0`–`x8` means an ABI token was not realized in stage 1
+                // — a construction bug now that every arg/result/scratch is explicit.
+                // Fail loudly in debug; in release, map it context-free to the call
+                // bank so it still ENCODES (the same register the old fixpoint gave a
+                // stray argument-position `xN`) rather than emitting an invalid `xN`.
+                debug_assert!(
+                    false,
+                    "residual x{n} on x86 after direct ABI-token realization (unrealized token?)"
+                );
+                let bank = match abi {
+                    X86Abi::SysV => CALL_ARGS,
+                    X86Abi::Win64 => CALL_ARGS_WIN64,
+                };
+                *value = Operand::from(bank.get(n).copied().unwrap_or("rax"));
             }
         }
     }
-
-    // Bridge each incoming parameter from its SysV argument register into the
-    // register the body addresses it by. A parameter the body already reads from
-    // its arg register (`home == CALL_ARGS[k]`, the common case for helpers that
-    // pass it straight into a nested call) needs no copy.
-    let mut prologue: Vec<CodeInstruction> = Vec::new();
-    for (k, home) in &param_home {
-        let Some(arg) = call_args.get(*k) else {
-            continue;
-        };
-        if home == arg {
-            continue;
-        }
-        // plan-71-B Phase 2 probe: this inserted param-bridge `mov home, arg` is an
-        // instruction the fixpoint ADDS — it has no role-token preimage in the
-        // shared stream, so the context-free `map_token_direct` (plan-71-E's
-        // replacement) cannot reproduce it. Report each one under `audit` so a
-        // corpus sweep can measure whether the bridge is ever non-empty (if it is,
-        // plan-71-E's "audit-at-zero ⟹ byte-identical deletion" premise must also
-        // account for reproducing this prologue). Byte-identical: the insertion
-        // below is unchanged; this only observes it.
-        if audit {
-            mismatches.push(format!(
-                "BUG387-PARAMBRIDGE abi={} param={k} arg={arg} home={home}",
-                match abi {
-                    X86Abi::SysV => "sysv",
-                    X86Abi::Win64 => "win64",
-                },
-            ));
-        }
-        prologue.push(CodeInstruction {
-            op: CodeOp::from_mnemonic("mov").expect("x86 has a register-move op"),
-            fields: vec![
-                ("dst", Operand::from(home.clone())),
-                ("src", Operand::from(*arg)),
-            ],
-            source: None, // synthetic param bridge (measured dead: BUG387-PARAMBRIDGE=0)
-        });
-    }
-    if !prologue.is_empty() {
-        // Insert after the leading `entry` label; the frame `sub_sp` only touches
-        // rsp, so the copies may precede it. The arg registers are still live.
-        let at = usize::from(
-            instructions
-                .first()
-                .map(|inst| inst.op == CodeOp::Label)
-                .unwrap_or(false),
-        );
-        for (offset, inst) in prologue.into_iter().enumerate() {
-            instructions.insert(at + offset, inst);
-        }
-    }
-
-    mismatches
 }
 
 /// Rewrite the flag-reading branch of a fused *float* compare into the x86
@@ -1005,16 +368,33 @@ pub(crate) fn select_x86(instructions: Vec<MirInstruction>, abi: X86Abi) -> Vec<
             ARENA_BASE,
             "r15",
         );
-        // plan-34-B Phase-3b seam: realize a role token to its AArch64 spelling
-        // (`%arg3` → `x3`) so `remap_x86_abi`'s existing role inference reproduces
-        // today's result exactly (byte-identical). plan-71-A now DEFERS the ABI
-        // *role* tokens (`is_abi_role_token`: `%argN`/`%sysargN`/`%retN`/`%sysnr`/
-        // `%sysret`) past this seam so `remap_x86_abi` can realize AND cross-check
-        // them against `map_token_direct`; every other token (`%scratchN`,
-        // `%localN`, `%mathpool`, `%sysnr_darwin`, …) is realized here as before.
+        // plan-85-D direct-realize seam: every ABI token is realized to its final
+        // x86 register HERE, directly — there is no `remap_x86_abi` CFG inference
+        // anymore (deleted). A typed `Operand::Abi` (the six-token convention
+        // vocabulary) realizes to its ALIGNED register directly; convention tokens
+        // are ALWAYS typed now (plan-85-D typed every emission, every parameter/result
+        // `location`, and the fused compare-branch expansion — none ever reach here as
+        // a `Raw` string). The syscall-number register `%sysnr` realizes to `rax`; the
+        // remaining neutral tokens (`%scratchN`, `%localN`, `%mathpool`,
+        // `%sysnr_darwin`, …) realize via the shared `realize_abi_token` to their `xN`
+        // spelling for the mechanical residual pass below.
         for (_, value) in instruction.fields.iter_mut() {
+            if let Operand::Abi {
+                convention,
+                role,
+                index,
+            } = value
+            {
+                let reg = realize_abi_operand(*convention, *role, *index as usize, abi);
+                *value = Operand::from(reg);
+                continue;
+            }
             let rendered = value.render();
-            if is_abi_role_token(&rendered) {
+            // The syscall-number register lives in `rax` on x86-64 (the one
+            // intentionally-kept neutral ABI token with no convention spelling; its
+            // positional `x8` would otherwise fall through to the residual pass).
+            if rendered == "%sysnr" {
+                *value = Operand::from("rax");
                 continue;
             }
             if let Some(reg) = crate::target::shared::abi::realize_abi_token(&rendered) {
@@ -1022,7 +402,10 @@ pub(crate) fn select_x86(instructions: Vec<MirInstruction>, abi: X86Abi) -> Vec<
             }
         }
     }
-    remap_x86_abi(&mut out, abi);
+    // plan-85-D: `remap_x86_abi`'s CFG role inference is GONE — stage 1 above realized
+    // every ABI token directly (aligned, no inference). Only the mechanical residual
+    // (scratch `xN`, `sp`, `x31`, float bank, `x30`/`lr` drop) remains to map.
+    realize_x86_residual(&mut out, abi);
     out
 }
 
@@ -1089,60 +472,6 @@ mod tests {
     }
 
     #[test]
-    fn call_argument_and_return_mapping() {
-        // x0..x5 set before a `bl` are call arguments (rdi, rsi, rdx, rcx, r8, r9);
-        // x0/x1 read after the call are results (rax, rdx).
-        let out = sel(&[
-            ci("mov_imm", &[("dst", "x0"), ("value", "1")]),
-            ci("mov_imm", &[("dst", "x1"), ("value", "2")]),
-            ci("mov_imm", &[("dst", "x2"), ("value", "3")]),
-            ci("mov_imm", &[("dst", "x3"), ("value", "4")]),
-            ci("mov_imm", &[("dst", "x4"), ("value", "5")]),
-            ci("mov_imm", &[("dst", "x5"), ("value", "6")]),
-            ci("bl", &[("target", "_mfb_f")]),
-            ci("mov", &[("dst", "x9"), ("src", "x0")]),
-            ci("ret", &[]),
-        ]);
-        let vals = values(&out);
-        for arg in ["rdi", "rsi", "rdx", "rcx", "r8", "r9"] {
-            assert!(vals.contains(&arg.to_string()), "missing arg {arg}");
-        }
-        // x0 read after the call → rax (result).
-        assert!(vals.contains(&"rax".to_string()));
-    }
-
-    #[test]
-    fn internal_seventh_eighth_call_args() {
-        // x6/x7 as internal call args map to rax and rbp.
-        let out = sel(&[
-            ci("mov_imm", &[("dst", "x6"), ("value", "7")]),
-            ci("mov_imm", &[("dst", "x7"), ("value", "8")]),
-            ci("bl", &[("target", "_mfb_f")]),
-            ci("ret", &[]),
-        ]);
-        let vals = values(&out);
-        assert!(vals.contains(&"rax".to_string()));
-        assert!(vals.contains(&"rbp".to_string()));
-    }
-
-    #[test]
-    fn syscall_argument_and_number_mapping() {
-        // Before an `svc`: x0..x5 are syscall args (rdi rsi rdx r10 r8 r9) and x8
-        // is the syscall number (rax).
-        let out = sel(&[
-            ci("mov_imm", &[("dst", "x0"), ("value", "1")]),
-            ci("mov_imm", &[("dst", "x3"), ("value", "4")]),
-            ci("mov_imm", &[("dst", "x8"), ("value", "60")]),
-            ci("svc", &[]),
-            ci("ret", &[]),
-        ]);
-        let vals = values(&out);
-        assert!(vals.contains(&"rdi".to_string()));
-        assert!(vals.contains(&"r10".to_string())); // x3 syscall arg
-        assert!(vals.contains(&"rax".to_string())); // x8 syscall number
-    }
-
-    #[test]
     fn scratch_register_pool_wraps() {
         // High scratch registers land on the pool; x20 → rbx, x27 → r12, x28 → r13.
         assert_eq!(map_scratch_register(20), "rbx");
@@ -1152,73 +481,6 @@ mod tests {
         assert_eq!(map_scratch_register(9), "rbx");
     }
 
-    #[test]
-    fn map_abi_register_fallbacks() {
-        // Out-of-range indices fall back to rax in every role.
-        assert_eq!(
-            map_abi_register(9, Some(AbiBoundary::Call), false, X86Abi::SysV),
-            "rax"
-        );
-        assert_eq!(
-            map_abi_register(9, Some(AbiBoundary::Syscall), false, X86Abi::SysV),
-            "rax"
-        );
-        assert_eq!(
-            map_abi_register(9, Some(AbiBoundary::Ret), false, X86Abi::SysV),
-            "rax"
-        );
-        assert_eq!(map_abi_register(9, None, false, X86Abi::SysV), "rax");
-        assert_eq!(
-            map_abi_register(9, Some(AbiBoundary::Call), true, X86Abi::SysV),
-            "rax"
-        );
-        // A leftover ABI register with no boundary uses that index's RETS home.
-        assert_eq!(map_abi_register(1, None, false, X86Abi::SysV), "rdx");
-    }
-
-    /// SysV homes are exactly today's — `map_abi_register(_, _, _, SysV)` must not
-    /// move a single byte (plan-47-B Phase 1 byte-neutrality).
-    #[test]
-    fn map_abi_register_sysv_is_unchanged() {
-        let call = Some(AbiBoundary::Call);
-        assert_eq!(map_abi_register(0, call, false, X86Abi::SysV), "rdi");
-        assert_eq!(map_abi_register(1, call, false, X86Abi::SysV), "rsi");
-        assert_eq!(map_abi_register(2, call, false, X86Abi::SysV), "rdx");
-        assert_eq!(map_abi_register(3, call, false, X86Abi::SysV), "rcx");
-        assert_eq!(map_abi_register(4, call, false, X86Abi::SysV), "r8");
-        assert_eq!(map_abi_register(5, call, false, X86Abi::SysV), "r9");
-        // Internal extension for args 7/8 (rax/rbp).
-        assert_eq!(map_abi_register(6, call, false, X86Abi::SysV), "rax");
-        assert_eq!(map_abi_register(7, call, false, X86Abi::SysV), "rbp");
-        // Result bank rax,rdx,rcx,rsi.
-        assert_eq!(map_abi_register(0, None, true, X86Abi::SysV), "rax");
-        assert_eq!(map_abi_register(1, None, true, X86Abi::SysV), "rdx");
-        assert_eq!(map_abi_register(2, None, true, X86Abi::SysV), "rcx");
-        assert_eq!(map_abi_register(3, None, true, X86Abi::SysV), "rsi");
-    }
-
-    /// Win64 argument/result homes (plan-47-B §4.1/§4.2): rcx,rdx,r8,r9 then the
-    /// internal extension rdi,rsi,rax,r10; result bank rax,rdx,r8,r9.
-    #[test]
-    fn map_abi_register_win64_homes() {
-        let call = Some(AbiBoundary::Call);
-        assert_eq!(map_abi_register(0, call, false, X86Abi::Win64), "rcx");
-        assert_eq!(map_abi_register(1, call, false, X86Abi::Win64), "rdx");
-        assert_eq!(map_abi_register(2, call, false, X86Abi::Win64), "r8");
-        assert_eq!(map_abi_register(3, call, false, X86Abi::Win64), "r9");
-        assert_eq!(map_abi_register(4, call, false, X86Abi::Win64), "rdi");
-        assert_eq!(map_abi_register(5, call, false, X86Abi::Win64), "rsi");
-        assert_eq!(map_abi_register(6, call, false, X86Abi::Win64), "rax");
-        assert_eq!(map_abi_register(7, call, false, X86Abi::Win64), "rbp");
-        // Result bank — rcx/rsi replaced by r8/r9 so they don't collide with the
-        // Win64 argument registers.
-        assert_eq!(map_abi_register(0, None, true, X86Abi::Win64), "rax");
-        assert_eq!(map_abi_register(1, None, true, X86Abi::Win64), "rdx");
-        assert_eq!(map_abi_register(2, None, true, X86Abi::Win64), "r8");
-        assert_eq!(map_abi_register(3, None, true, X86Abi::Win64), "r9");
-        // A leftover (None, non-result) also draws from the Win64 result bank.
-        assert_eq!(map_abi_register(2, None, false, X86Abi::Win64), "r8");
-    }
 
     #[test]
     fn x30_link_register_is_dropped() {
@@ -1371,75 +633,6 @@ mod tests {
     }
 
     #[test]
-    fn incoming_parameter_bridge_prologue() {
-        // A function that reads x1 as an incoming parameter (spilled to a slot
-        // with no downstream call) gets a `mov <home>, rsi` bridge inserted after
-        // the entry label.
-        let out = sel(&[
-            ci("label", &[("name", "entry")]),
-            ci("str_u64", &[("src", "x1"), ("base", "sp"), ("offset", "8")]),
-            ci("ret", &[]),
-        ]);
-        // The prologue bridge copies from the SysV arg register rsi.
-        assert!(values(&out).iter().any(|v| v == "rsi"));
-        // The first instruction is still the entry label.
-        assert_eq!(out[0].op, CodeOp::Label);
-    }
-
-    #[test]
-    fn staged_error_result_def_and_use_colored_rets() {
-        // A def of x1 after a call whose only consumer is a result-read in a
-        // branch-only reset block (whose in-effect boundary is that call) is a
-        // staged error-Result: both the def and the cross-block read take the
-        // RETS coloring (x1 → rdx), matching the callee.
-        let out = sel(&[
-            ci("bl", &[("target", "_mfb_make_err")]),
-            ci("mov", &[("dst", "x1"), ("src", "x9")]), // staged def of x1
-            ci("b", &[("target", "stage")]),
-            ci("label", &[("name", "dead")]),
-            ci("ret", &[]),
-            ci("label", &[("name", "stage")]),
-            ci("str_u64", &[("src", "x1"), ("base", "sp"), ("offset", "0")]), // result read
-            ci("ret", &[]),
-        ]);
-        // x1 was colored rdx (RETS[1]) at both the def and the reset-block store.
-        let vals = values(&out);
-        assert!(vals.contains(&"rdx".to_string()));
-        assert!(!vals.iter().any(|v| v == "x1"));
-    }
-
-    #[test]
-    fn same_block_staged_use_reads_rets() {
-        // A staged-result def followed by a same-block use (before the deciding
-        // reset-block read) reads the register the def wrote (RETS), via the
-        // `staged_live` branch.
-        let out = sel(&[
-            ci("bl", &[("target", "_mfb_make_err")]),
-            ci("mov", &[("dst", "x0"), ("src", "x9")]), // staged def of x0
-            ci("cmp", &[("lhs", "x0"), ("rhs", "x10")]), // same-block use of x0
-            ci("b", &[("target", "stage")]),
-            ci("label", &[("name", "stage")]),
-            ci("str_u64", &[("src", "x0"), ("base", "sp"), ("offset", "0")]),
-            ci("ret", &[]),
-        ]);
-        // x0 stays as rax (RETS[0]) throughout — no x0 residue.
-        assert!(!values(&out).iter().any(|v| v == "x0"));
-    }
-
-    #[test]
-    fn branch_to_missing_label_has_no_boundary() {
-        // A branch whose target label is absent yields no resolvable boundary
-        // (exercises the `branch_target -> None` fall-throughs).
-        let out = sel(&[
-            ci("mov_imm", &[("dst", "x0"), ("value", "1")]),
-            ci("b", &[("target", "nowhere")]),
-            ci("ret", &[]),
-        ]);
-        // Still selects; x0 with no downstream boundary uses its RETS home (rax).
-        assert!(values(&out).iter().any(|v| v == "rax"));
-    }
-
-    #[test]
     fn arena_base_realizes_to_r15() {
         // The AArch64 arena-base realization register, once lowered to the neutral
         // `arena_base` and selected, becomes the x86 pin r15.
@@ -1454,237 +647,101 @@ mod tests {
         assert!(values(&out).iter().any(|v| v == "r15"));
     }
 
-    /// bug-362: an incoming parameter read on a branch arm that is reached
-    /// *before* a call must still map to its SysV argument register, even when
-    /// that call is emitted ABOVE the arm in the instruction stream.
-    ///
-    /// This is `fs::setBuffered`'s exact shape. Its disable arm calls
-    /// `_mfb_rt_fs_file_drain`; its enable arm — reached by the branch at the
-    /// top, so the call never executes on that path — stores the buffering flag
-    /// through the incoming `File*`. The old linear `boundary_since_entry` flag
-    /// had already seen the disable arm's `bl` by the time the walk reached the
-    /// enable arm, so the parameter stopped being recognized as one and was
-    /// colored by its next boundary (`ret`) into the RESULT register `rax`.
-    /// The helper then stored through whatever `rax` held: SIGSEGV on every
-    /// x86-64 Linux program that enabled per-file buffering.
     #[test]
-    fn a_parameter_read_on_an_arm_before_a_call_still_maps_to_its_argument_register() {
-        let out = sel(&[
-            ci("label", &[("name", "entry")]),
-            ci("cmp_imm", &[("lhs", "x1"), ("rhs", "0")]),
-            ci("b.ne", &[("target", "enable")]),
-            // Disable arm: parks the File* and calls the drain helper.
-            ci("mov", &[("dst", "x9"), ("src", "x0")]),
-            ci("bl", &[("target", "_mfb_rt_fs_file_drain")]),
-            ci("b", &[("target", "done")]),
-            // Enable arm: reached from `entry`, so `x0` is still the parameter.
-            ci("label", &[("name", "enable")]),
-            ci(
-                "mov_imm",
-                &[("dst", "x10"), ("type", "Integer"), ("value", "1")],
-            ),
-            ci(
-                "str_u64",
-                &[("src", "x10"), ("base", "x0"), ("offset", "40")],
-            ),
-            ci("label", &[("name", "done")]),
-            ci("ret", &[]),
-        ]);
-        let store = out
-            .iter()
-            .find(|inst| inst.get("offset").as_deref() == Some("40"))
-            .expect("the enable arm's flag store survives selection");
-        assert_eq!(
-            store.get("base").as_deref(),
-            Some("rdi"),
-            "the enable arm must address the File* through SysV argument 0, not \
-             a result register; got {:?}",
-            store.get("base"),
-        );
-        // The boolean argument on the same entry path maps to SysV argument 1.
-        let cmp = out
-            .iter()
-            .find(|inst| inst.op == CodeOp::CmpImm)
-            .expect("the entry compare survives selection");
-        assert_eq!(cmp.get("lhs").as_deref(), Some("rsi"));
-    }
-
-    // ---- plan-71-A: the context-free cross-check gate ----
-
-    #[test]
-    fn map_token_direct_matches_the_abi_tables() {
-        // SysV: call args, syscall args, returns, and the syscall nr/result.
+    fn realize_abi_operand_maps_to_aligned_registers() {
+        // plan-85-A §2 aligned SysV realization: MFB args/results and C args all
+        // draw from the aligned call-argument bank; %retC keeps rax:rdx; the
+        // syscall file is unchanged.
         for (n, reg) in ["rdi", "rsi", "rdx", "rcx", "r8", "r9", "rax", "rbp"]
             .into_iter()
             .enumerate()
         {
             assert_eq!(
-                map_token_direct(&format!("%arg{n}"), X86Abi::SysV).as_deref(),
-                Some(reg)
+                realize_abi_operand(AbiConvention::Mfb, AbiRole::Arg, n, X86Abi::SysV),
+                reg
+            );
+            assert_eq!(
+                realize_abi_operand(AbiConvention::C, AbiRole::Arg, n, X86Abi::SysV),
+                reg
             );
         }
+        // %retMFB is the byte-CHANGING choice: aligned [rdi,rsi,rdx,rcx], NOT the
+        // old rax-first result bank [rax,rdx,rcx,rsi].
+        for (n, reg) in ["rdi", "rsi", "rdx", "rcx"].into_iter().enumerate() {
+            assert_eq!(
+                realize_abi_operand(AbiConvention::Mfb, AbiRole::Ret, n, X86Abi::SysV),
+                reg
+            );
+        }
+        // %retC keeps the genuine C return bank rax:rdx.
+        assert_eq!(
+            realize_abi_operand(AbiConvention::C, AbiRole::Ret, 0, X86Abi::SysV),
+            "rax"
+        );
+        assert_eq!(
+            realize_abi_operand(AbiConvention::C, AbiRole::Ret, 1, X86Abi::SysV),
+            "rdx"
+        );
+        // Syscalls.
         for (n, reg) in ["rdi", "rsi", "rdx", "r10", "r8", "r9"]
             .into_iter()
             .enumerate()
         {
             assert_eq!(
-                map_token_direct(&format!("%sysarg{n}"), X86Abi::SysV).as_deref(),
-                Some(reg)
-            );
-        }
-        for (n, reg) in ["rax", "rdx", "rcx", "rsi"].into_iter().enumerate() {
-            assert_eq!(
-                map_token_direct(&format!("%ret{n}"), X86Abi::SysV).as_deref(),
-                Some(reg)
+                realize_abi_operand(AbiConvention::Sys, AbiRole::Arg, n, X86Abi::SysV),
+                reg
             );
         }
         assert_eq!(
-            map_token_direct("%sysnr", X86Abi::SysV).as_deref(),
-            Some("rax")
+            realize_abi_operand(AbiConvention::Sys, AbiRole::Ret, 0, X86Abi::SysV),
+            "rax"
         );
-        assert_eq!(
-            map_token_direct("%sysret", X86Abi::SysV).as_deref(),
-            Some("rax")
-        );
-        // Win64 reads the *_WIN64 tables.
+        // Win64: MFB arg AND result share the aligned Win64 call bank
+        // (rcx,rdx,r8,r9); a variable-shifted result landing on rcx is handled by
+        // the encoder, not by de-aligning. %retC still rax:rdx.
         for (n, reg) in ["rcx", "rdx", "r8", "r9"].into_iter().enumerate() {
             assert_eq!(
-                map_token_direct(&format!("%arg{n}"), X86Abi::Win64).as_deref(),
-                Some(reg)
+                realize_abi_operand(AbiConvention::Mfb, AbiRole::Arg, n, X86Abi::Win64),
+                reg
+            );
+            assert_eq!(
+                realize_abi_operand(AbiConvention::Mfb, AbiRole::Ret, n, X86Abi::Win64),
+                reg
             );
         }
         assert_eq!(
-            map_token_direct("%ret0", X86Abi::Win64).as_deref(),
-            Some("rax")
+            realize_abi_operand(AbiConvention::C, AbiRole::Ret, 0, X86Abi::Win64),
+            "rax"
         );
         assert_eq!(
-            map_token_direct("%ret2", X86Abi::Win64).as_deref(),
-            Some("r8")
+            realize_abi_operand(AbiConvention::C, AbiRole::Ret, 1, X86Abi::Win64),
+            "rdx"
         );
     }
 
     #[test]
-    fn is_abi_role_token_covers_only_role_tokens() {
-        for role in [
-            "%arg0", "%arg7", "%sysarg0", "%sysarg5", "%ret0", "%ret3", "%sysnr", "%sysret",
-        ] {
-            assert!(is_abi_role_token(role), "{role} should be a role token");
-        }
-        // Off-the-end indices and every non-role token are NOT deferred — they stay
-        // realized in `select_x86` exactly as before (so their bytes never move).
-        for other in [
-            "%arg8",
-            "%sysarg6",
-            "%ret4",
-            "%scratch0",
-            "%local0",
-            "%mathpool",
-            "%sysnr_darwin",
-            "x0",
-            "rdi",
-            "%v3",
-        ] {
-            assert!(
-                !is_abi_role_token(other),
-                "{other} must not be a role token"
-            );
-        }
-    }
-
-    #[test]
-    fn direct_map_agrees_with_the_fixpoint_on_clean_cases() {
-        // Call args in, then a result read back out: `%argK` colors `CALL_ARGS[K]`
-        // and the post-call `%ret0` colors `rax`, exactly what `map_token_direct`
-        // says — so audit mode reports NO mismatch for this shape.
-        let mut call = vec![
-            ci("mov_imm", &[("dst", "%arg0"), ("value", "1")]),
-            ci("mov_imm", &[("dst", "%arg1"), ("value", "2")]),
-            ci("mov_imm", &[("dst", "%arg5"), ("value", "6")]),
-            ci("bl", &[("target", "_mfb_f")]),
-            ci("mov", &[("dst", "x9"), ("src", "%ret0")]),
-            ci("ret", &[]),
-        ];
-        let mismatches = remap_x86_abi_inner(&mut call, X86Abi::SysV, true);
+    fn explicit_abi_token_realizes_to_aligned_register() {
+        use crate::target::shared::abi;
+        // A typed `Operand::Abi` is realized directly by the plan-85-A seam to its
+        // ALIGNED register. Proof: `%retMFB0` realizes to `rdi` (aligned
+        // CALL_ARGS[0]); the old rax-first result bank would give `rax`. If `rax`
+        // appeared, the aligned realization was not applied.
+        let inst = CodeInstruction::new("mov")
+            .field("dst", abi::mfb_return(0))
+            .field("src", abi::mfb_arg(1));
+        let out = sel(&[inst]);
+        let vals = values(&out);
         assert!(
-            mismatches.is_empty(),
-            "clean call case diverged: {mismatches:?}"
+            vals.iter().any(|v| v == "rdi"),
+            "%retMFB0 must realize aligned to rdi, got {vals:?}"
         );
-        let vals = values(&call);
-        for reg in ["rdi", "rsi", "r9", "rax"] {
-            assert!(vals.contains(&reg.to_string()), "missing {reg} in {vals:?}");
-        }
-
-        // Syscall args + number: `%sysargK` → `SYS_ARGS[K]`, `%sysnr` → `rax`.
-        let mut sys = vec![
-            ci("mov_imm", &[("dst", "%sysarg0"), ("value", "1")]),
-            ci("mov_imm", &[("dst", "%sysarg3"), ("value", "4")]),
-            ci("mov_imm", &[("dst", "%sysnr"), ("value", "60")]),
-            ci("svc", &[]),
-            ci("ret", &[]),
-        ];
-        let mismatches = remap_x86_abi_inner(&mut sys, X86Abi::SysV, true);
         assert!(
-            mismatches.is_empty(),
-            "clean syscall case diverged: {mismatches:?}"
+            vals.iter().any(|v| v == "rsi"),
+            "%argMFB1 must realize aligned to rsi, got {vals:?}"
         );
-        let vals = values(&sys);
-        for reg in ["rdi", "r10", "rax"] {
-            assert!(vals.contains(&reg.to_string()), "missing {reg} in {vals:?}");
-        }
-    }
-
-    #[test]
-    fn audit_reports_result_reused_as_argument() {
-        // A value produced into `%ret0` (rax) but flowing into the next call as its
-        // argument (rdi) — the dominant divergent idiom (plan-71-A §2). The fixpoint
-        // colors it `rdi` by role; the context-free map says `rax`; audit reports it.
-        let mut stream = vec![
-            ci("mov_imm", &[("dst", "%ret0"), ("value", "1")]),
-            ci("bl", &[("target", "_mfb_f")]),
-            ci("ret", &[]),
-        ];
-        let mismatches = remap_x86_abi_inner(&mut stream, X86Abi::SysV, true);
-        assert_eq!(
-            mismatches.len(),
-            1,
-            "expected exactly one mismatch: {mismatches:?}"
+        assert!(
+            !vals.iter().any(|v| v == "rax"),
+            "no rax expected — the old rax-first result bank must not appear, got {vals:?}"
         );
-        let line = &mismatches[0];
-        assert!(line.contains("BUG387-MISMATCH"), "{line}");
-        assert!(line.contains("token=%ret0"), "{line}");
-        assert!(line.contains("direct=rax"), "{line}");
-        assert!(line.contains("inferred=rdi"), "{line}");
-        assert!(line.contains("site: mov_imm"), "{line}");
-        // The register actually written is still the fixpoint's choice (byte-identical).
-        assert!(values(&stream).contains(&"rdi".to_string()));
-    }
-
-    #[test]
-    fn audit_off_reports_nothing_and_role_tokens_select_byte_identically() {
-        // With audit off no report is produced, and deferring the role tokens then
-        // realizing them in `remap_x86_abi` reproduces the exact `xN`-form output —
-        // proving the gate is byte-identical by construction.
-        let token_form = sel(&[
-            ci("mov_imm", &[("dst", "%arg0"), ("value", "1")]),
-            ci("mov_imm", &[("dst", "%arg1"), ("value", "2")]),
-            ci("bl", &[("target", "_mfb_f")]),
-            ci("mov", &[("dst", "x9"), ("src", "%ret0")]),
-            ci("ret", &[]),
-        ]);
-        let register_form = sel(&[
-            ci("mov_imm", &[("dst", "x0"), ("value", "1")]),
-            ci("mov_imm", &[("dst", "x1"), ("value", "2")]),
-            ci("bl", &[("target", "_mfb_f")]),
-            ci("mov", &[("dst", "x9"), ("src", "x0")]),
-            ci("ret", &[]),
-        ]);
-        assert_eq!(values(&token_form), values(&register_form));
-
-        let mut clean = vec![
-            ci("mov_imm", &[("dst", "%arg0"), ("value", "1")]),
-            ci("bl", &[("target", "_mfb_f")]),
-            ci("ret", &[]),
-        ];
-        assert!(remap_x86_abi_inner(&mut clean, X86Abi::SysV, false).is_empty());
     }
 }

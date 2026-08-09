@@ -103,13 +103,23 @@ pub(crate) fn select_aarch64(instructions: Vec<MirInstruction>) -> Vec<CodeInstr
     // (plan-00-D §2, plan-34-A).
     for instruction in &mut out {
         for (_, value) in instruction.fields.iter_mut() {
-            // Only a `Raw` `%`-token can realize to a register; a `VReg`/`Phys`/
-            // `Imm` never does. Match `Raw` directly to skip the per-field
-            // `render()` alloc over the whole selected stream (plan-79).
-            if let Operand::Raw(text) = value {
-                if let Some(reg) = abi::realize_abi_token(text) {
-                    *value = Operand::from(reg);
+            // Only a `Raw` `%`-token or a typed `Operand::Abi` can realize to a
+            // register; a `VReg`/`Phys`/`Imm` never does. Match directly to skip
+            // the per-field `render()` alloc over the whole selected stream
+            // (plan-79).
+            match value {
+                Operand::Raw(text) => {
+                    if let Some(reg) = abi::realize_abi_token(text) {
+                        *value = Operand::from(reg);
+                    }
                 }
+                // A convention-explicit ABI token (plan-85-A) realizes positionally
+                // to `x{index}` — on AArch64 every convention/role collapses to the
+                // same `xN`, so this is byte-identical to the legacy token.
+                Operand::Abi { index, .. } => {
+                    *value = Operand::from(abi::realize_abi_positional(*index));
+                }
+                _ => {}
             }
         }
         rename_operand_field_values(&mut instruction.fields, ARENA_BASE, ARENA_BASE_REGISTER);
@@ -125,4 +135,44 @@ pub(crate) fn select_aarch64(instructions: Vec<MirInstruction>) -> Vec<CodeInstr
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::target::shared::code::mir::lower_to_mir;
+
+    fn values(out: &[CodeInstruction]) -> Vec<String> {
+        out.iter()
+            .flat_map(|inst| inst.fields.iter().map(|(_, v)| v.render()))
+            .collect()
+    }
+
+    #[test]
+    fn explicit_abi_tokens_realize_to_positional_x_registers() {
+        // plan-85-A: a typed `Operand::Abi` realizes positionally to `x{index}` on
+        // AArch64 — every convention/role collapses to the same `xN`, so it is
+        // byte-identical to the legacy `%argK`/`%retK`. %retC1 → x1, %argSys3 → x3,
+        // %retSys → x0.
+        let out = select_aarch64(lower_to_mir(&[
+            CodeInstruction::new("mov")
+                .field("dst", abi::mfb_return(0))
+                .field("src", abi::mfb_arg(2)),
+            CodeInstruction::new("mov")
+                .field("dst", abi::c_return(1))
+                .field("src", abi::sys_arg(3)),
+            CodeInstruction::new("mov")
+                .field("dst", abi::sys_return())
+                .field("src", abi::c_arg(7)),
+        ]));
+        let vals = values(&out);
+        assert!(
+            vals.contains(&"x0".to_string()),
+            "%retMFB0/%retSys → x0: {vals:?}"
+        );
+        assert!(vals.contains(&"x2".to_string()), "%argMFB2 → x2: {vals:?}");
+        assert!(vals.contains(&"x1".to_string()), "%retC1 → x1: {vals:?}");
+        assert!(vals.contains(&"x3".to_string()), "%argSys3 → x3: {vals:?}");
+        assert!(vals.contains(&"x7".to_string()), "%argC7 → x7: {vals:?}");
+    }
 }

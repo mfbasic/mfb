@@ -23,7 +23,7 @@ use term_view::*;
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
     self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
-    PresentationMode, RelocIntent,
+    Operand, PresentationMode, RelocIntent,
 };
 
 const MAIN_SYMBOL: &str = "_main";
@@ -605,16 +605,17 @@ impl Asm {
 
     /// Load the address of an internal data (or text) symbol into `dst`
     /// (`adrp`/`add`). The linker resolves the symbol's own vmaddr.
-    fn local_address(&mut self, dst: &str, symbol: &str) {
+    fn local_address(&mut self, dst: impl Into<Operand>, symbol: &str) {
+        let dst = dst.into();
         self.ins.push(
             CodeInstruction::new("adrp")
-                .field("dst", dst)
+                .field("dst", &dst)
                 .field("symbol", symbol),
         );
         self.ins.push(
             CodeInstruction::new("add_pageoff")
-                .field("dst", dst)
-                .field("src", dst)
+                .field("dst", &dst)
+                .field("src", &dst)
                 .field("symbol", symbol),
         );
         for kind in [RelocIntent::DataAddrHi, RelocIntent::DataAddrLo] {
@@ -631,16 +632,17 @@ impl Asm {
     /// Load an external data symbol's value into `dst`: `adrp`/`add` resolves the
     /// symbol's GOT slot address, then `ldr` dereferences it. Used for the
     /// `_OBJC_CLASS_$_*` class pointers (binds + force-loads the framework).
-    fn external_data(&mut self, dst: &str, symbol: &str, library: &str) {
+    fn external_data(&mut self, dst: impl Into<Operand>, symbol: &str, library: &str) {
+        let dst = dst.into();
         self.ins.push(
             CodeInstruction::new("adrp")
-                .field("dst", dst)
+                .field("dst", &dst)
                 .field("symbol", symbol),
         );
         self.ins.push(
             CodeInstruction::new("add_pageoff")
-                .field("dst", dst)
-                .field("src", dst)
+                .field("dst", &dst)
+                .field("src", &dst)
                 .field("symbol", symbol),
         );
         for kind in [RelocIntent::GotLoadHi, RelocIntent::GotLoadLo] {
@@ -652,7 +654,7 @@ impl Asm {
                 library: Some(library.to_string()),
             });
         }
-        self.ins.push(abi::load_u64(dst, dst, 0));
+        self.ins.push(abi::load_u64(&dst, &dst, 0));
     }
 
     /// Resolve `selector_symbol`'s SEL via `sel_registerName`, leaving it in the
@@ -661,9 +663,9 @@ impl Asm {
     /// sequences are injected into shared helper bodies, which the plan-34-D
     /// stream guard requires to be token-pure.
     fn load_selector(&mut self, selector_symbol: &str) {
-        self.local_address(abi::ARG[0], selector_symbol);
+        self.local_address(abi::mfb_arg(0), selector_symbol);
         self.call_external("_sel_registerName", LIB_OBJC);
-        self.push(abi::move_register(abi::ARG[1], abi::RET[0]));
+        self.push(abi::move_register(abi::mfb_arg(1), abi::mfb_return(0)));
     }
 }
 
@@ -719,7 +721,7 @@ pub(crate) fn emit_reconcile_seam(
     relocations: &mut Vec<CodeRelocation>,
 ) {
     instructions.push(abi::load_u64(
-        abi::ARG[0],
+        abi::mfb_arg(0),
         code::ARENA_STATE_REGISTER,
         presentation_mode_offset,
     ));

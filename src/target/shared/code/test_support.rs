@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use super::{
     AppEntrySpec, CodeFunction, CodeInstruction, CodeRelocation, CodegenPlatform, FsPathOperation,
-    ProgramEntrySpec,
+    Operand, ProgramEntrySpec,
 };
 use crate::target::shared::abi;
 
@@ -49,7 +49,7 @@ impl CodegenPlatform for TestPlatform {
     fn emit_current_directory(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_current_directory") }
     fn emit_environ_pointer(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_environ_pointer") }
     fn emit_fs_path_operation(&self, _from: &str, _op: FsPathOperation, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_fs_path_operation") }
-    fn emit_errno(&self, _from: &str, dst: &str, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
+    fn emit_errno(&self, _from: &str, dst: Operand, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
         // Leave a plausible errno value in `dst`; a plain move is enough for
         // helpers (e.g. the non-blocking connect timeout path) to lower and
         // register-allocate.

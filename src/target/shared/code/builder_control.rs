@@ -336,7 +336,7 @@ impl CodeBuilder<'_> {
                             // scope-drop free can reclaim (collections/records
                             // default to arena allocations already).
                             let location = if result.type_ == "String" {
-                                self.copy_flat_block("String", &result.location)?.render()
+                                Operand::from(self.copy_flat_block("String", &result.location)?.render())
                             } else {
                                 result.location
                             };
@@ -542,7 +542,7 @@ impl CodeBuilder<'_> {
                             self.emit(abi::load_u64(&new_ptr, abi::stack_pointer(), new_slot));
                             let stored = ValueResult {
                                 type_: result.type_.clone(),
-                                location: new_ptr.render(),
+                                location: Operand::from(new_ptr.render()),
                                 text: String::new(),
                             };
                             let address = self.load_global_address(name)?;
@@ -683,7 +683,7 @@ impl CodeBuilder<'_> {
                                 self.emit(abi::load_u64(&register, abi::stack_pointer(), slot));
                                 ValueResult {
                                     type_: result.type_.clone(),
-                                    location: register.render(),
+                                    location: Operand::from(register.render()),
                                     text: String::new(),
                                 }
                             } else {
@@ -858,7 +858,7 @@ impl CodeBuilder<'_> {
                             ));
                             let case_matched = ValueResult {
                                 type_: matched.type_.clone(),
-                                location: matched_register.render(),
+                                location: Operand::from(matched_register.render()),
                                 text: matched.text.clone(),
                             };
                             let next_label = self.label("match_next");
@@ -1391,7 +1391,7 @@ impl CodeBuilder<'_> {
             if result.location != d {
                 self.emit(abi::float_move_d_from_d(d, &result.location));
             }
-        } else if let Some(d_res) = self.float_residents.get(&result.location).cloned() {
+        } else if let Some(d_res) = self.float_residents.get(&result.location.render()).cloned() {
             if d_res != d {
                 self.emit(abi::float_move_d_from_d(d, &d_res));
             }

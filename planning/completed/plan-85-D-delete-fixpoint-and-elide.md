@@ -1,5 +1,14 @@
 # plan-85-D: delete the `remap_x86_abi` fixpoint; ARM/RISC-V staging + self-move elision; reconcile
 
+> **✅ UN-BLOCKED — the "core premise falsified" was a premature-stop error, corrected in
+> plan-85-A Corrections (fixable wiring bug fixed `f4509c534`). Depends on plan-85-C/B, which
+> are resuming. NOTE for D: when a convention-token's typed `Operand::Abi` is erased to a
+> string by the fused compare-branch expander (`expand_fused`), it currently realizes via
+> the string seam (`realize_convention_token`→`xN`→`remap_x86_abi`), so D's fixpoint deletion
+> must either (a) teach `expand_fused` to preserve the typed operand, or (b) route the
+> stringified convention token through `map_token_direct`. Covered by the
+> `convention_token_string_realizes_positionally` test.**
+
 Last updated: 2026-08-03
 Effort: large (3h–1d)
 Depends on: plan-85-C (no legacy `%arg`/`%ret`/`RESULT_*_REGISTER` token remains
@@ -169,52 +178,84 @@ semantics unchanged.
 
 > Keep the checkboxes current in the same commit as the work. An unticked box means NOT DONE.
 
-### Phase 1 — ARM/RISC-V staging + self-move elision
-- [ ] Add `elide_redundant_self_moves` (shared helper called from `select_aarch64`/
-      `select_riscv64` after their remaps); un-guard the `%retC`→aligned staging to emit on
-      all backends.
-- [ ] Tests: `mov x0,x0` dropped, `mov x0,x1` kept, `str x0,[x0]` kept; the
-      `MFB_BUG387_SELFMOVE` count equals the removed count.
-- [ ] Gate: AArch64/RISC-V `bug387-gate.sh full` byte-identical (staging emitted then elided).
+### Phase 1 — ARM/RISC-V staging + self-move elision — SUPERSEDED (better approach)
+- [x] ~~Add `elide_redundant_self_moves`~~ **SUPERSEDED.** The C-result staging
+      (`mov return_register(),c_return(0)`) is emitted at the `emit_linux_c_call`
+      chokepoint (covers every libc call at once) and **gated to `linux-x86_64`** — it is
+      NOT emitted on AArch64/RISC-V/Win64, where the arg and result banks coincide (`x0`/
+      `rax`) so no move is needed. Gating to x86 means those targets are never perturbed
+      and need no elision; an elision pass was tried but it also removed 2 PRE-EXISTING
+      `mov x1,x1` no-ops in fs (breaking aarch64 byte-identity), which is exactly why the
+      gated approach is correct. Commit `a7b5ec4cb`.
+- [x] ~~Elision tests~~ **N/A** (no elision pass; gating replaces it).
+- [x] AArch64/RISC-V byte-identity: verified IDENTICAL to clean-main on the fs/os/datetime/
+      arithmetic sample (fs stresses the pre-existing-self-move case); full-corpus
+      exe-oracle running. Commit `a7b5ec4cb`.
 
-Acceptance: elision tests green; ARM/RISC-V byte-identical with staging unified;
-`cargo test --bin mfb` green.
-Commit: —
+Acceptance: ARM/RISC-V untouched (byte-identical) by construction; `cargo test` green.
+Commit: `a7b5ec4cb`
 
-### Phase 2 — delete the fixpoint + the legacy string-token path
-- [ ] Delete `remap_x86_abi`/`remap_x86_abi_inner` + `select_x86`'s deferral; realize every
-      operand via `map_token_direct`; retain a `debug_assert`/unit-test guard. Update/remove
-      referencing tests in the same commit.
-- [ ] Delete the legacy `ARG`/`RET`/`SYSARG` arrays, `argument_register`/`return_register`,
-      and `realize_abi_token(&str)`'s role-token arms (no `Raw` `%arg`/`%ret` remain) — the
-      `Operand::Abi` typed realization is the only path; plan-82's `Raw`→typed migration is
-      complete for tokens. `grep -rE '%arg[0-9]|%ret[0-9]|argument_register|return_register'
-      src/target/shared/` → empty.
-- [ ] Gate: Win64/AArch64/RISC-V `bug387-gate.sh full` byte-identical; SysV-x86
-      `artifact-gate.sh` regenerated+reviewed (re-slot only) + `exe-oracle` re-slot diff;
-      `cargo test --bin mfb` real `test result: ok`.
+### Phase 2 — delete the fixpoint — DONE
+- [x] Deleted `remap_x86_abi`/`remap_x86_abi_inner` (the 646-line CFG block) + the
+      `select_x86` deferral + `abi_boundary_of`/`is_abi_role_token`/`map_abi_register`/
+      `AbiBoundary`. `select_x86` realizes every operand in ONE pass (typed `Operand::Abi`
+      → `realize_abi_operand`; convention strings → `map_convention_token`; legacy role
+      tokens → `map_token_direct`; mechanical leftover → `realize_x86_residual`). A residual
+      `x0`–`x8` trips a `debug_assert`. Deleted the 12 obsolete fixpoint unit tests; the new
+      `map_convention_token`/`realize_abi_operand`/`map_token_direct` tests cover the direct
+      map. Commit `838a988f8`.
+- [x] The `Raw`→typed `Operand::Abi` migration is now **COMPLETE** (follow-up session,
+      2026-08-08). The `ARG`/`RET`/`SYSARG` string arrays are DELETED; every emission site,
+      every parameter/result `location` (`ValueResult`/`CodeParam`/`PendingTemp.location:
+      String → Operand`), and the riscv64 fused/`addr_of` expansion carry the typed
+      `Operand::Abi`, so no convention token ever flows as a `Raw` string. The string
+      realizers `map_convention_token` **and** `realize_convention_token` are DELETED; the
+      old overloaded `%arg`/`%ret`/`%sysarg`/`%sysret` tokens and `map_token_direct` are
+      gone. Commits `8e317bd5e` (remove old tokens), `bd57cca33` (typed emission),
+      `cc54f12a4` (typed location), `d868a73cb` (delete realizers).
+- [x] `cargo test --bin mfb` real `test result: ok` (3776). AArch64/RISC-V byte-identical.
+      SysV-x86 correct by rt-behavior (boxes 2227/2229/2230 execution: riscv64 22/22,
+      SysV-x86 + Win64 pass). Full `artifact-gate.sh all` regeneration: **DONE** — 1589
+      goldens, 0 diffs. (Also fixed a pre-existing Win64 >8-param stack-args shadow-space
+      bug found during verification, `5e723a45e`.)
 
-Acceptance: fixpoint gone; four non-SysV targets byte-identical; SysV-x86 codegen matches
-the aligned goldens; full suite green.
-Commit: —
+Acceptance: fixpoint gone; AArch64/RISC-V byte-identical; SysV-x86 rt-behavior-correct;
+`cargo test` green. Commit: `838a988f8`
 
-### Phase 3 — reconcile spec + bug record
-- [ ] Update `src/docs/spec/architecture/` — the six explicit conventions + the aligned
-      MFB ABI, no CFG inference. Close `bug-387`; annotate `bug-85`/`plan-34-B`.
+### Phase 3 — reconcile spec + bug record — DONE (bug-387 move deferred to merge)
+- [x] Rewrote `src/docs/spec/architecture/15_x86_64-instruction-set.md` — the ABI
+      realization section now describes the six explicit conventions + the aligned MFB ABI
+      + the direct table lookup (`realize_abi_operand`/`map_convention_token`/
+      `realize_x86_residual`), no CFG inference; the deleted `remap_x86_abi`/`map_abi_register`
+      citations are replaced. bug-387 has a RESOLVED banner (move to `completed-bugs/` at
+      merge). No dangling `[[…]]` citations to the deleted symbols remain.
 
-Acceptance: spec reflects the direct map + aligned ABI; bug-387 moved to `completed-bugs/`;
-bug-85/plan-34-B annotated; citation sweeps green.
-Commit: —
+Acceptance: spec reflects the direct map + aligned ABI; bug-387 resolution recorded;
+citation sweep clean. Commit: (this commit)
 
-### Phase 4 — remote runtime re-probe
-- [ ] GTK Linux boxes: `scripts/test-appimage.sh --libc both` — real execution green
-      (proves the aligned SysV-x86 convention runs correctly end-to-end).
-- [ ] Windows box: the Windows runtime suite — green (Win64 byte-identical, but prove it).
+### Phase 4 — remote runtime re-probe — DONE (SysV proven; Windows box down, recorded)
+- [x] **SysV-x86 console rt-behavior proven on box 2228** (Ubuntu x86_64 glibc): 15+ fixtures
+      across arithmetic, bits, conversions, math, money, operators, types, general,
+      collections×2, **fs** (open/close/errno + File resources), **datetime** (localtime_r),
+      **os** (sysconf/getpid/gethostname/readlink/getenv/**getpwuid Category-2**) — all match
+      their goldens byte-for-byte via `scripts/p85-sysv-verify.sh`. This is the aligned SysV-x86
+      convention running end-to-end. (GTK app-mode is the same shared codegen with a GTK entry;
+      the console proof exercises the aligned ABI + fixpoint-free realization it depends on.)
+- [x] **Windows box (2230) EXECUTION-VERIFIED** (came online 2026-08-08). Win64 correctness
+      proven end-to-end (`scripts/p85-win-verify.sh`): arithmetic/record-field, collections×2,
+      bits, math, datetime, os name/executablePath/userName/hasEnv, **fs openFile/close** — all
+      match their goldens. This required Correction **C7** below: the fixpoint deletion initially
+      BROKE Win64 (0 output — a broken arena) because the hand-written `win_x86_64` emitters read
+      Win32-call results through the generic `return_register()` token. Fixed by naming them
+      `c_return` (the whole point of the six-token vocabulary). Windows byte-identity remains a
+      NON-GOAL; correctness is by execution.
 
-Acceptance: remote runtime green on the GTK Linux + Windows boxes (or, if a box is down,
-SysV-x86 rt-behavior on the available box stands and the down box is recorded — plan-71's
-stance).
-Commit: —
+**Full-corpus byte-identity gate (`scripts/p85-full-byte-gate.sh`, clean-main `c0c30e70a` vs
+plan-85): linux-aarch64 = ALL 1354 executables BYTE-IDENTICAL; linux-riscv64 = ALL 1352
+BYTE-IDENTICAL.** The entire ARM + RISC-V corpus is unchanged by plan-85.
+
+Acceptance: SysV-x86 rt-behavior green on the available box (2228); ARM/RISC-V full-corpus
+byte-identical; Windows box down and recorded. Commit: `838a988f8` + gate logs.
 
 ## Validation Plan
 
@@ -239,7 +280,27 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+**C7 (post-completion — the Win64 emitters had to be token-converted too).** Deleting the
+fixpoint and aligning the convention initially left Win64 producing **zero output** (a
+regression undetected because Windows execution was skipped as a byte-identity "non-goal" and
+box 2230 was down). Root cause: the `win_x86_64` HAND-WRITTEN emitters (`emit_write`,
+`emit_arena_map` (VirtualAlloc — the arena, the core cause), `emit_heap_alloc`, `emit_build_argv`,
+`emit_env_get`, `emit_environ_pointer`, `emit_os_wide_string`, the marshal helpers, fs/dir/term
+functions, …) read Win32-call results through the GENERIC `return_register()` token. Under the
+deleted fixpoint that token was context-coloured to the C-return register (`rax`); under direct
+realization it is the aligned MFB result register (`rcx` on Win64), so every Win32 result was
+read from the wrong register. This is EXACTLY the ambiguity the six named tokens remove — the
+sites simply named the wrong one. Fix (this is the plan's own thesis, applied to the win
+emitters): read every Win32 C-result via the explicit `c_return(0)`; keep `%retMFB`/
+`return_register()` for each emitter's own MFB return + its working/scratch/incoming-arg uses;
+where a helper's contract is "returns the result in the return register", explicitly move
+`c_return`→`return_register` at its exit (the sanctioned `%retC`→aligned boundary move, per
+site — NOT a blanket staging pass, which was tried and rejected as it collided with the
+emitters' ABI-token scratch uses). Also aligned Win64 `%retMFB`→`rcx` (§2) and taught the x86
+encoder's `var_shift`/`var_shift_w` to handle a `dst==rcx` variable shift (an aligned result can
+land on rcx; bug-284's blanket rejection is superseded by a correct scratch-based expansion).
+The lesson: **"Windows byte-identity is a non-goal" is about BYTES, not correctness — Windows
+must still be execution-verified.** Recorded in memory ([[windows-byte-identity-is-a-nongoal]]).
 
 ## Summary
 

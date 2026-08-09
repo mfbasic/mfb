@@ -33,25 +33,29 @@ impl CodeBuilder<'_> {
             self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         }
         // plan-71-C Family-1a: alloc size is arg 0 of the arena-alloc call → `%arg0`.
-        self.emit(abi::load_u64(abi::ARG[0], abi::stack_pointer(), size_slot));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            size_slot,
+        ));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         // tag @0, size @8.
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), tag_slot));
-        self.emit(abi::store_u64(&scratch9, abi::RET[1], 0));
+        self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 0));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), size_slot));
-        self.emit(abi::store_u64(&scratch9, abi::RET[1], 8));
+        self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 8));
         // payload @16.
         if is_block {
-            self.emit(abi::add_immediate(&scratch10, abi::RET[1], 16));
+            self.emit(abi::add_immediate(&scratch10, abi::mfb_return(1), 16));
             self.emit(abi::load_u64(
                 &scratch11,
                 abi::stack_pointer(),
@@ -62,11 +66,11 @@ impl CodeBuilder<'_> {
         } else {
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), payload_slot));
             self.emit(abi::load_u64(
-                abi::RET[1],
+                abi::mfb_return(1),
                 abi::stack_pointer(),
                 result_slot,
             ));
-            self.emit(abi::store_u64(&scratch9, abi::RET[1], 16));
+            self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 16));
         }
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
@@ -177,7 +181,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: format!("Result OF {success_type}"),
-            location: register.render(),
+            location: Operand::from(register.render()),
             text,
         })
     }
@@ -327,7 +331,7 @@ impl CodeBuilder<'_> {
         source: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
         let symbol = thread_copy_symbol(type_);
-        self.emit(abi::move_register(abi::ARG[0], source));
+        self.emit(abi::move_register(abi::c_arg(0), source));
         self.emit_symbol_call(&symbol);
         let result = self.allocate_register()?;
         self.emit(abi::move_register(&result, abi::return_register()));
@@ -425,24 +429,24 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             size_slot,
         ));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), size_slot));
-        self.emit_copy_bytes(abi::RET[1], &scratch9, &scratch13, "thread_copy_record_raw");
+        self.emit_copy_bytes(abi::mfb_return(1), &scratch9, &scratch13, "thread_copy_record_raw");
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
         self.copy_record_fields_into_existing(type_, &scratch9, &scratch10)?;
@@ -483,13 +487,13 @@ impl CodeBuilder<'_> {
             "Integer",
             RESOURCE_RECORD_SIZE,
         ));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -497,11 +501,11 @@ impl CodeBuilder<'_> {
         // verbatim (the OS handle itself, and its self-describing type tag).
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(&scratch10, &scratch9, RESOURCE_OFFSET_TAG));
-        self.emit(abi::store_u64(&scratch10, abi::RET[1], RESOURCE_OFFSET_TAG));
+        self.emit(abi::store_u64(&scratch10, abi::mfb_return(1), RESOURCE_OFFSET_TAG));
         self.emit(abi::load_u64(&scratch10, &scratch9, FILE_OFFSET_FD));
-        self.emit(abi::store_u64(&scratch10, abi::RET[1], FILE_OFFSET_FD));
+        self.emit(abi::store_u64(&scratch10, abi::mfb_return(1), FILE_OFFSET_FD));
         self.emit(abi::load_u64(&scratch10, &scratch9, FILE_OFFSET_CLOSED));
-        self.emit(abi::store_u64(&scratch10, abi::RET[1], FILE_OFFSET_CLOSED));
+        self.emit(abi::store_u64(&scratch10, abi::mfb_return(1), FILE_OFFSET_CLOSED));
         // STATE @24 (plan-54 §5, relocated by plan-80).
         match crate::builtins::resource::state_type_name(type_) {
             // Stateful: deep-copy the STATE record into the current (receiver)
@@ -518,11 +522,11 @@ impl CodeBuilder<'_> {
                 // No STATE attached yet: leave the receiver's slot null so its
                 // `accept` binding runs the ordinary lazy init.
                 self.emit(abi::load_u64(
-                    abi::RET[1],
+                    abi::mfb_return(1),
                     abi::stack_pointer(),
                     result_slot,
                 ));
-                self.emit(abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_STATE));
+                self.emit(abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_STATE));
                 self.emit(abi::branch(&state_done));
                 self.emit(abi::label(&have_state));
                 // `scratch10` holds the source STATE pointer; `copy_value_to_current_arena`
@@ -537,7 +541,7 @@ impl CodeBuilder<'_> {
                     state_ptr_slot,
                 ));
                 self.emit(abi::load_u64(
-                    abi::RET[1],
+                    abi::mfb_return(1),
                     abi::stack_pointer(),
                     result_slot,
                 ));
@@ -546,14 +550,14 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     state_ptr_slot,
                 ));
-                self.emit(abi::store_u64(&scratch10, abi::RET[1], FILE_OFFSET_STATE));
+                self.emit(abi::store_u64(&scratch10, abi::mfb_return(1), FILE_OFFSET_STATE));
                 self.emit(abi::label(&state_done));
             }
             // Bare resource: `FILE_OFFSET_STATE` carries no owned record — move the
             // (null/inert) word verbatim, exactly as before.
             None => {
                 self.emit(abi::load_u64(&scratch10, &scratch9, FILE_OFFSET_STATE));
-                self.emit(abi::store_u64(&scratch10, abi::RET[1], FILE_OFFSET_STATE));
+                self.emit(abi::store_u64(&scratch10, abi::mfb_return(1), FILE_OFFSET_STATE));
             }
         }
         // Opt-in per-File output buffer (plan-14-B) is not copied across a thread
@@ -562,30 +566,30 @@ impl CodeBuilder<'_> {
         // should be flushed before transfer, or its pending bytes are lost — the
         // same opt-in trade-off as the crash caveat). For non-File resources these
         // words are inert.
-        self.emit(abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_PTR));
+        self.emit(abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_PTR));
         self.emit(abi::store_u64(
             abi::ZERO,
-            abi::RET[1],
+            abi::mfb_return(1),
             FILE_OFFSET_BUF_FILLED,
         ));
         self.emit(abi::store_u64(
             abi::ZERO,
-            abi::RET[1],
+            abi::mfb_return(1),
             FILE_OFFSET_BUF_ENABLED,
         ));
         // The transparent read buffer (plan-14-C) is a cache, not copied: a moved
         // handle starts with an empty cache. These words are inert for non-File
         // resources.
-        self.emit(abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_PTR));
-        self.emit(abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_POS));
+        self.emit(abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_PTR));
+        self.emit(abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_POS));
         self.emit(abi::store_u64(
             abi::ZERO,
-            abi::RET[1],
+            abi::mfb_return(1),
             FILE_OFFSET_READ_FILL,
         ));
         self.emit(abi::store_u64(
             abi::ZERO,
-            abi::RET[1],
+            abi::mfb_return(1),
             FILE_OFFSET_READ_AT_EOF,
         ));
         // The source record's contents now live in the destination, so the source
@@ -697,25 +701,29 @@ impl CodeBuilder<'_> {
             self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         }
         // plan-71-C Family-1a: alloc size is arg 0 of the arena-alloc call → `%arg0`.
-        self.emit(abi::load_u64(abi::ARG[0], abi::stack_pointer(), size_slot));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            size_slot,
+        ));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), size_slot));
-        self.emit_copy_bytes(abi::RET[1], &scratch9, &scratch13, "thread_copy_union_raw");
+        self.emit_copy_bytes(abi::mfb_return(1), &scratch9, &scratch13, "thread_copy_union_raw");
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
         self.copy_union_fields_into_existing(type_, &scratch9, &scratch10)?;
@@ -794,19 +802,19 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             size_slot,
         ));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), size_slot));
-        self.emit_copy_bytes(abi::RET[1], &scratch9, &scratch10, "thread_copy_collection");
+        self.emit_copy_bytes(abi::mfb_return(1), &scratch9, &scratch10, "thread_copy_collection");
         self.fix_collection_transfer_payloads(type_, source_slot, result_slot)?;
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));

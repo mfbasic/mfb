@@ -122,8 +122,8 @@ impl CodeBuilder<'_> {
         label_prefix: &str,
     ) -> Result<VirtualRegister, String> {
         // base = _mfb_simd_alloc_list(count, typeCode) → x0 = base, x1 = status.
-        self.emit(abi::move_register(abi::ARG[0], count));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", type_code));
+        self.emit(abi::move_register(abi::c_arg(0), count));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", type_code));
         self.emit(abi::branch_link(SIMD_ALLOC_LIST_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -138,10 +138,10 @@ impl CodeBuilder<'_> {
         let result_base = self.allocate_register()?;
         self.emit(abi::move_register(&result_base, abi::return_register()));
         let alloc_ok = self.label(&format!("{label_prefix}_alloc_ok"));
-        self.emit(abi::compare_immediate(abi::RET[1], "0"));
+        self.emit(abi::compare_immediate(abi::mfb_return(1), "0"));
         self.emit(abi::branch_eq(&alloc_ok));
         // Surface the arena tag (returned in x1) as the allocation error.
-        self.emit(abi::move_register(abi::return_register(), abi::RET[1]));
+        self.emit(abi::move_register(abi::return_register(), abi::mfb_return(1)));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         Ok(result_base)
@@ -247,7 +247,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: result_type.to_string(),
-            location: result_base.render(),
+            location: Operand::from(result_base.render()),
             text,
         })
     }
@@ -701,7 +701,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: result_type.to_string(),
-            location: result_base.render(),
+            location: Operand::from(result_base.render()),
             text,
         })
     }
@@ -897,11 +897,12 @@ impl CodeBuilder<'_> {
         let tail_done = self.label("simd_clamp_tail_done");
         self.emit(abi::compare_immediate(&tail_bit, "0"));
         self.emit(abi::branch_eq(&tail_done));
-        // Scratch-pool registers (not x0-x2): the x86 remap colors ABI
-        // registers by boundary role, and a block mixing a staged x1 (RETS[1]
-        // = rdx) with a role-colored x2 (CALL_ARGS[2] = rdx) collides — the
-        // low bound aliased the high bound and the tail lane clamped against
-        // the wrong limit. x9-x11 map to three distinct GPRs on both ISAs.
+        // Allocator-placed vregs (not hand-picked x0-x2): x0-x2 are ABI-boundary
+        // registers (argument/result banks) that the aligned x86 realization can
+        // reuse within this block, so hand-picking them risks two bounds aliasing
+        // onto one physical register (both landing on rdx) — the low bound would
+        // alias the high bound and the tail lane clamp against the wrong limit.
+        // Allocator-placed vregs get three distinct GPRs on every ISA.
         let lane = self.temporary_vreg();
         let low_bound = self.temporary_vreg();
         let high_bound = self.temporary_vreg();
@@ -914,7 +915,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: result_type.to_string(),
-            location: result_base.render(),
+            location: Operand::from(result_base.render()),
             text,
         })
     }

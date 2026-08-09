@@ -406,8 +406,8 @@ pub(super) fn emit_grid_alloc(
     // ioctl(1, TIOCGWINSZ, &winsize)
     instrs.extend([
         abi::move_immediate(abi::return_register(), "Integer", "1"),
-        abi::move_immediate(abi::ARG[1], "Integer", request),
-        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), winsize_off),
+        abi::move_immediate(abi::c_arg(1), "Integer", request),
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), winsize_off),
     ]);
     platform.emit_terminal_size(symbol, platform_imports, instrs, relocations)?;
     instrs.extend([
@@ -436,7 +436,7 @@ pub(super) fn emit_grid_alloc(
         abi::multiply_registers(t, t, m),
         abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::move_register(abi::return_register(), t),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -514,7 +514,7 @@ pub(super) fn emit_grid_free(
         abi::multiply_registers(t, t, m),
         abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::move_register(abi::return_register(), gp),
-        abi::move_register(abi::ARG[1], t),
+        abi::move_register(abi::c_arg(1), t),
         abi::branch_link(ARENA_FREE_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
@@ -1033,8 +1033,8 @@ pub(super) fn emit_grid_resize(
     // ioctl(1, TIOCGWINSZ, &winsize) — a failure leaves the grid unchanged.
     instrs.extend([
         abi::move_immediate(abi::return_register(), "Integer", "1"),
-        abi::move_immediate(abi::ARG[1], "Integer", request),
-        abi::add_immediate(abi::ARG[2], sp, WINSZ),
+        abi::move_immediate(abi::c_arg(1), "Integer", request),
+        abi::add_immediate(abi::c_arg(2), sp, WINSZ),
     ]);
     platform.emit_terminal_size(symbol, platform_imports, instrs, relocations)?;
     instrs.extend([
@@ -1077,7 +1077,7 @@ pub(super) fn emit_grid_resize(
         abi::multiply_registers(t, t, m),
         abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::move_register(abi::return_register(), t),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -1230,7 +1230,7 @@ pub(super) fn emit_grid_resize(
         abi::multiply_registers(t, t, m),
         abi::add_immediate(t, t, HDR_SIZE + TRAILER_SLACK),
         abi::move_register(abi::return_register(), gp),
-        abi::move_register(abi::ARG[1], t),
+        abi::move_register(abi::c_arg(1), t),
         abi::branch_link(ARENA_FREE_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));

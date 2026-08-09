@@ -257,8 +257,9 @@ pub(super) fn int_physical_index_non_aarch64(name: &str) -> Option<u32> {
 /// The AArch64 occupancy index of a `%scratch`/`%sysnr` token, or `None` for any
 /// other name. `%scratch0`–`%scratch9` realize `x9`–`x18`, `%scratch10`–`%scratch18`
 /// realize `x20`–`x28`, `%sysnr` realizes `x8`, `%sysnr_darwin` realizes `x16`
-/// (plan-34-D). The role banks (`%arg`/`%ret`/`%sysarg`/`%sysret`, realizations
-/// `x0`–`x7`) are deliberately unparsed — below every allocatable file, so moot.
+/// (plan-34-D). The ABI convention/role banks (`%argMFB`/`%retMFB`/`%argC`/`%retC`/
+/// `%argSys`/`%retSys`, realizations `x0`–`x7`) are deliberately unparsed — below
+/// every allocatable file, so moot.
 fn aarch64_scratch_occupancy_index(name: &str) -> Option<u32> {
     if let Some(rest) = name.strip_prefix("%scratch") {
         if let Ok(n) = rest.parse::<u32>() {

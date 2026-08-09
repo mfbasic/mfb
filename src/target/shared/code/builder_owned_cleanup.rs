@@ -63,7 +63,7 @@ impl CodeBuilder<'_> {
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
         self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
@@ -74,10 +74,10 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             resource_slot,
         ));
-        self.emit(abi::store_u64(&scratch9, abi::RET[1], 0));
+        self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 0));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), head_slot));
-        self.emit(abi::store_u64(&scratch10, abi::RET[1], 8));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), head_slot));
+        self.emit(abi::store_u64(&scratch10, abi::mfb_return(1), 8));
+        self.emit(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), head_slot));
         Ok(())
     }
 
@@ -220,18 +220,16 @@ impl CodeBuilder<'_> {
         // garbage — a wild free — on x86-64).
         self.owned_value_slots.push(cleanup.stack_offset);
         let skip = self.label("owned_value_free_skip");
-        // plan-71-C Family-1a: this pointer is consumed as arg 0 of the arena-free
-        // call below, so emit it into the argument-role token (`%arg0`) rather than
-        // `return_register()` (`%ret0`). Byte-identical — `%arg0`/`%ret0` both realize
-        // to x0/a0 on AArch64/RISC-V and `map_token_direct(%arg0)=rdi` equals the
-        // register the x86 fixpoint already inferred here — and it removes the
-        // divergence (`builder_owned_cleanup.rs:187/193` in the C work-list).
+        // This pointer is consumed as arg 0 of the arena-free call below, so emit it
+        // into the C-argument token (`c_arg(0)`) — the aligned call bank — rather
+        // than a result token. On AArch64/RISC-V arg and result coincide (`x0`/`a0`);
+        // on x86 the aligned convention puts the C arg 0 in `rdi` directly.
         self.emit(abi::load_u64(
-            abi::ARG[0],
+            abi::c_arg(0),
             abi::stack_pointer(),
             cleanup.stack_offset,
         ));
-        self.emit(abi::compare_immediate(abi::ARG[0], "0"));
+        self.emit(abi::compare_immediate(abi::c_arg(0), "0"));
         self.emit(abi::branch_eq(&skip));
         let size_slot = self.allocate_stack_object("owned_value_free_size", 8);
         // The slot already holds the block pointer; size it from the type.
@@ -244,11 +242,15 @@ impl CodeBuilder<'_> {
         // `return_register()`); the arena-free call consumes it as arg 0. Byte-identical;
         // clears `builder_owned_cleanup.rs:201`.
         self.emit(abi::load_u64(
-            abi::ARG[0],
+            abi::c_arg(0),
             abi::stack_pointer(),
             cleanup.stack_offset,
         ));
-        self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            size_slot,
+        ));
         self.emit_arena_free_call();
         self.emit(abi::label(&skip));
         Ok(())
@@ -301,7 +303,11 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 cap_slot,
             ));
-            self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), size_slot));
+            self.emit(abi::load_u64(
+                abi::c_arg(1),
+                abi::stack_pointer(),
+                size_slot,
+            ));
             self.emit_arena_free_call();
             self.emit(abi::label(&cap_skip));
         }
@@ -312,7 +318,7 @@ impl CodeBuilder<'_> {
             env_slot,
         ));
         self.emit(abi::move_immediate(
-            abi::ARG[1],
+            abi::c_arg(1),
             "Integer",
             &(capture_types.len() * 8).to_string(),
         ));
@@ -325,7 +331,7 @@ impl CodeBuilder<'_> {
             object_slot,
         ));
         self.emit(abi::move_immediate(
-            abi::ARG[1],
+            abi::c_arg(1),
             "Integer",
             &CLOSURE_OBJECT_SIZE.to_string(),
         ));

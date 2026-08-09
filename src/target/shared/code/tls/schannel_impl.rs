@@ -50,9 +50,9 @@ fn socket_connect(
     // getaddrinfo(host, NULL, &hints, &res)
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), hostcstr_off),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), hints_off),
-        abi::add_immediate(abi::ARG[3], abi::stack_pointer(), res_off),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), hints_off),
+        abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), res_off),
     ]);
     platform.emit_libc_call("getaddrinfo", symbol, imports, ins, rel)?;
     ins.extend([
@@ -61,8 +61,8 @@ fn socket_connect(
         // socket(res->ai_family, ai_socktype, ai_protocol)
         abi::load_u64("%v9", abi::stack_pointer(), res_off),
         abi::load_u32(abi::return_register(), "%v9", 4),
-        abi::load_u32(abi::ARG[1], "%v9", 8),
-        abi::load_u32(abi::ARG[2], "%v9", 12),
+        abi::load_u32(abi::c_arg(1), "%v9", 8),
+        abi::load_u32(abi::c_arg(2), "%v9", 12),
     ]);
     platform.emit_libc_call("socket", symbol, imports, ins, rel)?;
     ins.extend([
@@ -86,8 +86,8 @@ fn socket_connect(
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_off),
         abi::load_u64("%v9", abi::stack_pointer(), res_off),
-        abi::load_u64(abi::ARG[1], "%v9", addr_off),
-        abi::load_u32(abi::ARG[2], "%v9", 16),
+        abi::load_u64(abi::c_arg(1), "%v9", addr_off),
+        abi::load_u32(abi::c_arg(2), "%v9", 16),
     ]);
     platform.emit_libc_call("connect", symbol, imports, ins, rel)?;
     ins.extend([
@@ -96,7 +96,7 @@ fn socket_connect(
         abi::branch_eq(&nb_connected),
     ]);
     // Anything other than "in progress" (WSAEWOULDBLOCK) is a hard failure.
-    platform.emit_errno(symbol, "%v9", imports, ins, rel)?;
+    platform.emit_errno(symbol, ("%v9").into(), imports, ins, rel)?;
     ins.extend([
         abi::compare_immediate("%v9", platform.socket_in_progress_code()),
         abi::branch_ne(fail),
@@ -116,8 +116,8 @@ fn socket_connect(
         abi::store_u16("%v10", abi::stack_pointer(), CPOLLFD + 8),
         abi::store_u16(abi::ZERO, abi::stack_pointer(), CPOLLFD + 10),
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), CPOLLFD),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
-        abi::load_u64(abi::ARG[2], abi::stack_pointer(), CSOLEN),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), CSOLEN),
     ]);
     platform.emit_libc_call("WSAPoll", symbol, imports, ins, rel)?;
     ins.extend([
@@ -130,10 +130,10 @@ fn socket_connect(
         abi::store_u64("%v9", abi::stack_pointer(), CSOLEN),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), CSOERR),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_off),
-        abi::move_immediate(abi::ARG[1], "Integer", platform.sol_socket()),
-        abi::move_immediate(abi::ARG[2], "Integer", platform.so_error()),
-        abi::add_immediate(abi::ARG[3], abi::stack_pointer(), CSOERR),
-        abi::add_immediate(abi::ARG[4], abi::stack_pointer(), CSOLEN),
+        abi::move_immediate(abi::c_arg(1), "Integer", platform.sol_socket()),
+        abi::move_immediate(abi::c_arg(2), "Integer", platform.so_error()),
+        abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), CSOERR),
+        abi::add_immediate(abi::c_arg(4), abi::stack_pointer(), CSOLEN),
     ]);
     platform.emit_libc_call("getsockopt", symbol, imports, ins, rel)?;
     ins.extend([
@@ -177,9 +177,9 @@ fn send_all(
         abi::compare_immediate("%v6", "0"),
         abi::branch_le(&done_l),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_off),
-        abi::move_register(abi::ARG[1], "%v7"),
-        abi::move_register(abi::ARG[2], "%v6"),
-        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::move_register(abi::c_arg(1), "%v7"),
+        abi::move_register(abi::c_arg(2), "%v6"),
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
     platform.emit_libc_call("send", symbol, imports, ins, rel)?;
     ins.extend([
@@ -266,9 +266,9 @@ pub(super) fn lower_tls_connect(
     let mut rel = Vec::new();
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST),
-        abi::store_u64(abi::ARG[1], abi::stack_pointer(), PORT),
-        abi::store_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT),
-        abi::store_u64(abi::ARG[3], abi::stack_pointer(), SNAME),
+        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT),
+        abi::store_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT),
+        abi::store_u64(abi::c_arg(3), abi::stack_pointer(), SNAME),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), STATE),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTOF),
     ]);
@@ -338,30 +338,30 @@ pub(super) fn lower_tls_connect(
     // Allocate the arena STATE block (zeroed) + the 32-byte resource record.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", &st::SIZE.to_string()),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), STATE));
+    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), STATE));
     // zero the state header (through RECV start) so leftover/recv_len start clean.
-    ins.push(abi::move_register("%v10", abi::RET[1]));
+    ins.push(abi::move_register("%v10", abi::mfb_return(1)));
     for o in (0..st::RECV).step_by(8) {
         ins.push(abi::store_u64(abi::ZERO, "%v10", o));
     }
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), REC),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), REC),
         // Canonical plan-80 header: tag@0, fd@8, closed@16, STATE@24 (the SSPI
         // credential/context block ptr lives in the tail at TLS_SCHANNEL_OFFSET_BLOCK).
         abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_SCHANNEL),
-        abi::store_u64("%v9", abi::RET[1], RESOURCE_OFFSET_TAG),
-        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_STATE),
+        abi::store_u64("%v9", abi::mfb_return(1), RESOURCE_OFFSET_TAG),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_STATE),
         abi::load_u64("%v9", abi::stack_pointer(), FD),
-        abi::store_u64("%v9", abi::RET[1], TLS_OFFSET_FD),
-        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_CLOSED),
+        abi::store_u64("%v9", abi::mfb_return(1), TLS_OFFSET_FD),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_CLOSED),
     ]);
 
     // Build SCHANNEL_CRED at STATE+SC_CRED { dwVersion=4; dwFlags=AUTO|STRONG }.
@@ -383,10 +383,10 @@ pub(super) fn lower_tls_connect(
     //   Provider", SECPKG_CRED_OUTBOUND, NULL, &cred, NULL, NULL, &state.cred, &expiry)
     // Register args 0..3 set directly; stack args 4..8 are arena offsets.
     ins.push(abi::move_immediate(abi::return_register(), "Integer", "0")); // 0: pszPrincipal=NULL
-    wide_addr(symbol, abi::ARG[1], USP_NAME, &mut ins, &mut rel); // 1: pszPackage
+    wide_addr(symbol, abi::c_arg(1), USP_NAME, &mut ins, &mut rel); // 1: pszPackage
     ins.extend([
-        abi::move_immediate(abi::ARG[2], "Integer", SECPKG_CRED_OUTBOUND), // 2
-        abi::move_immediate(abi::ARG[3], "Integer", "0"),                  // 3: pvLogonID=NULL
+        abi::move_immediate(abi::c_arg(2), "Integer", SECPKG_CRED_OUTBOUND), // 2
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),                  // 3: pvLogonID=NULL
     ]);
     // stack args 4..8: &SCHANNEL_CRED, NULL, NULL, &state.cred, &expiry (arena)
     sspi_call_ext(
@@ -410,9 +410,9 @@ pub(super) fn lower_tls_connect(
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE),
         abi::add_immediate(abi::return_register(), abi::return_register(), st::CRED), // 0: phCredential
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),         // 1: phContext=NULL
-        abi::load_u64(abi::ARG[2], abi::stack_pointer(), SNAMEW), // 2: pszTargetName
-        abi::move_immediate(abi::ARG[3], "Integer", ISC_REQ_FLAGS), // 3: fContextReq
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),         // 1: phContext=NULL
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), SNAMEW), // 2: pszTargetName
+        abi::move_immediate(abi::c_arg(3), "Integer", ISC_REQ_FLAGS), // 3: fContextReq
     ]);
     // stack args 4..11: 0,0,NULL,0, &ctxt, &outdesc, &attrs, &expiry (arena)
     sspi_call_ext(
@@ -445,11 +445,11 @@ pub(super) fn lower_tls_connect(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD),
         abi::load_u64("%v10", abi::stack_pointer(), STATE),
         abi::load_u64("%v11", "%v10", st::RECV_LEN),
-        abi::add_immediate(abi::ARG[1], "%v10", st::RECV),
-        abi::add_registers(abi::ARG[1], abi::ARG[1], "%v11"),
-        abi::move_immediate(abi::ARG[2], "Integer", &RECV_CAP.to_string()),
-        abi::subtract_registers(abi::ARG[2], abi::ARG[2], "%v11"),
-        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::add_immediate(abi::c_arg(1), "%v10", st::RECV),
+        abi::add_registers(abi::c_arg(1), abi::c_arg(1), "%v11"),
+        abi::move_immediate(abi::c_arg(2), "Integer", &RECV_CAP.to_string()),
+        abi::subtract_registers(abi::c_arg(2), abi::c_arg(2), "%v11"),
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
     platform.emit_libc_call("recv", symbol, imports, &mut ins, &mut rel)?;
     let hs_got = format!("{symbol}_hs_got");
@@ -461,7 +461,7 @@ pub(super) fn lower_tls_connect(
     // plan-73-D: recv <= 0. An SO_RCVTIMEO expiry on Winsock is WSAETIMEDOUT (10060,
     // not EWOULDBLOCK) — that is a handshake TIMEOUT → ErrTimeout (via the flag);
     // anything else stays ErrNetworkFailed.
-    platform.emit_errno(symbol, "%v9", imports, &mut ins, &mut rel)?;
+    platform.emit_errno(symbol, ("%v9").into(), imports, &mut ins, &mut rel)?;
     ins.extend([
         abi::compare_immediate("%v9", "10060"), // WSAETIMEDOUT
         abi::branch_ne(&fail),
@@ -495,10 +495,10 @@ pub(super) fn lower_tls_connect(
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE),
         abi::add_immediate(abi::return_register(), abi::return_register(), st::CRED), // 0: phCredential
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), STATE),
-        abi::add_immediate(abi::ARG[1], abi::ARG[1], st::CTXT), // 1: phContext=&ctxt
-        abi::load_u64(abi::ARG[2], abi::stack_pointer(), SNAMEW), // 2: pszTargetName
-        abi::move_immediate(abi::ARG[3], "Integer", ISC_REQ_FLAGS), // 3: fContextReq
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), STATE),
+        abi::add_immediate(abi::c_arg(1), abi::c_arg(1), st::CTXT), // 1: phContext=&ctxt
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), SNAMEW), // 2: pszTargetName
+        abi::move_immediate(abi::c_arg(3), "Integer", ISC_REQ_FLAGS), // 3: fContextReq
     ]);
     // stack args 4..11: 0,0,&indesc,0, &ctxt, &outdesc, &attrs, &expiry (arena)
     sspi_call_ext(
@@ -614,8 +614,8 @@ pub(super) fn lower_tls_connect(
     ins.extend([
         abi::load_u64("%v18", abi::stack_pointer(), STATE),
         abi::add_immediate(abi::return_register(), "%v18", st::CTXT),
-        abi::move_immediate(abi::ARG[1], "Integer", SECPKG_ATTR_STREAM_SIZES),
-        abi::add_immediate(abi::ARG[2], "%v18", st::SC_CRED),
+        abi::move_immediate(abi::c_arg(1), "Integer", SECPKG_ATTR_STREAM_SIZES),
+        abi::add_immediate(abi::c_arg(2), "%v18", st::SC_CRED),
     ]);
     sspi_call(symbol, "QueryContextAttributesW", SECUR32, 3, imports, platform, &mut ins, &mut rel)?;
     ins.push(abi::branch_lt(&fail));

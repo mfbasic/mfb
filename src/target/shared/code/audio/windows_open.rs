@@ -47,12 +47,12 @@ fn emit_activate_client(
     rel: &mut Vec<CodeRelocation>,
 ) {
     spill_obj(W_DEVICE, ins);
-    guid_addr(symbol, abi::ARG[1], "IID_IAudioClient", ins, rel);
+    guid_addr(symbol, abi::c_arg(1), "IID_IAudioClient", ins, rel);
     ins.extend([
-        abi::move_immediate(abi::ARG[2], "Integer", CLSCTX_ALL),
-        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", CLSCTX_ALL),
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
         abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::add_immediate(abi::ARG[4], "%v9", W_CLIENT),
+        abi::add_immediate(abi::c_arg(4), "%v9", W_CLIENT),
     ]);
     com_call(SLOT_DEV_ACTIVATE, 5, ins);
     ins.extend([
@@ -72,7 +72,7 @@ fn emit_initialize(exclusive: bool, mix_ptr: bool, ins: &mut Vec<CodeInstruction
     spill_obj(W_CLIENT, ins);
     ins.extend([
         abi::move_immediate(
-            abi::ARG[1],
+            abi::c_arg(1),
             "Integer",
             if exclusive {
                 SHAREMODE_EXCLUSIVE
@@ -80,27 +80,27 @@ fn emit_initialize(exclusive: bool, mix_ptr: bool, ins: &mut Vec<CodeInstruction
                 SHAREMODE_SHARED
             },
         ),
-        abi::move_immediate(abi::ARG[2], "Integer", STREAMFLAGS_EVENTCALLBACK),
+        abi::move_immediate(abi::c_arg(2), "Integer", STREAMFLAGS_EVENTCALLBACK),
         // hnsBufferDuration / hnsPeriodicity
         if exclusive {
-            abi::load_u64(abi::ARG[3], abi::stack_pointer(), TOTAL_OFF)
+            abi::load_u64(abi::c_arg(3), abi::stack_pointer(), TOTAL_OFF)
         } else {
-            abi::move_register(abi::ARG[3], abi::ZERO)
+            abi::move_register(abi::c_arg(3), abi::ZERO)
         },
         if exclusive {
-            abi::load_u64(abi::ARG[4], abi::stack_pointer(), TOTAL_OFF)
+            abi::load_u64(abi::c_arg(4), abi::stack_pointer(), TOTAL_OFF)
         } else {
-            abi::move_register(abi::ARG[4], abi::ZERO)
+            abi::move_register(abi::c_arg(4), abi::ZERO)
         },
         // pFormat (stack arg 1)
         abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
         if mix_ptr {
-            abi::load_u64(abi::ARG[5], "%v9", W_OUT0)
+            abi::load_u64(abi::c_arg(5), "%v9", W_OUT0)
         } else {
-            abi::add_immediate(abi::ARG[5], "%v9", W_WFX)
+            abi::add_immediate(abi::c_arg(5), "%v9", W_WFX)
         },
         // AudioSessionGuid = NULL (stack arg 2)
-        abi::move_register(abi::ARG[6], abi::ZERO),
+        abi::move_register(abi::c_arg(6), abi::ZERO),
     ]);
     com_call(SLOT_AC_INITIALIZE, 7, ins);
     ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), HR_OFF));
@@ -143,15 +143,15 @@ fn lower_open(
     if device {
         ins.extend([
             abi::store_u64(abi::return_register(), abi::stack_pointer(), DEVID_OFF),
-            abi::store_u64(abi::ARG[1], abi::stack_pointer(), SR_OFF),
-            abi::store_u64(abi::ARG[2], abi::stack_pointer(), CH_OFF),
-            abi::store_u64(abi::ARG[3], abi::stack_pointer(), BF_OFF),
+            abi::store_u64(abi::c_arg(1), abi::stack_pointer(), SR_OFF),
+            abi::store_u64(abi::c_arg(2), abi::stack_pointer(), CH_OFF),
+            abi::store_u64(abi::c_arg(3), abi::stack_pointer(), BF_OFF),
         ]);
     } else {
         ins.extend([
             abi::store_u64(abi::return_register(), abi::stack_pointer(), SR_OFF),
-            abi::store_u64(abi::ARG[1], abi::stack_pointer(), CH_OFF),
-            abi::store_u64(abi::ARG[2], abi::stack_pointer(), BF_OFF),
+            abi::store_u64(abi::c_arg(1), abi::stack_pointer(), CH_OFF),
+            abi::store_u64(abi::c_arg(2), abi::stack_pointer(), BF_OFF),
         ]);
     }
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), STATE_OFF));
@@ -163,11 +163,11 @@ fn lower_open(
         abi::store_u64("%v9", abi::stack_pointer(), BPF_OFF),
         // AudioHandle
         abi::move_immediate(abi::return_register(), "Integer", &H_RECORD_SIZE.to_string()),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::move_register("%v15", abi::RET[1]),
+        abi::move_register("%v15", abi::mfb_return(1)),
         abi::store_u64("%v15", abi::stack_pointer(), HANDLE_OFF),
         // Canonical plan-80 header: tag@0, kind (handle)@8, closed@16, STATE@24.
         abi::move_immediate("%v9", "Integer", RESOURCE_TAG_AUDIO),
@@ -186,11 +186,11 @@ fn lower_open(
         abi::store_u64("%v9", "%v15", H_BUFFER_FRAMES),
         // WASAPI STATE block (arena)
         abi::move_immediate(abi::return_register(), "Integer", &W_SIZE.to_string()),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
-        abi::move_register("%v15", abi::RET[1]),
+        abi::move_register("%v15", abi::mfb_return(1)),
         abi::store_u64("%v15", abi::stack_pointer(), STATE_OFF),
         abi::load_u64("%v9", abi::stack_pointer(), HANDLE_OFF),
         abi::store_u64("%v15", "%v9", H_STATE),
@@ -210,18 +210,18 @@ fn lower_open(
     // CoInitializeEx(NULL, COINIT_MULTITHREADED) — result ignored.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::move_immediate(abi::ARG[1], "Integer", COINIT_MULTITHREADED),
+        abi::move_immediate(abi::c_arg(1), "Integer", COINIT_MULTITHREADED),
     ]);
     ole_call(symbol, "CoInitializeEx", 2, platform_imports, platform, &mut ins, &mut rel)?;
     // CoCreateInstance(&CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL,
     //                  &IID_IMMDeviceEnumerator, &state->W_ENUM)
     guid_addr(symbol, abi::return_register(), "CLSID_MMDeviceEnumerator", &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
-    ins.push(abi::move_immediate(abi::ARG[2], "Integer", CLSCTX_ALL));
-    guid_addr(symbol, abi::ARG[3], "IID_IMMDeviceEnumerator", &mut ins, &mut rel);
+    ins.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
+    ins.push(abi::move_immediate(abi::c_arg(2), "Integer", CLSCTX_ALL));
+    guid_addr(symbol, abi::c_arg(3), "IID_IMMDeviceEnumerator", &mut ins, &mut rel);
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::add_immediate(abi::ARG[4], "%v9", W_ENUM),
+        abi::add_immediate(abi::c_arg(4), "%v9", W_ENUM),
     ]);
     ole_call(symbol, "CoCreateInstance", 5, platform_imports, platform, &mut ins, &mut rel)?;
     ins.extend([
@@ -232,19 +232,19 @@ fn lower_open(
     if device {
         emit_widen_device_id(&mut ins);
         spill_obj(W_ENUM, &mut ins);
-        ins.push(abi::add_immediate(abi::ARG[1], abi::stack_pointer(), WIDEID_OFF));
+        ins.push(abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), WIDEID_OFF));
         ins.extend([
             abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-            abi::add_immediate(abi::ARG[2], "%v9", W_DEVICE),
+            abi::add_immediate(abi::c_arg(2), "%v9", W_DEVICE),
         ]);
         com_call(SLOT_ENUM_GET_DEVICE, 3, &mut ins);
     } else {
         spill_obj(W_ENUM, &mut ins);
         ins.extend([
-            abi::move_immediate(abi::ARG[1], "Integer", if input { E_CAPTURE } else { E_RENDER }),
-            abi::move_immediate(abi::ARG[2], "Integer", E_CONSOLE),
+            abi::move_immediate(abi::c_arg(1), "Integer", if input { E_CAPTURE } else { E_RENDER }),
+            abi::move_immediate(abi::c_arg(2), "Integer", E_CONSOLE),
             abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-            abi::add_immediate(abi::ARG[3], "%v9", W_DEVICE),
+            abi::add_immediate(abi::c_arg(3), "%v9", W_DEVICE),
         ]);
         com_call(SLOT_GET_DEFAULT_ENDPOINT, 4, &mut ins);
     }
@@ -289,7 +289,7 @@ fn lower_open(
     spill_obj(W_CLIENT, &mut ins);
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::add_immediate(abi::ARG[1], "%v9", W_OUT0),
+        abi::add_immediate(abi::c_arg(1), "%v9", W_OUT0),
     ]);
     com_call(SLOT_AC_GET_MIX_FORMAT, 2, &mut ins);
     ins.extend([
@@ -345,7 +345,7 @@ fn lower_open(
     spill_obj(W_CLIENT, &mut ins);
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::add_immediate(abi::ARG[1], "%v9", W_BUFFER),
+        abi::add_immediate(abi::c_arg(1), "%v9", W_BUFFER),
     ]);
     com_call(SLOT_AC_GET_BUFFER_SIZE, 2, &mut ins);
     if input {
@@ -357,20 +357,20 @@ fn lower_open(
             abi::load_u32("%v10", "%v9", W_BUFFER), // negotiated buffer frames
             abi::load_u64("%v11", "%v9", W_MIX_BPF),
             abi::multiply_registers(abi::return_register(), "%v10", "%v11"),
-            abi::move_immediate(abi::ARG[1], "Integer", "8"),
+            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         ]);
         emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
         ins.extend([
             abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-            abi::store_u64(abi::RET[1], "%v9", W_CARRY_PTR),
+            abi::store_u64(abi::mfb_return(1), "%v9", W_CARRY_PTR),
         ]);
     }
     // CreateEventW(NULL, FALSE, FALSE, NULL) — auto-reset; NOT sign-extended.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
-        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
     emit_external_int_call(platform, "CreateEventW", symbol, 4, platform_imports, &mut ins, &mut rel)?;
     ins.extend([
@@ -383,7 +383,7 @@ fn lower_open(
     spill_obj(W_CLIENT, &mut ins);
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::load_u64(abi::ARG[1], "%v9", W_EVENT),
+        abi::load_u64(abi::c_arg(1), "%v9", W_EVENT),
     ]);
     com_call(SLOT_AC_SET_EVENT_HANDLE, 2, &mut ins);
     ins.extend([
@@ -394,7 +394,7 @@ fn lower_open(
     spill_obj(W_CLIENT, &mut ins);
     guid_addr(
         symbol,
-        abi::ARG[1],
+        abi::c_arg(1),
         if input {
             "IID_IAudioCaptureClient"
         } else {
@@ -405,7 +405,7 @@ fn lower_open(
     );
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::add_immediate(abi::ARG[2], "%v9", W_SERVICE),
+        abi::add_immediate(abi::c_arg(2), "%v9", W_SERVICE),
     ]);
     com_call(SLOT_AC_GET_SERVICE, 3, &mut ins);
     ins.extend([

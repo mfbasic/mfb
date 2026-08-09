@@ -32,7 +32,7 @@ pub(crate) struct CodeFrame {
 pub(crate) struct CodeParam {
     pub(crate) name: String,
     pub(crate) type_: String,
-    pub(crate) location: String,
+    pub(crate) location: Operand,
 }
 
 pub(crate) struct CodeInstruction {
@@ -633,7 +633,7 @@ pub(crate) trait CodegenPlatform {
     fn emit_errno(
         &self,
         from: &str,
-        dst: &str,
+        dst: Operand,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,

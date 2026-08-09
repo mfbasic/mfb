@@ -99,11 +99,11 @@ Stated once here for the whole plan-85 feature; every later letter points here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-71 complete & archived (its tool + probe + arena work landed) | `ls planning/plan-71-*.md 2>/dev/null` → none; `ls src/target/shared/code/selfmove_probe.rs` exists | MET — plan-71 archived; `selfmove_probe.rs` on main (f3b62d29a) |
-| Repo builds clean; full byte-identity gate green at HEAD | `cargo build --release --bin mfb && bash scripts/bug387-gate.sh target/release/mfb full` (record fresh SERIAL baselines first) | UNVERIFIED — run first |
-| exe-oracle baselines re-recorded from clean `main` **serially** | `for t in linux-x86_64 windows-x86_64 linux-riscv64 linux-aarch64; do bash scripts/exe-oracle.sh <exe> $t record /tmp/bug387/oracle-$t.txt; done` (one at a time) | RE-RECORD FIRST |
-| A Linux x86 box reachable for SysV-x86 rt-behavior execution proof | per `.ai/remote_systems.md` | RE-PROBE at plan-85-B/D |
-| No concurrent artifact-gate / exe-oracle running | `pgrep -f 'artifact-gate\|exe-oracle'` → empty | UNVERIFIED — check before each gate |
+| plan-71 complete & archived (its tool + probe + arena work landed) | `ls planning/plan-71-*.md 2>/dev/null` → none; `ls src/target/shared/code/selfmove_probe.rs` exists | MET (re-verified c0c30e70a) — no `plan-71-*.md` in `planning/`; `selfmove_probe.rs` present |
+| Repo builds clean; full byte-identity gate green at HEAD | `cargo build --release --bin mfb && bash scripts/bug387-gate.sh target/release/mfb full` (record fresh SERIAL baselines first) | MET (build) + IN-PROGRESS (gate): release rebuilt clean (38.62s); `app-ncode: byte-identical`; exe-oracle ×4 compare running against the fresh baselines (job `bvp6y25j6`) |
+| exe-oracle baselines re-recorded from clean `main` **serially** | `for t in linux-x86_64 windows-x86_64 linux-riscv64 linux-aarch64; do bash scripts/exe-oracle.sh <exe> $t record /tmp/bug387/oracle-$t.txt; done` (one at a time) | MET — all 4 `/tmp/bug387/oracle-*.txt` recorded serially from the c0c30e70a-forked worktree (linux-x86_64 1354, windows 644, riscv64 1352, aarch64) |
+| A Linux x86 box reachable for SysV-x86 rt-behavior execution proof | per `.ai/remote_systems.md` | MET — box 2227 (Alpine musl x86_64) reachable (`ssh -p 2227` → `Linux x86_64`); 2228 (glibc) timed out, recorded (plan-71 stance: available box stands) |
+| No concurrent artifact-gate / exe-oracle running | `pgrep -f 'artifact-gate\|exe-oracle'` → empty | MET at gate start (no foreign gate); this plan's own finalize gate is the only exe-oracle now |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** The
 > `/tmp/bug387/*` baselines are ephemeral and MUST be re-recorded from clean `main`
@@ -313,39 +313,76 @@ compile-time allocation reduction, no output effect). Win64/AArch64/RISC-V byte-
 > NOT DONE.
 
 ### Phase 1 — the typed `Operand::Abi` variant + accessors (`operand.rs`, `abi.rs`)
-- [ ] Add the `Operand::Abi{convention, role, index}` arm + the `AbiConvention`/`AbiRole`
+- [x] Add the `Operand::Abi{convention, role, index}` arm + the `AbiConvention`/`AbiRole`
       enums (`operand.rs`); implement `render()`/`rendered()` for it; add the
       `mfb_arg`/`c_arg`/`sys_arg`/… accessors returning `Operand::Abi` (`abi.rs`). Leave
-      the legacy string tokens in place.
-- [ ] Tests: `operand::tests` — `Operand::Abi` is `Copy`, round-trips through
-      `render()`, and each accessor yields the expected variant.
+      the legacy string tokens in place. — `operand.rs` (enum arm + static token table
+      `abi_token` + `Operand::abi`); `abi.rs` accessors; `code/mod.rs` re-exports
+      `AbiConvention`/`AbiRole`. `Abi` payload is `Copy`; `rendered()` borrows the static
+      spelling (no alloc). Legacy `ARG`/`RET`/`SYSARG` untouched.
+- [x] Tests: `operand::tests` — `Operand::Abi` is `Copy`, round-trips through
+      `render()`, and each accessor yields the expected variant. — `operand::tests`
+      (`abi_tokens_render_and_borrow`, `abi_payload_is_copy_and_clones_without_alloc`,
+      `abi_tokens_are_not_confused_with_legacy_or_vregs`) + `abi::tests`
+      (`convention_explicit_abi_accessors`); all green.
 
 Acceptance: `cargo test --bin mfb operand:: abi::` green; no emission site changed;
-`bug387-gate.sh full` byte-identical (five targets).
-Commit: —
+`bug387-gate.sh full` byte-identical (five targets). — cargo tests green (57 passed);
+**`bug387-gate.sh target/release/mfb full` = PASS byte-identical on ALL 5 targets**
+(app-ncode + linux-x86_64 1354 / windows 644 / riscv64 1352 / aarch64 1354 executables),
+verified against the serial fresh baselines. Confirms the dormant primitive emits zero
+byte change.
+Commit: 817ddd32b
 
 ### Phase 2 — aligned typed realization (all four backends) + the direct-realize seam
-- [ ] Add `realize_abi(convention, role, index, target)` (§4.2) returning the §2 register;
+- [x] Add `realize_abi(convention, role, index, target)` (§4.2) returning the §2 register;
       have each backend match `Operand::Abi` and call it — AArch64 (`select.rs:106`),
       RISC-V (`:732`), and x86's `map_token_direct` (SysV + Win64 columns, aligned `%retMFB`).
-- [ ] Add the `Operand::Abi` direct-realize branch in `select_x86` (§4.3) so an explicit
+      — Shared positional realizer `abi::realize_abi_positional(index) -> &'static str`
+      (`x{index}`; AArch64 args==results collapse) called from the AArch64 select loop and
+      the RISC-V select loop (which then remaps `xN`→`aN`). x86's `realize_abi_operand`
+      (`x86_64/select.rs`) returns the §2 aligned register per (convention, role, index, abi):
+      MFB arg/ret + C arg → aligned `CALL_ARGS[k]`; `%retC` → `rax:rdx` (`C_RETS`); syscalls
+      unchanged; Win64 on the `*_WIN64` banks. Kept as its own fn rather than folding into
+      `map_token_direct` (which stays for the legacy `Raw` `%arg`/`%ret` until plan-85-D).
+- [x] Add the `Operand::Abi` direct-realize branch in `select_x86` (§4.3) so an explicit
       token bypasses `remap_x86_abi`; legacy `Raw` `%arg`/`%ret` still defer to the fixpoint.
-- [ ] Tests: a realization unit test per (convention, role, index) per backend asserting
+      — the seam matches `Operand::Abi` first in the per-operand loop, realizes via
+      `realize_abi_operand`, and `continue`s before the `is_abi_role_token` deferral.
+- [x] Tests: a realization unit test per (convention, role, index) per backend asserting
       the §2 register; a `select_x86` test proving an `Operand::Abi` bypasses the fixpoint.
+      — `abi::abi_positional_realization_collapses_every_convention` (AArch64/RISC-V logic);
+      `x86_64::select::realize_abi_operand_maps_to_aligned_registers` (full §2 SysV+Win64);
+      `x86_64::select::explicit_abi_token_bypasses_the_fixpoint` (`%retMFB0`→`rdi`, no `rax`);
+      `{aarch64,riscv64}::select::explicit_abi_tokens_realize_to_positional_{x,a}_registers`
+      (end-to-end select path). All green; full `cargo test --bin mfb` = 3792 passed / 0 failed.
 
 Acceptance: realization tests green on all four backends; `bug387-gate.sh full`
-byte-identical (five targets — nothing emits `Operand::Abi` yet).
-Commit: —
+byte-identical (five targets — nothing emits `Operand::Abi` yet). — realization tests
+green (all four backends); **`bug387-gate.sh full` = PASS byte-identical on all 5 targets**
+(same run as Phase 1; Phase 1+2 are both dormant, one gate covers both).
+Commit: f19a18bbf
 
 ### Phase 3 — per-operand census work-list
 - [x] ~~Measure the split-deciding distribution~~ — done during planning
       (`planning/plan-85-census.md`: 884 / ~4,008 / 16, with commands).
-- [ ] Append the per-`file:line` target token + justifying callee/boundary from the
+- [x] Append the per-`file:line` target token + justifying callee/boundary from the
       `MFB_BUG387_AUDIT=1` `@src` sweep on a release build — the B and C work-lists.
+      — Ran the sweep over 135 error-path fixtures on the A-only (byte-identical) release
+      binary: 14,748 `BUG387-MISMATCH` lines across **273 distinct `@src` sites**, saved to
+      `plan-85-audit-src.txt` and summarized in `plan-85-census.md` (§"MFB_BUG387_AUDIT @src
+      sweep results"). The divergences are exactly the byte-changing MFB-result sites
+      (`builder_error_emission.rs` dominant → C; entry/io_stdout/collection result staging →
+      B); arg sites do not diverge (confirms Correction C1's byte-identical args). Combined
+      with the complete grep work-list (`plan-85-worklist.md`), every site has a target token
+      justified by its callee/boundary.
 
 Acceptance: `planning/plan-85-census.md` carries a complete per-`file:line` work-list;
 every site has a target token justified by its callee/boundary; counts carry commands.
-Commit: —
+— MET: `plan-85-worklist.md` (complete per-`file:line` enumeration, all categories, with
+generating commands) + the `@src` sweep (273 divergent sites confirming the byte-changing
+subset) + the deterministic target-token rule + per-file distribution, all in the census.
+Commit: ebb9afdac
 
 ## Validation Plan
 
@@ -382,7 +419,73 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+**RETRACTED — "core premise falsified" was WRONG (a premature stop). The real cause was a
+fixable plan-85-A wiring bug, now fixed (`f4509c534`); the premise HOLDS.** I ran
+`bug387-gate.sh full` (which checks byte-identity on *all* targets), saw the broad diffs
+below, theorized an inherent "fixpoint global-dataflow perturbation," and stopped —
+**without ever objdumping a single diff.** That was the error. Empirical root-cause (a
+minimal isolated conversion + `-ncode`/executable diff, which I should have done first):
+
+- Converting `datetime.rs`'s args alone is **byte-identical on linux-x86_64, windows-x86_64,
+  AND linux-riscv64** (`-ncode` 0-diff on all three). So clean arg conversion IS byte-neutral
+  — the "perturbation" theory was false.
+- The broad diffs came from a **single ~30-line bug**: the riscv64/x86 fused compare-branch
+  expander (`expand_fused`) `render()`s its operands to STRINGS, erasing the typed
+  `Operand::Abi` arm; the shared string realizer `realize_abi_token` only knew the legacy
+  `%arg`/`%ret` strings, so a rendered `%argC1` leaked unrealized to the encoder (`unknown
+  rv64 integer register '%argC1'`). Because `arena_alloc` (linked into *every* executable)
+  runs a fused compare over an ABI token, this broke/changed nearly every binary — hence the
+  "universal riscv64 diff" and broad x86 diffs I misread as a dead premise.
+- **Fix (`f4509c534`):** `realize_convention_token` maps the rendered convention-token
+  strings positionally to `xN` (identical to the legacy `%arg{k}` string), so a stringified
+  token realizes byte-identically on every backend. **Proven:** converting `arena.rs`
+  (arena_alloc) now yields identical executable hashes vs A-only on BOTH linux-x86_64
+  (`36bf5b383…`) and linux-riscv64 (`6fcbbe604…`).
+
+Genuine lesson (recorded as a Prerequisites note): the A entry gate proved only that *A* is
+byte-identical (trivial — A emits nothing); the load-bearing check is that a *conversion*
+stays byte-identical on the non-SysV targets. A one-file conversion probe belongs in the
+Prerequisites gate and catches exactly this class of wiring bug — which is now covered by
+the `convention_token_string_realizes_positionally` regression test. B/C/D are UN-blocked;
+the plan proceeds.
+
+Evidence (full `bug387-gate.sh full`, rebuild + exe-oracle ×4, on the A-only serial
+baselines, after converting all `shared/code` single-role args to `%argC`):
+
+| target | result |
+|---|---|
+| linux-aarch64 | **byte-identical** (OK 1354) |
+| linux-x86_64 (SysV) | **534/1354 executables CHANGED** |
+| windows-x86_64 (Win64) | **broadly CHANGED** |
+| linux-riscv64 | **1352/1352 CHANGED** (universal; unexplained — needs objdump root-cause) |
+
+Root cause (x86): `remap_x86_abi` colors every `xN` token by a **per-function GLOBAL
+dataflow** (`defined_since_boundary`/`staged_live`/`param_home`, `select.rs:687-697`).
+Converting *any* token makes it a physical register the fixpoint no longer tracks, so its
+dataflow shifts and it re-colors the *remaining* legacy tokens — broadly byte-changing on
+BOTH x86 ABIs. **Win64 runs the same `select_x86`/`remap_x86_abi`**, so the plan's premise
+that Win64 is a byte-identity cross-check (§2, §Non-goals: "Win64-x86 … byte-identical …
+their byte-identity is the migration's cross-target gate") is false. (Win64 also diverges
+at result index 0 anyway: `%retMFB0`=rcx vs `RETS_WIN64[0]`=rax.)
+
+**Consequence for B/C/D:** the plan as written cannot be executed — its correctness gate
+(cross-target byte-identity) is invalid, so a byte-changing conversion has no sound way to
+be verified on the two x86 ABIs. This needs **re-planning** (a write-plan task, outside
+follow-plan's scope), not an in-place correction. A viable redesign must: (1) root-cause the
+riscv64 universal diff (positional realization should be byte-identical like aarch64 — likely
+a latent bug in the entry/arena conversion or the `Operand::Abi` riscv path, isolatable by
+objdump of one fixture); (2) abandon the incremental "byte-identical args grouping" (there is
+none on x86); (3) convert **all** tokens at once (or per-fully-isolated-function) so the
+fixpoint has no partial state to perturb / no converted-vs-legacy register collision, which
+— because shared results (`arena_alloc`'s `RET[0]/RET[1]` at ~795 sites) interconnect the
+token graph — effectively merges B/C/D into one atomic conversion + `remap_x86_abi` deletion;
+(4) verify by **rt-behavior on BOTH x86 ABIs** (SysV box 2227, Win64 box 2230) plus AArch64
+(and RISC-V once fixed) byte-identity — NOT Win64 byte-identity.
+
+plan-85-A itself (the typed `Operand::Abi` vocabulary + aligned realization + direct-realize
+seam + census) stands and is byte-identical/verified; it is the correct primitive for the
+redesigned conversion. The failed B args conversion was reverted (`fb54a6e61`); its findings
+(C1–C4, inventories, worklist, `@src` sweep) are preserved in `planning/` for the redesign.
 
 ## Summary
 

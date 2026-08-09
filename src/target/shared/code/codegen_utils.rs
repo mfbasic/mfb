@@ -36,14 +36,14 @@ pub(super) fn lower_sort_string_list_helper() -> CodeFunction {
 
     let mut instructions = vec![
         abi::label("entry"),
-        abi::load_u64("%v10", abi::ARG[0], COLLECTION_OFFSET_COUNT),
+        abi::load_u64("%v10", abi::c_arg(0), COLLECTION_OFFSET_COUNT),
         abi::compare_immediate("%v10", "1"),
         abi::branch_le(&done),
-        abi::add_immediate("%v9", abi::ARG[0], COLLECTION_HEADER_SIZE),
+        abi::add_immediate("%v9", abi::c_arg(0), COLLECTION_HEADER_SIZE),
         abi::move_immediate("%v1", "Integer", &entry_size),
         // data region base = entries base + capacity * entry size (the data
         // region sits past the full lookup capacity for a grown list; §4.2).
-        abi::load_u64("%v8", abi::ARG[0], COLLECTION_OFFSET_CAPACITY),
+        abi::load_u64("%v8", abi::c_arg(0), COLLECTION_OFFSET_CAPACITY),
         abi::multiply_registers("%v11", "%v8", "%v1"),
         abi::add_registers("%v11", "%v9", "%v11"),
         abi::move_immediate("%v12", "Integer", "0"),
@@ -157,7 +157,7 @@ pub(super) fn emit_call_validate_utf8(
         library: None,
     });
     instructions.extend([
-        abi::compare_immediate(abi::RET[0], "0"),
+        abi::compare_immediate(abi::mfb_return(0), "0"),
         abi::branch_ne(error_label),
     ]);
 }
@@ -175,17 +175,17 @@ pub(super) fn lower_validate_utf8_helper() -> CodeFunction {
     let mut instructions = vec![abi::label("entry")];
     emit_validate_utf8(
         symbol,
-        abi::ARG[0],
-        abi::ARG[1],
+        abi::c_arg(0),
+        abi::c_arg(1),
         &invalid,
         &mut instructions,
         &mut vregs,
     );
     instructions.extend([
-        abi::move_immediate(abi::RET[0], "Integer", "0"),
+        abi::move_immediate(abi::mfb_return(0), "Integer", "0"),
         abi::return_(),
         abi::label(&invalid),
-        abi::move_immediate(abi::RET[0], "Integer", "1"),
+        abi::move_immediate(abi::mfb_return(0), "Integer", "1"),
         abi::return_(),
     ]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -207,8 +207,9 @@ pub(super) fn lower_validate_utf8_helper() -> CodeFunction {
 /// and `len` are read into it before any other def, so they may name `x0`/`x1`.
 fn emit_validate_utf8(
     symbol: &str,
-    ptr: &str,
-    len: &str,
+    // plan-85-B: accept a typed `Operand` (`abi::c_arg(0/1)`) or a legacy `&str`.
+    ptr: impl Into<Operand>,
+    len: impl Into<Operand>,
     error_label: &str,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
@@ -847,7 +848,15 @@ fn resolve_stack_arg_sentinels(
             continue;
         };
         let resolved_offset = if incoming {
-            frame_size + entry_padding + offset_of(instruction)
+            // The caller places outgoing arg 0 above the Win64 shadow space
+            // (`outgoing_args_base_offset()`), so the callee must read its incoming
+            // args from the same shadow-space-adjusted position — otherwise a >8-arg
+            // Win64 call reads garbage out of the shadow region (the offset defaults
+            // to 0, so SysV/AAPCS64 frames are byte-identical).
+            frame_size
+                + entry_padding
+                + super::mir::active_backend().outgoing_args_base_offset()
+                + offset_of(instruction)
         } else {
             // Outgoing arg 0 sits above the Win64 shadow space (plan-47-B §4.3);
             // `outgoing_args_base_offset()` defaults to 0, so SysV/AAPCS64 place it

@@ -157,12 +157,12 @@ impl CodeBuilder<'_> {
         // clobbering caller-saved registers (the former inline `arena_alloc` did),
         // so the contract is unchanged.
         self.emit(abi::move_immediate(
-            abi::ARG[1],
+            abi::c_arg(1),
             "Integer",
             &self.current_loc.line.to_string(),
         ));
         self.emit(abi::move_immediate(
-            abi::ARG[2],
+            abi::c_arg(2),
             "Integer",
             &self.current_loc.column.to_string(),
         ));
@@ -171,9 +171,9 @@ impl CodeBuilder<'_> {
         let filename = self.current_file.clone();
         if filename.is_empty() {
             let register = self.load_empty_string_constant()?;
-            self.emit(abi::move_register(abi::ARG[0], &register));
+            self.emit(abi::move_register(abi::c_arg(0), &register));
         } else {
-            self.emit_load_string_constant(abi::ARG[0], &filename)?;
+            self.emit_load_string_constant(abi::c_arg(0), &filename)?;
         }
         self.emit(abi::branch_link(BUILD_ERROR_LOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -289,35 +289,38 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         self.emit(abi::label(&src_size_done));
 
-        // Allocate the Error block. plan-71-C Family-1a: the size is consumed as
-        // arg 0 of the arena-alloc call, so emit it into `%arg0` rather than
-        // `return_register()` (`%ret0`). Byte-identical (both realize to x0/a0 on
-        // AArch64/RISC-V; `map_token_direct(%arg0)=rdi` = the x86 fixpoint's inferred
-        // register), and it clears the `builder_error_emission.rs:278` divergence.
-        self.emit(abi::load_u64(abi::ARG[0], abi::stack_pointer(), size_slot));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        // Allocate the Error block. The size is consumed as arg 0 of the arena-alloc
+        // call, so emit it into the C-argument token (`c_arg(0)`) — the aligned call
+        // bank — rather than a result token. On AArch64/RISC-V arg and result
+        // coincide (`x0`/`a0`); on x86 the aligned convention puts C arg 0 in `rdi`.
+        self.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            size_slot,
+        ));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         // code @0.
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), code_slot));
-        self.emit(abi::store_u64(&scratch9, abi::RET[1], 0));
+        self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 0));
         // message-offset @8 = 24; inline message block at +24.
         self.emit(abi::move_immediate(
             &scratch9,
             "Integer",
             &ERROR_OBJECT_SIZE.to_string(),
         ));
-        self.emit(abi::store_u64(&scratch9, abi::RET[1], 8));
+        self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 8));
         self.emit(abi::add_immediate(
             &scratch10,
-            abi::RET[1],
+            abi::mfb_return(1),
             ERROR_OBJECT_SIZE,
         ));
         self.emit(abi::load_u64(
@@ -334,21 +337,21 @@ impl CodeBuilder<'_> {
         // source-offset @16; inline source block when present.
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), src_off_slot));
         self.emit(abi::load_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
-        self.emit(abi::store_u64(&scratch9, abi::RET[1], 16));
+        self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 16));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
         self.emit(abi::compare_immediate(&scratch8, "0"));
         self.emit(abi::branch_eq(&src_null_fill));
         self.emit(abi::load_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), src_off_slot));
-        self.emit(abi::add_registers(&scratch10, abi::RET[1], &scratch9));
+        self.emit(abi::add_registers(&scratch10, abi::mfb_return(1), &scratch9));
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(
             &scratch12,
@@ -533,25 +536,25 @@ impl CodeBuilder<'_> {
         // inputs and calls. Move the code to its arg slot (x3) first — the code
         // may currently live in one of the other arg registers (the allocation
         // path passes it in x0), so set it before x1/x2/x4/x0 are overwritten.
-        self.emit(abi::move_register(abi::ARG[3], code_register));
+        self.emit(abi::move_register(abi::c_arg(3), code_register));
         self.emit(abi::move_immediate(
-            abi::ARG[1],
+            abi::c_arg(1),
             "Integer",
             &self.current_loc.line.to_string(),
         ));
         self.emit(abi::move_immediate(
-            abi::ARG[2],
+            abi::c_arg(2),
             "Integer",
             &self.current_loc.column.to_string(),
         ));
-        self.emit_load_string_address_into(abi::ARG[4], message)?;
+        self.emit_load_string_address_into(abi::c_arg(4), message)?;
         // x0 = filename String pointer (empty String when the file is unknown).
         let filename = self.current_file.clone();
         if filename.is_empty() {
             let register = self.load_empty_string_constant()?;
-            self.emit(abi::move_register(abi::ARG[0], &register));
+            self.emit(abi::move_register(abi::c_arg(0), &register));
         } else {
-            self.emit_load_string_constant(abi::ARG[0], &filename)?;
+            self.emit_load_string_constant(abi::c_arg(0), &filename)?;
         }
         self.emit(abi::branch_link(MAKE_ERROR_RESULT_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -635,22 +638,24 @@ impl CodeBuilder<'_> {
             if value.type_ == "Nothing" {
                 let register = self.allocate_register()?;
                 self.emit(abi::move_immediate(&register, "Integer", "0"));
-                register.render()
+                Operand::from(register.render())
             } else if !already_standalone
                 && self.inline_collection_payload_size(&value.type_).is_some()
             {
                 // An alias / inline-payload return is promoted to a standalone
                 // arena block. A value already deep-copied by
                 // `lower_returned_value` is standalone and skips this.
-                self.materialize_inline_value_in_arena(&value.type_, &value.location)?
-                    .render()
+                Operand::from(
+                    self.materialize_inline_value_in_arena(&value.type_, &value.location)?
+                        .render(),
+                )
             } else {
                 value.location.clone()
             }
         } else {
             let register = self.allocate_register()?;
             self.emit(abi::move_immediate(&register, "Integer", "0"));
-            register.render()
+            Operand::from(register.render())
         };
         let message_register = self.allocate_register()?;
         self.emit(abi::move_immediate(&message_register, "Integer", "0"));
@@ -804,7 +809,11 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             ptr_slot,
         ));
-        self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            size_slot,
+        ));
         self.emit_arena_free_call();
         Ok(())
     }
