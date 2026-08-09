@@ -323,11 +323,12 @@ FUNC main AS Integer
   MUT filesLoaded AS Integer = 0
   MUT filesTotal AS Integer = 0
 
-  ' The loaded document, and the text derived from it. `content` is what gets
-  ' wrapped and drawn: display::render(doc) in Display Mode, display::tree(doc)
-  ' in Raw Mode, or `fallback` (welcome/error text) when no page is loaded.
-  ' display takes the width, so content is recomputed on load, mode switch, and
-  ' resize — tracked by needRecontent / lastContentWidth.
+  ' The loaded document, and the content lines derived from it. Display Mode paints
+  ' the DOM by its computed Layout (display::paint → positioned lines) directly into
+  ' `wrapped`; Raw Mode (display::tree) and the welcome/error `fallback` are plain
+  ' text held in `content` and hard-wrapped. display:: takes the width, so the
+  ' content is recomputed on load, mode switch, and resize — tracked by
+  ' needRecontent / lastContentWidth.
   MUT pageDoc AS Node = dom::emptyDocument()
   MUT haveDom AS Boolean = FALSE
   MUT fallback AS String = welcomeText()
@@ -373,24 +374,30 @@ FUNC main AS Integer
         lastRows = rows
       END IF
 
-      ' Recompute the rendered text from the DOM when the page, the mode, or the
-      ' width changed (display:: lays out to the current width).
+      ' Recompute the content lines from the DOM when the page, the mode, or the
+      ' width changed (display:: lays out to the current width). Display Mode paints
+      ' the DOM by its computed Layout straight into positioned lines (no re-wrap);
+      ' Raw Mode and the welcome/error fallback are plain text that still gets
+      ' hard-wrapped to the column width.
       IF needRecontent OR cols <> lastContentWidth THEN
-        IF haveDom THEN
-          IF rawMode THEN
+        IF haveDom AND NOT rawMode THEN
+          wrapped = display::paint(pageDoc, cols)
+          wrapWidth = cols
+          needRewrap = FALSE
+          contentDirty = TRUE
+        ELSE
+          IF haveDom THEN
             content = display::tree(pageDoc, cols)
           ELSE
-            content = display::render(pageDoc, cols)
+            content = fallback
           END IF
-        ELSE
-          content = fallback
+          needRewrap = TRUE
         END IF
         lastContentWidth = cols
         needRecontent = FALSE
-        needRewrap = TRUE
       END IF
 
-      ' Re-wrap only when the page text or the column width changed.
+      ' Re-wrap the text paths (Raw Mode / fallback) when the text or width changed.
       IF needRewrap OR cols <> wrapWidth THEN
         wrapped = wrapContent(content, cols)
         wrapWidth = cols
