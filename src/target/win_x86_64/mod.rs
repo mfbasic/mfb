@@ -155,6 +155,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "thread.isCancelled",
     "thread.emit",
     "thread.read",
+    "thread.sleepWorker",
     "thread.openStdIn",
     "thread.closeStdIn",
     "thread.transferResource",

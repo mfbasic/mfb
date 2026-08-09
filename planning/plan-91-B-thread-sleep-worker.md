@@ -258,34 +258,41 @@ worker overload.
 Acceptance: both premises confirmed in writing (Corrections) AND
 `cargo test --bin mfb builtins::thread` green (24 passed) AND a worker-handle
 `thread::sleep(t, ms)` type-checks to `Nothing` (syntax test green).
-Commit: —
+Commit: b179f68d2
 
 ### Phase 2 — Worker helper + direction split (largest blast radius)
 
-- [ ] `src/target/shared/code/builder_values.rs:2093-2156`: add the
-      `"thread.sleep"` case rewriting to `"thread.sleepWorker"` when the handle
-      static type is a worker.
-- [ ] `thread_specs.rs`: add `THREAD_SLEEP_WORKER_SPEC` (`returns: "Nothing"`).
-      `catalog.rs`: register it. `mod.rs:2194-2217`: route `"thread.sleepWorker"`
-      to `lower_thread_helper`.
-- [ ] `runtime_helpers.rs`: add the `"thread.sleepWorker" => …` dispatch arm and
-      implement `lower_thread_sleep_worker_helper` per §4 (reuse
-      `emit_thread_deadline` + the WorkerSelf lock/wait/cancel structure).
-- [ ] Advertise `thread.sleepWorker` on every target
-      (macOS/Linux/Windows `mod.rs`); confirm no new libc import is needed (the
-      pthread mutex/cond primitives are already imported for the queue waits;
-      Windows already translates them).
-- [ ] Tests: `tests/rt-behavior/threads/thread-sleep-worker-rt` — a worker that
-      `thread::sleep(t, 500)` then returns; assert full-duration completion when
-      left alone. `tests/rt-behavior/threads/thread-sleep-worker-cancel-rt` — the
-      parent calls `thread::cancel(t)` shortly after start; assert the worker's
-      sleep fails with `ErrInterrupted` well before 500 ms. Optional:
-      send-does-not-shorten-sleep case.
+- [x] `src/target/shared/code/builder_values.rs`: added the `"thread.sleep"` case
+      rewriting to `"thread.sleepWorker"` when the handle static type is a worker
+      (mirrors the send→emit / receive→read split).
+- [x] `thread_specs.rs`: added `THREAD_SLEEP_WORKER_SPEC` (`returns: "Nothing"`).
+      `catalog.rs`: registered it + added `"thread.sleepWorker"` to
+      `CODE_LAYER_ONLY_CALLS`. `mod.rs`: routed `"thread.sleepWorker"` to
+      `lower_thread_helper` AND force-emit its helper body whenever
+      `_mfb_rt_thread_thread_sleep` is present (companion emission — see Corrections).
+- [x] `runtime_helpers.rs`: added the `"thread.sleepWorker" => …` dispatch arm;
+      implemented `lower_thread_sleep_worker_helper` in `runtime_helpers_thread.rs`
+      per §4 (reuses `emit_thread_deadline` + the WorkerSelf lock/wait/cancel
+      structure; absolute deadline, cancel-check → `ErrInterrupted`, spurious wake
+      re-loops without shortening the sleep).
+- [x] Advertised `thread.sleepWorker`: added to the macOS/Linux pthread import
+      arms and the Windows `mod.rs` runtime_calls (mirroring `thread.emit`). No new
+      libc import needed — pthread mutex/cond are pulled by `thread.start`; Windows
+      reuses the existing `pthread_cond_timedwait → SleepConditionVariableSRW`
+      translation (confirmed in the cross-compiled `-ncode`).
+- [x] Tests: `tests/rt-behavior/threads/thread-sleep-worker-rt` — worker
+      `sleepThenReturn` sleeps 200 ms then returns 5; asserts full-duration
+      completion (elapsed ≥ 150 ms + result 5) → "result 5"/"slept full".
+      `tests/rt-behavior/threads/thread-sleep-worker-cancel-rt` — worker
+      `sleepUntilCancel` starts a 5000 ms sleep; parent waits ~50 ms, cancels, and
+      `waitFor` auto-propagates the worker's `ErrInterrupted` (77050009), caught in
+      ~0.2 s → "interrupted". Two new workers added to `thread_runtime_workers`.
 
 Acceptance: the cancel test proves the worker sleep wakes early with
-`ErrInterrupted`, AND the no-cancel test proves it sleeps the full duration, AND
-full `cargo test` is green. The observed early-wake — not compilation — is the
-gate.
+`ErrInterrupted` (observed "interrupted", ~0.2 s ≪ 5000 ms), AND the no-cancel
+test proves it sleeps the full duration ("slept full"), AND full `cargo test` is
+green (0 failures). All 47 thread fixtures pass with the regenerated `.mfp`.
+Cross-compiles clean for linux-x86_64/aarch64/windows-x86_64.
 Commit: —
 
 ### Phase 3 — Docs, spec, byte-identity
@@ -361,6 +368,22 @@ Commit: —
   inbound queue base = `handle + THREAD_OFFSET_INBOUND_QUEUE (40)`; mutex =
   queue base + 0; not-empty condvar = queue base + `THREAD_QUEUE_NOT_EMPTY_OFFSET (64)`;
   cancel flag = `handle + THREAD_OFFSET_CANCELLED (8)`.
+- **The synthesized `thread.sleepWorker` helper body must be force-emitted.** The
+  NIR only names `thread.sleep`; the worker split to `thread.sleepWorker` happens
+  in the code layer AFTER `runtime_symbols` is collected, so the call site emits a
+  reloc to `_mfb_rt_thread_thread_sleepWorker` with no defining body → "native code
+  internal relocation target ... is not defined". Fixed exactly like the
+  send→emit / receive→read companions: in `code/mod.rs`, when
+  `_mfb_rt_thread_thread_sleep` is in `runtime_symbols`, also push
+  `_mfb_rt_thread_thread_sleepWorker`. (This is a wiring site the phase list did
+  not call out; it is mandatory for any code-layer-split helper.)
+- **The `thread_runtime_workers` package `.mfp` was regenerated** (added
+  `sleepThenReturn`/`sleepUntilCancel`) and copied over all 24 committed consumer
+  copies. Verified this churns no consumer golden: the consumers' `.ir` are
+  byte-identical (unused workers don't affect a consumer's own lowering) and all
+  47 thread fixtures pass under `test-accept`. Done surgically (single-package
+  build + `find tests -name … -exec cp`), not via the tree-wide
+  `sync-package-mfp.sh`, to bound the blast radius.
 
 ## Summary
 

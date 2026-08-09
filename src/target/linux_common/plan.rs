@@ -434,6 +434,7 @@ impl LinuxPlan<'_> {
             | "thread.read"
             | "thread.receive"
             | "thread.emit"
+            | "thread.sleepWorker"
             | "thread.isCancelled"
             | "thread.transferResource"
             | "thread.acceptResource"

@@ -447,6 +447,9 @@ pub(super) fn lower_thread_helper(
             simple_thread_handle_helper(symbol, ThreadSimpleOp::Poll, platform_imports, platform)
         }
         "thread.sleep" => lower_thread_sleep_helper(symbol, platform_imports, platform),
+        "thread.sleepWorker" => {
+            lower_thread_sleep_worker_helper(symbol, platform_imports, platform)
+        }
         "thread.read" => thread_queue_read_helper(
             symbol,
             THREAD_OFFSET_OUTBOUND_QUEUE,

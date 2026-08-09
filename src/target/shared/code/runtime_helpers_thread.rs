@@ -813,6 +813,164 @@ pub(super) fn simple_thread_handle_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
+/// plan-91-B: worker-side `thread::sleep(t, ms)` — a cancellation-aware delay.
+/// Unlike the parent form's plain `nanosleep`, this waits on the worker's inbound
+/// queue not-empty condvar (the same one `thread::cancel` broadcasts), so a
+/// pending cancellation wakes it promptly and it returns `ErrInterrupted`; a
+/// spurious wake (a parent `send` broadcasts not-empty) does NOT shorten the
+/// sleep because the deadline is absolute. Reuses `emit_thread_deadline` and the
+/// `ThreadReadMode::WorkerSelf` lock/wait/cancel structure (see
+/// `thread_queue_read_helper`). `ms < 0` → `ErrInvalidArgument`; `ms == 0` → no-op.
+pub(super) fn lower_thread_sleep_worker_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    const FRAME_SIZE: usize = 64;
+    const HANDLE_OFFSET: usize = 8;
+    const QUEUE_OFFSET: usize = 16;
+    const TIMEOUT_OFFSET: usize = 24;
+    // Absolute deadline `timespec { tv_sec; tv_nsec }` (16 bytes) for
+    // pthread_cond_timedwait — `emit_thread_deadline` fills it from now + ms.
+    const TIMESPEC_OFFSET: usize = 32;
+
+    let ok = format!("{symbol}_ok");
+    let err_arg = format!("{symbol}_invalid");
+    let wait_loop = format!("{symbol}_wait_loop");
+    let deadline_reached = format!("{symbol}_deadline_reached");
+    let interrupted = format!("{symbol}_interrupted");
+
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    instructions.extend([
+        abi::store_u64(abi::c_arg(0), abi::stack_pointer(), HANDLE_OFFSET),
+        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT_OFFSET),
+        // ms validation: < 0 rejects, == 0 is an immediate no-op Ok (same as parent).
+        abi::compare_immediate(abi::c_arg(1), "0"),
+        abi::branch_lt(&err_arg),
+        abi::branch_eq(&ok),
+    ]);
+    // Absolute deadline = now + ms (pthread_cond_timedwait consumes it).
+    emit_thread_deadline(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        TIMEOUT_OFFSET,
+        TIMESPEC_OFFSET,
+    )?;
+    // Lock the inbound queue mutex (the queue base pointer IS the mutex — offset 0).
+    instructions.extend([
+        abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
+        abi::load_u64("%v9", "%v8", THREAD_OFFSET_INBOUND_QUEUE),
+        abi::store_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
+        abi::move_register(abi::c_arg(0), "%v9"),
+    ]);
+    emit_thread_external_call(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "pthread_mutex_lock",
+    )?;
+    instructions.extend([
+        abi::label(&wait_loop),
+        // Cancellation requested? wake and fail with ErrInterrupted (poll parity
+        // with the worker receive path).
+        abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
+        abi::load_u64("%v10", "%v8", THREAD_OFFSET_CANCELLED),
+        abi::compare_immediate("%v10", "0"),
+        abi::branch_ne(&interrupted),
+        // Wait on the inbound not-empty condvar until the absolute deadline.
+        abi::load_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
+        abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::move_register(abi::c_arg(1), "%v9"), // mutex = queue base
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), TIMESPEC_OFFSET),
+    ]);
+    emit_thread_external_call(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "pthread_cond_timedwait",
+    )?;
+    instructions.extend([
+        // Non-zero (ETIMEDOUT) = the absolute deadline elapsed → the sleep is done.
+        // Zero = a spurious/broadcast wake (a parent `send`, or `cancel`); re-loop
+        // to re-check the cancel flag. The absolute deadline is unchanged, so a
+        // send never shortens the sleep.
+        abi::compare_immediate(abi::mfb_return(0), "0"),
+        abi::branch_ne(&deadline_reached),
+        abi::branch(&wait_loop),
+        abi::label(&deadline_reached),
+        abi::load_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
+        abi::move_register(abi::c_arg(0), "%v9"),
+    ]);
+    emit_thread_external_call(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "pthread_mutex_unlock",
+    )?;
+    instructions.extend([
+        // Nothing return: only the OK tag.
+        abi::label(&ok),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::return_(),
+        abi::label(&interrupted),
+        abi::load_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
+        abi::move_register(abi::c_arg(0), "%v9"),
+    ]);
+    emit_thread_external_call(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "pthread_mutex_unlock",
+    )?;
+    instructions.extend([
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INTERRUPTED_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_INTERRUPTED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::return_(),
+        abi::label(&err_arg),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
 pub(super) fn thread_queue_write_helper(
     symbol: &str,
     queue_offset: usize,
