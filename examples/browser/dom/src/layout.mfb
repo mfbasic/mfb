@@ -406,10 +406,25 @@ END FUNC
 FUNC isBlockLevel(n AS Node) AS Boolean
   MATCH n
     CASE ElementNode(e)
-      RETURN e.style.display = Display.Block OR e.style.display = Display.Flex
+      IF e.style.display = Display.Block OR e.style.display = Display.Flex THEN RETURN TRUE
+      ' <br> is a forced line break: treating it as a (zero-height) block flushes
+      ' the inline run before it, so the content after it starts a new line.
+      IF e.tag = "br" THEN RETURN TRUE
+      ' Block-in-inline: a nominally inline element that actually wraps block-level
+      ' content (common in real pages — a <span> or <center> around <div>s) must
+      ' break out as a block, or its blocks get flattened into one crammed run.
+      RETURN hasBlockChild(e)
     CASE ELSE
       RETURN FALSE
   END MATCH
+END FUNC
+
+' Whether any descendant of `e` is block-level (drives the block-in-inline rule).
+FUNC hasBlockChild(e AS ElementNode) AS Boolean
+  FOR EACH c IN e.children
+    IF isBlockLevel(c) THEN RETURN TRUE
+  NEXT
+  RETURN FALSE
 END FUNC
 
 ' An HTML attribute parsed as a positive Integer (its `size`/`rows`/`cols` count),

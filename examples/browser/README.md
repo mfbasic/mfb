@@ -145,9 +145,13 @@ recursing over an *imported* union):
   **block formatting** — block-level children (`display:block`/`flex`) stack
   vertically, while consecutive **inline-level** children (text and inline elements
   like `<a>`/`<b>`/`<em>`) flow *together* into one wrapped run, so a paragraph's
-  inline markup does not break onto separate lines. Vertical spacing between blocks
-  comes from margins; the UA sheet gives paragraphs, lists, and headings a default
-  margin. Text is measured by `strings::displayWidth`. Layout is recomputed on each
+  inline markup does not break onto separate lines. A `<br>` forces a break, and an
+  inline element that actually wraps block-level content (a `<span>`/`<center>` around
+  `<div>`s, as real pages often do) breaks out as a block rather than flattening its
+  blocks into one crammed run. Table cells (`td`/`th`), `center`, and the sectioning
+  wrappers are block by default. Vertical spacing between blocks comes from margins;
+  the UA sheet gives paragraphs, lists, and headings a default margin. Text is
+  measured by `strings::displayWidth`. Layout is recomputed on each
   render/resize (in the app), not stored by the worker. (Current subset: single-line
   flex — `flex-wrap` falls back to nowrap — cross-axis `align-items` is not applied,
   and inline markup collapses to plain text with no per-glyph styling.)
