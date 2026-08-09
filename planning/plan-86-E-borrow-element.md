@@ -31,7 +31,7 @@ the copy is pure overhead.
   `register_pending_temp` early-returns when `borrow_get_result` is set (the alias is not a fresh block).**
   Verified: positive byte-identical to the copy path across all variants; NEGATIVE cases (e RETURNED / container
   reassigned) correctly fall back to the copy (classifier excludes them); 100k-iteration stress with
-  interleaved allocations shows no UAF/corruption. Fixture: `get-borrow-match-rt`. Commit: `PENDING`.
+  interleaved allocations shows no UAF/corruption. Fixture: `get-borrow-match-rt`. Commit: `de90b2841`.
 - [x] ~~**E2 (fuse `MATCH collections::get(...)`)**~~ — **moot: subsumed by E1.** The real source pattern is
   `LET e = get(...); MATCH e`, which the IR desugars to `$matchN = e; MATCH $matchN` — E1's chain-aware
   classifier already borrows both `e` and `$matchN`, so the container element reaches MATCH with zero copies
