@@ -249,6 +249,17 @@ struct CodeBuilder<'a> {
     /// here is only ever a direct invoke target and never escapes, so it is freed
     /// at scope end.
     value_used_locals: HashSet<String>,
+    /// plan-86 E: LET bindings `e = collections::get(L, i)` whose result is consumed
+    /// READ-ONLY (only a `MATCH` scrutinee) over an immutable container `L`. Such a
+    /// `get` returns an aliasing borrow into `L`'s inline element instead of a fresh
+    /// `copy_flat_block`, and the binding registers no scope-drop free (the container
+    /// owns the element). The copy-skip AND the free-skip are BOTH gated on this set
+    /// (a freed borrow is a double-free into the container).
+    borrow_get_locals: HashSet<String>,
+    /// plan-86 E: set while lowering the initializer of a `borrow_get_locals`
+    /// binding, so `materialize_owned_element` returns the aliasing borrow instead of
+    /// copying it. Scoped to the one initializer (reset immediately after).
+    borrow_get_result: bool,
     /// The register-allocation strategy selected for this build (`-regalloc`).
     regalloc_kind: regalloc::RegallocKind,
     /// First scratch-register-exhaustion error recorded by an infallible vreg

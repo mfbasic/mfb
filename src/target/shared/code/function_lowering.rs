@@ -70,6 +70,157 @@ pub(super) fn collect_value_used_locals(ops: &[NirOp], out: &mut HashSet<String>
     Collector { out }.visit_ops(ops);
 }
 
+/// plan-86 E: names of every binding `e = collections::get(L, i)` (or `getOr`)
+/// whose result is consumed READ-ONLY — `e` is used only (and at least once) as a
+/// `MATCH` scrutinee (`NirOp::Match { value: Local(e) }`), never stored/returned/
+/// mutated/address-taken — AND whose CONTAINER `L` is a plain Local that is
+/// immutable through the scope (bound at most once, never `Assign`ed/`StateAssign`ed,
+/// not address-taken). For such a binding, `get` may return an aliasing borrow into
+/// `L`'s inline element instead of a fresh `copy_flat_block` (the ~4M-copy/rep cost,
+/// `dispatch union`), and the binding registers no scope-drop free.
+///
+/// SOUNDNESS: a read-only borrow that outlives its container, or is freed, is a
+/// dangling read / double-free into the container's data region. So `L` must be
+/// immutable (a reassign frees `L`'s old block while `e` still points into it) and
+/// `e` must be read-only and never freed. The freeable-flat-non-String element gate
+/// is applied at codegen (a String `get` returns an OWNED fresh block, which keeps
+/// its copy + free); the copy-skip and the free-skip are gated on this same set.
+/// Conservative in the safe direction — any doubt drops the name (uses the
+/// exhaustive `NirVisitor` seam so a new escape route is a compile error).
+pub(super) fn collect_borrow_get_locals(
+    ops: &[NirOp],
+    address_taken: &HashSet<String>,
+) -> HashSet<String> {
+    use nir::visit::{walk_op, walk_value, NirVisitor};
+    use std::collections::HashMap;
+    struct Collector {
+        get_container: HashMap<String, String>, // e  -> L   (get-bindings)
+        copy_src: HashMap<String, String>,      // m  -> src (Bind { value: Local(src) })
+        bind_counts: HashMap<String, usize>,
+        assigned: HashSet<String>,
+        total_reads: HashMap<String, usize>,
+        scrutinee_reads: HashMap<String, usize>,
+        // Reads of a local as the value of a `UnionExtract` — the MATCH's own
+        // read-only variant bindings (`n = UnionExtract($matchN)`), part of
+        // consuming the scrutinee, not an escape.
+        union_extract_reads: HashMap<String, usize>,
+    }
+    impl NirVisitor for Collector {
+        fn visit_op(&mut self, op: &NirOp) {
+            match op {
+                NirOp::Bind { name, value, .. } => {
+                    *self.bind_counts.entry(name.clone()).or_insert(0) += 1;
+                    match value {
+                        Some(NirValue::Call { target, args, .. })
+                            if matches!(
+                                crate::builtins::native_builtin_target(target),
+                                Some("get") | Some("getOr")
+                            ) =>
+                        {
+                            if let Some(NirValue::Local(container)) = args.first() {
+                                self.get_container.insert(name.clone(), container.clone());
+                            }
+                        }
+                        Some(NirValue::Local(src)) => {
+                            self.copy_src.insert(name.clone(), src.clone());
+                        }
+                        _ => {}
+                    }
+                }
+                NirOp::Assign { name, .. } => {
+                    self.assigned.insert(name.clone());
+                }
+                NirOp::StateAssign { resource, .. } => {
+                    self.assigned.insert(resource.clone());
+                }
+                NirOp::Match {
+                    value: NirValue::Local(scrut),
+                    ..
+                } => {
+                    *self.scrutinee_reads.entry(scrut.clone()).or_insert(0) += 1;
+                }
+                _ => {}
+            }
+            walk_op(self, op);
+        }
+        fn visit_value(&mut self, value: &NirValue) {
+            match value {
+                NirValue::Local(name) => {
+                    *self.total_reads.entry(name.clone()).or_insert(0) += 1;
+                }
+                NirValue::UnionExtract { value: inner, .. } => {
+                    if let NirValue::Local(name) = inner.as_ref() {
+                        *self.union_extract_reads.entry(name.clone()).or_insert(0) += 1;
+                    }
+                }
+                _ => {}
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut c = Collector {
+        get_container: HashMap::new(),
+        copy_src: HashMap::new(),
+        bind_counts: HashMap::new(),
+        assigned: HashSet::new(),
+        total_reads: HashMap::new(),
+        scrutinee_reads: HashMap::new(),
+        union_extract_reads: HashMap::new(),
+    };
+    c.visit_ops(ops);
+    let Collector {
+        get_container,
+        copy_src,
+        bind_counts,
+        assigned,
+        total_reads,
+        scrutinee_reads,
+        union_extract_reads,
+    } = c;
+    let reads = |n: &str| total_reads.get(n).copied().unwrap_or(0);
+    let scrut = |n: &str| scrutinee_reads.get(n).copied().unwrap_or(0);
+    let extract = |n: &str| union_extract_reads.get(n).copied().unwrap_or(0);
+    // `m` is a MATCH-scrutinee temp: used only by the MATCH — as its scrutinee (≥1)
+    // and as the value of the case `UnionExtract`s (its read-only variant bindings),
+    // nothing else. The IR desugars `MATCH e` into `$matchN = e; MATCH $matchN`, so
+    // the scrutinee is this temp, not `e`.
+    let is_match_temp =
+        |m: &str| scrut(m) >= 1 && reads(m) == scrut(m) + extract(m) && !address_taken.contains(m);
+    // Count the match-temp copy-binds `m = Local(src)` per source `src`.
+    let mut match_temp_binds_of: HashMap<&str, usize> = HashMap::new();
+    for (m, src) in &copy_src {
+        if is_match_temp(m) {
+            *match_temp_binds_of.entry(src.as_str()).or_insert(0) += 1;
+        }
+    }
+    // Container `L` is immutable through the scope (bound ≤1, never reassigned, not
+    // address-taken) — a reassign frees `L`'s old block while a borrow points into it.
+    let l_immutable = |l: &str| {
+        bind_counts.get(l).copied().unwrap_or(0) <= 1
+            && !assigned.contains(l)
+            && !address_taken.contains(l)
+    };
+    let mut result: HashSet<String> = HashSet::new();
+    // A get-binding `e = get(L, i)` is a read-only borrow when EVERY read of `e` is
+    // borrow-transparent — a direct MATCH scrutinee, or the value of a match-temp
+    // copy-bind `$matchN = e` — and `L` is immutable and `e` not address-taken.
+    for (e, l) in &get_container {
+        let transparent = scrut(e) + match_temp_binds_of.get(e.as_str()).copied().unwrap_or(0);
+        if reads(e) >= 1 && reads(e) == transparent && !address_taken.contains(e) && l_immutable(l)
+        {
+            result.insert(e.clone());
+        }
+    }
+    // A match-temp `$matchN = Local(e)` that copies a get-borrow `e` also borrows
+    // (aliases `e`), so the container element flows into `MATCH` with zero copies.
+    for (m, src) in &copy_src {
+        if is_match_temp(m) && result.contains(src) {
+            result.insert(m.clone());
+        }
+    }
+    result
+}
+
 /// Collect every local *read* (`Local`) in `value`, via the shared NIR value
 /// seam (bug-328).
 fn collect_value_local_reads(value: &NirValue, out: &mut HashSet<String>) {
@@ -571,6 +722,8 @@ pub(super) fn lower_function(
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
         value_used_locals: HashSet::new(),
+        borrow_get_locals: HashSet::new(),
+        borrow_get_result: false,
         regalloc_kind: regalloc::active_kind(),
         regalloc_error: None,
         next_label: 0,
@@ -677,6 +830,9 @@ pub(super) fn lower_function(
     // Locals whose address is taken anywhere — never loop-promoted (plan-03 D2).
     collect_address_taken_locals(&function.body, &mut builder.address_taken_locals);
     collect_value_used_locals(&function.body, &mut builder.value_used_locals);
+    // plan-86 E: read-only `get`-borrow bindings (needs address_taken above).
+    builder.borrow_get_locals =
+        collect_borrow_get_locals(&function.body, &builder.address_taken_locals);
     // Small-vector locals that can live in registers for their whole lifetime with
     // no arena block (plan-01-vector).
     builder.promotable_vector_locals =
@@ -832,6 +988,8 @@ pub(super) fn lower_builtin_function_wrapper(
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
         value_used_locals: HashSet::new(),
+        borrow_get_locals: HashSet::new(),
+        borrow_get_result: false,
         regalloc_kind: regalloc::active_kind(),
         regalloc_error: None,
         next_label: 0,
@@ -973,6 +1131,8 @@ pub(super) fn lower_thread_copy_function(
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
         value_used_locals: HashSet::new(),
+        borrow_get_locals: HashSet::new(),
+        borrow_get_result: false,
         regalloc_kind: regalloc::active_kind(),
         regalloc_error: None,
         next_label: 0,

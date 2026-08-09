@@ -28,6 +28,14 @@ impl CodeBuilder<'_> {
     /// eventual `arena_free` survives the intervening register clobbers; the live
     /// register in `result` is left untouched for the immediate consumer.
     fn register_pending_temp(&mut self, value: &NirValue, result: &ValueResult) {
+        // plan-86 E: a read-only `get`-borrow returns an ALIAS into the container's
+        // data region (not a fresh block), so it must NOT be registered for the
+        // statement-scope free — freeing it would `arena_free` INTO the container and
+        // corrupt the free list. The `borrow_get_result` flag is set only while
+        // lowering such a borrow's initializer.
+        if self.borrow_get_result {
+            return;
+        }
         // A register-native vector has no arena block yet; it is registered as a
         // temp only when materialized (`vector_value_as_block`), so skip it here
         // (its marker location is not a real block pointer to spill/free).

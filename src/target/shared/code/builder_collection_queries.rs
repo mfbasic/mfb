@@ -11,6 +11,15 @@ impl CodeBuilder<'_> {
         &mut self,
         result: ValueResult,
     ) -> Result<ValueResult, String> {
+        // plan-86 E: the enclosing `LET e = get(L, i)` binding is consumed read-only
+        // (only a MATCH scrutinee) over an immutable container, so `e` may alias the
+        // container's inline element — skip the owning copy. The Bind arm gates this
+        // to the freeable-flat-non-String element type and suppresses the scope-drop
+        // free on the SAME condition, so the alias is never freed (a freed borrow is
+        // a double-free into the container).
+        if self.borrow_get_result {
+            return Ok(result);
+        }
         if self.is_freeable_flat_value(&result.type_) && result.type_ != "String" {
             let copied = self.copy_flat_block(&result.type_, &result.location)?;
             return Ok(ValueResult {

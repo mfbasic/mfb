@@ -210,10 +210,20 @@ impl CodeBuilder<'_> {
                         // arena block (plan-01-vector), so it is neither zero-init'd
                         // nor freed at scope-drop.
                         let promote_vector = self.promotable_vector_locals.contains(name);
+                        // plan-86 E: a read-only `get`-borrow binding (`e = get(L,i)`
+                        // used only as a MATCH scrutinee over an immutable container
+                        // `L`) aliases `L`'s inline element for a freeable-flat,
+                        // non-String type — so it is neither copied nor freed here
+                        // (the container owns the element). String `get` returns an
+                        // OWNED fresh block, so it is excluded and keeps its copy+free.
+                        let is_borrow_get = self.borrow_get_locals.contains(name)
+                            && self.is_freeable_flat_value(type_)
+                            && type_ != "String";
                         let owns_freeable_value = !aliases_union_variant
                             && !by_ref_capture_slot
                             && !runtime_managed
                             && !promote_vector
+                            && !is_borrow_get
                             && self.is_freeable_flat_value(type_);
                         // This binding will register a resource-close cleanup (a
                         // plain resource or a resource union) rather than a flat-value
@@ -317,8 +327,18 @@ impl CodeBuilder<'_> {
                             // independent flat block (plan-02 Phase 8); an aliased
                             // variant binding or by-ref capture slot aliases its
                             // source deliberately and is stored without copying.
+                            // plan-86 E: a borrow binding lowers its `get` WITHOUT the
+                            // owning copy, and the `borrow_get_result` flag makes
+                            // `materialize_owned_element` return the aliasing element
+                            // pointer instead of copying it. Scoped to this one
+                            // initializer.
                             let result = if aliases_union_variant || by_ref_capture_slot {
                                 self.lower_value(value)?
+                            } else if is_borrow_get {
+                                self.borrow_get_result = true;
+                                let r = self.lower_value(value);
+                                self.borrow_get_result = false;
+                                r?
                             } else {
                                 self.lower_value_owned(value)?
                             };

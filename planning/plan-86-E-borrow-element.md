@@ -12,36 +12,31 @@ the copy (~4M copies/rep). MATCH's own variant binding already aliases the inlin
 the copy is pure overhead.
 
 ## Fixes
-- [ ] **E1** — return an aliasing borrow (pointer into the container's inline element) for a `get` whose
-  result is consumed read-only. **TRACTABLE — scout (plan-86-A session) verdict: no general escape analysis
-  needed; the borrow discipline ALREADY EXISTS.** `materialize_owned_element`
-  (`builder_collection_queries.rs:10-23`) is the ONLY thing turning `get`'s aliasing borrow
-  (`container_data_base + value_offset`, a live pointer into the container) into an owned `copy_flat_block`
-  (the ~4M-alloc/rep cost). And `aliases_union_variant` (`builder_control.rs:199-200,320,387`) is EXACTLY the
-  needed "no copy at bind, no cleanup at scope-drop" discipline for a MATCH-variant borrow. **THE LOAD-BEARING
-  INVARIANT: gate BOTH the copy-skip AND the scope-drop cleanup-skip on the SAME set — a borrow that gets an
-  `OwnedValue` cleanup will `arena_free` a pointer INTO the container's data region → double-free/UAF that
-  surfaces as a trap on a LATER alloc** (`builder_collection_layout.rs:2249-2252`). **Edit points (conservative
-  path — only when `get`'s result is bound to a LET used SOLELY as a MATCH scrutinee):**
-  (1) new classifier in `function_lowering.rs` (beside `collect_value_used_locals:54`, ride the exhaustive
-  `NirVisitor` seam per plan-77 M6): collect `Bind` names whose `value` is `NirValue::Call{collections get/getOr}`
-  and whose only `NirValue::Local(name)` value-occurrence is the `value` field of a `NirOp::Match`, AND absent
-  from `address_taken_locals` + `for_each_iterable_locals`; store as a `HashSet<String>` on `CodeBuilder`
-  (`mod.rs:251`, init in the 3 ctors `function_lowering.rs:573/834/975`, populate ~`:678`);
-  (2) suppress the copy: set a scoped `self.borrow_get_result` flag in the `NirOp::Bind` arm before lowering
-  the value (analogous to `raw_result_discard_error`, `builder_control.rs:311-325`); `materialize_owned_element`
-  early-returns `Ok(result)` when set;
-  (3) suppress the cleanup + bind-copy: add the borrow classification to the `owns_freeable_value` exclusion
-  (`builder_control.rs:213-217`) exactly as `aliases_union_variant` already does → `:320` no-copy branch,
-  `:441` no cleanup. **Same-set gating for (2) and (3) is mandatory.**
-- [ ] **E2 (cleanest form)** — for a directly-fused `MATCH collections::get(list,i)` (scrutinee is
-  `NirValue::Call{get}` at `builder_control.rs:844`), ONLY edit (2) is needed — there is no owned local bound,
-  so no cleanup question. MATCH already spills a pointer + reads tag/payload in place + aliases the case
-  bindings (`:889-910`). Either write the benchmark as `MATCH get(...)`, or add an IR peephole inlining a
-  use-once `get`-binding into the MATCH scrutinee.
-- Baseline: dispatch union 160.6 ms (P2, ΔO0 +145.6). Expect a big drop (the copy is pure overhead). NOT yet
-  implemented — correctness-critical (UAF if the two skips diverge); implement with a MATCH-scrutinee-borrow
-  UAF stress fixture (many gets + repeated MATCH + subsequent allocs, checksum-pinned) + the full artifact-gate.
+- [x] **E1 — aliasing borrow for a read-only `get` consumed by MATCH. LANDED: dispatch union 160.9 → 43.2 ms
+  (~3.7×), checksum `212666511` unchanged.** A new `collect_borrow_get_locals` classifier
+  (`function_lowering.rs`, on the exhaustive `NirVisitor` seam per plan-77 M6, populated for `lower_function`)
+  marks the bindings that may alias, gating on soundness: `e = get(L, i)` where `L` is a plain Local that is
+  IMMUTABLE (bound ≤1, never `Assign`ed, not address-taken — a reassign frees `L`'s block while `e` points into
+  it), and every read of `e` is borrow-transparent. **KEY: the IR desugars `MATCH e` into
+  `$matchN = e; MATCH $matchN`, and the MATCH reads `$matchN` once as its scrutinee PLUS once per case via
+  `UnionExtract` (the variant bindings) — so the classifier follows the chain: `e`'s only read is the match-temp
+  copy `$matchN = e`, and `$matchN` is read only by the MATCH (scrutinee + `UnionExtract`s). BOTH `e` and
+  `$matchN` borrow, so the container element flows into MATCH with ZERO copies.** Codegen: `borrow_get_result`
+  flag makes `materialize_owned_element` return the alias (no `copy_flat_block`); the Bind arm excludes borrows
+  from `owns_freeable_value` (no copy, no scope-drop free) — gated on the SAME set + a freeable-flat-non-String
+  element type (a String `get` returns an OWNED fresh block, so it keeps its copy+free). **THE BUG THAT COST
+  THE MOST: `lower_value` registers the get result as a plan-25 PENDING TEMP (statement-scope free,
+  `builder_values.rs:17/30`); the borrow path (plain `lower_value`, no `claim_pending_temp`) left it registered
+  → the statement-scope free `arena_free`d the alias INTO the container → garbage + free-list corruption. Fix:
+  `register_pending_temp` early-returns when `borrow_get_result` is set (the alias is not a fresh block).**
+  Verified: positive byte-identical to the copy path across all variants; NEGATIVE cases (e RETURNED / container
+  reassigned) correctly fall back to the copy (classifier excludes them); 100k-iteration stress with
+  interleaved allocations shows no UAF/corruption. Fixture: `get-borrow-match-rt`. Commit: `PENDING`.
+- [x] ~~**E2 (fuse `MATCH collections::get(...)`)**~~ — **moot: subsumed by E1.** The real source pattern is
+  `LET e = get(...); MATCH e`, which the IR desugars to `$matchN = e; MATCH $matchN` — E1's chain-aware
+  classifier already borrows both `e` and `$matchN`, so the container element reaches MATCH with zero copies
+  without a separate directly-fused `MATCH get(...)` peephole. Still P2 (43.2 vs c-O0+10 ≈ 25) — the residual
+  is the interpreted MATCH/recursive-tree-eval overhead vs C's switch, not the copy (which E1 eliminated).
 
 ## Acceptance
 dispatch checksum unchanged + `scripts/artifact-gate.sh`.
