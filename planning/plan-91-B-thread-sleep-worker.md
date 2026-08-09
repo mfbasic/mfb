@@ -32,8 +32,8 @@ These are a precondition on this sub-plan, not a dependency to negotiate.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-91-A complete: parent `thread::sleep` shipped & green | `rg -n '"thread.sleep"' src/target/shared/code/mod.rs` (dispatch arm present) AND `cargo test builtins::thread` green | NOT MET until 91-A lands |
-| plan-91-A archived or in-tree, parent sleep spec/catalog present | `rg -n THREAD_SLEEP_SPEC src/target/shared/runtime/` | NOT MET until 91-A lands |
+| plan-91-A complete: parent `thread::sleep` shipped & green | `rg -n '"thread.sleep"' src/target/shared/code/mod.rs` (dispatch arm present) AND `cargo test builtins::thread` green | MET — dispatch arm at mod.rs:2254; `cargo test --bin mfb builtins::thread` 24 passed (worktree P-91) |
+| plan-91-A archived or in-tree, parent sleep spec/catalog present | `rg -n THREAD_SLEEP_SPEC src/target/shared/runtime/` | MET — THREAD_SLEEP_SPEC in thread_specs.rs:64 + catalog.rs:171 (worktree P-91) |
 
 If plan-91-A is not complete, plan-91-B cannot start, full stop. plan-91-B does
 NOT re-implement or promote any part of 91-A; it extends the already-registered
@@ -236,21 +236,28 @@ reached" instead of "message dequeued", and (b) there is no dequeue/copy step.
 Do the two cheap reads FIRST (they can redirect the whole design), then add the
 worker overload.
 
-- [ ] Verify property 1: read the `cancel` helper; confirm it broadcasts the
-      inbound-queue not-empty condvar (record file:line in Corrections).
-- [ ] Verify property 2: read `ThreadReadMode::WorkerSelf` receive
-      (`runtime_helpers.rs:430-488`); record the mutex offset, condvar offset,
-      and cancel-check it uses.
-- [ ] `src/builtins/thread.rs`: add a worker (`ThreadWorker`) overload to the
-      existing `thread.sleep` entry (`ov(P_SLEEP_WORKER)`); update `resolve_call`
-      / `expected_arguments` / `call_param_names` if they branch on handle side.
-- [ ] Tests: flip `tests/syntax/threads/func_thread_sleep_worker_invalid` →
-      `func_thread_sleep_worker_valid`; keep the negative-arg cases. Update inline
-      descriptor unit tests.
+- [x] Verify property 1: read the `cancel` helper; confirms it broadcasts the
+      inbound-queue not-empty condvar (recorded in Corrections,
+      `runtime_helpers_thread.rs:331-346`).
+- [x] Verify property 2: read `ThreadReadMode::WorkerSelf` receive
+      (`runtime_helpers_thread.rs:1139-1368`); recorded the mutex offset (queue
+      base + 0), condvar offset (+64), and cancel-check (handle+8) in Corrections.
+- [x] `src/builtins/thread.rs`: added the worker handle to `thread.sleep`.
+      Following the `send`/`receive` idiom (a SINGLE `ov(P_SLEEP)` overload whose
+      Custom return type is resolved by `resolve_call`), the change is in
+      `resolve_call` (`is_parent_thread_type` → `is_thread_type`) and
+      `expected_arguments` (adds "or ThreadWorker …"); `call_param_names` is
+      handle-side-agnostic and unchanged. No separate `P_SLEEP_WORKER` is needed
+      (see Corrections).
+- [x] Tests: flipped `tests/syntax/threads/func_thread_sleep_worker_invalid` →
+      `func_thread_sleep_worker_valid` (build succeeds, IR shows `thread.sleep`;
+      the worker split lands at codegen in Phase 2). Negative-arg cases stay in
+      `func_thread_sleep_invalid`. Updated inline unit test
+      `resolve_sleep_parent_only` → `resolve_sleep_both_handle_sides`.
 
 Acceptance: both premises confirmed in writing (Corrections) AND
-`cargo test builtins::thread` green AND a worker-handle `thread::sleep(t, ms)`
-type-checks to `Nothing`.
+`cargo test --bin mfb builtins::thread` green (24 passed) AND a worker-handle
+`thread::sleep(t, ms)` type-checks to `Nothing` (syntax test green).
 Commit: —
 
 ### Phase 2 — Worker helper + direction split (largest blast radius)
@@ -325,8 +332,35 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution — record the two Phase-1 premise verifications here
-with file:line, and any place the inbound-condvar assumption turned out wrong.>
+- **Premise 1 CONFIRMED** — `thread::cancel` broadcasts the inbound-queue
+  not-empty condvar. `simple_thread_handle_helper` `ThreadSimpleOp::Cancel`
+  (`src/target/shared/code/runtime_helpers_thread.rs:326-346`): under the
+  inbound-queue mutex it sets `THREAD_OFFSET_CANCELLED = 1` (line 331-332),
+  stores the queue's `THREAD_QUEUE_CLOSED_OFFSET = 1` (333-334), then
+  `pthread_cond_broadcast`s `inbound + THREAD_QUEUE_NOT_EMPTY_OFFSET` (335-346).
+  So the inbound not-empty condvar IS the wake source cancel drives.
+- **Premise 2 CONFIRMED** — the worker inbound wait uses that same mutex+condvar
+  and checks the cancel flag → `ErrInterrupted`. `thread_queue_read_helper` with
+  `ThreadReadMode::WorkerSelf` (`runtime_helpers_thread.rs:1139-1368`): mutex =
+  the queue base pointer passed directly to `pthread_mutex_lock` (queue offset 0,
+  lines 1210-1222); in the wait loop, when `worker_self`, it loads
+  `THREAD_OFFSET_CANCELLED` (handle+8) and branches to `interrupted` →
+  `ERR_INTERRUPTED_CODE` when nonzero (1253-1259, 1366-1368); it waits on
+  `queue + THREAD_QUEUE_NOT_EMPTY_OFFSET` via `pthread_cond_timedwait` (1286-1298)
+  / `pthread_cond_wait` (1305-1316). The inbound-condvar design in §3/§4 stands —
+  no fallback to a dedicated cancel condvar needed.
+- **No separate `P_SLEEP_WORKER` overload.** Phase 1 planned
+  `ov(P_SLEEP_WORKER)`, but the thread package's dual-handle calls
+  (`send`/`receive`) use ONE `ov(P_*)` overload with a `Thread`-typed first param
+  and let `resolve_call` (return type `Custom`) accept either handle via
+  `is_thread_type`. The descriptor param type is not independently enforced for
+  these Custom-return functions, so adding a second overload is unnecessary and
+  would diverge from the established idiom. Matched it: single `ov(P_SLEEP)`,
+  `resolve_call` widened to `is_thread_type`.
+- **Key offsets for the worker sleep helper** (from the two reads above):
+  inbound queue base = `handle + THREAD_OFFSET_INBOUND_QUEUE (40)`; mutex =
+  queue base + 0; not-empty condvar = queue base + `THREAD_QUEUE_NOT_EMPTY_OFFSET (64)`;
+  cancel flag = `handle + THREAD_OFFSET_CANCELLED (8)`.
 
 ## Summary
 

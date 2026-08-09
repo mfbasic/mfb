@@ -268,10 +268,12 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         {
             Cow::Borrowed("Boolean")
         }
-        // plan-91-A: parent-side sleep only. A worker handle is rejected here (it
-        // becomes valid in plan-91-B); returns Nothing after blocking `ms` ms.
+        // plan-91-A/B: both handle sides sleep. A parent `Thread` is a plain
+        // wall-clock delay (91-A); a `ThreadWorker` is cancellation-aware (91-B).
+        // The direction split (thread.sleep vs thread.sleepWorker) is applied at
+        // codegen in `builder_values`. Returns Nothing after blocking `ms` ms.
         SLEEP if arg_types.len() == 2
-            && is_parent_thread_type(&arg_types[0])
+            && is_thread_type(&arg_types[0])
             && arg_types[1] == "Integer" =>
         {
             Cow::Borrowed("Nothing")
@@ -330,8 +332,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         IS_RUNNING | WAIT_FOR | CANCEL => Some("Thread OF Msg TO Out"),
         SEND => Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Msg, Integer"),
         POLL => Some("Thread OF Msg TO Out, Integer"),
-        // plan-91-A: parent overload only; plan-91-B adds the worker form.
-        SLEEP => Some("Thread OF Msg TO Out, Integer"),
+        // plan-91-A/B: both handle sides accepted.
+        SLEEP => Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Integer"),
         RECEIVE => Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Integer"),
         IS_CANCELLED => Some("ThreadWorker OF Msg TO Out"),
         TRANSFER => {
@@ -833,16 +835,18 @@ mod tests {
     }
 
     #[test]
-    fn resolve_sleep_parent_only() {
-        // plan-91-A: parent-side sleep resolves to Nothing; worker handle and a
-        // mistyped/absent `ms` are rejected (the worker form arrives in 91-B).
+    fn resolve_sleep_both_handle_sides() {
+        // plan-91-A/B: sleep resolves to Nothing on BOTH a parent `Thread` (plain
+        // delay) and a `ThreadWorker` (cancellation-aware); a mistyped/absent `ms`
+        // is rejected either way.
         let t = "Thread OF Integer TO String";
         assert_eq!(rt(SLEEP, &[t, "Integer"]), Some("Nothing".to_string()));
-        // worker handle rejected in 91-A
+        // worker handle is valid as of 91-B
         let w = "ThreadWorker OF Integer TO String";
-        assert_eq!(rt(SLEEP, &[w, "Integer"]), None);
+        assert_eq!(rt(SLEEP, &[w, "Integer"]), Some("Nothing".to_string()));
         // mistyped ms
         assert_eq!(rt(SLEEP, &[t, "String"]), None);
+        assert_eq!(rt(SLEEP, &[w, "String"]), None);
         // wrong arity
         assert_eq!(rt(SLEEP, &[t]), None);
         assert_eq!(rt(SLEEP, &[t, "Integer", "Integer"]), None);
