@@ -530,9 +530,13 @@ pub(super) fn lower_function(
             // its `location` records the tail slot instead (never emitted as a
             // register — the prologue below loads it via `incoming_stack_arg_load`).
             let location = if index < abi::REGISTER_ARGUMENT_COUNT {
-                abi::argument_register(index)?.render()
+                // Typed convention token — a parameter's register location stays
+                // Operand::Abi so it is realized by each backend's typed handler
+                // (never a Raw convention string). plan-85-D Phase 3.
+                abi::argument_register(index)?
             } else {
-                format!("stack{}", index - abi::REGISTER_ARGUMENT_COUNT)
+                // Stack-tail sentinel (bug-08); a Raw marker the prologue interprets.
+                Operand::from(format!("stack{}", index - abi::REGISTER_ARGUMENT_COUNT))
             };
             Ok(CodeParam {
                 name: param.name.clone(),
@@ -801,7 +805,7 @@ pub(super) fn lower_builtin_function_wrapper(
     let param = CodeParam {
         name: "value".to_string(),
         type_: params[0].clone(),
-        location: abi::argument_register(0)?.render(),
+        location: abi::argument_register(0)?,
     };
     let mut builder = CodeBuilder {
         current_symbol: symbol.to_string(),
@@ -942,7 +946,7 @@ pub(super) fn lower_thread_copy_function(
     let param = CodeParam {
         name: "source".to_string(),
         type_: type_.to_string(),
-        location: abi::argument_register(0)?.render(),
+        location: abi::argument_register(0)?,
     };
     let mut builder = CodeBuilder {
         current_symbol: symbol.to_string(),

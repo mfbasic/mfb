@@ -75,7 +75,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&register, abi::stack_pointer(), keep));
         Ok(ValueResult {
             type_: result.type_,
-            location: register.render(),
+            location: Operand::from(register.render()),
             text: String::new(),
         })
     }
@@ -102,7 +102,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&keep, abi::stack_pointer(), slot));
         let threaded = ValueResult {
             type_: type_.to_string(),
-            location: keep.render(),
+            location: Operand::from(keep.render()),
             text: String::new(),
         };
         self.free_intermediate_collection(slot, type_, threaded)?;

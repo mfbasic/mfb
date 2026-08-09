@@ -168,7 +168,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: element_type.to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text,
         })
     }
@@ -475,7 +475,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done));
             return Ok(ValueResult {
                 type_: value_type.to_string(),
-                location: result.render(),
+                location: Operand::from(result.render()),
                 text: format!("get({collection_type}, {key_type}) [hash]"),
             });
         }
@@ -547,7 +547,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: value_type.to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("get({collection_type}, {key_type})"),
         })
     }
@@ -627,7 +627,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done));
             return Ok(ValueResult {
                 type_: value_type.to_string(),
-                location: result.render(),
+                location: Operand::from(result.render()),
                 text: format!("getOr({collection_type}, {key_type}, {value_type}) [hash]"),
             });
         }
@@ -714,7 +714,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: value_type.to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("getOr({collection_type}, {key_type}, {value_type})"),
         })
     }

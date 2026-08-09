@@ -181,7 +181,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: format!("Result OF {success_type}"),
-            location: register.render(),
+            location: Operand::from(register.render()),
             text,
         })
     }

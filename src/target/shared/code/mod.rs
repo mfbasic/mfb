@@ -451,7 +451,7 @@ struct GlobalValue {
 #[derive(Clone)]
 struct ValueResult {
     type_: String,
-    location: String,
+    location: Operand,
     text: String,
 }
 
@@ -578,7 +578,7 @@ struct OwnedValueCleanup {
 struct PendingTemp {
     type_: String,
     slot: usize,
-    location: String,
+    location: Operand,
 }
 
 #[derive(Clone)]

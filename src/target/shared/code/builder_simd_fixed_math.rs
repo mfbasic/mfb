@@ -106,7 +106,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "List OF Fixed".to_string(),
-            location: result_base.render(),
+            location: Operand::from(result_base.render()),
             text,
         })
     }
@@ -348,7 +348,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result_base, abi::stack_pointer(), base_slot));
         Ok(ValueResult {
             type_: "List OF Fixed".to_string(),
-            location: result_base.render(),
+            location: Operand::from(result_base.render()),
             text,
         })
     }

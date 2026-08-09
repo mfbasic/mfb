@@ -15,7 +15,7 @@ impl CodeBuilder<'_> {
             let copied = self.copy_flat_block(&result.type_, &result.location)?;
             return Ok(ValueResult {
                 type_: result.type_,
-                location: copied.render(),
+                location: Operand::from(copied.render()),
                 text: result.text,
             });
         }
@@ -217,7 +217,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("contains({}, {})", collection.type_, element_type),
         })
     }
@@ -374,7 +374,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done));
             return Ok(ValueResult {
                 type_: "Boolean".to_string(),
-                location: result.render(),
+                location: Operand::from(result.render()),
                 text: format!("{label_prefix}({collection_type}) [hash]"),
             });
         }
@@ -418,7 +418,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("{label_prefix}({collection_type}, {key_type})"),
         })
     }
@@ -758,7 +758,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: format!("List OF {element_type}"),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: if project_key {
                 format!("keys({})", collection.type_)
             } else {
@@ -1096,7 +1096,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("zip({list_type})"),
         })
     }
@@ -1469,7 +1469,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: format!("List OF {element_type}"),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("slice(List OF {element_type})"),
         })
     }
@@ -1570,7 +1570,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, &scratch14));
         Ok(ValueResult {
             type_: element_type,
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("sum({})", collection.type_),
         })
     }
@@ -1729,7 +1729,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(ValueResult {
             type_: "Nothing".to_string(),
-            location: "void".to_string(),
+            location: Operand::from("void"),
             text: format!("forEach({}, {})", collection.type_, action.text),
         })
     }
@@ -1834,7 +1834,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), output_slot));
         Ok(ValueResult {
             type_: output_list_type,
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("transform({}, {})", collection.type_, action.text),
         })
     }
@@ -1941,7 +1941,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), output_slot));
         Ok(ValueResult {
             type_: collection.type_.clone(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("filter({}, {})", collection.type_, action.text),
         })
     }
@@ -2119,7 +2119,7 @@ impl CodeBuilder<'_> {
             self.emit_build_inlined_record(&record_type, &[matched_slot, unmatched_slot])?;
         let record = ValueResult {
             type_: record_type.clone(),
-            location: record_reg.render(),
+            location: Operand::from(record_reg.render()),
             text: format!("partition({}, {})", collection.type_, action.text),
         };
         let record = self.free_intermediate_collection(matched_slot, &collection.type_, record)?;
@@ -2565,7 +2565,7 @@ impl CodeBuilder<'_> {
             ));
             let threaded = ValueResult {
                 type_: list_type.clone(),
-                location: result_reg.render(),
+                location: Operand::from(result_reg.render()),
                 text: String::new(),
             };
             let threaded = self.free_intermediate_collection(items_slot, &keys_type, threaded)?;
@@ -2592,7 +2592,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result_reg, abi::stack_pointer(), items_slot));
         let threaded = ValueResult {
             type_: list_type.clone(),
-            location: result_reg.render(),
+            location: Operand::from(result_reg.render()),
             text: String::new(),
         };
         let threaded = self.free_intermediate_collection(itemsb_slot, &list_type, threaded)?;
@@ -2658,7 +2658,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&reg, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "List OF Integer".to_string(),
-            location: reg.render(),
+            location: Operand::from(reg.render()),
             text: "index-list".to_string(),
         })
     }
@@ -3010,7 +3010,7 @@ impl CodeBuilder<'_> {
         ));
         let threaded = ValueResult {
             type_: list_type.clone(),
-            location: result_reg.render(),
+            location: Operand::from(result_reg.render()),
             text: String::new(),
         };
         let idx_type = "List OF Integer".to_string();
@@ -3173,7 +3173,7 @@ impl CodeBuilder<'_> {
         ));
         Ok(ValueResult {
             type_: inner_type.clone(),
-            location: result_reg.render(),
+            location: Operand::from(result_reg.render()),
             text: format!("flatten({outer_type})"),
         })
     }
@@ -3300,7 +3300,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: map_type.clone(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("mapValues({map_type})"),
         })
     }
@@ -3502,7 +3502,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: outer_type,
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("window({})", source.type_),
         })
     }
@@ -3702,7 +3702,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: outer_type,
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("chunks({})", source.type_),
         })
     }
@@ -4009,7 +4009,7 @@ impl CodeBuilder<'_> {
             location: {
                 let z = self.allocate_register()?;
                 self.emit(abi::load_u64(&z, abi::stack_pointer(), result_slot));
-                z.render()
+                Operand::from(z.render())
             },
             text: String::new(),
         };
@@ -4025,7 +4025,7 @@ impl CodeBuilder<'_> {
             location: {
                 let z = self.allocate_register()?;
                 self.emit(abi::load_u64(&z, abi::stack_pointer(), result_slot));
-                z.render()
+                Operand::from(z.render())
             },
             text: String::new(),
         };
@@ -4334,7 +4334,7 @@ impl CodeBuilder<'_> {
         ));
         Ok(ValueResult {
             type_: initial.type_,
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!(
                 "{}({}, {}, {})",
                 if reverse { "reduceRight" } else { "reduce" },

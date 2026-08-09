@@ -254,7 +254,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "List OF String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "strings.graphemes".to_string(),
         })
     }
@@ -426,7 +426,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "List OF Byte".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "strings.toBytes".to_string(),
         })
     }
@@ -702,7 +702,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: map.name().to_string(),
         })
     }
@@ -1182,7 +1182,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "strings.normalizeNfc".to_string(),
         })
     }
@@ -1285,7 +1285,7 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "strings.trim".to_string(),
         })
     }
@@ -1300,7 +1300,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&register, &value.location, 0));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: register.render(),
+            location: Operand::from(register.render()),
             text: format!("strings.byteLen({})", value.text),
         })
     }
@@ -1595,7 +1595,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "strings.join".to_string(),
         })
     }
@@ -1839,7 +1839,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "List OF String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "strings.split".to_string(),
         })
     }
@@ -2041,7 +2041,7 @@ impl CodeBuilder<'_> {
         };
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: label.to_string(),
         })
     }
@@ -2125,7 +2125,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&after));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "strings.count".to_string(),
         })
     }
@@ -2257,7 +2257,7 @@ impl CodeBuilder<'_> {
         };
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: label.to_string(),
         })
     }
@@ -2380,7 +2380,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&after));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "strings.repeat".to_string(),
         })
     }
@@ -2658,7 +2658,7 @@ impl CodeBuilder<'_> {
         };
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: label.to_string(),
         })
     }
@@ -2676,7 +2676,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, &scratch16, COLLECTION_OFFSET_COUNT));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "strings.graphemesCount".to_string(),
         })
     }
@@ -2778,7 +2778,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, total));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "strings.displayWidth".to_string(),
         })
     }
@@ -2862,7 +2862,7 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&scratch15, &scratch14)?;
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "strings.graphemeAt".to_string(),
         })
     }
@@ -3009,7 +3009,7 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "strings.trimChars".to_string(),
         })
     }

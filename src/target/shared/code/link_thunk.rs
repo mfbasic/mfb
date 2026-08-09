@@ -1727,7 +1727,7 @@ fn lower_link_thunk(
                     // The wrapper's incoming MFB argument register, as a role
                     // token — the thunk body saves from the same bank
                     // (plan-34-D; ≤8 params, enforced by `argument_register`).
-                    location: abi::argument_register(idx)?.render(),
+                    location: abi::argument_register(idx)?,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?,

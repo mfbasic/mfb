@@ -10,7 +10,7 @@ impl CodeBuilder<'_> {
             let register = self.load_string_constant(&value)?;
             return Ok(Some(ValueResult {
                 type_: "String".to_string(),
-                location: register.render(),
+                location: Operand::from(register.render()),
                 text: target.to_string(),
             }));
         }
@@ -396,7 +396,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: label.to_string(),
         })
     }

@@ -1392,7 +1392,7 @@ pub(crate) fn lower_thread_trampoline(
         params: vec![CodeParam {
             name: "controlBlock".to_string(),
             type_: "ThreadControlBlock".to_string(),
-            location: abi::c_arg(0).to_string(),
+            location: abi::c_arg(0),
         }],
         returns: "Nothing".to_string(),
         frame: CodeFrame {

@@ -1214,7 +1214,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&register, abi::stack_pointer(), count_slot));
             Ok(ValueResult {
                 type_: "Integer".to_string(),
-                location: register.render(),
+                location: Operand::from(register.render()),
                 text: format!("len({})", value.text),
             })
         } else if is_collection_type(&value.type_) {
@@ -1226,7 +1226,7 @@ impl CodeBuilder<'_> {
             ));
             Ok(ValueResult {
                 type_: "Integer".to_string(),
-                location: register.render(),
+                location: Operand::from(register.render()),
                 text: format!("len({})", value.text),
             })
         } else {
@@ -1325,7 +1325,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&register, abi::stack_pointer(), set_slot));
         Ok(ValueResult {
             type_: type_.to_string(),
-            location: register.render(),
+            location: Operand::from(register.render()),
             text: format!("set literal {type_}"),
         })
     }
@@ -1504,7 +1504,7 @@ impl CodeBuilder<'_> {
         ));
         Ok(ValueResult {
             type_: type_.to_string(),
-            location: register.render(),
+            location: Operand::from(register.render()),
             text: format!("{label} {type_}"),
         })
     }

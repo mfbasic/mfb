@@ -496,7 +496,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "List OF Float".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text,
         })
     }

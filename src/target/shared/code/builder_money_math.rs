@@ -273,7 +273,7 @@ impl CodeBuilder<'_> {
     /// a zero divisor → ErrInvalidArgument; an out-of-range result → ErrOverflow.
     fn emit_money_scale_float(
         &mut self,
-        money_raw: &str,
+        money_raw: impl Into<Operand>,
         scalar: &ValueResult,
         dst: impl Into<Operand>,
         divide: bool,
@@ -401,17 +401,18 @@ impl CodeBuilder<'_> {
     pub(super) fn emit_money_rounding_to_integer(
         &mut self,
         function: &str,
-        raw: &str,
+        raw: impl Into<Operand>,
         dst: impl Into<Operand>,
     ) -> Result<(), String> {
         let dst = dst.into();
+        let raw = raw.into();
         let scale = self.allocate_register()?;
         let quotient = self.allocate_register()?;
         let remainder = self.allocate_register()?;
         self.emit(abi::move_immediate(&scale, "Integer", "100000"));
-        self.emit(abi::signed_divide_registers(&quotient, raw, &scale));
+        self.emit(abi::signed_divide_registers(&quotient, &raw, &scale));
         self.emit(abi::multiply_subtract_registers(
-            &remainder, &quotient, &scale, raw,
+            &remainder, &quotient, &scale, &raw,
         ));
         self.emit(abi::move_register(dst.clone(), &quotient));
         let done = self.label("math_money_round_done");

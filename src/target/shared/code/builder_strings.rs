@@ -302,7 +302,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "replace(String, String, String)".to_string(),
         })
     }
@@ -749,7 +749,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("replace({list_type}, {element_type}, {element_type})"),
         })
     }
@@ -808,7 +808,7 @@ impl CodeBuilder<'_> {
         match value.type_.as_str() {
             "String" => Ok(ValueResult {
                 type_: "String".to_string(),
-                location: value_register.render(),
+                location: Operand::from(value_register.render()),
                 text: format!("toString({})", value.text),
             }),
             "Boolean" => self.lower_boolean_to_string(&value_register),
@@ -865,7 +865,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "toString(Boolean)".to_string(),
         })
     }
@@ -1006,7 +1006,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "toString(Integer)".to_string(),
         })
     }
@@ -1245,7 +1245,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.to_string(),
+            location: Operand::from(result.to_string()),
             text: "toString(List OF Byte)".to_string(),
         })
     }
@@ -1734,7 +1734,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "toString(Fixed)".to_string(),
         })
     }
@@ -1923,7 +1923,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "toString(Money)".to_string(),
         })
     }
@@ -1960,7 +1960,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, abi::mfb_return(1)));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "toString(Float)".to_string(),
         })
     }
@@ -2031,7 +2031,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("({} {op} {})", left.text, right.text),
         })
     }
@@ -2126,7 +2126,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("({} {op} {})", left.text, right.text),
         })
     }

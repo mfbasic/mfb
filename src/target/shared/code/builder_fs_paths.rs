@@ -86,7 +86,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "fs.pathJoin".to_string(),
         })
     }
@@ -150,7 +150,7 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&start, &span)?;
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "fs.pathBaseName".to_string(),
         })
     }
@@ -233,7 +233,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&out, abi::stack_pointer(), final_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: out.render(),
+            location: Operand::from(out.render()),
             text: "fs.pathDirName".to_string(),
         })
     }
@@ -296,7 +296,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "fs.pathExtension".to_string(),
         })
     }
@@ -696,7 +696,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: "fs.pathNormalize".to_string(),
         })
     }

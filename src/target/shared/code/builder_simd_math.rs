@@ -247,7 +247,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: result_type.to_string(),
-            location: result_base.render(),
+            location: Operand::from(result_base.render()),
             text,
         })
     }
@@ -701,7 +701,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: result_type.to_string(),
-            location: result_base.render(),
+            location: Operand::from(result_base.render()),
             text,
         })
     }
@@ -915,7 +915,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: result_type.to_string(),
-            location: result_base.render(),
+            location: Operand::from(result_base.render()),
             text,
         })
     }

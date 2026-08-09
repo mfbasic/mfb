@@ -141,12 +141,12 @@ fn is_reevaluation_safe(value: &NirValue) -> bool {
 impl CodeBuilder<'_> {
     /// Whether `value` is a register-native vector carried by a side-table marker.
     pub(super) fn is_vector_native(value: &ValueResult) -> bool {
-        value.location.starts_with(VECTOR_NATIVE_MARKER)
+        value.location.render().starts_with(VECTOR_NATIVE_MARKER)
     }
 
     /// The per-lane scalar `Float` values of a register-native vector, if it is one.
     pub(super) fn vector_native_lanes(&self, value: &ValueResult) -> Option<Vec<ValueResult>> {
-        self.vector_natives.get(&value.location).cloned()
+        self.vector_natives.get(&value.location.render()).cloned()
     }
 
     /// Register `lanes` as an in-flight register-native `type_` vector and return a
@@ -161,7 +161,7 @@ impl CodeBuilder<'_> {
         self.vector_natives.insert(marker.clone(), lanes);
         ValueResult {
             type_: type_.to_string(),
-            location: marker,
+            location: Operand::from(marker),
             text: format!("vecnative {type_}"),
         }
     }
@@ -198,7 +198,7 @@ impl CodeBuilder<'_> {
         let register = self.emit_build_inlined_record(&value.type_, &slots)?;
         let block = ValueResult {
             type_: value.type_,
-            location: register.render(),
+            location: Operand::from(register.render()),
             text: value.text,
         };
         // The materialized block is a fresh, freeable-flat arena block — register

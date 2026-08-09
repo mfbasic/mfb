@@ -252,7 +252,7 @@ impl CodeBuilder<'_> {
                 self.emit_float_result_check(&result, FloatInfinityError::Infinity)?;
                 Ok(ValueResult {
                     type_: "Float".to_string(),
-                    location: result.render(),
+                    location: Operand::from(result.render()),
                     text,
                 })
             }
@@ -279,12 +279,12 @@ impl CodeBuilder<'_> {
                 let values = vec![
                     ValueResult {
                         type_: "Fixed".to_string(),
-                        location: left_reg.render(),
+                        location: Operand::from(left_reg.render()),
                         text: left.text,
                     },
                     ValueResult {
                         type_: "Fixed".to_string(),
-                        location: right_reg.render(),
+                        location: Operand::from(right_reg.render()),
                         text: right.text,
                     },
                 ];
@@ -481,7 +481,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: value.type_,
-            location: dst.render(),
+            location: Operand::from(dst.render()),
             text: format!("math.abs({})", value.text),
         })
     }
@@ -667,7 +667,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: left.type_,
-            location: dst.render(),
+            location: Operand::from(dst.render()),
             text: format!("math.{function}({}, {})", left.text, right.text),
         })
     }
@@ -778,7 +778,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: value.type_,
-            location: dst.render(),
+            location: Operand::from(dst.render()),
             text: format!("math.clamp({}, {}, {})", value.text, low.text, high.text),
         })
     }
@@ -821,7 +821,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: dst.render(),
+            location: Operand::from(dst.render()),
             text: format!("math.{function}({})", value.text),
         })
     }
@@ -1048,7 +1048,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: result_type,
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("math.rand({}, {})", min.text, max.text),
         })
     }
@@ -1075,7 +1075,7 @@ impl CodeBuilder<'_> {
         });
         Ok(ValueResult {
             type_: "Nothing".to_string(),
-            location: abi::return_register().render(),
+            location: abi::return_register(),
             text,
         })
     }
@@ -1101,7 +1101,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::float_sqrt_d(&result, &src));
             return Ok(ValueResult {
                 type_: "Float".to_string(),
-                location: result.render(),
+                location: Operand::from(result.render()),
                 text,
             });
         }
@@ -1118,7 +1118,7 @@ impl CodeBuilder<'_> {
                 let dst = self.emit_fixed_sqrt(&value.location)?;
                 Ok(ValueResult {
                     type_: "Fixed".to_string(),
-                    location: dst.render(),
+                    location: Operand::from(dst.render()),
                     text: format!("math.sqrt({})", value.text),
                 })
             }
@@ -1171,7 +1171,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), slot));
         Ok(ValueResult {
             type_: "Fixed".to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text,
         })
     }

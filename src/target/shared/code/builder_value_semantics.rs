@@ -109,7 +109,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, "Integer", "0"));
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register.render(),
+                    location: Operand::from(register.render()),
                     text: "default Nothing".to_string(),
                 })
             }
@@ -118,7 +118,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, "Boolean", "0"));
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register.render(),
+                    location: Operand::from(register.render()),
                     text: "default Boolean".to_string(),
                 })
             }
@@ -127,7 +127,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, type_, "0"));
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register.render(),
+                    location: Operand::from(register.render()),
                     text: format!("default {type_}"),
                 })
             }
@@ -135,7 +135,7 @@ impl CodeBuilder<'_> {
                 let register = self.load_empty_string_constant()?;
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register.render(),
+                    location: Operand::from(register.render()),
                     text: "default String".to_string(),
                 })
             }
@@ -204,7 +204,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: block.render(),
+                    location: Operand::from(block.render()),
                     text: format!("closed union {type_}"),
                 })
             }
@@ -236,7 +236,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: record.render(),
+                    location: Operand::from(record.render()),
                     text: format!("closed {type_}"),
                 })
             }
@@ -258,7 +258,7 @@ impl CodeBuilder<'_> {
                 let register = self.emit_build_inlined_record(type_, &field_slots)?;
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register.render(),
+                    location: Operand::from(register.render()),
                     text: format!("default {type_}"),
                 })
             }
@@ -293,7 +293,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, &record, RESOURCE_OFFSET_STATE));
                 return Ok(ValueResult {
                     type_: state_type,
-                    location: register.render(),
+                    location: Operand::from(register.render()),
                     text: "state".to_string(),
                 });
             }
@@ -387,7 +387,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: field_type,
-            location: register.render(),
+            location: Operand::from(register.render()),
             text: format!("{}.{}", target_value.text, member),
         })
     }
@@ -467,7 +467,7 @@ impl CodeBuilder<'_> {
         let register = self.emit_build_inlined_record(type_, &field_slots)?;
         Ok(ValueResult {
             type_: type_.to_string(),
-            location: register.render(),
+            location: Operand::from(register.render()),
             text: format!("with {}", target_value.text),
         })
     }
@@ -593,7 +593,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result_ptr.render(),
+            location: Operand::from(result_ptr.render()),
             text: format!("({} & {})", left.text, right.text),
         })
     }

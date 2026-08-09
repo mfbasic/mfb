@@ -908,7 +908,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), map_slot));
         Ok(ValueResult {
             type_: map_type.to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("map set in place {map_type}"),
         })
     }
@@ -1211,7 +1211,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: map_type.to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("map concat {map_type}"),
         })
     }
@@ -1431,7 +1431,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: map_type.to_string(),
-            location: result.render(),
+            location: Operand::from(result.render()),
             text: format!("removeKey({map_type}, {key_type})"),
         })
     }

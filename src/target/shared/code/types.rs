@@ -32,7 +32,7 @@ pub(crate) struct CodeFrame {
 pub(crate) struct CodeParam {
     pub(crate) name: String,
     pub(crate) type_: String,
-    pub(crate) location: String,
+    pub(crate) location: Operand,
 }
 
 pub(crate) struct CodeInstruction {

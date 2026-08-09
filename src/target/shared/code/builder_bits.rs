@@ -87,7 +87,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: dst.render(),
+            location: Operand::from(dst.render()),
             text: format!("bits.{function}({left_text}, {right_text})"),
         })
     }
@@ -112,7 +112,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::bitwise_not(&dst, &value.location));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: dst.render(),
+            location: Operand::from(dst.render()),
             text: format!("bits.bnot({})", value.text),
         })
     }
@@ -150,7 +150,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: dst.render(),
+            location: Operand::from(dst.render()),
             text: format!("bits.{function}({value_text}, {count_text})"),
         })
     }
@@ -189,7 +189,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: dst.render(),
+            location: Operand::from(dst.render()),
             text: format!("bits.{function}({value_text}, {count_text})"),
         })
     }
@@ -218,7 +218,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: dst.render(),
+            location: Operand::from(dst.render()),
             text: format!("bits.{function}({})", value.text),
         })
     }
@@ -241,7 +241,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::vector_extract_to_x(&dst, abi::VEC_SCRATCH[0], 0));
             return Ok(ValueResult {
                 type_: "Integer".to_string(),
-                location: dst.render(),
+                location: Operand::from(dst.render()),
                 text,
             });
         }
@@ -278,7 +278,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: acc.render(),
+            location: Operand::from(acc.render()),
             text,
         })
     }
@@ -306,7 +306,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: dst.render(),
+            location: Operand::from(dst.render()),
             text: format!("bits.{function}({})", value.text),
         })
     }

@@ -638,22 +638,24 @@ impl CodeBuilder<'_> {
             if value.type_ == "Nothing" {
                 let register = self.allocate_register()?;
                 self.emit(abi::move_immediate(&register, "Integer", "0"));
-                register.render()
+                Operand::from(register.render())
             } else if !already_standalone
                 && self.inline_collection_payload_size(&value.type_).is_some()
             {
                 // An alias / inline-payload return is promoted to a standalone
                 // arena block. A value already deep-copied by
                 // `lower_returned_value` is standalone and skips this.
-                self.materialize_inline_value_in_arena(&value.type_, &value.location)?
-                    .render()
+                Operand::from(
+                    self.materialize_inline_value_in_arena(&value.type_, &value.location)?
+                        .render(),
+                )
             } else {
                 value.location.clone()
             }
         } else {
             let register = self.allocate_register()?;
             self.emit(abi::move_immediate(&register, "Integer", "0"));
-            register.render()
+            Operand::from(register.render())
         };
         let message_register = self.allocate_register()?;
         self.emit(abi::move_immediate(&message_register, "Integer", "0"));
