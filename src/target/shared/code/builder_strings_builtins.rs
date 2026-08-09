@@ -498,6 +498,7 @@ impl CodeBuilder<'_> {
         let write_next = self.label("strings_case_map_write_next");
         let write_done = self.label("strings_case_map_write_done");
         let ascii_scan = self.label("strings_case_map_ascii_scan");
+        let ascii_scan_byte = self.label("strings_case_map_ascii_scan_byte");
         let ascii_transform = self.label("strings_case_map_ascii_transform");
         let ascii_size_overflow = self.label("strings_case_map_ascii_size_overflow");
         let ascii_alloc_ok = self.label("strings_case_map_ascii_alloc_ok");
@@ -517,8 +518,28 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch21, &scratch20, 0));
         self.emit(abi::add_immediate(&scratch22, &scratch20, 8));
+        // plan-86 F3: SWAR quick-check — test 8 bytes at a time for a high bit
+        // (0x8080808080808080 = 9259542123273814144); any set high bit means some
+        // byte >= 0x80 → the Unicode slow path. Byte-exact-equivalent to the per-byte
+        // `compare 128`, ~8× fewer iterations. A <8-byte tail falls to the byte loop.
         self.emit(abi::move_immediate(&scratch23, "Integer", "0"));
+        self.emit(abi::move_immediate(
+            &scratch24,
+            "Integer",
+            "9259542123273814144",
+        ));
         self.emit(abi::label(&ascii_scan));
+        self.emit(abi::subtract_registers(&scratch27, &scratch21, &scratch23));
+        self.emit(abi::compare_immediate(&scratch27, "8"));
+        self.emit(abi::branch_lo(&ascii_scan_byte));
+        self.emit(abi::add_registers(&scratch14, &scratch22, &scratch23));
+        self.emit(abi::load_u64(&scratch10, &scratch14, 0));
+        self.emit(abi::and_registers(&scratch10, &scratch10, &scratch24));
+        self.emit(abi::compare_immediate(&scratch10, "0"));
+        self.emit(abi::branch_ne(&case_slow));
+        self.emit(abi::add_immediate(&scratch23, &scratch23, 8));
+        self.emit(abi::branch(&ascii_scan));
+        self.emit(abi::label(&ascii_scan_byte));
         self.emit(abi::compare_registers(&scratch23, &scratch21));
         self.emit(abi::branch_ge(&ascii_transform));
         self.emit(abi::add_registers(&scratch14, &scratch22, &scratch23));
@@ -526,7 +547,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&scratch10, "128"));
         self.emit(abi::branch_ge(&case_slow));
         self.emit(abi::add_immediate(&scratch23, &scratch23, 1));
-        self.emit(abi::branch(&ascii_scan));
+        self.emit(abi::branch(&ascii_scan_byte));
 
         // Pure ASCII: allocate byte_len + 9 (8-byte header + trailing NUL),
         // matching the slow path's layout, then transform-copy in one pass.

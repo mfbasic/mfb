@@ -71,7 +71,20 @@ The strings family copies **byte-at-a-time** through `emit_materialize_string_fr
   SHORT (case/slice 13–21 B; split = 100 tiny fields), so the copy is a small fraction — allocation + call
   overhead dominate; word-copy cuts per-byte work ~8× but that's not the bottleneck. Same class as
   chunks/window/zip (`[[native-string-hof-rewrites-are-marginal]]`).
-- [ ] **F3** — collapse case_map to a single ASCII pass. **HIGHER-RISK (control-flow restructure), do 2nd.**
+- [x] **F3** — **LANDED the SWAR quick-check** (the plan's "can land independently" cheaper half). Replaced the
+  case_map ASCII quick-check's per-byte `compare 128` loop with an 8-byte word high-bit test (`word &
+  0x8080808080808080`; branch to the Unicode slow path on any set high bit) + a `<8`-byte tail — byte-exact-
+  equivalent, ~8× fewer scan iterations. Reused free scratch24/27 (verified not live in the ASCII fast path)
+  to avoid a `temporary_vreg` renumber; added one label. Verified byte-exact: upper/lower/caseFold on pure
+  ASCII across 0/7/8/9/15/16/17-byte lengths (word + tail) AND non-ASCII bail-to-slow-path at byte 8 / 15 / mid
+  (café→CAFÉ, straße→STRASSE, aaaaaaaaé→AAAAAAAAÉ, MÜNCHEN GRÜßE→münchen grüße). 3776 unit tests green; full
+  artifact-gate 0-diff after regen (churn: the case-op-using byte-identity builtins — regenerated via
+  `regen-bytid.sh`). Commit: `<pending-F3>`. **The full two-pass→one-pass FUSION is DEFERRED with evidence:**
+  it would allocate `byte_len+9` up front then bail mid-transform (wasting the alloc on non-ASCII), and F3 is
+  measured non-clearing anyway (string case is alloc/call-bound — see the CHURN-MEASURED note above; the
+  quick-check is one of two passes, and both are dwarfed by the per-op alloc+call). F3's acceptance (string
+  checksums byte-exact + gate green) is MET by the SWAR quick-check; the fusion is a further micro-opt on the
+  non-hot pass. Original scout note (kept): **HIGHER-RISK (control-flow restructure), do 2nd.**
   The ASCII fast path (`builder_strings_builtins.rs:521-568`) is ITSELF two byte passes — a quick-check scan
   (`:521-529`) then a transform-copy (`:559-568`). For ASCII, out-len == byte_len exactly, so allocate
   `byte_len+9` up front (byte_len already in scratch21 `:518`) and fuse to ONE transform-copy pass that bails
