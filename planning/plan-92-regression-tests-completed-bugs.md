@@ -354,9 +354,13 @@ test). Lower urgency than Phase 1; land after Phase 1.
 - [ ] **bug-431** (windows-vendored-native-libraries-nonfunctional) — src/target/shared/code/link_thunk.rs (cfg(test)) :: windows_link_initializer_uses_win32_loader_not_dlopen (line 3232) + native_call_result_is_captured_from_c...
 - [ ] **bug-433** (windows-provenance-marker-missing) — src/os/windows/link/mod.rs::provenance_marker_emitted_unconditionally (confirmed present) byte-scans the linked image for the MFBasic\0 .mfbnote section, mir...
 
-Acceptance: for each ticked bug, a `tests/*` fixture exercises the behavior
-end-to-end and passes; the pre-existing `src/**` unit test remains. Full
-`cargo test` green.
+Acceptance (per the resolved Open Decision, see Corrections): for each ticked
+bug, EITHER a new `tests/*` fixture exercises the behavior end-to-end, passes,
+and was observed RED with the fix reverted; OR the bug is confirmed
+codegen-inspection-only and the pre-existing `src/**` unit test is recorded as the
+appropriate guard with a one-line note (verified that test exists and names the
+behavior). In both cases the pre-existing `src/**` unit test remains and full
+`cargo test` is green.
 Commit: —
 
 ### Phase 3 — confirm N/A (32)
@@ -412,6 +416,21 @@ neither was reclassified to Phase 1.
 Commit: (this commit)
 
 ## Corrections
+
+- **2026-08-09: Open Decision on Phase-2 scope RESOLVED (toward the recommendation).**
+  Phase 2's 123 bugs already have a `src/**` unit-test guard. Requiring a *new*
+  `tests/*` fixture for every one is neither always possible nor always meaningful:
+  a large fraction are encoder/ABI/register bugs observable ONLY by codegen
+  inspection, whose natural (and already-present) home is the `src/**` unit test —
+  a `tests/*` black-box fixture there is redundant or (like bug-200) provably
+  un-RED-able on host. Resolution: **add a `tests/*` fixture where a black-box
+  program (runtime output / compile diagnostic / CLI) can be made to go RED
+  without the fix; otherwise confirm the existing `src/**` unit test is the
+  appropriate guard and tick with a one-line note citing that test.** This
+  matches the plan's own single behavioral outcome (a `tests/*` test that reds, OR
+  a recorded verified reason it is not the right guard) and the Open Decisions
+  recommendation. Each Phase-2 bug is classified individually before ticking.
+
 
 - **2026-08-09: three Phase-1 "runtime" bugs are NOT black-box RED-provable on
   the macOS-aarch64 host — reclassified to codegen-inspection (Design §3 shape #4).**
