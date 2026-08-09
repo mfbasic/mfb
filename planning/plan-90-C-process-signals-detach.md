@@ -166,38 +166,49 @@ Terminate=2, Error=3.
 
 Delivers signal delivery and inspection; safe alone (no detach/zombie change).
 
-- [ ] `Signal` enum in `process_package.mfb` + doc header.
-- [ ] Frontend metadata for `signal`/`didSignal`.
-- [ ] `process/unix.rs`: `kill()` dispatch + `WTERMSIG`→bucket map;
-  `runtime/process_specs.rs` helpers; register the `kill` import (already added
-  in A for `__drop` — reuse) across the 4 Unix backends.
-- [ ] Tests: `tests/rt_process_signal_didsignal.rs` (spawn a sleeper, `signal
-  Terminate`, `waitFor`==-1, `didSignal`==`Terminate`; a normal-exit child →
-  `didSignal`==`None`), `func_process_{signal,didSignal}_invalid`.
+- [x] `Signal` enum in `process_package.mfb` (`None`/`Kill`/`Terminate`/`Error`)
+  + doc header.
+- [x] Frontend metadata for `signal`/`didSignal` (+ `detach`, landed together).
+- [x] `process/unix.rs`: `signal` maps the bucket ordinal → `kill(pid, 9/15/6)`
+  (`None`→no-op); `didSignal` maps the cached `WTERMSIG` (status@64) → a bucket
+  (`None` if not-reaped/exited-normally; `Kill`=9; `Error`=4/6/8/10/11;
+  `Terminate`=else). `runtime/process_specs.rs` helpers; `kill` reused, `signal`
+  imported across the Unix backends.
+- [x] Tests: `rt-behavior/process/signal` (sleeper + `signal(Signal.Terminate)`
+  → `waitFor`==-1, `didSignal`==`Terminate`; `true` → 0/`None`). Enum values are
+  compared, not `toString`'d (`toString` has no enum overload). New-layout, NOT
+  `tests/rt_*.rs`.
+  — FIX (Correction): `ir/lower.rs` lacked `process::augmented_project`, so
+  companion enum values (`Signal.*`, `Stream.*`) failed at native codegen ("NIR
+  local reference does not resolve"). Added; re-synced all process `.ir`/`.ast`.
 
-Acceptance (runtime): a spawned child killed via `signal(Terminate)` reports
-`didSignal()==Terminate` and `waitFor()==-1`; a child that exits 0 reports
-`didSignal()==None`. `cargo test` green on macOS + Linux x86_64/aarch64.
-Commit: —
+Acceptance (runtime): VERIFIED on macOS + Linux x86_64 — `signal(Terminate)` →
+`didSignal()==Terminate`, `waitFor()==-1`; a normal exit → `None`. `cargo test`
+green (3797).
+Commit: a40e645bf
 
 ### Phase 2 — `detach` + zombie avoidance
 
 The one new mechanism; lands last behind a survival+no-zombie test.
 
-- [ ] Decide D2; implement the chosen zombie-avoidance mechanism.
-- [ ] `process/unix.rs`: `detach` closes the resource without killing, frees
-  parent-side fds; update A's `waitFor`/`__drop` to treat `ECHILD` as
-  already-reaped if D2 = `SIG_IGN` (record as a Correction in plan-90-A).
-- [ ] Tests: `tests/rt_process_detach.rs` (spawn a child that outlives the
-  parent-side handle; detach; confirm the child keeps running and NO zombie
-  accrues via `waitpid(-1,…,WNOHANG)`), `tests/rt_process_detach_then_use_traps.rs`
-  (any op after detach → `ErrResourceClosed`).
+- [x] D2 decided: **(a) `SIG_IGN` for SIGCHLD**, set inside `detach` (NOT at
+  spawn — so non-detached children keep normal `waitpid` status retrieval). The
+  kernel then auto-reaps the un-waited detached child, no zombie. A already
+  handles `ECHILD` (`waitFor`/`isRunning`/`__drop` branch `<0` → treat as reaped),
+  so no A change was needed. SIGCHLD is platform-specific (macOS 20 / Linux 17),
+  picked via `platform.family()`.
+- [x] `process/unix.rs`: `detach` closes the retained parent-side fds, `SIG_IGN`s
+  SIGCHLD, and sets the record `closed` bit (scope-drop `__drop` no-ops; later ops
+  trap `ErrResourceClosed`). No kill.
+- [x] Tests: `rt-behavior/process/detach` (spawn `sleep 30`, detach → program
+  exits in ~0.15s, child SURVIVES, no zombie) + `detach-then-use` (any op after
+  detach → `ErrResourceClosed`, exit 255).
 
-Acceptance (runtime): a detached child survives the resource drop, leaves no
-zombie, and any subsequent `process::` call on it TRAPs `ErrResourceClosed`.
-Non-detached children still reap correctly (A's `rt_process_scope_drop_reap`
-still green). `cargo test` green.
-Commit: —
+Acceptance (runtime): VERIFIED on macOS + Linux x86_64 — a detached child
+survives the drop, leaves no zombie, and a subsequent `pid` TRAPs
+`ErrResourceClosed`; non-detached children still reap (drop-reap fixture green).
+`cargo test` green (3797).
+Commit: a40e645bf
 
 ## Validation Plan
 
