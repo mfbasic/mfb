@@ -258,6 +258,21 @@ pub(crate) fn emit_linux_c_call(
         binding: "external".to_string(),
         library: Some(library),
     });
+    // plan-85: a libc call returns its int/pointer result in the C-return register
+    // (`rax` = `%retC`), but the aligned MFB convention reads a call result from the
+    // aligned bank (`return_register()` = `rdi` on SysV). Since every caller-saved
+    // register — including `rdi` = `c_arg(0)` — is dead across the call, stage the
+    // C result into the MFB result register here, ONCE, so every downstream consumer
+    // is correct whether it reads the result (`return_register()`) or feeds it
+    // straight into the next call's first argument (`c_arg(0)`, the `getuid`→
+    // `getpwuid` shape). On AArch64/RISC-V both registers are `x0`, so this is a
+    // `mov x0,x0` no-op that `elide_redundant_self_moves` removes (byte-identical);
+    // on SysV-x86 it is the real `mov rdi,rax`. A void/`xmm0`-returning call stages a
+    // dead value into a dead register — harmless.
+    instructions.push(abi::move_register(
+        abi::return_register(),
+        crate::target::shared::abi::c_return(0),
+    ));
     Ok(())
 }
 

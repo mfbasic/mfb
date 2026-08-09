@@ -124,6 +124,12 @@ pub(crate) fn select_aarch64(instructions: Vec<MirInstruction>) -> Vec<CodeInstr
         }
         rename_operand_field_values(&mut instruction.fields, ARENA_BASE, ARENA_BASE_REGISTER);
     }
+    // plan-85 Phase-D elision: the shared lowering now stages a libc/`%retC` result
+    // into the aligned MFB result register (`mov return_register(),c_return(0)`)
+    // after every C call. On AArch64 both realize to `x0`, so each is a `mov x0,x0`
+    // no-op — remove them so this backend stays byte-identical to pre-plan-85 (the
+    // real `mov rdi,rax` only exists on SysV-x86, where the banks split).
+    crate::target::shared::code::elide_redundant_self_moves(&mut out);
     // plan-71-B Phase 1: the Category-2 self-move probe. `out` now carries fully
     // realized ABI registers (`%argK`/`%retK` → `xN`), so a same-index staging
     // move would already read as a `mov xN,xN` no-op here. Report those under

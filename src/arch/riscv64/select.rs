@@ -656,6 +656,12 @@ pub(crate) fn select_riscv64(instructions: Vec<MirInstruction>) -> Vec<CodeInstr
         rename_operand_field_values(&mut instruction.fields, ARENA_BASE, ARENA_BASE_REGISTER);
     }
     remap_riscv_abi(&mut out);
+    // plan-85 Phase-D elision: the shared lowering stages a libc/`%retC` result into
+    // the aligned MFB result register after every C call; on RISC-V both realize to
+    // `a0`, so each is a `mov a0,a0` no-op. Remove them (post-`remap_riscv_abi`, when
+    // the tokens are their `aN` homes) so this backend stays byte-identical — the
+    // real `mov rdi,rax` only exists on SysV-x86.
+    crate::target::shared::code::elide_redundant_self_moves(&mut out);
     // plan-71-B Phase 1: the Category-2 self-move probe, after `remap_riscv_abi`
     // has realized the ABI role tokens to their lp64d homes (`%argK`/`%retK` →
     // the same `aN`). A same-index staging move would read as a `mov aN,aN`
