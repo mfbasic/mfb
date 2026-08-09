@@ -1,6 +1,21 @@
+<!-- SUPERSEDED 2026-08-08 by plan-89 (plan-89-A..E, `astrings::AttributedString`). -->
+
+> **SUPERSEDED by plan-89 — do not implement this document.**
+>
+> This design (`text::AttributeString`, inline `[ON]/[OFF]` private-use-block markers, colors) was
+> replaced by **plan-89** (`astrings::AttributedString`): an opaque primitive-like type over a
+> *separate* attribute overlay (not inline markers), `astrings::` package, enum-keyed `Attribute`
+> union, overline (no colors), and `astrings::toMarkdown` as the consumer. The storage models are
+> opposing (plan-13-B explicitly rejected the separate-overlay model; plan-89 chose it and rejected
+> inline markers — see plan-89-A §3 "Rejected alternatives").
+>
+> **Downstream note:** the plan-13 GUI series (13-H TextArea) consumed this unit. When that work
+> resumes it must repoint to plan-89's `astrings::AttributedString`, or fork a GUI-specific type if
+> it needs colors/foreground/background, which plan-89 deliberately omits.
+
 # plan-13-B: `text::AttributeString`
 
-Last updated: 2026-07-20
+Last updated: 2026-07-20 (superseded 2026-08-08)
 Effort: medium (1h–2h)
 Depends on: **nothing.** This is pure worker-side value code with no host seam and no
 window. It can land before 13-A.

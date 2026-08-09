@@ -19,6 +19,10 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
 * Number/count/status/"X does Y" → give the command behind it in the same sentence,
   else say "guess" (not "~").
 * Green gate = nothing *covered* changed.
+* Unexpected golden/`.ncode`/objdump diff (incl. a step predicted byte-identical/neutral)
+  = bug-hunt trigger, NEVER proof a design is dead: objdump ONE fixture to localize before
+  concluding. Almost always a bug you just introduced or a wrong prediction — fix/correct it,
+  continue. A diff on a target you EXPECTED to change is the plan working, not failing.
 * Cite symbol+command, never a line alone.
 * Sources disagree → run the command.
 * Before calling a citation dangling, check all: `bug-N` in `bugs/`|`completed-bugs/`|`skipped/`;
@@ -40,7 +44,6 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
   use targeted `#[allow]`/`#[cfg(test)]` + comment why load-bearing
   (never "consumed by a later phase"). Else delete.
 * Git. Never create/switch/rename a branch unless asked;
-  commit on current branch.
   Never tree-wide `checkout`/`reset`/`restore`/`stash`;
   touch+commit only files you changed. Itemized commits.
 * MCP tools arrive deferred. Run `ToolSearch` each context to
@@ -71,3 +74,4 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
 * The embedded spec (`mfb spec`, `src/docs/spec/**`) → `.ai/specifications.md` (keep it
   current with every compiler change).
 * Remote test machines → `.ai/remote_systems.md`.
+* Starting an agent or sub-agent  → `.ai/sub-agents.md`.

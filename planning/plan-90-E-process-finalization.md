@@ -1,0 +1,213 @@
+# plan-90-E: `process` package — cross-target finalization
+
+Last updated: 2026-08-08
+Effort: medium (1h–2h)
+Depends on: [[plan-90-A-process-core-spawn]], [[plan-90-B-process-io]],
+[[plan-90-C-process-signals-detach]], [[plan-90-D-process-windows]] — if any of
+A–D is not complete, this sub-plan cannot start, full stop. This is the
+finalization pass over the fully-implemented package. (Prerequisites in sub-plan
+A.)
+
+This sub-plan closes out the `process` feature: complete and cross-link the man
+pages, seed the byte-identity/acceptance goldens across every buildable target,
+prove the runtime on the riscv64 remote, package the `.mfp`, and run the single
+full artifact-gate. A correct implementation leaves `process` fully documented,
+gated, and green across macOS-aarch64, Linux x86_64/aarch64/riscv64, and Windows.
+
+References:
+
+- memory `batch-full-gate-per-grouping` / `dont-run-full-gate-per-phase` — ONE
+  full artifact-gate at finalization, not per phase.
+- `scripts/sync-goldens.sh`, `scripts/test-accept.sh`, `scripts/artifact-gate.sh`.
+- memory `acceptance-golden-harness-mechanics`, `fast-codegen-gate`.
+
+## 1. Goal
+
+- Every `process` function has a complete man page per the templates, with a
+  package overview, a consolidated types page (Process, Stream, Signal incl. the
+  POSIX/Windows mapping tables), and resolving `[[path:symbol]]` citations.
+- `tests/byte-identity/process/**` seeded with `.ast`/`.ir` and per-target
+  `.ncodesum` goldens for macos-aarch64 + linux-{x86_64,aarch64,riscv64}
+  (Windows excluded — byte-identity is a non-goal there).
+- `tests/acceptance/src/process.mfb` exercises the full surface and passes.
+- The runtime is proven on the riscv64 remote for the whole surface (A–C).
+- The packaged `.mfp` includes `process` (`scripts/sync-package-mfp.sh`).
+- One clean full `scripts/artifact-gate.sh` run over the built targets.
+
+### Non-goals (explicit constraints)
+
+- No new behavior — A–D own all functionality. E only documents, gates, and
+  packages.
+- No Windows byte-identity (memory `windows-byte-identity-is-a-nongoal`).
+- No re-baselining of any existing golden to make `process` pass — a diff on a
+  non-`process` fixture is a bug to root-cause (memory: unexpected golden diff is
+  a bug-hunt trigger), not a re-baseline.
+
+## 2. Current State
+
+- After A–D, all 13 functions, the `Process` resource, and the `Stream`/`Signal`
+  enums are implemented and unit/rt-tested per sub-plan; each sub-plan added its
+  own function man pages. What remains is cross-cutting: the consolidated
+  **types** page, the package **overview**, the full-surface acceptance fixture,
+  the byte-identity goldens (seeded, since `sync-goldens.sh` only overwrites
+  existing goldens — memory `acceptance-golden-harness-mechanics`), rv64 runtime
+  proof, `.mfp` packaging, and the single full gate.
+- Byte-identity goldens are RELEASE-generated and `.ncodesum`-based; there is no
+  accept mode for them — seed by running the fixture then capturing per-target
+  sums (memory `unicode-table-byte-change...` on regen mechanics; `fast-codegen-gate`).
+
+### Measured populations
+
+| What | Count | Command |
+|---|---|---|
+| Man pages the package needs total | 15 | package + types + 13 functions |
+| Byte-identity targets (Windows excluded) | 4 | macos-aarch64, linux-x86_64, linux-aarch64, linux-riscv64 |
+| Existing byte-identity package dirs (process absent) | 24 | `ls tests/byte-identity/` |
+
+### Verified properties
+
+- **All per-function man pages exist from A–D** — UNVERIFIED here; Phase 1's
+  first task is a census (`ls src/docs/man/builtins/process/`) confirming all 13
+  landed, filling any A–D missed.
+
+## 3. Design Overview
+
+Four sequential closeout steps; low risk (no code change):
+
+1. **Docs**: types page + package overview + citation/example gates.
+2. **Goldens**: seed `tests/byte-identity/process/**`; add
+   `tests/acceptance/src/process.mfb`; sync per-target sums.
+3. **Remote proof**: rv64 runtime run of the full surface; `.mfp` packaging.
+4. **Full gate**: one `artifact-gate.sh` over the built targets; resolve any
+   diff by root-causing (never re-baselining).
+
+**Risk**: the only real risk is an *unexpected* golden diff on a non-`process`
+fixture during the full gate — treated as a bug-hunt trigger per AGENTS.md, not a
+re-baseline.
+
+**Byte-identity IS a gate in this sub-plan** — but only as the *verification
+method* that `process` codegen is deterministic across the 4 non-Windows targets
+(seed then re-run must match). A seed mismatch is a determinism bug to
+root-cause, never a premise-death.
+
+## 4. Detailed Design
+
+### 4.1 Docs
+
+- Census existing `src/docs/man/builtins/process/*.md`; author the consolidated
+  `types.md` (Process resource + `Stream` + `Signal`, with the POSIX and Windows
+  `didSignal`/`signal` mapping tables) per `.ai/man_type_template.md`, and the
+  `package.md` overview per `.ai/man_package_template.md`.
+- `cargo test man_citations_resolve`; `scripts/check-man-examples.py` (needs a
+  fresh release build) green for every `process` example.
+
+### 4.2 Goldens & acceptance
+
+- `tests/byte-identity/process/` with `project.json`
+  (`kind: executable, targets: ["native"]`), `src/`, and `golden/`. Seed by
+  running the fixture, capturing `.ast`/`.ir` + `.<triple>.ncodesum` per target.
+- `tests/acceptance/src/process.mfb` covering spawn/shell/send/receive/poll/
+  signal/didSignal/detach/waitFor/pid/isRunning/close; run via
+  `scripts/test-accept.sh target/release/mfb <actual> 'process*'`, then
+  `scripts/sync-goldens.sh` for the local targets.
+
+### 4.3 Remote proof & packaging
+
+- Cross-compile + ship the acceptance program to the rv64 remote
+  (`ssh -p 2229`); run and confirm exit codes / no-zombie for the full surface.
+- `scripts/sync-package-mfp.sh` so the packaged `.mfp` carries `process`.
+
+### 4.4 Full gate
+
+- Confirm no other session's `artifact-gate` is running (memory
+  `no-concurrent-artifact-gate`: `pgrep -f artifact-gate`), then one
+  `scripts/artifact-gate.sh` over the built targets. Any diff on a non-`process`
+  fixture → objdump one fixture to localize, fix the bug (memory: unexpected diff
+  is a bug-hunt trigger).
+
+## Phases
+
+### Phase 1 — Docs: types page, package overview, citation/example gates
+
+- [ ] Census `src/docs/man/builtins/process/`; fill any missing function page.
+- [ ] Author `types.md` (Process/Stream/Signal + mapping tables) and
+  `package.md`.
+- [ ] `cargo test man_citations_resolve`; `scripts/check-man-examples.py` green.
+
+Acceptance: all 15 pages present and template-conformant; citation + example
+tests green.
+Commit: —
+
+### Phase 2 — Goldens & acceptance fixture
+
+- [ ] `tests/acceptance/src/process.mfb` (full surface) + seed
+  `tests/byte-identity/process/**` goldens for the 4 non-Windows targets.
+- [ ] `scripts/test-accept.sh … 'process*'` green; per-target `.ncodesum`
+  captured; re-run determinism (`scripts/ncode-determinism-alltargets.sh`) green.
+
+Acceptance: acceptance `process*` fixtures pass; byte-identity goldens are
+deterministic across the 4 targets (seed == re-run).
+Commit: —
+
+### Phase 3 — riscv64 runtime proof + `.mfp` packaging
+
+- [ ] rv64 remote run of `process.mfb` full surface; confirm outputs.
+- [ ] `scripts/sync-package-mfp.sh`; confirm `process` is in the packaged `.mfp`.
+
+Acceptance: the full `process` surface runs correctly on the rv64 remote; the
+`.mfp` carries `process`.
+Commit: —
+
+### Phase 4 — Single full artifact-gate
+
+- [ ] `pgrep -f artifact-gate` clear; one `scripts/artifact-gate.sh` over the
+  built targets; root-cause any non-`process` diff.
+
+Acceptance: `artifact-gate.sh` green; no unexpected non-`process` golden diff.
+Commit: —
+
+## Validation Plan
+
+- Tests: `man_citations_resolve`, `check-man-examples.py`, acceptance `process*`,
+  byte-identity determinism, the full A–D `rt_`/`cli_` suites still green.
+- Coverage check: the acceptance fixture exercises every function; byte-identity
+  goldens cover the 4 non-Windows targets.
+- Runtime proof: rv64 remote full-surface run; Windows execution proof already in
+  sub-plan D.
+- Doc sync: types + package pages complete; man example checker green.
+- Acceptance: one full `scripts/artifact-gate.sh`.
+
+## Open Decisions
+
+- **D1 — one acceptance fixture vs. per-function.** Recommend a single
+  `process.mfb` exercising the whole surface (fewer child spawns, faster) vs.
+  per-function fixtures. Recommend single, with clearly labelled sections.
+
+## Corrections
+
+<filled during execution>
+
+## Summary
+
+Pure closeout: documentation, goldens, remote/rv64 proof, packaging, and the one
+full gate. No behavior changes. The only watch-item is an unexpected golden diff
+on an unrelated fixture during the full gate — root-cause it, never re-baseline.
+
+---
+
+## plan-90 feature overview (all sub-plans)
+
+| Sub-plan | Scope | Effort |
+|---|---|---|
+| A | `Process` resource + spawn/shell/waitFor/isRunning/pid/close + drop-reap (Unix) | large |
+| B | `Stream` + send/sendBytes/receive/receiveBytes/poll (+timeouts, drain) | large |
+| C | `Signal` + signal/didSignal + detach (zombie-safe) | medium |
+| D | Windows backend (CreateProcess/pipes/Win32) — execution-verified | large |
+| E | Docs, goldens, rv64 proof, `.mfp`, one full artifact-gate | medium |
+
+Overall: **x-large.** Letter order is implementation order: A → B → C → D → E.
+Resolved design decisions carried across the set: drop = kill+reap; detach =
+relinquish without zombie; one 4-bucket `Signal` for send+observe; `send`
+appends `\n`, `sendBytes` raw; `receive` drains before reporting closed;
+timeout overloads on send/receive/poll; Windows `didSignal` recovers only
+exception exit codes; no Windows byte-identity.
