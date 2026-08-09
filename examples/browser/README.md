@@ -13,7 +13,7 @@ the loading spinner keeps spinning while a page loads *and* parses:
 | ----------- | ---------- | ----------------------------------------------------------------------------- |
 | `dom/`      | package    | The DOM: `Node` (`ElementNode`/`TextNode`/`HeaderNode`) + `StyleNode` (a CSS rule) + an HTML **and** CSS parser, plus `Style`/`Layout` resolution (`resolveStyles`, `updateLayout`). |
 | `fetch/`    | package    | The network worker: blocking `http::` fetch, redirects, `dom::parse`, **and loading external stylesheets**. |
-| `display/`  | package    | Renders a `dom::Node`: `render(node, width)` → text, `tree(node, width)` → an indented DOM tree. |
+| `display/`  | package    | Renders a `dom::Node`: `paint(node, width)` → a positioned 2D canvas (via `Layout`), `render(node, width)` → reflowed text, `tree(node, width)` → an indented DOM tree. |
 | `app/`      | executable | The TUI: layout, input, scrolling, the three modes.                          |
 
 `fetch` and `display` both import `dom` (they name its `Node` type in their APIs);
@@ -135,13 +135,25 @@ recursing over an *imported* union):
   resolves from only its own tag/attrs and the global rule set. The `fetch` worker
   runs this once, on its thread, so the fully-styled document is what crosses back.
 
-- **`Layout`** (`layout.mfb`) is the computed flex geometry: an absolute border box
-  (`x, y, width, height` in cells, from the viewport's top-left).
-  `dom::updateLayout(doc, width)` derives it from `Style` with a single flex
-  primitive — `display:flex` uses its `flex-direction`, `block` is a flex column,
-  `inline` a flex row, `none` a zero box — honoring `flex-grow`/`shrink`/`basis`,
-  `width`/`height`, padding, margin, `gap`, and `justify-content`. Text is measured
-  by `strings::displayWidth` and wrapped to size leaf boxes. Because layout depends
-  on the viewport width, it is recomputed on each render/resize (in the app), not
-  stored by the worker. (Current subset: single line — `flex-wrap` falls back to
-  nowrap — and cross-axis `align-items` is not applied yet.)
+- **`Layout`** (`layout.mfb`) is the computed geometry: an absolute border box
+  (`x, y, width, height` in cells, from the viewport's top-left), stored on every
+  `ElementNode` *and* every `TextNode` (a text run's box is where it wraps).
+  `dom::updateLayout(doc, width)` derives it from `Style`. A `display:flex` box uses
+  flex layout along its `flex-direction` (honoring `flex-grow`/`shrink`/`basis`,
+  `width`/`height`, `gap`, and `justify-content`); every other box uses **block
+  formatting** — block-level children (`display:block`/`flex`) stack vertically,
+  while consecutive **inline-level** children (text and inline elements like
+  `<a>`/`<b>`/`<em>`) flow *together* into one wrapped run, so a paragraph's inline
+  markup does not break onto separate lines. Vertical spacing between blocks comes
+  from margins; the UA sheet gives paragraphs, lists, and headings a default margin.
+  Text is measured by `strings::displayWidth`. Because layout depends on the
+  viewport width, it is recomputed on each render/resize (in the app), not stored by
+  the worker. (Current subset: single-line flex — `flex-wrap` falls back to nowrap —
+  cross-axis `align-items` is not applied, and inline markup collapses to plain text
+  with no per-glyph styling.)
+
+`display::paint(doc, width)` consumes all of this: it runs `updateLayout` and then
+draws every text run at its box onto a `width`-wide canvas (one String per page
+row) that the app scrolls a window over. Element boxes are invisible containers —
+a text terminal has no backgrounds or borders — so the positioned text is the whole
+picture: flex columns land side by side, padding indents, widths clip.

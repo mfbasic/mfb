@@ -191,14 +191,9 @@ FUNC elementMaxContentOuterW(e AS ElementNode) AS Integer
   LET pr AS Integer = maxI(0, st.paddingRight)
   IF st.width >= 0 THEN RETURN st.width + ml + mr
   MUT inner AS Integer = 0
-  LET dir AS FlexDirection = effectiveDirection(st)
-  IF dir = FlexDirection.Column OR dir = FlexDirection.ColumnReverse THEN
-    ' cross axis is horizontal: the widest child wins
-    FOR EACH k IN e.children
-      inner = maxI(inner, maxContentOuterW(k))
-    NEXT
-  ELSE
-    ' main axis is horizontal: children lay side by side, plus the gaps
+  LET rowish AS Boolean = st.display = Display.Flex AND (st.direction = FlexDirection.Row OR st.direction = FlexDirection.RowReverse)
+  IF rowish THEN
+    ' a flex row: children lay side by side, plus the gaps
     LET gap AS Integer = maxI(0, st.gap)
     MUT n AS Integer = 0
     FOR EACH k IN e.children
@@ -208,6 +203,11 @@ FUNC elementMaxContentOuterW(e AS ElementNode) AS Integer
       END IF
     NEXT
     inner = inner + gap * maxI(0, n - 1)
+  ELSE
+    ' a column or a block: the widest child (or inline run) wins
+    FOR EACH k IN e.children
+      inner = maxI(inner, maxContentOuterW(k))
+    NEXT
   END IF
   RETURN maxI(0, inner) + pl + pr + ml + mr
 END FUNC
@@ -290,12 +290,87 @@ END FUNC
 
 ' ----- laying out a container's children ---------------------------------------
 
-' The direction the box lays its children along: an explicit flex-direction for a
-' flex box, column for a block, row for inline.
-FUNC effectiveDirection(st AS Style) AS FlexDirection
-  IF st.display = Display.Flex THEN RETURN st.direction
-  IF st.display = Display.Block THEN RETURN FlexDirection.Column
-  RETURN FlexDirection.Row
+' A child is block-level when it is an element that lays out as its own box on its
+' own line (display:block or display:flex). Text and inline elements are inline-
+' level and flow together into line boxes.
+FUNC isBlockLevel(n AS Node) AS Boolean
+  MATCH n
+    CASE ElementNode(e)
+      RETURN e.style.display = Display.Block OR e.style.display = Display.Flex
+    CASE ELSE
+      RETURN FALSE
+  END MATCH
+END FUNC
+
+' Concatenate the text of a subtree, treating inline elements as transparent (a
+' display:none subtree contributes nothing). Used to flatten a run of inline
+' content into a single flowed text run — the browser has no per-glyph inline
+' styling, so a paragraph's words, <b>, <a>, <em>… collapse to one wrapped run.
+FUNC gatherText(n AS Node) AS String
+  MATCH n
+    CASE ElementNode(e)
+      IF e.style.display = Display.None THEN RETURN ""
+      MUT s AS String = ""
+      FOR EACH c IN e.children
+        s = s & gatherText(c)
+      NEXT
+      RETURN s
+    CASE TextNode(t)
+      RETURN t.text
+    CASE ELSE
+      RETURN ""
+  END MATCH
+END FUNC
+
+' Lay a run of inline-level nodes as one flowed text box at (x, y), wrapping to the
+' content width. Returns the synthetic text run (empty height if it has no text).
+FUNC inlineRun(pending AS List OF Node, x AS Integer, y AS Integer, contentW AS Integer) AS Sized
+  MUT text AS String = ""
+  FOR EACH k IN pending
+    text = text & gatherText(k)
+  NEXT
+  LET h AS Integer = textHeight(text, contentW)
+  LET box AS Layout = Layout[x, y, contentW, h]
+  RETURN Sized[textLaid(text, box), contentW, h]
+END FUNC
+
+' Block formatting: stack the children vertically, each filling the content width.
+' Consecutive inline-level children (text + inline elements) between block-level
+' children are flowed together into one wrapped run (an anonymous block); block-
+' level children lay out as their own boxes. Vertical spacing comes from each
+' box's margins, not a gap.
+FUNC layoutBlock(kids AS List OF Node, st AS Style, originX AS Integer, originY AS Integer, contentW AS Integer) AS Flow
+  MUT outKids AS List OF Node = []
+  MUT pending AS List OF Node = []
+  MUT curY AS Integer = originY
+  FOR EACH k IN kids
+    IF isNone(k) THEN
+      LET rn AS Sized = layoutNode(k, originX, curY, 0, FALSE)
+      outKids = collections::append(outKids, rn.node)
+    ELSEIF isBlockLevel(k) THEN
+      IF len(pending) > 0 THEN
+        LET run AS Sized = inlineRun(pending, originX, curY, contentW)
+        IF run.height > 0 THEN
+          outKids = collections::append(outKids, run.node)
+          curY = curY + run.height
+        END IF
+        pending = []
+      END IF
+      LET r AS Sized = layoutNode(k, originX, curY, contentW, FALSE)
+      outKids = collections::append(outKids, r.node)
+      curY = curY + r.height
+    ELSE
+      pending = collections::append(pending, k)
+    END IF
+  NEXT
+  IF len(pending) > 0 THEN
+    LET run AS Sized = inlineRun(pending, originX, curY, contentW)
+    IF run.height > 0 THEN
+      outKids = collections::append(outKids, run.node)
+      curY = curY + run.height
+    END IF
+  END IF
+  RETURN Flow[outKids, contentW, curY - originY]
 END FUNC
 
 ' Column: stack children vertically, each stretched to the content width, with a
@@ -389,12 +464,16 @@ FUNC layoutRow(kids AS List OF Node, st AS Style, originX AS Integer, originY AS
   RETURN Flow[outKids, contentW, crossH]
 END FUNC
 
+' Lay out a container's children. A flex box uses flex layout along its direction;
+' everything else (block / inline) uses block formatting with inline runs.
 FUNC layoutChildren(kids AS List OF Node, st AS Style, originX AS Integer, originY AS Integer, contentW AS Integer) AS Flow
-  LET dir AS FlexDirection = effectiveDirection(st)
-  IF dir = FlexDirection.Column OR dir = FlexDirection.ColumnReverse THEN
-    RETURN layoutColumn(kids, st, originX, originY, contentW)
+  IF st.display = Display.Flex THEN
+    IF st.direction = FlexDirection.Column OR st.direction = FlexDirection.ColumnReverse THEN
+      RETURN layoutColumn(kids, st, originX, originY, contentW)
+    END IF
+    RETURN layoutRow(kids, st, originX, originY, contentW)
   END IF
-  RETURN layoutRow(kids, st, originX, originY, contentW)
+  RETURN layoutBlock(kids, st, originX, originY, contentW)
 END FUNC
 
 ' ----- per-node layout ---------------------------------------------------------
@@ -439,20 +518,25 @@ FUNC layoutElement(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integ
   RETURN Sized[elementLaid(e.tag, e.attrs, flow.kids, st, box), borderW + ml + mr, borderH + mt + mb]
 END FUNC
 
-' Measure a text node at the available width (no Layout is stored on text — its
-' parent element's box positions it during flow).
-FUNC measuredText(n AS Node, s AS String, availW AS Integer) AS Sized
-  RETURN Sized[n, minI(availW, textWidth(s)), textHeight(s, availW)]
+' Place a text run at (x, y): its box wraps to the available width, so the box
+' width is that wrap width and the height is the resulting line count. The outer
+' size the parent flows by is the text's ink width (never wider than available)
+' and the same height.
+FUNC layoutText(s AS String, x AS Integer, y AS Integer, availW AS Integer) AS Sized
+  LET h AS Integer = textHeight(s, availW)
+  LET box AS Layout = Layout[x, y, availW, h]
+  RETURN Sized[textLaid(s, box), minI(availW, textWidth(s)), h]
 END FUNC
 
-' Lay out any node, returning the rebuilt node and its outer size.
+' Lay out any node, returning the rebuilt node (with its box set) and its outer
+' size.
 FUNC layoutNode(n AS Node, x AS Integer, y AS Integer, availW AS Integer, imposeWidth AS Boolean) AS Sized
   MUT result AS Sized = Sized[n, 0, 0]
   MATCH n
     CASE ElementNode(e)
       result = layoutElement(e, x, y, availW, imposeWidth)
     CASE TextNode(t)
-      result = measuredText(n, t.text, availW)
+      result = layoutText(t.text, x, y, availW)
     CASE HeaderNode(h)
       result = Sized[n, 0, 0]
     CASE ELSE

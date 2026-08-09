@@ -99,6 +99,165 @@ FUNC wrap(s AS String, width AS Integer) AS String
   RETURN strings::join(out, "\n")
 END FUNC
 
+' ----- 2D painting (consumes dom::Layout) -------------------------------------
+'
+' paint() renders the document by its computed geometry rather than as reflowed
+' text: dom::updateLayout positions every element box and text run for the given
+' width, and paint draws each text run at its box. Element boxes are invisible
+' containers here (a text terminal has no backgrounds or borders), so the placed
+' text is the whole picture — flex columns land side by side, padding indents,
+' widths clip. The result is a `width`-wide canvas, one String per page row, that
+' the app scrolls a window over exactly like the reflowed-text lines.
+
+' Collapse whitespace runs to single spaces and trim, matching how the layout pass
+' measured the run (dom's collapseWs) so paint wraps to the same line count.
+FUNC collapseRun(s AS String) AS String
+  MUT t AS String = strings::replace(s, "\n", " ")
+  t = strings::replace(t, "\t", " ")
+  t = strings::replace(t, "\r", " ")
+  MUT words AS List OF String = []
+  FOR EACH w IN strings::split(t, " ")
+    IF w <> "" THEN words = collections::append(words, w)
+  NEXT
+  RETURN strings::join(words, " ")
+END FUNC
+
+' The first `n` display columns of `s` (whole graphemes; a two-cell glyph that
+' would straddle the cut is dropped, leaving the result up to one column short).
+FUNC takeCols(s AS String, n AS Integer) AS String
+  IF n <= 0 THEN RETURN ""
+  IF strings::displayWidth(s) <= n THEN RETURN s
+  MUT out AS String = ""
+  MUT used AS Integer = 0
+  FOR EACH g IN strings::graphemes(s)
+    LET gw AS Integer = strings::displayWidth(g)
+    IF used + gw > n THEN EXIT FOR
+    out = out & g
+    used = used + gw
+  NEXT
+  RETURN out
+END FUNC
+
+' Everything after the first `n` display columns of `s`.
+FUNC dropCols(s AS String, n AS Integer) AS String
+  IF n <= 0 THEN RETURN s
+  MUT used AS Integer = 0
+  MUT out AS String = ""
+  MUT dropping AS Boolean = TRUE
+  FOR EACH g IN strings::graphemes(s)
+    IF dropping THEN
+      used = used + strings::displayWidth(g)
+      IF used >= n THEN
+        dropping = FALSE
+      END IF
+    ELSE
+      out = out & g
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' Right-pad `s` with spaces to exactly `w` display columns (s must already fit).
+FUNC padTo(s AS String, w AS Integer) AS String
+  LET sw AS Integer = strings::displayWidth(s)
+  IF sw >= w THEN RETURN s
+  RETURN s & strings::repeat(" ", w - sw)
+END FUNC
+
+' Overlay `s` onto `base` starting at display column `x`, clipped to `width`.
+FUNC overlay(base AS String, x AS Integer, s AS String, width AS Integer) AS String
+  IF x >= width THEN RETURN base
+  LET left AS String = padTo(takeCols(base, x), x)
+  LET mid AS String = takeCols(s, width - x)
+  LET after AS String = dropCols(base, x + strings::displayWidth(mid))
+  RETURN takeCols(left & mid & after, width)
+END FUNC
+
+' Word-wrap a single collapsed run to `w` display columns, returning the lines. A
+' word wider than `w` is left whole (drawn clipped). Mirrors dom's textHeight so
+' the line count equals the box height the layout pass computed.
+FUNC wrapRun(s AS String, w AS Integer) AS List OF String
+  LET width AS Integer = maxOf(1, w)
+  MUT out AS List OF String = []
+  IF s = "" THEN RETURN out
+  MUT cur AS String = ""
+  MUT curW AS Integer = 0
+  FOR EACH word IN strings::split(s, " ")
+    LET ww AS Integer = strings::displayWidth(word)
+    IF curW = 0 THEN
+      cur = word
+      curW = ww
+    ELSEIF curW + 1 + ww <= width THEN
+      cur = cur & " " & word
+      curW = curW + 1 + ww
+    ELSE
+      out = collections::append(out, cur)
+      cur = word
+      curW = ww
+    END IF
+  NEXT
+  IF curW > 0 THEN out = collections::append(out, cur)
+  RETURN out
+END FUNC
+
+' The laid-out page height: the root element's box height.
+FUNC pageHeight(root AS Node) AS Integer
+  MATCH root
+    CASE ElementNode(e)
+      RETURN e.layout.height
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+
+' Draw one text run onto the canvas at its layout box.
+FUNC paintRun(canvas AS List OF String, t AS TextNode, width AS Integer) AS List OF String
+  LET box AS Layout = t.layout
+  IF box.width <= 0 THEN RETURN canvas
+  LET lines AS List OF String = wrapRun(collapseRun(t.text), box.width)
+  MUT out AS List OF String = canvas
+  MUT i AS Integer = 0
+  FOR EACH line IN lines
+    LET row AS Integer = box.y + i
+    IF row >= 0 AND row < len(out) THEN
+      out = collections::set(out, row, overlay(collections::get(out, row), box.x, line, width))
+    END IF
+    i = i + 1
+  NEXT
+  RETURN out
+END FUNC
+
+' Render the document to a positioned canvas of `width`-wide rows, one per page
+' row. Lays the tree out to `width`, then paints every text run at its box. Walks
+' iteratively (the imported Node union does not lower to a recursive function).
+EXPORT FUNC paint(root AS Node, width AS Integer) AS List OF String
+  LET laid AS Node = dom::updateLayout(root, width)
+  LET h AS Integer = pageHeight(laid)
+  MUT canvas AS List OF String = []
+  FOR i = 0 TO h - 1
+    canvas = collections::append(canvas, "")
+  NEXT
+  MUT stack AS List OF Node = [laid]
+  DO WHILE len(stack) > 0
+    LET i AS Integer = len(stack) - 1
+    LET node AS Node = collections::get(stack, i)
+    stack = collections::removeAt(stack, i)
+    MATCH node
+      CASE ElementNode(e)
+        MUT j AS Integer = len(e.children) - 1
+        DO WHILE j >= 0
+          stack = collections::append(stack, collections::get(e.children, j))
+          j = j - 1
+        LOOP
+      CASE TextNode(t)
+        canvas = paintRun(canvas, t, width)
+      CASE HeaderNode(hn)
+      CASE ELSE
+    END MATCH
+  LOOP
+  RETURN canvas
+END FUNC
+
 ' The readable page text: a pre-order walk emitting text, breaking lines on
 ' block tags, skipping the header and non-visible subtrees.
 EXPORT FUNC render(root AS Node, width AS Integer) AS String

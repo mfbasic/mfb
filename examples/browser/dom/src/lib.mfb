@@ -28,8 +28,14 @@ EXPORT TYPE ElementNode
   layout AS Layout
 END TYPE
 
+' A run of text. `layout` is the box the layout pass placed this run in (x, y in
+' viewport cells, width = the column it wraps to, height = its wrapped line count);
+' the parser leaves it at zeroLayout() and updateLayout fills it. A renderer draws
+' the text at this box — element boxes are invisible containers in a text terminal,
+' so the positioned text is what actually paints.
 EXPORT TYPE TextNode
   text AS String
+  layout AS Layout
 END TYPE
 
 ' One parsed CSS rule: a selector and its property map (see parseCss in css.mfb).
@@ -86,7 +92,14 @@ EXPORT FUNC elementLaid(tag AS String, attrs AS Map OF String TO String, childre
 END FUNC
 
 EXPORT FUNC textNode(s AS String) AS Node
-  LET n AS Node = TextNode[s]
+  LET n AS Node = TextNode[s, zeroLayout()]
+  RETURN n
+END FUNC
+
+' Build a text run carrying its computed layout box. Used by updateLayout to place
+' each run; the renderer reads the box to paint the text at its position.
+EXPORT FUNC textLaid(s AS String, box AS Layout) AS Node
+  LET n AS Node = TextNode[s, box]
   RETURN n
 END FUNC
 
