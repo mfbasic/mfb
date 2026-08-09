@@ -108,26 +108,32 @@ or `::` must be escaped so it can't be read as a reset/delimiter).
 
 ### Phase 1 — implementation-shape decision + flags-only rendering
 
-- [ ] Decide `.mfb`-over-`getAttributes` vs native (record the decision + why).
-- [ ] Implement run flattening + per-run flag wrapping (canonical order) + escaping; font/size emit
-      as no-op for now.
-- [ ] Tests: `tests/rt-behavior/astrings/tomarkdown-flags-rt/` — single flag; overlapping flags
-      (per-run re-nesting); escaping of literal `*_~^:`; plain text unchanged.
+- [x] Decided **`.mfb` over `getAttributes`/`toString`** (Open Decision 1): `__astrings_toMarkdown` is
+      a pure source-companion body — smallest surface, no new codegen, and the run/marker arithmetic is
+      far safer in `.mfb`. The per-scalar `getAttributes` walk is acceptable for v1.
+- [x] Run flattening (a run boundary is a change in the resolved `MdState` record, compared with `=`) +
+      per-run flag wrapping in canonical enum order (open bold/italic/underline/strike/overline, close
+      in reverse) + delimiter escaping (`\ * _ ~ ^ :`). Font/size handled in the same commit (Phase 2).
+- [x] Tests: `tests/rt-behavior/astrings/tomarkdown-flags-rt/` — single flag (`**hello**`), overlapping
+      flags with per-run re-nesting (`**hell*****o wo****rld*`), all five flags canonical+reverse
+      (`***__~~^^x^^~~__***`), escaping (`a\*b\_c\~d\^e\:f\\g`), plain text unchanged.
 
-Acceptance: overlapping flag spans render as correctly-nested per-run pairs; delimiters in text are
-escaped; deterministic order.
-Commit: —
+Acceptance: MET. Overlapping flag spans render as correctly-nested per-run pairs; delimiters escaped;
+deterministic canonical order.
+Commit: 22ba58bfd
 
 ### Phase 2 — font/size state switches
 
-- [ ] Add the minimal-delta `::font;size::` emission (value/`-`/empty per slot) at run boundaries,
-      with font-name escaping.
-- [ ] Tests: `tests/rt-behavior/astrings/tomarkdown-fontsize-rt/` — font-only, size-only, both,
-      reset-to-default at span end (`-`), unchanged-across-runs (no marker), font name needing escape.
+- [x] Minimal-delta `::font;size::` emission at run boundaries vs the running state: `::font::`
+      font-only, `::;size::` size-only, `::font;size::` both, `-` for a reset slot; nothing when
+      neither changed. Font-name escaping (the text set plus `;` and a literal `-`).
+- [x] Tests: `tests/rt-behavior/astrings/tomarkdown-fontsize-rt/` — font-only + size-only + reset in
+      one string (`::Serif::ab::;12::cde::-::fg`), both-at-once (`::Mono;10::hi`), unchanged-across-run
+      (single `::;9::abc`), size reset (`::;8::ab::;-::cd`), font name needing escape (`::a\:b\;c::z`).
 
-Acceptance: font/size switches match the spec table (set/reset/unchanged) and the running-state
-minimal-delta rule; no spurious markers.
-Commit: —
+Acceptance: MET. Font/size switches match the set/reset/unchanged rule and the running-state
+minimal-delta form; no spurious markers.
+Commit: 22ba58bfd
 
 ## Validation Plan
 
@@ -151,7 +157,16 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **Run-boundary detection uses a comparable `MdState` record, not a hand-built key.** The resolved
+  per-scalar state (5 flags + font + size) is a companion-internal `MdState` record; a run boundary is
+  simply `stateAt(j) <> stateAt(i)` (records with all-comparable fields are comparable). This is
+  O(n²) in `getAttributes` calls but adequate for v1 (Open Decision 1 accepts the per-scalar walk).
+- **`toMarkdown` is a `.mfb` `Implementation::Rewrite` member** (`astrings.toMarkdown` →
+  `__astrings_toMarkdown`), consistent with the rest of the companion surface; it reuses the internal
+  `astrings::scalarLen` for the scalar count.
+- **Spec home:** the marker vocabulary + the whole `astrings` semantic model live in a new stdlib spec
+  section, `./mfb spec stdlib astrings` (`src/docs/spec/stdlib/15_astrings.md`, auto-discovered), plus
+  the `toMarkdown` man page; both state explicitly that the format is NOT CommonMark.
 
 ## Summary
 
