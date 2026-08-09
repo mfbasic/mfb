@@ -40,6 +40,7 @@ IMPORT thread
 '   In Address Mode: type to edit the URL, Backspace deletes, Enter loads the
 '                    URL and returns to Display Mode, Esc cancels.
 '   Up / Down  scroll the content one line at a time.
+'   Left/Right pan a wider-than-screen page horizontally one column at a time.
 '
 ' On a load error of any kind the error message is shown in the content area.
 '
@@ -63,7 +64,7 @@ END FUNC
 ' The minimum width (in columns) a page is laid out to, regardless of the terminal
 ' size, so wide multi-column layouts have room to render instead of cramming into a
 ' narrow viewport. The visible window is the terminal width; content past it is
-' clipped (a future horizontal scroll would pan across the full canvas).
+' clipped until you pan to it with Left / Right (horizontal scroll).
 FUNC minDisplayWidth() AS Integer
   RETURN 300
 END FUNC
@@ -107,10 +108,40 @@ FUNC clipCols(s AS String, width AS Integer) AS String
   RETURN out
 END FUNC
 
+' Drop the first `n` display columns of `s`, keeping whole graphemes (a two-cell
+' glyph straddling the cut is dropped). Used to window a line for horizontal scroll.
+FUNC dropCols(s AS String, n AS Integer) AS String
+  IF n <= 0 THEN RETURN s
+  MUT out AS String = ""
+  MUT used AS Integer = 0
+  MUT dropping AS Boolean = TRUE
+  FOR EACH g IN strings::graphemes(s)
+    IF dropping THEN
+      used = used + strings::displayWidth(g)
+      IF used >= n THEN
+        dropping = FALSE
+      END IF
+    ELSE
+      out = out & g
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
 ' Truncate or space-pad a string to exactly `width` terminal columns.
 FUNC fit(s AS String, width AS Integer) AS String
   IF width <= 0 THEN RETURN ""
   RETURN padCols(clipCols(s, width), width)
+END FUNC
+
+' The widest line in a set of content lines, in display columns.
+FUNC maxLineWidth(lines AS List OF String) AS Integer
+  MUT m AS Integer = 0
+  FOR EACH line IN lines
+    LET w AS Integer = strings::displayWidth(line)
+    IF w > m THEN m = w
+  NEXT
+  RETURN m
 END FUNC
 
 ' Compose one footer line: `left` flush-left, `right` flush-right, in `width`
@@ -170,7 +201,7 @@ END FUNC
 
 ' The first-run help shown in the content area.
 FUNC welcomeText() AS String
-  RETURN "browser — a tiny terminal web viewer\n\nPress G to type an address, then Enter to load it.\nUse the Up / Down arrows to scroll a loaded page.\nPress Q to quit.\n\nExample addresses (https:// is assumed when omitted):\n  example.com\n  https://example.org\n"
+  RETURN "browser — a tiny terminal web viewer\n\nPress G to type an address, then Enter to load it.\nUse the Up / Down arrows to scroll a loaded page, and Left / Right to\npan a wide page horizontally.\nPress Q to quit.\n\nExample addresses (https:// is assumed when omitted):\n  example.com\n  https://example.org\n"
 END FUNC
 
 ' ----- input -----
@@ -293,7 +324,7 @@ END SUB
 
 ' Repaint the whole content region (rows 2 .. H-3). Every row is rewritten,
 ' blanks included, so a shorter page leaves no stale lines behind.
-SUB drawContent(size AS TermSize, wrapped AS List OF String, scroll AS Integer)
+SUB drawContent(size AS TermSize, wrapped AS List OF String, scroll AS Integer, hscroll AS Integer)
   LET cols AS Integer = size.columns
   LET contentH AS Integer = maxOf(1, size.rows - 4)
   term::setBackground(0, 0, 0)
@@ -305,7 +336,8 @@ SUB drawContent(size AS TermSize, wrapped AS List OF String, scroll AS Integer)
       lineStr = collections::get(wrapped, idx)
     END IF
     term::moveTo(2 + r, 0)
-    io::write(fit(lineStr, cols))
+    ' Window the line horizontally: drop the first `hscroll` columns, then fit.
+    io::write(fit(dropCols(lineStr, hscroll), cols))
   NEXT
 END SUB
 
@@ -325,6 +357,7 @@ FUNC main AS Integer
   MUT url AS String = ""
   MUT pageTitle AS String = ""
   MUT scroll AS Integer = 0
+  MUT hscroll AS Integer = 0
   MUT loadState AS String = "idle"
   MUT secure AS Boolean = FALSE
   MUT spinner AS Integer = 0
@@ -351,6 +384,10 @@ FUNC main AS Integer
   ' detect a resize.
   MUT wrapped AS List OF String = []
   MUT wrapWidth AS Integer = -1
+  ' The widest painted line, for clamping the horizontal scroll (Left/Right). The
+  ' page can be laid out wider than the terminal (see minDisplayWidth), and the
+  ' viewport shows a `cols`-wide window starting at `hscroll`.
+  MUT contentPixWidth AS Integer = 0
   MUT needRewrap AS Boolean = TRUE
   MUT contentDirty AS Boolean = TRUE
   MUT lastCols AS Integer = -1
@@ -397,6 +434,7 @@ FUNC main AS Integer
         IF paintMode THEN
           wrapped = display::paint(pageDoc, layoutW, dom::terminalMetrics())
           wrapWidth = layoutW
+          contentPixWidth = maxLineWidth(wrapped)
           needRewrap = FALSE
           contentDirty = TRUE
         ELSE
@@ -417,6 +455,7 @@ FUNC main AS Integer
         IF needRewrap OR cols <> wrapWidth THEN
           wrapped = wrapContent(content, cols)
           wrapWidth = cols
+          contentPixWidth = maxLineWidth(wrapped)
           needRewrap = FALSE
           contentDirty = TRUE
         END IF
@@ -433,9 +472,20 @@ FUNC main AS Integer
         contentDirty = TRUE
       END IF
 
+      ' Keep the horizontal scroll offset in range too.
+      LET maxHScroll AS Integer = maxOf(0, contentPixWidth - cols)
+      IF hscroll > maxHScroll THEN
+        hscroll = maxHScroll
+        contentDirty = TRUE
+      END IF
+      IF hscroll < 0 THEN
+        hscroll = 0
+        contentDirty = TRUE
+      END IF
+
       drawChrome(size, addressMode, rawMode, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
       IF contentDirty THEN
-        drawContent(size, wrapped, scroll)
+        drawContent(size, wrapped, scroll, hscroll)
         contentDirty = FALSE
       END IF
       term::sync()
@@ -456,7 +506,7 @@ FUNC main AS Integer
         LET target AS String = strings::trim(url)
         LET loadingLines AS List OF String = wrapContent("Loading " & target & " ...", cols)
         drawChrome(size, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
-        drawContent(size, loadingLines, 0)
+        drawContent(size, loadingLines, 0, 0)
         term::sync()
 
         LET worker AS Thread OF String TO LoadResult = thread::start(fetch::fetch, target)
@@ -496,6 +546,7 @@ FUNC main AS Integer
           filesLoaded = page.filesLoaded
           filesTotal = page.filesTotal
           scroll = 0
+          hscroll = 0
           needRecontent = TRUE
           contentDirty = TRUE
           IF page.ok THEN
@@ -522,10 +573,12 @@ FUNC main AS Integer
       ELSEIF (key = "r" OR key = "R") AND haveDom AND NOT rawMode THEN
         rawMode = TRUE
         scroll = 0
+        hscroll = 0
         needRecontent = TRUE
       ELSEIF (key = "d" OR key = "D") AND rawMode THEN
         rawMode = FALSE
         scroll = 0
+        hscroll = 0
         needRecontent = TRUE
       ELSEIF key = "UP" THEN
         IF scroll > 0 THEN
@@ -534,6 +587,14 @@ FUNC main AS Integer
         END IF
       ELSEIF key = "DOWN" THEN
         scroll = scroll + 1
+        contentDirty = TRUE
+      ELSEIF key = "LEFT" THEN
+        IF hscroll > 0 THEN
+          hscroll = hscroll - 1
+          contentDirty = TRUE
+        END IF
+      ELSEIF key = "RIGHT" THEN
+        hscroll = hscroll + 1
         contentDirty = TRUE
       END IF
     END IF

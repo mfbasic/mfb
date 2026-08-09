@@ -80,7 +80,9 @@ far-left indicator is a spinner while loading, 🔒 for an https page, 🔓 othe
   it, **Esc** cancels. `https://` is assumed when you omit the scheme.
 - **R** — (Display Mode) switch to **Raw Mode**: the parsed DOM as an indented tree.
 - **D** — (Raw Mode) switch back to Display Mode.
-- **Up / Down** — scroll.
+- **Up / Down** — scroll vertically. **Left / Right** — pan horizontally across a
+  page laid out wider than the terminal (a mouse/trackpad's scroll drives these too,
+  via the terminal's alternate-screen scroll translation).
 - **Q** — quit (also aborts an in-flight load).
 
 Redirects (301/302/303/307/308) are followed automatically, up to 10 hops.
