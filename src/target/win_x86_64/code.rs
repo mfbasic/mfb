@@ -1661,11 +1661,11 @@ impl code::CodegenPlatform for Platform {
             // GetComputerNameExW(ComputerNameDnsHostname=1, lpBuffer, &nSize) → BOOL.
             "hostName" => {
                 instructions.extend([
-                    abi::move_immediate(abi::ARG[0], "Integer", "2048"),
-                    abi::store_u32(abi::ARG[0], abi::stack_pointer(), SIZE_SLOT),
-                    abi::move_immediate(abi::ARG[0], "Integer", "1"),
-                    abi::load_u64(abi::ARG[1], abi::stack_pointer(), WIDE_SLOT),
-                    abi::add_immediate(abi::ARG[2], abi::stack_pointer(), SIZE_SLOT),
+                    abi::move_immediate(abi::c_arg(0), "Integer", "2048"),
+                    abi::store_u32(abi::c_arg(0), abi::stack_pointer(), SIZE_SLOT),
+                    abi::move_immediate(abi::c_arg(0), "Integer", "1"),
+                    abi::load_u64(abi::c_arg(1), abi::stack_pointer(), WIDE_SLOT),
+                    abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), SIZE_SLOT),
                 ]);
                 call_external(
                     from,
@@ -1680,10 +1680,10 @@ impl code::CodegenPlatform for Platform {
             // GetUserNameW(lpBuffer, &pcbBuffer) → BOOL (advapi32).
             "userName" => {
                 instructions.extend([
-                    abi::move_immediate(abi::ARG[0], "Integer", "2048"),
-                    abi::store_u32(abi::ARG[0], abi::stack_pointer(), SIZE_SLOT),
-                    abi::load_u64(abi::ARG[0], abi::stack_pointer(), WIDE_SLOT),
-                    abi::add_immediate(abi::ARG[1], abi::stack_pointer(), SIZE_SLOT),
+                    abi::move_immediate(abi::c_arg(0), "Integer", "2048"),
+                    abi::store_u32(abi::c_arg(0), abi::stack_pointer(), SIZE_SLOT),
+                    abi::load_u64(abi::c_arg(0), abi::stack_pointer(), WIDE_SLOT),
+                    abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), SIZE_SLOT),
                 ]);
                 call_external(from, "GetUserNameW", ADVAPI32, instructions, relocations);
                 instructions.push(abi::compare_immediate(abi::return_register(), "0"));
@@ -1692,9 +1692,9 @@ impl code::CodegenPlatform for Platform {
             // GetModuleFileNameW(NULL, lpFilename, nSize) → char count (0 = failure).
             "executablePath" => {
                 instructions.extend([
-                    abi::move_immediate(abi::ARG[0], "Integer", "0"),
-                    abi::load_u64(abi::ARG[1], abi::stack_pointer(), WIDE_SLOT),
-                    abi::move_immediate(abi::ARG[2], "Integer", "2048"),
+                    abi::move_immediate(abi::c_arg(0), "Integer", "0"),
+                    abi::load_u64(abi::c_arg(1), abi::stack_pointer(), WIDE_SLOT),
+                    abi::move_immediate(abi::c_arg(2), "Integer", "2048"),
                 ]);
                 call_external(
                     from,
