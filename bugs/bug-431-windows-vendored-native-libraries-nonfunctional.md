@@ -5,8 +5,23 @@ Effort: x-large (1d–3d)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
+Status: FIXED (673f149da)
 Regression Test: src/target/shared/code/link_thunk.rs (new Windows-init codegen test), src/target/win_x86_64/plan.rs (link_imports test), plus a Wine/Windows runtime proof
+
+STATUS: FIXED (673f149da) — Windows vendored native `LINK` libraries now load and
+call successfully. Three documented loader layers landed (Win32 loader in
+`_mfb_linker_init`, kernel32/shlwapi `link_imports`, exe-relative `vendor/`
+resolution) plus a fourth defect the runtime proof surfaced: the x86-64 LINK thunk
+captured the native call result from the wrong register (aligned MFB bank instead
+of the C-ABI `rax`), which broke *every* x86-64 native return (Linux and Windows),
+latent because x86-64 LINK execution is not in the acceptance oracle. Proven on
+box 2230 (Win11) and box 2227 (Alpine musl x86_64): a program that vendors
+`sndfile.dll`/`.so` loads it from `vendor/` and `sf_version_string` returns
+`libsndfile-1.2.2`. POSIX aarch64/riscv/macOS and non-vendoring Windows builds are
+byte-identical. Deviation from Fix Design: used `PathRemoveFileSpecA` (shlwapi) +
+`lstrcatA` to build the path (no hand-rolled backslash scan), and drove the
+vendored-vs-system choice off the resolved locator's `LibType` rather than
+threading `vendors_native_libraries`.
 
 The presenting symptom — the one that prompted this bug — is that the Windows PE
 linker **silently ignores `image.rpaths`**: `write_executable`'s
@@ -195,43 +210,81 @@ faux-POSIX shim.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add a codegen test: a `LINK`-using module lowered for `windows-x86_64` emits a
+- [x] Add a codegen test: a `LINK`-using module lowered for `windows-x86_64` emits a
       Win32-loader `_mfb_linker_init` (asserts `LoadLibraryEx*`/`GetProcAddress`, not
       `dlopen`); today it fails (emits `dlopen`). Add a `win_x86_64::link_imports`
       test expecting the loader imports (fails: currently empty).
-- [ ] Confirm the blast-radius verdicts above by grep; record any additional LINK
-      call site.
+      — `windows_link_initializer_uses_win32_loader_not_dlopen` (RED: `got calls:
+      {dlsym, dlopen}`) + `link_imports_declare_the_win32_loader`.
+- [x] Confirm the blast-radius verdicts above by grep; record any additional LINK
+      call site. — audit surfaced a **fourth** defect (see below): the x86-64 LINK
+      thunk captures the native call result from the wrong register.
 
 Acceptance: both tests fail for the documented reason; audit complete.
-Commit: —
+Commit: 673f149da
+
+### Phase 1b — fourth defect found by the audit (x86-64 native-call return)
+
+The three documented layers are the *loader*. Runtime proof surfaced a fourth,
+**pre-existing** defect that also blocked a working Windows call: the native LINK
+marshaling thunk (`lower_link_thunk`) captured the C function's return value from
+`abi::return_register()` — the aligned MFB result bank, which realizes to `rdi`
+(SysV) / `rcx` (Win64) — instead of `abi::c_return(0)` (`rax`). On AArch64/RISC-V
+and macOS those coincide (`x0`/`a0`), so those platforms worked; **every x86-64
+native return** (Linux *and* Windows) surfaced a clobbered caller-saved register,
+i.e. garbage/0. Latent because x86-64 LINK *execution* is not in the acceptance
+oracle (only macOS aarch64 is). Verified pre-existing on box 2227 with the base
+commit binary (`ptr=0, ver=[]`).
+
+- [x] RED test `native_call_result_is_captured_from_c_return_register` (neutral
+      operand-level, backend-independent).
+- [x] Fix: capture `c_return(0)`. Byte-identical on aarch64/riscv/macOS (`x0`/`a0`
+      == C return); corrects x86-64 (SysV + Win64).
+
+Commit: 673f149da
 
 ### Phase 2 — the fix
 
-- [ ] `link_thunk.rs`: Windows branch in `emit_linker_init` emitting
-      `LoadLibraryExA` + `GetProcAddress`, with the exe-relative `vendor/` path
-      resolution (per Open Decisions).
-- [ ] `win_x86_64/plan.rs`: declare the kernel32 loader imports in `link_imports`
-      (and `native_call_imports` if a per-call import is needed).
-- [ ] `win_x86_64/mod.rs`: thread `vendors_native_libraries` into the writer/init.
-- [ ] Verify `vendor_output_dirs` places the DLLs where the loader now looks.
+- [x] `link_thunk.rs`: two new `CodegenPlatform` hooks `emit_link_dlopen` /
+      `emit_link_dlsym` (POSIX defaults byte-identical to today); Windows override
+      in `win_x86_64/code.rs` emits `LoadLibraryExA` + `GetProcAddress` with the
+      exe-relative `vendor/` path resolution (`GetModuleFileNameA` +
+      `PathRemoveFileSpecA` + `lstrcatA`, then
+      `LOAD_WITH_ALTERED_SEARCH_PATH`). Per-library vendored flag from the resolved
+      locator's `LibType`; `system` locators load by bare name.
+- [x] `win_x86_64/plan.rs`: declare the kernel32/shlwapi loader imports in
+      `link_imports` (`LoadLibraryExA`, `GetProcAddress`, `GetModuleFileNameA`,
+      `lstrcatA`, `PathRemoveFileSpecA`). No `native_call_imports` change needed.
+- [x] `vendors_native_libraries` threading was unnecessary: the per-library
+      `LibType` (vendor vs system) is the precise signal, threaded through
+      `emit_link_support`. The scratch/`\vendor\` data objects are emitted only
+      when a Windows build actually vendors.
+- [x] Verified `vendor_output_dirs` places the DLL at `build/vendor/<unit>-<name>`,
+      which is exactly `<exe_dir>\vendor\` where the loader now looks.
 
-Acceptance: Phase 1 tests pass; Linux/macOS emit is byte-identical (shared
-`link_thunk` unchanged for non-Windows); a non-vendoring Windows build is
-byte-identical to today.
-Commit: —
+Acceptance: Phase 1 tests pass; POSIX aarch64/riscv/macOS `.ncode` byte-identical
+(proven via `-ncode` diff of a system-LINK fixture across all four POSIX targets
+and a non-LINK Windows build); a non-vendoring Windows build is byte-identical.
+Commit: 673f149da
 
 ### Phase 3 — runtime proof + docs + full validation
 
-- [ ] On Windows/Wine: build a project vendoring a real DLL (libsndfile or the
-      user's bindings), run it, confirm the `LINK` calls work.
-- [ ] Update `17_native-libraries.md` (Windows rpath/DLL-search row) and
-      `10_windows-x86_64.md`; run the spec drift-guard tests.
-- [ ] `cargo test --bin mfb` + `scripts/artifact-gate.sh` — confirm no golden shifts
-      for non-vendoring builds.
+- [x] On box 2230 (Win11): a project vendoring `sndfile.dll` (self-contained, imports
+      only kernel32) loads it from the exe-relative `vendor/` and `sf_version_string`
+      returns `libsndfile-1.2.2`. Removing the DLL makes init fail with the
+      "could not be loaded at startup" error — proving the loader really depends on
+      the vendored copy. The same program on box 2227 (Alpine musl x86_64) confirms
+      the return-capture fix (was `ver=[]`, now `libsndfile-1.2.2`).
+- [x] Updated `17_native-libraries.md` (Windows row + DLL-search paragraph) and
+      `10_windows-x86_64.md` (native `LINK`/vendored-DLL section); spec drift-guards
+      (`spec_links_resolve`, `every_rule_is_documented_in_the_spec`) green.
+- [x] `cargo test --bin mfb` (3789 ok) + `scripts/artifact-gate.sh all` — no golden
+      shifts (no builtin byte-identity fixture uses LINK; native LINK fixtures carry
+      only frontend + macOS-runtime goldens, both unchanged).
 
 Acceptance: the vendored `LINK` program runs on Windows; full suite green;
 non-vendoring goldens unchanged.
-Commit: —
+Commit: 673f149da
 
 ## Validation Plan
 
