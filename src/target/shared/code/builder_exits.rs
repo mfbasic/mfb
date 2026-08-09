@@ -332,8 +332,11 @@ impl CodeBuilder<'_> {
                         && self.inline_collection_payload_size(&result.type_).is_some()
                     {
                         Operand::from(
-                            self.materialize_inline_value_in_arena(&result.type_, &result.location)?
-                                .render(),
+                            self.materialize_inline_value_in_arena(
+                                &result.type_,
+                                &result.location,
+                            )?
+                            .render(),
                         )
                     } else {
                         result.location.clone()

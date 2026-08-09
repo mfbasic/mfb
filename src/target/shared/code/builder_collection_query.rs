@@ -423,7 +423,11 @@ impl CodeBuilder<'_> {
         let fb_map = self.temporary_vreg();
         let fb_entry = self.temporary_vreg();
         self.emit(abi::move_immediate(&fb_scratch, "Integer", &entry_size));
-        self.emit(abi::multiply_registers(&fb_entry, abi::mfb_return(0), &fb_scratch));
+        self.emit(abi::multiply_registers(
+            &fb_entry,
+            abi::mfb_return(0),
+            &fb_scratch,
+        ));
         self.emit(abi::load_u64(
             &fb_map,
             abi::stack_pointer(),

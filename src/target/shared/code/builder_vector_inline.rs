@@ -343,7 +343,13 @@ impl CodeBuilder<'_> {
         // RETURN Float_N[f0/len, f1/len, …].
         let lanes = fields
             .iter()
-            .map(|f| bin("/", Self::vector_field(v, f), NirValue::Local(len_name.clone())))
+            .map(|f| {
+                bin(
+                    "/",
+                    Self::vector_field(v, f),
+                    NirValue::Local(len_name.clone()),
+                )
+            })
             .collect();
         let result = self.lower_value(&NirValue::Constructor {
             type_: type_name.to_string(),

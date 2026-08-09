@@ -1484,11 +1484,26 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&scan_loop));
         self.emit(abi::compare_registers(&s11, &s10));
         self.emit(abi::branch_ge(&scan_done));
-        self.emit(abi::load_u64(&s13, &s12, COLLECTION_ENTRY_OFFSET_KEY_OFFSET));
-        self.emit(abi::load_u64(&s16, &s12, COLLECTION_ENTRY_OFFSET_KEY_LENGTH));
+        self.emit(abi::load_u64(
+            &s13,
+            &s12,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            &s16,
+            &s12,
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
         // arg7 = on-MATCH, arg8 = on-NO-MATCH (per `lower_map_remove_key`).
         self.emit_collection_payload_matches_value_branch(
-            key_type, "", &s8, &s13, &s16, &s9, &scan_match, &scan_next,
+            key_type,
+            "",
+            &s8,
+            &s13,
+            &s16,
+            &s9,
+            &scan_match,
+            &scan_next,
         )?;
         self.emit(abi::label(&scan_match));
         self.emit(abi::store_u64(&s11, abi::stack_pointer(), found_slot));
@@ -1510,7 +1525,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&s10, &s8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::load_u64(&s11, abi::stack_pointer(), found_slot));
         // s12 = dst = map + HEADER + found*40
-        self.emit(abi::move_immediate(&s13, "Integer", &COLLECTION_ENTRY_SIZE.to_string()));
+        self.emit(abi::move_immediate(
+            &s13,
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
         self.emit(abi::multiply_registers(&s16, &s11, &s13));
         self.emit(abi::add_immediate(&s12, &s8, COLLECTION_HEADER_SIZE));
         self.emit(abi::add_registers(&s12, &s12, &s16));

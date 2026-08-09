@@ -708,7 +708,11 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             newbuf_slot,
         ));
-        self.emit(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), name_slot));
+        self.emit(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            name_slot,
+        ));
         self.emit(abi::load_u64(&newcap, abi::stack_pointer(), newcap_slot));
         self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
         self.emit(abi::subtract_registers(&newcap, &newcap, &newlen));

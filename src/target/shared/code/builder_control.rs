@@ -388,7 +388,9 @@ impl CodeBuilder<'_> {
                             // scope-drop free can reclaim (collections/records
                             // default to arena allocations already).
                             let location = if result.type_ == "String" {
-                                Operand::from(self.copy_flat_block("String", &result.location)?.render())
+                                Operand::from(
+                                    self.copy_flat_block("String", &result.location)?.render(),
+                                )
                             } else {
                                 result.location
                             };
@@ -1245,9 +1247,7 @@ impl CodeBuilder<'_> {
         step: &NirValue,
         body: &[NirOp],
     ) -> Option<(String, i64)> {
-        let is_int_const = |v: &NirValue, want: &str| {
-            matches!(v, NirValue::Const { type_, value } if type_ == "Integer" && value == want)
-        };
+        let is_int_const = |v: &NirValue, want: &str| matches!(v, NirValue::Const { type_, value } if type_ == "Integer" && value == want);
         // The IR desugars the bound/step into synthetic locals — resolve them.
         let start = self.resolve_for_local(start);
         let step = self.resolve_for_local(step);
@@ -1256,7 +1256,10 @@ impl CodeBuilder<'_> {
             return None;
         }
         // end must be `<lenexpr> - k`, k >= 1.
-        let NirValue::Binary { op, left, right, .. } = end else {
+        let NirValue::Binary {
+            op, left, right, ..
+        } = end
+        else {
             return None;
         };
         if op != "-" {

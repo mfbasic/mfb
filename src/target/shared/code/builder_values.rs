@@ -882,7 +882,10 @@ impl CodeBuilder<'_> {
                         );
                         let ok = parts.len() == 2
                             && parts[0] == "String"
-                            && matches!(parts[1], "Integer" | "Float" | "Fixed" | "Money" | "String")
+                            && matches!(
+                                parts[1],
+                                "Integer" | "Float" | "Fixed" | "Money" | "String"
+                            )
                             && prefer_true;
                         if ok {
                             return self.lower_collection_merge_call(args);
@@ -943,9 +946,15 @@ impl CodeBuilder<'_> {
                         // (`lower_collection_group_by_call`). Retires the O(bucket)
                         // map-churn of the `.mfb` body (list (Dynamic) groupby 166 ms).
                         let ok = parts.len() == 3
-                            && matches!(parts[0], "Integer" | "Float" | "Fixed" | "Money" | "String")
+                            && matches!(
+                                parts[0],
+                                "Integer" | "Float" | "Fixed" | "Money" | "String"
+                            )
                             && parts[1] == "Integer"
-                            && matches!(parts[2], "Integer" | "Float" | "Fixed" | "Money" | "String")
+                            && matches!(
+                                parts[2],
+                                "Integer" | "Float" | "Fixed" | "Money" | "String"
+                            )
                             && reeval_safe;
                         if ok {
                             let (kt, vt) = (parts[1].to_string(), parts[2].to_string());

@@ -131,7 +131,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), count_slot));
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch9, &scratch16, 0));
-        self.emit_write_list_header_from_registers(&layout, abi::mfb_return(1), &scratch11, &scratch9);
+        self.emit_write_list_header_from_registers(
+            &layout,
+            abi::mfb_return(1),
+            &scratch11,
+            &scratch9,
+        );
 
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&write_empty));
@@ -924,7 +929,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&temp_alloc_ok));
-        self.emit(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), temp_slot));
+        self.emit(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            temp_slot,
+        ));
 
         self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch21, &scratch20, 0));
@@ -1770,7 +1779,12 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             data_len_slot,
         ));
-        self.emit_write_list_header_from_registers(&layout, abi::mfb_return(1), &scratch11, &scratch12);
+        self.emit_write_list_header_from_registers(
+            &layout,
+            abi::mfb_return(1),
+            &scratch11,
+            &scratch12,
+        );
 
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(
