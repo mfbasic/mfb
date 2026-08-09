@@ -15,8 +15,23 @@ removeKey matrix rows (`map (State-Dynamic) removeKey` 62.6, `State-Fixed` 17.3)
 - **String `mapValues` not native:** gate `builder_values.rs:788-790` allows only 8-byte values.
 
 ## Fixes
-- [ ] **D1 — `try_inplace_remove_key_assign`** (in-place compaction removeKey). **TOMBSTONE CONFIRMED
-  INFEASIBLE as reuse (plan-86-A session scout); compaction is the viable ~2× win, NOT band-clearing.**
+- [x] **D1 — `try_inplace_remove_key_assign`** (in-place entry-table compaction removeKey). **LANDED —
+  mapchurn churn 161.5 → 21.96 ms (~7.3×, BETTER than the predicted ~2×), checksum `2128750` unchanged;
+  stays P1 (py 1.20) but a big win.** `try_inplace_remove_key_assign` (`builder_inplace_assign.rs`, wired into
+  the `builder_control.rs:592` assign chain after set-assign) recognizes `name = collections::removeKey(name,k)`
+  on a uniquely-owned MUT map local (by_ref + live-FOR-EACH guards) and calls new
+  `lower_map_remove_key_in_place` (`map_mutate.rs`): single scan for entry `i` (reuse
+  `emit_collection_payload_matches_value_branch`; **note the arg7=on-MATCH / arg8=on-NO-MATCH order — a swap
+  removed the wrong entry until fixed**), then shift the entry table `[i+1..count)` down one 40-byte slot
+  (forward word copy), COUNT-=1, BUCKETS_READY=0 — NO arena_alloc, NO data copy, NO fresh map. The removed
+  entry's key/value bytes are left as DATA SLACK — the SAME dead-slack pattern `lower_map_set_in_place`
+  already uses when overwriting a value (`map_mutate.rs:8`, "old value becomes dead slack, tightened on
+  copy"), reclaimed on the next tight copy (bind/return) — so it is NOT a new leak, just more frequent slack
+  than set-overwrite. (A data-compaction refinement — shift the data tail + fix shifted offsets — would
+  reclaim slack eagerly at an extra O(dataLen) copy; not needed for correctness.) Native/`.mfb` byte-identical
+  across middle/first/last removal, no-op on a missing key, hasKey/get + re-add (bucket rebuild), Integer key,
+  preserved insertion order, and the 200-cycle churn. Fixture: `map-removekey-inplace-rt`. Commit: `PENDING`.
+  Original analysis (kept for context): **TOMBSTONE CONFIRMED INFEASIBLE as reuse (plan-86-A session scout).**
   Why no tombstone: the map index is **open addressing storing absolute entry indices** (`mod.rs:2407-2703`),
   the probe halts on `bucket==0` with **no DELETED sentinel**, the entry `FLAGS` bit is **read nowhere**
   (`builder_arena_transfer.rs:941-955` — the only former reader was deleted), and every `0..count` consumer

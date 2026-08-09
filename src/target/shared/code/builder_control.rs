@@ -590,6 +590,12 @@ impl CodeBuilder<'_> {
                                 by_ref,
                             )?
                             && !self.try_inplace_set_assign(name, value, stack_offset, by_ref)?
+                            && !self.try_inplace_remove_key_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
                             && !self.try_inplace_prepend_assign(
                                 name,
                                 value,

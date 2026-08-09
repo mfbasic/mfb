@@ -1,0 +1,19 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/map-removekey-inplace-rt
+Wrote AST to tests/rt-behavior/collections/map-removekey-inplace-rt/map_removekey_inplace_rt.ast
+Wrote IR to tests/rt-behavior/collections/map-removekey-inplace-rt/map_removekey_inplace_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/map-removekey-inplace-rt
+Wrote executable to tests/rt-behavior/collections/map-removekey-inplace-rt/build/map_removekey_inplace_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/map-removekey-inplace-rt/build/map_removekey_inplace_rt.out
+init: 0=0 1=10 2=20 3=30 4=40 5=50 
+rm2: 0=0 1=10 3=30 4=40 5=50 
+rm0: 1=10 3=30 4=40 5=50 
+rm5: 1=10 3=30 4=40 
+rm99: 1=10 3=30 4=40 
+has1: TRUE
+has2: FALSE
+readd2: 1=10 3=30 4=40 2=222  get2=222
+int_rm2: keys=4 has2=FALSE has3=TRUE
+churn: size=100 sum=24950 removed=200
+[exit 0]

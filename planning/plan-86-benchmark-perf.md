@@ -245,7 +245,7 @@ The index table above stays as the one-line overview; open a file for the checkl
 - **A** → [plan-86-A-string-native-lowering.md](plan-86-A-string-native-lowering.md) — **DONE** (findLastIndex P3-clear 11.18→5.66; **groupBy 162→0.366 COMPLETE**, ~445×; chunks/window/zip marginal/capped but correct; partition/sortBy/sort/flatten prior). String-KEY groupBy is a non-scored later extension.
 - **B** → [plan-86-B-reduce-accumulator.md](plan-86-B-reduce-accumulator.md) — **DONE** (B1+B2; B3 → K)
 - **C** → [plan-86-C-set-algebra.md](plan-86-C-set-algebra.md) — **DONE** (C2 in-place add retired all 7 P1; C1 moot)
-- **D** → [plan-86-D-map-ops.md](plan-86-D-map-ops.md) — open (D1 removeKey / D2 mapValues / D3 merge)
+- **D** → [plan-86-D-map-ops.md](plan-86-D-map-ops.md) — **D1 removeKey DONE** (in-place entry compaction, mapchurn churn 161→22 ms ~7.3×; stays P1); D2 mapValues (modest ~5.97ms) / D3 merge open
 - **E** → [plan-86-E-borrow-element.md](plan-86-E-borrow-element.md) — open
 - **F** → [plan-86-F-string-single-pass.md](plan-86-F-string-single-pass.md) — open (F1 landed plan-64)
 - **G** → [plan-86-G-bounds-check-elim.md](plan-86-G-bounds-check-elim.md) — open (correctness-critical)

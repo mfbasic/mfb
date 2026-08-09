@@ -173,6 +173,63 @@ impl CodeBuilder<'_> {
         Ok(true)
     }
 
+    /// plan-86 D1: recognize `name = collections::removeKey(name, k)` on a
+    /// uniquely-owned MUT map local and delete the entry IN PLACE via
+    /// `lower_map_remove_key_in_place` (entry-table compaction, no alloc/copy),
+    /// instead of the out-of-place fresh-map rebuild. Value semantics keep the
+    /// named local's buffer un-aliased (copy-on-bind); the `by_ref` and
+    /// live-FOR-EACH guards match the set-add path (a compaction shift is observable
+    /// to a live iterator, bug-142). Also covers `Set` remove (same lowering).
+    pub(super) fn try_inplace_remove_key_assign(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+        stack_offset: usize,
+        by_ref: bool,
+    ) -> Result<bool, String> {
+        if by_ref {
+            return Ok(false);
+        }
+        let NirValue::Call { target, args, .. } = value else {
+            return Ok(false);
+        };
+        if crate::builtins::native_builtin_target(target) != Some("removeKey") || args.len() != 2 {
+            return Ok(false);
+        }
+        let NirValue::Local(arg0) = &args[0] else {
+            return Ok(false);
+        };
+        if arg0 != name {
+            return Ok(false);
+        }
+        if self.for_each_iterable_locals.iter().any(|n| n == name) {
+            return Ok(false);
+        }
+        let Some(local) = self.locals.get(name) else {
+            return Ok(false);
+        };
+        let map_type = local.type_.clone();
+        let Some((key_type, _value_type)) = super::map_type_parts(&map_type) else {
+            return Ok(false);
+        };
+        if super::CollectionTypeLayout::from_type(&map_type).is_none() {
+            return Ok(false);
+        }
+        match self.static_type_name(&args[1]) {
+            Some(kt) if kt == key_type => {}
+            _ => return Ok(false),
+        }
+        let key = self.lower_value(&args[1])?;
+        let key = self.materialize_value(key)?;
+        let key_slot = self.allocate_stack_object("inplace_remove_key", 8);
+        self.store_value_at(&key, abi::stack_pointer(), key_slot);
+        self.lower_map_remove_key_in_place(stack_offset, key_slot, &map_type, &key_type)?;
+        if let Some(local) = self.locals.get_mut(name) {
+            local.constant = None;
+        }
+        Ok(true)
+    }
+
     pub(super) fn try_inplace_bulk_append_assign(
         &mut self,
         name: &str,
