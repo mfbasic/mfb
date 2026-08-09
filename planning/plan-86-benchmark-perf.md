@@ -282,7 +282,11 @@ The index table above stays as the one-line overview; open a file for the checkl
   med ~5.0ms — at the ≤5ms complete boundary, not regressed; the plan's "pursue only if it regresses" condition
   is not met. A native csv-parse builtin is unjustified for a boundary-complete row.
 - **K** → [plan-86-K-cow-layout.md](plan-86-K-cow-layout.md) — open (K1/K2/K3; also owns B3)
-- **L** → [plan-86-L-transcendental-capped.md](plan-86-L-transcendental-capped.md) — capped (only L1 is a live lever)
+- **L** → [plan-86-L-transcendental-capped.md](plan-86-L-transcendental-capped.md) — **DONE (L1 moot, rest capped).**
+  L1 examined concretely: nbody has NO nzr/nzi (unrolled scalars); only mandelbrot does; and the plan's
+  `fmax(|nzr|,|nzi|)` design is UNSOUND (3-way finite/Inf/NaN check with distinct errors — `fmax(NaN,x)=x`
+  drops the NaN trap), so a correct coalescing needs a fast-path + both individual checks retained — NOT cheap,
+  bounded ~5% on mandelbrot (P4, beats c-O0). Fails L1's own "only if cheap" gate. The rest is capped ceiling.
 
 ## Validation Plan (all sub-plans)
 
