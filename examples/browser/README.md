@@ -11,7 +11,7 @@ the loading spinner keeps spinning while a page loads *and* parses:
 
 | Project     | Kind       | What it is                                                                    |
 | ----------- | ---------- | ----------------------------------------------------------------------------- |
-| `dom/`      | package    | The DOM: `Node` (`ElementNode`/`TextNode`/`HeaderNode`/`StyleNode`) + an HTML **and** CSS parser. |
+| `dom/`      | package    | The DOM: `Node` (`ElementNode`/`TextNode`/`HeaderNode`) + `StyleNode` (a CSS rule) + an HTML **and** CSS parser. |
 | `fetch/`    | package    | The network worker: blocking `http::` fetch, redirects, `dom::parse`, **and loading external stylesheets**. |
 | `display/`  | package    | Renders a `dom::Node`: `render(node, width)` → text, `tree(node, width)` → an indented DOM tree. |
 | `app/`      | executable | The TUI: layout, input, scrolling, the three modes.                          |
@@ -110,8 +110,10 @@ selector and a `props: Map OF String TO String` (a comma selector list becomes o
 rule per selector). The rules hang off `HeaderNode.rules` and show in Raw Mode; the
 footer's `Files: n/m` counts the HTML document plus each stylesheet fetched.
 
-`StyleNode` is a `Node` **variant** (not a standalone record) on purpose: a
-consumer package (`display`) can read a union variant's fields, but the fields of a
-record reached only *transitively* through an imported type are opaque to its
-codegen — so all `StyleNode` iteration lives in `dom`, which returns plain strings
-(`dom::styleLines`).
+`StyleNode` is a plain **standalone record** (not a `Node` variant): `display`
+reads its fields directly to format each rule, even though a `StyleNode` is reached
+only *transitively* through `HeaderNode.rules` (a field of a `Node` variant). That
+cross-package transitive read used to be opaque to a consumer's codegen — so this
+was formerly a `Node` variant with all iteration living in `dom` (`dom::styleLines`
+returning pre-formatted strings) — until the `bug-435` fix made a re-exported
+union carry the full type closure of its variants' fields.

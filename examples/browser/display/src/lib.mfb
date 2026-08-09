@@ -151,9 +151,25 @@ TYPE Walk
   depth AS Integer
 END TYPE
 
+' Format one parsed CSS rule as `selector { prop: value; … }`. display reads the
+' StyleNode record's fields directly now that a transitively-reached record's
+' fields are visible across a package boundary (bug-435 fix) — dom no longer has
+' to pre-format the rules into strings.
+FUNC formatRule(r AS StyleNode) AS String
+  MUT decls AS String = ""
+  FOR EACH key IN collections::keys(r.props)
+    IF decls <> "" THEN
+      decls = decls & "; "
+    END IF
+    decls = decls & key & ": " & collections::getOr(r.props, key, "")
+  NEXT
+  RETURN r.selector & " { " & decls & " }"
+END FUNC
+
 ' An indented text rendering of the DOM tree itself (the "raw" view).
 EXPORT FUNC tree(root AS Node, width AS Integer) AS String
   MUT lines AS List OF String = []
+  MUT cssLines AS List OF String = []
   MUT stack AS List OF Walk = [Walk[root, 0]]
   DO WHILE len(stack) > 0
     LET i AS Integer = len(stack) - 1
@@ -175,11 +191,13 @@ EXPORT FUNC tree(root AS Node, width AS Integer) AS String
         END IF
       CASE HeaderNode(h)
         lines = collections::append(lines, indent & "#head  title=\"" & clip(h.title, 40) & "\"  scripts=" & toString(len(h.scripts)) & "  styles=" & toString(len(h.styles)) & "  css=" & toString(len(h.css)) & "  rules=" & toString(len(h.rules)))
+        ' Format the header's CSS rules directly from the StyleNode records.
+        FOR EACH r IN h.rules
+          cssLines = collections::append(cssLines, formatRule(r))
+        NEXT
       CASE ELSE
     END MATCH
   LOOP
-  ' The CSS rules (dom renders them — a consumer cannot iterate the StyleNodes).
-  LET cssLines AS List OF String = dom::styleLines(root)
   IF len(cssLines) > 0 THEN
     lines = collections::append(lines, "")
     lines = collections::append(lines, "CSS rules (" & toString(len(cssLines)) & "):")

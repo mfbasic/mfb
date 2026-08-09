@@ -29,10 +29,11 @@ EXPORT TYPE TextNode
   text AS String
 END TYPE
 
-' One parsed CSS rule as a DOM node: a selector and its property map (see
-' parseCss in css.mfb). A Node variant — not a separate record — so a consumer
-' package can read its fields (a transitively-imported record is opaque to a
-' consumer's codegen; a union variant's layout arrives with the union).
+' One parsed CSS rule: a selector and its property map (see parseCss in css.mfb).
+' A plain standalone record — a consumer package (display) reads its fields
+' directly even though it is reached only transitively through HeaderNode.rules
+' (a field of a Node variant). That cross-package transitive read was opaque
+' before the bug-435 fix, which is why this used to be a Node variant.
 EXPORT TYPE StyleNode
   selector AS String
   props AS Map OF String TO String
@@ -43,14 +44,13 @@ EXPORT TYPE HeaderNode
   scripts AS List OF String
   styles AS List OF String
   css AS List OF String
-  rules AS List OF Node
+  rules AS List OF StyleNode
 END TYPE
 
 EXPORT UNION Node
   ElementNode
   TextNode
   HeaderNode
-  StyleNode
 END UNION
 
 ' ----- constructors (widen a member record to Node via a typed binding) -----
@@ -78,12 +78,11 @@ EXPORT FUNC textNode(s AS String) AS Node
   RETURN n
 END FUNC
 
-EXPORT FUNC styleNode(selector AS String, props AS Map OF String TO String) AS Node
-  LET n AS Node = StyleNode[selector, props]
-  RETURN n
+EXPORT FUNC styleNode(selector AS String, props AS Map OF String TO String) AS StyleNode
+  RETURN StyleNode[selector, props]
 END FUNC
 
-EXPORT FUNC headerNode(title AS String, scripts AS List OF String, styles AS List OF String, css AS List OF String, rules AS List OF Node) AS Node
+EXPORT FUNC headerNode(title AS String, scripts AS List OF String, styles AS List OF String, css AS List OF String, rules AS List OF StyleNode) AS Node
   LET n AS Node = HeaderNode[title, scripts, styles, css, rules]
   RETURN n
 END FUNC
@@ -138,7 +137,7 @@ EXPORT FUNC attachCss(doc AS Node, extra AS List OF String) AS Node
           MATCH child
             CASE HeaderNode(h)
               MUT css AS List OF String = h.css
-              MUT rules AS List OF Node = h.rules
+              MUT rules AS List OF StyleNode = h.rules
               FOR EACH text IN extra
                 css = collections::append(css, text)
                 FOR EACH rule IN parseCss(text)

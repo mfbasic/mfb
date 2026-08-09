@@ -60,49 +60,12 @@ FUNC parseDeclarations(block AS String) AS Map OF String TO String
   RETURN props
 END FUNC
 
-' Format a StyleNode as `selector { prop: value; … }` (any other node → ""). Done
-' here because iterating a Map that came from an imported type's field yields
-' Unknown-typed keys in a consumer package; dom owns the type, so it is fine.
-EXPORT FUNC formatStyle(node AS Node) AS String
-  MATCH node
-    CASE StyleNode(s)
-      MUT decls AS String = ""
-      FOR EACH key IN collections::keys(s.props)
-        IF decls <> "" THEN
-          decls = decls & "; "
-        END IF
-        decls = decls & key & ": " & collections::getOr(s.props, key, "")
-      NEXT
-      RETURN s.selector & " { " & decls & " }"
-    CASE ELSE
-      RETURN ""
-  END MATCH
-END FUNC
-
-' Every CSS rule of the document, each formatted as `selector { … }`. Returns
-' plain strings so a consumer never has to iterate the StyleNodes itself (an
-' imported type's fields are opaque to a consumer's codegen).
-EXPORT FUNC styleLines(doc AS Node) AS List OF String
-  MUT out AS List OF String = []
-  MATCH doc
-    CASE ElementNode(e)
-      FOR EACH child IN e.children
-        MATCH child
-          CASE HeaderNode(h)
-            FOR EACH ruleNode IN h.rules
-              out = collections::append(out, formatStyle(ruleNode))
-            NEXT
-          CASE ELSE
-        END MATCH
-      NEXT
-    CASE ELSE
-  END MATCH
-  RETURN out
-END FUNC
-
-' Parse a stylesheet into StyleNodes (one Node per rule).
-EXPORT FUNC parseCss(text AS String) AS List OF Node
-  MUT rules AS List OF Node = []
+' Parse a stylesheet into StyleNodes (one record per rule). Consumers read the
+' returned records' fields directly (see display::tree); dom no longer needs to
+' pre-format them into strings now that a transitively-reached record's fields
+' are visible across a package boundary (bug-435 fix).
+EXPORT FUNC parseCss(text AS String) AS List OF StyleNode
+  MUT rules AS List OF StyleNode = []
   LET clean AS String = stripCssComments(text)
   MUT pos AS Integer = 0
   LET n AS Integer = len(clean)

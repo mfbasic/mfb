@@ -214,7 +214,7 @@ EXPORT FUNC parse(html AS String) AS Node
   MUT scripts AS List OF String = []
   MUT styles AS List OF String = []
   MUT css AS List OF String = []
-  MUT rules AS List OF Node = []
+  MUT rules AS List OF StyleNode = []
   MUT inTitle AS Boolean = FALSE
   MUT nodeCount AS Integer = 0
   MUT pos AS Integer = 0
