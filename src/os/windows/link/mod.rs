@@ -939,16 +939,25 @@ mod tests {
     fn provenance_marker_emitted_unconditionally() {
         use crate::os::note::{mfb_note_descriptor, MFB_NOTE_OWNER};
         let bytes = write_executable(&image(vec![0xc3]), false, None, None).expect("link");
-        let owner = bytes
-            .windows(MFB_NOTE_OWNER.len())
-            .position(|window| window == MFB_NOTE_OWNER)
-            .expect("MFBasic\\0 provenance owner present");
-        // The 16-byte descriptor follows the owner verbatim, exactly as ELF/Mach-O.
+
+        // The marker is a discoverable section-table entry named ".mfbnote", not a
+        // stray byte match — locate it in the section table and read its body at
+        // that section's RVA.
+        let e_lfanew = le_u32(&bytes, 0x3C) as usize;
+        let n = le_u16(&bytes, e_lfanew + 6) as usize;
+        let sect_table = e_lfanew + 4 + 20 + 240;
+        let mfbnote_rva = (0..n)
+            .map(|i| sect_table + i * 40)
+            .find(|&s| &bytes[s..s + 8] == section_name(".mfbnote").as_slice())
+            .map(|s| le_u32(&bytes, s + 12))
+            .expect(".mfbnote section present in the table");
+
+        // Body: the MFBasic\0 owner followed verbatim by the shared 16-byte
+        // descriptor — the identical owner+descriptor framing ELF/Mach-O use.
         let descriptor = mfb_note_descriptor();
-        assert_eq!(
-            &bytes[owner + MFB_NOTE_OWNER.len()..owner + MFB_NOTE_OWNER.len() + descriptor.len()],
-            descriptor.as_slice(),
-        );
+        let body = read_at_rva(&bytes, mfbnote_rva, MFB_NOTE_OWNER.len() + descriptor.len());
+        assert_eq!(&body[..MFB_NOTE_OWNER.len()], MFB_NOTE_OWNER);
+        assert_eq!(&body[MFB_NOTE_OWNER.len()..], descriptor.as_slice());
     }
 
     /// plan-66-I: `gui = true` links the GUI subsystem (WINDOWS_GUI = 2), `false`
