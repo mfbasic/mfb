@@ -605,3 +605,178 @@ FUNC __astrings_concat(a AS AttributedString, b AS AttributedString) AS Attribut
   NEXT
   RETURN __astrings_assemble(newText, out)
 END FUNC
+
+REM ===========================================================================
+REM toMarkdown (plan-89-E): render resolved styling into a bespoke markdown-
+REM flavored format. NOT CommonMark. Flags wrap each maximal run as nested pairs
+REM in canonical order (bold ** , italic * , underline __ , strike ~~ , overline
+REM ^^); font/size switch forward via a minimal-delta `::font;size::` marker at run
+REM boundaries; delimiter characters in text and font names are backslash-escaped.
+REM Pure `.mfb` over getAttributes/toString (Open Decision 1).
+REM ===========================================================================
+
+REM The resolved styling state at one scalar. Comparable (all fields comparable),
+REM so a run boundary is simply a change in this record.
+TYPE MdState
+  bold AS Boolean
+  italic AS Boolean
+  underline AS Boolean
+  strike AS Boolean
+  overline AS Boolean
+  hasFont AS Boolean
+  font AS String
+  hasSize AS Boolean
+  size AS Integer
+END TYPE
+
+REM Backslash-escape the delimiter characters in visible text.
+FUNC __astrings_mdEscape(s AS String) AS String
+  MUT out AS String = ""
+  FOR EACH sc IN strings::toScalars(s)
+    LET ch AS String = strings::fromScalars([sc])
+    IF ch = "\\" OR ch = "*" OR ch = "_" OR ch = "~" OR ch = "^" OR ch = ":" THEN
+      out = out & "\\" & ch
+    ELSE
+      out = out & ch
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+REM Escape a font name: the text delimiters plus `;` (the font/size separator).
+REM A font whose escaped form is a bare `-` would read as a reset, so a literal
+REM `-` is escaped too.
+FUNC __astrings_mdEscapeFont(s AS String) AS String
+  IF s = "-" THEN
+    RETURN "\\-"
+  END IF
+  MUT out AS String = ""
+  FOR EACH sc IN strings::toScalars(s)
+    LET ch AS String = strings::fromScalars([sc])
+    IF ch = "\\" OR ch = "*" OR ch = "_" OR ch = "~" OR ch = "^" OR ch = ":" OR ch = ";" THEN
+      out = out & "\\" & ch
+    ELSE
+      out = out & ch
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+REM Resolve the styling state at scalar `i`.
+FUNC __astrings_mdStateAt(a AS AttributedString, i AS Integer) AS MdState
+  MUT bold AS Boolean = FALSE
+  MUT italic AS Boolean = FALSE
+  MUT underline AS Boolean = FALSE
+  MUT strike AS Boolean = FALSE
+  MUT overline AS Boolean = FALSE
+  MUT hasFont AS Boolean = FALSE
+  MUT font AS String = ""
+  MUT hasSize AS Boolean = FALSE
+  MUT size AS Integer = 0
+  FOR EACH at IN astrings::getAttributes(a, i)
+    MATCH at
+      CASE AttrFlag(f)
+        MATCH f.kind
+          CASE AttrTypeFlag.Bold
+            bold = TRUE
+          CASE AttrTypeFlag.Italic
+            italic = TRUE
+          CASE AttrTypeFlag.Underline
+            underline = TRUE
+          CASE AttrTypeFlag.Strike
+            strike = TRUE
+          CASE AttrTypeFlag.Overline
+            overline = TRUE
+        END MATCH
+      CASE AttrText(t)
+        hasFont = TRUE
+        font = t.value
+      CASE AttrNumber(nm)
+        hasSize = TRUE
+        size = nm.value
+    END MATCH
+  NEXT
+  RETURN MdState[bold, italic, underline, strike, overline, hasFont, font, hasSize, size]
+END FUNC
+
+FUNC __astrings_toMarkdown(a AS AttributedString) AS String
+  LET text AS String = toString(a)
+  LET n AS Integer = astrings::scalarLen(a)
+  MUT out AS String = ""
+  REM Running font/size state (the last emitted); starts at default (unset).
+  MUT runHasFont AS Boolean = FALSE
+  MUT runFont AS String = ""
+  MUT runHasSize AS Boolean = FALSE
+  MUT runSize AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET st AS MdState = __astrings_mdStateAt(a, i)
+    MUT j AS Integer = i + 1
+    WHILE j < n AND __astrings_mdStateAt(a, j) = st
+      j = j + 1
+    END WHILE
+
+    REM font/size forward state switch (minimal delta).
+    LET fontChanged AS Boolean = (st.hasFont <> runHasFont) OR (st.hasFont AND st.font <> runFont)
+    LET sizeChanged AS Boolean = (st.hasSize <> runHasSize) OR (st.hasSize AND st.size <> runSize)
+    IF fontChanged OR sizeChanged THEN
+      MUT fpart AS String = "-"
+      IF st.hasFont THEN
+        fpart = __astrings_mdEscapeFont(st.font)
+      END IF
+      MUT spart AS String = "-"
+      IF st.hasSize THEN
+        spart = toString(st.size)
+      END IF
+      IF fontChanged AND sizeChanged THEN
+        out = out & "::" & fpart & ";" & spart & "::"
+      ELSE
+        IF fontChanged THEN
+          out = out & "::" & fpart & "::"
+        ELSE
+          out = out & "::;" & spart & "::"
+        END IF
+      END IF
+      runHasFont = st.hasFont
+      runFont = st.font
+      runHasSize = st.hasSize
+      runSize = st.size
+    END IF
+
+    REM open flags (canonical order), escaped run text, close flags (reverse).
+    IF st.bold THEN
+      out = out & "**"
+    END IF
+    IF st.italic THEN
+      out = out & "*"
+    END IF
+    IF st.underline THEN
+      out = out & "__"
+    END IF
+    IF st.strike THEN
+      out = out & "~~"
+    END IF
+    IF st.overline THEN
+      out = out & "^^"
+    END IF
+    out = out & __astrings_mdEscape(strings::mid(text, i, j - i))
+    IF st.overline THEN
+      out = out & "^^"
+    END IF
+    IF st.strike THEN
+      out = out & "~~"
+    END IF
+    IF st.underline THEN
+      out = out & "__"
+    END IF
+    IF st.italic THEN
+      out = out & "*"
+    END IF
+    IF st.bold THEN
+      out = out & "**"
+    END IF
+
+    i = j
+  END WHILE
+  RETURN out
+END FUNC

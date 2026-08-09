@@ -31,6 +31,7 @@ const ADD_ATTRIBUTE: &str = "astrings.addAttribute";
 const REMOVE_ATTRIBUTE: &str = "astrings.removeAttribute";
 const CLEAR_ATTRIBUTES: &str = "astrings.clearAttributes";
 const GET_ATTRIBUTES: &str = "astrings.getAttributes";
+const TO_MARKDOWN: &str = "astrings.toMarkdown";
 // Internal-only native overlay bridge (never user-callable).
 const READ_SPANS: &str = "astrings.readSpans";
 const WRITE_SPANS: &str = "astrings.writeSpans";
@@ -70,6 +71,7 @@ const P_GET: &[Parameter] = &[
     Parameter::required("value", "AttributedString"),
     Parameter::required("index", "Integer"),
 ];
+const P_TO_MARKDOWN: &[Parameter] = &[Parameter::required("value", "AttributedString")];
 const P_READ_SPANS: &[Parameter] = &[Parameter::required("value", "AttributedString")];
 const P_WRITE_SPANS: &[Parameter] = &[
     Parameter::required("value", "AttributedString"),
@@ -95,6 +97,7 @@ const OV_CLEAR: &[BuiltinOverload] = &[
     ov(P_CLEAR_RANGE, "AttributedString"),
 ];
 const OV_GET: &[BuiltinOverload] = &[ov(P_GET, "List OF Attribute")];
+const OV_TO_MARKDOWN: &[BuiltinOverload] = &[ov(P_TO_MARKDOWN, "String")];
 const OV_READ_SPANS: &[BuiltinOverload] = &[ov(P_READ_SPANS, SPAN_LIST)];
 const OV_WRITE_SPANS: &[BuiltinOverload] = &[ov(P_WRITE_SPANS, "AttributedString")];
 const OV_SCALAR_LEN: &[BuiltinOverload] = &[ov(P_SCALAR_LEN, "Integer")];
@@ -197,6 +200,12 @@ const ASTRINGS_FUNCTIONS: &[BuiltinFunction] = &[
         OV_GET,
         Implementation::Rewrite("__astrings_getAttributes"),
     ),
+    astrings_fn(
+        TO_MARKDOWN,
+        "toMarkdown",
+        OV_TO_MARKDOWN,
+        Implementation::Rewrite("__astrings_toMarkdown"),
+    ),
     // Internal-only native overlay bridge.
     astrings_internal_fn(READ_SPANS, "readSpans", OV_READ_SPANS),
     astrings_internal_fn(WRITE_SPANS, "writeSpans", OV_WRITE_SPANS),
@@ -256,6 +265,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
             Some(&[&["value"], &["start"], &["endIndex"], &["attr"]])
         }
         GET_ATTRIBUTES => Some(&[&["value"], &["index"]]),
+        TO_MARKDOWN => Some(&[&["value"]]),
         READ_SPANS | SCALAR_LEN => Some(&[&["value"]]),
         WRITE_SPANS => Some(&[&["value"], &["spans"]]),
         // `clearAttributes` overloads on arity (1 vs 3 args), so its per-position
