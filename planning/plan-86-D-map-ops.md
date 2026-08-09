@@ -87,8 +87,30 @@ removeKey matrix rows (`map (State-Dynamic) removeKey` 62.6, `State-Fixed` 17.3)
   i.e. MARGINAL like chunks/window/zip (`[[native-string-hof-rewrites-are-marginal]]`), NOT a groupBy-class
   win. **DEPRIORITIZE: measure the interpreted map str_ops loop first; likely not worth a ~100-line native
   lowering.** The valuable part of sub-plan D was D1 (removeKey, 7.3×, LANDED). D2/D3 are marginal/modest.
-- [ ] **D3 — native `merge`** (size to `|a|+|b|`, copy `a` once with buckets built, bulk-insert both). Modest
-  (base copy inherent to value semantics) — lowest ROI. Helps mapchurn iterate.
+- [ ] **D3 — native `merge`** (size to `|a|+|b|`, copy `a` once with buckets built, bulk-insert both). **NOT
+  modest — MEASURED ~5ms of a P1 row; the earlier "base copy inherent → marginal" note was an UNMEASURED
+  assumption and is WRONG.** Decomposed `mapchurn iterate` (14.4ms) this session by editing the benchmark's
+  merge line (release `--run 10`, box-local): remove the whole merge line → **5.2ms** (so merge+its `keys(mg)`
+  = 9.2ms, 64% of iterate); keep merge but drop `keys(mg)` → 12.4ms (merge alone = **7.2ms**); replace merge
+  with a bare `MUT mg = m` owning copy → 7.26ms (base copy = **2.06ms**); so **the 10 inserts of `other`'s
+  entries cost ~5.1ms** (~510ns each — ~10× too slow for an amortized in-place append). CONFIRMED not a
+  FOR-EACH artifact: an inline plain-`FOR` doing 10 `mg = set(mg, toString(ki), ki)` into a copy of `m` is
+  ALSO ~12.35ms. So **inserting new keys into a *copy of* a 1000-entry map is realloc/rehash-heavy** (churn's
+  `m = set(m,…)` on a from-scratch map IS cheap/in-place, so this is specific to growing a tight copy — likely
+  the tight copy has zero capacity headroom and/or each grow rebuilds the whole bucket index, `BUCKETS_READY`
+  interplay). **Native merge fixes it by PRESIZING** result to `count(a)+count(b)` up front (one alloc, one
+  bucket build) then bulk-inserting `b` with no further grow → merge ~7.2 → ~2-3ms → **iterate 14.4 → ~9-10ms**
+  (~30-35%; stays P1 vs py 7.55 but a real win). **Edit points:** new `lower_collection_merge_call` in
+  `builder_collection_queries.rs` (model on `lower_collection_map_values_call:3472` which already does
+  `copy_collection_tight` + a per-entry loop): (1) copy `a` but RESERVED to `count(a)+count(b)` (need a
+  copy-with-capacity or copy-tight-then-`reserve` map primitive — the missing piece; list has
+  `reserve_integer_index_list`, maps need the analogue); (2) iterate `b`'s entry table (COUNT@8, stride 40,
+  KEY/VALUE offsets like mapValues), read key+value; (3) if `!preferB` probe `hasKey(result,key)` (reuse
+  `emit_collection_payload_matches_value_branch`) and skip on hit; else `lower_map_set_in_place(result, key,
+  value)`; (4) dispatch gate `#collections_merge$K$V` in `builder_values.rs`. Checksum-verified, no UAF.
+  **Also worth checking (higher leverage, may subsume D3):** WHY `x = set(x,…)` reallocs/rehashes per insert
+  when `x` is a copy — if the tight-copy path can carry capacity headroom or the grow can incrementally insert
+  into the existing bucket index instead of rebuilding, that fixes merge AND every copy-then-grow map loop.
 
 ## Acceptance
 map/mapchurn checksums (catch bucket corruption as a wrong lookup) + `cargo test` + map fixtures +
