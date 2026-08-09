@@ -5,7 +5,7 @@
 //! tool that knows the owner string can read the descriptor out of either.
 //!
 //! The marker is unconditional: it does not depend on the separate
-//! `signing_metadata` feature (`.mfb_sign` / `__MFB,__sign`), and both may be
+//! `signing_metadata` feature (`.mfbsign` / `__MFB,.mfbsign`), and both may be
 //! present at once.
 
 /// The vendor-note owner: the ELF note *name* and the Mach-O `data_owner`.

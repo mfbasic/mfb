@@ -300,10 +300,20 @@ pub(crate) fn write_executable(
     // and version when supplied). Console builds get no `.rsrc`, so they stay
     // byte-identical to the pre-K writer.
     let has_rsrc = gui;
+    // bug-432: a signed build carries the `mfb-signing-v1` blob verbatim in a
+    // read-only `.mfbsign` section (the 8-char name unified with ELF/Mach-O). It is
+    // placed last (after `.rsrc`), so its size shifts no other section's RVA, and
+    // gets no data directory — this is MFBASIC's own provenance blob, not
+    // Authenticode. Unsigned builds omit it and stay byte-identical to before.
+    let has_sign = image.signing_metadata.is_some();
 
     // Count sections to size the headers, then lay out RVAs/file offsets.
-    let section_count =
-        1 + has_rdata as usize + has_data as usize + has_idata as usize + has_rsrc as usize;
+    let section_count = 1
+        + has_rdata as usize
+        + has_data as usize
+        + has_idata as usize
+        + has_rsrc as usize
+        + has_sign as usize;
     let headers = size_of_headers(section_count);
     let text_rva = align_up(headers, SECTION_ALIGNMENT);
     let text_file = align_up(headers, FILE_ALIGNMENT);
@@ -455,6 +465,28 @@ pub(crate) fn write_executable(
         });
     }
 
+    // bug-432: the `.mfbsign` section goes last (after `.rsrc`, or in `.rsrc`'s
+    // free post-`.idata` slot when there is no `.rsrc`), so its size shifts no
+    // earlier RVA. It carries the blob verbatim, read-only, with no data directory.
+    if let Some(metadata) = image.signing_metadata.as_deref() {
+        let (sign_rva, sign_file) = if has_rsrc {
+            (
+                align_up(rsrc_rva + rsrc_bytes.len() as u32, SECTION_ALIGNMENT),
+                align_up(rsrc_file + rsrc_bytes.len() as u32, FILE_ALIGNMENT),
+            )
+        } else {
+            (rsrc_rva, rsrc_file)
+        };
+        sections.push(Section {
+            name: section_name(".mfbsign"),
+            characteristics: SCN_RDATA, // initialized data, read-only
+            virtual_address: sign_rva,
+            virtual_size: metadata.len() as u32,
+            file_offset: sign_file,
+            bytes: metadata,
+        });
+    }
+
     Ok(pe::write_image(
         &sections,
         text_rva + entry_offset as u32,
@@ -584,6 +616,25 @@ mod tests {
         a.copy_from_slice(&b[o..o + 8]);
         u64::from_le_bytes(a)
     }
+    /// Scan the section table for a section whose 8-byte name field equals
+    /// `name` (NUL-padded), returning that section's raw file body if present.
+    fn section_named(image: &[u8], name: &[u8]) -> Option<Vec<u8>> {
+        let e_lfanew = le_u32(image, 0x3C) as usize;
+        let n = le_u16(image, e_lfanew + 6) as usize;
+        let sect_table = e_lfanew + 4 + 20 + 240;
+        let mut field = [0u8; 8];
+        field[..name.len().min(8)].copy_from_slice(&name[..name.len().min(8)]);
+        for i in 0..n {
+            let s = sect_table + i * 40;
+            if image[s..s + 8] == field {
+                let raw_size = le_u32(image, s + 16) as usize;
+                let raw_ptr = le_u32(image, s + 20) as usize;
+                return Some(image[raw_ptr..raw_ptr + raw_size].to_vec());
+            }
+        }
+        None
+    }
+
     /// Read the bytes at an RVA out of a written image, by scanning the section
     /// table for the section that contains it.
     fn read_at_rva(image: &[u8], rva: u32, len: usize) -> Vec<u8> {
@@ -601,6 +652,33 @@ mod tests {
             }
         }
         panic!("rva {rva:#x} not in any section");
+    }
+
+    /// bug-432: a signed Windows build emits the `mfb-signing-v1` blob verbatim in
+    /// an `.mfbsign` PE section (the unified 8-char name shared with ELF/Mach-O).
+    #[test]
+    fn signing_metadata_emits_mfbsign_section() {
+        let mut img = image(vec![0xc3]); // ret
+        img.signing_metadata = Some(b"{\"format\":\"mfb-signing-v1\"}".to_vec());
+        let bytes = write_executable(&img, false, None, None).expect("link");
+        let section = section_named(&bytes, b".mfbsign").expect(".mfbsign section present");
+        // The section body carries the blob verbatim (no PE-specific header). The
+        // raw body may be FILE_ALIGNMENT-padded, so scan for the blob within it.
+        assert!(
+            section
+                .windows(img.signing_metadata.as_ref().unwrap().len())
+                .any(|w| w == img.signing_metadata.as_ref().unwrap().as_slice()),
+            "the .mfbsign section body carries the blob verbatim"
+        );
+    }
+
+    /// bug-432 non-goal guard: an unsigned build (the common case) emits no
+    /// `.mfbsign` section and stays byte-identical to the pre-fix writer.
+    #[test]
+    fn unsigned_build_emits_no_mfbsign_section() {
+        let img = image(vec![0xc3]); // signing_metadata == None
+        let bytes = write_executable(&img, false, None, None).expect("link");
+        assert!(section_named(&bytes, b".mfbsign").is_none());
     }
 
     #[test]
