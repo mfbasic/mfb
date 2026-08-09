@@ -136,6 +136,10 @@ static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     PROCESS_IS_RUNNING_SPEC,
     PROCESS_WAIT_FOR_SPEC,
     PROCESS_CLOSE_SPEC,
+    PROCESS_SEND_SPEC,
+    PROCESS_SEND_BYTES_SPEC,
+    PROCESS_SEND_TIMEOUT_SPEC,
+    PROCESS_SEND_BYTES_TIMEOUT_SPEC,
     PROCESS_DROP_SPEC,
     // plan-67-B: internal perf-tracking helpers. Catalogued (so `spec_for_symbol`
     // resolves the injected `_mfb_rt_perf_*` calls during emission/object
@@ -249,6 +253,8 @@ mod tests {
             // (`process.__drop` IS routed — like audio's close ops — via
             // `is_process_runtime_call`, so it is deliberately NOT listed here.)
             "process.spawnEnv",
+            "process.sendTimeout",
+            "process.sendBytesTimeout",
             // plan-76-A: `net.poll(List OF RES Socket)` is rewritten to `net.pollList`
             // in the code layer (`builder_values`), so it never exists at the NIR
             // level and `helper_for_call` must not classify it.

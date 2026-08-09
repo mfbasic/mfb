@@ -202,6 +202,8 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "process.isRunning",
     "process.waitFor",
     "process.close",
+    "process.send",
+    "process.sendBytes",
     "process.__drop",
     "thread.start",
     "thread.isRunning",

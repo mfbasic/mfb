@@ -1,0 +1,14 @@
+' plan-90-B Phase 1: process::sendBytes writes raw bytes (no trailing newline).
+' Sending "hello\n" as bytes to `grep -q hello` -> match -> waitFor 0.
+IMPORT process
+IMPORT io
+
+FUNC main AS Integer
+  RES p = process::spawn(["grep", "-q", "hello"])
+  ' bytes of "hello\n": h e l l o \n
+  LET data AS List OF Byte = [104, 101, 108, 108, 111, 10]
+  process::sendBytes(p, data)
+  process::close(p)
+  io::print(toString(process::waitFor(p)))
+  RETURN 0
+END FUNC

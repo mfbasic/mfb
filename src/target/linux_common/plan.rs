@@ -476,7 +476,7 @@ impl LinuxPlan<'_> {
                 // raw-syscall net write path filters it.
                 let mut imports = [
                     "pipe", "fork", "dup2", "execvp", "close", "waitpid", "kill", "read", "write",
-                    "fcntl", "_exit", "chdir", "setenv", "unsetenv",
+                    "fcntl", "poll", "_exit", "chdir", "setenv", "unsetenv",
                 ]
                 .iter()
                 .map(|base| self.libc_import(base, required_by))

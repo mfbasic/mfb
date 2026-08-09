@@ -1,0 +1,13 @@
+' plan-90-B Phase 1: the 3-arg send(p, text, timeoutMs) polls for writability
+' before each write. Writing a small line to a child with a drained pipe is
+' writable immediately, so a generous timeout succeeds (grep finds "hello" -> 0).
+IMPORT process
+IMPORT io
+
+FUNC main AS Integer
+  RES p = process::spawn(["grep", "-q", "hello"])
+  process::send(p, "hello there", 1000)
+  process::close(p)
+  io::print(toString(process::waitFor(p)))
+  RETURN 0
+END FUNC

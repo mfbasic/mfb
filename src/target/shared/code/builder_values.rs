@@ -2097,6 +2097,22 @@ impl CodeBuilder<'_> {
                     "process.spawn"
                 }
             }
+            // plan-90-B: the `timeoutMs` overloads route to distinct helpers that
+            // poll for writability before each blocking write.
+            "process.send" => {
+                if args.len() >= 3 {
+                    "process.sendTimeout"
+                } else {
+                    "process.send"
+                }
+            }
+            "process.sendBytes" => {
+                if args.len() >= 3 {
+                    "process.sendBytesTimeout"
+                } else {
+                    "process.sendBytes"
+                }
+            }
             _ => target,
         };
         self.emit_runtime_helper_call(

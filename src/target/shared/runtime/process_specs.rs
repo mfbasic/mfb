@@ -49,6 +49,31 @@ pub(crate) const PROCESS_CLOSE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     abi: RuntimeHelperAbi { returns: "Nothing" },
 };
 
+pub(crate) const PROCESS_SEND_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Process,
+    call: "process.send",
+    abi: RuntimeHelperAbi { returns: "Nothing" },
+};
+
+pub(crate) const PROCESS_SEND_BYTES_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Process,
+    call: "process.sendBytes",
+    abi: RuntimeHelperAbi { returns: "Nothing" },
+};
+
+// The `timeoutMs` send overloads, synthesized by the builder_values overload split.
+pub(crate) const PROCESS_SEND_TIMEOUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Process,
+    call: "process.sendTimeout",
+    abi: RuntimeHelperAbi { returns: "Nothing" },
+};
+
+pub(crate) const PROCESS_SEND_BYTES_TIMEOUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Process,
+    call: "process.sendBytesTimeout",
+    abi: RuntimeHelperAbi { returns: "Nothing" },
+};
+
 // The scope-drop cleanup op (SIGKILL + waitpid + close pipes). Code-layer-only:
 // synthesized by the resource-cleanup path, never written in source.
 pub(crate) const PROCESS_DROP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {

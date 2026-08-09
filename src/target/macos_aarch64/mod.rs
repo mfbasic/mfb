@@ -200,6 +200,8 @@ impl NativeBackend for Backend {
                 "process.isRunning",
                 "process.waitFor",
                 "process.close",
+                "process.send",
+                "process.sendBytes",
                 "process.__drop",
             ],
         }

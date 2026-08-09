@@ -1548,6 +1548,22 @@ pub(crate) fn lower_module_for_platform(
     {
         runtime_symbols.push("_mfb_rt_process_process_spawnEnv".to_string());
     }
+    // plan-90-B: the 3-arg `send`/`sendBytes` timeout overloads route to
+    // `sendTimeout`/`sendBytesTimeout`, synthesized targets the NIR never names —
+    // emit each whenever its base is present.
+    for (base, timed) in [
+        ("_mfb_rt_process_process_send", "_mfb_rt_process_process_sendTimeout"),
+        (
+            "_mfb_rt_process_process_sendBytes",
+            "_mfb_rt_process_process_sendBytesTimeout",
+        ),
+    ] {
+        if runtime_symbols.iter().any(|symbol| symbol == base)
+            && !runtime_symbols.iter().any(|symbol| symbol == timed)
+        {
+            runtime_symbols.push(timed.to_string());
+        }
+    }
     // plan-76-A: the `poll(List OF RES Socket)` overload routes to `net.pollList`,
     // a synthesized target the NIR never names (it carries only `net.poll`), so
     // emit its helper body whenever `poll` is present — mirroring `connectTcpAddr`.
@@ -2288,6 +2304,36 @@ fn lower_runtime_helper(
                     "process.close" => {
                         process::lower_process_close_helper(symbol, platform_imports, platform)?
                     }
+                    "process.send" => {
+                        process::lower_process_send_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            false,
+                            false,
+                        )?
+                    }
+                    "process.sendTimeout" => process::lower_process_send_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                        true,
+                    )?,
+                    "process.sendBytes" => process::lower_process_send_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        true,
+                        false,
+                    )?,
+                    "process.sendBytesTimeout" => process::lower_process_send_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        true,
+                        true,
+                    )?,
                     "process.__drop" => {
                         process::lower_process_drop_helper(symbol, platform_imports, platform)?
                     }

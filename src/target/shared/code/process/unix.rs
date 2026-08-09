@@ -1239,3 +1239,200 @@ pub(in crate::target::shared::code) fn lower_process_spawnenv_helper(
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LOCAL);
     Ok((frame, instructions, relocations, stack_slots))
 }
+
+// ---------------------------------------------------------------------------
+// process.send / process.sendBytes — write to the child's stdin (the parent's
+// write end). `send` writes the String bytes then a trailing '\n'; `sendBytes`
+// writes the raw List OF Byte with no newline. Blocking (partial-write loop with
+// EINTR retry); a broken pipe (child stdin gone) raises ErrResourceClosed.
+// ---------------------------------------------------------------------------
+pub(in crate::target::shared::code) fn lower_process_send_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    is_bytes: bool,
+    with_timeout: bool,
+) -> HelperResult {
+    const NL_SLOT: usize = 0;
+    const POLLFD_SLOT: usize = 8; // { int fd; short events; short revents }
+    const EINTR: &str = "4";
+    let mut v = Vregs::new();
+    let file = v.next();
+    let val = v.next();
+    let fd = v.next();
+    let srcp = v.next();
+    let rem = v.next();
+    let n = v.next();
+    let errno = v.next();
+    let timeout = v.next();
+    let s0 = v.next();
+    let s1 = v.next();
+    let s2 = v.next();
+    let closed_l = format!("{symbol}_closed");
+    let write_loop = format!("{symbol}_write_loop");
+    let write_fail = format!("{symbol}_write_fail");
+    let payload_done = format!("{symbol}_payload_done");
+    let nl_loop = format!("{symbol}_nl_loop");
+    let nl_fail = format!("{symbol}_nl_fail");
+    let nl_done = format!("{symbol}_nl_done");
+    let timeout_l = format!("{symbol}_timeout");
+    let done = format!("{symbol}_done");
+
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&file, abi::return_register()),
+        abi::move_register(&val, abi::c_arg(1)),
+    ];
+    if with_timeout {
+        instructions.push(abi::move_register(&timeout, abi::c_arg(2)));
+    }
+    instructions.extend([
+        abi::load_u64(&n, &file, RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(&n, "0"),
+        abi::branch_ne(&closed_l),
+        abi::load_u64(&fd, &file, PROC_STDIN_W),
+        abi::compare_immediate(&fd, "0"),
+        abi::branch_lt(&closed_l),
+    ]);
+    let mut relocations = Vec::new();
+    if is_bytes {
+        instructions.push(abi::load_u64(&rem, &val, COLLECTION_OFFSET_COUNT));
+        push_collection_data_base_from_capacity(&mut instructions, &srcp, &val, &s0, &s1, &s2);
+    } else {
+        instructions.extend([
+            abi::load_u64(&rem, &val, 0),
+            abi::add_immediate(&srcp, &val, 8),
+        ]);
+    }
+    instructions.extend([
+        abi::label(&write_loop),
+        abi::compare_immediate(&rem, "0"),
+        abi::branch_eq(&payload_done),
+    ]);
+    if with_timeout {
+        emit_poll_wait(
+            symbol, &fd, &timeout, &n, POLLFD_SLOT, POLLOUT, &timeout_l, platform, platform_imports,
+            &mut instructions, &mut relocations,
+        )?;
+    }
+    instructions.extend([
+        abi::move_register(abi::c_arg(0), &fd),
+        abi::move_register(abi::c_arg(1), &srcp),
+        abi::move_register(abi::c_arg(2), &rem),
+    ]);
+    platform.emit_libc_call("write", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::sign_extend_word(&n, abi::c_return(0)),
+        abi::compare_immediate(&n, "0"),
+        abi::branch_le(&write_fail),
+        abi::add_registers(&srcp, &srcp, &n),
+        abi::subtract_registers(&rem, &rem, &n),
+        abi::branch(&write_loop),
+        abi::label(&write_fail),
+    ]);
+    platform.emit_errno(symbol, errno.as_str().into(), platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::compare_immediate(&errno, EINTR),
+        abi::branch_eq(&write_loop),
+        abi::branch(&closed_l),
+        abi::label(&payload_done),
+    ]);
+    if !is_bytes {
+        instructions.extend([
+            abi::move_immediate(&n, "Integer", "10"),
+            abi::store_u8(&n, abi::stack_pointer(), NL_SLOT),
+            abi::label(&nl_loop),
+        ]);
+        if with_timeout {
+            emit_poll_wait(
+                symbol, &fd, &timeout, &n, POLLFD_SLOT, POLLOUT, &timeout_l, platform,
+                platform_imports, &mut instructions, &mut relocations,
+            )?;
+        }
+        instructions.extend([
+            abi::move_register(abi::c_arg(0), &fd),
+            abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), NL_SLOT),
+            abi::move_immediate(abi::c_arg(2), "Integer", "1"),
+        ]);
+        platform.emit_libc_call("write", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        instructions.extend([
+            abi::sign_extend_word(&n, abi::c_return(0)),
+            abi::compare_immediate(&n, "0"),
+            abi::branch_gt(&nl_done),
+            abi::label(&nl_fail),
+        ]);
+        platform.emit_errno(symbol, errno.as_str().into(), platform_imports, &mut instructions, &mut relocations)?;
+        instructions.extend([
+            abi::compare_immediate(&errno, EINTR),
+            abi::branch_eq(&nl_loop),
+            abi::branch(&closed_l),
+            abi::label(&nl_done),
+        ]);
+    }
+    instructions.extend([
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&closed_l),
+    ]);
+    emit_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    if with_timeout {
+        instructions.push(abi::label(&timeout_l));
+        emit_fail(
+            symbol,
+            ERR_TIMEOUT_CODE,
+            ERR_TIMEOUT_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+            &done,
+        );
+    }
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 32);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+const POLLOUT: &str = "4";
+
+/// Emit a `poll(&{fd, events, 0}, 1, timeout)` on the pollfd staged at
+/// `sp + pollfd_slot`; branch to `timeout_l` on a `0` (timed-out) return. `events`
+/// is `POLLIN`/`POLLOUT`. `scratch` is a caller vreg for the sign-extended return.
+/// A `< 0` poll error (e.g. EINTR) falls through and the following blocking op
+/// re-polls — acceptable since a spurious wakeup just retries.
+#[allow(clippy::too_many_arguments)]
+fn emit_poll_wait(
+    symbol: &str,
+    fd: &str,
+    timeout: &str,
+    scratch: &str,
+    pollfd_slot: usize,
+    events: &str,
+    timeout_l: &str,
+    platform: &dyn CodegenPlatform,
+    platform_imports: &HashMap<String, String>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    instructions.extend([
+        abi::store_u32(fd, abi::stack_pointer(), pollfd_slot),
+        abi::move_immediate(scratch, "Integer", events),
+        abi::store_u16(scratch, abi::stack_pointer(), pollfd_slot + 4),
+        abi::store_u16(abi::ZERO, abi::stack_pointer(), pollfd_slot + 6),
+        abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), pollfd_slot),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::move_register(abi::c_arg(2), timeout),
+    ]);
+    platform.emit_libc_call("poll", symbol, platform_imports, instructions, relocations)?;
+    instructions.extend([
+        abi::sign_extend_word(scratch, abi::c_return(0)),
+        abi::compare_immediate(scratch, "0"),
+        abi::branch_eq(timeout_l),
+    ]);
+    Ok(())
+}
