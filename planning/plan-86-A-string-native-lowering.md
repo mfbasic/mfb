@@ -47,7 +47,7 @@ element move**, not an 8-byte word copy. Gates: `builder_values.rs` sortBy/windo
   get/set churn (2000 strings × 2 whole-bucket copies). checksum `4` unchanged; native/`.mfb` byte-identical
   across multi-bucket/single/empty/one-big-bucket/empty-string values + preserved bucket insertion order +
   1000-round churn. Integer-key/String-value covers the benchmark; String-KEY groupBy is a later extension.
-  Fixture: `groupby-string-value-native-rt`. Commit: `PENDING`.
+  Fixture: `groupby-string-value-native-rt`. Commit: `84b875dbc`.
 - [x] **A2-window (String)** — native String `window` via the shared `emit_string_list_slice_block` helper:
   `lower_collection_window_string_call` slices each (overlapping/strided) `source[i .. i+size]` into one TIGHT
   `List OF String`, inlines it into a growable outer, and frees it, mirroring the `.mfb __collections_window`
