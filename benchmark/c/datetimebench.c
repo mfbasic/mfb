@@ -79,7 +79,7 @@ static void test_datetime_civil(void) {
 }
 
 static void test_datetime_iso(void) {
-  int reps = 8; /* arena-gated in mfb (plan-44-J); C mirror keeps the count */
+  int reps = 2000; /* mfb arena quadratic fixed by plan-64-A1; C mirror keeps the count */
   long long *t = alloc_times();
   long checksum = 0;
   for (int r = 0; r < RUN; r++) {
