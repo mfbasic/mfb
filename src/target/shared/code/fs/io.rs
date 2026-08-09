@@ -626,7 +626,9 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
         )?;
         instructions.extend([
             // C `int` fd — sign-extend before the signed compare (bug-04/bug-170).
-            abi::sign_extend_word(abi::return_register(), abi::return_register()),
+            // plan-85: the `syscall()`/openat2 return is a C result (`rax`, `%retC`);
+            // read the source from the C-return register (byte-identical `x0` on ARM).
+            abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_ge(&open_ok),
         ]);
@@ -659,7 +661,9 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
     )?;
     instructions.extend([
         // C `int` open fd — sign-extend before the signed compare (bug-04/bug-170).
-        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        // plan-85: `open` return is a C result (`rax`, `%retC`) — read the source
+        // from the C-return register (byte-identical `x0` on AArch64/RISC-V).
+        abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge(&open_ok),
         abi::branch(&open_error),
@@ -1355,7 +1359,9 @@ pub(in crate::target::shared::code) fn lower_fs_close_helper(
         // a re-close is refused by the `already_closed` guard.
         abi::move_immediate(&flag, "Integer", "1"),
         abi::store_u64(&flag, &file, FILE_OFFSET_CLOSED),
-        abi::compare_immediate(abi::return_register(), "0"),
+        // plan-85: the `close` return is a C result (`rax`, `%retC`), not the aligned
+        // MFB result register (which still holds the fd argument here).
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_lt(&close_error),
     ]);
     if flush_on_close {
