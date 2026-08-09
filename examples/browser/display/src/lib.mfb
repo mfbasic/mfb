@@ -229,7 +229,10 @@ FUNC paintRun(canvas AS List OF String, t AS TextNode, width AS Integer) AS List
     LET row AS Integer = box.y + i
     IF row >= 0 AND row < len(out) THEN
       LET off AS Integer = alignOffset(t.align, box.width, strings::displayWidth(line))
-      out = collections::set(out, row, overlay(collections::get(out, row), box.x + off, line, width))
+      ' Clip the line to the run's own box (not just the canvas) so a run never
+      ' bleeds past its box into a neighbour — e.g. an over-narrow table column.
+      LET rightBound AS Integer = minOf(width, box.x + box.width)
+      out = collections::set(out, row, overlay(collections::get(out, row), box.x + off, line, rightBound))
     END IF
     i = i + 1
   NEXT

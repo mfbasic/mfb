@@ -148,8 +148,12 @@ recursing over an *imported* union):
   inline markup does not break onto separate lines. A `<br>` forces a break, and an
   inline element that actually wraps block-level content (a `<span>`/`<center>` around
   `<div>`s, as real pages often do) breaks out as a block rather than flattening its
-  blocks into one crammed run. Table cells (`td`/`th`), `center`, and the sectioning
-  wrappers are block by default. Vertical spacing between blocks comes from margins;
+  blocks into one crammed run. A `<table>` gets **real column layout**: each column's
+  width is the max of its cells' natural widths (shrinking toward each column's
+  min-content — its longest word — to fit), and every row places its cells at the
+  shared column positions so columns line up across rows; `colspan` is honored
+  (`rowspan` is treated as one row). `center` and the sectioning wrappers are block by
+  default. Vertical spacing between blocks comes from margins;
   the UA sheet gives paragraphs, lists, and headings a default margin. **Horizontal
   alignment** is unified into the flex vocabulary: `text-align`, a `<center>`
   element, and an `align="center"`/`"right"` attribute all resolve into the shared

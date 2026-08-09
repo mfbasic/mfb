@@ -313,11 +313,17 @@ FUNC elementMaxContentOuterW(e AS ElementNode) AS Integer
       END IF
     NEXT
     inner = inner + gap * maxI(0, n - 1)
-  ELSE
-    ' a column or a block: the widest child (or inline run) wins
+  ELSEIF hasBlockChild(e) THEN
+    ' a column or block with block children: the widest child wins
     FOR EACH k IN e.children
       inner = maxI(inner, maxContentOuterW(k))
     NEXT
+  ELSE
+    ' inline content: it flows into one run, so its natural width is the whole
+    ' decorated text on one line (gatherChildren includes [link]/<button>/|field|
+    ' decoration, which is what actually paints — measuring the raw text undersizes
+    ' the box and clips the brackets).
+    inner = textWidth(gatherChildren(e))
   END IF
   RETURN maxI(0, inner) + pl + pr + ml + mr
 END FUNC
@@ -679,6 +685,204 @@ FUNC layoutReplaced(e AS ElementNode, x AS Integer, y AS Integer) AS Sized
   RETURN Sized[elementLaid(e.tag, e.attrs, kids, st, box), borderW + ml + mr, borderH + mt + mb]
 END FUNC
 
+' ----- table layout (column-aligned rows and cells) ---------------------------
+
+' A table cell (td/th) and how many columns it spans (colspan).
+TYPE Cell
+  node AS Node
+  span AS Integer
+END TYPE
+
+' One table row: its cells, left to right.
+TYPE RowCells
+  cells AS List OF Cell
+END TYPE
+
+' The td/th cells of a <tr>, each with its colspan (default 1).
+FUNC collectCells(tr AS ElementNode) AS List OF Cell
+  MUT cells AS List OF Cell = []
+  FOR EACH c IN tr.children
+    MATCH c
+      CASE ElementNode(ce)
+        IF ce.tag = "td" OR ce.tag = "th" THEN
+          cells = collections::append(cells, Cell[c, maxI(1, attrInt(ce.attrs, "colspan", 1))])
+        END IF
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN cells
+END FUNC
+
+' Every <tr> of a table in document order, unwrapping <thead>/<tbody>/<tfoot>.
+FUNC collectRows(e AS ElementNode) AS List OF RowCells
+  MUT rows AS List OF RowCells = []
+  FOR EACH c IN e.children
+    MATCH c
+      CASE ElementNode(ce)
+        IF ce.tag = "tr" THEN
+          rows = collections::append(rows, RowCells[collectCells(ce)])
+        ELSEIF ce.tag = "tbody" OR ce.tag = "thead" OR ce.tag = "tfoot" THEN
+          FOR EACH gr IN collectRows(ce)
+            rows = collections::append(rows, gr)
+          NEXT
+        END IF
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN rows
+END FUNC
+
+' The min-content width of a node: its longest unbreakable word (the narrowest a
+' column can get without splitting a word). Uses gatherText so a control's glyph
+' (|S:--|, [link]) counts as one unbreakable token.
+FUNC minContentW(n AS Node) AS Integer
+  LET t AS String = collapseWs(gatherText(n))
+  MUT mx AS Integer = 0
+  FOR EACH w IN strings::split(t, " ")
+    mx = maxI(mx, strings::displayWidth(w))
+  NEXT
+  RETURN mx
+END FUNC
+
+' Sum of the list entries in [lo, hi).
+FUNC sumRange(xs AS List OF Integer, lo AS Integer, hi AS Integer) AS Integer
+  MUT total AS Integer = 0
+  MUT i AS Integer = lo
+  DO WHILE i < hi
+    total = total + collections::get(xs, i)
+    i = i + 1
+  LOOP
+  RETURN total
+END FUNC
+
+' Lay out a <table> as real columns: each column's width is the max of its cells'
+' natural content widths (a spanning cell shares its width across its columns),
+' shrunk to fit the available width; every row then places its cells at the shared
+' column positions, so columns line up across rows. A cell is laid at its column
+' width and a row's height is its tallest cell. The laid cell subtrees are returned
+' flattened under the table element — the tr/tbody wrappers carry no visible ink, so
+' this is all the painter needs. colspan is honored for width and placement; rowspan
+' is treated as a single row (a known limitation).
+FUNC layoutTable(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integer, imposeWidth AS Boolean) AS Sized
+  LET st AS Style = e.style
+  LET ml AS Integer = maxI(0, st.marginLeft)
+  LET mr AS Integer = maxI(0, st.marginRight)
+  LET mt AS Integer = maxI(0, st.marginTop)
+  LET mb AS Integer = maxI(0, st.marginBottom)
+  LET pl AS Integer = maxI(0, st.paddingLeft)
+  LET pr AS Integer = maxI(0, st.paddingRight)
+  LET pt AS Integer = maxI(0, st.paddingTop)
+  LET pb AS Integer = maxI(0, st.paddingBottom)
+  MUT borderW AS Integer = availW - ml - mr
+  IF imposeWidth = FALSE AND st.width >= 0 THEN borderW = st.width
+  borderW = maxI(0, borderW)
+  LET contentW AS Integer = maxI(0, borderW - pl - pr)
+  LET originX AS Integer = x + ml + pl
+  LET originY AS Integer = y + mt + pt
+
+  LET rows AS List OF RowCells = collectRows(e)
+  ' Column count: the widest row, summing colspans.
+  MUT numCols AS Integer = 0
+  FOR EACH r IN rows
+    MUT sc AS Integer = 0
+    FOR EACH cell IN r.cells
+      sc = sc + cell.span
+    NEXT
+    numCols = maxI(numCols, sc)
+  NEXT
+  IF numCols = 0 THEN
+    LET box0 AS Layout = Layout[x + ml, y + mt, borderW, pt + pb]
+    RETURN Sized[elementLaid(e.tag, e.attrs, [], st, box0), borderW + ml + mr, pt + pb + mt + mb]
+  END IF
+
+  ' Natural (max-content) and minimum (min-content) column widths. A spanning cell
+  ' shares each across the columns it covers.
+  MUT colNat AS List OF Integer = []
+  MUT colMin AS List OF Integer = []
+  MUT ci AS Integer = 0
+  DO WHILE ci < numCols
+    colNat = collections::append(colNat, 0)
+    colMin = collections::append(colMin, 0)
+    ci = ci + 1
+  LOOP
+  FOR EACH r IN rows
+    MUT col AS Integer = 0
+    FOR EACH cell IN r.cells
+      LET perNat AS Integer = (maxContentOuterW(cell.node) + cell.span - 1) / cell.span
+      LET perMin AS Integer = (minContentW(cell.node) + cell.span - 1) / cell.span
+      MUT j AS Integer = 0
+      DO WHILE j < cell.span AND col + j < numCols
+        LET idx AS Integer = col + j
+        colNat = collections::set(colNat, idx, maxI(collections::get(colNat, idx), perNat))
+        colMin = collections::set(colMin, idx, maxI(collections::get(colMin, idx), perMin))
+        j = j + 1
+      LOOP
+      col = col + cell.span
+    NEXT
+  NEXT
+
+  ' Fit the columns to the available width (a 1-cell gap between them). If the
+  ' natural widths fit, use them; otherwise shrink each column toward its
+  ' min-content, distributing the available slack across the columns' flex range
+  ' (natural - min). A column never shrinks below its longest word, so tables that
+  ' cannot fit overflow (and clip at the edge) rather than corrupting neighbours.
+  LET gap AS Integer = 1
+  LET gapsTotal AS Integer = gap * maxI(0, numCols - 1)
+  LET avail AS Integer = maxI(0, contentW - gapsTotal)
+  LET totalNat AS Integer = sumList(colNat)
+  LET totalMin AS Integer = sumList(colMin)
+  MUT colW AS List OF Integer = colNat
+  IF totalNat > avail THEN
+    IF totalMin >= avail OR totalNat <= totalMin THEN
+      colW = colMin
+    ELSE
+      LET flexTotal AS Integer = totalNat - totalMin
+      LET extra AS Integer = avail - totalMin
+      MUT scaled AS List OF Integer = []
+      MUT used AS Integer = 0
+      MUT k AS Integer = 0
+      DO WHILE k < numCols
+        MUT w AS Integer = 0
+        IF k = numCols - 1 THEN
+          w = avail - used
+        ELSE
+          w = collections::get(colMin, k) + (collections::get(colNat, k) - collections::get(colMin, k)) * extra / flexTotal
+        END IF
+        w = maxI(collections::get(colMin, k), w)
+        scaled = collections::append(scaled, w)
+        used = used + w
+        k = k + 1
+      LOOP
+      colW = scaled
+    END IF
+  END IF
+
+  ' Place each row's cells at the shared column positions.
+  MUT outKids AS List OF Node = []
+  MUT curY AS Integer = originY
+  FOR EACH r IN rows
+    MUT col AS Integer = 0
+    MUT rowH AS Integer = 0
+    FOR EACH cell IN r.cells
+      LET endCol AS Integer = minI(numCols, col + cell.span)
+      LET cellX AS Integer = originX + sumRange(colW, 0, col) + gap * col
+      LET cellW AS Integer = sumRange(colW, col, endCol) + gap * maxI(0, endCol - col - 1)
+      LET rr AS Sized = layoutNode(cell.node, cellX, curY, maxI(0, cellW), TRUE)
+      outKids = collections::append(outKids, rr.node)
+      rowH = maxI(rowH, rr.height)
+      col = col + cell.span
+    NEXT
+    curY = curY + rowH
+  NEXT
+
+  LET contentH AS Integer = curY - originY
+  MUT borderH AS Integer = contentH + pt + pb
+  IF st.height >= 0 THEN borderH = st.height
+  borderH = maxI(0, borderH)
+  LET box AS Layout = Layout[x + ml, y + mt, borderW, borderH]
+  RETURN Sized[elementLaid(e.tag, e.attrs, outKids, st, box), borderW + ml + mr, borderH + mt + mb]
+END FUNC
+
 ' Lay out one element at (x, y) given the width available to its margin box, and
 ' return the rebuilt element (with its Layout set) plus its outer size. When
 ' `imposeWidth` is TRUE the border box is forced to fill the available width less
@@ -691,6 +895,9 @@ FUNC layoutElement(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integ
   END IF
   IF isReplaced(e) THEN
     RETURN layoutReplaced(e, x, y)
+  END IF
+  IF e.tag = "table" THEN
+    RETURN layoutTable(e, x, y, availW, imposeWidth)
   END IF
 
   LET ml AS Integer = maxI(0, st.marginLeft)
