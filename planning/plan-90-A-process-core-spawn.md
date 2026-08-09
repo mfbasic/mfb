@@ -317,10 +317,9 @@ codegen).
   — the `_valid` runtime cases land in Phase 3/4. New `tests/syntax/<pkg>/` layout.
 
 Acceptance: arity/type diagnostics for all 6 functions match golden `_invalid`
-fixtures; `cargo test --bin mfb` green (3795 passed). (Golden `build.log`s were
-produced by the same `mfb build -q -ast -ir` the harness runs, byte-for-byte;
-a `sync-goldens`/`test-accept` re-verify is queued once a concurrent P-86
-acceptance clears the test-accept concurrency guard.)
+fixtures; `cargo test --bin mfb` green (3795 passed). Golden `build.log`s
+re-verified via `scripts/test-accept.sh … 'syntax/process/*'` → "acceptance tests
+passed (8 test(s) ran)" once the concurrent P-86 acceptance cleared the guard.
 Commit: 468ccb5eb
 
 ### Phase 3 — Native Unix backend: spawn/waitFor/isRunning/pid/close + drop-reap
