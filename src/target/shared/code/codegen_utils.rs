@@ -848,7 +848,15 @@ fn resolve_stack_arg_sentinels(
             continue;
         };
         let resolved_offset = if incoming {
-            frame_size + entry_padding + offset_of(instruction)
+            // The caller places outgoing arg 0 above the Win64 shadow space
+            // (`outgoing_args_base_offset()`), so the callee must read its incoming
+            // args from the same shadow-space-adjusted position — otherwise a >8-arg
+            // Win64 call reads garbage out of the shadow region (the offset defaults
+            // to 0, so SysV/AAPCS64 frames are byte-identical).
+            frame_size
+                + entry_padding
+                + super::mir::active_backend().outgoing_args_base_offset()
+                + offset_of(instruction)
         } else {
             // Outgoing arg 0 sits above the Win64 shadow space (plan-47-B §4.3);
             // `outgoing_args_base_offset()` defaults to 0, so SysV/AAPCS64 place it
