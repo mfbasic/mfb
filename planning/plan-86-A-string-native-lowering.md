@@ -1,8 +1,9 @@
 # plan-86-A — String-element native collection lowering
 
 Sub-plan **A** of [plan-86](plan-86-benchmark-perf.md) (master: goals, scorecard, source logs,
-measurement protocol). Split candidate; **partition + sortBy + sort + flatten landed**, the
-nested-block/new-lowering tail is open.
+measurement protocol). **COMPLETE** — partition/sortBy/sort/flatten (prior) + findLastIndex (P3 clear) +
+chunks/window/zip (marginal/capped, correct) + **groupBy (162→0.366 ms, ~445×, COMPLETE)** this session.
+String-KEY groupBy is a non-scored later extension. See Corrections for the A-tail marginal-vs-big-win split.
 
 **Covers (~11 P1 + 1 P3):** list (Dynamic) groupby (166), window (88), sortBy (61), sort_rand/asc/desc
 (28.9/22.9/22.6), zip (25.6), flatten (24.6), partition (18.7), chunks (13.6), findLastIndex (11.1);
