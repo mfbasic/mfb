@@ -305,18 +305,24 @@ The index table above stays as the one-line overview; open a file for the checkl
   **D3 is a real ~5ms P1 opportunity** (see plan-86-D): `mapchurn iterate` merge is 7.2ms = 2ms base copy +
   ~5ms of inserts, because inserting new keys into a *tight copy* of a 1000-entry map pays geometric
   grows/rehashes; native merge must PRESIZE to |a|+|b| (needs a new copy-with-capacity primitive —
-  `copy_collection_tight` always sizes tight; ~150 LOC). **Remaining open boxes (all substantial, prioritized
-  by measured value):** **D3** (native merge presize, ~5ms on iterate P1 — highest-value tractable, edit points
-  in plan-86-D; ALSO investigate why copy-then-grow reallocs per insert — may be broader); **G1** (bounds-check
-  elim: safe listchurn cut needs `n=len(L)` binding-tracking + unchecked plumbing, correctness-critical UAF,
-  mandatory negative fixtures; bignum/memo need a bigger symbolic-range pass); **K1** (list copy 12.5 P1:
-  `plan_returned_move` already move-elides owned locals but NOT params — `copyStrs(xs) RETURN xs` needs
-  caller-side read-only/liveness analysis, aliasing-risk); **F2/F3** (string word-copy/memchr: tractable via the
-  existing `emit_block_copy_advance` but MARGINAL ~1.3-1.8× AND broad `.ncode` gate churn); **D2** (String
-  mapValues, marginal per its note); **L1** (finiteness coalescing, bounded ~tens%, only if cheap); **G2** (memo
-  MOD strength-reduce); **K2** (COW refcount — LARGE, plan defers "until A/B/C/D cut copy volume"), **K3**
-  (out-of-line String layout, bug-430), **B3** (in-place reducer accumulator, needs K). **Recommended resume
-  order:** D3 → G1(listchurn) → K1 → F2 → L1 → G2 → D2 → K3 → K2 → B3.
+  `copy_collection_tight` always sizes tight; ~150 LOC). **[UPDATE — D3 LANDED since this note:** native merge
+  presize `mapchurn iterate` 14.27→9.27ms ~36%, + a String-VALUE extension `map str_ops` 5.77→5.47; **D2 moot**
+  (measured: .mfb mapValues is already from-scratch in-place optimal, ~12ns/entry — native constant-factor-only,
+  won't clear the row); **F2/F3 measured** marginal — `string case`/`slice` are ALLOC/CALL-bound (400K ops ×
+  ~20-byte strings, copy <10% of ~118ns/op), F2 ~+6%, non-clearing, ~75-100-golden churn. **Sub-plan D COMPLETE.]**
+  **Remaining open boxes (all correctness-critical or large — need fresh context, prioritized by measured
+  value):** **G1** (bounds-check elim: safe listchurn cut needs `n=len(L)` binding-tracking [NO existing
+  facility — confirmed] + `unchecked` plumbing through `lower_list_get_common`, correctness-critical UAF,
+  mandatory negative fixtures; bignum modmul 19.5 P2 / memo need a bigger symbolic-range pass); **K1** (list
+  copy 12.5 P1: `plan_returned_move` move-elides owned locals but NOT params — `copyStrs(xs) RETURN xs` needs
+  caller-side read-only/liveness analysis, aliasing-risk); **F2/F3** (measured marginal + prohibitive churn,
+  low priority, edit points in plan-86-F); **L1** (finiteness coalescing, bounded ~tens%, observation-sensitive,
+  only if cheap); **G2** (memo MOD strength-reduce, needs a `<m` fact + negative fixture); **K2** (COW refcount —
+  LARGE, plan defers "until A/B/C/D cut copy volume" — those are now done, so reassess); **K3** (out-of-line
+  String layout, bug-430), **B3** (in-place reducer accumulator, needs K). **Recommended resume order (by
+  value/tractability): G1(listchurn safe cut) → K1 → G1(bignum symbolic pass) → L1 → F2/F3 → G2 → K3 → K2 → B3.**
+  These are the genuine remaining perf levers (G/K); F/L are marginal/bounded. Every landed fix this session
+  was verified: correctness fixture + `cargo test --bin mfb` (3776) + full `artifact-gate all` 0-diff.
 
 - **Session (worktree-P-86) summary + prioritized roadmap for the resume.** Landed this session (all
   cargo-test-green + artifact-gate all 0-diff + native/`.mfb` byte-identical): **sub-plan A COMPLETE** —
