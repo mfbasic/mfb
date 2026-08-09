@@ -22,10 +22,48 @@
 //! backend (`CreateProcess`) is added by sub-plan D.
 
 use super::*;
+use std::collections::HashMap;
 
 mod unix;
+mod windows;
 
-pub(in crate::target::shared::code) use unix::*;
+use crate::target::shared::code::types::PlatformFamily;
+
+/// Route a process helper to the Windows (`CreateProcess`) or Unix (fork/exec)
+/// backend by `platform.family()`. plan-90-D adds the Windows arm; on every other
+/// platform this is a thin pass-through to `unix`.
+macro_rules! process_dispatch {
+    ($name:ident ( $($arg:ident : $ty:ty),* $(,)? )) => {
+        pub(in crate::target::shared::code) fn $name(
+            symbol: &str,
+            platform_imports: &HashMap<String, String>,
+            platform: &dyn CodegenPlatform,
+            $($arg : $ty),*
+        ) -> HelperResult {
+            if platform.family() == PlatformFamily::Windows {
+                windows::$name(symbol, platform_imports, platform $(, $arg)*)
+            } else {
+                unix::$name(symbol, platform_imports, platform $(, $arg)*)
+            }
+        }
+    };
+}
+
+process_dispatch!(lower_process_spawn_helper(with_env: bool));
+process_dispatch!(lower_process_spawnenv_helper());
+process_dispatch!(lower_process_shell_helper());
+process_dispatch!(lower_process_pid_helper());
+process_dispatch!(lower_process_isrunning_helper());
+process_dispatch!(lower_process_waitfor_helper());
+process_dispatch!(lower_process_close_helper());
+process_dispatch!(lower_process_send_helper(is_bytes: bool, with_timeout: bool));
+process_dispatch!(lower_process_receive_helper(with_from: bool));
+process_dispatch!(lower_process_receivebytes_helper(with_from: bool));
+process_dispatch!(lower_process_poll_helper(with_from: bool));
+process_dispatch!(lower_process_signal_helper());
+process_dispatch!(lower_process_didsignal_helper());
+process_dispatch!(lower_process_detach_helper());
+process_dispatch!(lower_process_drop_helper());
 
 // --- Process record tail (offsets from the record base) ----------------------
 pub(super) const PROC_STDIN_W: usize = 32;
