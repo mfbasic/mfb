@@ -144,8 +144,10 @@ Commit: —
 1. **`.mfb` vs native.** Recommended **`.mfb` over `getAttributes`/`toString`** if performance is
    acceptable — smallest surface, no new codegen; fall back to native only if the per-scalar walk is
    too costly.
+   Decision: mfb
 2. **Canonical flag order.** Recommended enum-declaration order (bold, italic, underline, strike,
    overline) — deterministic and self-documenting.
+   Decision: follow recommended
 
 ## Corrections
 

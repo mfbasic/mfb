@@ -35,9 +35,9 @@ These are a precondition on the whole plan-89 feature; stated once here (B–E p
 
 | Must be true | Command | Status 2026-08-08 |
 |---|---|---|
-| Working tree builds green at HEAD | `cargo build --bin mfb` → ok | UNVERIFIED — run before starting |
-| The reserved wire-id band 11–19 is still free | `rg -n 'TYPE_[A-Z]+ *= *1[1-9]' src/binary_repr/mod.rs` → no primitive claims 11–19 | UNVERIFIED |
-| **plan-85 complete** (ABI-token + error-Result convention migration) | `ls planning/plan-85-*.md` → no matches (all sub-plans archived to `planning/completed/`) | **NOT MET** (active worktree `.claude/worktrees/P-85`) |
+| Working tree builds green at HEAD | `cargo build --bin mfb` → ok | **MET** 2026-08-08 (built green in worktree, 34.9s) |
+| The reserved wire-id band 11–19 is still free | `rg -n 'TYPE_[A-Z]+ *= *1[1-9]' src/binary_repr/mod.rs` → no primitive claims 11–19 | **MET** 2026-08-08 (no matches) |
+| **plan-85 complete** (ABI-token + error-Result convention migration) | `ls planning/plan-85-*.md` → no matches (all sub-plans archived to `planning/completed/`) | **MET** 2026-08-08 (all plan-85-A/B/C/D in `planning/completed/`; `/tmp/p85-clean2` is a stale detached worktree, not an active P-85 branch) |
 
 **plan-85 is a hard prerequisite — if it is not complete, plan-89 cannot start, full stop.**
 plan-89 adds *new* native emission sites in `src/target/shared/code/` (`fromString` and the Tier-C
