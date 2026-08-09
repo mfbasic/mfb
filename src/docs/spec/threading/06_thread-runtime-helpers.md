@@ -19,6 +19,7 @@ _mfb_rt_thread_thread_receive          ; data plane, worker reads inbound
 _mfb_rt_thread_thread_read             ; data plane, parent reads outbound
 _mfb_rt_thread_thread_poll             ; parent peeks outbound
 _mfb_rt_thread_thread_sleep            ; parent blocks the calling thread ms
+_mfb_rt_thread_thread_sleepWorker      ; worker sleep, wakes on cancel
 _mfb_rt_thread_thread_isCancelled      ; worker reads the cancel flag
 _mfb_rt_thread_thread_transferResource ; resource plane, parent -> worker (inbound)
 _mfb_rt_thread_thread_emitResource     ; resource plane, worker -> parent (outbound)
@@ -44,9 +45,12 @@ applied when the runtime call is lowered: [[src/target/shared/code/builder_value
 | `thread::receive`         | `thread.read` (outbound)  | `thread.receive` (inbound) |
 | `thread::transfer`        | `transferResource` (in)   | `emitResource` (out)       |
 | `thread::accept`          | `readResource` (out)      | `acceptResource` (in)      |
+| `thread::sleep`           | `thread.sleep` (nanosleep)| `thread.sleepWorker` (cond)|
 
-`thread::poll`, `thread::sleep`, and `thread::isRunning`/`waitFor`/`cancel` are
-parent-only; `thread::isCancelled` is worker-only. (`thread::transfer`/`thread::accept` first
+`thread::poll` and `thread::isRunning`/`waitFor`/`cancel` are parent-only;
+`thread::isCancelled` is worker-only. `thread::sleep` accepts both sides and,
+like the channel verbs, splits by handle type — the parent form is a plain
+`nanosleep`, the worker form a cancellation-aware condvar wait. (`thread::transfer`/`thread::accept` first
 lower to the internal `thread.transferResource`/`thread.acceptResource` targets
 during IR lowering, then the value builder applies the worker-direction split to
 `emitResource`/`readResource`.) [[src/ir/lower.rs]] [[src/target/shared/code/builder_values.rs]]
@@ -86,6 +90,20 @@ that retries on signal interruption (`EINTR`) so a signal cannot truncate the
 sleep. On Windows there is no `nanosleep`: the helper converts the `timespec` to
 whole milliseconds and calls `Sleep(dwMilliseconds)`, which is uninterruptible, so
 the retry loop exits after one call. [[src/target/shared/code/runtime_helpers.rs:lower_thread_sleep_helper]]
+
+On a `ThreadWorker` handle the call lowers instead to `thread.sleepWorker`, a
+cancellation-aware delay. It validates `ms` identically, then computes an
+*absolute* deadline (`emit_thread_deadline`) and waits on the worker's inbound
+queue not-empty condition variable — the same one `thread::cancel` broadcasts —
+under the inbound queue mutex. Each wake re-checks the cancel flag
+(`THREAD_OFFSET_CANCELLED`): if set, it unlocks and returns `ErrInterrupted`
+(77050009); otherwise `pthread_cond_timedwait` returning `ETIMEDOUT` means the
+deadline elapsed and the sleep is done. Because the deadline is absolute, a
+spurious wake (a parent `send` broadcasting not-empty) re-enters the wait for the
+remaining time and never shortens the sleep. On Windows the same helper is built
+from `pthread_mutex_*`/`pthread_cond_timedwait`, which already translate to
+SRWLOCK / `SleepConditionVariableSRW`, so no new Win32 arm is required.
+[[src/target/shared/code/runtime_helpers_thread.rs:lower_thread_sleep_worker_helper]]
 
 ## Trampoline
 

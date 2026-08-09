@@ -54,10 +54,12 @@ value bounds the wait, while a negative value is rejected with
 `ErrInvalidArgument`. [[src/builtins/thread.rs:call_param_names]]
 
 `thread::sleep(t, ms)` blocks the *calling* thread for `ms` milliseconds and
-returns nothing. It is a plain wall-clock delay unrelated to the queues: `ms = 0`
-returns immediately, a positive `ms` sleeps for at least that long, and a negative
-`ms` is rejected with `ErrInvalidArgument`. The parent-handle form is
-uninterruptible — it does not observe cancellation. [[src/target/shared/code/runtime_helpers.rs:lower_thread_sleep_helper]]
+returns nothing. It is unrelated to the queues: `ms = 0` returns immediately, a
+positive `ms` sleeps for at least that long, and a negative `ms` is rejected with
+`ErrInvalidArgument`. The parent `Thread` form is a plain, uninterruptible delay;
+the `ThreadWorker` form is cancellation-aware — a worker sleep wakes early and
+fails with `ErrInterrupted` when the parent requests cancellation, exactly like a
+worker `thread::receive`. [[src/target/shared/code/runtime_helpers.rs:lower_thread_sleep_helper]] [[src/target/shared/code/runtime_helpers_thread.rs:lower_thread_sleep_worker_helper]]
 
 `Thread` values are non-copyable owned handles. A live parent `Thread` is cleaned
 up automatically on scope exit, `RETURN`, `FAIL`, propagated errors, trap routing,
@@ -94,7 +96,7 @@ A thread that reads stdin without a subscription raises `ErrInvalidContext`.
 | `77050002` | `ErrInvalidArgument` | raised by `start` when `inboundLimit` or `outboundLimit` is below 1, by `poll` and `sleep` when `ms` is negative, by `send` and `transfer` when `timeoutMs` is negative, and by `receive` and `accept` when an explicit `timeoutMs` is negative (omit the argument to wait indefinitely) [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
 | `77050004` | `ErrNotFound` | raised by `receive` and `accept` when nothing is available without waiting (`timeoutMs = 0` and the queue is empty), when the queue has been closed, or, for a parent `Thread`, when the worker has completed with an empty outbound queue [[src/target/shared/code/error_constants.rs:ERR_NOT_FOUND_CODE]] |
 | `77050008` | `ErrTimeout` | raised by `send`, `receive`, `transfer`, and `accept` when a positive `timeoutMs` elapses before space frees up or a message or resource arrives [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
-| `77050009` | `ErrInterrupted` | raised by `start` when the underlying OS thread cannot be spawned, and by `send`, `receive`, `transfer`, and `accept` when a wait observes that the thread has ended, the queue has been closed, or cancellation of the worker has been requested [[src/target/shared/code/error_constants.rs:ERR_INTERRUPTED_CODE]] |
+| `77050009` | `ErrInterrupted` | raised by `start` when the underlying OS thread cannot be spawned, by `send`, `receive`, `transfer`, and `accept` when a wait observes that the thread has ended, the queue has been closed, or cancellation of the worker has been requested, and by the `ThreadWorker` overload of `sleep` when cancellation is requested mid-sleep [[src/target/shared/code/error_constants.rs:ERR_INTERRUPTED_CODE]] |
 | `77030004` | `ErrResourceClosed` | raised by `cancel`, `isRunning`, `waitFor`, `sleep`, and the parent `Thread` overloads of `poll`, `send`, `receive`, `transfer`, and `accept` when the parent `Thread` handle has already been closed, such as after its result was retrieved with `waitFor` [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
 | `77010001` | `ErrOutOfMemory` | raised by `start` when the thread control block, the worker's arena state, or any of its queue structures and backing message arrays cannot be allocated [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
 | `77050019` | `ErrInvalidContext` | raised by a stdin read (`io::readLine`, `io::input`, `io::readChar`, `io::readByte`) from a thread that has not subscribed with `thread::openStdIn` (the compiler-inserted main-thread subscription exempts a normal single-threaded program) [[src/target/shared/code/error_constants.rs:ERR_INVALID_CONTEXT_CODE]] |

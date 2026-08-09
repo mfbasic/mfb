@@ -293,22 +293,34 @@ Acceptance: the cancel test proves the worker sleep wakes early with
 test proves it sleeps the full duration ("slept full"), AND full `cargo test` is
 green (0 failures). All 47 thread fixtures pass with the regenerated `.mfp`.
 Cross-compiles clean for linux-x86_64/aarch64/windows-x86_64.
-Commit: —
+Commit: cd1647926
 
 ### Phase 3 — Docs, spec, byte-identity
 
-- [ ] `src/docs/man/builtins/thread/sleep.md`: add the worker overload to
-      Synopsis/Parameters and a "Cancellation" paragraph (worker sleep wakes with
-      `ErrInterrupted` on `thread::cancel`; parent sleep is uninterruptible). Add
-      `ErrInterrupted` to the Errors table. Keep `.ai/man_template.md` structure.
-- [ ] Spec: update `src/docs/spec/threading/*.md` and `language/16_threads.md`
-      to document the worker-side cancellation-aware sleep.
-- [ ] Byte-identity: refresh the `tests/byte-identity/thread/` fixtures — pin a
-      worker-sleep program's `.ncode` and confirm unrelated programs are
-      unchanged from the 91-A baseline.
+- [x] `src/docs/man/builtins/thread/sleep.md`: added the worker overload to
+      Synopsis/Parameters, an Overloads section (parent = plain/uninterruptible,
+      worker = cancellation-aware), a "Cancellation" section, an `ErrInterrupted`
+      Errors row, a worker example, and an `isCancelled` See-also. `package.md`:
+      updated the `thread::sleep` paragraph + the `ErrInterrupted`/`ErrResourceClosed`
+      rows to name the worker/parent forms.
+- [x] Spec: `threading/06_thread-runtime-helpers.md` (added the `sleepWorker`
+      symbol, a direction-split table row, fixed the parent-only note, and a worker
+      paragraph in the sleep section) and `language/16_threads.md` (worker
+      signature, dual-form prose, worker sleep added to the cancellation-points
+      list).
+- [x] Byte-identity: the `sleepWorker` helper body is force-emitted whenever
+      `thread.sleep` is present, so the existing `tests/byte-identity/thread/`
+      coverage fixture (which calls parent `thread::sleep`) now pins the worker
+      helper's `.ncode` too — regenerated all 4 `.ncodesum` (the fixture's source
+      is unchanged since 91-A, so `.ir`/`.ast`/build.log are untouched). Scoped
+      `artifact-gate.sh … thread` = 0 diffs. (`thread_cover_worker` has no in-tree
+      source, so a dedicated worker-sleep CALL couldn't be added there; the runtime
+      worker tests exercise the actual path, and the companion force-emit pins the
+      codegen — see Corrections.)
 
-Acceptance: man-coverage and spec-sync gates pass; full `cargo test` (including
-byte-identity + acceptance goldens) is green.
+Acceptance: man-coverage (11) + spec (7) + citations (2) gates pass; scoped
+artifact-gate for `thread` = 0 diffs; `mfb man thread sleep` renders both
+overloads; full `cargo test` green (0 failures).
 Commit: —
 
 ## Validation Plan
@@ -327,6 +339,20 @@ Commit: —
 - Acceptance: full `cargo test`; rustfmt/clippy per `.ai/build-tooling.md`.
 
 ## Open Decisions
+
+> RESOLVED during execution: (1) internal target name = `thread.sleepWorker`
+> (parallels `thread.emit`/`thread.read`); (2) the worker waits on the reused
+> inbound-queue not-empty condvar — Phase 1's premise reads confirmed `cancel`
+> broadcasts it, so no dedicated cancel condvar / new TCB field was needed.
+>
+> Byte-identity coverage note: the `thread_cover_worker` package (which drives
+> the worker-side overloads in `tests/byte-identity/thread`) has no in-tree
+> source, so a worker `thread::sleep` CALL couldn't be added to the coverage
+> fixture. It is not needed: the code layer force-emits the `thread.sleepWorker`
+> helper body whenever `thread.sleep` is present (companion emission, like
+> `emit`/`read`), so the coverage fixture's `.ncode` already pins the worker
+> helper. The actual runtime path is exercised by the two rt-behavior worker
+> tests.
 
 - **Internal worker target name.** Recommended `thread.sleepWorker`
   (parallels the `thread.emit`/`thread.read` internal names). Alternative
