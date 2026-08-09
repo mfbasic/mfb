@@ -224,20 +224,24 @@ Acceptance (execution): B's send→receive round-trip and drain-on-exit program
 produce the same output on Windows as on Unix. **MET** — box 2230: a `sort`
 round-trip printed `apple`/`banana`/`0`; a `cmd /c echo hello` poll+drain printed
 `TRUE`/`7`/`0`.
-Commit: <this commit>
+Commit: c1361e4d5
 
 ### Phase 3 — Windows signals & detach
 
-- [ ] `process/windows.rs`: `signal` map, exit-code→bucket `didSignal`, `detach`
-  = `CloseHandle`; register `TerminateProcess`/`GenerateConsoleCtrlEvent` imports.
-- [ ] Tests: on-box execution of C's signal/didSignal + detach programs (adapted:
-  `didSignal`→`Error` for a child that faults; `None` for a Ctrl-C/terminate,
-  per the documented Windows limit).
+- [x] `process/windows.rs`: `signal` map (every terminating bucket →
+  `TerminateProcess(128+signo)`, None = no-op — plan D2's best-effort, no
+  `GenerateConsoleCtrlEvent` needed), exit-code→bucket `didSignal` (NTSTATUS
+  severity-3 exit code → Error, else None), `detach` = `CloseHandle` the pipes +
+  process handle + set the closed bit. Reuses the already-registered
+  `TerminateProcess`/`CloseHandle` imports.
+- [x] Tests: `cli_process_windows_build.rs` compiles the signal/didSignal/detach
+  surface + on-box execution on 2230 (signal Kill; didSignal None/Error; detach).
 
 Acceptance (execution): a faulting child reports `didSignal()==Error`; a normal
 exit reports `None`; a detached child survives handle close. `signal(Kill)`
-terminates the child.
-Commit: —
+terminates the child. **MET** — box 2230 printed `137` (signal Kill exit),
+`none` (normal exit), `error` (0xC0000005 exception exit), `detached`.
+Commit: <this commit>
 
 ## Validation Plan
 
@@ -289,6 +293,14 @@ Commit: —
   own overloads. (The overload symbols the NIR names directly — via
   `builder_values`' `runtime_target` — are still emitted; only the *force*-emit of
   un-called overloads is gated off.)
+- **Man-page Windows notes deferred to E (Phase 3).** The Validation Plan's doc
+  sync targets `src/docs/man/builtins/process/{signal,didSignal}.md`, but the
+  `process` man directory does not exist yet — the man pages are authored in
+  plan-90-E (finalization). The Windows mapping (`signal` → `TerminateProcess`,
+  `didSignal` best-effort exception-only) and the `sendTimeout` best-effort note
+  must be included when E writes those pages. plan-90-E already schedules the
+  POSIX/Windows `signal`/`didSignal` mapping tables (its Phase 1 `types.md` task);
+  the `sendTimeout` Windows note should ride along there.
 - **`sendTimeout` on Windows is best-effort (Phase 2).** Unix `send(_, _, ms)`
   polls `POLLOUT` before each write; Windows anonymous pipes have no write-
   readiness object, so the Windows `sendTimeout`/`sendBytesTimeout` do a blocking

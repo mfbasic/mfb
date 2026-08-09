@@ -219,8 +219,9 @@ const RUNTIME_CALLS: &[&str] = &[
     "audio.xruns",
     "audio.closeInput",
     "audio.closeOutput",
-    // plan-90-D: the Windows process lifecycle (CreateProcessA + 3 pipes) and I/O
-    // (WriteFile/ReadFile/PeekNamedPipe). shell/spawnEnv and signals land later.
+    // plan-90-D: the Windows process surface — lifecycle (CreateProcessA + 3 pipes),
+    // I/O (WriteFile/ReadFile/PeekNamedPipe), signals & detach (TerminateProcess/
+    // CloseHandle). shell/spawnEnv remain Unix-only for now.
     "process.spawn",
     "process.pid",
     "process.isRunning",
@@ -236,6 +237,9 @@ const RUNTIME_CALLS: &[&str] = &[
     "process.receiveBytesFrom",
     "process.poll",
     "process.pollFrom",
+    "process.signal",
+    "process.didSignal",
+    "process.detach",
     "process.__drop",
 ];
 

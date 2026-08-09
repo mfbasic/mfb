@@ -812,28 +812,195 @@ pub(in crate::target::shared::code) fn lower_process_poll_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
+// process.signal — deliver a Signal bucket. Windows has no per-signal delivery to
+// an arbitrary child without a shared console, so every terminating bucket maps to
+// `TerminateProcess` (plan D2's best-effort fallback), with a POSIX-flavored exit
+// code (128 + signo) so a later `waitFor` reads a recognizable value; None is a
+// no-op. Kill=1, Terminate=2, Error=3 (the Signal enum order).
 pub(in crate::target::shared::code) fn lower_process_signal_helper(
-    _symbol: &str,
-    _platform_imports: &HashMap<String, String>,
-    _platform: &dyn CodegenPlatform,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    unimplemented_on_windows("signal")
+    const FILE: usize = 0x20;
+    const FRAME: usize = 0x30;
+    let sp = abi::stack_pointer();
+    let closed_l = format!("{symbol}_closed");
+    let set_kill = format!("{symbol}_set_kill");
+    let set_term = format!("{symbol}_set_term");
+    let do_kill = format!("{symbol}_do_kill");
+    let done_ok = format!("{symbol}_done_ok");
+    let done = format!("{symbol}_done");
+    let mut relocations = Vec::new();
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::subtract_stack(FRAME),
+        abi::store_u64(abi::return_register(), sp, FILE),
+        // sig arrives in the 2nd MFB arg; keep it in mfb_arg(1) across the checks.
+        abi::load_u64(abi::mfb_arg(0), sp, FILE),
+        abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(0), RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(abi::mfb_arg(2), "0"),
+        abi::branch_ne(&closed_l),
+        abi::compare_immediate(abi::mfb_arg(1), "0"),
+        abi::branch_eq(&done_ok), // None -> no-op
+        abi::compare_immediate(abi::mfb_arg(1), "1"),
+        abi::branch_eq(&set_kill),
+        abi::compare_immediate(abi::mfb_arg(1), "2"),
+        abi::branch_eq(&set_term),
+        // Error (3) -> exit code 134 (128 + SIGABRT).
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "134"),
+        abi::branch(&do_kill),
+        abi::label(&set_kill),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "137"), // 128 + SIGKILL
+        abi::branch(&do_kill),
+        abi::label(&set_term),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "143"), // 128 + SIGTERM
+        abi::label(&do_kill),
+        // TerminateProcess(hProcess, code)
+        abi::load_u64(abi::mfb_arg(0), sp, FILE),
+        abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), RESOURCE_OFFSET_HANDLE),
+    ];
+    platform.emit_libc_call(
+        "TerminateProcess",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::label(&done_ok),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&closed_l),
+    ]);
+    win_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::add_stack(FRAME), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
+// process.didSignal — the Signal bucket a TERMINATED child died on. Windows has no
+// signal disposition in an exit code, so this recovers only the fault case: an
+// NTSTATUS "error" severity exit code (top two bits set, e.g. 0xC0000005
+// STATUS_ACCESS_VIOLATION) maps to Error; everything else (normal exit, a
+// `TerminateProcess` code, a not-yet-reaped child) maps to None — the documented
+// Windows limit. Reads the raw code cached by waitFor/isRunning in PROC_STATUS.
 pub(in crate::target::shared::code) fn lower_process_didsignal_helper(
-    _symbol: &str,
+    symbol: &str,
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    unimplemented_on_windows("didSignal")
+    let closed_l = format!("{symbol}_closed");
+    let ret_none = format!("{symbol}_ret_none");
+    let ret_error = format!("{symbol}_ret_error");
+    let ret = format!("{symbol}_ret");
+    let done = format!("{symbol}_done");
+    let mut relocations = Vec::new();
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(abi::mfb_arg(0), abi::return_register()),
+        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(abi::mfb_arg(1), "0"),
+        abi::branch_ne(&closed_l),
+        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_REAPED),
+        abi::compare_immediate(abi::mfb_arg(1), "0"),
+        abi::branch_eq(&ret_none),
+        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STATUS),
+        // NTSTATUS severity == 3 (error/exception) iff (code >> 30) == 3.
+        abi::shift_right_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 30),
+        abi::compare_immediate(abi::mfb_arg(1), "3"),
+        abi::branch_eq(&ret_error),
+        abi::label(&ret_none),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
+        abi::branch(&ret),
+        abi::label(&ret_error),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "3"),
+        abi::label(&ret),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_arg(1)),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&closed_l),
+    ];
+    win_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
+// process.detach — relinquish ownership WITHOUT killing: close the parent-side
+// pipe handles and the process handle, then set the record `closed` bit so
+// scope-drop's __drop is a no-op and a later op traps ErrResourceClosed. The child
+// keeps running (Windows does not reparent-kill on handle close).
 pub(in crate::target::shared::code) fn lower_process_detach_helper(
-    _symbol: &str,
-    _platform_imports: &HashMap<String, String>,
-    _platform: &dyn CodegenPlatform,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    unimplemented_on_windows("detach")
+    const FILE: usize = 0x20;
+    const FRAME: usize = 0x30;
+    let sp = abi::stack_pointer();
+    let closed_l = format!("{symbol}_closed");
+    let done = format!("{symbol}_done");
+    let mut relocations = Vec::new();
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::subtract_stack(FRAME),
+        abi::store_u64(abi::return_register(), sp, FILE),
+        abi::load_u64(abi::mfb_arg(0), sp, FILE),
+        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(abi::mfb_arg(1), "0"),
+        abi::branch_ne(&closed_l),
+    ];
+    for off in [PROC_STDIN_W, PROC_STDOUT_R, PROC_STDERR_R, RESOURCE_OFFSET_HANDLE] {
+        let skip = format!("{symbol}_skip_{off}");
+        instructions.extend([
+            abi::load_u64(abi::mfb_arg(0), sp, FILE),
+            abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), off),
+            abi::compare_immediate(abi::mfb_arg(0), "0"),
+            abi::branch_lt(&skip), // -1 sentinel (already closed) — skip
+        ]);
+        platform.emit_libc_call(
+            "CloseHandle",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.push(abi::label(&skip));
+    }
+    instructions.extend([
+        abi::load_u64(abi::mfb_arg(0), sp, FILE),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "1"),
+        abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(0), RESOURCE_OFFSET_CLOSED),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&closed_l),
+    ]);
+    win_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::add_stack(FRAME), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 // ---------------------------------------------------------------------------
 // process.spawn (Windows) — CreateProcessA with the child inheriting the
