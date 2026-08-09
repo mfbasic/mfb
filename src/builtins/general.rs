@@ -334,6 +334,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
                         | "String"
                         | "Byte"
                         | "Scalar"
+                        | "AttributedString"
                 ) || arg_types[0] == "List OF Byte")
             {
                 ResolvedCall {

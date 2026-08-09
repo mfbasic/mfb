@@ -1,0 +1,23 @@
+REM plan-89-A Phase 3: the text seams. `astrings::fromString` builds an
+REM AttributedString whose visible text round-trips through `toString`, and both
+REM `io::print` and `io::write` emit that text (attributes ignored — empty here).
+
+IMPORT astrings
+IMPORT io
+
+FUNC main AS Integer
+  LET a AS AttributedString = astrings::fromString("hi")
+  ' toString extracts (a deep copy of) the visible text.
+  io::print(toString(a))
+  ' io::print accepts an AttributedString directly.
+  io::print(a)
+  ' io::write accepts an AttributedString directly (no trailing newline).
+  io::write(a)
+  io::write("\n")
+  ' A defaulted AttributedString (no initializer) has empty visible text.
+  MUT d AS AttributedString
+  io::write("[")
+  io::write(toString(d))
+  io::print("]")
+  RETURN 0
+END FUNC

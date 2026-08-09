@@ -1,0 +1,11 @@
+REM plan-89-B §4.2: an inclusive attribute range whose end is past the last scalar
+REM traps ErrIndexOutOfRange (7-705-0001). The error propagates out of main.
+
+IMPORT astrings
+
+FUNC main AS Integer
+  LET s AS AttributedString = astrings::fromString("abcde")
+  ' scalar count is 5 (indices 0..4); end = 5 is out of range.
+  LET bad AS AttributedString = astrings::addAttribute(s, 0, 5, astrings::bold())
+  RETURN 0
+END FUNC

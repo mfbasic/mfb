@@ -1,0 +1,24 @@
+REM plan-89-A Phase 2: value-semantic copy/drop of the compound heap object.
+REM Copying an AttributedString into a collection deep-copies it (the copies
+REM outlive the original); reassigning a MUT binding drops the old value. A
+REM shallow copy or missed drop would UAF/leak here — the program must run clean
+REM and read every copy back intact.
+
+IMPORT astrings
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET a AS AttributedString = astrings::fromString("hello")
+  MUT xs AS List OF AttributedString = []
+  xs = collections::append(xs, a)
+  xs = collections::append(xs, a)
+  ' Both list elements are independent deep copies of `a`.
+  io::print(toString(collections::get(xs, 0)))
+  io::print(toString(collections::get(xs, 1)))
+  ' Reassigning a MUT AttributedString drops the old value, binds the new one.
+  MUT b AS AttributedString = astrings::fromString("first")
+  b = astrings::fromString("second")
+  io::print(toString(b))
+  RETURN 0
+END FUNC

@@ -35,9 +35,9 @@ These are a precondition on the whole plan-89 feature; stated once here (B–E p
 
 | Must be true | Command | Status 2026-08-08 |
 |---|---|---|
-| Working tree builds green at HEAD | `cargo build --bin mfb` → ok | UNVERIFIED — run before starting |
-| The reserved wire-id band 11–19 is still free | `rg -n 'TYPE_[A-Z]+ *= *1[1-9]' src/binary_repr/mod.rs` → no primitive claims 11–19 | UNVERIFIED |
-| **plan-85 complete** (ABI-token + error-Result convention migration) | `ls planning/plan-85-*.md` → no matches (all sub-plans archived to `planning/completed/`) | **NOT MET** (active worktree `.claude/worktrees/P-85`) |
+| Working tree builds green at HEAD | `cargo build --bin mfb` → ok | **MET** 2026-08-08 (built green in worktree, 34.9s) |
+| The reserved wire-id band 11–19 is still free | `rg -n 'TYPE_[A-Z]+ *= *1[1-9]' src/binary_repr/mod.rs` → no primitive claims 11–19 | **MET** 2026-08-08 (no matches) |
+| **plan-85 complete** (ABI-token + error-Result convention migration) | `ls planning/plan-85-*.md` → no matches (all sub-plans archived to `planning/completed/`) | **MET** 2026-08-08 (all plan-85-A/B/C/D in `planning/completed/`; `/tmp/p85-clean2` is a stale detached worktree, not an active P-85 branch) |
 
 **plan-85 is a hard prerequisite — if it is not complete, plan-89 cannot start, full stop.**
 plan-89 adds *new* native emission sites in `src/target/shared/code/` (`fromString` and the Tier-C
@@ -221,40 +221,68 @@ argument `String` into the String slot, initialize the list slot to an empty `Li
 
 ### Phase 1 — the type exists and round-trips (design-uncertainty first)
 
-- [ ] Register `AttributedString` at all 12 Family-B sites (§2/§4.2), user-visible field list EMPTY,
+- [x] Register `AttributedString` at all 12 Family-B sites (§2/§4.2), user-visible field list EMPTY,
       defaultable = yes, comparable = no. Reserve `TYPE_ATTRIBUTED_STRING` in 11–19.
-- [ ] Confirm opacity: fixtures where `a.text`, `AttributedString["x"]`, and `WITH a {}` each fail to
-      compile with the expected diagnostic.
-- [ ] Tests: `tests/syntax/astrings/opacity-invalid/` (the three rejections); a Rust unit test that a
-      `MUT a AS AttributedString` (no initializer) is accepted (defaultable) and its default is empty.
+      (Wire id 11 `binary_repr/mod.rs`; encode `sections.rs`; decode `reader.rs`; resolver
+      `BUILTIN_TYPES`; frontend `Type::AttributedString` variant + parse/display/walk/comparable/
+      copyable/sendable/construct/with-update guards; ir/verify defaultable-only delta + read-only
+      update + provably_data; codegen `record_fields` 2-field internal layout `[text:String,
+      spans:List OF Integer]`.) Defaultability is a *defaultable-only* delta (`ir/verify/resources.rs
+      is_defaultable`), NOT `is_comparable_defaultable_primitive`, so the type stays non-comparable.
+      Built green: `cargo build --bin mfb`.
+- [x] Confirm opacity: fixtures where `a.text`, `AttributedString["x"]`, and `WITH a {}` each fail to
+      compile — `a.text` → `TYPE_UNKNOWN_VALUE`, `AttributedString[...]` →
+      `TYPE_READ_ONLY_RECORD_CONSTRUCTOR`, `WITH a {}` → `TYPE_READ_ONLY_RECORD_UPDATE`.
+- [x] Tests: `tests/syntax/astrings/opacity-invalid/` (the three rejections, golden captured); Rust
+      unit tests in `syntaxcheck::types::types_tests` (`attributed_string_annotation_accepts`,
+      `_record_literal_rejected`, `_field_read_rejected`, `_not_comparable`). NOTE: "default is empty"
+      is a runtime property proven in Phase 3 (`toString` of a default `AttributedString` == `""`),
+      not decidable at type-check time.
 
-Acceptance: a program with `MUT a AS AttributedString` builds; the three opacity fixtures produce the
-documented diagnostics; `.mfp` encode+decode of a project using the type round-trips (build a package
-fixture, `sync-package-mfp.sh`, decode).
-Commit: —
+Acceptance: MET. `MUT a AS AttributedString` builds and runs to native (exit 0); the three opacity
+rejections fire with the documented diagnostics; `.mfp` encode+decode round-trips — committed package
+fixture `tests/syntax/astrings/roundtrip-package/` (exports `wrap(a AS AttributedString) AS
+AttributedString`; `.info` decode golden), and a consumer importing it builds+runs (verified). Both
+fixtures pass `test-accept.sh`.
+Commit: 006d75d69
 
 ### Phase 2 — construction + copy/drop (correctness risk last)
 
-- [ ] Register the `astrings` package shell (10 sites, §2) with `fromString` as its only function.
-- [ ] Implement `astrings::fromString` codegen (§4.3).
-- [ ] Prove value semantics: a fixture that copies an `AttributedString` into a `List`, drops the
-      original, and reads the copy back via `toString` (Phase 3) — run under the leak/UAF checks the
-      rt-behavior harness applies.
+- [x] Register the `astrings` package shell with `fromString` as its only function. Sites landed:
+      `src/builtins/astrings.rs` (new `ASTRINGS` module + `fromString` descriptor + `is_astrings_call`
+      + `call_param_names`); `mod.rs` (`mod astrings`, `is_builtin_import`, `call_param_names` chain,
+      `ALL_BUILTIN_PACKAGES` test); `descriptor.rs` `REGISTRY`; `syntaxcheck/builtins.rs`
+      `BUILTIN_ARG_MODES` (Read); `ir/lower.rs` return-type gate; `runtime/usage.rs`
+      `is_native_direct_call`; man `PACKAGE_ORDER` + `src/docs/man/builtins/astrings/{package,fromString}.md`.
+      (The `type_utils.rs:49` allow-list was NOT needed — `fromString`'s return is a fixed
+      `AttributedString`, not arg-computed.)
+- [x] Implement `astrings::fromString` codegen (§4.3) — `builder_astrings.rs::lower_astrings_from_string`
+      builds the record via the generic `emit_build_inlined_record("AttributedString", [text, empty
+      spans])`, guaranteeing byte-layout parity with copy/drop; dispatched from `builder_values.rs`.
+- [x] Prove value semantics: `tests/rt-behavior/astrings/copy-drop-rt/` copies an `AttributedString`
+      into a `List` (two independent deep copies), reads them back via `toString`, and reassigns a
+      `MUT` binding (dropping the old value) — runs clean (exit 0) with correct output.
 
-Acceptance: `fromString` builds an `AttributedString`; copy-into-collection + drop-original leaves
-the copy valid; no leak/UAF in the rt-behavior run.
-Commit: —
+Acceptance: MET. `fromString` builds an `AttributedString`; copy-into-collection leaves each copy
+valid after scope-drop of the source; MUT reassignment drops the old value; no leak/UAF (clean exit
+under the rt-behavior run). `cargo test --bin mfb` green (3782 tests).
+Commit: a33fe2a07
 
 ### Phase 3 — text seams (`toString`, `io::print`, `io::write`)
 
-- [ ] `toString(AttributedString)` overload (§4.4): accept-set + `lower_to_string` arm.
-- [ ] `io::print`/`io::write` `AttributedString` overloads (§4.4).
-- [ ] Tests: `tests/rt-behavior/astrings/fromstring-print-rt/` — `io::print(astrings::fromString(
-      "hi"))` emits `hi`; `toString(astrings::fromString("hi"))` equals `"hi"`; both `io::print` and
-      `io::write` covered.
+- [x] `toString(AttributedString)` overload (§4.4): accept-set (`general.rs`) + `lower_to_string` arm
+      (`builder_strings.rs`) that reads the inlined `text` field and **deep-copies** it (owned String).
+- [x] `io::print`/`io::write` `AttributedString` overloads (§4.4): descriptor overload `OV_PRINT`
+      (`io.rs`) + codegen rewrite of the arg to `toString(a)` in `lower_runtime_helper_call`
+      (`builder_values.rs`). Scoped to `print`/`write` per the plan; `printError`/`writeError` stay
+      String-only.
+- [x] Tests: `tests/rt-behavior/astrings/fromstring-print-rt/` — `io::print(a)` and `io::write(a)`
+      each emit `hi`, `toString(fromString("hi"))` == `"hi"`, and a defaulted `AttributedString`'s
+      `toString` is empty (`[]`). Golden captured; passes `test-accept.sh`.
 
-Acceptance: the rt-behavior fixture prints exactly the visible text and `toString` round-trips.
-Commit: —
+Acceptance: MET. The rt-behavior fixture prints exactly the visible text and `toString` round-trips;
+the default's text is empty.
+Commit: a33fe2a07
 
 ## Validation Plan
 
@@ -273,13 +301,38 @@ Commit: —
 1. **Opaque primitive vs opaque record.** Recommended **primitive-like** (this plan) — full record
    opacity doesn't exist and the primitive path reuses `Error`'s wiring. Alternative (record + new
    field-hiding machinery) is larger and still needs a granted default.
+   Decision: primitive-like
 2. **Wire id: reserved primitive band (11–19) vs `FIRST_TABLE_TYPE_ID` (≥20).** Recommended the
    reserved primitive band, matching the type's primitive-like modeling; falls back to a table id if
    the band is contested.
+   Decision: 11
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **"12 Family-B sites" undercounted the compiler-enforced `match Type` arms.** A dedicated
+  `Type::AttributedString` variant forced arms in many exhaustive matches beyond the 12 the map listed
+  (frontend walk/comparable/copyable/sendable/display/parse, construct + WITH-update guards, ir/verify
+  read-only-update + provably_data). The Rust compiler is the census tool here: adding the variant and
+  running `cargo build` surfaced every required arm. No arm was missed (clean build).
+- **Defaultable-but-not-comparable needed a split predicate.** `is_comparable_defaultable_primitive`
+  conflates the two sets, so adding `AttributedString` there would have made it comparable. Instead a
+  defaultable-only delta was added to `ir/verify/resources.rs::is_defaultable`, leaving
+  `is_comparable_seen` (frontend + ir/verify) to reject comparison. Verified: `a = b` fails to type.
+- **Opacity of `a.text` is via `TYPE_UNKNOWN_VALUE`, not a bespoke diagnostic.** Member access on the
+  fieldless type returns `Unknown` (the same path `Error.badfield` takes); a typed binding then fails
+  with `TYPE_UNKNOWN_VALUE`. This is the established codebase behavior and satisfies "must not compile".
+- **`runtime::usage.rs::is_native_direct_call` was an unlisted required site.** The plan's "10 sites"
+  package-shell list omitted it; without registering `astrings.fromString` there, NIR validation
+  rejected the call ("NIR call target does not resolve"). Added it.
+- **The `.mfp` round-trip fixture commits no binary `.mfp` golden's decode via `.info` only** — a
+  debug-built `.mfp` golden risks drift vs a release rebuild (`sync-package-mfp.sh`), so the fixture
+  relies on the codegen-independent `.info` decode dump plus build.log; the full consumer round-trip
+  (package → consumer executable importing it → run) was verified manually.
+- **Three existing assertions/docs updated for the additive change** (not weakened): the reserved-band
+  wire-id test (id 11 now → `AttributedString`, band is 12–19), the descriptor package count (26 → 27),
+  and the spec §18 package list (added `astrings`).
+- **Minor scope note:** `io::print`/`io::write` got the `AttributedString` overload per the plan;
+  `io::printError`/`io::writeError` were left String-only (kept in scope).
 
 ## Summary
 

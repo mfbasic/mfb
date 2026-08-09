@@ -1,0 +1,25 @@
+$ mfb build -ast -ir tests/rt-behavior/astrings/tier-a-queries-rt
+Wrote AST to tests/rt-behavior/astrings/tier-a-queries-rt/tier_a_queries_rt.ast
+Wrote IR to tests/rt-behavior/astrings/tier-a-queries-rt/tier_a_queries_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/astrings/tier-a-queries-rt
+Wrote executable to tests/rt-behavior/astrings/tier-a-queries-rt/build/tier_a_queries_rt.out
+[exit 0]
+$ tests/rt-behavior/astrings/tier-a-queries-rt/build/tier_a_queries_rt.out
+byteLen 11/11
+contains TRUE/TRUE
+count 3/3
+startsWith TRUE/TRUE
+endsWith TRUE/TRUE
+startsWithAny TRUE/TRUE
+endsWithAny TRUE/TRUE
+find 4/4
+findMissing trap:77050004/77050004
+graphemesCount 11/11
+displayWidth 11/11
+graphemeAt w/w
+split 2/2
+graphemes 11/11
+toBytes 11/11
+toScalars 11/11
+[exit 0]

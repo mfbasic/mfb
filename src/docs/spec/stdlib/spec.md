@@ -48,6 +48,10 @@ built-in injection chain.
 - `os` — the environment and process-introspection model: the raising vs
   non-raising accessors, the `environ` snapshot, the build-target constants, and
   the may-fail host lookups.
+- `astrings` — the attributed-string model: the opaque `AttributedString`, the
+  open `Attribute` model, the higher-start-wins overlay resolution, the inclusive
+  attribute-range semantics, the Tier-A/Tier-B `strings::` overload split, and the
+  `toMarkdown` marker vocabulary.
 
 ## See Also
 

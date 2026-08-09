@@ -108,36 +108,44 @@ case/normalize overloads skip (b) and emit an empty overlay.
 
 ### Phase 1 — slice/trim + pad + repeat (well-defined maps)
 
-- [ ] Overloads + span remap for slice/trim (`mid`/`left`/`right`/`trim*`/`stripPrefix`/`stripSuffix`),
-      pad (`padLeft`/`padRight`), and `repeat`.
-- [ ] Tests: `tests/rt-behavior/astrings/tier-b-slice-pad-repeat-rt/` — text invariant per function +
-      span positions at boundaries (clip, shift, replicate) via `getAttributes`.
+- [x] Overloads + span remap for slice/trim (`mid`/`left`/`right`/`trim`/`trimStart`/`trimEnd`/
+      `trimChars`/`stripPrefix`/`stripSuffix`), pad (`padLeft`/`padRight`), and `repeat`. Implemented
+      as `__astrings_*` source-companion bodies: run the `String` transform on the visible text, then
+      remap spans via `__astrings_windowSpans` (clip to kept window + shift to origin) / `shiftSpans`
+      (padLeft) / per-copy replication (repeat). The window origin per function is computed from scalar
+      counts of the `String` results (leading-trimmed for trim/trimChars).
+- [x] Tests: `tests/rt-behavior/astrings/tier-b-transforms-rt/` — text invariant per function (`inv=`)
+      + a per-scalar bold map proving span positions (`mid`→`BB---`, `left`→`BBB`, `trim`→`BB`,
+      `trimStart`→`BB--`, `trimEnd`→`--BB`, `padLeft`→`---BBBBB------`, `repeat`→`BBBBB------BBBBB------`).
 
-Acceptance: text invariant holds and spans land at the correct inclusive positions for every function
-in this group.
-Commit: —
+Acceptance: MET. Text invariant holds and spans land at the correct inclusive positions for every
+function in this group.
+Commit: 10e150d18
 
 ### Phase 2 — case/normalize (drop attributes)
 
-- [ ] Overloads for `upper`/`lower`/`caseFold`/`normalizeNfc` returning an `AttributedString` with the
-      transformed text and an empty overlay.
-- [ ] Tests: text invariant (incl. a scalar-count-changing input like ß) + assert overlay is empty
-      afterward.
+- [x] Overloads for `upper`/`lower`/`caseFold`/`normalizeNfc` returning an `AttributedString` with the
+      transformed text and an empty overlay (`fromString(strings::t(toString(a)))` — no span remap).
+- [x] Tests (in `tier-b-transforms-rt`): text invariant incl. the scalar-count-changing `ß`→`SS`
+      (`upperEszett=STRASSE inv=STRASSE bold=-------`) with the overlay empty afterward.
 
-Acceptance: text matches `strings::upper(toString(a))` etc.; result has no attributes.
-Commit: —
+Acceptance: MET. Text matches `strings::upper(toString(a))` etc.; result has no attributes.
+Commit: 10e150d18
 
 ### Phase 3 — `replace` (piecewise remap; correctness risk last)
 
-- [ ] `replace` overload with the cumulative piecewise span remap (drop-inside, clip-straddle,
-      plain-insert, shift-after).
-- [ ] Tests: `tests/rt-behavior/astrings/tier-b-replace-rt/` — multiple matches; a span inside a
-      match (dropped); a span straddling a match (clipped); a span after matches (shifted by the
-      cumulative delta); the replacement text carries no attributes; text invariant throughout.
+- [x] `replace` overload with the cumulative piecewise span remap: find non-overlapping matches, walk
+      the kept segments emitting each span clipped to the segment and re-based to the new origin
+      (`__astrings_remapSegment`) — which yields drop-inside, clip/split-straddle, and shift-after
+      uniformly; the inserted replacement is plain.
+- [x] Tests: `tests/rt-behavior/astrings/tier-b-replace-rt/` — `"aXbXc"` bold-all, replace `X`→`YY`
+      (multiple matches, length-changing): text invariant `aYYbYYc`, spans split around matches with
+      plain inserts (`flags=B--B--B`); a span inside a match dropped + a span after matches shifted
+      (`flags2=------I`).
 
-Acceptance: every `replace` remap case passes and the text invariant holds with multiple matches and
-a length-changing replacement.
-Commit: —
+Acceptance: MET. Every `replace` remap case passes and the text invariant holds with multiple matches
+and a length-changing replacement.
+Commit: 10e150d18
 
 ## Validation Plan
 
@@ -150,15 +158,36 @@ Commit: —
 
 ## Open Decisions
 
-1. **`stripPrefix`/`stripSuffix` tier.** Treated as slice here (they remove a leading/trailing run).
-   Confirm against C's table; if C tiered them A, drop from D.
+1. **`stripPrefix`/`stripSuffix` tier.** **Resolved: Tier-B (slice/trim group).** By the hard rule
+   (C §4.1) a function whose result re-expresses the input's text returns `AttributedString`; strip*
+   returns the text with a leading/trailing run removed (a contiguous window), so it modifies and
+   stays in D. C's Phase-1 table must list them Tier-B to stay consistent.
 2. **Concatenation.** If a string `&`/`concat` exists for `AttributedString`, its remap (keep both
    sides, shift the right operand) belongs in Phase 1; the map found no `strings::` `&` operator, so
    it is out unless C/B surface a `concat`. Recommended: out of v1 unless already present.
+   Decision: AttributedString & AttributedString (both sides, no mixing)
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **Tier-B is `.mfb` source-companion bodies over B's bridge, not native-direct overloads (§4).**
+  Each `strings::<t>(AttributedString, …)` routes to a `__astrings_<t>` companion body (dispatch: a
+  `StringsResolver` return-type override yields `AttributedString`; an IR-lowering
+  `implementation_name` split — `strings::tier_b_transform_impl` — targets the companion when arg0 is
+  `AttributedString`). The body runs the existing `String` transform for the text (so the text
+  invariant holds by construction) and remaps spans with `readSpans`/`writeSpans`. This keeps the
+  risky inclusive-bound clip/shift and `replace` piecewise arithmetic in `.mfb`, consistent with B.
+- **padLeft/padRight's optional `padChar`.** The companion bodies take a required `padChar`; the
+  2-arg form is handled by (a) an `.mfb` default `padChar AS String = " "` and (b) an IR-lowering fill
+  of `" "` for the 2-arg `AttributedString` call (so the routed companion always receives 3 args).
+  The native `String` forms are untouched (they default `padChar` in codegen), so no `String` IR/
+  golden churns.
+- **Concatenation (Open Decision 2) implemented.** `AttributedString & AttributedString` types as
+  `AttributedString` (frontend `infer_binary`), and the IR lowering rewrites the `Binary "&"` to a
+  `__astrings_concat` companion call (text concatenated, right operand's spans shifted by the left's
+  scalar length). `String & String` is unchanged.
+- **The window origin for trim/trimChars** is computed from scalar counts of the `String` results
+  (`leading = scalarCount(text) − scalarCount(trimStart(text))`; trimChars counts leading in-set
+  scalars) — there is no `trimCharsStart`, so trimChars counts the leading run directly.
 
 ## Summary
 

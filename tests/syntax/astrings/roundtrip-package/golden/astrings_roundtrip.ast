@@ -1,0 +1,26 @@
+{
+  "project": "astrings_roundtrip",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "export",
+      "isolated": false,
+      "name": "wrap",
+      "line": 6,
+      "params": [
+      { "name": "a", "type": "AttributedString", "default": null, "line": 6 }
+      ],
+      "returnType": "AttributedString",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "a" }, "line": 7 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -15,6 +15,7 @@ use super::plan::NativePlan;
 use super::runtime;
 
 mod builder_arena_transfer;
+mod builder_astrings;
 mod builder_bits;
 mod builder_error_emission;
 mod builder_exits;

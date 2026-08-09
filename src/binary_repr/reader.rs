@@ -888,6 +888,7 @@ pub(super) fn primitive_type_name(id: u32) -> Option<&'static str> {
         TYPE_FIXED => Some("Fixed"),
         TYPE_MONEY => Some("Money"),
         TYPE_SCALAR => Some("Scalar"),
+        TYPE_ATTRIBUTED_STRING => Some("AttributedString"),
         TYPE_STRING => Some("String"),
         TYPE_BYTE => Some("Byte"),
         TYPE_ERROR => Some("Error"),

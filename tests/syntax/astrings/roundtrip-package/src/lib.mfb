@@ -1,0 +1,8 @@
+REM plan-89-A: an exported function whose parameter and return type are the
+REM opaque built-in `AttributedString`. Building this package encodes the type's
+REM wire id (11) into the `.mfp`; the acceptance harness re-decodes it into the
+REM `.info` golden, proving the encode/decode round-trip.
+
+EXPORT FUNC wrap(a AS AttributedString) AS AttributedString
+  RETURN a
+END FUNC

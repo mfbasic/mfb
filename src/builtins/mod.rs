@@ -1,4 +1,5 @@
 pub(crate) mod app;
+pub(crate) mod astrings;
 pub(crate) mod audio;
 pub(crate) mod bits;
 pub(crate) mod collections;
@@ -82,6 +83,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
         name,
         "app"
+            | "astrings"
             | "audio"
             | "bits"
             | "collections"
@@ -573,7 +575,7 @@ pub(crate) fn is_nonescaping_callback_arg(callee: &str, index: usize) -> bool {
 /// source must not. The resolver applies this only when the calling file is not
 /// `AstFile::internal`, so the glue still resolves (bug-337-D9).
 pub(crate) fn is_internal_only_call(name: &str) -> bool {
-    crypto::is_crypto_internal_call(name)
+    crypto::is_crypto_internal_call(name) || astrings::is_astrings_internal_call(name)
 }
 
 pub(crate) fn is_builtin_call(name: &str) -> bool {
@@ -726,6 +728,7 @@ pub(crate) fn select_param_name_overload<'a>(
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     app::call_param_names(name)
+        .or_else(|| astrings::call_param_names(name))
         .or_else(|| audio::call_param_names(name))
         .or_else(|| general::call_param_names(name))
         .or_else(|| collections::call_param_names(name))
@@ -1066,6 +1069,7 @@ mod tests {
     /// such test existed).
     const ALL_BUILTIN_PACKAGES: &[&str] = &[
         "app",
+        "astrings",
         "audio",
         "bits",
         "collections",

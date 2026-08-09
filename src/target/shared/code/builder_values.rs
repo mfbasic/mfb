@@ -600,7 +600,11 @@ impl CodeBuilder<'_> {
                         CLOSURE_OFFSET_ENV,
                     ));
                 } else {
-                    self.emit(abi::store_u64(abi::ZERO, abi::mfb_return(1), CLOSURE_OFFSET_ENV));
+                    self.emit(abi::store_u64(
+                        abi::ZERO,
+                        abi::mfb_return(1),
+                        CLOSURE_OFFSET_ENV,
+                    ));
                 }
                 self.emit(abi::move_register(&closure_register, abi::mfb_return(1)));
                 Ok(ValueResult {
@@ -704,6 +708,9 @@ impl CodeBuilder<'_> {
                     return Ok(result);
                 }
                 if let Some(result) = self.lower_strings_package_call(target, args)? {
+                    return Ok(result);
+                }
+                if let Some(result) = self.lower_astrings_package_call(target, args)? {
                     return Ok(result);
                 }
                 // Migrated `collections::`/`strings::` members arrive with their
@@ -1239,6 +1246,9 @@ impl CodeBuilder<'_> {
                 if let Some(result) = self.lower_strings_package_call(target, args)? {
                     return Ok(result);
                 }
+                if let Some(result) = self.lower_astrings_package_call(target, args)? {
+                    return Ok(result);
+                }
                 if target == "isEven" && args.len() == 1 {
                     return self.lower_integer_parity_predicate("isEven", &args[0], false);
                 }
@@ -1397,7 +1407,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64(&tag_register, abi::mfb_return(1), 0));
                 for (index, slot) in arg_slots.iter().enumerate() {
                     self.emit(abi::load_u64(scratch9, abi::stack_pointer(), *slot));
-                    self.emit(abi::store_u64(scratch9, abi::mfb_return(1), 8 * (index + 1)));
+                    self.emit(abi::store_u64(
+                        scratch9,
+                        abi::mfb_return(1),
+                        8 * (index + 1),
+                    ));
                 }
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
@@ -1921,6 +1935,22 @@ impl CodeBuilder<'_> {
         raw: bool,
     ) -> Result<ValueResult, String> {
         let mut helper_args = args.to_vec();
+        // plan-89-A: `io::print`/`io::write` accept an `AttributedString` and emit
+        // its visible text. Rewrite the argument to `toString(a)` — the `toString`
+        // overload deep-copies the inlined text into an owned String — so the rest
+        // of the writer path is byte-identical to a String argument.
+        if matches!(target, "io.print" | "io.write") {
+            if let Some(arg) = helper_args.first() {
+                if self.static_type_name(arg).as_deref() == Some("AttributedString") {
+                    let inner = helper_args[0].clone();
+                    helper_args[0] = NirValue::Call {
+                        target: "toString".to_string(),
+                        args: vec![inner],
+                        loc: NirSourceLoc::default(),
+                    };
+                }
+            }
+        }
         if target == "io.input" && helper_args.is_empty() {
             helper_args.push(NirValue::Const {
                 type_: "String".to_string(),

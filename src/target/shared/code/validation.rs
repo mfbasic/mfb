@@ -350,6 +350,44 @@ impl TypeModel {
                 ("char".to_string(), "Integer".to_string()),
             ],
         );
+        // plan-89-A/B: `AttributedString` is an opaque built-in laid out internally
+        // as an ordinary 2-field record — a visible `text` String plus a `spans`
+        // attribute overlay. Modeling it as a record lets construction
+        // (`astrings::fromString`), value-semantic copy, scope-drop, and defaulting
+        // all reuse the generic record machinery. These fields are codegen-internal
+        // only — the frontend exposes NO user-visible fields (opacity).
+        //
+        // The overlay element `AttrSpan` (plan-89-B) is a codegen-internal flat
+        // record: an inclusive `[start,end]` scalar range, an insertion `seq` for
+        // the higher-start-wins tie-break, and a flat encoding of one attribute
+        // (`class` 0=flag/1=text/2=number, the enum-member ordinal, plus the String
+        // and Integer payloads). Registered UNCONDITIONALLY so `AttributedString`'s
+        // layout is fully resolvable even in a program that never imports `astrings`
+        // (a defaulted/parameter `AttributedString` still copies and drops). The
+        // companion declares a matching `AttrSpan` so the `.mfb` bridge can read and
+        // build spans; the two must stay field-identical.
+        record_fields.insert(
+            "AttrSpan".to_string(),
+            vec![
+                ("start".to_string(), "Integer".to_string()),
+                // `last` (not `end`): `end` is a reserved keyword and cannot follow
+                // `.` in the companion's member access. Field-identical to the
+                // companion's `AttrSpan`.
+                ("last".to_string(), "Integer".to_string()),
+                ("seq".to_string(), "Integer".to_string()),
+                ("class".to_string(), "Integer".to_string()),
+                ("member".to_string(), "Integer".to_string()),
+                ("text".to_string(), "String".to_string()),
+                ("number".to_string(), "Integer".to_string()),
+            ],
+        );
+        record_fields.insert(
+            "AttributedString".to_string(),
+            vec![
+                ("text".to_string(), "String".to_string()),
+                ("spans".to_string(), "List OF AttrSpan".to_string()),
+            ],
+        );
         // bug-374: record each user-declared resource's `CLOSE BY` op so
         // scope-drop can call it. Stored as the declared *name*, not a resolved
         // symbol: `resource_cleanup_symbol` resolves it through
