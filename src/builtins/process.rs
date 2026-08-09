@@ -20,8 +20,8 @@
 //! waitFor/close; **B** streaming I/O; **C** signals & detach; **D** Windows.
 
 use super::descriptor::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinType, DefaultValue,
-    Implementation, Lowering, Parameter, ParameterType, ReturnType, TypeKind,
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinType, DefaultResolver,
+    DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType, TypeKind,
 };
 
 /// The opaque `Process` resource handle type name.
@@ -123,6 +123,20 @@ pub(crate) static PROCESS: BuiltinModule = BuiltinModule {
     resolver: None,
 };
 
+/// Whether `name` is a public `process` builtin call (`process.spawn`, …). The
+/// internal `__drop` op is not a descriptor call and is handled by the code layer
+/// directly, so it is excluded here; use [`is_process_runtime_call`] for the
+/// runtime-helper dispatch that includes it.
+pub(crate) fn is_process_call(name: &str) -> bool {
+    DefaultResolver::contains(&PROCESS, name)
+}
+
+/// Whether `name` is a `process` call that lowers to a `_mfb_rt_process_*`
+/// runtime helper — every public call plus the internal `__drop` cleanup op.
+pub(crate) fn is_process_runtime_call(name: &str) -> bool {
+    is_process_call(name) || name == DROP
+}
+
 /// A bespoke expected-argument phrasing for `spawn`, whose two overloads have
 /// structurally different positional layouts. The descriptor's per-position
 /// render only shows the FIRST overload (`List OF String`), which mis-describes a
@@ -157,7 +171,6 @@ pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::builtins::descriptor::DefaultResolver;
 
     fn strings(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()

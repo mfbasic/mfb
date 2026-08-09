@@ -125,6 +125,18 @@ static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     OS_HOST_NAME_SPEC,
     OS_USER_NAME_SPEC,
     OS_CPU_COUNT_SPEC,
+    // plan-90 process package. `spawnEnv` is code-layer-only (synthesized by the
+    // `builder_values` spawn overload split); `__drop` is the resource-cleanup op
+    // (routed by `helper_for_call`, like audio's close ops); the rest are
+    // source-level calls.
+    PROCESS_SPAWN_SPEC,
+    PROCESS_SPAWN_ENV_SPEC,
+    PROCESS_SHELL_SPEC,
+    PROCESS_PID_SPEC,
+    PROCESS_IS_RUNNING_SPEC,
+    PROCESS_WAIT_FOR_SPEC,
+    PROCESS_CLOSE_SPEC,
+    PROCESS_DROP_SPEC,
     // plan-67-B: internal perf-tracking helpers. Catalogued (so `spec_for_symbol`
     // resolves the injected `_mfb_rt_perf_*` calls during emission/object
     // planning) but never routed by `helper_for_call` — they are code-layer-only
@@ -231,6 +243,12 @@ mod tests {
             "thread.read",
             "thread.emit",
             "net.connectTcpAddr",
+            // plan-90-A: `process.spawn(args, cwd, env, envReplace)` is rewritten to
+            // `process.spawnEnv` in the code layer (`builder_values`), so it never
+            // exists at the NIR level and `helper_for_call` must not classify it.
+            // (`process.__drop` IS routed — like audio's close ops — via
+            // `is_process_runtime_call`, so it is deliberately NOT listed here.)
+            "process.spawnEnv",
             // plan-76-A: `net.poll(List OF RES Socket)` is rewritten to `net.pollList`
             // in the code layer (`builder_values`), so it never exists at the NIR
             // level and `helper_for_call` must not classify it.
@@ -302,6 +320,7 @@ mod tests {
             RuntimeHelper::Io,
             RuntimeHelper::Net,
             RuntimeHelper::Os,
+            RuntimeHelper::Process,
             // plan-67-B: catalogued (four `perf.*` specs) though code-layer-only.
             RuntimeHelper::Perf,
             RuntimeHelper::Term,
@@ -314,6 +333,6 @@ mod tests {
                 helper.name()
             );
         }
-        assert_eq!(families.len(), 12, "unexpected extra catalogued family");
+        assert_eq!(families.len(), 13, "unexpected extra catalogued family");
     }
 }

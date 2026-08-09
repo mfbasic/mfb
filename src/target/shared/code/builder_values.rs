@@ -2087,6 +2087,16 @@ impl CodeBuilder<'_> {
                     "tls.poll"
                 }
             }
+            // plan-90-A: `spawn(args)` (argv only) and
+            // `spawn(args, cwd, env, envReplace)` lower through distinct helpers;
+            // the full form carries the working directory and environment map.
+            "process.spawn" => {
+                if args.len() >= 4 {
+                    "process.spawnEnv"
+                } else {
+                    "process.spawn"
+                }
+            }
             _ => target,
         };
         self.emit_runtime_helper_call(

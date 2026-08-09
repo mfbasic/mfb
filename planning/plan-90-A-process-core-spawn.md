@@ -321,7 +321,7 @@ fixtures; `cargo test --bin mfb` green (3795 passed). (Golden `build.log`s were
 produced by the same `mfb build -q -ast -ir` the harness runs, byte-for-byte;
 a `sync-goldens`/`test-accept` re-verify is queued once a concurrent P-86
 acceptance clears the test-accept concurrency guard.)
-Commit: <next>  (Phase 2 landed; hash recorded in Phase 3's commit)
+Commit: 468ccb5eb
 
 ### Phase 3 — Native Unix backend: spawn/waitFor/isRunning/pid/close + drop-reap
 

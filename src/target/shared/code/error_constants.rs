@@ -249,6 +249,17 @@ pub(crate) const ERR_TLS_FAILED_MESSAGE: &str =
     "TLS handshake, certificate validation, SNI validation, or protocol operation failed.";
 pub(crate) const ERR_TLS_FAILED_SYMBOL: &str = "_mfb_str_error_tls_failed";
 
+// -- Process (7708) ---------------------------------------------------------
+// plan-90-A: `process::spawn`/`shell` raise `ErrSpawnFailed` when the child
+// cannot be created or `execvp`'d (the child reports the failure to the parent
+// over a close-on-exec self-pipe). Operating on a dropped `Process` raises the
+// shared `ErrResourceClosed` (7703); an empty `args` list raises the shared
+// `ErrInvalidArgument` (7705).
+pub(crate) const ERR_SPAWN_FAILED_CODE: &str = "77080001";
+pub(crate) const ERR_SPAWN_FAILED_MESSAGE: &str =
+    "Child process could not be spawned (fork/exec failed, or the program was not found).";
+pub(crate) const ERR_SPAWN_FAILED_SYMBOL: &str = "_mfb_str_error_spawn_failed";
+
 // ===========================================================================
 // Entry-point & cleanup-failure diagnostic strings
 // ===========================================================================
@@ -918,6 +929,7 @@ pub(crate) const RESOURCE_TAG_TLS_MACOS: &str = "6";
 pub(crate) const RESOURCE_TAG_TLS_SCHANNEL: &str = "7";
 pub(crate) const RESOURCE_TAG_TLS_LISTENER: &str = "8";
 pub(crate) const RESOURCE_TAG_AUDIO: &str = "9";
+pub(crate) const RESOURCE_TAG_PROCESS: &str = "10";
 pub(crate) const RESOURCE_TAG_NATIVE: &str = "255";
 
 /// The word at `RESOURCE_OFFSET_CLOSED` is a u64 flag set, not a boolean: bit 0
