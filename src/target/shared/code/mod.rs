@@ -2251,6 +2251,7 @@ fn lower_runtime_helper(
                 | "thread.drop"
                 | "thread.send"
                 | "thread.poll"
+                | "thread.sleep"
                 | "thread.read"
                 | "thread.receive"
                 | "thread.emit"

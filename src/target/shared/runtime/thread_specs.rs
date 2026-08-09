@@ -59,6 +59,14 @@ pub(crate) const THREAD_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     abi: RuntimeHelperAbi { returns: "Boolean" },
 };
 
+// plan-91-A: parent-side plain sleep. Blocks the calling thread for `ms`
+// milliseconds via libc `nanosleep` (Win32 `Sleep`) and returns Nothing.
+pub(crate) const THREAD_SLEEP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.sleep",
+    abi: RuntimeHelperAbi { returns: "Nothing" },
+};
+
 pub(crate) const THREAD_READ_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.read",

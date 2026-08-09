@@ -270,41 +270,46 @@ worker-side call and a bad-arity/negative-arg call are rejected.
 Acceptance: `cargo test --bin mfb builtins::thread` green (24 passed) AND the
 three new syntax tests pass via `test-accept.sh` (parent-valid resolves to
 `Nothing`; worker call and mistyped `ms` are compile errors).
-Commit: —
+Commit: c3002407b
 
 ### Phase 2 — Parent runtime helper + target wiring (largest blast radius)
 
 Emit the `nanosleep`-based helper and wire every target; prove it actually
 sleeps and rejects `ms < 0`.
 
-- [ ] `src/target/shared/runtime/thread_specs.rs`: add `THREAD_SLEEP_SPEC`
+- [x] `src/target/shared/runtime/thread_specs.rs`: add `THREAD_SLEEP_SPEC`
       (`call: "thread.sleep"`, `returns: "Nothing"`), modeled on
       `THREAD_CANCEL_SPEC`.
-- [ ] `src/target/shared/runtime/catalog.rs`: add `THREAD_SLEEP_SPEC` to the
-      supported-specs list (~line 155).
-- [ ] `src/target/shared/code/mod.rs:2194-2217`: route `"thread.sleep"` to
-      `lower_thread_helper`.
-- [ ] `src/target/shared/code/runtime_helpers.rs`: add the `"thread.sleep" =>
+- [x] `src/target/shared/runtime/catalog.rs`: add `THREAD_SLEEP_SPEC` to the
+      supported-specs list (after `THREAD_POLL_SPEC`).
+- [x] `src/target/shared/code/mod.rs`: route `"thread.sleep"` to
+      `lower_thread_helper` (added to the `thread.*` match).
+- [x] `src/target/shared/code/runtime_helpers.rs`: add the `"thread.sleep" =>
       lower_thread_sleep_helper(...)` dispatch arm and implement
       `lower_thread_sleep_helper` per §4 (ms validation, relative timespec, EINTR
       loop, `ErrResourceClosed` on closed handle).
-- [ ] `emit_windows_thread_call` (`runtime_helpers.rs:88-218`): add a
-      `"nanosleep" => Sleep(ms)` arm; confirm `Sleep` is imported
-      (`win_x86_64/plan.rs`).
-- [ ] Advertise `thread.sleep` and import libc `nanosleep` per target: macOS
-      `macos_aarch64/{mod.rs,plan.rs}` (add `_nanosleep` to the libSystem import
-      block), Linux `linux_common/{mod.rs,plan.rs}` + `linux_aarch64/plan.rs` +
-      `linux_x86_64/plan.rs`, Windows `win_x86_64/mod.rs` (advertise only; no
-      libc import).
-- [ ] Tests: `tests/rt-behavior/threads/thread-sleep-parent-rt` — start a worker,
-      `thread::sleep(t, 50)`, assert observed elapsed ≥ ~50 ms (use the harness's
-      timing convention; keep the bound loose to avoid flakiness).
-      `tests/rt-error/threads/thread-sleep-negative` — `thread::sleep(t, -1)`
-      fails with `ErrInvalidArgument`. Add a `ms = 0` no-op behavior case.
+- [x] `emit_windows_thread_call` (`runtime_helpers.rs`): add a
+      `"nanosleep" => Sleep(dwMilliseconds)` arm (converts the timespec to ms);
+      added `Sleep` to the shared Windows thread import set.
+- [x] Advertise `thread.sleep` and import libc `nanosleep` per target: macOS
+      `macos_aarch64/{mod.rs,plan.rs}` (dedicated `thread.sleep` arm importing
+      only `_nanosleep`), Linux `linux_common/{mod.rs,plan.rs}` (dedicated arm,
+      `nanosleep` via `libc_import`), Windows `win_x86_64/mod.rs` (advertise) +
+      `plan.rs` (`Sleep`). Added `thread.sleep` to `thread_runtime_return_type`
+      (`builder_value_semantics.rs`) → `Nothing` (needed by the eval-call lowering).
+      `linux_aarch64/plan.rs` / `linux_x86_64/plan.rs` needed no change (nanosleep
+      is libc, not libpthread).
+- [x] Tests: `tests/rt-behavior/threads/thread-sleep-parent-rt` — starts a worker
+      (`waitForCancelForever`), `thread::sleep(t, 50)`, asserts observed elapsed
+      ≥ 40 ms (loose bound; prints only PASS/FAIL) plus a `ms = 0` no-op case.
+      `tests/rt-error/threads/thread-sleep-negative-rt` — `thread::sleep(t, -1)`
+      aborts with `ErrInvalidArgument` (7-705-0002, exit 255).
 
-Acceptance: the rt-behavior sleep test passes on the native host target AND the
-rt-error negative-ms test passes AND full `cargo test` is green. The elapsed-time
-assertion — not compilation — is the gate.
+Acceptance: the rt-behavior sleep test passes on the native host target (observed
+"slept ok", elapsed ≥ 40 ms) AND the rt-error negative-ms test passes
+(ErrInvalidArgument) AND full `cargo test` is green (0 failures). Cross-compiled
+`-ncode` cleanly for linux-x86_64/linux-aarch64/windows-x86_64 (nanosleep on
+Linux, Sleep on Windows).
 Commit: —
 
 ### Phase 3 — Docs, spec, byte-identity
@@ -359,7 +364,26 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Phase 2 needed an extra wiring site the plan's Current State did not list.**
+  `builder_value_semantics.rs::thread_runtime_return_type` hand-resolves each
+  thread call's return type for the *code layer* (separate from the front-end
+  `resolve_call`). Without a `thread.sleep => Nothing` arm there, codegen failed
+  with `native runtime call 'thread.sleep' has no return type while lowering eval
+  call thread.sleep` (evidence: `mfb build tests/rt-behavior/threads/thread-sleep-parent-rt`).
+  Added `thread.sleep` to that function's `Nothing`-returning arm. This is the
+  code-layer twin of the front-end return-type table, and any future thread call
+  must update both.
+- **`_nanosleep` import gated to `thread.sleep` only.** The plan said "add
+  `_nanosleep` to the libSystem import block" (the shared thread arm). Adding it
+  there would import nanosleep for *every* thread program and churn thread
+  byte-identity. Instead each target got a dedicated `thread.sleep` import arm
+  (macOS `_nanosleep`, Linux `nanosleep` via `libc_import`), so a program that
+  never calls `thread::sleep` is unaffected — matching §Non-goals' "no `.ncode`
+  change for programs not calling thread::sleep".
+- **`linux_aarch64/plan.rs` / `linux_x86_64/plan.rs` needed no change.** The plan
+  listed them as import sites; nanosleep lives in libc (not libpthread), so the
+  shared `linux_common` `libc_import` covers both arches. Those files' only
+  `thread.*` references are unit tests over `thread.start`.
 
 ## Summary
 

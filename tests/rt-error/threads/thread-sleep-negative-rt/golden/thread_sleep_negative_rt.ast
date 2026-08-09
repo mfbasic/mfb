@@ -1,0 +1,31 @@
+{
+  "project": "thread_sleep_negative_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 4 },
+    { "module": "thread", "line": 5 },
+    { "module": "thread_runtime_workers", "line": 6 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.waitForCancelForever" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.sleep", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected: sleep returned" }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -148,6 +148,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "thread.send",
     "thread.receive",
     "thread.poll",
+    "thread.sleep",
     "thread.isRunning",
     "thread.drop",
     "thread.cancel",

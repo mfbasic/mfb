@@ -420,6 +420,10 @@ impl LinuxPlan<'_> {
                 stdin_broadcast_imports(&mut imports);
                 imports
             }
+            // plan-91-A: the parent sleep helper calls only libc `nanosleep`; the
+            // pthread set is pulled by `thread.start` (needed to obtain the handle).
+            // Gating nanosleep to this call keeps non-sleep programs byte-identical.
+            "thread.sleep" => vec![self.libc_import("nanosleep", required_by)],
             "thread.start"
             | "thread.isRunning"
             | "thread.waitFor"
