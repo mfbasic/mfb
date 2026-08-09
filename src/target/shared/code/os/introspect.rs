@@ -73,7 +73,9 @@ pub(super) fn lower_pid(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::move_register(RESULT_VALUE_REGISTER, abi::return_register()),
+        // plan-85: getpid's return is a C result (`rax`, `%retC`); read from the
+        // C-return register (byte-identical `x0` on AArch64/RISC-V).
+        abi::move_register(RESULT_VALUE_REGISTER, abi::c_return(0)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::return_(),
     ]);
@@ -147,7 +149,9 @@ pub(super) fn lower_cpu_count(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::move_register(&count, abi::return_register()),
+        // plan-85: sysconf's return is a C result (`rax`, `%retC`); read from the
+        // C-return register (byte-identical `x0` on AArch64/RISC-V).
+        abi::move_register(&count, abi::c_return(0)),
         // sysconf returns -1 (or 0) on failure or an indeterminate answer: clamp
         // to a minimum of 1 so callers always get a usable count.
         abi::compare_immediate(&count, "1"),
@@ -252,7 +256,8 @@ pub(super) fn lower_host_name(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
+        // plan-85: gethostname's return is a C result (`rax`, `%retC`).
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_eq(&ok),
         abi::branch(&fail),
         abi::label(&ok),
