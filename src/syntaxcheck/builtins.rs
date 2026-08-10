@@ -1,6 +1,65 @@
 use super::helpers::*;
 use super::*;
 
+/// Whether an argument is a non-negative integer literal that fits in a `Byte`
+/// (0..=255) — the same rule `expression_compatible` applies to let a `Number`
+/// literal satisfy a `Byte` parameter. Only a `Number` literal qualifies; a
+/// computed `Integer` expression does not (matching the term-builtin and
+/// plain-FUNC call paths, which coerce literals but not values).
+fn expr_is_byte_literal(expression: &Expression) -> bool {
+    matches!(expression, Expression::Number(text)
+        if text.parse::<u16>().is_ok_and(|n| n <= u8::MAX as u16))
+}
+
+/// Resolve a table-driven builtin call, retrying with `Integer`-literal
+/// arguments coerced to `Byte` when the exact-typed resolution fails.
+///
+/// The table arm otherwise resolves by exact argument-type match, which rejects
+/// an integer literal passed to a `Byte` parameter — e.g.
+/// `astrings::foreground(255, 0, 0)`. `term` avoids this with its own
+/// per-position `expression_compatible` checker; this gives the table packages
+/// the same literal→`Byte` coercion generically. Only positions whose argument
+/// is a `Byte`-fitting `Number` literal are eligible to flip, and each subset is
+/// tried, so a literal that is validly either `Integer` or `Byte` resolves
+/// against whichever the overload expects. `astrings` is currently the only
+/// table package with a scalar `Byte` parameter, so no other package's
+/// resolution is affected.
+fn resolve_table_call_with_byte_literals(
+    callee: &str,
+    arg_types: &[String],
+    arguments: &[Expression],
+) -> Option<String> {
+    if let Some(return_type) = builtins::resolve_call_return_type(callee, arg_types) {
+        return Some(return_type);
+    }
+    let eligible: Vec<usize> = arg_types
+        .iter()
+        .enumerate()
+        .filter(|(index, type_name)| {
+            type_name.as_str() == "Integer"
+                && arguments.get(*index).is_some_and(expr_is_byte_literal)
+        })
+        .map(|(index, _)| index)
+        .collect();
+    // Bound the subset search: a `Byte`-parameter overload never has many
+    // positions, and this only runs on the error path.
+    if eligible.is_empty() || eligible.len() > 6 {
+        return None;
+    }
+    for mask in 1u32..(1u32 << eligible.len()) {
+        let mut trial: Vec<String> = arg_types.to_vec();
+        for (bit, &index) in eligible.iter().enumerate() {
+            if mask & (1 << bit) != 0 {
+                trial[index] = "Byte".to_string();
+            }
+        }
+        if let Some(return_type) = builtins::resolve_call_return_type(callee, &trial) {
+            return Some(return_type);
+        }
+    }
+    None
+}
+
 /// How a package's arguments are inferred.
 ///
 /// This is the only semantic axis that differed between the eighteen
@@ -307,7 +366,9 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        let Some(return_type) = builtins::resolve_call_return_type(callee, &arg_types) else {
+        let Some(return_type) =
+            resolve_table_call_with_byte_literals(callee, &arg_types, &arguments)
+        else {
             let expected = builtins::expected_arguments(callee)
                 .unwrap_or_else(|| "supported overload".to_string());
             self.report(
@@ -1152,6 +1213,79 @@ mod builtins_tests {
     // dispatch paths — the registry (`builtin_package_name` → a `BUILTIN_ARG_MODES`
     // package) or one of the four bespoke pre-checks. This asserts the paths
     // partition the callee namespace, so dispatch order is free.
+    // The table arm resolves by exact argument-type match, which rejects an
+    // integer literal passed to a `Byte` parameter. `resolve_table_call_with_byte_literals`
+    // gives the table packages the literal→`Byte` coercion `term` and plain FUNC
+    // calls already have — currently exercised only by `astrings::foreground` /
+    // `background` (the sole table functions with a scalar `Byte` parameter).
+    #[test]
+    fn byte_literal_coercion_resolves_astrings_color_constructors() {
+        use super::*;
+
+        let three_integers = vec!["Integer".to_string(); 3];
+        let in_range = vec![
+            Expression::Number("255".to_string()),
+            Expression::Number("0".to_string()),
+            Expression::Number("128".to_string()),
+        ];
+        // Exact match fails (params are Byte), coercion of the ≤255 literals wins.
+        assert_eq!(
+            resolve_table_call_with_byte_literals(
+                "astrings.foreground",
+                &three_integers,
+                &in_range
+            ),
+            Some("Attribute".to_string())
+        );
+        assert_eq!(
+            resolve_table_call_with_byte_literals(
+                "astrings.background",
+                &three_integers,
+                &in_range
+            ),
+            Some("Attribute".to_string())
+        );
+
+        // A >255 literal does not fit a Byte, stays Integer, and stays rejected.
+        let out_of_range = vec![
+            Expression::Number("300".to_string()),
+            Expression::Number("0".to_string()),
+            Expression::Number("0".to_string()),
+        ];
+        assert_eq!(
+            resolve_table_call_with_byte_literals(
+                "astrings.foreground",
+                &three_integers,
+                &out_of_range
+            ),
+            None
+        );
+
+        // A genuinely-Integer parameter (`fontSize`) still resolves — the literal
+        // is not force-flipped to Byte when the Integer overload already matches.
+        let one_integer = vec!["Integer".to_string()];
+        let fourteen = vec![Expression::Number("14".to_string())];
+        assert_eq!(
+            resolve_table_call_with_byte_literals("astrings.fontSize", &one_integer, &fourteen),
+            Some("Attribute".to_string())
+        );
+
+        // A non-literal Integer expression is not coerced (matches term/FUNC).
+        let identifier = vec![
+            Expression::Identifier("r".to_string()),
+            Expression::Number("0".to_string()),
+            Expression::Number("0".to_string()),
+        ];
+        assert_eq!(
+            resolve_table_call_with_byte_literals(
+                "astrings.foreground",
+                &three_integers,
+                &identifier
+            ),
+            None
+        );
+    }
+
     #[test]
     fn builtin_packages_claim_disjoint_callees() {
         use super::*;

@@ -27,6 +27,8 @@ const STRIKE: &str = "astrings.strike";
 const OVERLINE: &str = "astrings.overline";
 const FONT: &str = "astrings.font";
 const FONT_SIZE: &str = "astrings.fontSize";
+const FOREGROUND: &str = "astrings.foreground";
+const BACKGROUND: &str = "astrings.background";
 const ADD_ATTRIBUTE: &str = "astrings.addAttribute";
 const REMOVE_ATTRIBUTE: &str = "astrings.removeAttribute";
 const CLEAR_ATTRIBUTES: &str = "astrings.clearAttributes";
@@ -45,6 +47,13 @@ const SPAN_LIST: &str = "List OF AttrSpan";
 const P_FROM_STRING: &[Parameter] = &[Parameter::required("text", "String")];
 const P_FONT: &[Parameter] = &[Parameter::required("name", "String")];
 const P_FONT_SIZE: &[Parameter] = &[Parameter::required("size", "Integer")];
+// `foreground`/`background` take an (r, g, b) Byte triple, packed into the
+// numeric attribute payload as `0xRRGGBB` by the `.mfb` constructor.
+const P_COLOR: &[Parameter] = &[
+    Parameter::required("r", "Byte"),
+    Parameter::required("g", "Byte"),
+    Parameter::required("b", "Byte"),
+];
 // The end-of-range parameter is `endIndex`, not `end`: `end` is a reserved
 // keyword and cannot be an identifier (so it could be neither the `.mfb` body's
 // parameter nor a usable named-argument spelling).
@@ -90,6 +99,7 @@ const OV_FROM_STRING: &[BuiltinOverload] = &[ov(P_FROM_STRING, "AttributedString
 const OV_FLAG: &[BuiltinOverload] = &[ov(&[], "Attribute")];
 const OV_FONT: &[BuiltinOverload] = &[ov(P_FONT, "Attribute")];
 const OV_FONT_SIZE: &[BuiltinOverload] = &[ov(P_FONT_SIZE, "Attribute")];
+const OV_COLOR: &[BuiltinOverload] = &[ov(P_COLOR, "Attribute")];
 const OV_ADD: &[BuiltinOverload] = &[ov(P_ADD, "AttributedString")];
 const OV_REMOVE: &[BuiltinOverload] = &[ov(P_REMOVE, "AttributedString")];
 const OV_CLEAR: &[BuiltinOverload] = &[
@@ -190,6 +200,18 @@ const ASTRINGS_FUNCTIONS: &[BuiltinFunction] = &[
         OV_FONT_SIZE,
         Implementation::Rewrite("__astrings_fontSize"),
     ),
+    astrings_fn(
+        FOREGROUND,
+        "foreground",
+        OV_COLOR,
+        Implementation::Rewrite("__astrings_foreground"),
+    ),
+    astrings_fn(
+        BACKGROUND,
+        "background",
+        OV_COLOR,
+        Implementation::Rewrite("__astrings_background"),
+    ),
     // Source-companion Tier-C mutation/query members.
     astrings_fn(
         ADD_ATTRIBUTE,
@@ -276,6 +298,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         BOLD | ITALIC | UNDERLINE | STRIKE | OVERLINE => Some(&[]),
         FONT => Some(&[&["name"]]),
         FONT_SIZE => Some(&[&["size"]]),
+        FOREGROUND | BACKGROUND => Some(&[&["r"], &["g"], &["b"]]),
         ADD_ATTRIBUTE | REMOVE_ATTRIBUTE => {
             Some(&[&["value"], &["start"], &["endIndex"], &["attr"]])
         }

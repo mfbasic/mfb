@@ -336,3 +336,45 @@ END FUNC
         hex(out.as_bytes())
     );
 }
+
+#[test]
+fn native_term_draw_text_attributed_applies_colors() {
+    // `term::drawText(x, y, AttributedString)` also honours the per-scalar
+    // foreground/background color attributes (packed 0xRRGGBB), drawing maximal
+    // same-color runs. "Red" carries a red foreground over the default black
+    // background; "Blue" carries a blue background over the default white
+    // foreground — each unset channel falls back to the saved pen. Driven into a
+    // pipe so `sync()` emits truecolor SGR escapes.
+    let project = temp_project(
+        "native_term_draw_attr_color",
+        r#"
+IMPORT term
+IMPORT astrings
+
+FUNC main AS Integer
+  term::on()
+  MUT a AS AttributedString = astrings::fromString("RedBlue")
+  a = astrings::addAttribute(a, 0, 2, astrings::foreground(255, 0, 0))
+  a = astrings::addAttribute(a, 3, 6, astrings::background(0, 0, 255))
+  term::drawText(0, 0, a)
+  term::sync()
+  term::off()
+  RETURN 0
+END FUNC
+"#,
+    );
+    let executable = build_project(&project);
+    let out = run_with_stdin(&executable, b"");
+    // "Red": red foreground (38;2;255;0;0), default black background.
+    assert!(
+        out.contains("\x1b[38;2;255;0;0m\x1b[48;2;0;0;0mRed"),
+        "red run should carry a red foreground, got {:?}",
+        hex(out.as_bytes())
+    );
+    // "Blue": default white foreground, blue background (48;2;0;0;255).
+    assert!(
+        out.contains("\x1b[38;2;255;255;255m\x1b[48;2;0;0;255mBlue"),
+        "blue run should carry a blue background, got {:?}",
+        hex(out.as_bytes())
+    );
+}

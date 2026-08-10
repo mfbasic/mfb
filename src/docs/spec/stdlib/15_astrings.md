@@ -28,12 +28,18 @@ and a union:
 - `AttrTypeFlag` — `Bold`, `Italic`, `Underline`, `Strike`, `Overline`; a boolean
   flag with no value.
 - `AttrTypeText` — `Font`; a String-valued attribute.
-- `AttrTypeNumber` — `FontSize`; an Integer-valued attribute.
+- `AttrTypeNumber` — `FontSize`, `Foreground`, `Background`; an Integer-valued
+  attribute. `Foreground`/`Background` carry a packed `0xRRGGBB` color (`r` in the
+  high byte, `b` in the low byte).
 - `AttrFlag { kind }`, `AttrText { kind, value }`, `AttrNumber { kind, value }`.
 - `UNION Attribute` over the three wrappers.
 
 Convenience constructors return an `Attribute`: `bold()`, `italic()`,
-`underline()`, `strike()`, `overline()`, `font(name)`, `fontSize(size)`.
+`underline()`, `strike()`, `overline()`, `font(name)`, `fontSize(size)`,
+`foreground(r, g, b)`, `background(r, g, b)`. The color constructors take three
+`Byte` channels and pack them into the numeric attribute's `0xRRGGBB` value;
+`term::drawText` renders them as truecolor foreground/background, while
+`toMarkdown` (which has no color notation) ignores them.
 
 ## Ranges and storage
 
