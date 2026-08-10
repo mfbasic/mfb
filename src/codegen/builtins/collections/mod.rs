@@ -1,8 +1,7 @@
 use crate::ast::{AstFile, AstProject};
 use crate::codegen::registry::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
-    DefaultValue, Implementation, InjectionRule, Lowering, NativeLower, Parameter, ParameterType,
-    ReturnType,
+    DefaultValue, Implementation, InjectionRule, Lowering, Parameter, ParameterType, ReturnType,
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -146,23 +145,6 @@ const fn native(
             return_type_overloaded: false,
         },
     }
-}
-
-/// Like [`native`], but the function carries its own target-generic lowering
-/// (`Implementation::Native`) so the codegen dual-path seam routes it instead of
-/// the `src/target` ladder (plan-95). Used by the migrated members.
-const fn native_lowered(
-    name: &'static str,
-    slug: &'static str,
-    doc_intro: &'static str,
-    doc_desc: &'static str,
-    errors: &'static [&'static str],
-    overloads: &'static [BuiltinOverload],
-    lower: NativeLower,
-) -> BuiltinFunction {
-    let mut function = native(name, slug, doc_intro, doc_desc, errors, overloads);
-    function.implementation = Implementation::Native(lower);
-    function
 }
 
 // One overload per member, carrying the merged parameter-name table; the resolver

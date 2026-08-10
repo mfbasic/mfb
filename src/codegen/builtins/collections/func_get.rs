@@ -8,7 +8,7 @@
 //! still live in `src/target` and are referenced here (the accepted temporary
 //! `codegen → target` edge until `CodeBuilder` itself relocates).
 
-use super::{custom, native_lowered, req};
+use super::{custom, req};
 use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{list_element_type, map_type_parts};
@@ -45,7 +45,7 @@ only — both paths select the same entry and raise the same error when the key 
 absent."#;
 
 /// The descriptor entry for `collections::get`, wired to `lower_get`.
-pub(crate) const GET: BuiltinFunction = native_lowered(
+pub(crate) const GET: BuiltinFunction = BuiltinFunction::native(
     "collections.get",
     "get",
     INTO_GET,

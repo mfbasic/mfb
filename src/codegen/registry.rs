@@ -247,6 +247,35 @@ impl BuiltinFunction {
             _ => None,
         }
     }
+
+    /// Declare a builtin function that owns its target-generic lowering
+    /// (`Implementation::Native`, reached through the codegen dual-path seam).
+    /// The registry-wide constructor every migrated builtin uses, so no package
+    /// hand-writes the `Implementation::Native` wiring (plan-95).
+    pub(crate) const fn native(
+        name: &'static str,
+        doc_slug: &'static str,
+        doc_intro: &'static str,
+        doc_desc: &'static str,
+        errors: &'static [&'static str],
+        overloads: &'static [BuiltinOverload],
+        lower: NativeLower,
+    ) -> BuiltinFunction {
+        BuiltinFunction {
+            name,
+            doc_slug,
+            doc_intro,
+            doc_desc,
+            errors,
+            overloads,
+            implementation: Implementation::Native(lower),
+            lowering: Lowering::Helper,
+            flags: BuiltinFlags {
+                internal_only: false,
+                return_type_overloaded: false,
+            },
+        }
+    }
 }
 
 /// The kind of a builtin type, so the registry can describe primitives, opaque
