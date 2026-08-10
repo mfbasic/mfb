@@ -1,0 +1,11 @@
+IMPORT io
+
+' bug-353: `validate_project_manifest` (the sole gate for build/test/fmt/doc/audit)
+' skipped the `packages`-must-be-an-array check that the `pkg` subcommands had, so a
+' non-array `packages` was silently ignored — every dependency vanished with no
+' diagnostic. The fix wires validate_packages into the build gate, so a non-array
+' `packages` is rejected with PROJECT_JSON_FIELD_TYPE.
+FUNC main AS Integer
+  io::print("hi")
+  RETURN 0
+END FUNC
