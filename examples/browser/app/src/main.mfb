@@ -410,15 +410,16 @@ FUNC main AS Integer
   ' Cached layout. `wrapped` holds the content lines laid out at the width-mode
   ' width; `lastContentWidth` is that width, so a change re-lays-out. `contentDirty`
   ' marks the content region for repaint (a load, a scroll, or a resize); the chrome
-  ' is cheap and repainted every frame. lastCols/lastRows detect a resize.
+  ' is cheap and repainted every frame. term::didResize() reports a terminal resize.
   MUT wrapped AS List OF String = []
   ' The widest content line, for clamping the horizontal scroll (Left/Right). The
   ' page can be laid out wider than the terminal (see layoutWidthFor / the width
   ' mode), and the viewport shows a `cols`-wide window starting at `hscroll`.
   MUT contentPixWidth AS Integer = 0
   MUT contentDirty AS Boolean = TRUE
-  MUT lastCols AS Integer = -1
-  MUT lastRows AS Integer = -1
+
+  ' Start from a clean surface; thereafter term::didResize() drives the re-clear.
+  term::clear()
 
   DO WHILE running
     ' Track the live terminal size; stop cleanly if the terminal detaches.
@@ -428,22 +429,21 @@ FUNC main AS Integer
     LET cols AS Integer = size.columns
     LET rows AS Integer = size.rows
 
+    ' Read the latched resize flag once per frame (reading it clears it). A resize
+    ' invalidates the whole surface, so clear and repaint everything.
+    LET resized AS Boolean = term::didResize()
+
     IF cols < 1 OR rows < 5 THEN
       ' Too small for the full layout: show a hint and wait for a key or resize.
       term::clear()
       term::moveTo(0, 0)
       io::write(fit("Window too small", maxOf(1, cols)))
       term::sync()
-      lastCols = cols
-      lastRows = rows
       contentDirty = TRUE
     ELSE
-      ' A resize invalidates the whole surface: clear and repaint everything.
-      IF cols <> lastCols OR rows <> lastRows THEN
+      IF resized THEN
         term::clear()
         contentDirty = TRUE
-        lastCols = cols
-        lastRows = rows
       END IF
 
       ' Recompute the content lines when the page, the display mode, the width mode,
