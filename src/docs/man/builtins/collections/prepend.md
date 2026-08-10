@@ -36,7 +36,7 @@ compile-time error. The lowering rejects a list-typed item explicitly as well.
 To place a whole list in front of another, use `collections::append` with the
 operands reversed — `collections::append(front, back)`.
 [[src/codegen/builtins/collections/mod.rs:resolve_prepend]]
-[[src/target/shared/code/collection_mutate.rs:lower_collection_prepend]]
+[[src/codegen/builtins/collections/func_prepend.rs:lower_prepend]]
 
 Internally the element is wrapped as a one-element list and spliced into `value`
 at index `0`, so the operation is the index-`0` case of the same splice that

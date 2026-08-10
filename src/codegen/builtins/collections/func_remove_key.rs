@@ -1,0 +1,81 @@
+//! `collections::removeKey` — descriptor entry + target-generic lowering (plan-96).
+
+use super::{custom, req};
+use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::abi;
+use crate::target::shared::code::type_utils::map_type_parts;
+use crate::target::shared::code::{CodeBuilder, ValueResult};
+use crate::target::shared::nir::NirValue;
+
+const INTO_REMOVE_KEY: &str = "Return a copy of a map with the entry for one key removed.";
+const DESC_REMOVE_KEY: &str = r#"`collections::removeKey` produces a **new** map containing every entry of
+`value` except the one whose key matches `key`. It does not edit `value` in
+place: the lowering scans the entry table to count the entries it will retain
+and size their payloads, allocates a fresh map block, and copies the retained
+entries into it. The original map is left untouched and remains usable.
+
+Retained entries are copied in their existing order, so the surviving entries of
+the result keep the relative order they had in `value`.
+
+Removing a key that is not present is not an error. The scan simply retains
+every entry, and the call returns a fresh map with the same contents as `value`.
+Note that this is a new map rather than the same map object — a `removeKey` for
+an absent key still allocates and copies, it does not return the argument
+itself. The result therefore has `len(value)` entries when `key` was absent, or
+`len(value) - 1` entries when it was present. Because a map holds at most one
+entry per key, at most one entry is ever dropped.
+
+Key comparison is a comparison of the stored key payload: fixed-width keys
+compare their raw stored bits and a `String` key compares length and then bytes.
+Since the comparison is bitwise, a `Float` key of `NaN` matches no entry, so
+such a call always returns an unchanged copy.
+
+`collections::removeKey` raises no trappable domain error — neither a missing
+key nor an empty map fails — so an inline `TRAP` on a `removeKey` call has a
+dead handler. Building the result map does allocate, and an allocation failure
+is not a trappable domain error in this language."#;
+
+pub(crate) const REMOVE_KEY: BuiltinFunction = BuiltinFunction::native(
+    "collections.removeKey",
+    "removeKey",
+    INTO_REMOVE_KEY,
+    DESC_REMOVE_KEY,
+    &[],
+    &[custom(&[
+        req("value", &["map"], "Map OF K TO V"),
+        req("key", &[], "K"),
+    ])],
+    lower_remove_key,
+);
+
+/// `collections::removeKey` — a new map with the entry for `key` dropped (no-op
+/// if absent). Reuses `lower_map_remove_key`.
+pub(crate) fn lower_remove_key(
+    builder: &mut CodeBuilder,
+    args: &[NirValue],
+) -> Result<ValueResult, String> {
+    let map = builder.lower_value(&args[0])?;
+    let Some((key_type, _)) = map_type_parts(&map.type_) else {
+        return Err(format!(
+            "native collection removeKey does not accept {}",
+            map.type_
+        ));
+    };
+    let map_slot = builder.allocate_stack_object("remove_key_map", 8);
+    builder.emit(abi::store_u64(
+        &map.location,
+        abi::stack_pointer(),
+        map_slot,
+    ));
+    let key = builder.lower_value(&args[1])?;
+    if key.type_ != key_type {
+        return Err(format!(
+            "native collection removeKey key must be {}, got {}",
+            key_type, key.type_
+        ));
+    }
+    let key_slot = builder.allocate_stack_object("remove_key_key", 8);
+    // `d`-native float key stores via `str d` (plan-01 float-dnative).
+    builder.store_value_at(&key, abi::stack_pointer(), key_slot);
+    builder.lower_map_remove_key(map_slot, key_slot, &map.type_, &key_type)
+}

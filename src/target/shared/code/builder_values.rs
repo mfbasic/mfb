@@ -728,9 +728,6 @@ impl CodeBuilder<'_> {
                 if native == Some("contains") && args.len() == 2 {
                     return self.lower_collection_contains(args);
                 }
-                if native == Some("getOr") && args.len() == 3 {
-                    return self.lower_collection_get_or(args);
-                }
                 if native == Some("find") && (args.len() == 2 || args.len() == 3) {
                     return self.lower_find(args);
                 }
@@ -743,12 +740,6 @@ impl CodeBuilder<'_> {
                 if native == Some("replace") && args.len() == 3 {
                     return self.lower_replace(args);
                 }
-                if native == Some("append") && args.len() == 2 {
-                    return self.lower_collection_append(args);
-                }
-                if native == Some("prepend") && args.len() == 2 {
-                    return self.lower_collection_prepend(args);
-                }
                 if native == Some("insert") && args.len() == 3 {
                     return self.lower_collection_insert(args);
                 }
@@ -757,18 +748,6 @@ impl CodeBuilder<'_> {
                 }
                 if native == Some("set") && args.len() == 3 {
                     return self.lower_collection_set(args);
-                }
-                if native == Some("removeKey") && args.len() == 2 {
-                    return self.lower_collection_remove_key(args);
-                }
-                if native == Some("hasKey") && args.len() == 2 {
-                    return self.lower_collection_has_key(args);
-                }
-                if native == Some("keys") && args.len() == 1 {
-                    return self.lower_collection_keys(args);
-                }
-                if native == Some("values") && args.len() == 1 {
-                    return self.lower_collection_values_builtin(args);
                 }
                 if native == Some("sum") && args.len() == 1 {
                     return self.lower_collection_sum(args);
@@ -1904,14 +1883,7 @@ impl CodeBuilder<'_> {
         }
         match crate::builtins::native_builtin_target(target) {
             Some("contains") if args.len() == 2 => self.lower_collection_contains(args),
-            Some("hasKey") if args.len() == 2 => self.lower_collection_has_key(args),
-            Some("keys") if args.len() == 1 => self.lower_collection_keys(args),
-            Some("values") if args.len() == 1 => self.lower_collection_values_builtin(args),
             Some("sum") if args.len() == 1 => self.lower_collection_sum(args),
-            Some("getOr") if args.len() == 3 => self.lower_collection_get_or(args),
-            Some("append") if args.len() == 2 => self.lower_collection_append(args),
-            Some("prepend") if args.len() == 2 => self.lower_collection_prepend(args),
-            Some("removeKey") if args.len() == 2 => self.lower_collection_remove_key(args),
             Some("replace") if args.len() == 3 => self.lower_replace(args),
             other => Err(format!(
                 "native infallible inline builtin '{target}' ({other:?}) is not supported"

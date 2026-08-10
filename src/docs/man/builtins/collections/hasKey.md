@@ -30,7 +30,7 @@ IMPORT collections
 `collections::hasKey` returns `TRUE` when `value` holds an entry whose key
 matches `key`, and `FALSE` otherwise. The map is neither copied nor mutated, and
 the matching value is never materialized — only the key is compared.
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_has_key]]
+[[src/codegen/builtins/collections/func_has_key.rs:lower_has_key]]
 
 This is a map-only member. There is no list or `String` form: to test list
 membership use `collections::contains`, and to test for a substring use the

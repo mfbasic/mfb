@@ -36,7 +36,7 @@ precisely the difference between the two: an inline `TRAP` on a
 [[src/builtins/mod.rs:inline_builtin_is_infallible]]
 
 The collection is neither copied nor mutated; only the selected payload is
-materialized. [[src/target/shared/code/builder_collection_queries.rs:lower_collection_get_or]]
+materialized. [[src/codegen/builtins/collections/func_get_or.rs:lower_get_or]]
 
 Both the found path and the default path return an **owned** value. When the
 element type is `String`, the supplied `default` is copied into a fresh owned
@@ -49,7 +49,7 @@ before it is returned.
 
 `default` is an ordinary argument expression, so it is evaluated before the
 lookup runs, whether or not it ends up being used.
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_get_or]]
+[[src/codegen/builtins/collections/func_get_or.rs:lower_get_or]]
 
 For the map overload, key comparison is a comparison of the stored key payload:
 fixed-width keys compare their raw stored bits and `String` keys compare length

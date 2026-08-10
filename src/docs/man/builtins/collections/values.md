@@ -32,7 +32,7 @@ in `value`. It walks the map's lookup-entry table front to back, copying each
 entry's value payload into a freshly allocated list block. The source map is not
 mutated and its own storage is not aliased by the result — the returned list is
 an independent, owned collection.
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_values_builtin]]
+[[src/codegen/builtins/collections/func_values.rs:lower_values]]
 [[src/target/shared/code/builder_collection_queries.rs:lower_map_projection]]
 
 The result has exactly one item per map entry, so its length equals

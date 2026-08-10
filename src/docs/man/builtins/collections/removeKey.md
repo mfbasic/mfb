@@ -32,7 +32,7 @@ IMPORT collections
 place: the lowering scans the entry table to count the entries it will retain
 and size their payloads, allocates a fresh map block, and copies the retained
 entries into it. The original map is left untouched and remains usable.
-[[src/target/shared/code/collection_mutate.rs:lower_collection_remove_key]]
+[[src/codegen/builtins/collections/func_remove_key.rs:lower_remove_key]]
 [[src/target/shared/code/map_mutate.rs:lower_map_remove_key]]
 
 Retained entries are copied in their existing order, so the surviving entries of

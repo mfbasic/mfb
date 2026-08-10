@@ -1,27 +1,13 @@
 use super::*;
 
 impl CodeBuilder<'_> {
-    pub(super) fn lower_collection_append(
-        &mut self,
-        args: &[NirValue],
-    ) -> Result<ValueResult, String> {
-        self.lower_collection_end_insert(args, "append", false)
-    }
-
-    pub(super) fn lower_collection_prepend(
-        &mut self,
-        args: &[NirValue],
-    ) -> Result<ValueResult, String> {
-        self.lower_collection_end_insert(args, "prepend", true)
-    }
-
     /// Shared body of `append`/`prepend`: insert a single item at one end of a
     /// list. The two differ only in the insertion index (`count` for append, `0`
     /// for prepend), prepend's reject-a-list-argument guard, and the slot/error
     /// names — all keyed off `op`/`at_start`, so each variant emits exactly what
     /// its former standalone function did (`op` reproduces the original stack-slot
     /// names, keeping the dumps byte-identical).
-    fn lower_collection_end_insert(
+    pub(crate) fn lower_collection_end_insert(
         &mut self,
         args: &[NirValue],
         op: &str,
@@ -350,35 +336,5 @@ impl CodeBuilder<'_> {
             "native collection set does not accept {} yet",
             collection.type_
         ))
-    }
-
-    pub(super) fn lower_collection_remove_key(
-        &mut self,
-        args: &[NirValue],
-    ) -> Result<ValueResult, String> {
-        let map = self.lower_value(&args[0])?;
-        let Some((key_type, _)) = map_type_parts(&map.type_) else {
-            return Err(format!(
-                "native collection removeKey does not accept {}",
-                map.type_
-            ));
-        };
-        let map_slot = self.allocate_stack_object("remove_key_map", 8);
-        self.emit(abi::store_u64(
-            &map.location,
-            abi::stack_pointer(),
-            map_slot,
-        ));
-        let key = self.lower_value(&args[1])?;
-        if key.type_ != key_type {
-            return Err(format!(
-                "native collection removeKey key must be {}, got {}",
-                key_type, key.type_
-            ));
-        }
-        let key_slot = self.allocate_stack_object("remove_key_key", 8);
-        // `d`-native float key stores via `str d` (plan-01 float-dnative).
-        self.store_value_at(&key, abi::stack_pointer(), key_slot);
-        self.lower_map_remove_key(map_slot, key_slot, &map.type_, &key_type)
     }
 }

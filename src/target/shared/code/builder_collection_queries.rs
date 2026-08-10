@@ -178,130 +178,13 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn lower_collection_get_or(
-        &mut self,
-        args: &[NirValue],
-    ) -> Result<ValueResult, String> {
-        let collection = self.lower_value(&args[0])?;
-        let collection_slot = self.allocate_stack_object("get_or_collection", 8);
-        self.emit(abi::store_u64(
-            &collection.location,
-            abi::stack_pointer(),
-            collection_slot,
-        ));
-
-        let key = self.lower_value(&args[1])?;
-        let key_slot = self.allocate_stack_object("get_or_key", 8);
-        // `d`-native float key/default store via `str d` (plan-01 float-dnative).
-        self.store_value_at(&key, abi::stack_pointer(), key_slot);
-
-        let default = self.lower_value(&args[2])?;
-        let default_slot = self.allocate_stack_object("get_or_default", 8);
-        self.store_value_at(&default, abi::stack_pointer(), default_slot);
-
-        if let Some(element_type) = list_element_type(&collection.type_) {
-            if key.type_ != "Integer" {
-                return Err(format!(
-                    "native collection getOr list index must be Integer, got {}",
-                    key.type_
-                ));
-            }
-            if default.type_ != element_type {
-                return Err(format!(
-                    "native collection getOr default must be {}, got {}",
-                    element_type, default.type_
-                ));
-            }
-            let result = self.lower_list_get_or(
-                collection_slot,
-                key_slot,
-                default_slot,
-                &collection.type_,
-                &element_type,
-            )?;
-            return self.materialize_owned_element(result);
-        }
-
-        if let Some((key_type, value_type)) = map_type_parts(&collection.type_) {
-            if key.type_ != key_type {
-                return Err(format!(
-                    "native collection getOr map key must be {}, got {}",
-                    key_type, key.type_
-                ));
-            }
-            if default.type_ != value_type {
-                return Err(format!(
-                    "native collection getOr default must be {}, got {}",
-                    value_type, default.type_
-                ));
-            }
-            let result = self.lower_map_get_or(
-                collection_slot,
-                key_slot,
-                default_slot,
-                &collection.type_,
-                &key_type,
-                &value_type,
-            )?;
-            return self.materialize_owned_element(result);
-        }
-
-        Err(format!(
-            "native collection getOr does not accept {}",
-            collection.type_
-        ))
-    }
-
-    pub(super) fn lower_collection_has_key(
-        &mut self,
-        args: &[NirValue],
-    ) -> Result<ValueResult, String> {
-        let collection = self.lower_value(&args[0])?;
-        let collection_slot = self.allocate_stack_object("has_key_collection", 8);
-        self.emit(abi::store_u64(
-            &collection.location,
-            abi::stack_pointer(),
-            collection_slot,
-        ));
-        let key = self.lower_value(&args[1])?;
-        let key_slot = self.allocate_stack_object("has_key_key", 8);
-        // `d`-native float key stores via `str d` (plan-01 float-dnative).
-        self.store_value_at(&key, abi::stack_pointer(), key_slot);
-
-        // A Map keys on its key type; a Set (reached via `contains`, plan-63-B)
-        // keys on its element type — both are the bytes the probe compares.
-        let Some(key_type) = map_type_parts(&collection.type_)
-            .map(|(key, _)| key.to_string())
-            .or_else(|| set_element_type(&collection.type_))
-        else {
-            return Err(format!(
-                "native collection hasKey/contains does not accept {}",
-                collection.type_
-            ));
-        };
-        let key_type = key_type.as_str();
-        if key.type_ != key_type {
-            return Err(format!(
-                "native collection hasKey key must be {}, got {}",
-                key_type, key.type_
-            ));
-        }
-        return self.emit_key_membership(
-            collection_slot,
-            key_slot,
-            key_type,
-            "has_key",
-            &collection.type_,
-        );
-    }
-
     /// The shared Map/Set membership test: probe the FNV-1a bucket index for a
     /// probe-eligible key type, else linear-scan the entry keys, yielding a
     /// `Boolean`. Both `collections::hasKey` (Map) and the Set overload of
     /// `collections::contains` (plan-63-B) lower through here — a Set's element is
     /// its entry key, so the byte-compare is identical. `collection_slot` holds the
     /// collection pointer and `key_slot` the needle, both already spilled.
-    pub(super) fn emit_key_membership(
+    pub(crate) fn emit_key_membership(
         &mut self,
         collection_slot: usize,
         key_slot: usize,
@@ -377,34 +260,6 @@ impl CodeBuilder<'_> {
             location: Operand::from(result.render()),
             text: format!("{label_prefix}({collection_type}, {key_type})"),
         })
-    }
-
-    pub(super) fn lower_collection_keys(
-        &mut self,
-        args: &[NirValue],
-    ) -> Result<ValueResult, String> {
-        let collection = self.lower_value(&args[0])?;
-        let Some((key_type, _)) = map_type_parts(&collection.type_) else {
-            return Err(format!(
-                "native collection keys does not accept {}",
-                collection.type_
-            ));
-        };
-        self.lower_map_projection(&collection, &key_type, true)
-    }
-
-    pub(super) fn lower_collection_values_builtin(
-        &mut self,
-        args: &[NirValue],
-    ) -> Result<ValueResult, String> {
-        let collection = self.lower_value(&args[0])?;
-        let Some((_, value_type)) = map_type_parts(&collection.type_) else {
-            return Err(format!(
-                "native collection values does not accept {}",
-                collection.type_
-            ));
-        };
-        self.lower_map_projection(&collection, &value_type, false)
     }
 
     pub(crate) fn lower_map_projection(

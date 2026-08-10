@@ -8,9 +8,16 @@ use std::collections::HashMap;
 use std::path::Path;
 
 mod func_add;
+mod func_append;
 mod func_get;
+mod func_get_or;
+mod func_has_key;
+mod func_keys;
+mod func_prepend;
 mod func_remove;
+mod func_remove_key;
 mod func_to_list;
+mod func_values;
 
 /// Path of the compiler-owned `collections` package source injected into every
 /// project that imports it. This is the `AstFile.path` (see `source_file`), so
@@ -166,40 +173,6 @@ const fn custom(params: &'static [Parameter]) -> BuiltinOverload {
 // fields on `BuiltinFunction`.
 // (`get`'s doc consts + entry moved to func_get.rs, plan-95.)
 
-// ---- getOr ----
-const INTO_GET_OR: &str =
-    "Read a list item or map value, returning a supplied default when it is absent.";
-const DESC_GET_OR: &str = r#"`collections::getOr` is the total counterpart of `collections::get`. It performs
-the same lookup, but instead of raising a domain error when the element is
-missing it returns `default`. It raises no trappable error at all, which is
-precisely the difference between the two: an inline `TRAP` on a
-`collections::getOr` call has a dead handler.
-
-The collection is neither copied nor mutated; only the selected payload is
-materialized.
-
-Both the found path and the default path return an **owned** value. When the
-element type is `String`, the supplied `default` is copied into a fresh owned
-string on the fallback path rather than being returned as a borrow, so the
-result can be bound and freed identically no matter which path ran. A composite
-payload read out of the collection is likewise copied into a standalone block
-before it is returned.
-
-`default` is an ordinary argument expression, so it is evaluated before the
-lookup runs, whether or not it ends up being used.
-
-For the map overload, key comparison is a comparison of the stored key payload:
-fixed-width keys compare their raw stored bits and `String` keys compare length
-and then bytes. A `Float` key is matched bit-for-bit, so `NaN` never matches and
-`-0.0` does not match a stored `0.0`; such a lookup simply yields `default`.
-
-Map lookup for the common key types `String`, `Integer`, `Float`, `Fixed`,
-`Byte`, and `Boolean` goes through the map's hash bucket index — the same probe
-`collections::get` uses — with `default` substituted on the probe's not-found
-branch; other key types fall back to a linear scan of the entry table. This is
-a performance difference only — both paths select the same entry and yield the
-same `default` when the key is absent."#;
-
 // ---- set ----
 const INTO_SET: &str = "Return a collection with one element replaced, or one map key assigned";
 const DESC_SET: &str = r#"`collections::set` returns a new collection with one position updated. It takes
@@ -241,81 +214,6 @@ check, so an inline `TRAP` on a `set` call compiles and catches that failure
 rather than being reported as a dead handler. On the list path the bounds test
 runs before any replacement value is materialized, so a rejected index allocates
 nothing."#;
-
-// ---- append ----
-const INTO_APPEND: &str =
-    "Return a list with one element, or every element of another list, added at the end";
-const DESC_APPEND: &str = r#"`collections::append` returns a new list whose contents are those of `value`
-followed by the appended content. It takes exactly two arguments; neither is
-optional and neither is variadic.
-
-The second argument may be either a single element of the list's element type
-`T`, or another `List OF T`. The compiler picks the overload from the static type
-of that argument: an argument whose type is exactly the element type appends one
-element, and an argument whose type is exactly the same list type concatenates.
-Any other type is a compile-time error, because no other combination resolves.
-
-Internally both forms are the same operation: the appended content is wrapped as
-a list when it is a single element, and the result is built by splicing that list
-into `value` at index `count(value)` — the one-past-the-end position, which the
-splice accepts as the append position. Existing elements keep their relative
-order, and the appended content is placed after all of them in its own order.
-
-`append` is value-semantic. The list named by `value` is unchanged; the modified
-list is the returned value, and a program observes the update only through what
-it does with that return value. When the compiler can prove the target is a
-uniquely owned local being reassigned — the `list = collections::append(list, x)`
-shape, on a non-`by_ref` local that is not the live iterable of an enclosing
-`FOR EACH` — it lowers the call to an in-place grow with geometric spare
-capacity, making a repeated append amortized O(1) rather than a full copy. This
-is an optimization only: the observable semantics are identical either way.
-
-`append` is **infallible**: no path in its lowering raises a trappable domain
-error. It has no index to range-check and no lookup to miss, so it is classified
-as infallible alongside `prepend` and `replace`, and an inline `TRAP` written on
-an `append` call has a dead handler (the front end reports
-`TYPE_INLINE_TRAP_DEAD_HANDLER`). Allocation exhaustion is not a trappable domain
-error in this language.
-
-Appending an empty list returns a copy of `value` with the same elements in the
-same order."#;
-
-// ---- prepend ----
-const INTO_PREPEND: &str = "Return a list with one element added at the start";
-const DESC_PREPEND: &str = r#"`collections::prepend` returns a new list whose first element is `item` and whose
-remaining elements are those of `value` in their original order. The result is
-always exactly one element longer than `value`. It takes exactly two arguments;
-neither is optional and neither is variadic.
-
-Unlike `collections::append`, `prepend` has **only** the single-element form.
-There is no list-into-list overload: the second argument must have exactly the
-element type `T`, and passing another `List OF T` resolves no overload and is a
-compile-time error. The lowering rejects a list-typed item explicitly as well.
-To place a whole list in front of another, use `collections::append` with the
-operands reversed — `collections::append(front, back)`.
-
-Internally the element is wrapped as a one-element list and spliced into `value`
-at index `0`, so the operation is the index-`0` case of the same splice that
-backs `append` and `insert`.
-
-`prepend` is value-semantic. The list named by `value` is unchanged; the modified
-list is the returned value. When the compiler can prove the target is a uniquely
-owned local being reassigned — the `list = collections::prepend(list, x)` shape,
-on a non-`by_ref` local that is not the live iterable of an enclosing `FOR EACH` —
-it lowers the call to an in-place shift-and-insert with geometric spare capacity
-instead of a full copy. This is an optimization only; the observable semantics
-are identical either way. Note that prepending must shift every existing lookup
-entry right by one, so a repeated prepend stays O(n) per call even on the
-in-place path, unlike `append`.
-
-`prepend` is **infallible**: no path in its lowering raises a trappable domain
-error. It has no index to range-check and no lookup to miss, so it is classified
-as infallible alongside `append` and `replace`, and an inline `TRAP` written on a
-`prepend` call has a dead handler (the front end reports
-`TYPE_INLINE_TRAP_DEAD_HANDLER`). Allocation exhaustion is not a trappable domain
-error in this language.
-
-Prepending to an empty list yields a one-element list."#;
 
 // ---- insert ----
 const INTO_INSERT: &str = "Return a list with one element inserted before a given index";
@@ -378,118 +276,6 @@ the result block is allocated, so a rejected index allocates nothing.
 `removeAt` operates on lists only. To drop a key from a `Map OF K TO V`, use
 `collections::removeKey`, which takes a key rather than an index and does not
 raise when the key is absent."#;
-
-// ---- removeKey ----
-const INTO_REMOVE_KEY: &str = "Return a copy of a map with the entry for one key removed.";
-const DESC_REMOVE_KEY: &str = r#"`collections::removeKey` produces a **new** map containing every entry of
-`value` except the one whose key matches `key`. It does not edit `value` in
-place: the lowering scans the entry table to count the entries it will retain
-and size their payloads, allocates a fresh map block, and copies the retained
-entries into it. The original map is left untouched and remains usable.
-
-Retained entries are copied in their existing order, so the surviving entries of
-the result keep the relative order they had in `value`.
-
-Removing a key that is not present is not an error. The scan simply retains
-every entry, and the call returns a fresh map with the same contents as `value`.
-Note that this is a new map rather than the same map object — a `removeKey` for
-an absent key still allocates and copies, it does not return the argument
-itself. The result therefore has `len(value)` entries when `key` was absent, or
-`len(value) - 1` entries when it was present. Because a map holds at most one
-entry per key, at most one entry is ever dropped.
-
-Key comparison is a comparison of the stored key payload: fixed-width keys
-compare their raw stored bits and a `String` key compares length and then bytes.
-Since the comparison is bitwise, a `Float` key of `NaN` matches no entry, so
-such a call always returns an unchanged copy.
-
-`collections::removeKey` raises no trappable domain error — neither a missing
-key nor an empty map fails — so an inline `TRAP` on a `removeKey` call has a
-dead handler. Building the result map does allocate, and an allocation failure
-is not a trappable domain error in this language."#;
-
-// ---- keys ----
-const INTO_KEYS: &str = "Return a map's keys as a list.";
-const DESC_KEYS: &str = r#"`collections::keys` builds a new `List OF K` holding the key of every entry in
-`value`. It walks the map's lookup-entry table front to back, copying each
-entry's key payload into a freshly allocated list block. The source map is not
-mutated and its own storage is not aliased by the result — the returned list is
-an independent, owned collection.
-
-The result has exactly one item per map entry, so its length equals
-`len(value)`. An empty map yields an empty list. Each key appears exactly once,
-because a map holds at most one entry per key.
-
-**Ordering.** The projection walks the lookup-entry array directly, and that
-array is maintained in insertion order; the hash bucket index is separate
-derived metadata that does not reorder it. `collections::keys` and
-`collections::values` walk the same array over the same entries and differ only
-in which payload field of each entry they copy, so the two results are
-index-aligned: item `i` of `collections::keys(m)` is the key of the entry whose
-value is item `i` of `collections::values(m)`. The language specification
-describes map iteration order as implementation-defined but stable for a given
-unchanged map, so treat insertion order as the current implementation's behavior
-rather than a guarantee to rely on across versions.
-
-`collections::keys` raises no trappable domain error, so an inline `TRAP` on a
-`keys` call has a dead handler. Building the result list does allocate, and an
-allocation failure is not a trappable domain error in this language."#;
-
-// ---- values ----
-const INTO_VALUES: &str = "Return a map's values as a list.";
-const DESC_VALUES: &str = r#"`collections::values` builds a new `List OF V` holding the value of every entry
-in `value`. It walks the map's lookup-entry table front to back, copying each
-entry's value payload into a freshly allocated list block. The source map is not
-mutated and its own storage is not aliased by the result — the returned list is
-an independent, owned collection.
-
-The result has exactly one item per map entry, so its length equals
-`len(value)`. An empty map yields an empty list. Unlike the key projection, the
-result may contain duplicates, because distinct keys may store equal values.
-
-**Ordering.** The projection walks the lookup-entry array directly, and that
-array is maintained in insertion order; the hash bucket index is separate
-derived metadata that does not reorder it. `collections::values` and
-`collections::keys` are the same traversal over the same entries and differ only
-in which payload field of each entry they copy, so the two results are
-index-aligned: item `i` of `collections::values(m)` is the value of the entry
-whose key is item `i` of `collections::keys(m)`. The language specification
-describes map iteration order as implementation-defined but stable for a given
-unchanged map, so treat insertion order as the current implementation's behavior
-rather than a guarantee to rely on across versions.
-
-`collections::values` raises no trappable domain error, so an inline `TRAP` on a
-`values` call has a dead handler. Building the result list does allocate, and an
-allocation failure is not a trappable domain error in this language."#;
-
-// ---- hasKey ----
-const INTO_HAS_KEY: &str = "Test whether a map contains an entry for a key.";
-const DESC_HAS_KEY: &str = r#"`collections::hasKey` returns `TRUE` when `value` holds an entry whose key
-matches `key`, and `FALSE` otherwise. The map is neither copied nor mutated, and
-the matching value is never materialized — only the key is compared.
-
-This is a map-only member. There is no list or `String` form: to test list
-membership use `collections::contains`, and to test for a substring use the
-`strings::` package.
-
-Key comparison is a comparison of the stored key payload. Fixed-width keys
-compare their raw stored bits (one byte for `Boolean` and `Byte`, four for
-`Scalar`, eight for `Integer`, `Float`, `Fixed`, and `Money`), and a `String`
-key compares its length first and then its bytes. Because the comparison is
-bitwise, a `Float` key of `NaN` never reports as present and `-0.0` does not
-match a stored `0.0`.
-
-For the key types `String`, `Integer`, `Float`, `Fixed`, `Byte`, and `Boolean`
-the probe uses the map's hash bucket index; other key types use a linear scan of
-the entry table. Both paths compare exactly the same key bytes and return the
-same answer.
-
-`collections::hasKey` raises no trappable domain error, so an inline `TRAP` on a
-`hasKey` call has a dead handler.
-
-Use `hasKey` to guard a `collections::get`, which *does* fail on a missing key.
-When the goal is simply to obtain a value with a fallback,
-`collections::getOr` does it in one call and avoids the second lookup."#;
 
 // ---- contains ----
 const INTO_CONTAINS: &str = "Test whether a list holds an item equal to a given value.";
@@ -955,18 +741,7 @@ It does not mutate `value`."#;
 
 const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
     func_get::GET,
-    native(
-        "collections.getOr",
-        "getOr",
-        INTO_GET_OR,
-        DESC_GET_OR,
-        &[],
-        &[custom(&[
-            req("value", &["collection"], "List OF T"),
-            req("index", &["key"], "Integer"),
-            req("default", &["fallback"], "T"),
-        ])],
-    ),
+    func_get_or::GET_OR,
     native(
         "collections.set",
         "set",
@@ -979,28 +754,8 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
             req("item", &[], "T"),
         ])],
     ),
-    native(
-        "collections.append",
-        "append",
-        INTO_APPEND,
-        DESC_APPEND,
-        &[],
-        &[custom(&[
-            req("value", &["list"], "List OF T"),
-            req("item", &["items"], "T"),
-        ])],
-    ),
-    native(
-        "collections.prepend",
-        "prepend",
-        INTO_PREPEND,
-        DESC_PREPEND,
-        &[],
-        &[custom(&[
-            req("value", &["list"], "List OF T"),
-            req("item", &[], "T"),
-        ])],
-    ),
+    func_append::APPEND,
+    func_prepend::PREPEND,
     native(
         "collections.insert",
         "insert",
@@ -1024,44 +779,10 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
             req("index", &[], "Integer"),
         ])],
     ),
-    native(
-        "collections.removeKey",
-        "removeKey",
-        INTO_REMOVE_KEY,
-        DESC_REMOVE_KEY,
-        &[],
-        &[custom(&[
-            req("value", &["map"], "Map OF K TO V"),
-            req("key", &[], "K"),
-        ])],
-    ),
-    native(
-        "collections.keys",
-        "keys",
-        INTO_KEYS,
-        DESC_KEYS,
-        &[],
-        &[custom(&[req("value", &["map"], "Map OF K TO V")])],
-    ),
-    native(
-        "collections.values",
-        "values",
-        INTO_VALUES,
-        DESC_VALUES,
-        &[],
-        &[custom(&[req("value", &["map"], "Map OF K TO V")])],
-    ),
-    native(
-        "collections.hasKey",
-        "hasKey",
-        INTO_HAS_KEY,
-        DESC_HAS_KEY,
-        &[],
-        &[custom(&[
-            req("value", &["map"], "Map OF K TO V"),
-            req("key", &[], "K"),
-        ])],
-    ),
+    func_remove_key::REMOVE_KEY,
+    func_keys::KEYS,
+    func_values::VALUES,
+    func_has_key::HAS_KEY,
     native(
         "collections.contains",
         "contains",

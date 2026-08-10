@@ -564,7 +564,7 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn lower_list_get_or(
+    pub(crate) fn lower_list_get_or(
         &mut self,
         collection_slot: usize,
         key_slot: usize,
@@ -583,7 +583,7 @@ impl CodeBuilder<'_> {
         )
     }
 
-    pub(super) fn lower_map_get_or(
+    pub(crate) fn lower_map_get_or(
         &mut self,
         collection_slot: usize,
         key_slot: usize,

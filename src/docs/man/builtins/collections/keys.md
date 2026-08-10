@@ -32,7 +32,7 @@ IMPORT collections
 entry's key payload into a freshly allocated list block. The source map is not
 mutated and its own storage is not aliased by the result — the returned list is
 an independent, owned collection.
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_keys]]
+[[src/codegen/builtins/collections/func_keys.rs:lower_keys]]
 [[src/target/shared/code/builder_collection_queries.rs:lower_map_projection]]
 
 The result has exactly one item per map entry, so its length equals
