@@ -54,10 +54,12 @@ pub(super) fn prepend_wrong_mode_gate(
     relocations: &mut Vec<CodeRelocation>,
     symbol: &str,
     presentation_mode_offset: Option<usize>,
+    function_id: &str,
 ) {
     let Some(offset) = presentation_mode_offset else {
         return;
     };
+    let _builtin = crate::builtins::descriptor::REGISTRY.function(function_id);
     let ok = format!("{symbol}_mode_ok");
     let mut gate = vec![
         abi::load_u64(abi::SCRATCH[0], ARENA_STATE_REGISTER, offset),

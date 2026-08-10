@@ -131,6 +131,9 @@ const fn cf(
     BuiltinFunction {
         name,
         doc_slug: slug,
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads,
         // Implementation is argument-dependent (native vs typed source body), so
         // the resolver owns it; `DefaultResolver::implementation_name` returns

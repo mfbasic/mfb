@@ -19,6 +19,9 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: PARSE,
         doc_slug: "parse",
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads: &[BuiltinOverload {
             params: &[Parameter {
                 name: "value",
@@ -38,6 +41,9 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: STRINGIFY,
         doc_slug: "stringify",
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads: &[BuiltinOverload {
             params: &[Parameter::required("value", GRID_TYPE)],
             return_type: ReturnType::Fixed("String"),

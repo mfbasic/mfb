@@ -166,6 +166,9 @@ const fn term_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads,
         // `term::` calls lower directly by name to the native backend — no rewrite.
         implementation: Implementation::Same,

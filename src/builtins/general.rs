@@ -88,6 +88,9 @@ const fn gfn(
     BuiltinFunction {
         name,
         doc_slug: slug,
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads,
         implementation: Implementation::Same,
         lowering: Lowering::Helper,

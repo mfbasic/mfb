@@ -40,6 +40,9 @@ const fn json_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads,
         implementation,
         lowering: Lowering::Helper,

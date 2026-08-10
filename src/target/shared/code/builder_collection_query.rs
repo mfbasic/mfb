@@ -72,6 +72,10 @@ impl CodeBuilder<'_> {
         collection_type: &str,
         element_type: &str,
     ) -> Result<ValueResult, String> {
+        let builtin = crate::builtins::descriptor::REGISTRY
+            .function("collections.get")
+            .expect("collections.get is registered")
+            .1;
         self.reset_temporary_registers();
         let collection = self.allocate_register()?;
         let index = self.allocate_register()?;
@@ -118,7 +122,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&miss));
         let text = match default_slot {
             None => {
-                self.emit_index_out_of_range_return()?;
+                let error_name = builtin.errors[0];
+                let error = crate::builtins::errorcode::runtime_error(error_name)
+                    .expect("errors[0] names a known errorCode constant");
+                self.emit_error_code_return(error.0, error.1)?;
                 format!("get({collection_type}, Integer)")
             }
             Some(default_slot) => {

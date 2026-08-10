@@ -14,55 +14,67 @@
 
 use super::descriptor::BuiltinModule;
 
-/// `(name, integer-literal)` for every runtime registry row. Hand-maintained
+/// `(name, integer-literal, message)` for every runtime registry row. Hand-maintained
 /// here (the source of truth for `errorCode::Err*` values); the spec topic
 /// `src/docs/spec/diagnostics/02_error-codes.md` documents the same registry and
 /// the `table_matches_registry` test keeps the two in agreement.
-pub(crate) const ERRORCODE_CONSTANTS: &[(&str, &str)] = &[
-    ("ErrUnknown", "77050000"),
-    ("ErrIndexOutOfRange", "77050001"),
-    ("ErrInvalidArgument", "77050002"),
-    ("ErrInvalidFormat", "77050003"),
-    ("ErrNotFound", "77050004"),
-    ("ErrAlreadyExists", "77050005"),
-    ("ErrPermissionDenied", "77050006"),
-    ("ErrUnsupported", "77050007"),
-    ("ErrTimeout", "77050008"),
-    ("ErrInterrupted", "77050009"),
-    ("ErrOutOfMemory", "77010001"),
-    ("ErrPathNotFound", "77030001"),
-    ("ErrInvalidPath", "77030002"),
-    ("ErrAccessDenied", "77030003"),
-    ("ErrReadFailed", "77020001"),
-    ("ErrWriteFailed", "77020002"),
-    ("ErrEndOfFile", "77020003"),
-    ("ErrResourceClosed", "77030004"),
-    ("ErrResourceBusy", "77030005"),
-    ("ErrEncoding", "77020004"),
-    ("ErrInputFailed", "77020005"),
-    ("ErrAddressInvalid", "77070001"),
-    ("ErrAddressNotFound", "77070002"),
-    ("ErrNetworkFailed", "77070003"),
-    ("ErrConnectionClosed", "77070004"),
-    ("ErrMessageTooLarge", "77070007"),
-    ("ErrOverflow", "77050010"),
-    ("ErrCloseFailed", "77030006"),
-    ("ErrNativeBindingUnavailable", "77030007"),
-    ("ErrNativeBindingCallFailed", "77030008"),
-    ("ErrTlsFailed", "77070008"),
-    ("ErrUnderflow", "77050011"),
-    ("ErrFloatDomain", "77050012"),
-    ("ErrFloatNaN", "77050013"),
-    ("ErrFloatInf", "77050014"),
-    ("ErrFloatOverflow", "77050015"),
-    ("ErrWrapped", "77060001"),
-    ("ErrAuthenticationFailed", "77050016"),
-    ("ErrAudioUnavailable", "77050017"),
-    ("ErrAudioDevice", "77050018"),
-    ("ErrInvalidContext", "77050019"),
-    ("ErrWrongMode", "77050020"),
-    ("ErrResourceMoved", "77030009"),
-    ("ErrNativeBufferOverrun", "77030010"),
+///
+/// The value is a decimal *string*, not an integer, on purpose. `constant_value`
+/// feeds `builtins::package_constant_value` — the single constant path shared with
+/// `math::`, whose values are non-integer decimals (`math::pi` is
+/// `"3.141592653589793"`), so the shared return type must be a string. That path
+/// lowers to `IrValue::Const { value: String }` (`src/ir/lower.rs`), an
+/// intentionally text-erased literal that carries every scalar kind uniformly and
+/// round-trips through the binary/JSON package formats. Storing these codes as
+/// strings keeps errorCode on that shared path and matches the IR's own
+/// representation, so no parse/format step is needed. A typed `u32` here would buy
+/// nothing: it would be re-stringified at the IR boundary anyway, while forking
+/// errorCode off the shared constant path.
+pub(crate) const ERRORCODE_CONSTANTS: &[(&str, &str, &str)] = &[
+    ("ErrUnknown", "77050000", "Unclassified standard-package failure."),
+    ("ErrIndexOutOfRange", "77050001", "List or string index/range is outside valid bounds."),
+    ("ErrInvalidArgument", "77050002", "Argument value is not valid for the requested operation."),
+    ("ErrInvalidFormat", "77050003", "Text parse or non-finite numeric representation conversion failed."),
+    ("ErrNotFound", "77050004", "Requested item, key, file, or resource was not found."),
+    ("ErrAlreadyExists", "77050005", "Create operation conflicts with an existing item."),
+    ("ErrPermissionDenied", "77050006", "Operation is not permitted by the host environment."),
+    ("ErrUnsupported", "77050007", "Operation is not supported by the implementation or platform."),
+    ("ErrTimeout", "77050008", "Operation did not complete before its deadline."),
+    ("ErrInterrupted", "77050009", "Operation was interrupted before completion."),
+    ("ErrOutOfMemory", "77010001", "Allocation failed."),
+    ("ErrPathNotFound", "77030001", "Filesystem path does not exist."),
+    ("ErrInvalidPath", "77030002", "Filesystem path string is invalid for the host platform."),
+    ("ErrAccessDenied", "77030003", "Filesystem access was denied."),
+    ("ErrReadFailed", "77020001", "Read operation failed."),
+    ("ErrWriteFailed", "77020002", "Write or flush operation failed."),
+    ("ErrEndOfFile", "77020003", "Read operation reached end of file where a value was required."),
+    ("ErrResourceClosed", "77030004", "Resource handle is already closed."),
+    ("ErrResourceBusy", "77030005", "Resource is unavailable, locked, busy, or not in the required empty state."),
+    ("ErrEncoding", "77020004", "Text encoding or decoding failed."),
+    ("ErrInputFailed", "77020005", "Standard input operation failed."),
+    ("ErrAddressInvalid", "77070001", "Network host, address, or port is invalid."),
+    ("ErrAddressNotFound", "77070002", "Network host name or address could not be resolved."),
+    ("ErrNetworkFailed", "77070003", "Network operation failed before a connection was established."),
+    ("ErrConnectionClosed", "77070004", "Socket peer closed the connection or the connection is no longer usable."),
+    ("ErrMessageTooLarge", "77070007", "Datagram or message exceeds the requested or supported size."),
+    ("ErrOverflow", "77050010", "Arithmetic overflow or numeric conversion outside the destination range."),
+    ("ErrCloseFailed", "77030006", "Resource close operation failed."),
+    ("ErrNativeBindingUnavailable", "77030007", "Native `LINK` binding library or symbol could not be loaded at startup (`dlopen`/`dlsym` failed)."),
+    ("ErrNativeBindingCallFailed", "77030008", "Native `LINK` binding call failed its `SUCCESS_ON` gate."),
+    ("ErrTlsFailed", "77070008", "TLS handshake, certificate validation, SNI validation, or protocol operation failed."),
+    ("ErrUnderflow", "77050011", "Arithmetic underflow below the destination range."),
+    ("ErrFloatDomain", "77050012", "Floating-point operation domain is invalid (negative `sqrt`, non-positive `log`/`log10`, out-of-range `asin`/`acos`, a non-whole or negative `^` exponent, or a `Float MOD 0`). Divide-by-zero is not reported here — `x / 0` produces `±Inf`/`NaN` caught at the observation boundary as `ErrFloatOverflow`/`ErrFloatNaN`."),
+    ("ErrFloatNaN", "77050013", "Floating-point operation produced a NaN result."),
+    ("ErrFloatInf", "77050014", "Floating-point operation produced an infinity result."),
+    ("ErrFloatOverflow", "77050015", "Floating-point arithmetic overflowed to infinity."),
+    ("ErrWrapped", "77060001", "Generic wrapper code for adding context while preserving the underlying message."),
+    ("ErrAuthenticationFailed", "77050016", "Authenticated decryption failed: the message authentication tag did not verify."),
+    ("ErrAudioUnavailable", "77050017", "Audio backend library or device is unavailable (no `libasound.so.2`, no audio device, or capture authorization denied)."),
+    ("ErrAudioDevice", "77050018", "Audio device open, configuration, or stream operation failed."),
+    ("ErrInvalidContext", "77050019", "Operation was invoked from a thread that is not permitted to perform it (e.g. reading stdin from a thread that has not called `thread::openStdIn`)."),
+    ("ErrWrongMode", "77050020", "Operation requires a presentation mode the program is not in: in an `--app` build, `term::*` and the console-reading `io::` calls (`io::input`/`io::readLine`/`io::readChar`) require `app::Mode.Console` (plan-62-E)."),
+    ("ErrResourceMoved", "77030009", "Resource handle was moved to another thread by `thread::transfer` and is no longer usable by the sender."),
+    ("ErrNativeBufferOverrun", "77030010", "Native `LINK` `OUT CBuffer` callee wrote past its declared `SIZE` (buffer overrun detected)."),
 ];
 
 // plan-72-J: `errorCode` exposes only `Integer` constants — no callables, builtin
@@ -99,8 +111,24 @@ pub(crate) fn constant_value(name: &str) -> Option<&'static str> {
     let member = member(name)?;
     ERRORCODE_CONSTANTS
         .iter()
-        .find(|(constant_name, _)| *constant_name == member)
-        .map(|(_, value)| *value)
+        .find(|(constant_name, _, _)| *constant_name == member)
+        .map(|(_, value, _)| *value)
+}
+
+/// The `(code, message)` for a runtime error *name* (e.g. `"ErrIndexOutOfRange"`),
+/// as declared in a builtin's [`BuiltinFunction::errors`], or `None` if the name
+/// is not a known `errorCode` constant. This is the codegen-facing lookup: the
+/// native error-emission path resolves a builtin's declared error to the concrete
+/// code and message it passes to `emit_error_code_return`. Distinct from
+/// [`constant_value`], which takes the package-qualified `errorCode.<Name>` key and
+/// returns only the code for constant folding.
+///
+/// [`BuiltinFunction::errors`]: super::descriptor::BuiltinFunction::errors
+pub(crate) fn runtime_error(name: &str) -> Option<(&'static str, &'static str)> {
+    ERRORCODE_CONSTANTS
+        .iter()
+        .find(|(constant_name, _, _)| *constant_name == name)
+        .map(|(_, code, message)| (*code, *message))
 }
 
 #[cfg(test)]
@@ -149,7 +177,7 @@ mod tests {
 
         let table: Vec<(String, String)> = ERRORCODE_CONSTANTS
             .iter()
-            .map(|(name, value)| (name.to_string(), value.to_string()))
+            .map(|(name, value, _)| (name.to_string(), value.to_string()))
             .collect();
         assert_eq!(
             table, rows,
@@ -157,7 +185,7 @@ mod tests {
         );
 
         // Every exported constant resolves through the package-qualified API.
-        for (name, value) in ERRORCODE_CONSTANTS {
+        for (name, value, _) in ERRORCODE_CONSTANTS {
             let key = format!("errorCode.{name}");
             assert!(is_errorcode_constant(&key), "`{key}` not recognized");
             assert_eq!(constant_type_name(&key), Some("Integer"));

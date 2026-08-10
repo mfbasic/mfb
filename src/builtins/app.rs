@@ -31,6 +31,9 @@ const APP_FUNCTIONS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: GET_MODE,
         doc_slug: "getMode",
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads: &[BuiltinOverload {
             params: &[],
             return_type: ReturnType::Fixed("Mode"),
@@ -45,6 +48,9 @@ const APP_FUNCTIONS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: SET_MODE,
         doc_slug: "setMode",
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads: &[BuiltinOverload {
             params: &[Parameter::required("mode", "Mode")],
             return_type: ReturnType::Fixed("Nothing"),

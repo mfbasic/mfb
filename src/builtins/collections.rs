@@ -133,11 +133,15 @@ const fn opt(
 const fn native(
     name: &'static str,
     slug: &'static str,
+    errors: &'static [&'static str],
     overloads: &'static [BuiltinOverload],
 ) -> BuiltinFunction {
     BuiltinFunction {
         name,
         doc_slug: slug,
+        doc_into: "",
+        doc_desc: "",
+        errors,
         overloads,
         implementation: Implementation::Same,
         lowering: Lowering::Helper,
@@ -159,93 +163,93 @@ const fn custom(params: &'static [Parameter]) -> BuiltinOverload {
 }
 
 const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
-    native("collections.get", "get", &[custom(&[
+    native("collections.get", "get", &["ErrIndexOutOfRange"], &[custom(&[
         req("value", &["collection"], "List OF T"),
         req("index", &["key"], "Integer"),
     ])]),
-    native("collections.getOr", "getOr", &[custom(&[
+    native("collections.getOr", "getOr", &[], &[custom(&[
         req("value", &["collection"], "List OF T"),
         req("index", &["key"], "Integer"),
         req("default", &["fallback"], "T"),
     ])]),
-    native("collections.set", "set", &[custom(&[
+    native("collections.set", "set", &[], &[custom(&[
         req("value", &["collection"], "List OF T"),
         req("index", &["key"], "Integer"),
         req("item", &[], "T"),
     ])]),
-    native("collections.append", "append", &[custom(&[
+    native("collections.append", "append", &[], &[custom(&[
         req("value", &["list"], "List OF T"),
         req("item", &["items"], "T"),
     ])]),
-    native("collections.prepend", "prepend", &[custom(&[
+    native("collections.prepend", "prepend", &[], &[custom(&[
         req("value", &["list"], "List OF T"),
         req("item", &[], "T"),
     ])]),
-    native("collections.insert", "insert", &[custom(&[
+    native("collections.insert", "insert", &[], &[custom(&[
         req("value", &["list"], "List OF T"),
         req("index", &[], "Integer"),
         req("item", &[], "T"),
     ])]),
-    native("collections.removeAt", "removeAt", &[custom(&[
+    native("collections.removeAt", "removeAt", &[], &[custom(&[
         req("value", &["list"], "List OF T"),
         req("index", &[], "Integer"),
     ])]),
-    native("collections.removeKey", "removeKey", &[custom(&[
+    native("collections.removeKey", "removeKey", &[], &[custom(&[
         req("value", &["map"], "Map OF K TO V"),
         req("key", &[], "K"),
     ])]),
-    native("collections.keys", "keys", &[custom(&[req("value", &["map"], "Map OF K TO V")])]),
-    native("collections.values", "values", &[custom(&[req("value", &["map"], "Map OF K TO V")])]),
-    native("collections.hasKey", "hasKey", &[custom(&[
+    native("collections.keys", "keys", &[], &[custom(&[req("value", &["map"], "Map OF K TO V")])]),
+    native("collections.values", "values", &[], &[custom(&[req("value", &["map"], "Map OF K TO V")])]),
+    native("collections.hasKey", "hasKey", &[], &[custom(&[
         req("value", &["map"], "Map OF K TO V"),
         req("key", &[], "K"),
     ])]),
-    native("collections.contains", "contains", &[custom(&[
+    native("collections.contains", "contains", &[], &[custom(&[
         req("value", &["collection"], "List OF T"),
         req("item", &[], "T"),
     ])]),
-    native("collections.forEach", "forEach", &[custom(&[
+    native("collections.forEach", "forEach", &[], &[custom(&[
         req("value", &["collection"], "List OF T"),
         req("action", &[], "FUNC(T) AS Nothing"),
     ])]),
-    native("collections.transform", "transform", &[custom(&[
+    native("collections.transform", "transform", &[], &[custom(&[
         req("value", &["collection"], "List OF T"),
         req("f", &["transform"], "FUNC(T) AS U"),
     ])]),
-    native("collections.filter", "filter", &[custom(&[
+    native("collections.filter", "filter", &[], &[custom(&[
         req("value", &["collection"], "List OF T"),
         req("predicate", &[], "FUNC(T) AS Boolean"),
     ])]),
-    native("collections.reduce", "reduce", &[custom(&[
+    native("collections.reduce", "reduce", &[], &[custom(&[
         req("value", &["collection"], "List OF T"),
         req("initial", &["seed"], "U"),
         req("f", &["combine"], "FUNC(U, T) AS U"),
     ])]),
-    native("collections.sum", "sum", &[custom(&[req("value", &["collection"], "List OF Number")])]),
-    native("collections.find", "find", &[custom(&[
+    native("collections.sum", "sum", &[], &[custom(&[req("value", &["collection"], "List OF Number")])]),
+    native("collections.find", "find", &[], &[custom(&[
         req("value", &["list"], "List OF T"),
         req("item", &["needle"], "T"),
         opt("start", &[], "Integer"),
     ])]),
-    native("collections.mid", "mid", &[custom(&[
+    native("collections.mid", "mid", &[], &[custom(&[
         req("value", &["list"], "List OF T"),
         req("start", &[], "Integer"),
         req("count", &[], "Integer"),
     ])]),
-    native("collections.replace", "replace", &[custom(&[
+    native("collections.replace", "replace", &[], &[custom(&[
         req("value", &["list"], "List OF T"),
         req("old", &["needle"], "T"),
         req("new", &["replacement"], "T"),
     ])]),
-    native("collections.add", "add", &[custom(&[
+    native("collections.add", "add", &[], &[custom(&[
         req("value", &["set"], "Set OF T"),
         req("item", &["element"], "T"),
     ])]),
-    native("collections.remove", "remove", &[custom(&[
+    native("collections.remove", "remove", &[], &[custom(&[
         req("value", &["set"], "Set OF T"),
         req("item", &["element"], "T"),
     ])]),
-    native("collections.toList", "toList", &[custom(&[req("value", &["set"], "Set OF T")])]),
+    native("collections.toList", "toList", &[], &[custom(&[req("value", &["set"], "Set OF T")])]),
 ];
 
 /// Generic return-type resolution for collections native members. Delegates to
@@ -1566,7 +1570,7 @@ mod tests {
 
         // `native` takes a `&'static [BuiltinOverload]`; the overloads are a `const`.
         const OVS: &[BuiltinOverload] = &[custom(&[req("value", &[], "List OF T")])];
-        let f = native("collections.get", "get", OVS);
+        let f = native("collections.get", "get", &[], OVS);
         assert_eq!(f.name, "collections.get");
         assert_eq!(f.doc_slug, "get");
         assert_eq!(f.overloads.len(), 1);
