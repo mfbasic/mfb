@@ -116,7 +116,11 @@ over http (resolving relative hrefs against the page URL) and captures each inli
 parsed by `dom::parseCss` into **`StyleNode`s** — one per rule, each with the
 selector and a `props: Map OF String TO String` (a comma selector list becomes one
 rule per selector). The rules hang off `HeaderNode.rules` and show in Raw Mode; the
-footer's `Files: n/m` counts the HTML document plus each stylesheet fetched.
+footer's `Files: n/m` counts the HTML document plus each `<link>` stylesheet, where a
+sheet counts as **loaded** when its fetch completes with HTTP 200 and the whole body
+arrives (received bytes == `Content-Length`, or a chunked body finishes). That counts
+a valid empty sheet — e.g. google.com serves one `<link>` as a 200 with
+`Content-Length: 0` — and excludes a redirect or 404 error body.
 
 `StyleNode` is a plain **standalone record** (not a `Node` variant): `display`
 reads its fields directly to format each rule, even though a `StyleNode` is reached

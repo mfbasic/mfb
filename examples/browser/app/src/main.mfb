@@ -27,10 +27,10 @@ IMPORT thread
 '
 ' The bracket at the far left is a spinner while a page is loading, a locked
 ' padlock (🔒) once a page has loaded over https, and an open padlock (🔓)
-' otherwise. "Files: n/m" counts the
-' resources fetched for the current page: today a page is one document, so a
-' successful load reads 1/1 (redirect hops are followed to reach that document,
-' not counted as separate resources).
+' otherwise. "Files: n/m" counts the resources for the current page: the HTML
+' document plus each <link> stylesheet, where n is how many loaded (a complete
+' HTTP 200). A page with no external stylesheets reads 1/1 (redirect hops are
+' followed to reach the document, not counted as separate resources).
 '
 ' Controls:
 '   Q / q      quit

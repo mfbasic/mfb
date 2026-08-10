@@ -78,6 +78,32 @@ FUNC resolveLocation(base AS net::Url, loc AS String) AS String
   RETURN authority & dir & target
 END FUNC
 
+' The result of fetching a page's stylesheets: the CSS bodies to parse into rules
+' (only the non-empty ones — an empty sheet has no rules) and how many sheets
+' actually loaded (which is what the footer's Files count reports).
+TYPE SheetLoad
+  texts AS List OF String
+  loaded AS Integer
+END TYPE
+
+' Whether one stylesheet response counts as loaded: the exchange completed with
+' HTTP 200 and the whole declared body arrived — the received byte count equals the
+' Content-Length. A response with no Content-Length (a chunked body) counts on a
+' successful finish alone, since http::finish already requires the terminating chunk.
+' This excludes non-200s (a redirect or 404 error page that finish still returns) and
+' any short read, and — unlike a non-empty-body test — counts a valid empty sheet
+' (a 200 with Content-Length: 0, as google.com serves for one of its <link>s).
+FUNC sheetLoaded(resp AS http::Response) AS Boolean
+  IF resp.status <> 200 THEN RETURN FALSE
+  LET cl AS String = strings::trim(collections::getOr(resp.headers, "content-length", ""))
+  IF cl = "" THEN RETURN TRUE
+  LET declared AS Integer = toInt(cl, 10) TRAP(e)
+    RECOVER -1
+  END TRAP
+  IF declared < 0 THEN RETURN TRUE
+  RETURN len(resp.body) = declared
+END FUNC
+
 ' Fetch several external stylesheets concurrently and return their texts.
 '
 ' Blocking http::read would fetch them one after another. Instead each sheet is
@@ -95,7 +121,7 @@ END FUNC
 ' returned list holds only the CSS bodies that were fetched successfully. The
 ' whole streams list is owned by this function's scope, so every connection is
 ' closed exactly once when it returns.
-FUNC fetchStyles(base AS net::Url, hrefs AS List OF String) AS List OF String
+FUNC fetchStyles(base AS net::Url, hrefs AS List OF String) AS SheetLoad
   MUT streams AS List OF RES http::Stream STATE PendingState = []
 
   ' Kick off every request. A sheet that cannot even connect is left out of the
@@ -121,16 +147,20 @@ FUNC fetchStyles(base AS net::Url, hrefs AS List OF String) AS List OF String
     NEXT
   LOOP
 
-  ' Parse each completed stream; drop any whose exchange failed.
+  ' Parse each completed stream; drop any whose exchange failed. A sheet counts as
+  ' loaded on a complete HTTP 200 (see sheetLoaded); its body is kept for rule parsing
+  ' only when non-empty.
   MUT cssTexts AS List OF String = []
+  MUT loaded AS Integer = 0
   FOR EACH s IN streams
     LET resp AS http::Response = http::finish(s) TRAP(e)
       CONTINUE FOR
     END TRAP
+    IF sheetLoaded(resp) THEN loaded = loaded + 1
     LET css AS String = toString(resp.body)
     IF css <> "" THEN cssTexts = collections::append(cssTexts, css)
   NEXT
-  RETURN cssTexts
+  RETURN SheetLoad[cssTexts, loaded]
 END FUNC
 
 ' Turn a final response into a LoadResult: parse HTML into a DOM, fetch its
@@ -146,10 +176,12 @@ FUNC pageResult(resp AS http::Response, u AS net::Url, secure AS Boolean) AS Loa
   END IF
   MUT document AS Node = dom::parse(body)
   LET links AS List OF String = dom::styleLinks(document)
-  LET cssTexts AS List OF String = fetchStyles(u, links)
-  LET loaded AS Integer = 1 + len(cssTexts)
+  LET sheets AS SheetLoad = fetchStyles(u, links)
+  ' filesLoaded/filesTotal count the HTML (always loaded here) plus each linked
+  ' stylesheet; a sheet counts as loaded on a complete HTTP 200 (see sheetLoaded).
+  LET loaded AS Integer = 1 + sheets.loaded
   LET total AS Integer = 1 + len(links)
-  document = dom::attachCss(document, cssTexts)
+  document = dom::attachCss(document, sheets.texts)
   ' Resolve each element's Style from the parsed rules + inline styles now, on the
   ' worker thread, so the fully-styled document is deep-copied back to the UI.
   document = dom::resolveStyles(document)
