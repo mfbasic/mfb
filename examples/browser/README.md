@@ -84,9 +84,10 @@ far-left indicator is a spinner while loading, 🔒 for an https page, 🔓 othe
   page laid out wider than the terminal (a mouse/trackpad's scroll drives these too,
   via the terminal's alternate-screen scroll translation).
 - **M** — cycle the display width mode: **(s)**tandard (the terminal width),
-  **(w)**ide (≥300 columns), **(e)**xtra-wide (≥600). The current mode shows as
-  `(s)`/`(w)`/`(e)` just before `Files` in the footer; loading a new address resets
-  it to standard. Wider-than-terminal modes are navigated with Left / Right.
+  **(w)**ide (300 columns), **(e)**xtra-wide (600). Toggling re-lays-out whatever is
+  on screen (a rendered page, the raw tree, or the fallback). The current mode shows
+  as `(s)`/`(w)`/`(e)` just before `Files` in the footer; loading a new address
+  resets it to standard. Wider-than-terminal modes are navigated with Left / Right.
 - **Q** — quit (also aborts an in-flight load).
 
 Redirects (301/302/303/307/308) are followed automatically, up to 10 hops.

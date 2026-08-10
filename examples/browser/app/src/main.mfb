@@ -64,14 +64,14 @@ FUNC minOf(a AS Integer, b AS Integer) AS Integer
   RETURN b
 END FUNC
 
-' The width (in columns) a page is laid out to, by the display width mode. Standard
-' ("s") uses the actual terminal width; wide ("w") lays out to at least 300 columns
-' and extra-wide ("e") to at least 600, so wide multi-column layouts get room instead
-' of cramming. When wider than the terminal the viewport shows a `cols`-wide window;
-' Left/Right pan across the rest.
+' The width (in columns) a page is laid out to, by the display width mode: standard
+' ("s") is the actual terminal width, wide ("w") is 300, extra-wide ("e") is 600, so
+' wide multi-column layouts get room instead of cramming. These are exact so every
+' mode is a distinct width (even on a terminal already wider than 300). When wider
+' than the terminal the viewport shows a `cols`-wide window; Left/Right pan the rest.
 FUNC layoutWidthFor(mode AS String, cols AS Integer) AS Integer
-  IF mode = "w" THEN RETURN maxOf(cols, 300)
-  IF mode = "e" THEN RETURN maxOf(cols, 600)
+  IF mode = "w" THEN RETURN 300
+  IF mode = "e" THEN RETURN 600
   RETURN cols
 END FUNC
 
@@ -394,18 +394,15 @@ FUNC main AS Integer
   MUT needRecontent AS Boolean = TRUE
   MUT lastContentWidth AS Integer = -1
 
-  ' Cached layout. `wrapped` holds `content` laid out at `wrapWidth` columns;
-  ' it is recomputed only when the page text or the width changes (needRewrap).
-  ' `contentDirty` marks the content region for repaint (a load, a scroll, or a
-  ' resize); the chrome is cheap and repainted every frame. lastCols/lastRows
-  ' detect a resize.
+  ' Cached layout. `wrapped` holds the content lines laid out at the width-mode
+  ' width; `lastContentWidth` is that width, so a change re-lays-out. `contentDirty`
+  ' marks the content region for repaint (a load, a scroll, or a resize); the chrome
+  ' is cheap and repainted every frame. lastCols/lastRows detect a resize.
   MUT wrapped AS List OF String = []
-  MUT wrapWidth AS Integer = -1
-  ' The widest painted line, for clamping the horizontal scroll (Left/Right). The
-  ' page can be laid out wider than the terminal (see the display width mode, layoutWidthFor), and the
-  ' viewport shows a `cols`-wide window starting at `hscroll`.
+  ' The widest content line, for clamping the horizontal scroll (Left/Right). The
+  ' page can be laid out wider than the terminal (see layoutWidthFor / the width
+  ' mode), and the viewport shows a `cols`-wide window starting at `hscroll`.
   MUT contentPixWidth AS Integer = 0
-  MUT needRewrap AS Boolean = TRUE
   MUT contentDirty AS Boolean = TRUE
   MUT lastCols AS Integer = -1
   MUT lastRows AS Integer = -1
@@ -436,46 +433,29 @@ FUNC main AS Integer
         lastRows = rows
       END IF
 
-      ' Recompute the content lines from the DOM when the page, the mode, or the
-      ' width changed. Display Mode paints the DOM by its computed Layout straight
-      ' into positioned lines — laid out to the display width mode's width so
-      ' wide multi-column pages get room instead of cramming; the viewport shows a
-      ' `cols`-wide window into that canvas (drawContent clips each line to `cols`).
-      ' Raw Mode and the welcome/error fallback are plain text hard-wrapped to the
-      ' visible column width.
+      ' Recompute the content lines when the page, the display mode, the width mode,
+      ' or the terminal width changed. Everything is laid out to the width-mode width
+      ' (layoutW): Display Mode paints the DOM there, Raw Mode wraps the tree there,
+      ' and the welcome/error fallback wraps there too — so [M] re-lays-out whatever
+      ' is on screen. When layoutW exceeds the terminal the viewport shows a
+      ' `cols`-wide window (drawContent clips each line to `cols`); Left/Right pan.
       LET paintMode AS Boolean = haveDom AND NOT rawMode
       LET layoutW AS Integer = layoutWidthFor(widthMode, cols)
-      MUT effWidth AS Integer = cols
-      IF paintMode THEN effWidth = layoutW
-      IF needRecontent OR effWidth <> lastContentWidth THEN
+      IF needRecontent OR layoutW <> lastContentWidth THEN
         IF paintMode THEN
           wrapped = display::paint(pageDoc, layoutW, dom::terminalMetrics())
-          wrapWidth = layoutW
-          contentPixWidth = maxLineWidth(wrapped)
-          needRewrap = FALSE
-          contentDirty = TRUE
         ELSE
           IF haveDom THEN
-            content = display::tree(pageDoc, cols)
+            content = display::tree(pageDoc, layoutW)
           ELSE
             content = fallback
           END IF
-          needRewrap = TRUE
+          wrapped = wrapContent(content, layoutW)
         END IF
-        lastContentWidth = effWidth
+        contentPixWidth = maxLineWidth(wrapped)
+        lastContentWidth = layoutW
         needRecontent = FALSE
-      END IF
-
-      ' Re-wrap the text paths (Raw Mode / fallback) when the text or width changed.
-      ' The paint path already produced positioned lines, so it is left alone.
-      IF NOT paintMode THEN
-        IF needRewrap OR cols <> wrapWidth THEN
-          wrapped = wrapContent(content, cols)
-          wrapWidth = cols
-          contentPixWidth = maxLineWidth(wrapped)
-          needRewrap = FALSE
-          contentDirty = TRUE
-        END IF
+        contentDirty = TRUE
       END IF
 
       ' Keep the scroll offset in range; a change repaints the content region.
