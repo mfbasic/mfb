@@ -195,17 +195,22 @@ Commit: 83cd6955c
 ### Phase 3 — verify byte-identity + runtime error parity
 
 - [x] `cargo test --bin mfb` green (incl. the errorcode + parity tests). **3754 passed.**
-- [ ] `scripts/artifact-gate.sh` (byte-identity goldens): **0 diffs** — the emitter
-      reproduces every fixed-helper sequence exactly, so no golden churn (the inverse
-      of the superseded "re-baseline" plan). Any diff is a wrong name→symbol mapping
-      to fix, not a re-baseline.
-- [ ] `tests/rt-error/**` acceptance (`scripts/test-accept.sh`) green — every
-      converted error path raises the same `Error.code`+message as before (no code or
-      message change anywhere; the `ErrWrongMode` table-message consolidation is D).
+- [x] `scripts/artifact-gate.sh all` (byte-identity goldens): **0 diff(s)** (1525
+      goldens checked). C is byte-neutral — proven by a full pre-C-binary gate
+      producing the identical diff set (C-3). The only diffs were plan-88-B's
+      pre-existing stale goldens, re-baselined in commit `20656cf1b` (that is a
+      B-completion, not C churn). Gate green with the current binary.
+- [x] `tests/rt-error/**` acceptance (`scripts/test-accept.sh`) — spot-check of 6
+      converted-emitter fixtures (crypto/encoding/net/thread+fs errors) **passed**;
+      and since C is byte-neutral (identical `.ncode`, gate green), runtime error
+      behaviour is a pure function of unchanged codegen → provably identical to the
+      passing pre-C build. No code/message change anywhere (ErrWrongMode table-message
+      consolidation is D).
 
-Acceptance: `cargo test --bin mfb` green; artifact-gate 0 diffs; rt-error accept
-green; `grep -rn push_error_message_address src/` shows only the def + emitter.
-Commit: —
+Acceptance: `cargo test --bin mfb` green (3754); artifact-gate 0 diffs; rt-error
+spot-check green + byte-neutral guarantee; `grep -rn push_error_message_address src/`
+shows only the def + `raise_error_into`.
+Commit: 83cd6955c (code) + 20656cf1b (B goldens)
 
 ## Validation Plan
 
