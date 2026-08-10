@@ -1,0 +1,209 @@
+//! `collections::contains` — descriptor entry + target-generic lowering (plan-96).
+
+use super::{custom, req};
+use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::abi;
+use crate::target::shared::code::type_utils::{list_element_type, set_element_type};
+use crate::target::shared::code::{
+    kind2_payload_size, CodeBuilder, Operand, ValueResult, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+    COLLECTION_ENTRY_OFFSET_VALUE_OFFSET, COLLECTION_ENTRY_SIZE, COLLECTION_HEADER_SIZE,
+    COLLECTION_OFFSET_COUNT,
+};
+use crate::target::shared::nir::NirValue;
+
+const INTO_CONTAINS: &str = "Test whether a list holds an item equal to a given value.";
+const DESC_CONTAINS: &str = r#"`collections::contains` scans `value` from index `0` upward and returns `TRUE`
+as soon as an element matches `item`, or `FALSE` after every element has been
+examined without a match. The list is neither copied nor mutated, and no element
+payload is materialized — the scan compares stored bytes in place.
+
+`contains` also has a **`Set OF T`** overload. Both forms take
+`(collection, element) AS Boolean` and answer the same membership question; the
+compiler picks the overload from the static type of the first argument. On a
+`List` the scan is linear (below); on a `Set` membership is an O(1)-average hash
+probe for a probe-eligible element type and a linear scan otherwise. It does not
+accept a `Map`, and it is not the substring test: the `String` form of
+`contains` lives in the `strings::` package, not here.
+
+Equality is payload comparison, resolved by the element type:
+
+- `Boolean` and `Byte` compare one stored byte; `Scalar` compares four; and
+  `Integer`, `Float`, `Fixed`, and `Money` compare their stored 64-bit value.
+- `String` compares length first, then bytes, so the match is exact and
+  byte-oriented — no case folding, trimming, or Unicode normalization is applied.
+- A record element is compared field by field.
+- A resource handle, or a nested collection that is not stored flat, is compared
+  by its stored handle rather than by its contents.
+
+Because numeric comparison is bitwise, a `Float` search for `NaN` is always
+`FALSE` even if the list contains `NaN`, and searching for `-0.0` does not match
+a stored `0.0`.
+
+An empty list always yields `FALSE`, since the loop exits on the first bounds
+check. `collections::contains` raises no trappable domain error, so an inline
+`TRAP` on a `contains` call has a dead handler.
+
+`contains` answers only whether a match exists. Use `collections::find` when the
+position of the match is needed."#;
+
+pub(crate) const CONTAINS: BuiltinFunction = BuiltinFunction::native(
+    "collections.contains",
+    "contains",
+    INTO_CONTAINS,
+    DESC_CONTAINS,
+    &[],
+    &[custom(&[
+        req("value", &["collection"], "List OF T"),
+        req("item", &[], "T"),
+    ])],
+    lower_contains,
+);
+
+/// `collections::contains(collection, element) AS Boolean`: a `Set` membership
+/// probe (shared `emit_key_membership`) or a linear list scan.
+pub(crate) fn lower_contains(
+    builder: &mut CodeBuilder,
+    args: &[NirValue],
+) -> Result<ValueResult, String> {
+    let collection = builder.lower_value(&args[0])?;
+    let collection_slot = builder.allocate_stack_object("contains_collection", 8);
+    builder.emit(abi::store_u64(
+        &collection.location,
+        abi::stack_pointer(),
+        collection_slot,
+    ));
+
+    let item = builder.lower_value(&args[1])?;
+    let item_slot = builder.allocate_stack_object("contains_item", 8);
+    // A `d`-native float item stores via `str d`, bit-identical to the
+    // `str x` the element compare reads back (plan-01 float-dnative).
+    builder.store_value_at(&item, abi::stack_pointer(), item_slot);
+
+    // A `Set OF T` membership test is the Map-shaped hash probe / linear scan
+    // over the element (= entry key), shared with `hasKey` (plan-63-B). Decided
+    // on the *lowered* type so a nested-call first argument (`contains(union(a,
+    // b), x)`, whose static type is unknown pre-lowering) still routes here.
+    if let Some(element_type) = set_element_type(&collection.type_) {
+        return builder.emit_key_membership(
+            collection_slot,
+            item_slot,
+            &element_type,
+            "contains",
+            &collection.type_,
+        );
+    }
+
+    let Some(element_type) = list_element_type(&collection.type_) else {
+        return Err(format!(
+            "native collection contains does not accept {}",
+            collection.type_
+        ));
+    };
+    if item.type_ != element_type {
+        return Err(format!(
+            "native collection contains item must be {}, got {}",
+            element_type, item.type_
+        ));
+    }
+
+    builder.reset_temporary_registers();
+    let collection_register = builder.allocate_register()?;
+    let item_register = builder.allocate_register()?;
+    let count = builder.allocate_register()?;
+    let index = builder.allocate_register()?;
+    let entry = builder.allocate_register()?;
+    let value_offset = builder.allocate_register()?;
+    let value_length = builder.allocate_register()?;
+    let result = builder.allocate_register()?;
+    let loop_label = builder.label("contains_loop");
+    let found = builder.label("contains_found");
+    let next = builder.label("contains_next");
+    let not_found = builder.label("contains_not_found");
+    let done = builder.label("contains_done");
+
+    builder.emit(abi::load_u64(
+        &collection_register,
+        abi::stack_pointer(),
+        collection_slot,
+    ));
+    builder.emit(abi::load_u64(
+        &item_register,
+        abi::stack_pointer(),
+        item_slot,
+    ));
+    builder.emit(abi::load_u64(
+        &count,
+        &collection_register,
+        COLLECTION_OFFSET_COUNT,
+    ));
+    // kind 2 walks the data region: `entry` carries a byte OFFSET from the
+    // data base rather than an entry pointer, and the span is derivable from
+    // the cursor and the constant payload size (plan-57-D).
+    let contains_payload = kind2_payload_size(&element_type);
+    builder.emit(abi::move_immediate(&index, "Integer", "0"));
+    if contains_payload.is_some() {
+        builder.emit(abi::move_immediate(&entry, "Integer", "0"));
+    } else {
+        builder.emit(abi::add_immediate(
+            &entry,
+            &collection_register,
+            COLLECTION_HEADER_SIZE,
+        ));
+    }
+
+    builder.emit(abi::label(&loop_label));
+    builder.emit(abi::compare_registers(&index, &count));
+    builder.emit(abi::branch_ge(&not_found));
+    if let Some(payload) = contains_payload {
+        builder.emit(abi::move_register(&value_offset, &entry));
+        builder.emit(abi::move_immediate(
+            &value_length,
+            "Integer",
+            &payload.to_string(),
+        ));
+    } else {
+        builder.emit(abi::load_u64(
+            &value_offset,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        builder.emit(abi::load_u64(
+            &value_length,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+    }
+    builder.emit_collection_payload_match_branch(
+        &element_type,
+        &element_type,
+        &collection_register,
+        &value_offset,
+        &value_length,
+        &item_register,
+        &found,
+        &next,
+    )?;
+
+    builder.emit(abi::label(&found));
+    builder.emit(abi::move_immediate(&result, "Boolean", "true"));
+    builder.emit(abi::branch(&done));
+
+    builder.emit(abi::label(&next));
+    builder.emit(abi::add_immediate(
+        &entry,
+        &entry,
+        contains_payload.unwrap_or(COLLECTION_ENTRY_SIZE),
+    ));
+    builder.emit(abi::add_immediate(&index, &index, 1));
+    builder.emit(abi::branch(&loop_label));
+
+    builder.emit(abi::label(&not_found));
+    builder.emit(abi::move_immediate(&result, "Boolean", "false"));
+    builder.emit(abi::label(&done));
+
+    Ok(ValueResult {
+        type_: "Boolean".to_string(),
+        location: Operand::from(result.render()),
+        text: format!("contains({}, {})", collection.type_, element_type),
+    })
+}

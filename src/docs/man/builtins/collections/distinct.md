@@ -56,7 +56,7 @@ Two consequences of that equality deserve care:
 
 `distinct` is O(n²) in the worst case: `contains` performs a linear scan of the
 already-accumulated result for every input element, so a list with n distinct
-elements does about n²/2 comparisons. [[src/target/shared/code/builder_collection_queries.rs:lower_collection_contains]]
+elements does about n²/2 comparisons. [[src/codegen/builtins/collections/func_contains.rs:lower_contains]]
 For large inputs of a comparable key type, building a `Map` keyed by the element
 and reading `collections::keys` is asymptotically cheaper, at the cost of losing
 first-occurrence order.

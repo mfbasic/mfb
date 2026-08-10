@@ -725,9 +725,6 @@ impl CodeBuilder<'_> {
                     return result;
                 }
                 let native = crate::builtins::native_builtin_target(target);
-                if native == Some("contains") && args.len() == 2 {
-                    return self.lower_collection_contains(args);
-                }
                 if native == Some("find") && (args.len() == 2 || args.len() == 3) {
                     return self.lower_find(args);
                 }
@@ -748,9 +745,6 @@ impl CodeBuilder<'_> {
                 }
                 if native == Some("set") && args.len() == 3 {
                     return self.lower_collection_set(args);
-                }
-                if native == Some("sum") && args.len() == 1 {
-                    return self.lower_collection_sum(args);
                 }
                 if native == Some("forEach") && args.len() == 2 {
                     return self.lower_collection_for_each_call(args);
@@ -1882,8 +1876,6 @@ impl CodeBuilder<'_> {
             return self.lower_bits_call(function, args);
         }
         match crate::builtins::native_builtin_target(target) {
-            Some("contains") if args.len() == 2 => self.lower_collection_contains(args),
-            Some("sum") if args.len() == 1 => self.lower_collection_sum(args),
             Some("replace") if args.len() == 3 => self.lower_replace(args),
             other => Err(format!(
                 "native infallible inline builtin '{target}' ({other:?}) is not supported"

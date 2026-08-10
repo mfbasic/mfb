@@ -32,7 +32,7 @@ IMPORT collections
 as soon as an element matches `item`, or `FALSE` after every element has been
 examined without a match. The list is neither copied nor mutated, and no element
 payload is materialized — the scan compares stored bytes in place.
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_contains]]
+[[src/codegen/builtins/collections/func_contains.rs:lower_contains]]
 
 `contains` also has a **`Set OF T`** overload. Both forms take
 `(collection, element) AS Boolean` and answer the same membership question; the
@@ -76,7 +76,7 @@ The list form scans `value` from index `0` upward, comparing each stored element
 payload against `item`, and returns `TRUE` on the first match or `FALSE` after
 examining every element. It is O(n) in the list length.
 [[src/codegen/builtins/collections/mod.rs:resolve_contains]]
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_contains]]
+[[src/codegen/builtins/collections/func_contains.rs:lower_contains]]
 
 **`collections::contains OF T(value AS Set OF T, item AS T) AS Boolean`**
 

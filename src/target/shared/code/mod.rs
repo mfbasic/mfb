@@ -77,10 +77,11 @@ use module_analysis::*;
 mod audio;
 mod builder_collection_compare;
 mod builder_collection_layout;
+pub(crate) use builder_collection_layout::kind2_payload_size;
 use builder_collection_layout::{
-    byte_list_block_kind, byte_list_entry_stride, kind2_payload_size, list_block_kind,
-    list_element_is_fixed_width, list_entry_stride, push_collection_data_base_from_capacity,
-    recursive_transfer_types, thread_copy_symbol, type_participates_in_cycle,
+    byte_list_block_kind, byte_list_entry_stride, list_block_kind, list_element_is_fixed_width,
+    list_entry_stride, push_collection_data_base_from_capacity, recursive_transfer_types,
+    thread_copy_symbol, type_participates_in_cycle,
 };
 mod app;
 mod builder_collection_queries;
@@ -496,7 +497,7 @@ struct GlobalValue {
 pub(crate) struct ValueResult {
     pub(crate) type_: String,
     pub(crate) location: Operand,
-    text: String,
+    pub(crate) text: String,
 }
 
 struct TrapState {

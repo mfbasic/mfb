@@ -1170,7 +1170,7 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(super) fn emit_checked_integer_add(
+    pub(crate) fn emit_checked_integer_add(
         &mut self,
         dst: impl Into<Operand>,
         lhs: impl Into<Operand>,

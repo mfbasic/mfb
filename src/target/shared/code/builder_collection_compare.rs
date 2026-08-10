@@ -242,7 +242,7 @@ impl CodeBuilder<'_> {
     /// whatever its key and value types are. Passing `type_` here for a map
     /// would address a `Map OF Scalar TO T` past its own entry array
     /// (plan-57-D).
-    pub(super) fn emit_collection_payload_match_branch(
+    pub(crate) fn emit_collection_payload_match_branch(
         &mut self,
         type_: &str,
         stride_type: &str,

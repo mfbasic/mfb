@@ -183,7 +183,7 @@ impl CodeBuilder<'_> {
     /// build error by `run_register_allocation`; a placeholder vreg is returned so
     /// lowering can proceed to that checkpoint, where the build aborts before this
     /// vreg is colored (bug-70).
-    pub(super) fn temporary_vreg(&mut self) -> VirtualRegister {
+    pub(crate) fn temporary_vreg(&mut self) -> VirtualRegister {
         match self.allocate_register() {
             Ok(vreg) => vreg,
             Err(err) => {
@@ -222,7 +222,7 @@ impl CodeBuilder<'_> {
         }
     }
 
-    pub(super) fn reset_temporary_registers(&mut self) {
+    pub(crate) fn reset_temporary_registers(&mut self) {
         self.next_register = 8;
         self.next_fp_register = 0;
     }
@@ -272,7 +272,7 @@ impl CodeBuilder<'_> {
         slot
     }
 
-    pub(super) fn label(&mut self, prefix: &str) -> String {
+    pub(crate) fn label(&mut self, prefix: &str) -> String {
         let label = format!("{prefix}_{}", self.next_label);
         self.next_label += 1;
         label

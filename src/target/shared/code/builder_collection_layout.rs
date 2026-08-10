@@ -2115,7 +2115,7 @@ impl CodeBuilder<'_> {
     /// plan-57-D — collapsing this to `collection + HEADER`. Pass the ELEMENT
     /// type of a list; for a map, or where the element type is not statically
     /// known, pass `""`, which always yields the kind-0 stride.
-    pub(super) fn emit_collection_data_pointer_for(
+    pub(crate) fn emit_collection_data_pointer_for(
         &mut self,
         dst: impl Into<Operand>,
         collection: impl Into<Operand>,
@@ -2511,7 +2511,7 @@ pub(super) fn list_block_kind(element_type: &str) -> usize {
 /// stride must ask this question, not that one. Selecting a stride from the
 /// payload type rather than the block kind was one of the two mistakes that
 /// produced plan-57-D's corruption bugs.
-pub(super) fn kind2_payload_size(element_type: &str) -> Option<usize> {
+pub(crate) fn kind2_payload_size(element_type: &str) -> Option<usize> {
     list_element_is_fixed_width(element_type)
 }
 

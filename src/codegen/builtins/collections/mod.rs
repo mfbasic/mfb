@@ -9,6 +9,7 @@ use std::path::Path;
 
 mod func_add;
 mod func_append;
+mod func_contains;
 mod func_get;
 mod func_get_or;
 mod func_has_key;
@@ -16,6 +17,7 @@ mod func_keys;
 mod func_prepend;
 mod func_remove;
 mod func_remove_key;
+mod func_sum;
 mod func_to_list;
 mod func_values;
 
@@ -277,42 +279,6 @@ the result block is allocated, so a rejected index allocates nothing.
 `collections::removeKey`, which takes a key rather than an index and does not
 raise when the key is absent."#;
 
-// ---- contains ----
-const INTO_CONTAINS: &str = "Test whether a list holds an item equal to a given value.";
-const DESC_CONTAINS: &str = r#"`collections::contains` scans `value` from index `0` upward and returns `TRUE`
-as soon as an element matches `item`, or `FALSE` after every element has been
-examined without a match. The list is neither copied nor mutated, and no element
-payload is materialized — the scan compares stored bytes in place.
-
-`contains` also has a **`Set OF T`** overload. Both forms take
-`(collection, element) AS Boolean` and answer the same membership question; the
-compiler picks the overload from the static type of the first argument. On a
-`List` the scan is linear (below); on a `Set` membership is an O(1)-average hash
-probe for a probe-eligible element type and a linear scan otherwise. It does not
-accept a `Map`, and it is not the substring test: the `String` form of
-`contains` lives in the `strings::` package, not here.
-
-Equality is payload comparison, resolved by the element type:
-
-- `Boolean` and `Byte` compare one stored byte; `Scalar` compares four; and
-  `Integer`, `Float`, `Fixed`, and `Money` compare their stored 64-bit value.
-- `String` compares length first, then bytes, so the match is exact and
-  byte-oriented — no case folding, trimming, or Unicode normalization is applied.
-- A record element is compared field by field.
-- A resource handle, or a nested collection that is not stored flat, is compared
-  by its stored handle rather than by its contents.
-
-Because numeric comparison is bitwise, a `Float` search for `NaN` is always
-`FALSE` even if the list contains `NaN`, and searching for `-0.0` does not match
-a stored `0.0`.
-
-An empty list always yields `FALSE`, since the loop exits on the first bounds
-check. `collections::contains` raises no trappable domain error, so an inline
-`TRAP` on a `contains` call has a dead handler.
-
-`contains` answers only whether a match exists. Use `collections::find` when the
-position of the match is needed."#;
-
 // ---- forEach ----
 const INTO_FOR_EACH: &str = "Call an action once for each element of a list, in order";
 const DESC_FOR_EACH: &str = r#"`collections::forEach` walks `value` from the first element to the last and
@@ -498,43 +464,6 @@ discarded. `reduceRight` itself raises no error of its own.
 
 `f` may be a named `FUNC` or a `LAMBDA` expression, since both produce a function
 value of the required type."#;
-
-// ---- sum ----
-const INTO_SUM: &str = "Add up the elements of an Integer, Float, or Fixed list";
-const DESC_SUM: &str = r#"`collections::sum` walks `value` from the first element to the last and adds
-each element into a running total, returning that total. It is a **native**
-member: the compiler emits the accumulation loop directly rather than
-instantiating an MFBASIC generic.
-
-There are exactly **three** overloads — `List OF Integer`, `List OF Float`, and
-`List OF Fixed` — and the return type always matches the element type. There is
-no `List OF Byte`, no `List OF Money`, and no general "any numeric list" form:
-any other element type fails to resolve at compile time, and the lowering
-rejects it a second time.
-
-The accumulator is initialized to zero of the element type and the elements are
-added in list order, so an empty `value` yields `0`, `0.0`, or `0.0F`
-respectively without any addition being performed.
-
-`value` is neither modified nor consumed. `sum` takes no callback and has no
-optional argument; it is a single-argument member.
-
-For the `Integer` and `Fixed` overloads each step is a **checked** 64-bit
-addition: if the running total leaves the destination range, the addition fails
-with `ErrOverflow` rather than wrapping. `Fixed` shares the `Integer` path
-because it is a scaled 64-bit integer. The `Float` overload uses IEEE-754
-double addition and never raises — an out-of-range total becomes `±Inf` in the
-usual floating-point way.
-
-Note a wrinkle worth knowing before writing a handler: the compiler's inline-
-built-in fallibility census classifies `sum` as **infallible**, so attaching an
-inline `TRAP` to a `sum` call raises the `TYPE_INLINE_TRAP_DEAD_HANDLER`
-diagnostic and that handler does not receive the overflow. The overflow is still
-raised at run time and still propagates out of the enclosing function, where an
-ordinary function-level `TRAP` can handle it.
-
-To total a list of some other element type, or to accumulate with different
-rules, fold it with `collections::reduce`."#;
 
 // ---- find ----
 const INTO_FIND: &str =
@@ -783,17 +712,7 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
     func_keys::KEYS,
     func_values::VALUES,
     func_has_key::HAS_KEY,
-    native(
-        "collections.contains",
-        "contains",
-        INTO_CONTAINS,
-        DESC_CONTAINS,
-        &[],
-        &[custom(&[
-            req("value", &["collection"], "List OF T"),
-            req("item", &[], "T"),
-        ])],
-    ),
+    func_contains::CONTAINS,
     native(
         "collections.forEach",
         "forEach",
@@ -851,14 +770,7 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
             req("f", &["combine"], "FUNC(U, T) AS U"),
         ])],
     ),
-    native(
-        "collections.sum",
-        "sum",
-        INTO_SUM,
-        DESC_SUM,
-        &["ErrOverflow"],
-        &[custom(&[req("value", &["collection"], "List OF Number")])],
-    ),
+    func_sum::SUM,
     native(
         "collections.find",
         "find",
