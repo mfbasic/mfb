@@ -29,7 +29,7 @@ in their intersection. It is computed as a two-pass fold: it keeps each element 
 `a` that `collections::contains` reports as absent from `b`, then adds each
 element of `b` that is absent from `a`. Unlike `difference`, the operation is
 symmetric: `symmetricDifference(a, b)` and `symmetricDifference(b, a)` are equal.
-[[src/codegen/builtins/collections/package.mfb:__collections_symmetricDifference]]
+[[src/codegen/builtins/collections/func_symmetric_difference.rs:__collections_symmetricDifference]]
 
 `symmetricDifference` is **pure**: it returns a new value and mutates neither
 argument. Element insertion order follows the surviving elements of `a` first,
@@ -49,14 +49,14 @@ instantiated for the element type like any other generic function.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Set OF T` | The first set. Not modified. `T` must be a comparable type. [[src/codegen/builtins/collections/package.mfb:__collections_symmetricDifference]] |
-| `b` | `Set OF T` | The second set, of the same type as `a`. Not modified. [[src/codegen/builtins/collections/package.mfb:__collections_symmetricDifference]] |
+| `a` | `Set OF T` | The first set. Not modified. `T` must be a comparable type. [[src/codegen/builtins/collections/func_symmetric_difference.rs:__collections_symmetricDifference]] |
+| `b` | `Set OF T` | The second set, of the same type as `a`. Not modified. [[src/codegen/builtins/collections/func_symmetric_difference.rs:__collections_symmetricDifference]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Set OF T` | A new set of the elements in exactly one of `a` and `b`; its length is between `0` and `len(a) + len(b)`. [[src/codegen/builtins/collections/package.mfb:__collections_symmetricDifference]] |
+| `Set OF T` | A new set of the elements in exactly one of `a` and `b`; its length is between `0` and `len(a) + len(b)`. [[src/codegen/builtins/collections/func_symmetric_difference.rs:__collections_symmetricDifference]] |
 
 ## Errors
 
@@ -67,7 +67,7 @@ No errors.
 Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
 arguments are not both sets of the same element type does not resolve and is
-rejected at compile time. [[src/codegen/builtins/collections/package.mfb:__collections_symmetricDifference]]
+rejected at compile time. [[src/codegen/builtins/collections/func_symmetric_difference.rs:__collections_symmetricDifference]]
 
 ## Examples
 

@@ -27,7 +27,7 @@ IMPORT collections
 `a`, in `b`, or in both. It starts from the elements of `a` and adds each element
 of `b`; because `collections::add` is idempotent, an element already present is
 not duplicated, so the result contains each distinct element exactly once.
-[[src/codegen/builtins/collections/package.mfb:__collections_union]]
+[[src/codegen/builtins/collections/func_union.rs:__collections_union]]
 
 `union` is **pure**: it returns a new value and mutates neither argument. Element
 insertion order follows the elements of `a` first, then the elements of `b` that
@@ -47,14 +47,14 @@ any other generic function. [[src/codegen/builtins/collections/mod.rs:FUNCTIONS]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Set OF T` | The first set. Not modified. `T` must be a comparable type. [[src/codegen/builtins/collections/package.mfb:__collections_union]] |
-| `b` | `Set OF T` | The second set, of the same type as `a`. Not modified. [[src/codegen/builtins/collections/package.mfb:__collections_union]] |
+| `a` | `Set OF T` | The first set. Not modified. `T` must be a comparable type. [[src/codegen/builtins/collections/func_union.rs:__collections_union]] |
+| `b` | `Set OF T` | The second set, of the same type as `a`. Not modified. [[src/codegen/builtins/collections/func_union.rs:__collections_union]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Set OF T` | A new set containing every element of `a` and `b`; its length is between `max(len(a), len(b))` and `len(a) + len(b)`. [[src/codegen/builtins/collections/package.mfb:__collections_union]] |
+| `Set OF T` | A new set containing every element of `a` and `b`; its length is between `max(len(a), len(b))` and `len(a) + len(b)`. [[src/codegen/builtins/collections/func_union.rs:__collections_union]] |
 
 ## Errors
 
@@ -65,7 +65,7 @@ No errors.
 Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
 arguments are not both sets of the same element type does not resolve and is
-rejected at compile time. [[src/codegen/builtins/collections/package.mfb:__collections_union]]
+rejected at compile time. [[src/codegen/builtins/collections/func_union.rs:__collections_union]]
 
 ## Examples
 

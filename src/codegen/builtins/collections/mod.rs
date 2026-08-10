@@ -12,7 +12,9 @@ mod func_add;
 mod func_all;
 mod func_any;
 mod func_append;
+mod func_chunks;
 mod func_contains;
+mod func_difference;
 mod func_distinct;
 mod func_drop;
 mod func_filter;
@@ -22,8 +24,14 @@ mod func_get;
 mod func_get_or;
 mod func_has_key;
 mod func_insert;
+mod func_intersection;
+mod func_is_disjoint;
+mod func_is_subset;
+mod func_is_superset;
 mod func_keys;
 mod func_map_values;
+mod func_merge;
+mod func_partition;
 mod func_prepend;
 mod func_reduce;
 mod func_reduce_right;
@@ -32,8 +40,12 @@ mod func_remove_at;
 mod func_remove_key;
 mod func_set;
 mod func_sum;
+mod func_symmetric_difference;
 mod func_take;
 mod func_to_list;
+mod func_to_set;
+mod func_union;
+mod func_window;
 mod func_zip;
 // `pub(crate)`: source-generic fast paths in `src/target` (sortBy, mapValues,
 // groupBy) reuse `lower_transform` directly until they too migrate (plan-96).
@@ -465,6 +477,18 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
     func_flatten::FLATTEN,
     func_map_values::MAP_VALUES,
     func_zip::ZIP,
+    func_chunks::CHUNKS,
+    func_window::WINDOW,
+    func_merge::MERGE,
+    func_partition::PARTITION,
+    func_to_set::TO_SET,
+    func_union::UNION,
+    func_intersection::INTERSECTION,
+    func_difference::DIFFERENCE,
+    func_symmetric_difference::SYMMETRIC_DIFFERENCE,
+    func_is_subset::IS_SUBSET,
+    func_is_superset::IS_SUPERSET,
+    func_is_disjoint::IS_DISJOINT,
     // `findIndex`/`findLastIndex` are source-generic (they resolve and, for most
     // element types, run from the injected `.mfb` companion) with a native
     // String-item fast path for `findLastIndex`. They are listed here ONLY so

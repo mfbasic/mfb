@@ -27,7 +27,7 @@ IMPORT collections
 that are in both `a` and `b`. It walks the elements of `a` and keeps each one
 that `collections::contains` reports as present in `b`, so an element only
 survives when it appears in both sets.
-[[src/codegen/builtins/collections/package.mfb:__collections_intersection]]
+[[src/codegen/builtins/collections/func_intersection.rs:__collections_intersection]]
 
 `intersection` is **pure**: it returns a new value and mutates neither argument.
 Surviving elements keep the insertion order they had in `a`. The intersection of
@@ -47,14 +47,14 @@ element type like any other generic function.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Set OF T` | The first set, walked to decide element order. Not modified. `T` must be a comparable type. [[src/codegen/builtins/collections/package.mfb:__collections_intersection]] |
-| `b` | `Set OF T` | The second set, of the same type as `a`, tested for membership. Not modified. [[src/codegen/builtins/collections/package.mfb:__collections_intersection]] |
+| `a` | `Set OF T` | The first set, walked to decide element order. Not modified. `T` must be a comparable type. [[src/codegen/builtins/collections/func_intersection.rs:__collections_intersection]] |
+| `b` | `Set OF T` | The second set, of the same type as `a`, tested for membership. Not modified. [[src/codegen/builtins/collections/func_intersection.rs:__collections_intersection]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Set OF T` | A new set of the elements common to `a` and `b`; its length is between `0` and `min(len(a), len(b))`. [[src/codegen/builtins/collections/package.mfb:__collections_intersection]] |
+| `Set OF T` | A new set of the elements common to `a` and `b`; its length is between `0` and `min(len(a), len(b))`. [[src/codegen/builtins/collections/func_intersection.rs:__collections_intersection]] |
 
 ## Errors
 
@@ -65,7 +65,7 @@ No errors.
 Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
 arguments are not both sets of the same element type does not resolve and is
-rejected at compile time. [[src/codegen/builtins/collections/package.mfb:__collections_intersection]]
+rejected at compile time. [[src/codegen/builtins/collections/func_intersection.rs:__collections_intersection]]
 
 ## Examples
 

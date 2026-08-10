@@ -227,73 +227,15 @@ END FUNC
 
 '@@MFB_BODY:zip@@
 
-FUNC __collections_chunks OF T(value AS List OF T, chunkSize AS Integer) AS List OF List OF T
-  IF chunkSize < 1 THEN
-    FAIL error(77050002, "Argument value is not valid for the requested operation.")
-  END IF
-  MUT result AS List OF List OF T = []
-  MUT i AS Integer = 0
-  WHILE i < len(value)
-    MUT stop AS Integer = i + chunkSize
-    IF stop > len(value) THEN
-      stop = len(value)
-    END IF
-    LET piece AS List OF T = __collections_slice(value, i, stop)
-    result = collections::append(result, piece)
-    i = i + chunkSize
-  END WHILE
-  RETURN result
-END FUNC
+'@@MFB_BODY:chunks@@
 
-FUNC __collections_window OF T(value AS List OF T, size AS Integer, stride AS Integer = 1) AS List OF List OF T
-  IF size < 1 OR stride < 1 THEN
-    FAIL error(77050002, "Argument value is not valid for the requested operation.")
-  END IF
-  MUT result AS List OF List OF T = []
-  MUT i AS Integer = 0
-  WHILE i + size <= len(value)
-    LET piece AS List OF T = __collections_slice(value, i, i + size)
-    result = collections::append(result, piece)
-    i = i + stride
-  END WHILE
-  RETURN result
-END FUNC
+'@@MFB_BODY:window@@
 
 '@@MFB_BODY:distinct@@
 
-FUNC __collections_merge OF K, V(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V
-  MUT result AS Map OF K TO V = a
-  FOR EACH e IN b
-    IF preferB OR NOT collections::hasKey(result, e.key) THEN
-      result = collections::set(result, e.key, e.value)
-    END IF
-  NEXT
-  RETURN result
-END FUNC
+'@@MFB_BODY:merge@@
 
-FUNC __collections_partition OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Partition OF T
-  ' `predicate` is evaluated once per element through `collections::transform`,
-  ' whose callback loop checks the result tag and PROPAGATES a runtime failure —
-  ' a directly-called `IF predicate(item)` silently swallows it (the same reason
-  ' `sortBy`/`groupBy` build their keys via `transform`). The native
-  ' `lower_collection_partition_call` covers the fixed-width fast path; this body
-  ' serves the String/Scalar/Byte and inline-TRAP cases.
-  LET flags AS List OF Boolean = collections::transform(value, predicate)
-  MUT matched AS List OF T = []
-  MUT unmatched AS List OF T = []
-  MUT i AS Integer = 0
-  WHILE i < len(value)
-    LET item AS T = collections::get(value, i)
-    IF collections::get(flags, i) THEN
-      matched = collections::append(matched, item)
-    ELSE
-      unmatched = collections::append(unmatched, item)
-    END IF
-    i = i + 1
-  END WHILE
-  LET result AS Partition OF T = Partition[matched, unmatched]
-  RETURN result
-END FUNC
+'@@MFB_BODY:partition@@
 
 ' ─── Set algebra (plan-63-C) ───────────────────────────────────────────────
 ' Eight source generics over B's native Set primitives (`add`/`contains`/
@@ -301,87 +243,25 @@ END FUNC
 ' Instantiated only for comparable `T`, since `Set OF T` already requires it.
 
 ' Build a set from a list's distinct elements (first-occurrence order).
-FUNC __collections_toSet OF T(value AS List OF T) AS Set OF T
-  MUT result AS Set OF T = Set OF T { }
-  FOR EACH x IN value
-    result = collections::add(result, x)
-  NEXT
-  RETURN result
-END FUNC
+'@@MFB_BODY:toSet@@
 
 ' Every element of `a` and `b` (add is idempotent, so duplicates collapse).
-FUNC __collections_union OF T(a AS Set OF T, b AS Set OF T) AS Set OF T
-  MUT result AS Set OF T = a
-  FOR EACH x IN b
-    result = collections::add(result, x)
-  NEXT
-  RETURN result
-END FUNC
+'@@MFB_BODY:union@@
 
 ' Every element present in both `a` and `b`.
-FUNC __collections_intersection OF T(a AS Set OF T, b AS Set OF T) AS Set OF T
-  MUT result AS Set OF T = Set OF T { }
-  FOR EACH x IN a
-    IF collections::contains(b, x) THEN
-      result = collections::add(result, x)
-    END IF
-  NEXT
-  RETURN result
-END FUNC
+'@@MFB_BODY:intersection@@
 
 ' Every element of `a` not present in `b`.
-FUNC __collections_difference OF T(a AS Set OF T, b AS Set OF T) AS Set OF T
-  MUT result AS Set OF T = Set OF T { }
-  FOR EACH x IN a
-    IF NOT collections::contains(b, x) THEN
-      result = collections::add(result, x)
-    END IF
-  NEXT
-  RETURN result
-END FUNC
+'@@MFB_BODY:difference@@
 
 ' Every element in exactly one of `a` or `b` (an inline two-pass fold).
-FUNC __collections_symmetricDifference OF T(a AS Set OF T, b AS Set OF T) AS Set OF T
-  MUT result AS Set OF T = Set OF T { }
-  FOR EACH x IN a
-    IF NOT collections::contains(b, x) THEN
-      result = collections::add(result, x)
-    END IF
-  NEXT
-  FOR EACH y IN b
-    IF NOT collections::contains(a, y) THEN
-      result = collections::add(result, y)
-    END IF
-  NEXT
-  RETURN result
-END FUNC
+'@@MFB_BODY:symmetricDifference@@
 
 ' TRUE iff every element of `a` is in `b`.
-FUNC __collections_isSubset OF T(a AS Set OF T, b AS Set OF T) AS Boolean
-  FOR EACH x IN a
-    IF NOT collections::contains(b, x) THEN
-      RETURN FALSE
-    END IF
-  NEXT
-  RETURN TRUE
-END FUNC
+'@@MFB_BODY:isSubset@@
 
 ' TRUE iff every element of `b` is in `a` (isSubset with arguments swapped).
-FUNC __collections_isSuperset OF T(a AS Set OF T, b AS Set OF T) AS Boolean
-  FOR EACH x IN b
-    IF NOT collections::contains(a, x) THEN
-      RETURN FALSE
-    END IF
-  NEXT
-  RETURN TRUE
-END FUNC
+'@@MFB_BODY:isSuperset@@
 
 ' TRUE iff `a` and `b` share no element.
-FUNC __collections_isDisjoint OF T(a AS Set OF T, b AS Set OF T) AS Boolean
-  FOR EACH x IN a
-    IF collections::contains(b, x) THEN
-      RETURN FALSE
-    END IF
-  NEXT
-  RETURN TRUE
-END FUNC
+'@@MFB_BODY:isDisjoint@@
