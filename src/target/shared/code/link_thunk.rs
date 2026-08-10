@@ -234,10 +234,9 @@ pub(super) fn emit_link_support(
             record_native_resources.contains(crate::builtins::resource::base_resource_name(type_))
         })
     }) {
-        for (message, symbol) in [
-            (ERR_RESOURCE_CLOSED_MESSAGE, ERR_RESOURCE_CLOSED_SYMBOL),
-            (ERR_RESOURCE_MOVED_MESSAGE, ERR_RESOURCE_MOVED_SYMBOL),
-        ] {
+        for (_, message, symbol) in ["ErrResourceClosed", "ErrResourceMoved"].map(|name| {
+            crate::builtins::errorcode::runtime_error_triple(name).expect("errorCode name")
+        }) {
             if !data_objects.iter().any(|object| object.symbol == symbol) {
                 data_objects.push(CodeDataObject {
                     symbol: symbol.to_string(),

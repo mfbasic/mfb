@@ -90,7 +90,7 @@ same sampling. The result stays in the `Money` dimension.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `min` is greater than `max`, so the requested range is empty. Checked before any draw is taken. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] [[src/target/shared/code/builder_math.rs:lower_math_rand]] |
+| `77050002` | `ErrInvalidArgument` | `min` is greater than `max`, so the requested range is empty. Checked before any draw is taken. [[src/builtins/errorcode.rs:ErrInvalidArgument]] [[src/target/shared/code/builder_math.rs:lower_math_rand]] |
 
 ## Type checking
 

@@ -77,7 +77,7 @@ allocation for the result, so a rejected index allocates nothing.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050001` | `ErrIndexOutOfRange` | `index` is negative, or `index` is strictly greater than `len(value)`. The append position `index == len(value)` is valid and does not raise. [[src/target/shared/code/error_constants.rs:ERR_INDEX_OUT_OF_RANGE_CODE]] [[src/target/shared/code/list_mutate.rs:lower_list_insert_collection]] |
+| `77050001` | `ErrIndexOutOfRange` | `index` is negative, or `index` is strictly greater than `len(value)`. The append position `index == len(value)` is valid and does not raise. [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] [[src/target/shared/code/list_mutate.rs:lower_list_insert_collection]] |
 
 ## Type checking
 

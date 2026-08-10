@@ -77,7 +77,7 @@ The first parameter is also accepted under the name `response`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77010001` | `ErrOutOfMemory` | The updated `headers` map or the copied `Response` cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77010001` | `ErrOutOfMemory` | The updated `headers` map or the copied `Response` cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

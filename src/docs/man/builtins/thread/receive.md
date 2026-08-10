@@ -103,11 +103,11 @@ empty, a positive value waits that long and then fails with `ErrTimeout`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | An explicit `timeoutMs` is negative. Omit the argument to wait indefinitely. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77050004` | `ErrNotFound` | The queue is *terminally* empty: it has been closed, or (parent-side) the worker has completed with an empty outbound queue. [[src/target/shared/code/error_constants.rs:ERR_NOT_FOUND_CODE]] |
-| `77050008` | `ErrTimeout` | The still-open queue stayed empty past the deadline: immediately when `timeoutMs` is `0`, or after a positive `timeoutMs` elapsed. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
-| `77050009` | `ErrInterrupted` | Worker-side only: cancellation has been requested for this worker. [[src/target/shared/code/error_constants.rs:ERR_INTERRUPTED_CODE]] |
-| `77030004` | `ErrResourceClosed` | Parent-side only: the thread's state is closed while its outbound queue is not flagged closed. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
+| `77050002` | `ErrInvalidArgument` | An explicit `timeoutMs` is negative. Omit the argument to wait indefinitely. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050004` | `ErrNotFound` | The queue is *terminally* empty: it has been closed, or (parent-side) the worker has completed with an empty outbound queue. [[src/builtins/errorcode.rs:ErrNotFound]] |
+| `77050008` | `ErrTimeout` | The still-open queue stayed empty past the deadline: immediately when `timeoutMs` is `0`, or after a positive `timeoutMs` elapsed. [[src/builtins/errorcode.rs:ErrTimeout]] |
+| `77050009` | `ErrInterrupted` | Worker-side only: cancellation has been requested for this worker. [[src/builtins/errorcode.rs:ErrInterrupted]] |
+| `77030004` | `ErrResourceClosed` | Parent-side only: the thread's state is closed while its outbound queue is not flagged closed. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
 
 ## Type checking
 

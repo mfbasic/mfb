@@ -98,7 +98,7 @@ back to `Integer` half away from zero.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050010` | `ErrOverflow` | On the `Fixed` overloads, converting `t`, or a difference or product, exceeds the checked Q32.32 range. On the `Integer` overloads, an extrapolated component rounds outside the `Integer` range. [[src/target/shared/code/builder_math.rs:emit_float_rounding_integer_range_check]] |
-| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a difference or extrapolated component reaches infinity and is caught where it is bound. [[src/target/shared/code/error_constants.rs:ERR_FLOAT_OVERFLOW_CODE]] |
+| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a difference or extrapolated component reaches infinity and is caught where it is bound. [[src/builtins/errorcode.rs:ErrFloatOverflow]] |
 
 ## Type checking
 

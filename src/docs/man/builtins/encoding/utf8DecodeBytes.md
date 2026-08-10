@@ -60,7 +60,7 @@ round-trips losslessly through the two functions.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | The bytes are not a well-formed UTF-8 sequence (invalid, overlong, or truncated). [[src/builtins/encoding_package.mfb:__encoding_utf8DecodeBytes]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
+| `77050003` | `ErrInvalidFormat` | The bytes are not a well-formed UTF-8 sequence (invalid, overlong, or truncated). [[src/builtins/encoding_package.mfb:__encoding_utf8DecodeBytes]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

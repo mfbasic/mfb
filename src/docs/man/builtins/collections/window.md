@@ -75,8 +75,8 @@ independent copies of the elements they share. `value` is not modified.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `size` is less than 1, or `stride` is less than 1. [[src/builtins/collections_package.mfb:__collections_window]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77010001` | `ErrOutOfMemory` | The arena cannot allocate a window or the result list, or a computed size overflows. [[src/target/shared/code/builder_collection_queries.rs:lower_list_slice_range]] [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `size` is less than 1, or `stride` is less than 1. [[src/builtins/collections_package.mfb:__collections_window]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77010001` | `ErrOutOfMemory` | The arena cannot allocate a window or the result list, or a computed size overflows. [[src/target/shared/code/builder_collection_queries.rs:lower_list_slice_range]] [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Type checking
 

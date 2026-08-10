@@ -68,7 +68,7 @@ produced on each platform. [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | `path` is empty or contains an embedded NUL byte, so it cannot become a valid NUL-terminated host path. [[src/target/shared/code/fs/paths.rs:lower_fs_path_operation_helper]] |
-| `77010001` | `ErrOutOfMemory` | The internal NUL-terminated copy of `path` cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77010001` | `ErrOutOfMemory` | The internal NUL-terminated copy of `path` cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 | `77030001` | `ErrPathNotFound` | A parent component of `path` does not exist (host `ENOENT`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
 | `77030003` | `ErrAccessDenied` | The host denies permission to create the directory (host `EACCES`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
 | `77050005` | `ErrAlreadyExists` | An entry already exists at `path`, including an existing directory (host `EEXIST`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |

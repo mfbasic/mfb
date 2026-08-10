@@ -63,7 +63,7 @@ allocated.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77010001` | `ErrOutOfMemory` | The returned `TermColor` record cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77010001` | `ErrOutOfMemory` | The returned `TermColor` record cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

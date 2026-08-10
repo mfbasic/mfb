@@ -53,7 +53,7 @@ overloads live in `strings::`. [[src/builtins/collections.rs:COLLECTIONS]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050001` | `ErrIndexOutOfRange` | raised by `get` (List overload), `set`, `insert`, `removeAt`, `mid`, `find`, `findIndex`, and `findLastIndex` when an index or start position is outside the valid range of the list [[src/target/shared/code/error_constants.rs:ERR_INDEX_OUT_OF_RANGE_CODE]] |
-| `77050002` | `ErrInvalidArgument` | raised by `chunks` when `chunkSize` is less than 1, and by `window` when `size` or `step` is less than 1 [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77050004` | `ErrNotFound` | raised by `get` (Map overload) when the key is missing, and by `find`, `findIndex`, and `findLastIndex` when no element matches [[src/target/shared/code/error_constants.rs:ERR_NOT_FOUND_CODE]] |
-| `77050010` | `ErrOverflow` | raised by `sum` when Integer or Fixed summation exceeds the range of the element type [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
+| `77050001` | `ErrIndexOutOfRange` | raised by `get` (List overload), `set`, `insert`, `removeAt`, `mid`, `find`, `findIndex`, and `findLastIndex` when an index or start position is outside the valid range of the list [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] |
+| `77050002` | `ErrInvalidArgument` | raised by `chunks` when `chunkSize` is less than 1, and by `window` when `size` or `step` is less than 1 [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050004` | `ErrNotFound` | raised by `get` (Map overload) when the key is missing, and by `find`, `findIndex`, and `findLastIndex` when no element matches [[src/builtins/errorcode.rs:ErrNotFound]] |
+| `77050010` | `ErrOverflow` | raised by `sum` when Integer or Fixed summation exceeds the range of the element type [[src/builtins/errorcode.rs:ErrOverflow]] |

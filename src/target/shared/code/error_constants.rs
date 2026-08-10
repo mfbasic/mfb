@@ -53,102 +53,20 @@ pub(crate) const MAKE_ERROR_RESULT_SYMBOL: &str = "_mfb_make_error_result";
 // ===========================================================================
 
 // -- Memory (7701) ----------------------------------------------------------
-pub(crate) const ERR_OUT_OF_MEMORY_CODE: &str = "77010001";
-pub(crate) const ERR_ALLOCATION_MESSAGE: &str = "Allocation failed.";
-pub(crate) const ERR_ALLOCATION_SYMBOL: &str = "_mfb_str_error_allocation";
 
 // -- I/O (7702) -------------------------------------------------------------
-pub(crate) const ERR_READ_CODE: &str = "77020001";
-pub(crate) const ERR_READ_MESSAGE: &str = "Read operation failed.";
-pub(crate) const ERR_READ_SYMBOL: &str = "_mfb_str_error_read";
-pub(crate) const ERR_OUTPUT_CODE: &str = "77020002";
-pub(crate) const ERR_OUTPUT_MESSAGE: &str = "Write or flush operation failed.";
-pub(crate) const ERR_OUTPUT_SYMBOL: &str = "_mfb_str_error_output";
-pub(crate) const ERR_EOF_CODE: &str = "77020003";
-pub(crate) const ERR_EOF_MESSAGE: &str =
-    "Read operation reached end of file where a value was required.";
-pub(crate) const ERR_EOF_SYMBOL: &str = "_mfb_str_error_eof";
-pub(crate) const ERR_ENCODING_CODE: &str = "77020004";
-pub(crate) const ERR_ENCODING_MESSAGE: &str = "Text encoding or decoding failed.";
-pub(crate) const ERR_ENCODING_SYMBOL: &str = "_mfb_str_error_encoding";
-pub(crate) const ERR_INPUT_CODE: &str = "77020005";
-pub(crate) const ERR_INPUT_MESSAGE: &str = "Standard input operation failed.";
-pub(crate) const ERR_INPUT_SYMBOL: &str = "_mfb_str_error_input";
 
 // -- Filesystem / resource / native link (7703) -----------------------------
-pub(crate) const ERR_PATH_NOT_FOUND_CODE: &str = "77030001";
-pub(crate) const ERR_PATH_NOT_FOUND_MESSAGE: &str = "Filesystem path does not exist.";
-pub(crate) const ERR_PATH_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_path_not_found";
-pub(crate) const ERR_INVALID_PATH_CODE: &str = "77030002";
-pub(crate) const ERR_INVALID_PATH_MESSAGE: &str =
-    "Filesystem path string is invalid for the host platform.";
-pub(crate) const ERR_INVALID_PATH_SYMBOL: &str = "_mfb_str_error_invalid_path";
-pub(crate) const ERR_ACCESS_DENIED_CODE: &str = "77030003";
-pub(crate) const ERR_ACCESS_DENIED_MESSAGE: &str = "Filesystem access was denied.";
-pub(crate) const ERR_ACCESS_DENIED_SYMBOL: &str = "_mfb_str_error_access_denied";
-pub(crate) const ERR_RESOURCE_CLOSED_CODE: &str = "77030004";
-pub(crate) const ERR_RESOURCE_CLOSED_MESSAGE: &str = "Resource handle is already closed.";
-pub(crate) const ERR_RESOURCE_CLOSED_SYMBOL: &str = "_mfb_str_error_resource_closed";
 /// Reported instead of `ErrResourceClosed` when a guard finds `RESOURCE_MOVED_BIT`
 /// set — the handle was `thread::transfer`red away, so "already closed" would be a
 /// misleading account of why it is unusable.
-pub(crate) const ERR_RESOURCE_MOVED_CODE: &str = "77030009";
-pub(crate) const ERR_RESOURCE_MOVED_MESSAGE: &str =
-    "Resource handle was moved to another thread by `thread::transfer` and is no longer usable by the sender.";
-pub(crate) const ERR_RESOURCE_MOVED_SYMBOL: &str = "_mfb_str_error_resource_moved";
-pub(crate) const ERR_DIRECTORY_NOT_EMPTY_CODE: &str = "77030005";
-pub(crate) const ERR_DIRECTORY_NOT_EMPTY_MESSAGE: &str =
-    "Resource is unavailable, locked, busy, or not in the required empty state.";
-pub(crate) const ERR_DIRECTORY_NOT_EMPTY_SYMBOL: &str = "_mfb_str_error_directory_not_empty";
-pub(crate) const ERR_CLOSE_FAILED_CODE: &str = "77030006";
-pub(crate) const ERR_CLOSE_FAILED_MESSAGE: &str = "Resource close operation failed.";
-pub(crate) const ERR_CLOSE_FAILED_SYMBOL: &str = "_mfb_str_error_close_failed";
-pub(crate) const ERR_NATIVE_LINK_LOAD_CODE: &str = "77030007";
-pub(crate) const ERR_NATIVE_LINK_LOAD_MESSAGE: &str =
-    "Native `LINK` binding library or symbol could not be loaded at startup (`dlopen`/`dlsym` failed).";
-pub(crate) const ERR_NATIVE_LINK_LOAD_SYMBOL: &str = "_mfb_str_error_native_link_load";
-pub(crate) const ERR_NATIVE_LINK_CALL_CODE: &str = "77030008";
-pub(crate) const ERR_NATIVE_LINK_CALL_MESSAGE: &str =
-    "Native `LINK` binding call failed its `SUCCESS_ON` gate.";
-pub(crate) const ERR_NATIVE_LINK_CALL_SYMBOL: &str = "_mfb_str_error_native_link_call";
 /// sec-02: a native `LINK` `OUT CBuffer` callee wrote past the declared `SIZE`
 /// bytes, caught by a post-call canary in the buffer's guard region. The overrun
 /// already touched memory; the thunk traps deterministically instead of
 /// continuing on corrupted arena state (converting a silent heap smash into an
 /// abort). The author's `BUFFER … SIZE` must be >= the callee's maximum write.
-pub(crate) const ERR_NATIVE_BUFFER_OVERRUN_CODE: &str = "77030010";
-pub(crate) const ERR_NATIVE_BUFFER_OVERRUN_MESSAGE: &str =
-    "Native `LINK` `OUT CBuffer` callee wrote past its declared `SIZE` (buffer overrun detected).";
-pub(crate) const ERR_NATIVE_BUFFER_OVERRUN_SYMBOL: &str = "_mfb_str_error_native_buffer_overrun";
 
 // -- General runtime (7705) -------------------------------------------------
-pub(crate) const ERR_UNKNOWN_CODE: &str = "77050000";
-pub(crate) const ERR_UNKNOWN_MESSAGE: &str = "Unclassified standard-package failure.";
-pub(crate) const ERR_UNKNOWN_SYMBOL: &str = "_mfb_str_error_unknown";
-pub(crate) const ERR_INDEX_OUT_OF_RANGE_CODE: &str = "77050001";
-pub(crate) const ERR_INDEX_OUT_OF_RANGE_MESSAGE: &str =
-    "List or string index/range is outside valid bounds.";
-pub(crate) const ERR_INDEX_OUT_OF_RANGE_SYMBOL: &str = "_mfb_str_error_index_out_of_range";
-pub(crate) const ERR_INVALID_ARGUMENT_CODE: &str = "77050002";
-pub(crate) const ERR_INVALID_ARGUMENT_MESSAGE: &str =
-    "Argument value is not valid for the requested operation.";
-pub(crate) const ERR_INVALID_ARGUMENT_SYMBOL: &str = "_mfb_str_error_invalid_argument";
-pub(crate) const ERR_INVALID_FORMAT_CODE: &str = "77050003";
-pub(crate) const ERR_INVALID_FORMAT_MESSAGE: &str =
-    "Text parse or non-finite numeric representation conversion failed.";
-pub(crate) const ERR_INVALID_FORMAT_SYMBOL: &str = "_mfb_str_error_invalid_format";
-pub(crate) const ERR_NOT_FOUND_CODE: &str = "77050004";
-pub(crate) const ERR_NOT_FOUND_MESSAGE: &str =
-    "Requested item, key, file, or resource was not found.";
-pub(crate) const ERR_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_not_found";
-pub(crate) const ERR_ALREADY_EXISTS_CODE: &str = "77050005";
-pub(crate) const ERR_ALREADY_EXISTS_MESSAGE: &str =
-    "Create operation conflicts with an existing item.";
-pub(crate) const ERR_ALREADY_EXISTS_SYMBOL: &str = "_mfb_str_error_already_exists";
-pub(crate) const ERR_UNSUPPORTED_CODE: &str = "77050007";
-pub(crate) const ERR_UNSUPPORTED_MESSAGE: &str =
-    "Operation is not supported by the implementation or platform.";
-pub(crate) const ERR_UNSUPPORTED_SYMBOL: &str = "_mfb_str_error_unsupported";
 /// The single expiry error for every builtin that can wait. Under the timeout
 /// convention (spec `language builtin-functions` → "Timeout convention"), a
 /// producing call (`accept`/`connect`/`receive`/`transfer`/`send`, or a
@@ -157,9 +75,6 @@ pub(crate) const ERR_UNSUPPORTED_SYMBOL: &str = "_mfb_str_error_unsupported";
 /// exactly this code. It replaced `ErrNotFound` for thread `receive`/`accept` at
 /// `0` (plan-73-A) and the retired `ErrReadTimeout`/`ErrWriteTimeout` for net
 /// read/write (plan-73-C).
-pub(crate) const ERR_TIMEOUT_CODE: &str = "77050008";
-pub(crate) const ERR_TIMEOUT_MESSAGE: &str = "Operation did not complete before its deadline.";
-pub(crate) const ERR_TIMEOUT_SYMBOL: &str = "_mfb_str_error_timeout";
 
 /// Convention-level "wait unbounded" sentinel for the optional trailing
 /// `timeoutMs AS Integer` shared by every waiting builtin (thread/net/tls/audio).
@@ -171,83 +86,19 @@ pub(crate) const ERR_TIMEOUT_SYMBOL: &str = "_mfb_str_error_timeout";
 /// user-supplied value (always `>= 0`) can collide with it. See the "Timeout
 /// convention" spec section (`mfb spec language builtin-functions`).
 pub(crate) const TIMEOUT_UNBOUNDED_SENTINEL: &str = "9223372036854775808";
-pub(crate) const ERR_INTERRUPTED_CODE: &str = "77050009";
-pub(crate) const ERR_INTERRUPTED_MESSAGE: &str = "Operation was interrupted before completion.";
-pub(crate) const ERR_INTERRUPTED_SYMBOL: &str = "_mfb_str_error_interrupted";
-pub(crate) const ERR_OVERFLOW_CODE: &str = "77050010";
-pub(crate) const ERR_OVERFLOW_MESSAGE: &str =
-    "Arithmetic overflow or numeric conversion outside the destination range.";
-pub(crate) const ERR_OVERFLOW_SYMBOL: &str = "_mfb_str_error_overflow";
-pub(crate) const ERR_UNDERFLOW_CODE: &str = "77050011";
-pub(crate) const ERR_UNDERFLOW_MESSAGE: &str = "Arithmetic underflow below the destination range.";
-pub(crate) const ERR_UNDERFLOW_SYMBOL: &str = "_mfb_str_error_underflow";
-pub(crate) const ERR_FLOAT_DOMAIN_CODE: &str = "77050012";
-pub(crate) const ERR_FLOAT_DOMAIN_MESSAGE: &str =
-    "Floating-point operation domain is invalid (negative `sqrt`, non-positive `log`/`log10`, \
-     out-of-range `asin`/`acos`, a non-whole or negative `^` exponent, or a `Float MOD 0`). \
-     Divide-by-zero is not reported here — `x / 0` produces `±Inf`/`NaN` caught at the \
-     observation boundary as `ErrFloatOverflow`/`ErrFloatNaN`.";
-pub(crate) const ERR_FLOAT_DOMAIN_SYMBOL: &str = "_mfb_str_error_float_domain";
-pub(crate) const ERR_FLOAT_NAN_CODE: &str = "77050013";
-pub(crate) const ERR_FLOAT_NAN_MESSAGE: &str = "Floating-point operation produced a NaN result.";
-pub(crate) const ERR_FLOAT_NAN_SYMBOL: &str = "_mfb_str_error_float_nan";
-pub(crate) const ERR_FLOAT_INF_CODE: &str = "77050014";
-pub(crate) const ERR_FLOAT_INF_MESSAGE: &str =
-    "Floating-point operation produced an infinity result.";
-pub(crate) const ERR_FLOAT_INF_SYMBOL: &str = "_mfb_str_error_float_inf";
-pub(crate) const ERR_FLOAT_OVERFLOW_CODE: &str = "77050015";
-pub(crate) const ERR_FLOAT_OVERFLOW_MESSAGE: &str =
-    "Floating-point arithmetic overflowed to infinity.";
-pub(crate) const ERR_FLOAT_OVERFLOW_SYMBOL: &str = "_mfb_str_error_float_overflow";
 // Audio (plan-33-A §7). Raised by the plan-33-B/C backend helper bodies; the
 // registry rows in `02_error-codes.md` land with plan-33-A so `errorCode::`
 // resolves. `77050016` is `ErrAuthenticationFailed` (crypto).
-pub(crate) const ERR_AUDIO_UNAVAILABLE_CODE: &str = "77050017";
-pub(crate) const ERR_AUDIO_UNAVAILABLE_MESSAGE: &str = "Audio backend library or device is unavailable (no `libasound.so.2`, no audio device, or capture authorization denied).";
-pub(crate) const ERR_AUDIO_UNAVAILABLE_SYMBOL: &str = "_mfb_str_error_audio_unavailable";
-pub(crate) const ERR_AUDIO_DEVICE_CODE: &str = "77050018";
-pub(crate) const ERR_AUDIO_DEVICE_MESSAGE: &str =
-    "Audio device open, configuration, or stream operation failed.";
-pub(crate) const ERR_AUDIO_DEVICE_SYMBOL: &str = "_mfb_str_error_audio_device";
 // Invalid context (plan-15 D1): a thread that has not called `thread::openStdIn`
 // tried to read stdin (the compiler-inserted main subscription exempts a normal
 // single-threaded program).
-pub(crate) const ERR_INVALID_CONTEXT_CODE: &str = "77050019";
-pub(crate) const ERR_INVALID_CONTEXT_MESSAGE: &str = "Operation was invoked from a thread that is not permitted to perform it (e.g. reading stdin from a thread that has not called `thread::openStdIn`).";
-pub(crate) const ERR_INVALID_CONTEXT_SYMBOL: &str = "_mfb_str_error_invalid_context";
 // plan-62-E: `term::*` and the console-reading `io::` calls require the `Console`
 // presentation mode in an `--app` build; outside it they raise this trappable error.
-pub(crate) const ERR_WRONG_MODE_CODE: &str = "77050020";
-pub(crate) const ERR_WRONG_MODE_MESSAGE: &str = "Operation requires the Console presentation mode: `term::` and console input (`io::input`/`io::readLine`/`io::readChar`) are only valid while `app::getMode()` is `Mode.Console`.";
-pub(crate) const ERR_WRONG_MODE_SYMBOL: &str = "_mfb_str_error_wrong_mode";
 
 // -- Network (7707) ---------------------------------------------------------
-pub(crate) const ERR_ADDRESS_INVALID_CODE: &str = "77070001";
-pub(crate) const ERR_ADDRESS_INVALID_MESSAGE: &str = "Network host, address, or port is invalid.";
-pub(crate) const ERR_ADDRESS_INVALID_SYMBOL: &str = "_mfb_str_error_address_invalid";
-pub(crate) const ERR_ADDRESS_NOT_FOUND_CODE: &str = "77070002";
-pub(crate) const ERR_ADDRESS_NOT_FOUND_MESSAGE: &str =
-    "Network host name or address could not be resolved.";
-pub(crate) const ERR_ADDRESS_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_address_not_found";
-pub(crate) const ERR_NETWORK_FAILED_CODE: &str = "77070003";
-pub(crate) const ERR_NETWORK_FAILED_MESSAGE: &str =
-    "Network operation failed before a connection was established.";
-pub(crate) const ERR_NETWORK_FAILED_SYMBOL: &str = "_mfb_str_error_network_failed";
-pub(crate) const ERR_CONNECTION_CLOSED_CODE: &str = "77070004";
-pub(crate) const ERR_CONNECTION_CLOSED_MESSAGE: &str =
-    "Socket peer closed the connection or the connection is no longer usable.";
-pub(crate) const ERR_CONNECTION_CLOSED_SYMBOL: &str = "_mfb_str_error_connection_closed";
 // plan-73-C: `ErrReadTimeout` (77070005) and `ErrWriteTimeout` (77070006) are
 // RETIRED — every net read/write timeout now raises the single `ErrTimeout`
 // (77050008), per the language timeout convention.
-pub(crate) const ERR_MESSAGE_TOO_LARGE_CODE: &str = "77070007";
-pub(crate) const ERR_MESSAGE_TOO_LARGE_MESSAGE: &str =
-    "Datagram or message exceeds the requested or supported size.";
-pub(crate) const ERR_MESSAGE_TOO_LARGE_SYMBOL: &str = "_mfb_str_error_message_too_large";
-pub(crate) const ERR_TLS_FAILED_CODE: &str = "77070008";
-pub(crate) const ERR_TLS_FAILED_MESSAGE: &str =
-    "TLS handshake, certificate validation, SNI validation, or protocol operation failed.";
-pub(crate) const ERR_TLS_FAILED_SYMBOL: &str = "_mfb_str_error_tls_failed";
 
 // ===========================================================================
 // Entry-point & cleanup-failure diagnostic strings
@@ -1020,160 +871,3 @@ pub(crate) const UNICODE_CASEFOLD_SEQUENCES_SYMBOL: &str = "_mfb_unicode_casefol
 
 pub(crate) const THREAD_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_thread_trampoline";
 
-#[cfg(test)]
-mod parity_tests {
-    use super::*;
-    use crate::builtins::errorcode::ERRORCODE_CONSTANTS;
-
-    /// Every `ERR_*` `(code, message)` pair emitted by codegen today. Base names
-    /// line up except `ERR_OUT_OF_MEMORY_CODE`, which is emitted with
-    /// `ERR_ALLOCATION_MESSAGE`. This is the exhaustive set the plan-88 migration
-    /// must reproduce through `ERRORCODE_CONSTANTS`.
-    const ERR_PAIRS: &[(&str, &str)] = &[
-        (ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE),
-        (ERR_READ_CODE, ERR_READ_MESSAGE),
-        (ERR_OUTPUT_CODE, ERR_OUTPUT_MESSAGE),
-        (ERR_EOF_CODE, ERR_EOF_MESSAGE),
-        (ERR_ENCODING_CODE, ERR_ENCODING_MESSAGE),
-        (ERR_INPUT_CODE, ERR_INPUT_MESSAGE),
-        (ERR_PATH_NOT_FOUND_CODE, ERR_PATH_NOT_FOUND_MESSAGE),
-        (ERR_INVALID_PATH_CODE, ERR_INVALID_PATH_MESSAGE),
-        (ERR_ACCESS_DENIED_CODE, ERR_ACCESS_DENIED_MESSAGE),
-        (ERR_RESOURCE_CLOSED_CODE, ERR_RESOURCE_CLOSED_MESSAGE),
-        (ERR_RESOURCE_MOVED_CODE, ERR_RESOURCE_MOVED_MESSAGE),
-        (ERR_DIRECTORY_NOT_EMPTY_CODE, ERR_DIRECTORY_NOT_EMPTY_MESSAGE),
-        (ERR_CLOSE_FAILED_CODE, ERR_CLOSE_FAILED_MESSAGE),
-        (ERR_NATIVE_LINK_LOAD_CODE, ERR_NATIVE_LINK_LOAD_MESSAGE),
-        (ERR_NATIVE_LINK_CALL_CODE, ERR_NATIVE_LINK_CALL_MESSAGE),
-        (ERR_NATIVE_BUFFER_OVERRUN_CODE, ERR_NATIVE_BUFFER_OVERRUN_MESSAGE),
-        (ERR_UNKNOWN_CODE, ERR_UNKNOWN_MESSAGE),
-        (ERR_INDEX_OUT_OF_RANGE_CODE, ERR_INDEX_OUT_OF_RANGE_MESSAGE),
-        (ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_MESSAGE),
-        (ERR_INVALID_FORMAT_CODE, ERR_INVALID_FORMAT_MESSAGE),
-        (ERR_NOT_FOUND_CODE, ERR_NOT_FOUND_MESSAGE),
-        (ERR_ALREADY_EXISTS_CODE, ERR_ALREADY_EXISTS_MESSAGE),
-        (ERR_UNSUPPORTED_CODE, ERR_UNSUPPORTED_MESSAGE),
-        (ERR_TIMEOUT_CODE, ERR_TIMEOUT_MESSAGE),
-        (ERR_INTERRUPTED_CODE, ERR_INTERRUPTED_MESSAGE),
-        (ERR_OVERFLOW_CODE, ERR_OVERFLOW_MESSAGE),
-        (ERR_UNDERFLOW_CODE, ERR_UNDERFLOW_MESSAGE),
-        (ERR_FLOAT_DOMAIN_CODE, ERR_FLOAT_DOMAIN_MESSAGE),
-        (ERR_FLOAT_NAN_CODE, ERR_FLOAT_NAN_MESSAGE),
-        (ERR_FLOAT_INF_CODE, ERR_FLOAT_INF_MESSAGE),
-        (ERR_FLOAT_OVERFLOW_CODE, ERR_FLOAT_OVERFLOW_MESSAGE),
-        (ERR_AUDIO_UNAVAILABLE_CODE, ERR_AUDIO_UNAVAILABLE_MESSAGE),
-        (ERR_AUDIO_DEVICE_CODE, ERR_AUDIO_DEVICE_MESSAGE),
-        (ERR_INVALID_CONTEXT_CODE, ERR_INVALID_CONTEXT_MESSAGE),
-        (ERR_WRONG_MODE_CODE, ERR_WRONG_MODE_MESSAGE),
-        (ERR_ADDRESS_INVALID_CODE, ERR_ADDRESS_INVALID_MESSAGE),
-        (ERR_ADDRESS_NOT_FOUND_CODE, ERR_ADDRESS_NOT_FOUND_MESSAGE),
-        (ERR_NETWORK_FAILED_CODE, ERR_NETWORK_FAILED_MESSAGE),
-        (ERR_CONNECTION_CLOSED_CODE, ERR_CONNECTION_CLOSED_MESSAGE),
-        (ERR_MESSAGE_TOO_LARGE_CODE, ERR_MESSAGE_TOO_LARGE_MESSAGE),
-        (ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_MESSAGE),
-    ];
-
-    /// Codes whose codegen `ERR_*_MESSAGE` differs from the `ERRORCODE_CONSTANTS`
-    /// message today. On consolidation (plan-88 B/C) those sites adopt the single
-    /// table message; the per-site acceptance gate allows a runtime *message*
-    /// change ONLY for a code on this list (a code change is always a failure).
-    /// This snapshot is the consolidation manifest. As of plan-88 Phase 0 exactly
-    /// one code diverges:
-    /// - `77050020` `ErrWrongMode`: `ERR_WRONG_MODE_MESSAGE` ("Operation requires
-    ///   the Console presentation mode: …") vs the table's "Operation requires a
-    ///   presentation mode the program is not in: in an `--app` build, …
-    ///   (plan-62-E)." Same meaning, different wording; the wrong-mode gate adopts
-    ///   the table message when migrated in plan-88-C.
-    const EXPECTED_DIVERGING_CODES: &[&str] = &["77050020"];
-
-    /// plan-88 Phase 0 parity audit: every `ERR_*` code must exist in the
-    /// errorCode table (a missing code is a bug — panics below), and the set of
-    /// messages that diverge from the table must match the recorded manifest.
-    #[test]
-    fn error_constants_match_table() {
-        let mut diverging_codes: Vec<&str> = Vec::new();
-        for &(code, message) in ERR_PAIRS {
-            let &(_name, table_code, table_message, _symbol) = ERRORCODE_CONSTANTS
-                .iter()
-                .find(|&&(_, table_code, ..)| table_code == code)
-                .unwrap_or_else(|| {
-                    panic!("ERR_* code {code} is not in ERRORCODE_CONSTANTS (code parity broken)")
-                });
-            assert_eq!(table_code, code, "found-by-code invariant");
-            if table_message != message {
-                diverging_codes.push(code);
-            }
-        }
-        diverging_codes.sort_unstable();
-        let mut expected = EXPECTED_DIVERGING_CODES.to_vec();
-        expected.sort_unstable();
-        assert_eq!(
-            diverging_codes, expected,
-            "ERR_* vs errorCode-table message divergence set changed; if intended, \
-             update EXPECTED_DIVERGING_CODES (the plan-88 consolidation manifest)"
-        );
-    }
-
-    /// plan-88-C byte-identity pin: `raise_error_into` sources the message
-    /// data-object symbol from `ERRORCODE_CONSTANTS`, so the table's 4th column must
-    /// reproduce the exact `ERR_*_SYMBOL` each fixed-helper site referenced before.
-    /// Every error *name* the symbol-path census emits is pinned here (irregular
-    /// symbols included). If a table symbol drifts from its codegen constant, the
-    /// fixed-helper `.ncode` bytes would change silently — this catches it.
-    #[test]
-    fn emission_symbols_match_codegen_constants() {
-        use crate::builtins::errorcode::runtime_error_emission;
-        // (error name, historical codegen symbol) for every symbol the fixed-helper
-        // (`push_error_message_address`) sites emit — the byte-identity-relevant set.
-        const EMISSION_SYMBOLS: &[(&str, &str)] = &[
-            ("ErrUnknown", ERR_UNKNOWN_SYMBOL),
-            ("ErrOutOfMemory", ERR_ALLOCATION_SYMBOL),
-            ("ErrEncoding", ERR_ENCODING_SYMBOL),
-            ("ErrEndOfFile", ERR_EOF_SYMBOL),
-            ("ErrInputFailed", ERR_INPUT_SYMBOL),
-            ("ErrInterrupted", ERR_INTERRUPTED_SYMBOL),
-            ("ErrInvalidArgument", ERR_INVALID_ARGUMENT_SYMBOL),
-            ("ErrInvalidContext", ERR_INVALID_CONTEXT_SYMBOL),
-            ("ErrNotFound", ERR_NOT_FOUND_SYMBOL),
-            ("ErrWriteFailed", ERR_OUTPUT_SYMBOL),
-            ("ErrOverflow", ERR_OVERFLOW_SYMBOL),
-            ("ErrResourceClosed", ERR_RESOURCE_CLOSED_SYMBOL),
-            ("ErrTimeout", ERR_TIMEOUT_SYMBOL),
-            ("ErrUnsupported", ERR_UNSUPPORTED_SYMBOL),
-            ("ErrWrongMode", ERR_WRONG_MODE_SYMBOL),
-            ("ErrAccessDenied", ERR_ACCESS_DENIED_SYMBOL),
-            ("ErrAlreadyExists", ERR_ALREADY_EXISTS_SYMBOL),
-            ("ErrCloseFailed", ERR_CLOSE_FAILED_SYMBOL),
-            // Irregular: code 77030005's only fixed emission is directory-not-empty.
-            ("ErrResourceBusy", ERR_DIRECTORY_NOT_EMPTY_SYMBOL),
-            ("ErrInvalidPath", ERR_INVALID_PATH_SYMBOL),
-            ("ErrPathNotFound", ERR_PATH_NOT_FOUND_SYMBOL),
-            ("ErrReadFailed", ERR_READ_SYMBOL),
-            ("ErrResourceMoved", ERR_RESOURCE_MOVED_SYMBOL),
-            ("ErrAddressInvalid", ERR_ADDRESS_INVALID_SYMBOL),
-            ("ErrAddressNotFound", ERR_ADDRESS_NOT_FOUND_SYMBOL),
-            ("ErrAudioDevice", ERR_AUDIO_DEVICE_SYMBOL),
-            ("ErrAudioUnavailable", ERR_AUDIO_UNAVAILABLE_SYMBOL),
-            ("ErrConnectionClosed", ERR_CONNECTION_CLOSED_SYMBOL),
-            ("ErrMessageTooLarge", ERR_MESSAGE_TOO_LARGE_SYMBOL),
-            ("ErrNetworkFailed", ERR_NETWORK_FAILED_SYMBOL),
-            ("ErrTlsFailed", ERR_TLS_FAILED_SYMBOL),
-            // `LINK` thunk fixed helpers (link_thunk.rs, via emit_data_address).
-            ("ErrNativeBindingUnavailable", ERR_NATIVE_LINK_LOAD_SYMBOL),
-            ("ErrNativeBindingCallFailed", ERR_NATIVE_LINK_CALL_SYMBOL),
-            ("ErrNativeBufferOverrun", ERR_NATIVE_BUFFER_OVERRUN_SYMBOL),
-            // `LINK` boundary-validation epilogues (link_thunk.rs).
-            ("ErrFloatNaN", ERR_FLOAT_NAN_SYMBOL),
-            ("ErrFloatInf", ERR_FLOAT_INF_SYMBOL),
-        ];
-        for &(name, symbol) in EMISSION_SYMBOLS {
-            let (_code, table_symbol) = runtime_error_emission(name)
-                .unwrap_or_else(|| panic!("`{name}` missing from ERRORCODE_CONSTANTS"));
-            assert_eq!(
-                table_symbol, symbol,
-                "table symbol for `{name}` ({table_symbol}) != codegen `ERR_*_SYMBOL` \
-                 ({symbol}); raise_error_into would emit different `.ncode` bytes",
-            );
-        }
-    }
-}

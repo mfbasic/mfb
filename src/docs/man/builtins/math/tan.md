@@ -111,8 +111,8 @@ which element triggered it; no list is returned in that case.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050013` | `ErrFloatNaN` | The `Float` overload only: the computed result is a NaN, which happens for an infinity or NaN argument and for a sufficiently large magnitude. [[src/target/shared/code/error_constants.rs:ERR_FLOAT_NAN_CODE]] |
-| `77050002` | `ErrInvalidArgument` | The `Fixed` overload only: the computed cosine of `value` is exactly zero, so the tangent is undefined at that point. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
+| `77050013` | `ErrFloatNaN` | The `Float` overload only: the computed result is a NaN, which happens for an infinity or NaN argument and for a sufficiently large magnitude. [[src/builtins/errorcode.rs:ErrFloatNaN]] |
+| `77050002` | `ErrInvalidArgument` | The `Fixed` overload only: the computed cosine of `value` is exactly zero, so the tangent is undefined at that point. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
 
 ## Type checking
 

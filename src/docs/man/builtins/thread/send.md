@@ -103,10 +103,10 @@ Worker-side send onto the parent-visible outbound queue. Fails with
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77050008` | `ErrTimeout` | The destination queue is full and space did not become available before the deadline — immediately when `timeoutMs` is `0`. (Omitting `timeoutMs` blocks instead of raising this.) [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050008` | `ErrTimeout` | The destination queue is full and space did not become available before the deadline — immediately when `timeoutMs` is `0`. (Omitting `timeoutMs` blocks instead of raising this.) [[src/builtins/errorcode.rs:ErrTimeout]] |
 | `77050009` | `ErrInterrupted` | Cancellation was requested for the worker, the worker has completed (parent-side), or the destination queue has been marked closed. [[src/target/shared/code/runtime_helpers_thread.rs:thread_queue_write_helper]] |
-| `77030004` | `ErrResourceClosed` | Parent-side only: the `Thread` handle is already closed, for example after `thread::waitFor`. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
+| `77030004` | `ErrResourceClosed` | Parent-side only: the `Thread` handle is already closed, for example after `thread::waitFor`. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
 
 ## Type checking
 

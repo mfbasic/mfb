@@ -64,7 +64,7 @@ precision of `at`; use it when nanosecond fidelity matters.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | Evaluating `at.seconds * 1000000000 + at.nanos` overflows the signed `Integer` range — either the nanosecond scaling or the trailing addition — which can occur only for an instant at the extreme edge of the timeline. [[src/builtins/datetime_package.mfb:__datetime_toNanos]] [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
+| `77050010` | `ErrOverflow` | Evaluating `at.seconds * 1000000000 + at.nanos` overflows the signed `Integer` range — either the nanosecond scaling or the trailing addition — which can occur only for an instant at the extreme edge of the timeline. [[src/builtins/datetime_package.mfb:__datetime_toNanos]] [[src/builtins/errorcode.rs:ErrOverflow]] |
 
 ## Examples
 

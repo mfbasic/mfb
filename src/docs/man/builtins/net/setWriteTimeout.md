@@ -81,8 +81,8 @@ Bounds `net::sendTo` and `net::sendTextTo` on a bound UDP socket.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77030004` | `ErrResourceClosed` | `sock` has already been closed, or the host refuses to install the option — which it does when the descriptor is no longer a usable socket. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77030004` | `ErrResourceClosed` | `sock` has already been closed, or the host refuses to install the option — which it does when the descriptor is no longer a usable socket. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
 
 ## Examples
 

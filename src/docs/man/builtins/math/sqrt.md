@@ -103,8 +103,8 @@ which element triggered it; no list is returned in that case.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050012` | `ErrFloatDomain` | The `Float` overload only: `value` is negative or a NaN, so it has no real square root. [[src/target/shared/code/error_constants.rs:ERR_FLOAT_DOMAIN_CODE]] |
-| `77050002` | `ErrInvalidArgument` | The `Fixed` overload only: `value` is negative. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
+| `77050012` | `ErrFloatDomain` | The `Float` overload only: `value` is negative or a NaN, so it has no real square root. [[src/builtins/errorcode.rs:ErrFloatDomain]] |
+| `77050002` | `ErrInvalidArgument` | The `Fixed` overload only: `value` is negative. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
 
 ## Type checking
 

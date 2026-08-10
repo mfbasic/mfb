@@ -82,6 +82,6 @@ yields its own declared return type. `List` and `Map` helpers live in the
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | raised by `toInt`, `toFloat`, and `toFixed` when a `String` argument is not well-formed text for the target type, or when a `Float` argument to `toInt` or `toFixed` is NaN or infinite [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
-| `77050010` | `ErrOverflow` | raised by `toInt`, `toFloat`, `toFixed`, and `toByte` when a value is outside the representable range of the target type, such as text too large for `Integer` or an `Integer` outside 0 through 255 for `toByte` [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
-| `77020004` | `ErrEncoding` | raised by the `toString` `List OF Byte` overload when the byte sequence is not valid UTF-8 [[src/target/shared/code/error_constants.rs:ERR_ENCODING_CODE]] |
+| `77050003` | `ErrInvalidFormat` | raised by `toInt`, `toFloat`, and `toFixed` when a `String` argument is not well-formed text for the target type, or when a `Float` argument to `toInt` or `toFixed` is NaN or infinite [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050010` | `ErrOverflow` | raised by `toInt`, `toFloat`, `toFixed`, and `toByte` when a value is outside the representable range of the target type, such as text too large for `Integer` or an `Integer` outside 0 through 255 for `toByte` [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77020004` | `ErrEncoding` | raised by the `toString` `List OF Byte` overload when the byte sequence is not valid UTF-8 [[src/builtins/errorcode.rs:ErrEncoding]] |

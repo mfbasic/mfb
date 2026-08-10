@@ -60,7 +60,7 @@ mutates nothing; the same input always produces the same output.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77010001` | `ErrOutOfMemory` | The `List OF Byte` holding the encoded bytes cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_to_bytes]] |
+| `77010001` | `ErrOutOfMemory` | The `List OF Byte` holding the encoded bytes cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_to_bytes]] |
 
 ## Examples
 

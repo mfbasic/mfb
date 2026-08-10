@@ -71,7 +71,7 @@ the returned list does not share storage with `value`. `value` is not modified.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77010001` | `ErrOutOfMemory` | The arena cannot allocate the result list, or its computed size overflows. No value of `count` is itself rejected. [[src/target/shared/code/builder_collection_queries.rs:lower_list_slice_range]] [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77010001` | `ErrOutOfMemory` | The arena cannot allocate the result list, or its computed size overflows. No value of `count` is itself rejected. [[src/target/shared/code/builder_collection_queries.rs:lower_list_slice_range]] [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Type checking
 

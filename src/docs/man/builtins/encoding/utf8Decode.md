@@ -73,7 +73,7 @@ bytes as UTF-8. Selected when the argument is a `List OF Integer`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | An element is outside `0..255` (integer form), or the bytes are not a well-formed UTF-8 sequence. [[src/builtins/encoding_package.mfb:__encoding_utf8DecodeInts]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
+| `77050003` | `ErrInvalidFormat` | An element is outside `0..255` (integer form), or the bytes are not a well-formed UTF-8 sequence. [[src/builtins/encoding_package.mfb:__encoding_utf8DecodeInts]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Type checking
 

@@ -67,7 +67,7 @@ to push the combined second count past the `Integer` range overflows and traps.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | Subtracting the `seconds` fields, or borrowing the normalized nanoseconds from the `seconds` field, produces a value outside the signed `Integer` range. [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
+| `77050010` | `ErrOverflow` | Subtracting the `seconds` fields, or borrowing the normalized nanoseconds from the `seconds` field, produces a value outside the signed `Integer` range. [[src/builtins/errorcode.rs:ErrOverflow]] |
 
 ## Examples
 

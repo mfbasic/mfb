@@ -63,7 +63,7 @@ round-trips losslessly through the two functions.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | An element is outside `0..65535`, or the code units contain an unpaired surrogate. [[src/builtins/encoding_package.mfb:__encoding_utf16Decode]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
+| `77050003` | `ErrInvalidFormat` | An element is outside `0..65535`, or the code units contain an unpaired surrogate. [[src/builtins/encoding_package.mfb:__encoding_utf16Decode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

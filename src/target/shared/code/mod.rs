@@ -406,11 +406,6 @@ struct CodeBuilder<'a> {
     /// to elide the overflow check on `local + 1`; dropped on any assignment to the
     /// local and cleared at every loop/Match/Trap boundary.
     integer_strict_upper: std::collections::HashSet<String>,
-    /// plan-88: the `errorCode` names every `raise_error`/`raise_error_bare` call
-    /// in this function raised. Module-scoped accumulator (deterministic order).
-    /// Inert in plan-88-A/B/C; plan-88-D consumes it to emit exactly the referenced
-    /// error-string data objects, replacing the manual `data_objects.rs` gating.
-    used_errors: std::collections::BTreeSet<&'static str>,
 }
 
 #[derive(Clone)]
@@ -2696,205 +2691,49 @@ fn bind_deferred_relocation_libraries(
     Ok(())
 }
 
-fn native_link_error_messages() -> &'static [(&'static str, &'static str, &'static str)] {
-    &[
-        (
-            ERR_NATIVE_LINK_LOAD_CODE,
-            ERR_NATIVE_LINK_LOAD_MESSAGE,
-            ERR_NATIVE_LINK_LOAD_SYMBOL,
-        ),
-        (
-            ERR_NATIVE_LINK_CALL_CODE,
-            ERR_NATIVE_LINK_CALL_MESSAGE,
-            ERR_NATIVE_LINK_CALL_SYMBOL,
-        ),
-        (
-            ERR_NATIVE_BUFFER_OVERRUN_CODE,
-            ERR_NATIVE_BUFFER_OVERRUN_MESSAGE,
-            ERR_NATIVE_BUFFER_OVERRUN_SYMBOL,
-        ),
-        (
-            ERR_OUT_OF_MEMORY_CODE,
-            ERR_ALLOCATION_MESSAGE,
-            ERR_ALLOCATION_SYMBOL,
-        ),
-        // Boundary validations (plan-linker.md §12.3/§12.4).
-        (ERR_OVERFLOW_CODE, ERR_OVERFLOW_MESSAGE, ERR_OVERFLOW_SYMBOL),
-        (ERR_ENCODING_CODE, ERR_ENCODING_MESSAGE, ERR_ENCODING_SYMBOL),
-        (
-            ERR_FLOAT_NAN_CODE,
-            ERR_FLOAT_NAN_MESSAGE,
-            ERR_FLOAT_NAN_SYMBOL,
-        ),
-        (
-            ERR_FLOAT_INF_CODE,
-            ERR_FLOAT_INF_MESSAGE,
-            ERR_FLOAT_INF_SYMBOL,
-        ),
+fn native_link_error_messages() -> Vec<(&'static str, &'static str, &'static str)> {
+    // plan-88-D: the `(code, message, symbol)` triples are sourced from
+    // `ERRORCODE_CONSTANTS` by name (order preserved: it drives data-object layout).
+    // Boundary validations (plan-linker.md §12.3/§12.4) are the last four.
+    [
+        "ErrNativeBindingUnavailable",
+        "ErrNativeBindingCallFailed",
+        "ErrNativeBufferOverrun",
+        "ErrOutOfMemory",
+        "ErrOverflow",
+        "ErrEncoding",
+        "ErrFloatNaN",
+        "ErrFloatInf",
     ]
+    .into_iter()
+    .map(|name| {
+        crate::builtins::errorcode::runtime_error_triple(name)
+            .expect("native-link error name is an errorCode constant")
+    })
+    .collect()
 }
 
-fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static str)] {
-    &[
-        (
-            ERR_INVALID_ARGUMENT_CODE,
-            ERR_INVALID_ARGUMENT_MESSAGE,
-            ERR_INVALID_ARGUMENT_SYMBOL,
-        ),
-        (
-            ERR_INVALID_FORMAT_CODE,
-            ERR_INVALID_FORMAT_MESSAGE,
-            ERR_INVALID_FORMAT_SYMBOL,
-        ),
-        (ERR_OVERFLOW_CODE, ERR_OVERFLOW_MESSAGE, ERR_OVERFLOW_SYMBOL),
-        (
-            ERR_UNDERFLOW_CODE,
-            ERR_UNDERFLOW_MESSAGE,
-            ERR_UNDERFLOW_SYMBOL,
-        ),
-        (
-            ERR_FLOAT_DOMAIN_CODE,
-            ERR_FLOAT_DOMAIN_MESSAGE,
-            ERR_FLOAT_DOMAIN_SYMBOL,
-        ),
-        (
-            ERR_FLOAT_NAN_CODE,
-            ERR_FLOAT_NAN_MESSAGE,
-            ERR_FLOAT_NAN_SYMBOL,
-        ),
-        (
-            ERR_FLOAT_INF_CODE,
-            ERR_FLOAT_INF_MESSAGE,
-            ERR_FLOAT_INF_SYMBOL,
-        ),
-        (
-            ERR_FLOAT_OVERFLOW_CODE,
-            ERR_FLOAT_OVERFLOW_MESSAGE,
-            ERR_FLOAT_OVERFLOW_SYMBOL,
-        ),
-        (
-            ERR_OUT_OF_MEMORY_CODE,
-            ERR_ALLOCATION_MESSAGE,
-            ERR_ALLOCATION_SYMBOL,
-        ),
-        (
-            ERR_INDEX_OUT_OF_RANGE_CODE,
-            ERR_INDEX_OUT_OF_RANGE_MESSAGE,
-            ERR_INDEX_OUT_OF_RANGE_SYMBOL,
-        ),
-        (
-            ERR_NOT_FOUND_CODE,
-            ERR_NOT_FOUND_MESSAGE,
-            ERR_NOT_FOUND_SYMBOL,
-        ),
-        (ERR_TIMEOUT_CODE, ERR_TIMEOUT_MESSAGE, ERR_TIMEOUT_SYMBOL),
-        (
-            ERR_INTERRUPTED_CODE,
-            ERR_INTERRUPTED_MESSAGE,
-            ERR_INTERRUPTED_SYMBOL,
-        ),
-        (ERR_UNKNOWN_CODE, ERR_UNKNOWN_MESSAGE, ERR_UNKNOWN_SYMBOL),
-        (ERR_READ_CODE, ERR_READ_MESSAGE, ERR_READ_SYMBOL),
-        (
-            ERR_ALREADY_EXISTS_CODE,
-            ERR_ALREADY_EXISTS_MESSAGE,
-            ERR_ALREADY_EXISTS_SYMBOL,
-        ),
-        (
-            ERR_ACCESS_DENIED_CODE,
-            ERR_ACCESS_DENIED_MESSAGE,
-            ERR_ACCESS_DENIED_SYMBOL,
-        ),
-        (
-            ERR_DIRECTORY_NOT_EMPTY_CODE,
-            ERR_DIRECTORY_NOT_EMPTY_MESSAGE,
-            ERR_DIRECTORY_NOT_EMPTY_SYMBOL,
-        ),
-        (
-            ERR_CLOSE_FAILED_CODE,
-            ERR_CLOSE_FAILED_MESSAGE,
-            ERR_CLOSE_FAILED_SYMBOL,
-        ),
-        (
-            ERR_PATH_NOT_FOUND_CODE,
-            ERR_PATH_NOT_FOUND_MESSAGE,
-            ERR_PATH_NOT_FOUND_SYMBOL,
-        ),
-        (
-            ERR_INVALID_PATH_CODE,
-            ERR_INVALID_PATH_MESSAGE,
-            ERR_INVALID_PATH_SYMBOL,
-        ),
-        (
-            ERR_RESOURCE_CLOSED_CODE,
-            ERR_RESOURCE_CLOSED_MESSAGE,
-            ERR_RESOURCE_CLOSED_SYMBOL,
-        ),
-        (
-            ERR_RESOURCE_MOVED_CODE,
-            ERR_RESOURCE_MOVED_MESSAGE,
-            ERR_RESOURCE_MOVED_SYMBOL,
-        ),
-        (
-            ERR_UNSUPPORTED_CODE,
-            ERR_UNSUPPORTED_MESSAGE,
-            ERR_UNSUPPORTED_SYMBOL,
-        ),
-        (ERR_OUTPUT_CODE, ERR_OUTPUT_MESSAGE, ERR_OUTPUT_SYMBOL),
-        (ERR_EOF_CODE, ERR_EOF_MESSAGE, ERR_EOF_SYMBOL),
-        (ERR_ENCODING_CODE, ERR_ENCODING_MESSAGE, ERR_ENCODING_SYMBOL),
-        (ERR_INPUT_CODE, ERR_INPUT_MESSAGE, ERR_INPUT_SYMBOL),
-        (
-            ERR_INVALID_CONTEXT_CODE,
-            ERR_INVALID_CONTEXT_MESSAGE,
-            ERR_INVALID_CONTEXT_SYMBOL,
-        ),
-        (
-            ERR_WRONG_MODE_CODE,
-            ERR_WRONG_MODE_MESSAGE,
-            ERR_WRONG_MODE_SYMBOL,
-        ),
-        (
-            ERR_ADDRESS_INVALID_CODE,
-            ERR_ADDRESS_INVALID_MESSAGE,
-            ERR_ADDRESS_INVALID_SYMBOL,
-        ),
-        (
-            ERR_ADDRESS_NOT_FOUND_CODE,
-            ERR_ADDRESS_NOT_FOUND_MESSAGE,
-            ERR_ADDRESS_NOT_FOUND_SYMBOL,
-        ),
-        (
-            ERR_NETWORK_FAILED_CODE,
-            ERR_NETWORK_FAILED_MESSAGE,
-            ERR_NETWORK_FAILED_SYMBOL,
-        ),
-        (
-            ERR_CONNECTION_CLOSED_CODE,
-            ERR_CONNECTION_CLOSED_MESSAGE,
-            ERR_CONNECTION_CLOSED_SYMBOL,
-        ),
-        (
-            ERR_MESSAGE_TOO_LARGE_CODE,
-            ERR_MESSAGE_TOO_LARGE_MESSAGE,
-            ERR_MESSAGE_TOO_LARGE_SYMBOL,
-        ),
-        (
-            ERR_TLS_FAILED_CODE,
-            ERR_TLS_FAILED_MESSAGE,
-            ERR_TLS_FAILED_SYMBOL,
-        ),
-        (
-            ERR_AUDIO_UNAVAILABLE_CODE,
-            ERR_AUDIO_UNAVAILABLE_MESSAGE,
-            ERR_AUDIO_UNAVAILABLE_SYMBOL,
-        ),
-        (
-            ERR_AUDIO_DEVICE_CODE,
-            ERR_AUDIO_DEVICE_MESSAGE,
-            ERR_AUDIO_DEVICE_SYMBOL,
-        ),
+fn standard_error_messages() -> Vec<(&'static str, &'static str, &'static str)> {
+    // plan-88-D: `(code, message, symbol)` triples sourced from `ERRORCODE_CONSTANTS`
+    // by name; order preserved (it drives the emitted data-object layout).
+    [
+        "ErrInvalidArgument", "ErrInvalidFormat", "ErrOverflow", "ErrUnderflow",
+        "ErrFloatDomain", "ErrFloatNaN", "ErrFloatInf", "ErrFloatOverflow",
+        "ErrOutOfMemory", "ErrIndexOutOfRange", "ErrNotFound", "ErrTimeout",
+        "ErrInterrupted", "ErrUnknown", "ErrReadFailed", "ErrAlreadyExists",
+        "ErrAccessDenied", "ErrResourceBusy", "ErrCloseFailed", "ErrPathNotFound",
+        "ErrInvalidPath", "ErrResourceClosed", "ErrResourceMoved", "ErrUnsupported",
+        "ErrWriteFailed", "ErrEndOfFile", "ErrEncoding", "ErrInputFailed",
+        "ErrInvalidContext", "ErrWrongMode", "ErrAddressInvalid", "ErrAddressNotFound",
+        "ErrNetworkFailed", "ErrConnectionClosed", "ErrMessageTooLarge", "ErrTlsFailed",
+        "ErrAudioUnavailable", "ErrAudioDevice",
     ]
+    .into_iter()
+    .map(|name| {
+        crate::builtins::errorcode::runtime_error_triple(name)
+            .expect("standard error name is an errorCode constant")
+    })
+    .collect()
 }
 
 fn standard_error_message_symbol(message: &str) -> Option<&'static str> {

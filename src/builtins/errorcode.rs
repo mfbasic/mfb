@@ -158,6 +158,18 @@ pub(crate) fn runtime_error_emission(name: &str) -> Option<(&'static str, &'stat
         .map(|(_, code, _, symbol)| (*code, *symbol))
 }
 
+/// The full `(code, message, symbol)` for a runtime error *name*, all borrowed from
+/// `ERRORCODE_CONSTANTS`. Feeds the codegen data-object tables (plan-88-D) that emit
+/// the fixed `_mfb_str_error_*` string objects, replacing the deleted `ERR_*` triples.
+pub(crate) fn runtime_error_triple(
+    name: &str,
+) -> Option<(&'static str, &'static str, &'static str)> {
+    ERRORCODE_CONSTANTS
+        .iter()
+        .find(|(constant_name, ..)| *constant_name == name)
+        .map(|(_, code, message, symbol)| (*code, *message, *symbol))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,6 +248,46 @@ mod tests {
         assert!(!is_errorcode_constant("ErrNotFound"));
         assert!(!is_errorcode_constant("math.pi"));
         assert_eq!(constant_value("errorCode.NotARealName"), None);
+    }
+
+    /// plan-88-D drift guard: `ERRORCODE_CONSTANTS` is now the single metadata
+    /// authority for every runtime error (code/message/symbol), so its rows must be
+    /// unique on both name and code — a duplicate would make `runtime_error*` /
+    /// `constant_value` non-deterministic and silently mis-emit.
+    #[test]
+    fn table_has_no_duplicate_names_or_codes() {
+        let mut names = std::collections::HashSet::new();
+        let mut codes = std::collections::HashSet::new();
+        let mut symbols = std::collections::HashSet::new();
+        for (name, code, _message, symbol) in ERRORCODE_CONSTANTS {
+            assert!(names.insert(*name), "duplicate errorCode name `{name}`");
+            assert!(codes.insert(*code), "duplicate errorCode code `{code}`");
+            assert!(
+                symbols.insert(*symbol),
+                "duplicate message symbol `{symbol}`"
+            );
+        }
+    }
+
+    /// plan-88-D drift guard: every error a `BuiltinFunction` declares in its
+    /// `errors` list must be a real `ERRORCODE_CONSTANTS` name — the `raise_error`
+    /// contract `debug_assert`s this per call site, but assert the whole-corpus set
+    /// relationship directly so a bad declaration fails fast in release test runs.
+    #[test]
+    fn every_builtin_declared_error_is_a_table_name() {
+        use crate::builtins::descriptor::REGISTRY;
+        for module in REGISTRY.modules() {
+            for function in module.functions {
+                for name in function.errors {
+                    assert!(
+                        runtime_error(name).is_some(),
+                        "{}::{} declares error `{name}`, not in ERRORCODE_CONSTANTS",
+                        module.name,
+                        function.name,
+                    );
+                }
+            }
+        }
     }
 
     // plan-72-J migration gate: `errorCode` owns no callables, so the descriptor

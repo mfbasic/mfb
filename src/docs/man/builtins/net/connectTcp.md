@@ -111,11 +111,11 @@ if the attempt exceeds `timeoutMs`. Here `timeoutMs` is parameter 1, not 2.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77070002` | `ErrAddressNotFound` | The host could not be resolved — it is malformed, or it has no address record. [[src/target/shared/code/error_constants.rs:ERR_ADDRESS_NOT_FOUND_CODE]] |
-| `77050008` | `ErrTimeout` | The connection did not complete before its deadline: immediately when `timeoutMs` is `0` and the connect is not instant, or after a positive `timeoutMs` elapsed. The omitted (unbounded) form never raises this. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
-| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77070003` | `ErrNetworkFailed` | The socket could not be created, or the connection failed outright — the peer refused it, the network is unreachable, or the readiness poll failed for a reason other than an interruption. [[src/target/shared/code/error_constants.rs:ERR_NETWORK_FAILED_CODE]] |
-| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of the host or the `Socket` handle record could not be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77070002` | `ErrAddressNotFound` | The host could not be resolved — it is malformed, or it has no address record. [[src/builtins/errorcode.rs:ErrAddressNotFound]] |
+| `77050008` | `ErrTimeout` | The connection did not complete before its deadline: immediately when `timeoutMs` is `0` and the connect is not instant, or after a positive `timeoutMs` elapsed. The omitted (unbounded) form never raises this. [[src/builtins/errorcode.rs:ErrTimeout]] |
+| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77070003` | `ErrNetworkFailed` | The socket could not be created, or the connection failed outright — the peer refused it, the network is unreachable, or the readiness poll failed for a reason other than an interruption. [[src/builtins/errorcode.rs:ErrNetworkFailed]] |
+| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of the host or the `Socket` handle record could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

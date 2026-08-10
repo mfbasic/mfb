@@ -60,7 +60,7 @@ past the buffer. [[src/target/shared/code/builder_error_emission.rs:emit_checked
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `times` is negative, or the result size (`byteLen(value) * times`, plus the string header) cannot be represented in 64 bits. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_repeat]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `times` is negative, or the result size (`byteLen(value) * times`, plus the string header) cannot be represented in 64 bits. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_repeat]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
 
 ## Examples
 

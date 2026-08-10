@@ -542,11 +542,23 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::add_registers(&cur_end, &cur, &usable),
         abi::branch("arena_alloc_found"),
         abi::label("arena_alloc_invalid"),
-        abi::move_immediate(abi::return_register(), "Integer", ERR_INVALID_ARGUMENT_CODE),
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            crate::builtins::errorcode::runtime_error("ErrInvalidArgument")
+                .expect("errorCode name")
+                .0,
+        ),
         abi::move_immediate(abi::RET[1], "Integer", "0"),
         abi::branch("arena_alloc_ret"),
         abi::label("arena_alloc_oom"),
-        abi::move_immediate(abi::return_register(), "Integer", ERR_OUT_OF_MEMORY_CODE),
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            crate::builtins::errorcode::runtime_error("ErrOutOfMemory")
+                .expect("errorCode name")
+                .0,
+        ),
         abi::move_immediate(abi::RET[1], "Integer", "0"),
         abi::label("arena_alloc_ret"),
     ]);

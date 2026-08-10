@@ -96,8 +96,8 @@ Scans from the explicit scalar position `start`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `pattern` is not a valid regular expression: an unbalanced or unterminated group or class, a quantifier with no atom or stacked quantifiers, a counted quantifier with `m > n`, a class range whose low endpoint exceeds its high endpoint, an empty class, a backslash escape outside the defined set, a `\x...`/`\x{...}` value that is not a valid scalar, an unknown `\p{...}` property, a malformed flag or group head, or a non-goal construct (backreference or look-around). Pattern compilation is checked before `start`, so this error takes precedence when both apply. [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
-| `77050001` | `ErrIndexOutOfRange` | `start` is less than `0` or greater than the scalar length of `value`. [[src/builtins/regex_package.mfb:__regex_findAll]] [[src/target/shared/code/error_constants.rs:ERR_INDEX_OUT_OF_RANGE_CODE]] |
+| `77050003` | `ErrInvalidFormat` | `pattern` is not a valid regular expression: an unbalanced or unterminated group or class, a quantifier with no atom or stacked quantifiers, a counted quantifier with `m > n`, a class range whose low endpoint exceeds its high endpoint, an empty class, a backslash escape outside the defined set, a `\x...`/`\x{...}` value that is not a valid scalar, an unknown `\p{...}` property, a malformed flag or group head, or a non-goal construct (backreference or look-around). Pattern compilation is checked before `start`, so this error takes precedence when both apply. [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050001` | `ErrIndexOutOfRange` | `start` is less than `0` or greater than the scalar length of `value`. [[src/builtins/regex_package.mfb:__regex_findAll]] [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] |
 
 ## Examples
 

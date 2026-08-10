@@ -78,17 +78,17 @@ from them. [[src/builtins/fs.rs:LIST_DIRECTORY]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | raised by the path and open functions when a path is empty or contains an embedded NUL byte, or when an open mode is not one of the portable modes [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77010001` | `ErrOutOfMemory` | raised by any function when an internal allocation fails, such as the NUL-terminated copy of a path, a `File` record, or the buffer or collection holding a result [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
-| `77030001` | `ErrPathNotFound` | raised by reading functions and by `fs::open` in a read mode when no entry exists at the path (host ENOENT) [[src/target/shared/code/error_constants.rs:ERR_PATH_NOT_FOUND_CODE]] |
-| `77050004` | `ErrNotFound` | raised by writing, directory, and working-directory functions, and by `fs::isWithin`, when a path component cannot be resolved, such as a missing parent directory [[src/target/shared/code/error_constants.rs:ERR_NOT_FOUND_CODE]] |
-| `77030003` | `ErrAccessDenied` | raised by any function when the host denies permission to the path (host EACCES) [[src/target/shared/code/error_constants.rs:ERR_ACCESS_DENIED_CODE]] |
-| `77030002` | `ErrInvalidPath` | raised when a path is unusable as a path string, including a non-directory used as a directory component, an over-long path, an invalid byte sequence, or a symlink loop (host ENOTDIR, ENAMETOOLONG, EILSEQ, or ELOOP) [[src/target/shared/code/error_constants.rs:ERR_INVALID_PATH_CODE]] |
-| `77050005` | `ErrAlreadyExists` | raised by `fs::createDirectory` when an entry already exists at the final path component (host EEXIST) [[src/target/shared/code/error_constants.rs:ERR_ALREADY_EXISTS_CODE]] |
-| `77030005` | `ErrDirectoryNotEmpty` | raised by `fs::deleteDirectory` when the named directory still contains entries [[src/target/shared/code/error_constants.rs:ERR_DIRECTORY_NOT_EMPTY_CODE]] |
-| `77020001` | `ErrRead` | raised by reading functions when a host read fails partway through, before the full contents have been read [[src/target/shared/code/error_constants.rs:ERR_READ_CODE]] |
-| `77020002` | `ErrOutput` | raised by writing and open functions when the target is a directory or another non-writable entry, when opening fails for any other host reason, or when writing, flushing, or closing fails partway through [[src/target/shared/code/error_constants.rs:ERR_OUTPUT_CODE]] |
-| `77020003` | `ErrEof` | raised by `fs::readLine` when the `File` is already at end of input before any byte is read [[src/target/shared/code/error_constants.rs:ERR_EOF_CODE]] |
-| `77020004` | `ErrEncoding` | raised by `fs::readText` and `fs::readAll` when the bytes read are not valid UTF-8 [[src/target/shared/code/error_constants.rs:ERR_ENCODING_CODE]] |
-| `77030004` | `ErrResourceClosed` | raised by the `File`-handle functions when the `File` has already been closed [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
-| `77030006` | `ErrCloseFailed` | raised by `fs::close` when the host OS reports a failure while flushing or releasing the handle [[src/target/shared/code/error_constants.rs:ERR_CLOSE_FAILED_CODE]] |
+| `77050002` | `ErrInvalidArgument` | raised by the path and open functions when a path is empty or contains an embedded NUL byte, or when an open mode is not one of the portable modes [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77010001` | `ErrOutOfMemory` | raised by any function when an internal allocation fails, such as the NUL-terminated copy of a path, a `File` record, or the buffer or collection holding a result [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77030001` | `ErrPathNotFound` | raised by reading functions and by `fs::open` in a read mode when no entry exists at the path (host ENOENT) [[src/builtins/errorcode.rs:ErrPathNotFound]] |
+| `77050004` | `ErrNotFound` | raised by writing, directory, and working-directory functions, and by `fs::isWithin`, when a path component cannot be resolved, such as a missing parent directory [[src/builtins/errorcode.rs:ErrNotFound]] |
+| `77030003` | `ErrAccessDenied` | raised by any function when the host denies permission to the path (host EACCES) [[src/builtins/errorcode.rs:ErrAccessDenied]] |
+| `77030002` | `ErrInvalidPath` | raised when a path is unusable as a path string, including a non-directory used as a directory component, an over-long path, an invalid byte sequence, or a symlink loop (host ENOTDIR, ENAMETOOLONG, EILSEQ, or ELOOP) [[src/builtins/errorcode.rs:ErrInvalidPath]] |
+| `77050005` | `ErrAlreadyExists` | raised by `fs::createDirectory` when an entry already exists at the final path component (host EEXIST) [[src/builtins/errorcode.rs:ErrAlreadyExists]] |
+| `77030005` | `ErrDirectoryNotEmpty` | raised by `fs::deleteDirectory` when the named directory still contains entries [[src/builtins/errorcode.rs:ErrResourceBusy]] |
+| `77020001` | `ErrRead` | raised by reading functions when a host read fails partway through, before the full contents have been read [[src/builtins/errorcode.rs:ErrReadFailed]] |
+| `77020002` | `ErrOutput` | raised by writing and open functions when the target is a directory or another non-writable entry, when opening fails for any other host reason, or when writing, flushing, or closing fails partway through [[src/builtins/errorcode.rs:ErrWriteFailed]] |
+| `77020003` | `ErrEof` | raised by `fs::readLine` when the `File` is already at end of input before any byte is read [[src/builtins/errorcode.rs:ErrEndOfFile]] |
+| `77020004` | `ErrEncoding` | raised by `fs::readText` and `fs::readAll` when the bytes read are not valid UTF-8 [[src/builtins/errorcode.rs:ErrEncoding]] |
+| `77030004` | `ErrResourceClosed` | raised by the `File`-handle functions when the `File` has already been closed [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77030006` | `ErrCloseFailed` | raised by `fs::close` when the host OS reports a failure while flushing or releasing the handle [[src/builtins/errorcode.rs:ErrCloseFailed]] |

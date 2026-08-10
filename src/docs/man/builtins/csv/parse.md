@@ -68,7 +68,7 @@ mutate `value` and has no side effects. [[src/builtins/csv.rs:call_param_names]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | A quoted field is opened but never closed before the end of input, or the closing quote of a quoted field is followed by a grapheme that is neither a comma, a record separator, nor the end of input. [[src/builtins/csv_package.mfb:__csv_parse]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
+| `77050003` | `ErrInvalidFormat` | A quoted field is opened but never closed before the end of input, or the closing quote of a quoted field is followed by a grapheme that is neither a comma, a record separator, nor the end of input. [[src/builtins/csv_package.mfb:__csv_parse]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

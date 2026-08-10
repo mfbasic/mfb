@@ -58,9 +58,9 @@ identifies the client that connected.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `sock` has already been closed, or the host's `getpeername` fails — which it does when the descriptor is no longer a connected socket. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
-| `77070001` | `ErrAddressInvalid` | The peer address the host reported could not be converted to its textual form, so it cannot be represented as an `Address`. [[src/target/shared/code/error_constants.rs:ERR_ADDRESS_INVALID_CODE]] |
-| `77010001` | `ErrOutOfMemory` | The host string or the `Address` record could not be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77030004` | `ErrResourceClosed` | `sock` has already been closed, or the host's `getpeername` fails — which it does when the descriptor is no longer a connected socket. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77070001` | `ErrAddressInvalid` | The peer address the host reported could not be converted to its textual form, so it cannot be represented as an `Address`. [[src/builtins/errorcode.rs:ErrAddressInvalid]] |
+| `77010001` | `ErrOutOfMemory` | The host string or the `Address` record could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

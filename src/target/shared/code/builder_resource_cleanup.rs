@@ -291,7 +291,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &closed_code,
             "Integer",
-            ERR_RESOURCE_CLOSED_CODE,
+            crate::builtins::errorcode::runtime_error("ErrResourceClosed")
+                .expect("errorCode name")
+                .0,
         ));
         self.emit(abi::compare_registers(RESULT_VALUE_REGISTER, &closed_code));
         self.emit(abi::branch_eq(&reclaim));

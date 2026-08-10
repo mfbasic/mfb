@@ -80,7 +80,7 @@ terminal, defaults restored, and the previously drawn frame discarded. Guard wit
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77010001` | `ErrOutOfMemory` | The shadow-grid block sized to the terminal cannot be allocated. TUI mode is not entered and the terminal is left untouched. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77010001` | `ErrOutOfMemory` | The shadow-grid block sized to the terminal cannot be allocated. TUI mode is not entered and the terminal is left untouched. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

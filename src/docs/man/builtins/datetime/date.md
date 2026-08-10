@@ -61,7 +61,7 @@ pair it with `datetime::time` and `datetime::civil` to build a zoned `DateTime`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `month` is outside `1 .. 12`, or `day` is outside the valid range for the given month and year (for example `datetime::date(2026, 2, 29)`, since 2026 is not a leap year). [[src/builtins/datetime_package.mfb:__datetime_date]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `month` is outside `1 .. 12`, or `day` is outside the valid range for the given month and year (for example `datetime::date(2026, 2, 29)`, since 2026 is not a leap year). [[src/builtins/datetime_package.mfb:__datetime_date]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
 
 ## Examples
 

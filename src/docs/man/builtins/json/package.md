@@ -50,5 +50,5 @@ returns its default value in those cases instead of failing. [[src/builtins/json
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | raised by `parse` when the text is not a single valid JSON document — empty, truncated, trailing non-whitespace content, a bad escape or surrogate, an out-of-range code point, a raw control character in a string, or a malformed number — and by `stringify` when a `JsonNum` holds a non-finite `Float` (NaN or positive or negative infinity) [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
-| `77050004` | `ErrNotFound` | raised by `get` when a path element names a key absent from the current `JsonObj`, or when traversal reaches a non-object `Json` value while path elements remain [[src/target/shared/code/error_constants.rs:ERR_NOT_FOUND_CODE]] |
+| `77050003` | `ErrInvalidFormat` | raised by `parse` when the text is not a single valid JSON document — empty, truncated, trailing non-whitespace content, a bad escape or surrogate, an out-of-range code point, a raw control character in a string, or a malformed number — and by `stringify` when a `JsonNum` holds a non-finite `Float` (NaN or positive or negative infinity) [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050004` | `ErrNotFound` | raised by `get` when a path element names a key absent from the current `JsonObj`, or when traversal reaches a non-object `Json` value while path elements remain [[src/builtins/errorcode.rs:ErrNotFound]] |

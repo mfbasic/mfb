@@ -77,9 +77,9 @@ with `io::pollInput` and check `thread::isCancelled` between waits.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77020002` | `ErrOutput` | raised by `io::print`, `io::write`, `io::printError`, `io::writeError`, `io::flush`, and `io::input` (while writing or flushing a prompt) when the underlying write or flush to a standard stream fails [[src/target/shared/code/error_constants.rs:ERR_OUTPUT_CODE]] |
-| `77020003` | `ErrEof` | raised by `io::input`, `io::readLine`, `io::readChar`, and `io::readByte` when standard input reaches end of file before any byte of the requested unit is read [[src/target/shared/code/error_constants.rs:ERR_EOF_CODE]] |
-| `77020004` | `ErrEncoding` | raised by `io::input`, `io::readLine`, and `io::readChar` when the bytes read do not form a valid UTF-8 sequence [[src/target/shared/code/error_constants.rs:ERR_ENCODING_CODE]] |
-| `77020005` | `ErrInput` | raised by `io::input`, `io::readLine`, `io::readChar`, `io::readByte`, and `io::pollInput` when reading or polling standard input fails for any other reason [[src/target/shared/code/error_constants.rs:ERR_INPUT_CODE]] |
-| `77010001` | `ErrOutOfMemory` | raised by `io::input`, `io::readLine`, and `io::readChar` when the line buffer or returned `String` cannot be allocated [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
-| `77050019` | `ErrInvalidContext` | raised by `io::input`, `io::readLine`, `io::readChar`, and `io::readByte` when the calling thread is not the main thread and has not subscribed to standard input with `thread::openStdIn` [[src/target/shared/code/error_constants.rs:ERR_INVALID_CONTEXT_CODE]] |
+| `77020002` | `ErrOutput` | raised by `io::print`, `io::write`, `io::printError`, `io::writeError`, `io::flush`, and `io::input` (while writing or flushing a prompt) when the underlying write or flush to a standard stream fails [[src/builtins/errorcode.rs:ErrWriteFailed]] |
+| `77020003` | `ErrEof` | raised by `io::input`, `io::readLine`, `io::readChar`, and `io::readByte` when standard input reaches end of file before any byte of the requested unit is read [[src/builtins/errorcode.rs:ErrEndOfFile]] |
+| `77020004` | `ErrEncoding` | raised by `io::input`, `io::readLine`, and `io::readChar` when the bytes read do not form a valid UTF-8 sequence [[src/builtins/errorcode.rs:ErrEncoding]] |
+| `77020005` | `ErrInput` | raised by `io::input`, `io::readLine`, `io::readChar`, `io::readByte`, and `io::pollInput` when reading or polling standard input fails for any other reason [[src/builtins/errorcode.rs:ErrInputFailed]] |
+| `77010001` | `ErrOutOfMemory` | raised by `io::input`, `io::readLine`, and `io::readChar` when the line buffer or returned `String` cannot be allocated [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77050019` | `ErrInvalidContext` | raised by `io::input`, `io::readLine`, `io::readChar`, and `io::readByte` when the calling thread is not the main thread and has not subscribed to standard input with `thread::openStdIn` [[src/builtins/errorcode.rs:ErrInvalidContext]] |

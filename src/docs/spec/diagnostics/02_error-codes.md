@@ -9,7 +9,7 @@ and resolved by exact match against the generated table. [[src/builtins/errorcod
 
 These integers are exactly the values runtime code stamps into `Error.code` when
 a fallible operation fails (see *See Also*) — both the native codegen/runtime
-helpers [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] and the
+helpers [[src/builtins/errorcode.rs:ErrOverflow]] and the
 embedded MFBASIC standard packages (`regex`, `datetime`, `csv`, `json`, `http`,
 `net`, …) fail with registry values, and user code may `FAIL` with them too. They
 are program-visible data, not host-tool diagnostics; the compiler-facing rule

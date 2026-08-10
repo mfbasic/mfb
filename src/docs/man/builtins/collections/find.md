@@ -113,8 +113,8 @@ to and including the length of `value`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050001` | `ErrIndexOutOfRange` | `start` is negative, or `start` is greater than the length of `value`. Checked before any comparison, for both overloads. [[src/target/shared/code/error_constants.rs:ERR_INDEX_OUT_OF_RANGE_CODE]] [[src/target/shared/code/builder_search.rs:lower_list_find_item]] |
-| `77050004` | `ErrNotFound` | No element equal to `item` exists at or after `start`, or no occurrence of the sublist `item` begins at or after `start`. [[src/target/shared/code/error_constants.rs:ERR_NOT_FOUND_CODE]] [[src/target/shared/code/builder_search.rs:lower_list_find_sublist]] |
+| `77050001` | `ErrIndexOutOfRange` | `start` is negative, or `start` is greater than the length of `value`. Checked before any comparison, for both overloads. [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] [[src/target/shared/code/builder_search.rs:lower_list_find_item]] |
+| `77050004` | `ErrNotFound` | No element equal to `item` exists at or after `start`, or no occurrence of the sublist `item` begins at or after `start`. [[src/builtins/errorcode.rs:ErrNotFound]] [[src/target/shared/code/builder_search.rs:lower_list_find_sublist]] |
 
 ## Type checking
 

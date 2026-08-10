@@ -24,12 +24,11 @@ impl CodeBuilder<'_> {
 
     /// plan-88: raise a runtime error by NAME with no owning builtin — for
     /// language-level operator/TRAP sites that have no `BuiltinFunction` to
-    /// validate against. Resolves `(code, message)` from `ERRORCODE_CONSTANTS`,
-    /// records the name in the used-set, and emits.
+    /// validate against. Resolves `(code, message)` from `ERRORCODE_CONSTANTS`
+    /// and emits.
     pub(super) fn raise_error_bare(&mut self, error_name: &'static str) -> Result<(), String> {
         let (code, message) = crate::builtins::errorcode::runtime_error(error_name)
             .unwrap_or_else(|| panic!("{error_name} is not a known errorCode constant"));
-        self.used_errors.insert(error_name);
         self.emit_error_code_return(code, message)
     }
 
@@ -1020,42 +1019,3 @@ impl CodeBuilder<'_> {
     }
 }
 
-#[cfg(test)]
-mod raise_error_tests {
-    use super::*;
-    use crate::builtins::errorcode::runtime_error;
-
-    /// plan-88 Phase 1: `raise_error_bare(name)` feeds `emit_error_code_return`
-    /// exactly `runtime_error(name)`, and each `emit_*_return` wrapper feeds it
-    /// `(ERR_*_CODE, ERR_*_MESSAGE)`. `emit_error_code_return` is a pure function
-    /// of its `(code, message)` args plus builder state (shared), so proving the
-    /// arguments are identical proves the two emit identical instructions — for
-    /// every one of the 12 wrappers at once, without constructing a `CodeBuilder`.
-    /// (This is the emit-equivalence proof; the end-to-end runtime proof is
-    /// `tests/rt-error/collections/func_collection_get_out_of_range`.)
-    #[test]
-    fn raise_error_matches_every_wrapper() {
-        let wrappers: &[(&str, &str, &str)] = &[
-            ("ErrOverflow", ERR_OVERFLOW_CODE, ERR_OVERFLOW_MESSAGE),
-            ("ErrUnderflow", ERR_UNDERFLOW_CODE, ERR_UNDERFLOW_MESSAGE),
-            ("ErrFloatDomain", ERR_FLOAT_DOMAIN_CODE, ERR_FLOAT_DOMAIN_MESSAGE),
-            ("ErrFloatNaN", ERR_FLOAT_NAN_CODE, ERR_FLOAT_NAN_MESSAGE),
-            ("ErrFloatInf", ERR_FLOAT_INF_CODE, ERR_FLOAT_INF_MESSAGE),
-            ("ErrFloatOverflow", ERR_FLOAT_OVERFLOW_CODE, ERR_FLOAT_OVERFLOW_MESSAGE),
-            ("ErrInvalidArgument", ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_MESSAGE),
-            ("ErrInvalidFormat", ERR_INVALID_FORMAT_CODE, ERR_INVALID_FORMAT_MESSAGE),
-            ("ErrOutOfMemory", ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE),
-            ("ErrIndexOutOfRange", ERR_INDEX_OUT_OF_RANGE_CODE, ERR_INDEX_OUT_OF_RANGE_MESSAGE),
-            ("ErrNotFound", ERR_NOT_FOUND_CODE, ERR_NOT_FOUND_MESSAGE),
-            ("ErrEncoding", ERR_ENCODING_CODE, ERR_ENCODING_MESSAGE),
-        ];
-        for &(name, code, message) in wrappers {
-            assert_eq!(
-                runtime_error(name),
-                Some((code, message)),
-                "raise_error_bare({name:?}) would not feed emit_error_code_return the \
-                 same (code, message) as its emit_*_return wrapper",
-            );
-        }
-    }
-}

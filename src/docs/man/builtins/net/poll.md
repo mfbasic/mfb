@@ -84,8 +84,8 @@ a non-blocking check.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77030004` | `ErrResourceClosed` | `sock` has already been closed, or the underlying readiness check fails for a reason other than an interruption. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77030004` | `ErrResourceClosed` | `sock` has already been closed, or the underlying readiness check fails for a reason other than an interruption. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
 
 ## Examples
 

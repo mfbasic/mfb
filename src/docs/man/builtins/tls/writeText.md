@@ -64,8 +64,8 @@ library can be loaded, or a required symbol is missing — `writeText` raises
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
-| `77070008` | `ErrTlsFailed` | The underlying TLS write fails or cannot complete the whole payload, or the system OpenSSL library or a required symbol could not be loaded. [[src/target/shared/code/error_constants.rs:ERR_TLS_FAILED_CODE]] |
+| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77070008` | `ErrTlsFailed` | The underlying TLS write fails or cannot complete the whole payload, or the system OpenSSL library or a required symbol could not be loaded. [[src/builtins/errorcode.rs:ErrTlsFailed]] |
 
 ## Examples
 
