@@ -1,0 +1,5 @@
+FUNC main AS Integer
+  LET a = "abc\
+def"
+  RETURN 0
+END FUNC
