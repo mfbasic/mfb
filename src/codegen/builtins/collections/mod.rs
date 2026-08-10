@@ -11,6 +11,7 @@ pub(crate) mod common;
 mod func_add;
 mod func_append;
 mod func_contains;
+mod func_distinct;
 mod func_filter;
 mod func_for_each;
 mod func_get;
@@ -447,6 +448,9 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
     func_add::ADD,
     func_remove::REMOVE,
     func_to_list::TO_LIST,
+    // Source-generic members (Implementation::Mfb): body owned by the descriptor,
+    // assembled into the injected package source by `assembled_source()`.
+    func_distinct::DISTINCT,
     // `findIndex`/`findLastIndex` are source-generic (they resolve and, for most
     // element types, run from the injected `.mfb` companion) with a native
     // String-item fast path for `findLastIndex`. They are listed here ONLY so
@@ -1100,11 +1104,36 @@ pub(crate) fn uses_package(ast: &AstProject) -> bool {
 
 /// Parses the built-in `collections` package source.
 pub(crate) fn source_file() -> Result<AstFile, ()> {
-    crate::ast::parse_source_internal(
-        Path::new(SOURCE_PATH),
-        SOURCE_PATH,
-        include_str!("package.mfb"),
-    )
+    crate::ast::parse_source_internal(Path::new(SOURCE_PATH), SOURCE_PATH, &assembled_source())
+}
+
+/// The `collections` package source, assembled from the dual path: the external
+/// `package.mfb` companion is the base, and every member migrated to carry
+/// [`Implementation::Mfb`] contributes its `FUNC __collections_<name> ... END
+/// FUNC` body.
+///
+/// A migrated member's `FUNC` is replaced in `package.mfb` by a one-line marker
+/// `'@@MFB_BODY:<slug>@@` at its original position; this loader substitutes the
+/// body back in place of that marker. Splicing at the original position (rather
+/// than appending) keeps every other function's source line numbers unchanged, so
+/// the injected AST — and every `.ast`/`.ir` golden derived from it — is identical
+/// to the pre-migration companion. The body's own indentation is irrelevant
+/// (MFBASIC is not whitespace-sensitive) as long as its line count matches the
+/// `FUNC ... END FUNC` it replaced. An un-migrated member still comes from the
+/// companion verbatim.
+fn assembled_source() -> String {
+    let mut source = String::from(include_str!("package.mfb"));
+    for func in COLLECTIONS_FUNCTIONS {
+        if let Implementation::Mfb(body) = func.implementation {
+            let marker = format!("'@@MFB_BODY:{}@@", func.doc_slug);
+            debug_assert!(
+                source.contains(&marker),
+                "collections package.mfb is missing the '{marker}' body marker",
+            );
+            source = source.replacen(&marker, body, 1);
+        }
+    }
+    source
 }
 
 /// Injects the `collections` package source into `ast` when the project imports

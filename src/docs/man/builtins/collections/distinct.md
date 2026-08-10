@@ -27,7 +27,7 @@ IMPORT collections
 duplicates removed. It walks `value` from index `0` upward and appends each
 element to the result only when the result does not already contain an element
 equal to it, so the **first** occurrence of each distinct value is the one kept
-and later duplicates are dropped. [[src/codegen/builtins/collections/package.mfb:__collections_distinct]]
+and later duplicates are dropped. [[src/codegen/builtins/collections/func_distinct.rs:__collections_distinct]]
 
 First-occurrence order is preserved: the surviving elements appear in the
 result in the same relative order they had in `value`. The input is not
@@ -36,7 +36,7 @@ an empty result.
 
 Membership is tested with `collections::contains`, so "equal" here means exactly
 the element equality that `contains` uses, and nothing else — there is no
-user-supplied comparison and no key-extraction overload. [[src/codegen/builtins/collections/package.mfb:__collections_distinct]] [[src/codegen/builtins/collections/mod.rs:resolve_contains]]
+user-supplied comparison and no key-extraction overload. [[src/codegen/builtins/collections/func_distinct.rs:__collections_distinct]] [[src/codegen/builtins/collections/mod.rs:resolve_contains]]
 That equality is applied per element type: `Integer`, `Fixed`, `Money`,
 `Boolean`, `Byte`, and `Scalar` compare by value; `String` compares by length
 and then byte-for-byte over its UTF-8 bytes; a record compares field by field.
@@ -74,13 +74,13 @@ type like any other generic function. [[src/codegen/builtins/collections/mod.rs:
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to deduplicate, scanned in index order from `0`. `T` must be a comparable type. An empty list is accepted. Not modified. [[src/codegen/builtins/collections/package.mfb:__collections_distinct]] |
+| `value` | `List OF T` | The list to deduplicate, scanned in index order from `0`. `T` must be a comparable type. An empty list is accepted. Not modified. [[src/codegen/builtins/collections/func_distinct.rs:__collections_distinct]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF T` | A new list containing the first occurrence of each distinct element of `value`, in original relative order. Its length is between `0` and `len(value)`; it equals `len(value)` exactly when no two elements are equal. [[src/codegen/builtins/collections/package.mfb:__collections_distinct]] |
+| `List OF T` | A new list containing the first occurrence of each distinct element of `value`, in original relative order. Its length is between `0` and `len(value)`; it equals `len(value)` exactly when no two elements are equal. [[src/codegen/builtins/collections/func_distinct.rs:__collections_distinct]] |
 
 ## Errors
 

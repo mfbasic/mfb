@@ -309,18 +309,7 @@ FUNC __collections_window OF T(value AS List OF T, size AS Integer, stride AS In
   RETURN result
 END FUNC
 
-FUNC __collections_distinct OF T(value AS List OF T) AS List OF T
-  MUT result AS List OF T = []
-  MUT i AS Integer = 0
-  WHILE i < len(value)
-    LET item AS T = collections::get(value, i)
-    IF NOT collections::contains(result, item) THEN
-      result = collections::append(result, item)
-    END IF
-    i = i + 1
-  END WHILE
-  RETURN result
-END FUNC
+'@@MFB_BODY:distinct@@
 
 FUNC __collections_merge OF K, V(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V
   MUT result AS Map OF K TO V = a

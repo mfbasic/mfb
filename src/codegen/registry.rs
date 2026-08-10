@@ -172,6 +172,12 @@ pub(crate) enum Implementation {
     /// The function owns its target-generic lowering (reached via the codegen
     /// dual-path seam). Present only for migrated functions.
     Native(NativeLower),
+    /// The function owns its MFBASIC source body (a `FUNC __pkg_<name> ... END
+    /// FUNC` fragment), assembled into the package's injected source by the
+    /// dual-path source loader and monomorphized like the package's `.mfb`
+    /// companion. The external `.mfb` file remains the fallback for members not
+    /// yet carrying `Mfb`, so the two paths coexist during migration.
+    Mfb(&'static str),
 }
 
 // Hand-written so the `Native` fn pointer is compared by address via
@@ -185,6 +191,7 @@ impl PartialEq for Implementation {
             | (Implementation::Custom, Implementation::Custom) => true,
             (Implementation::Rewrite(a), Implementation::Rewrite(b)) => a == b,
             (Implementation::Native(a), Implementation::Native(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Implementation::Mfb(a), Implementation::Mfb(b)) => a == b,
             _ => false,
         }
     }
@@ -269,6 +276,38 @@ impl BuiltinFunction {
             errors,
             overloads,
             implementation: Implementation::Native(lower),
+            lowering: Lowering::Helper,
+            flags: BuiltinFlags {
+                internal_only: false,
+                return_type_overloaded: false,
+            },
+        }
+    }
+
+    /// Declare a source-generic builtin function that owns its MFBASIC source
+    /// body (`Implementation::Mfb`, assembled into the package's injected source
+    /// by the dual-path loader). The registry-wide constructor a package uses to
+    /// pull a member's `FUNC __pkg_<name> ... END FUNC` out of its `.mfb`
+    /// companion and into the descriptor, so the body, docs, and errors live in
+    /// one place. `overloads` are documentation only — the `.mfb` signature drives
+    /// arity/default resolution, exactly as for the un-migrated companion members.
+    pub(crate) const fn mfb(
+        name: &'static str,
+        doc_slug: &'static str,
+        doc_intro: &'static str,
+        doc_desc: &'static str,
+        errors: &'static [&'static str],
+        overloads: &'static [BuiltinOverload],
+        body: &'static str,
+    ) -> BuiltinFunction {
+        BuiltinFunction {
+            name,
+            doc_slug,
+            doc_intro,
+            doc_desc,
+            errors,
+            overloads,
+            implementation: Implementation::Mfb(body),
             lowering: Lowering::Helper,
             flags: BuiltinFlags {
                 internal_only: false,
@@ -583,7 +622,13 @@ impl DefaultResolver {
     pub(crate) fn implementation_name(module: &BuiltinModule, name: &str) -> Option<&'static str> {
         match module.function(name)?.implementation {
             Implementation::Rewrite(symbol) => Some(symbol),
-            Implementation::Same | Implementation::Custom | Implementation::Native(_) => None,
+            // `Mfb` members route to their `__pkg_<name>` monomorph via
+            // `internal_name`, not a fixed rewrite symbol — like the `Same` they
+            // replace, they carry no `implementation_name`.
+            Implementation::Same
+            | Implementation::Custom
+            | Implementation::Native(_)
+            | Implementation::Mfb(_) => None,
         }
     }
 
