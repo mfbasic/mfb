@@ -383,6 +383,9 @@ FUNC main AS Integer
   MUT addressMode AS Boolean = FALSE
   MUT rawMode AS Boolean = FALSE
   MUT url AS String = ""
+  ' The address as it was on entering Address Mode, restored if the edit is cancelled
+  ' (so cancelling — including a clear-then-cancel — leaves the current address intact).
+  MUT savedUrl AS String = ""
   MUT pageTitle AS String = ""
   MUT scroll AS Integer = 0
   MUT hscroll AS Integer = 0
@@ -568,10 +571,12 @@ FUNC main AS Integer
           END IF
         END IF
       ELSEIF key = "ESC" THEN
-        ' Esc clears the address first; a second Esc (empty field) cancels.
+        ' Esc clears the address first; a second Esc (empty field) cancels, restoring
+        ' the address that was there on entering Address Mode (so a cancel is a no-op).
         IF len(url) > 0 THEN
           url = ""
         ELSE
+          url = savedUrl
           addressMode = FALSE
         END IF
       ELSEIF key = "BACKSPACE" THEN
@@ -586,6 +591,7 @@ FUNC main AS Integer
       IF key = "q" OR key = "Q" OR key = "EOF" THEN
         running = FALSE
       ELSEIF key = "g" OR key = "G" THEN
+        savedUrl = url
         addressMode = TRUE
       ELSEIF (key = "r" OR key = "R") AND haveDom AND NOT rawMode THEN
         rawMode = TRUE
