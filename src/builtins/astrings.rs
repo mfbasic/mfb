@@ -121,6 +121,9 @@ const fn astrings_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads,
         implementation,
         lowering: Lowering::Helper,
@@ -139,6 +142,9 @@ const fn astrings_internal_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads,
         implementation: Implementation::Same,
         lowering: Lowering::Helper,

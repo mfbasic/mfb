@@ -579,9 +579,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&size_overflow));
-        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.emit_error_code_return(crate::builtins::errorcode::runtime_error("ErrOutOfMemory").expect("errorCode name").0, crate::builtins::errorcode::runtime_error("ErrOutOfMemory").expect("errorCode name").1)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::mfb_return(1),
@@ -924,9 +924,9 @@ impl CodeBuilder<'_> {
             RESULT_OK_TAG,
         ));
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&size_overflow));
-        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.emit_error_code_return(crate::builtins::errorcode::runtime_error("ErrOutOfMemory").expect("errorCode name").0, crate::builtins::errorcode::runtime_error("ErrOutOfMemory").expect("errorCode name").1)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::mfb_return(1),
@@ -1456,9 +1456,9 @@ impl CodeBuilder<'_> {
             RESULT_OK_TAG,
         ));
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&size_overflow));
-        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.emit_error_code_return(crate::builtins::errorcode::runtime_error("ErrOutOfMemory").expect("errorCode name").0, crate::builtins::errorcode::runtime_error("ErrOutOfMemory").expect("errorCode name").1)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::mfb_return(1),
@@ -2276,9 +2276,9 @@ impl CodeBuilder<'_> {
         );
 
         self.emit(abi::label(&bounds_label));
-        self.emit_index_out_of_range_return()?;
+        self.raise_error_bare("ErrIndexOutOfRange")?;
         self.emit(abi::label(&not_found_label));
-        self.emit_not_found_return()?;
+        self.raise_error_bare("ErrNotFound")?;
 
         self.emit(abi::label(&match_label));
         self.free_collection_loop_item(item_slot, &element_type)?;
@@ -2985,9 +2985,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&overflow));
-        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.emit_error_code_return(crate::builtins::errorcode::runtime_error("ErrOutOfMemory").expect("errorCode name").0, crate::builtins::errorcode::runtime_error("ErrOutOfMemory").expect("errorCode name").1)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::mfb_return(1),
@@ -3714,7 +3714,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::mfb_return(1),
@@ -3979,9 +3979,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&size_overflow));
-        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.emit_error_code_return(crate::builtins::errorcode::runtime_error("ErrOutOfMemory").expect("errorCode name").0, crate::builtins::errorcode::runtime_error("ErrOutOfMemory").expect("errorCode name").1)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::mfb_return(1),
@@ -4182,9 +4182,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&size_overflow));
-        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.emit_error_code_return(crate::builtins::errorcode::runtime_error("ErrOutOfMemory").expect("errorCode name").0, crate::builtins::errorcode::runtime_error("ErrOutOfMemory").expect("errorCode name").1)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::mfb_return(1),
@@ -4410,9 +4410,9 @@ impl CodeBuilder<'_> {
             RESULT_OK_TAG,
         ));
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&size_overflow));
-        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.emit_error_code_return(crate::builtins::errorcode::runtime_error("ErrOutOfMemory").expect("errorCode name").0, crate::builtins::errorcode::runtime_error("ErrOutOfMemory").expect("errorCode name").1)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::mfb_return(1),
@@ -4864,7 +4864,7 @@ impl CodeBuilder<'_> {
             self.emit_arena_alloc_call();
             let ok = self.label("gb_scratch_ok");
             self.emit(abi::branch_eq(&ok));
-            self.emit_allocation_error_return()?;
+            self.raise_error_bare("ErrOutOfMemory")?;
             self.emit(abi::label(&ok));
             self.emit(abi::store_u64(
                 abi::mfb_return(1),
@@ -4879,7 +4879,7 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::branch(&after_alloc));
         self.emit(abi::label(&ovf));
-        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.emit_error_code_return(crate::builtins::errorcode::runtime_error("ErrOutOfMemory").expect("errorCode name").0, crate::builtins::errorcode::runtime_error("ErrOutOfMemory").expect("errorCode name").1)?;
         self.emit(abi::label(&after_alloc));
         // Zero hashOcc data.
         let zp = self.temporary_vreg();
@@ -5019,7 +5019,7 @@ impl CodeBuilder<'_> {
             self.emit_arena_alloc_call();
             let ins_ok = self.label("gb_ins_ok");
             self.emit(abi::branch_eq(&ins_ok));
-            self.emit_allocation_error_return()?;
+            self.raise_error_bare("ErrOutOfMemory")?;
             self.emit(abi::label(&ins_ok));
             self.emit(abi::store_u64(
                 abi::mfb_return(1),

@@ -296,6 +296,7 @@ const STRINGS_FUNCTIONS: &[BuiltinFunction] = &[
     strings_fn(PAD_RIGHT, "padRight", OV_PAD, Implementation::Same),
     strings_fn_err(GRAPHEME_AT, "graphemeAt", &["ErrIndexOutOfRange"], OV_INDEX_STRING, Implementation::Same),
     strings_fn(GRAPHEMES_COUNT, "graphemesCount", OV_VALUE_INTEGER, Implementation::Same),
+    strings_fn(DISPLAY_WIDTH, "displayWidth", OV_VALUE_INTEGER, Implementation::Same),
     strings_fn(TRIM_CHARS, "trimChars", OV_CHARS_STRING, Implementation::Same),
     strings_fn(TO_BYTES, "toBytes", OV_VALUE_LIST_BYTE, Implementation::Same),
     strings_fn_err(FIND, "find", &["ErrIndexOutOfRange", "ErrNotFound"], OV_FIND, Implementation::Same),

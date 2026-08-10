@@ -340,8 +340,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_list_helper(
     ]);
     emit_fail(
         symbol,
-        ERR_TIMEOUT_CODE,
-        ERR_TIMEOUT_SYMBOL,
+        "ErrTimeout",
         &mut instructions,
         &mut relocations,
         &done,
@@ -367,8 +366,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_list_helper(
     ]);
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -377,8 +375,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_list_helper(
     instructions.push(abi::label(&invalid));
     emit_fail(
         symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        "ErrInvalidArgument",
         &mut instructions,
         &mut relocations,
         &done,
@@ -387,8 +384,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_list_helper(
     instructions.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
         &done,

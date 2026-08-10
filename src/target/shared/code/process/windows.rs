@@ -10,29 +10,8 @@
 //! placeholders, not live stubs).
 
 use super::*;
+use super::super::native_helpers::emit_fail;
 use std::collections::HashMap;
-
-/// Standard `Result` error tail (code/message) then branch to `done`.
-fn win_fail(
-    symbol: &str,
-    code: &str,
-    message_symbol: &str,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-    done: &str,
-) {
-    instructions.extend([
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", code),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    crate::target::shared::code::data_objects::push_error_message_address(
-        symbol,
-        message_symbol,
-        instructions,
-        relocations,
-    );
-    instructions.push(abi::branch(done));
-}
 
 fn unimplemented_on_windows(op: &str) -> HelperResult {
     Err(format!(
@@ -119,10 +98,9 @@ pub(in crate::target::shared::code) fn lower_process_isrunning_helper(
         abi::branch(&done),
         abi::label(&closed_l),
     ]);
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -176,10 +154,9 @@ pub(in crate::target::shared::code) fn lower_process_close_helper(
         abi::branch(&done),
         abi::label(&closed_l),
     ]);
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -356,10 +333,9 @@ pub(in crate::target::shared::code) fn lower_process_send_helper(
         abi::branch(&done),
         abi::label(&closed_l),
     ]);
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -533,28 +509,25 @@ pub(in crate::target::shared::code) fn lower_process_receive_helper(
         abi::branch(&done),
         abi::label(&encoding_error),
     ]);
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_ENCODING_CODE,
-        ERR_ENCODING_SYMBOL,
+        "ErrEncoding",
         &mut instructions,
         &mut relocations,
         &done,
     );
     instructions.push(abi::label(&closed_l));
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
     );
     instructions.push(abi::label(&alloc_fail));
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
         &done,
@@ -719,19 +692,17 @@ pub(in crate::target::shared::code) fn lower_process_receivebytes_helper(
         abi::branch(&done),
         abi::label(&closed_l),
     ]);
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
     );
     instructions.push(abi::label(&alloc_fail));
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
         &done,
@@ -875,10 +846,9 @@ pub(in crate::target::shared::code) fn lower_process_poll_helper(
         abi::branch(&done),
         abi::label(&closed_l),
     ]);
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -949,10 +919,9 @@ pub(in crate::target::shared::code) fn lower_process_signal_helper(
         abi::branch(&done),
         abi::label(&closed_l),
     ]);
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1004,10 +973,9 @@ pub(in crate::target::shared::code) fn lower_process_didsignal_helper(
         abi::branch(&done),
         abi::label(&closed_l),
     ];
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1071,10 +1039,9 @@ pub(in crate::target::shared::code) fn lower_process_detach_helper(
         abi::branch(&done),
         abi::label(&closed_l),
     ]);
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1392,28 +1359,25 @@ pub(in crate::target::shared::code) fn lower_process_spawn_helper(
         abi::branch(&done),
         abi::label(&spawn_fail),
     ]);
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_SPAWN_FAILED_CODE,
-        ERR_SPAWN_FAILED_SYMBOL,
+        "ErrSpawnFailed",
         &mut instructions,
         &mut relocations,
         &done,
     );
     instructions.push(abi::label(&invalid));
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        "ErrInvalidArgument",
         &mut instructions,
         &mut relocations,
         &done,
     );
     instructions.push(abi::label(&alloc_fail));
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1446,10 +1410,9 @@ pub(in crate::target::shared::code) fn lower_process_pid_helper(
         abi::label(&closed_l),
     ];
     let mut relocations = Vec::new();
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1529,10 +1492,9 @@ pub(in crate::target::shared::code) fn lower_process_waitfor_helper(
         abi::branch(&done),
         abi::label(&closed_l),
     ]);
-    win_fail(
+    emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,

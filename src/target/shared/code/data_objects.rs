@@ -449,20 +449,20 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     ];
     if module_uses_any_call(module, &process_calls) {
         for value in [
-            ERR_SPAWN_FAILED_MESSAGE,
-            ERR_RESOURCE_CLOSED_MESSAGE,
-            ERR_INVALID_ARGUMENT_MESSAGE,
-            ERR_ALLOCATION_MESSAGE,
-            ERR_TIMEOUT_MESSAGE,
+            err_msg("ErrSpawnFailed"),
+            err_msg("ErrResourceClosed"),
+            err_msg("ErrInvalidArgument"),
+            err_msg("ErrOutOfMemory"),
+            err_msg("ErrTimeout"),
         ] {
-            push_string_value(&mut values, value.to_string());
+            push_string_value(&mut values, value);
         }
     }
     // `process::receive`/`receiveFrom` validate the line as UTF-8 and raise
     // ErrEncoding on a malformed byte sequence, so the receive path needs the
     // encoding string even when the program never calls `toString`.
     if module_uses_any_call(module, &["process.receive", "process.receiveFrom"]) {
-        push_string_value(&mut values, ERR_ENCODING_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrEncoding"));
     }
     if module_uses_migrated(module, "find")
         || module_uses_migrated(module, "mid")

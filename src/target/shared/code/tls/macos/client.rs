@@ -1932,8 +1932,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_poll_macos(
     ins.push(abi::label(&invalid));
     emit_fail(
         symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        "ErrInvalidArgument",
         &mut ins,
         &mut rel,
         &done,
@@ -1941,8 +1940,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_poll_macos(
     ins.push(abi::label(&load_fail));
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut ins,
         &mut rel,
         &done,
@@ -1950,8 +1948,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_poll_macos(
     ins.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut ins,
         &mut rel,
         &done,
@@ -1959,8 +1956,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_poll_macos(
     ins.push(abi::label(&closed));
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut ins,
         &mut rel,
         &done,

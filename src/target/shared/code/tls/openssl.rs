@@ -2347,8 +2347,7 @@ pub(super) fn lower_tls_poll_openssl(
     ]);
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2356,8 +2355,7 @@ pub(super) fn lower_tls_poll_openssl(
     instructions.push(abi::label(&load_fail));
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2365,8 +2363,7 @@ pub(super) fn lower_tls_poll_openssl(
     instructions.push(abi::label(&invalid));
     emit_fail(
         symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        "ErrInvalidArgument",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2374,8 +2371,7 @@ pub(super) fn lower_tls_poll_openssl(
     instructions.push(abi::label(&closed));
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,

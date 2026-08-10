@@ -910,24 +910,24 @@ pub(super) fn lower_thread_sleep_worker_helper(
         "pthread_mutex_unlock",
     )?;
     instructions.extend([
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INTERRUPTED_CODE),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", crate::builtins::errorcode::runtime_error("ErrInterrupted").expect("errorCode name").0),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
     push_error_message_address(
         symbol,
-        ERR_INTERRUPTED_SYMBOL,
+        crate::builtins::errorcode::runtime_error_emission("ErrInterrupted").expect("errorCode name").1,
         &mut instructions,
         &mut relocations,
     );
     instructions.extend([
         abi::return_(),
         abi::label(&err_arg),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", crate::builtins::errorcode::runtime_error("ErrInvalidArgument").expect("errorCode name").0),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
     push_error_message_address(
         symbol,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        crate::builtins::errorcode::runtime_error_emission("ErrInvalidArgument").expect("errorCode name").1,
         &mut instructions,
         &mut relocations,
     );

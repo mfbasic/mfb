@@ -120,6 +120,9 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: PARSE_STREAM,
         doc_slug: "parseStream",
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads: &[BuiltinOverload {
             params: P_PARSE_STREAM,
             return_type: ReturnType::Fixed(READER_TYPE),
@@ -134,6 +137,9 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: NEXT,
         doc_slug: "readRow",
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads: &[BuiltinOverload {
             params: P_NEXT,
             return_type: ReturnType::Fixed(ROW_TYPE),
