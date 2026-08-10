@@ -50,13 +50,26 @@ FUNC leadingInt(v AS String) AS String
   RETURN out
 END FUNC
 
-' A CSS length in terminal cells: "auto" -> -1, "20px"/"20" -> 20, else `fb`.
+' A CSS length in CSS px (updateLayout later scales px -> cells): "auto" -> -1,
+' "20px"/"20" -> 20, "1.5em"/"2rem" -> n*16 (a 16px default font size). A viewport-
+' or container-relative length ("60vw", "100%", "50vh", …) cannot resolve to an
+' absolute px here — this Style model carries no containing-block width — so it falls
+' back to auto (-1): a relative WIDTH then fills the available space (reflowing with
+' the viewport) instead of being read as a raw px number that collapses the box to a
+' sliver (e.g. "60vw" as 60px -> ~8 cells). Any other/unknown unit keeps its leading
+' number as px.
 FUNC lengthOf(v AS String, fb AS Integer) AS Integer
   LET t AS String = normalize(v)
   IF t = "auto" THEN RETURN -1
+  IF strings::endsWith(t, "%") OR strings::endsWith(t, "vw") OR strings::endsWith(t, "vh") OR strings::endsWith(t, "vmin") OR strings::endsWith(t, "vmax") OR strings::endsWith(t, "vi") OR strings::endsWith(t, "vb") THEN
+    RETURN -1
+  END IF
   LET num AS String = leadingInt(t)
   IF num = "" OR num = "-" THEN RETURN fb
-  RETURN parseIntOr(num, fb)
+  LET n AS Integer = parseIntOr(num, fb)
+  ' em/rem (rem also ends with "em") -> a 16px default font size.
+  IF strings::endsWith(t, "em") THEN RETURN n * 16
+  RETURN n
 END FUNC
 
 ' A plain integer value (flex-grow/shrink), or `fb`.

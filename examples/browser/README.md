@@ -138,8 +138,13 @@ recursing over an *imported* union):
 - **`Style`** (`style.mfb`) is the CSS a single element resolves to — a closed
   record with one typed field per supported property (a `Display` / `FlexDirection`
   / `FlexWrap` / `Justify` / `Align` enum, or an Integer length in **device-
-  independent CSS px**, with `-1` meaning `auto`), not an open string bag.
-  `dom::resolveStyles(doc)`
+  independent CSS px**, with `-1` meaning `auto`), not an open string bag. Lengths are
+  parsed by unit: `px`/unitless keep their number, `em`/`rem` use a 16px default font
+  size, and a **viewport- or container-relative** length (`60vw`, `100%`, `50vh`, …)
+  resolves to `auto` — this Style model has no containing-block width to take a
+  percentage of, so a relative width *fills* the available space (and reflows with the
+  viewport) rather than being read as a raw px number that would collapse the box to a
+  few cells. `dom::resolveStyles(doc)`
   (`resolve.mfb`) walks the tree and for each element applies the user-agent default
   for its tag, then every matching `StyleNode` rule in document order, then the
   inline `style="…"` attribute. Selectors support **compound** simple-selectors
