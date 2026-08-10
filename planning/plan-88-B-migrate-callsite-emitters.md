@@ -178,17 +178,17 @@ Largest blast radius; do last, pattern already proven.
 - [x] Declared errors on the func builtins (no `ErrOutOfMemory` declarations — it is
       bare). `emit_error_code_return` has no `ERR_*`-constant caller left; deleted the
       `emit_allocation_error_return` + `emit_invalid_argument_return` wrappers.
-- [~] Tests: `cargo test` 3753 green; invalid_argument byte-identical (strings gate
-      0 diffs). Allocation is untestable via rt-error (can't force OOM) — verified
-      runtime-equivalent by construction (source diff is ONLY `raise_error_bare(
-      "ErrOutOfMemory")` swaps; OOM code+message unchanged). **Byte-identity `.ncode`
-      goldens re-baselined** via `scripts/regen-ncodesum.sh` (the intended allocation
-      churn; artifact-gate re-verified 0 diffs).
+- [x] Tests: `cargo test` 3753 green; invalid_argument byte-identical. Allocation
+      untestable via rt-error (can't force OOM) — verified runtime-equivalent by
+      construction (source diff is ONLY `raise_error_bare("ErrOutOfMemory")` swaps;
+      OOM code+message unchanged). All 112 byte-identity `.ncodesum` goldens
+      re-baselined via `scripts/regen-ncodesum.sh`; collections + strings gates
+      re-verified **0 diffs**.
 
 Acceptance (per-site gate) MET: `grep -rc 'self\.emit_allocation_error_return\|self\.emit_invalid_argument_return'
 src/target/shared/code/*.rs` → 0; `cargo test --bin mfb` green; the 112 byte-identity
 `.ncodesum` goldens refreshed to the unified allocation codegen.
-Commit: 8a336ea95 (code) + <regen commit>.
+Commit: 8a336ea95 (code) + 402aa0596 (goldens)
 
 > bug-352 guard test (`no_overflow_label_returns_through_the_result_tag_register`,
 > `tests.rs`) is now moot — it scanned for `emit_allocation_error_return` after
