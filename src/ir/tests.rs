@@ -6683,3 +6683,89 @@ END FUNC
         );
     }
 }
+
+/// plan-12 IR coverage: the AttributedString-routing and rarer literal/trap
+/// lowering branches are exercised in-tree only by `rt-behavior` fixtures that
+/// build via the release `mfb` subprocess, so they never register under
+/// `cargo llvm-cov --bin mfb`. Drive them in-process here.
+#[cfg(test)]
+mod lower_coverage_tests {
+    use super::helpers::{function, lower_src};
+
+    #[test]
+    fn astrings_tier_a_and_tier_b_calls_lower_through_the_routing() {
+        // Tier-A queries (find/contains) wrap the AttributedString arg in
+        // `toString`; Tier-B transforms (upper/padLeft/replace) route to the
+        // `__astrings_*` source-companion bodies; padLeft's 2-arg form fills the
+        // default padChar. Also drives a trapped call expression.
+        let ir = lower_src(
+            "IMPORT astrings\n\
+             IMPORT strings\n\
+             FUNC main AS Integer\n  \
+               LET a AS AttributedString = astrings::fromString(\"hello world\")\n  \
+               LET has AS Boolean = strings::contains(a, \"ell\")\n  \
+               LET up AS AttributedString = strings::upper(a)\n  \
+               LET pad AS AttributedString = strings::padLeft(a, 20)\n  \
+               LET rep AS AttributedString = strings::replace(a, \"l\", \"L\")\n  \
+               LET idx AS Integer = strings::find(a, \"z\") TRAP(e)\n    \
+                 RETURN e.code\n  \
+               END TRAP\n  \
+               RETURN idx\nEND FUNC\n",
+        );
+        let _ = function(&ir, "main");
+    }
+
+    #[test]
+    fn fixed_literals_lower_with_the_fixed_literal_type() {
+        // A `Fixed` literal (`F` suffix) drives the `numeric::LiteralType::Fixed`
+        // arm in both `lower_expression_with_expected` and `literal_expression_type`.
+        // Inferred (no `AS Fixed`) so the literal's *classification* — not the
+        // expected-type coercion — drives the `LiteralType::Fixed` arm in both
+        // `lower_expression_with_expected` and `literal_expression_type`.
+        let ir = lower_src(
+            "FUNC main AS Integer\n  \
+               LET f = 1.5F\n  \
+               LET g = f + 2.5F\n  \
+               RETURN 0\nEND FUNC\n",
+        );
+        let _ = function(&ir, "main");
+    }
+
+    #[test]
+    fn term_draw_text_with_attributed_string_routes_to_the_attr_companion() {
+        // `term::drawText(x, y, AttributedString)` routes to the
+        // `__term_drawTextAttr` source-companion body (a String third argument stays
+        // the native helper). Covers that `.or_else` arm plus the AttributedString
+        // `IrValue::Call` return.
+        let ir = lower_src(
+            "IMPORT term\n\
+             IMPORT astrings\n\n\
+             FUNC main AS Integer\n  \
+               LET a AS AttributedString = astrings::fromString(\"hi\")\n  \
+               term::drawText(0, 0, a)\n  \
+               term::drawText(0, 1, \"plain\")\n  \
+               RETURN 0\nEND FUNC\n",
+        );
+        let _ = function(&ir, "main");
+    }
+
+    #[test]
+    fn audio_calls_route_to_native_and_source_implementation_names() {
+        // The `audio::` overloads whose body differs rewrite onto their own
+        // internal runtime-helper name (openInput/read/poll — native) or their
+        // source-companion body (play). Covers the audio `.or_else`
+        // implementation-name arms in the call-lowering chain.
+        let ir = lower_src(
+            "IMPORT audio\n\n\
+             FUNC main AS Integer\n  \
+               RES mic AS AudioInput = audio::openInput(48000, 1, 512)\n  \
+               LET pcm = audio::read(mic, 256)\n  \
+               LET pcm2 = audio::read(mic, 256, 100)\n  \
+               LET ok AS Boolean = audio::poll(mic)\n  \
+               RES spk AS AudioOutput = audio::openOutput(48000, 1, 512)\n  \
+               audio::play(spk, \"T120 O4 CDEFGAB\")\n  \
+               RETURN 0\nEND FUNC\n",
+        );
+        let _ = function(&ir, "main");
+    }
+}
