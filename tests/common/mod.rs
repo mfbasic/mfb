@@ -607,10 +607,18 @@ pub fn mfb_exe() -> String {
     let target_dir = profile_dir.parent().expect("profile dir sits under target");
     let release = target_dir.join("release").join("mfb");
 
+    // Always delegate the up-to-date decision to Cargo — never skip on mere
+    // existence. A pre-existing `target/release/mfb` is NOT proof it matches the
+    // current source: a binary left over from an earlier checkout silently makes
+    // every release-driven test build with stale codegen. That produces false
+    // failures (a fix that landed after the binary was built looks un-applied)
+    // and, far worse, false passes (a regression in current source is masked by
+    // an older-but-correct binary). `cargo build --release` is a fast no-op when
+    // the artifact is already current and rebuilds it when it is not, so it is
+    // the only sound staleness authority here. `call_once` keeps it to one
+    // invocation per test process; Cargo's own build lock serializes any race
+    // between concurrently-running test binaries.
     BUILD_RELEASE_MFB.call_once(|| {
-        if release.exists() {
-            return;
-        }
         let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
         cmd.args(["build", "--release", "--bin", "mfb"])
             .arg("--target-dir")
