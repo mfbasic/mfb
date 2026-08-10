@@ -275,7 +275,7 @@ Acceptance: `cargo test --bin mfb` green (3753 passed, incl.
 `raise_error_matches_every_wrapper`) ✓ and the out-of-range runtime program raises
 `ErrIndexOutOfRange` with the same message (measured against the fixture golden) ✓.
 MET.
-Commit: <this commit — hash recorded next>.
+Commit: 5a58a8ea7
 
 ## Validation Plan
 

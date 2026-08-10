@@ -37,10 +37,6 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(ERR_OVERFLOW_CODE, ERR_OVERFLOW_MESSAGE)
     }
 
-    pub(super) fn emit_underflow_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_UNDERFLOW_CODE, ERR_UNDERFLOW_MESSAGE)
-    }
-
     pub(super) fn emit_float_domain_return(&mut self) -> Result<(), String> {
         self.emit_error_code_return(ERR_FLOAT_DOMAIN_CODE, ERR_FLOAT_DOMAIN_MESSAGE)
     }

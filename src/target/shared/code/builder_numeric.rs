@@ -346,7 +346,7 @@ impl CodeBuilder<'_> {
                 let ok = self.label("byte_unary_ok");
                 self.emit(abi::compare_immediate(&operand.location, "0"));
                 self.emit(abi::branch_eq(&ok));
-                self.emit_underflow_return()?;
+                self.raise_error_bare("ErrUnderflow")?;
                 self.emit(abi::label(&ok));
                 self.emit(abi::move_register(&register, &operand.location));
             }
@@ -865,7 +865,7 @@ impl CodeBuilder<'_> {
                     ));
                     self.emit(abi::branch(&ok_label));
                     self.emit(abi::label(&underflow_label));
-                    self.emit_underflow_return()?;
+                    self.raise_error_bare("ErrUnderflow")?;
                     self.emit(abi::label(&ok_label));
                 } else if elide_overflow {
                     // Proven non-overflowing (guard-derived lower bound): bare sub.
@@ -1030,7 +1030,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::float_compare_zero_d(abi::FP_SCRATCH[1]));
                 let nonzero = self.label("float_mod_divisor_nonzero");
                 self.emit(abi::branch_ne(&nonzero));
-                self.emit_float_domain_return()?;
+                self.raise_error_bare("ErrFloatDomain")?;
                 self.emit(abi::label(&nonzero));
                 // Move the f64 bit patterns into GPRs and run the in-tree exact
                 // fmod kernel (no libm). d0/d1 still hold a/b from above. The
@@ -1156,7 +1156,7 @@ impl CodeBuilder<'_> {
     pub(super) fn emit_overflow_if_flags_set(&mut self) -> Result<(), String> {
         let ok_label = self.label("overflow_ok");
         self.emit(abi::branch_vc(&ok_label));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&ok_label));
         Ok(())
     }
@@ -1178,7 +1178,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_hi(&overflow_label));
         self.emit(abi::branch(&ok_label));
         self.emit(abi::label(&overflow_label));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&ok_label));
         Ok(())
     }
@@ -1200,7 +1200,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::arithmetic_shift_right_immediate(&sign, dst, 63));
         self.emit(abi::compare_registers(&high, &sign));
         self.emit(abi::branch_eq(&ok_label));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&ok_label));
         Ok(())
     }
@@ -1233,7 +1233,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::compare_registers(right, &minus_one));
         self.emit(abi::branch_ne(&ok));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&not_min));
         self.emit(abi::label(&ok));
         Ok(())
@@ -1249,7 +1249,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&min, "Integer", F64_SIGN_BIT));
         self.emit(abi::compare_registers(value, &min));
         self.emit(abi::branch_ne(&ok));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&ok));
         Ok(())
     }
@@ -1348,7 +1348,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::or_registers(dst, &shifted_high, dst));
         self.emit(abi::branch(&ok));
         self.emit(abi::label(&overflow));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&ok));
         self.next_register = saved_registers;
         Ok(())
@@ -1399,7 +1399,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&counter, "Integer", "32"));
         self.emit(abi::branch(&integer_ok));
         self.emit(abi::label(&overflow));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&integer_ok));
 
         let loop_start = self.label("fixed_div_loop");
@@ -1456,7 +1456,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers(dst, &min_raw));
         self.emit(abi::branch_eq(&quotient_done));
         self.emit(abi::label(&magnitude_overflow));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&negate));
         self.emit_neg_i64(dst)?;
         self.emit(abi::label(&quotient_done));
@@ -1642,7 +1642,7 @@ impl CodeBuilder<'_> {
         let exponent_whole = self.label("float_pow_whole");
         self.emit(abi::float_compare_zero_d(exponent));
         self.emit(abi::branch_ge(&nonnegative));
-        self.emit_float_domain_return()?;
+        self.raise_error_bare("ErrFloatDomain")?;
         self.emit(abi::label(&nonnegative));
         let exponent_int = self.allocate_register()?;
         let exponent_roundtrip = self.allocate_register()?;
@@ -1683,7 +1683,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::float_move_x_from_d(&exponent_bits, exponent));
         self.emit(abi::compare_registers(&exponent_roundtrip, &exponent_bits));
         self.emit(abi::branch_eq(&exponent_whole));
-        self.emit_float_domain_return()?;
+        self.raise_error_bare("ErrFloatDomain")?;
         self.emit(abi::label(&exponent_whole));
         // Spill the base and exponent bit patterns before invoking the kernel,
         // which resets the register file (mirroring the `MOD`/fmod path).
