@@ -151,7 +151,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&invalid));
         self.emit_invalid_format_return()?;
         self.emit(abi::label(&overflow));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&done));
 
         Ok(ValueResult {
@@ -259,7 +259,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(invalid));
         self.emit_invalid_format_return()?;
         self.emit(abi::label(overflow));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(done));
         Ok(())
     }
@@ -555,7 +555,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, &checked));
         self.emit(abi::branch(&ok));
         self.emit(abi::label(&overflow));
-        self.emit_overflow_return()?;
+        self.raise_error("toByte", "ErrOverflow")?;
         self.emit(abi::label(&ok));
         Ok(ValueResult {
             type_: "Byte".to_string(),
@@ -880,7 +880,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&invalid));
                 self.emit_invalid_format_return()?;
                 self.emit(abi::label(&overflow));
-                self.emit_overflow_return()?;
+                self.raise_error("toFloat", "ErrOverflow")?;
                 self.emit(abi::label(&done));
             }
             other => {
@@ -940,7 +940,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&invalid));
                 self.emit_invalid_format_return()?;
                 self.emit(abi::label(&overflow));
-                self.emit_overflow_return()?;
+                self.raise_error("toFixed", "ErrOverflow")?;
                 self.emit(abi::label(&done));
             }
             other => {
@@ -1211,7 +1211,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::shift_left_immediate(result, source, 32));
         self.emit(abi::branch(&ok));
         self.emit(abi::label(&overflow));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&ok));
         Ok(())
     }
@@ -1268,7 +1268,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&invalid));
         self.emit_invalid_format_return()?;
         self.emit(abi::label(&overflow));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&ok));
         Ok(())
     }

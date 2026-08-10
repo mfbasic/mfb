@@ -80,6 +80,19 @@ const fn ovc(params: &'static [Parameter]) -> BuiltinOverload {
     }
 }
 
+/// plan-88: a general builtin that declares the `errorCode` names it can raise at
+/// runtime (the codegen contract validated by `raise_error`). Reuses `gfn`.
+const fn gfn_err(
+    name: &'static str,
+    slug: &'static str,
+    errors: &'static [&'static str],
+    overloads: &'static [BuiltinOverload],
+) -> BuiltinFunction {
+    let mut function = gfn(name, slug, overloads);
+    function.errors = errors;
+    function
+}
+
 const fn gfn(
     name: &'static str,
     slug: &'static str,
@@ -137,9 +150,9 @@ const GENERAL_FUNCTIONS: &[BuiltinFunction] = &[
     gfn(TYPE_NAME, "typeName", &[ovc(P_V_T)]),
     gfn(TO_STRING, "toString", &[ovc(P_TO_STRING)]),
     gfn(TO_INT, "toInt", &[ov(P_TO_INT, "Integer")]),
-    gfn(TO_FLOAT, "toFloat", &[ov(P_V_STR, "Float")]),
-    gfn(TO_FIXED, "toFixed", &[ov(P_V_STR, "Fixed")]),
-    gfn(TO_BYTE, "toByte", &[ov(P_V_INT, "Byte")]),
+    gfn_err(TO_FLOAT, "toFloat", &["ErrOverflow"], &[ov(P_V_STR, "Float")]),
+    gfn_err(TO_FIXED, "toFixed", &["ErrOverflow"], &[ov(P_V_STR, "Fixed")]),
+    gfn_err(TO_BYTE, "toByte", &["ErrOverflow"], &[ov(P_V_INT, "Byte")]),
     gfn(TO_MONEY, "toMoney", &[ov(P_V_STR, "Money")]),
     gfn(TO_SCALAR, "toScalar", &[ov(P_V_INT, "Scalar")]),
     gfn(IS_NUMERIC, "isNumeric", &[ovc(P_V_STR)]),

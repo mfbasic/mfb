@@ -109,25 +109,29 @@ high-volume families.
 
 The float + over/underflow families are (mostly) operator sites → `raise_error_bare`.
 
-- [ ] Migrate all `emit_float_domain_return` / `float_nan` / `float_inf` /
-      `float_overflow` / `underflow` / `overflow` call sites (37 calls, plan-88-A
-      §2) to `raise_error_bare("ErrFloat*"/"ErrOverflow"/"ErrUnderflow")`, EXCEPT
-      any site inside a named math/conversion builtin — those get
-      `raise_error(func_id, name)` and an `errors` entry on that builtin. Classify
-      each by its enclosing `fn`.
-- [ ] Add `errors` entries to any math/conversion builtin that raises here
-      (`src/builtins/math.rs`, `general.rs`) — e.g. `math.sqrt` → `["ErrFloatDomain"]`.
-- [ ] Tests: for each family, ensure a `tests/rt-error/**` fixture triggers it and
-      asserts `Error.code` — passing **before** migration (add if missing; several
-      float/overflow fixtures already exist, e.g. `rt_native_size_arith_overflow`,
-      `tests/rt-error/math/func_math_sqrt_fixedarray_rt`). Re-run **after**.
+- [x] Migrated all 37 call sites. **Bare** (shared helpers): `builder_numeric.rs`
+      (13), `builder_fixed_math`/`money_math`/`simd_math`/`simd_float_math` (7),
+      `builder_conversions.rs` shared helpers `emit_float_to_int_value`/
+      `emit_int_parse_sign_epilogue`/`emit_integer_to_fixed_value`/
+      `emit_float_bits_to_fixed_value` (4), `builder_math.rs` `emit_float_result_check`/
+      `_fp` + `emit_float_exponent_classify` (7). **Func**: `builder_conversions.rs`
+      `lower_to_byte`→`toByte`, `lower_to_float`→`toFloat`, `lower_to_fixed`→`toFixed`
+      (`ErrOverflow`); `builder_math.rs` `math.abs`(`ErrOverflow`)/`math.sqrt`
+      (`ErrFloatDomain`).
+- [x] Declared errors on the func builtins via new `gfn_err`/`mf_err` const helpers:
+      `toByte`/`toFloat`/`toFixed` → `["ErrOverflow"]` (`general.rs`); `math.abs` →
+      `["ErrOverflow"]`, `math.sqrt` → `["ErrFloatDomain"]` (`math.rs`).
+- [x] Tests: `cargo test --bin mfb` 3753 green; `tests/rt-error/general/toByte_overflow`
+      (→ `7-705-0010`) and `tests/rt-error/math/func_math_sqrt_float_domain_rt`
+      (→ `7-705-0012`) built + run, byte-identical to their goldens (the func-site
+      `debug_assert` passed, proving the declarations are correct). Deleted the 6
+      now-dead operator/float wrappers; fixed 3 dangling man citations
+      (`toFixed`/`toMoney`/`addMonths`) that referenced `emit_overflow_return`.
 
-Acceptance (per the per-site gate): no `emit_float_*_return`/`emit_overflow_return`/
-`emit_underflow_return` call sites remain (`grep -rc` → 0 each); every relevant
-`tests/rt-error/**` test raises the same `Error.code` after as before; message
-changes, if any, are on the Phase-0 consolidation list. `cargo test --bin mfb`
-green.
-Commit: —
+Acceptance (per-site gate) MET: `grep -rcE 'self\.emit_(overflow|underflow|float_domain|
+float_nan|float_inf|float_overflow)_return\(\)' src/target/shared/code/*.rs` → 0;
+rt-error fixtures raise the same `Error.code` after as before; `cargo test` green.
+Commit: <this + next commit>.
 
 ### Phase 2 — func families (index/not_found/encoding/invalid_format)
 
@@ -215,21 +219,29 @@ Commit: —
   Each func site needs its error added to that builtin's `errors` array BEFORE the
   site is converted, or `raise_error`'s `debug_assert` fires.
 
-### Resume state (plan-88-B Phase 1, IN PROGRESS)
+- **New `errors`-declaring const helpers (deviation from threading through the base
+  helper).** Rather than add an `errors` param to every `gfn`/`mf` call site (18 and
+  ~40 respectively), added `gfn_err`/`mf_err` variants that reuse the base helper and
+  set `.errors` (const-fn local mutation). Only the ~5 func builtins change call
+  sites. `collections.native` already threads `errors` directly; either shape is
+  fine — the field is what matters.
+- **Man-citation maintenance.** Deleting `emit_overflow_return` dangled 3 man-page
+  citations (`general/toFixed`, `general/toMoney`, `datetime/addMonths`) that
+  referenced it as the overflow-emission provenance. Repointed to `raise_error`
+  (toFixed, a func site in `builder_conversions.rs`) / `raise_error_bare` (the shared
+  primitive). `man_citations_resolve` green.
 
-- **Done + committed:** `builder_numeric.rs` (13 bare sites → `raise_error_bare`),
-  dead `emit_underflow_return` deleted. Commits `f5e3bc90b` (+ plan-88-A complete:
-  `978cbc16f`, `5a58a8ea7`).
-- **Remaining Phase 1 sites (24):** `builder_conversions.rs` (7 — classify
-  `lower_to_*` func vs shared), `builder_fixed_math.rs` (2, bare), `builder_money_math.rs`
-  (1, bare/money-func), `builder_math.rs` (5 — `math.abs`/`math.sqrt` func,
-  result-check bare), `builder_simd_math.rs` (2), `builder_simd_float_math.rs` (3).
-  Then declare `errors` on `math.sqrt`/`math.abs`/`toByte`/`toFloat`, and delete the
-  now-dead `emit_overflow`/`float_domain`/`nan`/`inf`/`float_overflow` wrappers once
-  their last callers migrate.
-- **Gate:** existing `tests/rt-error/{arithmetic,math,money,...}` fixtures cover
-  these; each must raise the same `Error.code` before and after (bare sites are
-  byte-identical; func sites too — same code+message, plus a declared contract).
+### Resume state (plan-88-B Phase 1 COMPLETE; Phase 2 next)
+
+- **plan-88-A complete:** `978cbc16f`, `5a58a8ea7`.
+- **plan-88-B Phase 1 complete** (37 sites): `f5e3bc90b` (builder_numeric),
+  `a52a2e8a4` (fixed/money/simd), + this commit (conversions/math func+bare, wrapper
+  deletions, `gfn_err`/`mf_err`, man citations).
+- **Next — Phase 2** (func families): `emit_index_out_of_range_return` (8),
+  `emit_not_found_return` (5), `emit_encoding_error_return` (1),
+  `emit_invalid_format_return` (7). Then Phase 3 (allocation 61+25, invalid_argument
+  26). Same pattern: classify, declare on the owning builtin, convert, delete the
+  wrapper when its last caller migrates.
 
 ## Summary
 

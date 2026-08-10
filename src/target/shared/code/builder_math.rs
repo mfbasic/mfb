@@ -454,7 +454,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&bound, "Integer", F64_SIGN_BIT));
                 self.emit(abi::compare_registers(&value.location, &bound));
                 self.emit(abi::branch_ne(&ok));
-                self.emit_overflow_return()?;
+                self.raise_error("math.abs", "ErrOverflow")?;
                 self.emit(abi::label(&ok));
                 self.emit(abi::compare_immediate(&value.location, "0"));
                 let done = self.label("math_abs_done");
@@ -873,7 +873,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&ok));
 
         self.emit(abi::label(&overflow));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&ok));
         Ok(())
     }
@@ -1085,7 +1085,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::float_compare_zero_d(&src));
             let valid = self.label("math_sqrt_valid");
             self.emit(abi::branch_ge(&valid));
-            self.emit_float_domain_return()?;
+            self.raise_error("math.sqrt", "ErrFloatDomain")?;
             self.emit(abi::label(&valid));
             let result = self.allocate_fp_register()?;
             self.emit(abi::float_sqrt_d(&result, &src));
@@ -1196,11 +1196,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_hi(&nan)); // unsigned > +inf<<1 => NaN
                                          // Equal => the value is exactly ±inf.
         match infinity_error {
-            FloatInfinityError::Infinity => self.emit_float_inf_return()?,
-            FloatInfinityError::Overflow => self.emit_float_overflow_return()?,
+            FloatInfinityError::Infinity => self.raise_error_bare("ErrFloatInf")?,
+            FloatInfinityError::Overflow => self.raise_error_bare("ErrFloatOverflow")?,
         }
         self.emit(abi::label(&nan));
-        self.emit_float_nan_return()?;
+        self.raise_error_bare("ErrFloatNaN")?;
         self.emit(abi::label(&ok));
         Ok(())
     }
@@ -1241,11 +1241,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&ok)); // |x| < +inf (ordered, not equal) => finite
                                         // Fall-through: |x| == +inf, i.e. the value is exactly ±inf.
         match infinity_error {
-            FloatInfinityError::Infinity => self.emit_float_inf_return()?,
-            FloatInfinityError::Overflow => self.emit_float_overflow_return()?,
+            FloatInfinityError::Infinity => self.raise_error_bare("ErrFloatInf")?,
+            FloatInfinityError::Overflow => self.raise_error_bare("ErrFloatOverflow")?,
         }
         self.emit(abi::label(&nan));
-        self.emit_float_nan_return()?;
+        self.raise_error_bare("ErrFloatNaN")?;
         self.emit(abi::label(&ok));
         Ok(())
     }
