@@ -31,7 +31,7 @@ impl CodeBuilder<'_> {
         Ok(result)
     }
 
-    pub(super) fn lower_collection_get(
+    pub(crate) fn lower_collection_get(
         &mut self,
         args: &[NirValue],
     ) -> Result<ValueResult, String> {

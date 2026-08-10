@@ -1,8 +1,11 @@
 use super::descriptor::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
-    DefaultValue, Implementation, InjectionRule, Lowering, Parameter, ParameterType, ReturnType,
+    DefaultValue, Implementation, InjectionRule, Lowering, NativeLower, Parameter, ParameterType,
+    ReturnType,
 };
 use crate::ast::{AstFile, AstProject};
+use crate::target::shared::code::{CodeBuilder, ValueResult};
+use crate::target::shared::nir::NirValue;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
@@ -143,6 +146,32 @@ const fn native(
             return_type_overloaded: false,
         },
     }
+}
+
+/// Like [`native`], but the function carries its own target-generic lowering
+/// (`Implementation::Native`) so the codegen dual-path seam routes it instead of
+/// the `src/target` ladder (plan-95). Used by the migrated members.
+const fn native_lowered(
+    name: &'static str,
+    slug: &'static str,
+    doc_intro: &'static str,
+    doc_desc: &'static str,
+    errors: &'static [&'static str],
+    overloads: &'static [BuiltinOverload],
+    lower: NativeLower,
+) -> BuiltinFunction {
+    let mut function = native(name, slug, doc_intro, doc_desc, errors, overloads);
+    function.implementation = Implementation::Native(lower);
+    function
+}
+
+/// plan-95 Phase 1 shim for `collections::get`. A free function (not the method
+/// item `CodeBuilder::lower_collection_get`, whose impl-bound `CodeBuilder`
+/// lifetime will not coerce to the higher-ranked [`NativeLower`]) delegating to
+/// the lowering that still lives in `src/target`. Phase 4 replaces this with the
+/// real `lower_get` body moved into `func_get.rs`.
+fn lower_get(builder: &mut CodeBuilder, args: &[NirValue]) -> Result<ValueResult, String> {
+    builder.lower_collection_get(args)
 }
 
 // One overload per member, carrying the merged parameter-name table; the resolver
@@ -1034,7 +1063,7 @@ element type like any other generic function.
 It does not mutate `value`."#;
 
 const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
-    native(
+    native_lowered(
         "collections.get",
         "get",
         INTO_GET,
@@ -1044,6 +1073,10 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
             req("value", &["collection"], "List OF T"),
             req("index", &["key"], "Integer"),
         ])],
+        // plan-95 Phase 1: route `get` through the descriptor's Native lowering.
+        // The body still lives in `src/target` (called via the `lower_get` shim);
+        // it moves to func_get.rs in Phase 4.
+        lower_get,
     ),
     native(
         "collections.getOr",

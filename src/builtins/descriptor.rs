@@ -140,6 +140,18 @@ impl BuiltinOverload {
     }
 }
 
+/// A builtin's target-generic lowering: given the code builder and the call's
+/// NIR arguments, emit the abstract (target-neutral) instructions and return the
+/// result value. Carried by [`Implementation::Native`]; the codegen dual-path
+/// dispatch prefers it over the legacy `src/target` ladder (plan-95). The
+/// higher-ranked lifetime is required because `CodeBuilder<'a>` is lifetime-
+/// parameterized; free functions and methods satisfy it.
+pub(crate) type NativeLower =
+    for<'a> fn(
+        &mut crate::target::shared::code::CodeBuilder<'a>,
+        &[crate::target::shared::nir::NirValue],
+    ) -> Result<crate::target::shared::code::ValueResult, String>;
+
 /// How a public call name maps to its implementation symbol.
 ///
 /// `Same` means no rewrite — the public name *is* the implementation (the
@@ -147,8 +159,9 @@ impl BuiltinOverload {
 /// carries a fixed internal symbol (encoding/regex/json/strings/net/csv rewrite
 /// to a `__pkg_*` source body or native entry). Argument-type-dependent
 /// selection (crypto's `_bytes`/`_text`, datetime by arity, vector monomorphs)
-/// is `Custom` and resolved through a [`BuiltinResolver`].
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// is `Custom` and resolved through a [`BuiltinResolver`]. `Native` carries the
+/// function's own target-generic lowering (plan-95 migration).
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum Implementation {
     /// No rewrite; the public name is the implementation.
     Same,
@@ -156,7 +169,27 @@ pub(crate) enum Implementation {
     Rewrite(&'static str),
     /// Argument-dependent; a [`BuiltinResolver`] selects it.
     Custom,
+    /// The function owns its target-generic lowering (reached via the codegen
+    /// dual-path seam). Present only for migrated functions.
+    Native(NativeLower),
 }
+
+// Hand-written so the `Native` fn pointer is compared by address via
+// `std::ptr::fn_addr_eq` (a derived `PartialEq` would raise the
+// "fn pointer comparisons are not meaningful" lint). Every non-`Native` consumer
+// compares against `Same`/`Rewrite`/`Custom` only.
+impl PartialEq for Implementation {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Implementation::Same, Implementation::Same)
+            | (Implementation::Custom, Implementation::Custom) => true,
+            (Implementation::Rewrite(a), Implementation::Rewrite(b)) => a == b,
+            (Implementation::Native(a), Implementation::Native(b)) => std::ptr::fn_addr_eq(*a, *b),
+            _ => false,
+        }
+    }
+}
+impl Eq for Implementation {}
 
 /// How a builtin call is lowered. Descriptor-level classification only; the
 /// detailed lowering stays in the backend. `Helper` is a `bl` into a runtime
@@ -202,6 +235,18 @@ pub(crate) struct BuiltinFunction {
     pub(crate) implementation: Implementation,
     pub(crate) lowering: Lowering,
     pub(crate) flags: BuiltinFlags,
+}
+
+impl BuiltinFunction {
+    /// The function's own target-generic lowering, if it has been migrated to
+    /// carry one (`Implementation::Native`). The codegen dual-path seam calls
+    /// this; `None` means fall through to the legacy `src/target` ladder.
+    pub(crate) fn native_lower(&self) -> Option<NativeLower> {
+        match self.implementation {
+            Implementation::Native(lower) => Some(lower),
+            _ => None,
+        }
+    }
 }
 
 /// The kind of a builtin type, so the registry can describe primitives, opaque
@@ -509,7 +554,7 @@ impl DefaultResolver {
     pub(crate) fn implementation_name(module: &BuiltinModule, name: &str) -> Option<&'static str> {
         match module.function(name)?.implementation {
             Implementation::Rewrite(symbol) => Some(symbol),
-            Implementation::Same | Implementation::Custom => None,
+            Implementation::Same | Implementation::Custom | Implementation::Native(_) => None,
         }
     }
 
@@ -1381,6 +1426,28 @@ mod tests {
                     "{} doc_intro is {} bytes, exceeds the 1024-byte cap",
                     function.name,
                     function.doc_intro.len()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn only_get_carries_native_lowering() {
+        // plan-95: `collections.get` is the sole migrated function — it carries an
+        // `Implementation::Native` lowering reached by the codegen dual-path seam;
+        // every other function still lowers through the `src/target` ladder.
+        let (_, get) = REGISTRY
+            .function("collections.get")
+            .expect("collections.get is registered");
+        assert!(get.native_lower().is_some());
+        for module in REGISTRY.modules() {
+            for function in module.functions {
+                let expected = function.name == "collections.get";
+                assert_eq!(
+                    function.native_lower().is_some(),
+                    expected,
+                    "{} native_lower presence",
+                    function.name
                 );
             }
         }

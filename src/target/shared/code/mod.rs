@@ -198,7 +198,7 @@ pub(crate) type AppHookBody = (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocati
 /// take `HelperBody` directly and must not be given a `Result` they never had.
 pub(super) type HelperResult = Result<HelperBody, String>;
 
-struct CodeBuilder<'a> {
+pub(crate) struct CodeBuilder<'a> {
     current_symbol: String,
     function_symbols: &'a HashMap<String, String>,
     functions: &'a HashMap<String, &'a NirFunction>,
@@ -493,7 +493,7 @@ struct GlobalValue {
 }
 
 #[derive(Clone)]
-struct ValueResult {
+pub(crate) struct ValueResult {
     type_: String,
     location: Operand,
     text: String,

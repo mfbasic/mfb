@@ -41,9 +41,9 @@ These are a precondition on the whole plan, not scope to negotiate.
 
 | Must be true | Command | Status |
 |---|---|---|
-| Working tree clean on the target branch | `git status --porcelain` → empty | MET (verify before start) |
-| Collections byte-identity gate is GREEN at HEAD | `bash scripts/artifact-gate.sh target/release/mfb collections` → `0 diff(s)` | MET (regenerated in `ba117862e`) |
-| Full suite green at HEAD | `cargo test --bin mfb` → `0 failed` | MET (3835 passed after the main merge) |
+| Working tree clean on the target branch | `git status --porcelain` → empty | MET (verified 2026-08-10, 0 dirty) |
+| Collections byte-identity gate is GREEN at HEAD | `bash scripts/artifact-gate.sh target/release/mfb collections` → `0 diff(s)` | MET (verified 2026-08-10, 0 diffs) |
+| Full suite green at HEAD | `cargo test --bin mfb` → `0 failed` | MET (verified 2026-08-10, 3835 passed) |
 
 Everything below is written against the world where these hold. If the collections
 gate is RED at HEAD, STOP and resolve it first — a pre-existing diff would make
@@ -353,12 +353,13 @@ Add `Implementation::Native` + the dual-path seam, and route `get` through it wh
 shim `|b, a| b.lower_collection_get(a)` — or a free fn that calls it). Nothing
 moves. This falsifies the only real design uncertainty for a ~50-line diff.
 
-- [ ] `src/builtins/descriptor.rs`: add `NativeLower` type + `Implementation::Native`; fix derives (hand `Debug`, audit `Eq`/`==`); add `BuiltinFunction::native_lower`; add `Native(_) => None` arms where `Implementation` is matched.
-- [ ] `builder_values.rs`: add `try_native_lower`; insert the early-return at both `:727` and `:1795` sites.
-- [ ] Point `collections.get`'s descriptor entry at `Implementation::Native(<shim calling the existing lower_collection_get>)`; leave the two ladder arms in place (now dead for `get`, reached only if the seam misses — harmless).
-- [ ] Tests: a `descriptor`/dispatch unit test asserting `REGISTRY.function("collections.get").native_lower().is_some()`, and that no other collections function does.
+- [x] `src/builtins/descriptor.rs`: added `NativeLower` type + `Implementation::Native`; hand-wrote `PartialEq`/`Eq` (`==` consumers exist — see Corrections) using `std::ptr::fn_addr_eq` for `Native`; added `BuiltinFunction::native_lower`; added `Native(_) => None` to `DefaultResolver::implementation_name`.
+- [x] `builder_values.rs`: added `try_native_lower`; inserted the seam at both sites — early-return before the `native` ladder (`:722` region) and an `else if` inside the `raw_result_capture` wrapper (`lower_inline_builtin_raw`).
+- [x] Pointed `collections.get`'s entry at `Implementation::Native(lower_get)` via a new `native_lowered` helper; `lower_get` is a free-fn shim delegating to the existing `lower_collection_get` (method item won't coerce — see Corrections). Ladder arms left in place (dead for `get`).
+- [x] Promoted `CodeBuilder`, `ValueResult` (mod.rs) and `lower_collection_get` to `pub(crate)` so the registry can name/reference them.
+- [x] Tests: `only_get_carries_native_lowering` in `descriptor.rs` — `get` has `native_lower()`, every other function does not.
 
-Acceptance: `bash scripts/artifact-gate.sh target/release/mfb collections` → `0 diff(s)` on all 5 targets, AND `cargo test --bin mfb` → `0 failed`. (Proves a `const` fn-pointer + dual dispatch is byte-neutral before anything moves.)
+Acceptance: MET — `bash scripts/artifact-gate.sh target/release/mfb collections` → `0 diff(s)` on all 5 targets; `cargo test --bin mfb` → 3836 passed, 0 failed.
 Commit: —
 
 ### Phase 2 — Stand up `src/codegen`, move the registry
@@ -432,18 +433,31 @@ Commit: —
   the shared `CollectionsResolver`) vs. moving it now for true self-containment.
   "Owns the function" has two halves; this plan does the codegen half. (§3)
   Decision: if CollectionsResolver is truly shared it can stay out of `src/codegen/builtins` and be moved to `src/codegen/common` later
-- **`Implementation` `PartialEq/Eq`** — *Recommend: drop unless an `== ` consumer
-  exists* (audit `grep -rn 'Implementation::' src | grep '=='`); if one does, add a
-  by-address `PartialEq` for `Native`. (§4.1)
-- **Dispatch key string form** — confirm whether `builder_values.rs` `target` is
-  `"collections.get"` (qualified) at both sites; `REGISTRY.function` must be keyed
-  on the qualified name. Verify at implementation time; record in Corrections. (§4.2)
+- **`Implementation` `PartialEq/Eq`** — RESOLVED (Phase 1): consumers exist, so
+  kept `PartialEq/Eq`, hand-written with `fn_addr_eq` for `Native`. (Corrections)
+- **Dispatch key string form** — RESOLVED (Phase 1): qualified (`"collections.get"`)
+  at both sites. (Corrections)
 
 ## Corrections
 
-<Filled in during execution: the measured `pub(super)→pub(crate)` promotion list
-(Phase 4); the confirmed dispatch key form (§4.2); any count that differed from §2;
-any `Implementation` match arm the audit missed.>
+- **Dispatch key form (§4.2 Open Decision): qualified.** `target` at both sites is
+  the fully-qualified name (`"collections.get"`) — site 1 (`builder_values.rs:722`)
+  feeds `native_builtin_target(target)`; site 2 (`lower_inline_builtin_raw`) uses
+  `target.strip_prefix("bits.")` + `native_builtin_target(target)`. `REGISTRY.function(target)`
+  keys on it directly. Verified by reading both sites.
+- **`Implementation` `PartialEq/Eq` (§4.1 Open Decision): keep, hand-written.** The
+  audit found real consumers — `assert_eq!(func.implementation, Implementation::Same)`
+  in `os.rs:205`, `io.rs:202`, `money.rs:163`, `term.rs:628` — so they cannot be
+  dropped. A *derived* `PartialEq` raises the fn-pointer-comparison lint; hand-wrote
+  it, comparing `Native` via `std::ptr::fn_addr_eq` (all real consumers compare `Same`).
+- **Method item won't coerce to `NativeLower`.** `CodeBuilder::lower_collection_get`
+  (a method item) binds `CodeBuilder`'s lifetime from its impl and fails E0308
+  against the higher-ranked `NativeLower`. A **free fn** with elided lifetimes
+  coerces cleanly — Phase 1 uses a `lower_get` free-fn shim; Phase 4's real
+  `lower_get` is a free fn for the same reason (already what §4.4 specifies).
+- **Visibility promotions (Phase 1):** `CodeBuilder`, `ValueResult`
+  (`src/target/shared/code/mod.rs`) and `lower_collection_get`
+  (`builder_collection_queries.rs`) → `pub(crate)`. `NirValue` was already `pub(crate)`.
 
 ## Summary
 

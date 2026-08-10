@@ -719,6 +719,11 @@ impl CodeBuilder<'_> {
                 // shared bare lowering name and returns `None` for bare names, so a
                 // user `FUNC get` is never hijacked by the native lowering
                 // (plan-01-functions.md §5).
+                // plan-95: prefer a migrated function's own lowering
+                // (`Implementation::Native`) over the legacy ladder below.
+                if let Some(result) = self.try_native_lower(target, args) {
+                    return result;
+                }
                 let native = crate::builtins::native_builtin_target(target);
                 if native == Some("contains") && args.len() == 2 {
                     return self.lower_collection_contains(args);
@@ -1776,6 +1781,23 @@ impl CodeBuilder<'_> {
     /// value is a single register for every member except `forEach`, which yields
     /// `Nothing` (`void`) and takes the no-value fall-through below. Only the
     /// members `inline_builtin_raw_supported` allows reach here.
+    ///
+    /// plan-95 dual-path dispatch: if the call's `BuiltinFunction` carries its own
+    /// target-generic lowering (`Implementation::Native`), run it; otherwise return
+    /// `None` so the caller falls through to the legacy `src/target` ladder. Keyed
+    /// on the qualified call name (`collections.get`).
+    fn try_native_lower(
+        &mut self,
+        target: &str,
+        args: &[NirValue],
+    ) -> Option<Result<ValueResult, String>> {
+        let lower = crate::builtins::descriptor::REGISTRY
+            .function(target)?
+            .1
+            .native_lower()?;
+        Some(lower(self, args))
+    }
+
     fn lower_inline_builtin_raw(
         &mut self,
         target: &str,
@@ -1790,6 +1812,10 @@ impl CodeBuilder<'_> {
         // the total `bits::` ops never reach here (they are infallible).
         let lowered = if let Some(function) = target.strip_prefix("bits.") {
             self.lower_bits_call(function, args)
+        } else if let Some(result) = self.try_native_lower(target, args) {
+            // plan-95: migrated function lowering, inside the raw-capture wrapper
+            // so `raw_result_capture` still routes its domain error to the capture.
+            result
         } else {
             match crate::builtins::native_builtin_target(target) {
                 Some("get") => self.lower_collection_get(args),
