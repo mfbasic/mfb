@@ -601,24 +601,40 @@ fn lower_thread_sleep_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::return_(),
         abi::label(&err_arg),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", crate::builtins::errorcode::runtime_error("ErrInvalidArgument").expect("errorCode name").0),
+        abi::move_immediate(
+            RESULT_VALUE_REGISTER,
+            "Integer",
+            crate::builtins::errorcode::runtime_error("ErrInvalidArgument")
+                .expect("errorCode name")
+                .0,
+        ),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
     push_error_message_address(
         symbol,
-        crate::builtins::errorcode::runtime_error_emission("ErrInvalidArgument").expect("errorCode name").1,
+        crate::builtins::errorcode::runtime_error_emission("ErrInvalidArgument")
+            .expect("errorCode name")
+            .1,
         &mut instructions,
         &mut relocations,
     );
     instructions.extend([
         abi::return_(),
         abi::label(&err_closed),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", crate::builtins::errorcode::runtime_error("ErrResourceClosed").expect("errorCode name").0),
+        abi::move_immediate(
+            RESULT_VALUE_REGISTER,
+            "Integer",
+            crate::builtins::errorcode::runtime_error("ErrResourceClosed")
+                .expect("errorCode name")
+                .0,
+        ),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
     push_error_message_address(
         symbol,
-        crate::builtins::errorcode::runtime_error_emission("ErrResourceClosed").expect("errorCode name").1,
+        crate::builtins::errorcode::runtime_error_emission("ErrResourceClosed")
+            .expect("errorCode name")
+            .1,
         &mut instructions,
         &mut relocations,
     );
@@ -696,7 +712,12 @@ fn lower_thread_start_helper(
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
         abi::branch_eq(&alloc_block_ok),
     ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
         abi::branch(&parent_done),
         abi::label(&alloc_block_ok),
@@ -733,7 +754,12 @@ fn lower_thread_start_helper(
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
         abi::branch_eq(&alloc_worker_arena_ok),
     ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     // Zero the whole child arena block (allocator-04): it is arena-allocated
     // (poisoned, not zero), and this initializer must stay in lockstep with the
     // program-entry zeroing (`entry_and_arena.rs` `lower_program_entry`) — that
@@ -1003,12 +1029,19 @@ fn lower_thread_start_helper(
     }
 
     instructions.push(abi::label(&invalid_limit));
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&parent_done),
-        abi::label(&spawn_error),
-    ]);
-    raise_error_into(symbol, "ErrInterrupted", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&parent_done), abi::label(&spawn_error)]);
+    raise_error_into(
+        symbol,
+        "ErrInterrupted",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.push(abi::branch(&parent_done));
     instructions.extend([abi::label(&parent_done), abi::return_()]);
 

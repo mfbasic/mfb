@@ -1058,4 +1058,3 @@ impl CodeBuilder<'_> {
         }
     }
 }
-

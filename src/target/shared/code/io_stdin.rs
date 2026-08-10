@@ -130,10 +130,20 @@ pub(super) fn lower_io_poll_input_helper(
     // `ErrInvalidArgument`. Placed before `poll_error` and terminated with a branch to
     // `done` so `poll_error` still falls through to `done` (byte-identical to before).
     instructions.push(abi::label(&poll_invalid));
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.push(abi::branch(&done));
     instructions.push(abi::label(&poll_error));
-    raise_error_into(symbol, "ErrInputFailed", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrInputFailed",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
@@ -323,16 +333,20 @@ pub(super) fn lower_io_read_byte_helper(
         abi::label(&eof),
     ]);
     raise_error_into(symbol, "ErrEndOfFile", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&input_error),
-    ]);
-    raise_error_into(symbol, "ErrInputFailed", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&invalid_context),
-    ]);
-    raise_error_into(symbol, "ErrInvalidContext", &mut instructions, &mut relocations);
+    instructions.extend([abi::branch(&done), abi::label(&input_error)]);
+    raise_error_into(
+        symbol,
+        "ErrInputFailed",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&invalid_context)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidContext",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.push(abi::label(&done));
     emit_restore_stdin_terminal(
         &mut EmitCtx {
@@ -743,26 +757,29 @@ pub(super) fn lower_io_read_char_helper(
         abi::label(&eof),
     ]);
     raise_error_into(symbol, "ErrEndOfFile", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&input_error),
-    ]);
-    raise_error_into(symbol, "ErrInputFailed", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&encoding_error),
-    ]);
+    instructions.extend([abi::branch(&done), abi::label(&input_error)]);
+    raise_error_into(
+        symbol,
+        "ErrInputFailed",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&encoding_error)]);
     raise_error_into(symbol, "ErrEncoding", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&alloc_error),
-    ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&invalid_context),
-    ]);
-    raise_error_into(symbol, "ErrInvalidContext", &mut instructions, &mut relocations);
+    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&invalid_context)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidContext",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.push(abi::label(&done));
     emit_restore_stdin_terminal(
         &mut EmitCtx {
@@ -1143,30 +1160,38 @@ pub(super) fn lower_io_read_line_helper(
         abi::branch(&done),
         abi::label(&output_error),
     ]);
-    raise_error_into(symbol, "ErrWriteFailed", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrWriteFailed",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.push(abi::branch(&done));
     instructions.push(abi::label(&eof_error));
     raise_error_into(symbol, "ErrEndOfFile", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&input_error),
-    ]);
-    raise_error_into(symbol, "ErrInputFailed", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&encoding_error),
-    ]);
+    instructions.extend([abi::branch(&done), abi::label(&input_error)]);
+    raise_error_into(
+        symbol,
+        "ErrInputFailed",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&encoding_error)]);
     raise_error_into(symbol, "ErrEncoding", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&alloc_error),
-    ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&invalid_context),
-    ]);
-    raise_error_into(symbol, "ErrInvalidContext", &mut instructions, &mut relocations);
+    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&invalid_context)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidContext",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.push(abi::label(&done));
     if !with_prompt {
         emit_restore_stdin_terminal(

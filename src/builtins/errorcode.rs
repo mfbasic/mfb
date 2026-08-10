@@ -219,10 +219,7 @@ mod tests {
             .iter()
             .map(|(name, value, ..)| (name.to_string(), value.to_string()))
             .collect();
-        assert_eq!(
-            table, rows,
-            "errorCode table does not match error_codes.md",
-        );
+        assert_eq!(table, rows, "errorCode table does not match error_codes.md",);
 
         // Every exported constant resolves through the package-qualified API.
         for (name, value, ..) in ERRORCODE_CONSTANTS {

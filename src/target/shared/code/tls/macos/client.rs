@@ -678,13 +678,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_connect_macos(
         abi::compare_immediate("%v10", "5"), // nw_connection_state_cancelled
         abi::branch_ne(&cancel_drain),
     ]);
-    emit_fail(
-        symbol,
-        "ErrTlsFailed",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     // conn_timeout: the deadline elapsed; cancel the connection, report a
     // timeout.
     ins.push(abi::label(&conn_timeout));
@@ -714,47 +708,17 @@ pub(in crate::target::shared::code::tls) fn lower_tls_connect_macos(
         FNPTR,
         &load_fail,
     )?;
-    emit_fail(
-        symbol,
-        "ErrTimeout",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     ins.push(abi::label(&net_fail));
-    emit_fail(
-        symbol,
-        "ErrNetworkFailed",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
     // plan-73-D: a negative (non-sentinel) `timeoutMs` → ErrInvalidArgument. Reached
     // from the up-front check before any dlopen/alloc/connection, so no cleanup.
     ins.push(abi::label(&conn_invalid));
-    emit_fail(
-        symbol,
-        "ErrInvalidArgument",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&load_fail));
-    emit_fail(
-        symbol,
-        "ErrTlsFailed",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
-    emit_fail(
-        symbol,
-        "ErrOutOfMemory",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     {
         let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
@@ -1284,54 +1248,18 @@ pub(in crate::target::shared::code::tls) fn lower_tls_read_macos(
             abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
             abi::branch_link_register("%v9"),
         ]);
-        emit_fail(
-            symbol,
-            "ErrEncoding",
-            &mut ins,
-            &mut rel,
-            &done,
-        );
+        emit_fail(symbol, "ErrEncoding", &mut ins, &mut rel, &done);
     }
     ins.push(abi::label(&peer_closed));
-    emit_fail(
-        symbol,
-        "ErrConnectionClosed",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrConnectionClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&invalid));
-    emit_fail(
-        symbol,
-        "ErrInvalidArgument",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&load_fail));
-    emit_fail(
-        symbol,
-        "ErrTlsFailed",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
-    emit_fail(
-        symbol,
-        "ErrResourceClosed",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
-    emit_fail(
-        symbol,
-        "ErrOutOfMemory",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     {
         let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
@@ -1564,29 +1492,11 @@ pub(in crate::target::shared::code::tls) fn lower_tls_write_macos(
         abi::branch(&done),
     ]);
     ins.push(abi::label(&write_fail));
-    emit_fail(
-        symbol,
-        "ErrTlsFailed",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&load_fail));
-    emit_fail(
-        symbol,
-        "ErrTlsFailed",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
-    emit_fail(
-        symbol,
-        "ErrResourceClosed",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     {
         let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
@@ -1930,37 +1840,13 @@ pub(in crate::target::shared::code::tls) fn lower_tls_poll_macos(
         abi::branch(&done),
     ]);
     ins.push(abi::label(&invalid));
-    emit_fail(
-        symbol,
-        "ErrInvalidArgument",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&load_fail));
-    emit_fail(
-        symbol,
-        "ErrTlsFailed",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
-    emit_fail(
-        symbol,
-        "ErrOutOfMemory",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
-    emit_fail(
-        symbol,
-        "ErrResourceClosed",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     {
         let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
@@ -2109,13 +1995,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_close_macos(
         abi::branch(&done),
     ]);
     ins.push(abi::label(&load_fail));
-    emit_fail(
-        symbol,
-        "ErrTlsFailed",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.extend([
         abi::label(&already),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),

@@ -9,8 +9,8 @@
 //! helper, so the `unimplemented_on_windows` arms below are unreachable
 //! placeholders, not live stubs).
 
-use super::*;
 use super::super::native_helpers::emit_fail;
+use super::*;
 use std::collections::HashMap;
 
 fn unimplemented_on_windows(op: &str) -> HelperResult {

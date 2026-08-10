@@ -2217,10 +2217,8 @@ fn emit_terminal_size(
         abi::label(&unsupported),
     ]);
     emit_unsupported(symbol, ctx.instructions, ctx.relocations);
-    ctx.instructions.extend([
-        abi::branch(done),
-        abi::label(&alloc_error),
-    ]);
+    ctx.instructions
+        .extend([abi::branch(done), abi::label(&alloc_error)]);
     raise_error_into(symbol, "ErrOutOfMemory", ctx.instructions, ctx.relocations);
     Ok(())
 }

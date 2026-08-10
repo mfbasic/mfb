@@ -62,20 +62,11 @@ pub(super) fn emit_errno_error_mapping(
         abi::label(&err_not_found),
     ]);
     raise_error_into(symbol, "ErrNotFound", instructions, relocations);
-    instructions.extend([
-        abi::branch(done),
-        abi::label(&err_access_denied),
-    ]);
+    instructions.extend([abi::branch(done), abi::label(&err_access_denied)]);
     raise_error_into(symbol, "ErrAccessDenied", instructions, relocations);
-    instructions.extend([
-        abi::branch(done),
-        abi::label(&err_already_exists),
-    ]);
+    instructions.extend([abi::branch(done), abi::label(&err_already_exists)]);
     raise_error_into(symbol, "ErrAlreadyExists", instructions, relocations);
-    instructions.extend([
-        abi::branch(done),
-        abi::label(&err_output),
-    ]);
+    instructions.extend([abi::branch(done), abi::label(&err_output)]);
     raise_error_into(symbol, "ErrWriteFailed", instructions, relocations);
     instructions.push(abi::branch(done));
 }
@@ -161,34 +152,17 @@ pub(super) fn emit_fs_path_errno_error_mapping(
             ]);
         }
     }
-    instructions.extend([
-        abi::label(&err_path_not_found),
-    ]);
+    instructions.extend([abi::label(&err_path_not_found)]);
     raise_error_into(symbol, "ErrPathNotFound", instructions, relocations);
-    instructions.extend([
-        abi::branch(done),
-        abi::label(&err_access_denied),
-    ]);
+    instructions.extend([abi::branch(done), abi::label(&err_access_denied)]);
     raise_error_into(symbol, "ErrAccessDenied", instructions, relocations);
-    instructions.extend([
-        abi::branch(done),
-        abi::label(&err_already_exists),
-    ]);
+    instructions.extend([abi::branch(done), abi::label(&err_already_exists)]);
     raise_error_into(symbol, "ErrAlreadyExists", instructions, relocations);
-    instructions.extend([
-        abi::branch(done),
-        abi::label(&err_not_empty),
-    ]);
+    instructions.extend([abi::branch(done), abi::label(&err_not_empty)]);
     raise_error_into(symbol, "ErrResourceBusy", instructions, relocations);
-    instructions.extend([
-        abi::branch(done),
-        abi::label(&err_invalid_path),
-    ]);
+    instructions.extend([abi::branch(done), abi::label(&err_invalid_path)]);
     raise_error_into(symbol, "ErrInvalidPath", instructions, relocations);
-    instructions.extend([
-        abi::branch(done),
-        abi::label(&err_output),
-    ]);
+    instructions.extend([abi::branch(done), abi::label(&err_output)]);
     raise_error_into(symbol, "ErrWriteFailed", instructions, relocations);
     instructions.push(abi::branch(done));
 }

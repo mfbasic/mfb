@@ -7,8 +7,8 @@
 //! status int, the `read` errno buffer, the built `argv` array — uses the
 //! explicit `sp`-relative frame from `finalize_vreg_body_with_locals`.
 
-use super::*;
 use super::super::native_helpers::emit_fail;
+use super::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
 

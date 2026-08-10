@@ -185,11 +185,29 @@ pub(super) fn lower_crypto_random_bytes_helper(
 
     // Error exits.
     instructions.push(abi::label(&invalid));
-    emit_fail(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&entropy_fail));
-    emit_fail(symbol, "ErrUnknown", &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        "ErrUnknown",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&alloc_fail));
-    emit_fail(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
 
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LOCAL_SIZE);

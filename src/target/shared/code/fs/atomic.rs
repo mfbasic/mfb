@@ -222,15 +222,20 @@ pub(in crate::target::shared::code) fn lower_fs_create_temp_file_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&invalid),
-    ]);
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&alloc_error),
-    ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    instructions.extend([abi::label(&invalid)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) =
         finalize_vreg_body_with_locals(&mut instructions, &[], RANDOM_BUF_SIZE);
@@ -779,12 +784,19 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    raise_error_into(symbol, "ErrWriteFailed", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&invalid),
-    ]);
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrWriteFailed",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&invalid)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
     // bug-63: an alloc failure AFTER mkstemps (the c_temp/c_final C-string buffers)
     // must unlink the leftover temp file before reporting OOM. The pre-mkstemps
     // temp_path alloc branches straight to `alloc_error`, where no temp exists yet.
@@ -801,10 +813,13 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    instructions.extend([
-        abi::label(&alloc_error),
-    ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    instructions.extend([abi::label(&alloc_error)]);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -998,7 +1013,12 @@ pub(in crate::target::shared::code) fn lower_fs_write_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    raise_error_into(symbol, "ErrWriteFailed", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrWriteFailed",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::branch(&done), abi::label(&open_error)]);
     let errno_reg = vregs.next();
     platform.emit_errno(
@@ -1015,20 +1035,27 @@ pub(in crate::target::shared::code) fn lower_fs_write_path_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&invalid),
-    ]);
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&alloc_error),
-    ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&close_error),
-    ]);
-    raise_error_into(symbol, "ErrWriteFailed", &mut instructions, &mut relocations);
+    instructions.extend([abi::label(&invalid)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&close_error)]);
+    raise_error_into(
+        symbol,
+        "ErrWriteFailed",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -1253,9 +1280,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    instructions.extend([
-        abi::label(&seek_error),
-    ]);
+    instructions.extend([abi::label(&seek_error)]);
     raise_error_into(symbol, "ErrReadFailed", &mut instructions, &mut relocations);
     instructions.extend([abi::branch(&done), abi::label(&open_error)]);
     let errno_reg = vregs.next();
@@ -1275,10 +1300,13 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&invalid),
-    ]);
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
+    instructions.extend([abi::label(&invalid)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
         abi::branch(&done),
         // Close-free OOM exit: reached from the pre-open C-string alloc failure
@@ -1287,7 +1315,12 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
         // vreg on the pre-open path (bug-201).
         abi::label(&alloc_error),
     ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -1466,15 +1499,20 @@ pub(in crate::target::shared::code) fn lower_fs_read_bytes_path_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&invalid),
-    ]);
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&alloc_error),
-    ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    instructions.extend([abi::label(&invalid)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))

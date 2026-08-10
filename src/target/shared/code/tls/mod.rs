@@ -597,21 +597,9 @@ pub(super) fn lower_tls_poll_list_helper(
     ]);
     rel.push(internal_branch(symbol, SCALAR));
     ins.push(abi::label(&invalid));
-    emit_fail(
-        symbol,
-        "ErrInvalidArgument",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&timeout_lbl));
-    emit_fail(
-        symbol,
-        "ErrTimeout",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
     Ok((frame, ins, rel, stack_slots))

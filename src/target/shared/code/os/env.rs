@@ -440,7 +440,12 @@ pub(super) fn lower_set_env(
         abi::compare_immediate(&errno, ERRNO_ENOMEM),
         abi::branch_eq(&oom),
     ]);
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::branch(&done), abi::label(&oom)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
