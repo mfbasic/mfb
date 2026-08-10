@@ -200,7 +200,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         // A size wrap reports the same 77010001 an impossible allocation would
         // (x0 does not hold an error code before the call, so the register-based
         // return above cannot be shared). The checked-size helper deposits the
@@ -208,7 +208,7 @@ impl CodeBuilder<'_> {
         // so `emit_allocation_error_return` would surface that size as the error
         // code (bug-60 detection, bug-352 code fix).
         self.emit(abi::label(&overflow));
-        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.raise_error_bare("ErrOutOfMemory")?;
 
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
@@ -457,7 +457,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         // A size wrap reports the same 77010001 an impossible allocation would
         // (x0 does not hold an error code before the call, so the register-based
         // return above cannot be shared). The checked-size helper deposits the
@@ -465,7 +465,7 @@ impl CodeBuilder<'_> {
         // so `emit_allocation_error_return` would surface that size as the error
         // code (bug-60 detection, bug-352 code fix).
         self.emit(abi::label(&overflow));
-        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::RET[1],
@@ -977,7 +977,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::RET[1],
@@ -1212,7 +1212,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::RET[1],
@@ -1372,7 +1372,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(alloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(total_len, abi::stack_pointer(), total_len_slot));
@@ -1840,7 +1840,7 @@ impl CodeBuilder<'_> {
             RESULT_OK_TAG,
         ));
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         let result = self.allocate_register()?;
         self.emit(abi::move_register(&result, abi::RET[1]));

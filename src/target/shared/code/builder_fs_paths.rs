@@ -76,7 +76,7 @@ impl CodeBuilder<'_> {
         });
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         let result = self.allocate_register()?;
         self.emit(abi::move_register(&result, RESULT_VALUE_REGISTER));
@@ -357,7 +357,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), path_slot));
         self.emit(abi::load_u64(&scratch10, &scratch9, 0));

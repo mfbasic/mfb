@@ -562,9 +562,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&size_overflow));
-        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::RET[1],
@@ -900,9 +900,9 @@ impl CodeBuilder<'_> {
             RESULT_OK_TAG,
         ));
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&size_overflow));
-        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::RET[1],
@@ -1284,9 +1284,9 @@ impl CodeBuilder<'_> {
             RESULT_OK_TAG,
         ));
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&size_overflow));
-        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::RET[1],
@@ -2576,9 +2576,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&size_overflow));
-        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         // Outer header: count = capacity = windowCount; dataLength = dataCapacity =
@@ -2732,9 +2732,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&size_overflow));
-        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
         let outer = self.temporary_vreg();
@@ -2902,7 +2902,7 @@ impl CodeBuilder<'_> {
             self.emit_arena_alloc_call();
             let ok = self.label("gb_scratch_ok");
             self.emit(abi::branch_eq(&ok));
-            self.emit_allocation_error_return()?;
+            self.raise_error_bare("ErrOutOfMemory")?;
             self.emit(abi::label(&ok));
             self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), dst_slot));
             self.emit(abi::load_u64(&r, abi::stack_pointer(), cap_slot));
@@ -2913,7 +2913,7 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::branch(&after_alloc));
         self.emit(abi::label(&ovf));
-        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&after_alloc));
         // Zero hashOcc data.
         let zp = self.temporary_vreg();
@@ -3014,7 +3014,7 @@ impl CodeBuilder<'_> {
         self.emit_arena_alloc_call();
         let ins_ok = self.label("gb_ins_ok");
         self.emit(abi::branch_eq(&ins_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&ins_ok));
         self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), bucket_slot));
         // bucket header: count=cap=1, dataLen=dataCap=8; store val at +HEADER

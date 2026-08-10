@@ -132,7 +132,7 @@ impl CodeBuilder<'_> {
                     RESULT_OK_TAG,
                 ));
                 self.emit(abi::branch_eq(&alloc_ok));
-                self.emit_allocation_error_return()?;
+                self.raise_error_bare("ErrOutOfMemory")?;
                 self.emit(abi::label(&alloc_ok));
                 self.emit(abi::move_register(&record, abi::RET[1]));
                 // Zero the record (invalid internals), then mark it closed.
@@ -473,7 +473,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         // Capture the allocation result into a register while x1 is
         // unambiguously the call result at this boundary. The physical return

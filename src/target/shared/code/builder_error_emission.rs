@@ -33,10 +33,6 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(code, message)
     }
 
-    pub(super) fn emit_allocation_error_return(&mut self) -> Result<(), String> {
-        self.emit_error_register_return(RESULT_TAG_REGISTER, ERR_ALLOCATION_MESSAGE)
-    }
-
     /// `product = lhs * rhs` for an allocation size, branching to `overflow`
     /// when the mathematical product does not fit in 64 bits (audit-unicode #1/
     /// #2/#8). The high half is computed first so `product` may alias `lhs` or
@@ -271,7 +267,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::RET[1],
@@ -695,8 +691,9 @@ impl CodeBuilder<'_> {
     /// and the OOM legacy path still read `code`/`message` from them.
     ///
     /// Guarded by `building_error_block`: building the block can itself hit OOM,
-    /// whose fallback routes through `emit_allocation_error_return` →
-    /// `emit_error_register_return`; that nested return must stay a loose
+    /// whose fallback routes through `raise_error_bare("ErrOutOfMemory")` →
+    /// `emit_error_code_return` → `emit_error_register_return`; that nested return
+    /// must stay a loose
     /// `RESULT_ERR_TAG` (no memory to park a block), so the funnel suppresses a
     /// nested park while the flag is set.
     pub(super) fn emit_park_error_block_from_registers(&mut self) -> Result<(), String> {

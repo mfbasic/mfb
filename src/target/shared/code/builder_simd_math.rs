@@ -142,7 +142,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         // Surface the arena tag (returned in x1) as the allocation error.
         self.emit(abi::move_register(abi::return_register(), abi::RET[1]));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         Ok(result_base)
     }
