@@ -28,7 +28,7 @@ arranged in ascending order. It is a generic function written in MFBASIC source:
 a call to `collections::sort` is rewritten to the internal
 `__collections_sort` generic and instantiated for the element type `T` during
 monomorphization. [[src/codegen/builtins/collections/mod.rs:internal_name]]
-[[src/codegen/builtins/collections/package.mfb:__collections_sort]]
+[[src/codegen/builtins/collections/func_sort.rs:__collections_sort]]
 
 The algorithm is a bottom-up merge sort with O(n log n) comparisons. Runs of
 width 1 are merged into runs of width 2, then 4, and so on, until a single run
@@ -36,7 +36,7 @@ covers the list. The merge is **stable**: when a left-run element and a
 right-run element compare equal, the left-run element is emitted first, because
 the right-run element is taken only when it is *strictly less than* the left-run
 element. Elements that compare equal therefore keep their original relative
-order. [[src/codegen/builtins/collections/package.mfb:__collections_sort]]
+order. [[src/codegen/builtins/collections/func_sort.rs:__collections_sort]]
 
 Ordering is determined entirely by the `<` operator applied to whole elements.
 For the numeric element types that is numeric order; for `String` it is the
@@ -47,7 +47,7 @@ itself, use `collections::sortBy`, which orders by a computed key.
 
 When `value` has fewer than two elements — that is, when it is empty or holds a
 single element — `sort` returns `value` unchanged without performing any
-comparison. [[src/codegen/builtins/collections/package.mfb:__collections_sort]]
+comparison. [[src/codegen/builtins/collections/func_sort.rs:__collections_sort]]
 
 `value` is not modified. Like every `collections` helper, `sort` produces a new
 list value and leaves its argument intact.
@@ -56,13 +56,13 @@ list value and leaves its argument intact.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to order. Any length is accepted, including the empty list. `T` must be a type the `<` operator accepts. Named-argument spelling is `value`. [[src/codegen/builtins/collections/package.mfb:__collections_sort]] |
+| `value` | `List OF T` | The list to order. Any length is accepted, including the empty list. `T` must be a type the `<` operator accepts. Named-argument spelling is `value`. [[src/codegen/builtins/collections/func_sort.rs:__collections_sort]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF T` | A new list with the same elements as `value` in ascending order, equal elements in their original relative order. For a list of fewer than two elements, `value` itself. [[src/codegen/builtins/collections/package.mfb:__collections_sort]] |
+| `List OF T` | A new list with the same elements as `value` in ascending order, equal elements in their original relative order. For a list of fewer than two elements, `value` itself. [[src/codegen/builtins/collections/func_sort.rs:__collections_sort]] |
 
 ## Errors
 

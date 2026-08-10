@@ -13,55 +13,7 @@ IMPORT collections
 ' Stable bottom-up merge sort — O(n log n). Equal elements keep their original
 ' order (a right-run element is taken only when strictly less than the left-run
 ' element), matching the previous insertion sort's stability and ascending order.
-FUNC __collections_sort OF T(value AS List OF T) AS List OF T
-  LET n AS Integer = len(value)
-  IF n < 2 THEN
-    RETURN value
-  END IF
-  MUT src AS List OF T = value
-  MUT width AS Integer = 1
-  WHILE width < n
-    MUT dst AS List OF T = src
-    MUT lo AS Integer = 0
-    WHILE lo < n
-      MUT mid AS Integer = lo + width
-      IF mid > n THEN
-        mid = n
-      END IF
-      MUT hi AS Integer = lo + width + width
-      IF hi > n THEN
-        hi = n
-      END IF
-      MUT i AS Integer = lo
-      MUT j AS Integer = mid
-      MUT k AS Integer = lo
-      WHILE i < mid AND j < hi
-        IF collections::get(src, j) < collections::get(src, i) THEN
-          dst = collections::set(dst, k, collections::get(src, j))
-          j = j + 1
-        ELSE
-          dst = collections::set(dst, k, collections::get(src, i))
-          i = i + 1
-        END IF
-        k = k + 1
-      END WHILE
-      WHILE i < mid
-        dst = collections::set(dst, k, collections::get(src, i))
-        i = i + 1
-        k = k + 1
-      END WHILE
-      WHILE j < hi
-        dst = collections::set(dst, k, collections::get(src, j))
-        j = j + 1
-        k = k + 1
-      END WHILE
-      lo = lo + width + width
-    END WHILE
-    src = dst
-    width = width + width
-  END WHILE
-  RETURN src
-END FUNC
+'@@MFB_BODY:sort@@
 
 ' --- internal helpers ---------------------------------------------------------
 
@@ -84,62 +36,7 @@ END FUNC
 ' Stable bottom-up merge sort keyed by keyFn. keyFn is evaluated exactly once per
 ' element (via transform, as before); the merge carries items and their keys in
 ' parallel and is stable on equal keys.
-FUNC __collections_sortBy OF T, U(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T
-  LET n AS Integer = len(value)
-  IF n < 2 THEN
-    RETURN value
-  END IF
-  MUT items AS List OF T = value
-  MUT keys AS List OF U = collections::transform(value, keyFn)
-  MUT width AS Integer = 1
-  WHILE width < n
-    MUT itemsDst AS List OF T = items
-    MUT keysDst AS List OF U = keys
-    MUT lo AS Integer = 0
-    WHILE lo < n
-      MUT mid AS Integer = lo + width
-      IF mid > n THEN
-        mid = n
-      END IF
-      MUT hi AS Integer = lo + width + width
-      IF hi > n THEN
-        hi = n
-      END IF
-      MUT i AS Integer = lo
-      MUT j AS Integer = mid
-      MUT k AS Integer = lo
-      WHILE i < mid AND j < hi
-        IF collections::get(keys, j) < collections::get(keys, i) THEN
-          itemsDst = collections::set(itemsDst, k, collections::get(items, j))
-          keysDst = collections::set(keysDst, k, collections::get(keys, j))
-          j = j + 1
-        ELSE
-          itemsDst = collections::set(itemsDst, k, collections::get(items, i))
-          keysDst = collections::set(keysDst, k, collections::get(keys, i))
-          i = i + 1
-        END IF
-        k = k + 1
-      END WHILE
-      WHILE i < mid
-        itemsDst = collections::set(itemsDst, k, collections::get(items, i))
-        keysDst = collections::set(keysDst, k, collections::get(keys, i))
-        i = i + 1
-        k = k + 1
-      END WHILE
-      WHILE j < hi
-        itemsDst = collections::set(itemsDst, k, collections::get(items, j))
-        keysDst = collections::set(keysDst, k, collections::get(keys, j))
-        j = j + 1
-        k = k + 1
-      END WHILE
-      lo = lo + width + width
-    END WHILE
-    items = itemsDst
-    keys = keysDst
-    width = width + width
-  END WHILE
-  RETURN items
-END FUNC
+'@@MFB_BODY:sortBy@@
 
 ' bug-339 C9: take and drop are the two halves of one API — kept together here
 ' under the §6.4 banner (take used to sit above the internal-helpers banner).
@@ -167,59 +64,11 @@ END FUNC
 
 '@@MFB_BODY:all@@
 
-FUNC __collections_findIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, start AS Integer = 0) AS Integer
-  IF start < 0 OR start > len(value) THEN
-    FAIL error(77050001, "List or string index/range is outside valid bounds.")
-  END IF
-  MUT i AS Integer = start
-  WHILE i < len(value)
-    IF predicate(collections::get(value, i)) THEN
-      RETURN i
-    END IF
-    i = i + 1
-  END WHILE
-  FAIL error(77050004, "Requested item, key, file, or resource was not found.")
-END FUNC
+'@@MFB_BODY:findIndex@@
 
-FUNC __collections_findLastIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, endIndex AS Integer = -1) AS Integer
-  MUT e AS Integer = endIndex
-  IF e < 0 THEN
-    e = len(value) + e
-  END IF
-  IF e < 0 OR e >= len(value) THEN
-    FAIL error(77050001, "List or string index/range is outside valid bounds.")
-  END IF
-  MUT i AS Integer = e
-  WHILE i >= 0
-    IF predicate(collections::get(value, i)) THEN
-      RETURN i
-    END IF
-    i = i - 1
-  END WHILE
-  FAIL error(77050004, "Requested item, key, file, or resource was not found.")
-END FUNC
+'@@MFB_BODY:findLastIndex@@
 
-FUNC __collections_groupBy OF T, K, V(value AS List OF T, keyFn AS FUNC(T) AS K, valFn AS FUNC(T) AS V) AS Map OF K TO List OF V
-  LET keys AS List OF K = collections::transform(value, keyFn)
-  LET vals AS List OF V = collections::transform(value, valFn)
-  MUT result AS Map OF K TO List OF V = Map OF K TO List OF V {}
-  MUT i AS Integer = 0
-  WHILE i < len(keys)
-    LET k AS K = collections::get(keys, i)
-    LET v AS V = collections::get(vals, i)
-    IF collections::hasKey(result, k) THEN
-      MUT bucket AS List OF V = collections::get(result, k)
-      bucket = collections::append(bucket, v)
-      result = collections::set(result, k, bucket)
-    ELSE
-      MUT bucket AS List OF V = []
-      bucket = collections::append(bucket, v)
-      result = collections::set(result, k, bucket)
-    END IF
-    i = i + 1
-  END WHILE
-  RETURN result
-END FUNC
+'@@MFB_BODY:groupBy@@
 
 '@@MFB_BODY:mapValues@@
 

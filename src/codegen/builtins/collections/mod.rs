@@ -18,10 +18,13 @@ mod func_difference;
 mod func_distinct;
 mod func_drop;
 mod func_filter;
+mod func_find_index;
+mod func_find_last_index;
 mod func_flatten;
 mod func_for_each;
 mod func_get;
 mod func_get_or;
+mod func_group_by;
 mod func_has_key;
 mod func_insert;
 mod func_intersection;
@@ -39,6 +42,8 @@ mod func_remove;
 mod func_remove_at;
 mod func_remove_key;
 mod func_set;
+mod func_sort;
+mod func_sort_by;
 mod func_sum;
 mod func_symmetric_difference;
 mod func_take;
@@ -324,90 +329,8 @@ infallible alongside `append` and `prepend`, and an inline `TRAP` written on a
 error in this language."#;
 
 // (`add`/`remove`/`toList` doc consts + entries moved to their func_*.rs, plan-96.)
-// ---- findIndex ----
-const INTO_FIND_INDEX: &str =
-    "Index of the first element at or after a start position that satisfies a predicate";
-const DESC_FIND_INDEX: &str = r#"`collections::findIndex` scans `value` **forward**, beginning at index `start`
-and advancing by one, calling `predicate` with each element. It returns the
-zero-based index of the first element for which `predicate` returns `TRUE`. The
-scan short-circuits at that element: no later element is examined. When the scan
-reaches the end of the list without a match, the call raises `ErrNotFound`
-(`77050004`) rather than returning a sentinel index.
-
-`start` defaults to `0`, so the common call form scans the whole list. It is
-validated **before** any element is read: the call raises `ErrIndexOutOfRange`
-(`77050001`) when `start < 0` or `start > len(value)`. Two consequences are
-worth stating precisely:
-
-- `start` equal to `len(value)` is **legal**. It selects an empty scan, so the
-  call raises `ErrNotFound`, not `ErrIndexOutOfRange`. `start` strictly greater
-  than `len(value)` is the out-of-range case.
-- A negative `start` is **not** interpreted as an offset from the end of the
-  list. It is simply out of range and raises `ErrIndexOutOfRange`. This is
-  deliberately asymmetric with `collections::findLastIndex`, whose `endIndex`
-  parameter *does* resolve negative values from the end.
-
-On an empty list every legal `start` is `0`, which is `len(value)`, so
-`findIndex` on an empty list raises `ErrNotFound`.
-
-`predicate` is an ordinary function value of type `FUNC(T) AS Boolean` — a named
-`FUNC` or a `LAMBDA`. Because it is called as an ordinary call, an error raised
-inside `predicate` propagates out of the `collections::findIndex` call to the
-caller rather than being reported as a non-match. Note that a lambda passed here
-may not capture an outer `MUT` binding; the callback position proven
-non-escaping is `collections::forEach`, not `findIndex`.
-
-`findIndex` is a generic implemented in MFBASIC source; a call is rewritten to
-the internal `__collections_findIndex` generic and instantiated for the element
-type like any other generic function.  It
-does not mutate `value`."#;
-
-// ---- findLastIndex ----
-const INTO_FIND_LAST_INDEX: &str =
-    "Index of the last element at or before an end position that satisfies a predicate";
-const DESC_FIND_LAST_INDEX: &str = r#"`collections::findLastIndex` scans `value` **backward**, beginning at the
-element selected by `endIndex` and decreasing by one down to index `0`, calling
-`predicate` with each element. It returns the zero-based index of the first
-element (in that backward order) for which `predicate` returns `TRUE` — that is,
-the last matching element at or before `endIndex`. The scan short-circuits at
-that element: no lower index is examined. When the scan passes index `0` without
-a match, the call raises `ErrNotFound` (`77050004`) rather than returning a
-sentinel index.
-
-The third parameter is named `endIndex`. It is resolved in two steps, and the
-order matters:
-
-1. **Negative resolution.** A negative `endIndex` counts from the end of the
-   list: the effective index becomes `len(value) + endIndex`. The default of
-   `-1` therefore selects the last element, so the common call form scans the
-   whole list from its end. A non-negative `endIndex` is used as written.
-2. **Range check.** *After* resolution, the call raises `ErrIndexOutOfRange`
-   (`77050001`) when the resolved index is less than `0` or greater than or
-   equal to `len(value)`.
-
-Because the range check runs on the resolved index, the upper bound is
-`len(value) - 1`, not `len(value)`. This is deliberately asymmetric with
-`collections::findIndex`, whose `start` may equal `len(value)` and whose
-negative values are rejected instead of resolved.
-
-One consequence is worth stating explicitly: on an **empty** list `len(value)`
-is `0`, so every `endIndex` resolves outside `0 .. -1` and is rejected. The
-default `-1` resolves to `-1`, which fails the range check. `findLastIndex` on
-an empty list therefore raises `ErrIndexOutOfRange` (`77050001`), **not**
-`ErrNotFound`. A caller that treats "no match" and "empty input" alike must
-handle both codes.
-
-`predicate` is an ordinary function value of type `FUNC(T) AS Boolean` — a named
-`FUNC` or a `LAMBDA`. Because it is called as an ordinary call, an error raised
-inside `predicate` propagates out of the `collections::findLastIndex` call to
-the caller rather than being reported as a non-match. Note that a lambda passed
-here may not capture an outer `MUT` binding; the callback position proven
-non-escaping is `collections::forEach`, not `findLastIndex`.
-
-`findLastIndex` is a generic implemented in MFBASIC source; a call is rewritten
-to the internal `__collections_findLastIndex` generic and instantiated for the
-element type like any other generic function.
-It does not mutate `value`."#;
+// (`findIndex`/`findLastIndex` doc consts + entries moved to func_find_index.rs /
+// func_find_last_index.rs when they migrated to Implementation::Mfb.)
 
 const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
     func_get::GET,
@@ -489,36 +412,16 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
     func_is_subset::IS_SUBSET,
     func_is_superset::IS_SUPERSET,
     func_is_disjoint::IS_DISJOINT,
-    // `findIndex`/`findLastIndex` are source-generic (they resolve and, for most
-    // element types, run from the injected `.mfb` companion) with a native
-    // String-item fast path for `findLastIndex`. They are listed here ONLY so
-    // their errors and documentation are registered; they are deliberately kept
-    // out of `NATIVE_MEMBERS`, so `is_native_member_call` still routes them
-    // through the source-generic path. The parameter types are documentation.
-    native(
-        "collections.findIndex",
-        "findIndex",
-        INTO_FIND_INDEX,
-        DESC_FIND_INDEX,
-        &["ErrIndexOutOfRange", "ErrNotFound"],
-        &[custom(&[
-            req("value", &["list"], "List OF T"),
-            req("predicate", &[], "FUNC(T) AS Boolean"),
-            opt("start", &[], "Integer"),
-        ])],
-    ),
-    native(
-        "collections.findLastIndex",
-        "findLastIndex",
-        INTO_FIND_LAST_INDEX,
-        DESC_FIND_LAST_INDEX,
-        &["ErrIndexOutOfRange", "ErrNotFound"],
-        &[custom(&[
-            req("value", &["list"], "List OF T"),
-            req("predicate", &[], "FUNC(T) AS Boolean"),
-            opt("endIndex", &[], "Integer"),
-        ])],
-    ),
+    func_sort::SORT,
+    func_sort_by::SORT_BY,
+    func_group_by::GROUP_BY,
+    // `findIndex`/`findLastIndex` carry Implementation::Mfb like the rest, but are
+    // deliberately kept out of `NATIVE_MEMBERS` so `is_native_member_call` still
+    // routes them through the source-generic path (findLastIndex has a native
+    // String-item fast path in `src/target`). Their entries + docs live in
+    // func_find_index.rs / func_find_last_index.rs.
+    func_find_index::FIND_INDEX,
+    func_find_last_index::FIND_LAST_INDEX,
 ];
 
 /// Generic return-type resolution for collections native members. Delegates to
