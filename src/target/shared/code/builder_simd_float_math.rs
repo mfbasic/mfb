@@ -427,9 +427,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&lane0, "0"));
         self.emit(abi::branch_eq(&no_err));
         match err {
-            FloatError::Domain => self.emit_float_domain_return()?,
-            FloatError::Nan => self.emit_float_nan_return()?,
-            FloatError::Inf => self.emit_float_inf_return()?,
+            FloatError::Domain => self.raise_error_bare("ErrFloatDomain")?,
+            FloatError::Nan => self.raise_error_bare("ErrFloatNaN")?,
+            FloatError::Inf => self.raise_error_bare("ErrFloatInf")?,
         }
         self.emit(abi::label(&no_err));
         Ok(())

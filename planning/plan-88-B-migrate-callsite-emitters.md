@@ -196,9 +196,40 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution — especially any site whose func-vs-bare
-classification was wrong, and any `errors` declaration that tripped the
-`debug_assert` mid-migration.>
+- **Incremental wrapper deletion (deviation, pulls part of D forward).** AGENTS.md
+  forbids leaving dead code, so a `emit_*_return` wrapper is deleted the moment its
+  last caller migrates — not batched in D. `emit_underflow_return` was deleted in
+  the first B increment (both callers were in `builder_numeric.rs`). D still owns
+  the `ERR_*` **const** deletions (the wrappers' bodies reference them until then).
+- **Func-vs-bare classification finding (Phase 1).** The operator/float family is a
+  genuine mix, resolved by reading each enclosing fn:
+  - **Bare** (shared helpers / observation boundaries, no single owner):
+    `builder_numeric.rs` (all — `emit_integer_binary_checked`, `emit_fixed_multiply/
+    divide`, `emit_float_binary/pow`, checked multiply/division); `builder_math.rs`
+    `emit_float_result_check`/`_fp` (the float NaN/Inf/Overflow observation boundary,
+    shared by every float op) and `emit_float_exponent_classify` (:876).
+  - **Func** (1:1 with a builtin's codegen → `raise_error(func, name)` + declare on
+    the builtin in `src/builtins/*.rs`): `builder_math.rs:1088` = `math.sqrt`
+    (`ErrFloatDomain`); `:457` = `math.abs` (`ErrOverflow`); `builder_conversions.rs`
+    `lower_to_byte` = `toByte`, `lower_to_float` = `toFloat` (`ErrOverflow`), etc.
+  Each func site needs its error added to that builtin's `errors` array BEFORE the
+  site is converted, or `raise_error`'s `debug_assert` fires.
+
+### Resume state (plan-88-B Phase 1, IN PROGRESS)
+
+- **Done + committed:** `builder_numeric.rs` (13 bare sites → `raise_error_bare`),
+  dead `emit_underflow_return` deleted. Commits `f5e3bc90b` (+ plan-88-A complete:
+  `978cbc16f`, `5a58a8ea7`).
+- **Remaining Phase 1 sites (24):** `builder_conversions.rs` (7 — classify
+  `lower_to_*` func vs shared), `builder_fixed_math.rs` (2, bare), `builder_money_math.rs`
+  (1, bare/money-func), `builder_math.rs` (5 — `math.abs`/`math.sqrt` func,
+  result-check bare), `builder_simd_math.rs` (2), `builder_simd_float_math.rs` (3).
+  Then declare `errors` on `math.sqrt`/`math.abs`/`toByte`/`toFloat`, and delete the
+  now-dead `emit_overflow`/`float_domain`/`nan`/`inf`/`float_overflow` wrappers once
+  their last callers migrate.
+- **Gate:** existing `tests/rt-error/{arithmetic,math,money,...}` fixtures cover
+  these; each must raise the same `Error.code` before and after (bare sites are
+  byte-identical; func sites too — same code+message, plus a declared contract).
 
 ## Summary
 

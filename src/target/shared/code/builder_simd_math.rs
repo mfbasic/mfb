@@ -239,8 +239,8 @@ impl CodeBuilder<'_> {
             self.emit(abi::compare_immediate(&err, "0"));
             self.emit(abi::branch_eq(&no_err));
             match kernel.error().unwrap() {
-                SimdError::Overflow => self.emit_overflow_return()?,
-                SimdError::FloatDomain => self.emit_float_domain_return()?,
+                SimdError::Overflow => self.raise_error_bare("ErrOverflow")?,
+                SimdError::FloatDomain => self.raise_error_bare("ErrFloatDomain")?,
             }
             self.emit(abi::label(&no_err));
         }

@@ -336,7 +336,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::float_compare_d(&magnitude, &limit));
         self.emit(abi::branch_mi(&range_ok)); // |value| < 2^63 (ordered, less-than)
         self.emit(abi::label(&overflow));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&range_ok));
 
         // q = trunc(value) toward zero.
