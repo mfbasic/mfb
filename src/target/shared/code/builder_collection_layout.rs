@@ -2482,7 +2482,7 @@ pub(super) fn push_collection_data_base_from_capacity(
 /// design around: `emit_flat_block_size` computing a size the allocator did not
 /// allocate is bug-02, and it corrupts the arena free list rather than producing
 /// a wrong value.
-pub(super) fn list_entry_stride(element_type: &str) -> usize {
+pub(crate) fn list_entry_stride(element_type: &str) -> usize {
     if list_element_is_fixed_width(element_type).is_some() {
         0
     } else {

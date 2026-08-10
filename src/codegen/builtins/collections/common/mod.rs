@@ -14,6 +14,15 @@
 //! buffer-growth helpers, and the packed-data loop scaffolding (used by
 //! destructor cleanup). See `src/codegen/memory/readme.md`.
 //!
+//! Submodules:
+//! - [`list`] / [`map`] / [`set`] — self-contained retrieval + membership
+//!   primitives (get/getOr, the map probe/scan, set/map membership).
+//! - [`memory`] — collection-only lowerings that USE the shared memory/error
+//!   layer (`keys`/`values` projection, the `reduce`/`reduceRight` fold). These
+//!   are A1 (collections-only callers) but not self-contained: they allocate and
+//!   free arena blocks through the A2 memory helpers, so they carry a wider
+//!   `codegen -> target` import surface until `src/codegen/memory` exists.
+//!
 //! Everything here stays an `impl CodeBuilder` method: only the defining module
 //! moved, so call sites (`builder.lower_list_get(..)`, `self.emit_map_probe(..)`)
 //! are unchanged. `CodeBuilder` itself still lives in `src/target` (its relocation
@@ -22,4 +31,5 @@
 
 pub(crate) mod list;
 pub(crate) mod map;
+pub(crate) mod memory;
 pub(crate) mod set;

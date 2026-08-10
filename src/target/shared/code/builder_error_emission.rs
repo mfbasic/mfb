@@ -26,7 +26,7 @@ impl CodeBuilder<'_> {
     /// language-level operator/TRAP sites that have no `BuiltinFunction` to
     /// validate against. Resolves `(code, message)` from `ERRORCODE_CONSTANTS`
     /// and emits.
-    pub(super) fn raise_error_bare(&mut self, error_name: &'static str) -> Result<(), String> {
+    pub(crate) fn raise_error_bare(&mut self, error_name: &'static str) -> Result<(), String> {
         let (code, message) = crate::builtins::errorcode::runtime_error(error_name)
             .unwrap_or_else(|| panic!("{error_name} is not a known errorCode constant"));
         self.emit_error_code_return(code, message)
@@ -36,7 +36,7 @@ impl CodeBuilder<'_> {
     /// when the mathematical product does not fit in 64 bits (audit-unicode #1/
     /// #2/#8). The high half is computed first so `product` may alias `lhs` or
     /// `rhs`.
-    pub(super) fn emit_checked_size_multiply(
+    pub(crate) fn emit_checked_size_multiply(
         &mut self,
         product: impl Into<Operand>,
         lhs: impl Into<Operand>,
@@ -59,7 +59,7 @@ impl CodeBuilder<'_> {
     /// `dst = lhs + rhs` for an allocation size, branching to `overflow` on
     /// unsigned wrap. `dst` may alias `lhs` but must not alias `rhs` (the wrap
     /// test compares the sum against `rhs`).
-    pub(super) fn emit_checked_size_add(
+    pub(crate) fn emit_checked_size_add(
         &mut self,
         dst: impl Into<Operand>,
         lhs: impl Into<Operand>,
@@ -75,7 +75,7 @@ impl CodeBuilder<'_> {
 
     /// `dst = src + immediate` for an allocation size, branching to `overflow`
     /// on unsigned wrap. `dst` must not alias `src`.
-    pub(super) fn emit_checked_size_add_immediate(
+    pub(crate) fn emit_checked_size_add_immediate(
         &mut self,
         dst: impl Into<Operand>,
         src: impl Into<Operand>,
@@ -108,7 +108,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&ok));
     }
 
-    pub(super) fn emit_error_code_return(
+    pub(crate) fn emit_error_code_return(
         &mut self,
         code: &str,
         message: &str,

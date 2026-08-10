@@ -33,12 +33,12 @@ entry's key payload into a freshly allocated list block. The source map is not
 mutated and its own storage is not aliased by the result — the returned list is
 an independent, owned collection.
 [[src/codegen/builtins/collections/func_keys.rs:lower_keys]]
-[[src/target/shared/code/builder_collection_queries.rs:lower_map_projection]]
+[[src/codegen/builtins/collections/common/memory.rs:lower_map_projection]]
 
 The result has exactly one item per map entry, so its length equals
 `len(value)`. An empty map yields an empty list. Each key appears exactly once,
 because a map holds at most one entry per key.
-[[src/target/shared/code/builder_collection_queries.rs:lower_map_projection]]
+[[src/codegen/builtins/collections/common/memory.rs:lower_map_projection]]
 
 **Ordering.** The projection walks the lookup-entry array directly, and that
 array is maintained in insertion order; the hash bucket index is separate
@@ -50,7 +50,7 @@ value is item `i` of `collections::values(m)`. The language specification
 describes map iteration order as implementation-defined but stable for a given
 unchanged map, so treat insertion order as the current implementation's behavior
 rather than a guarantee to rely on across versions.
-[[src/target/shared/code/builder_collection_queries.rs:lower_map_projection]]
+[[src/codegen/builtins/collections/common/memory.rs:lower_map_projection]]
 
 `collections::keys` raises no trappable domain error, so an inline `TRAP` on a
 `keys` call has a dead handler. Building the result list does allocate, and an

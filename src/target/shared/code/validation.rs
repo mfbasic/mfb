@@ -588,7 +588,7 @@ impl TypeModel {
 }
 
 impl CollectionTypeLayout {
-    pub(super) fn from_type(type_: &str) -> Option<Self> {
+    pub(crate) fn from_type(type_: &str) -> Option<Self> {
         if let Some(value_type) = type_.strip_prefix("List OF ") {
             return Some(Self {
                 // The single point that chooses a list's block representation

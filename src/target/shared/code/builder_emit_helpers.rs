@@ -43,7 +43,7 @@ impl CodeBuilder<'_> {
     /// arena symbol as a platform import — pinned by
     /// `arena_symbols_are_never_platform_imports` so the equivalence cannot
     /// quietly lapse.
-    pub(super) fn emit_arena_alloc_call(&mut self) {
+    pub(crate) fn emit_arena_alloc_call(&mut self) {
         self.emit_symbol_call(ARENA_ALLOC_SYMBOL);
         self.emit(abi::compare_immediate(
             abi::return_register(),

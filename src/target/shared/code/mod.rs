@@ -78,11 +78,13 @@ mod audio;
 mod builder_collection_compare;
 mod builder_collection_layout;
 use builder_collection_layout::{
-    byte_list_block_kind, byte_list_entry_stride, list_block_kind, list_entry_stride,
+    byte_list_block_kind, byte_list_entry_stride, list_block_kind,
     push_collection_data_base_from_capacity, recursive_transfer_types, thread_copy_symbol,
     type_participates_in_cycle,
 };
-pub(crate) use builder_collection_layout::{kind2_payload_size, list_element_is_fixed_width};
+pub(crate) use builder_collection_layout::{
+    kind2_payload_size, list_element_is_fixed_width, list_entry_stride,
+};
 mod app;
 mod builder_collection_queries;
 mod builder_control;
@@ -661,10 +663,10 @@ pub(crate) struct CollectionValueSlot {
     pub(crate) value: PayloadSlot,
 }
 
-struct CollectionTypeLayout {
-    kind: usize,
-    key_type_code: usize,
-    value_type_code: usize,
+pub(crate) struct CollectionTypeLayout {
+    pub(crate) kind: usize,
+    pub(crate) key_type_code: usize,
+    pub(crate) value_type_code: usize,
 }
 
 #[derive(Clone)]
