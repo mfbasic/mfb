@@ -166,7 +166,7 @@ methods; goldens stay **constant**, not re-baselined.
 
 Acceptance: `cargo test --bin mfb` green for the errorcode + parity tests; the
 emitter compiles. No golden re-baseline (byte-identical by construction).
-Commit: —
+Commit: 83cd6955c
 
 ### Phase 2 — convert every emission site to the table (~307, not 49; see C-2)
 
@@ -190,11 +190,11 @@ Commit: —
 Acceptance: zero `push_error_message_address` callers remain outside its own def +
 `raise_error_into` (`grep -rn` → those two only); zero `emit_fail` calls pass an
 `ERR_*` constant; `cargo build` clean.
-Commit: —
+Commit: 83cd6955c
 
 ### Phase 3 — verify byte-identity + runtime error parity
 
-- [ ] `cargo test --bin mfb` green (incl. the errorcode + parity tests).
+- [x] `cargo test --bin mfb` green (incl. the errorcode + parity tests). **3754 passed.**
 - [ ] `scripts/artifact-gate.sh` (byte-identity goldens): **0 diffs** — the emitter
       reproduces every fixed-helper sequence exactly, so no golden churn (the inverse
       of the superseded "re-baseline" plan). Any diff is a wrong name→symbol mapping
@@ -292,9 +292,29 @@ message tables (`shared/code/mod.rs`, `link_thunk.rs`), the arena helper's
 code-in-x0 returns (`arena.rs`), and a resource-closed *comparison*
 (`builder_resource_cleanup.rs`).
 
-**Per-site classification / message-change audit:** <filled in as conversion lands;
-a byte-only change is the expected unification, a code/message change is a
-regression to fix.>
+**Per-site classification / message-change audit:** all ~330 sites converted with
+zero runtime code/message change (byte-only). Proven comprehensively: a full
+`artifact-gate all` with the **pre-C** binary (`ea805b49f`, built in a detached
+worktree) produced a diff set **identical** to the post-C binary's — C changes zero
+bytes. Two overlap fixtures were also checked byte-for-byte: `crypto-ec-valid`
+(pre-C == post-C == `bee5f982…`) and `macos-app-mode-io` (`9b181857…`).
+
+**C-3 (pre-existing golden drift found and fixed — was plan-88-B's "goldens
+pending").** The `artifact-gate all` run surfaced **17** stale goldens across 9
+`rt-behavior/`+`syntax/` fixtures (crypto-ec-valid, the 3 macos-app-mode-*,
+control-flow-if, parser-hello-world, list-ops, func_map_getor, control-flow-match).
+These are **not** C's doing (pre-C == post-C above). They are plan-88-**B**'s
+allocation unification: the x0-optimised OOM emit (`mov x3, x0`, code returned in
+x0 by `_mfb_arena_alloc`) became an explicit `mov_imm x8, "77010001"; mov x3, x8`.
+Byte-only — the runtime code (77010001 = `ErrOutOfMemory`) is unchanged. B's commit
+`8a336ea95` said "goldens pending" and B's re-baseline (`402aa0596`) covered only
+`tests/byte-identity/*.ncodesum`, missing these `.ncode`/`.mir`/`.ncodesum` goldens.
+Re-baselined here with the current compiler via the new scoped
+`scripts/regen-rt-goldens.sh` (bounded to the 9 fixture dirs); exactly 17 goldens
+changed. **Phase-3 acceptance correction:** the plan's "gate → 0 diffs" was
+un-meetable on entry because the base already carried this pre-existing drift; the
+checkable criteria are (a) C is byte-neutral (pre-C gate == post-C gate) and (b) the
+gate is green after completing B's pending re-baseline.
 
 ## Summary
 
