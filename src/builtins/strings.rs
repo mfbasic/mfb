@@ -1270,4 +1270,74 @@ LET p AS Thing = Thing[strings::toScalars(\"hi\")]\nEND FUNC\n";
 LET m AS Map OF String TO String = Map OF String TO String { \"k\" := strings::toScalars(\"hi\") }\nEND FUNC\n";
         assert!(uses_package(&project(vec![parse_file(map_src)])));
     }
+
+    #[test]
+    fn attributed_string_tier_a_query_returns_the_string_overload_type() {
+        // plan-89-C: a Tier-A query on an AttributedString resolves to exactly the
+        // return type of its String overload (computed on visible text). Covers the
+        // AttributedString Tier-A branch of `resolve_return_type`.
+        let on_string = STRINGS_RESOLVER.resolve_return_type(
+            &STRINGS,
+            CONTAINS,
+            &["String".into(), "String".into()],
+        );
+        let on_attributed = STRINGS_RESOLVER.resolve_return_type(
+            &STRINGS,
+            CONTAINS,
+            &["AttributedString".into(), "String".into()],
+        );
+        assert!(on_string.is_some());
+        assert_eq!(on_string, on_attributed);
+    }
+
+    #[test]
+    fn attributed_string_tier_b_transform_returns_attributed_string() {
+        // plan-89-D: a Tier-B transform of an AttributedString yields an
+        // AttributedString. Covers the AttributedString Tier-B branch.
+        assert_eq!(
+            STRINGS_RESOLVER.resolve_return_type(&STRINGS, UPPER, &["AttributedString".into()]),
+            Some("AttributedString".to_string())
+        );
+        // The plain String overload is unchanged.
+        assert_eq!(
+            STRINGS_RESOLVER.resolve_return_type(&STRINGS, UPPER, &["String".into()]),
+            Some("String".to_string())
+        );
+    }
+
+    #[test]
+    fn tier_b_transform_impl_maps_names_to_astrings_symbols() {
+        // Covers the `tier_b_transform_impl` name→symbol match, including the
+        // non-Tier-B fall-through.
+        assert_eq!(tier_b_transform_impl(UPPER), Some("__astrings_upper"));
+        assert_eq!(tier_b_transform_impl(TRIM), Some("__astrings_trim"));
+        assert_eq!(tier_b_transform_impl(REPLACE), Some("__astrings_replace"));
+        assert_eq!(
+            tier_b_transform_impl(NORMALIZE_NFC),
+            Some("__astrings_normalizeNfc")
+        );
+        assert_eq!(tier_b_transform_impl(CONTAINS), None);
+    }
+
+    #[test]
+    fn strings_fn_err_attaches_errors_to_the_descriptor() {
+        // `strings_fn_err` is a `const fn` table builder, const-evaluated where the
+        // static table uses it and thus otherwise uncovered. Drive it (and the
+        // `strings_fn` it delegates to) at runtime with `black_box`'d ('static)
+        // inputs so the calls cannot be folded back to consts.
+        use std::hint::black_box;
+        const ERRS: &[&str] = &["STRINGS_INDEX_OUT_OF_RANGE"];
+        let f = strings_fn_err(
+            black_box("strings.demo"),
+            black_box("demo"),
+            black_box(ERRS),
+            black_box(OV_SCALAR_BOOL),
+            black_box(Implementation::Same),
+        );
+        assert_eq!(f.name, "strings.demo");
+        assert_eq!(f.doc_slug, "demo");
+        assert_eq!(f.errors, ERRS);
+        assert_eq!(f.overloads.len(), OV_SCALAR_BOOL.len());
+        assert!(matches!(f.implementation, Implementation::Same));
+    }
 }

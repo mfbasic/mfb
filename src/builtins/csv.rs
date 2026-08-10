@@ -299,6 +299,25 @@ mod tests {
     }
 
     #[test]
+    fn csv_opt_builds_a_fill_defaulted_string_parameter() {
+        // `csv_opt` is a `const fn` used only in `const` table context, so it is
+        // const-evaluated and shows as uncovered; exercise it at runtime here.
+        // `black_box` the arguments so the call cannot be folded back to a const.
+        use std::hint::black_box;
+        let p = csv_opt(black_box("delimiter"), black_box(DEFAULT_DELIMITER));
+        assert_eq!(p.name, "delimiter");
+        assert!(p.aliases.is_empty());
+        assert!(matches!(p.ty, ParameterType::Named("String")));
+        match p.default {
+            DefaultValue::Fill { type_name, expr } => {
+                assert_eq!(type_name, "String");
+                assert_eq!(expr, ",");
+            }
+            other => panic!("expected a String Fill default, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn source_file_parses() {
         assert!(source_file().is_ok());
     }

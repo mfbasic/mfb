@@ -261,6 +261,39 @@ mod tests {
         items.iter().map(|s| s.to_string()).collect()
     }
 
+    #[test]
+    fn const_builders_populate_their_descriptors() {
+        // `req`/`ov`/`nf` are `const fn` table builders, const-evaluated where the
+        // static tables use them and thus otherwise uncovered. Drive them at
+        // runtime with `black_box`'d ('static) inputs so the calls cannot be folded
+        // back to consts, and assert they populate each descriptor field.
+        use std::hint::black_box;
+        const ALIASES: &[&str] = &["command"];
+
+        let p = req(black_box("cmd"), black_box(ALIASES), black_box("String"));
+        assert_eq!(p.name, "cmd");
+        assert_eq!(p.aliases, ALIASES);
+        assert!(matches!(p.ty, ParameterType::Named("String")));
+        assert!(matches!(p.default, DefaultValue::None));
+
+        let o = ov(black_box(P_SHELL), black_box("Boolean"));
+        assert_eq!(o.params.len(), P_SHELL.len());
+        assert!(matches!(o.return_type, ReturnType::Fixed("Boolean")));
+
+        let f = nf(
+            black_box("process.demo"),
+            black_box("demo"),
+            black_box(OV_POLL),
+        );
+        assert_eq!(f.name, "process.demo");
+        assert_eq!(f.doc_slug, "demo");
+        assert_eq!(f.overloads.len(), OV_POLL.len());
+        assert!(matches!(f.implementation, Implementation::Same));
+        assert!(matches!(f.lowering, Lowering::Helper));
+        assert!(!f.flags.internal_only);
+        assert!(!f.flags.return_type_overloaded);
+    }
+
     fn ret(name: &str, args: &[&str]) -> Option<String> {
         DefaultResolver::resolve_call(&PROCESS, name, &strings(args)).map(str::to_string)
     }

@@ -422,6 +422,25 @@ impl NativePlanPlatform for Platform {
                     // plan-91-A: the parent `thread::sleep` helper maps nanosleep
                     // to Sleep(dwMilliseconds).
                     import("Sleep", KERNEL32, required_by),
+                    // `thread::openStdIn`/`closeStdIn` drive the same stdin-broadcast
+                    // log as `io.input` (they share the broadcast machinery). Its
+                    // growable buffer lives outside the arena and is malloc'd via the
+                    // heap allocator (emit_heap_alloc/free → GetProcessHeap +
+                    // HeapAlloc/HeapFree, plan-66-C), and the reader rides the console
+                    // read/mode + pipe-probe surface. Declared with the rest of the
+                    // thread set so every reloc resolves; the merged import table dedups
+                    // against the io.input floor when both are reachable.
+                    import("GetProcessHeap", KERNEL32, required_by),
+                    import("HeapAlloc", KERNEL32, required_by),
+                    import("HeapFree", KERNEL32, required_by),
+                    import("GetStdHandle", KERNEL32, required_by),
+                    import("ReadFile", KERNEL32, required_by),
+                    import("WriteFile", KERNEL32, required_by),
+                    import("GetConsoleMode", KERNEL32, required_by),
+                    import("SetConsoleMode", KERNEL32, required_by),
+                    import("GetLastError", KERNEL32, required_by),
+                    import("GetFileType", KERNEL32, required_by),
+                    import("PeekNamedPipe", KERNEL32, required_by),
                 ]
             }
             // Networking (plan-47-I): every `net.*` helper is Winsock2 over

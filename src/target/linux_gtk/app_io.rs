@@ -54,11 +54,11 @@ fn emit_app_term_sync(symbol: &str) -> AppHookBody {
         0,
     ));
     emit_gtk_term_active_gate(&mut asm, "sync_inactive"); // no-op present while off
-    asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
-    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.local_address(abi::c_arg(0), TERM_REDRAW_IDLE_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.call_external("g_idle_add");
     asm.push(abi::label("sync_inactive"));
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));
     asm.push(abi::return_());
@@ -92,16 +92,16 @@ fn emit_app_term_terminal_size(symbol: &str) -> AppHookBody {
     // plan-01-term §4.2.1) rather than reporting the grid size (bug-111).
     emit_gtk_term_active_gate(&mut asm, "ts_unsupported");
     // record = arena_alloc(16, 8) -> x0=tag, x1=ptr (clobbers caller-saved).
-    asm.push(abi::move_immediate("x0", "Integer", "16"));
-    asm.push(abi::move_immediate("x1", "Integer", "8"));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "16"));
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
     asm.call_internal(code::ARENA_ALLOC_SYMBOL);
-    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
     asm.push(abi::branch_ne("ts_err")); // non-OK tag -> propagate x0/x1/x2
     asm.load_state("x9", ST_TERM_COLS);
-    asm.push(abi::store_u64("x9", "x1", 0)); // columns
+    asm.push(abi::store_u64("x9", abi::c_arg(1), 0)); // columns
     asm.load_state("x9", ST_TERM_ROWS);
-    asm.push(abi::store_u64("x9", "x1", 8)); // rows
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // OK; x1 = record
+    asm.push(abi::store_u64("x9", abi::c_arg(1), 8)); // rows
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // OK; x1 = record
     asm.push(abi::branch("ts_err"));
     // plan-88-C: code + message symbol from `ERRORCODE_CONSTANTS` (this app helper
     // returns via x0/x1 and the custom `asm.local_address`, so the shared
@@ -110,8 +110,16 @@ fn emit_app_term_terminal_size(symbol: &str) -> AppHookBody {
         crate::builtins::errorcode::runtime_error_emission("ErrUnsupported")
             .expect("ErrUnsupported is an errorCode constant");
     asm.push(abi::label("ts_unsupported"));
-    asm.push(abi::move_immediate("x0", "Integer", code::RESULT_ERR_TAG));
-    asm.push(abi::move_immediate("x1", "Integer", unsupported_code));
+    asm.push(abi::move_immediate(
+        abi::c_arg(0),
+        "Integer",
+        code::RESULT_ERR_TAG,
+    ));
+    asm.push(abi::move_immediate(
+        abi::c_arg(1),
+        "Integer",
+        unsupported_code,
+    ));
     asm.local_address(code::RESULT_ERROR_MESSAGE_REGISTER, unsupported_symbol);
     asm.push(abi::label("ts_err"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
@@ -133,9 +141,9 @@ fn emit_app_term_set_color(
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     emit_gtk_term_active_gate(&mut asm, "sc_inactive"); // §4.2.1 no-op gate (bug-111)
-    asm.push(abi::shift_left_immediate("x10", "x1", 8)); // g<<8
-    asm.push(abi::shift_left_immediate("x11", "x2", 16)); // b<<16
-    asm.push(abi::or_registers("x10", "x0", "x10")); // r | g<<8
+    asm.push(abi::shift_left_immediate("x10", abi::c_arg(1), 8)); // g<<8
+    asm.push(abi::shift_left_immediate("x11", abi::c_arg(2), 16)); // b<<16
+    asm.push(abi::or_registers("x10", abi::c_arg(0), "x10")); // r | g<<8
     asm.push(abi::or_registers("x10", "x10", "x11")); // | b<<16 -> packed (pure)
     asm.push(abi::store_u64("x10", ARENA_REG, tso + arena_field)); // arena (no flags)
     asm.push(abi::move_immediate(
@@ -146,7 +154,7 @@ fn emit_app_term_set_color(
     asm.push(abi::or_registers("x11", "x10", "x11")); // packed | COLOR_SET
     asm.store_state("x11", field); // app current color (x9 = store_state scratch)
     asm.push(abi::label("sc_inactive"));
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::return_());
     (term_frame(), asm.ins, asm.rel)
 }
@@ -162,10 +170,10 @@ fn emit_app_term_set_attr(
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     emit_gtk_term_active_gate(&mut asm, "sa_inactive"); // §4.2.1 no-op gate (bug-111)
-    asm.push(abi::store_u64("x0", ARENA_REG, tso + arena_field)); // arena
-    asm.store_state("x0", field); // app field (store_state uses x9, x0 safe)
+    asm.push(abi::store_u64(abi::c_arg(0), ARENA_REG, tso + arena_field)); // arena
+    asm.store_state(abi::c_arg(0), field); // app field (store_state uses x9, x0 safe)
     asm.push(abi::label("sa_inactive"));
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::return_());
     (term_frame(), asm.ins, asm.rel)
 }
@@ -183,11 +191,11 @@ fn emit_app_term_set_cursor(symbol: &str, visible: &str) -> AppHookBody {
     emit_gtk_term_active_gate(&mut asm, "cur_inactive"); // §4.2.1 no-op gate (bug-111)
     asm.push(abi::move_immediate("x10", "Integer", visible));
     asm.store_state("x10", ST_TERM_CURSOR_VISIBLE);
-    asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
-    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.local_address(abi::c_arg(0), TERM_REDRAW_IDLE_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.call_external("g_idle_add");
     asm.push(abi::label("cur_inactive"));
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));
     asm.push(abi::return_());
@@ -248,10 +256,10 @@ fn emit_app_term_on(symbol: &str, tso: usize) -> AppHookBody {
     // MODE_LINE_ECHO for their own read (emit_app_io_input_helper).
     asm.push(abi::move_immediate("x10", "Integer", MODE_RAW));
     asm.store_state("x10", ST_INPUT_MODE);
-    asm.local_address("x0", TERM_SHOW_IDLE_SYMBOL);
-    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.local_address(abi::c_arg(0), TERM_SHOW_IDLE_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.call_external("g_idle_add");
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));
     asm.push(abi::return_());
@@ -283,13 +291,13 @@ fn emit_app_term_off(symbol: &str, tso: usize) -> AppHookBody {
     // plan-35-E: schedule a final present (snapshot + queue_draw) BEFORE the hide
     // idle, so the last drawn frame is marshaled before the surface is swapped back
     // to the transcript. Idle sources drain FIFO, so the present runs first.
-    asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
-    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.local_address(abi::c_arg(0), TERM_REDRAW_IDLE_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.call_external("g_idle_add");
-    asm.local_address("x0", TERM_HIDE_IDLE_SYMBOL);
-    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.local_address(abi::c_arg(0), TERM_HIDE_IDLE_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.call_external("g_idle_add");
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));
     asm.push(abi::return_());
@@ -300,8 +308,8 @@ fn emit_app_term_off(symbol: &str, tso: usize) -> AppHookBody {
 fn emit_app_term_is_on(symbol: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
-    asm.load_state("x1", ST_TERM_ACTIVE); // value
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // tag = OK
+    asm.load_state(abi::c_arg(1), ST_TERM_ACTIVE); // value
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // tag = OK
     asm.push(abi::return_());
     (term_frame(), asm.ins, asm.rel)
 }
@@ -314,10 +322,10 @@ fn emit_app_term_is_on(symbol: &str) -> AppHookBody {
 fn emit_app_term_did_resize(symbol: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
-    asm.load_state("x1", ST_TERM_DID_RESIZE); // value (uses x9 for the address)
-    asm.push(abi::move_immediate("x2", "Integer", "0"));
-    asm.store_state("x2", ST_TERM_DID_RESIZE); // clear (uses SCRATCH[0] for the address)
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // tag = OK
+    asm.load_state(abi::c_arg(1), ST_TERM_DID_RESIZE); // value (uses x9 for the address)
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+    asm.store_state(abi::c_arg(2), ST_TERM_DID_RESIZE); // clear (uses SCRATCH[0] for the address)
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // tag = OK
     asm.push(abi::return_());
     (term_frame(), asm.ins, asm.rel)
 }
@@ -337,26 +345,26 @@ fn emit_app_term_clear(symbol: &str) -> AppHookBody {
                                                          // Blank the whole backing store (chars/fg/bg = 0). chars clears to 0 rather
                                                          // than ' ': cells are u32 since bug-203, and `memset` writes whole bytes, so
                                                          // ' ' would pack four spaces per cell. The draw renders 0 as blank.
-    asm.state_array("x0", ST_TERM_CHARS);
-    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.state_array(abi::c_arg(0), ST_TERM_CHARS);
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.push(abi::move_immediate(
-        "x2",
+        abi::c_arg(2),
         "Integer",
         &(TERM_MAX_COLS * TERM_MAX_ROWS * 4).to_string(),
     ));
     asm.call_external("memset");
-    asm.state_array("x0", ST_TERM_FG);
-    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.state_array(abi::c_arg(0), ST_TERM_FG);
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.push(abi::move_immediate(
-        "x2",
+        abi::c_arg(2),
         "Integer",
         &(TERM_MAX_COLS * TERM_MAX_ROWS * 4).to_string(),
     ));
     asm.call_external("memset");
-    asm.state_array("x0", ST_TERM_BG);
-    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.state_array(abi::c_arg(0), ST_TERM_BG);
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.push(abi::move_immediate(
-        "x2",
+        abi::c_arg(2),
         "Integer",
         &(TERM_MAX_COLS * TERM_MAX_ROWS * 4).to_string(),
     ));
@@ -365,11 +373,11 @@ fn emit_app_term_clear(symbol: &str) -> AppHookBody {
     asm.store_state("x10", ST_TERM_ROW);
     asm.push(abi::move_immediate("x10", "Integer", "0"));
     asm.store_state("x10", ST_TERM_COL);
-    asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
-    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.local_address(abi::c_arg(0), TERM_REDRAW_IDLE_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.call_external("g_idle_add");
     asm.push(abi::label("clr_inactive"));
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));
     asm.push(abi::return_());
@@ -382,31 +390,31 @@ fn emit_app_term_move_to(symbol: &str) -> AppHookBody {
     asm.push(abi::label("entry"));
     emit_gtk_term_active_gate(&mut asm, "mt_inactive"); // §4.2.1 no-op gate (bug-111)
                                                         // row = clamp(x0, 0, rows-1)
-    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
     asm.push(abi::branch_ge("mt_row_lo"));
-    asm.push(abi::move_immediate("x0", "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0"));
     asm.push(abi::label("mt_row_lo"));
     asm.load_state("x9", ST_TERM_ROWS);
     asm.push(abi::subtract_immediate("x9", "x9", 1)); // rows-1
-    asm.push(abi::compare_registers("x0", "x9"));
+    asm.push(abi::compare_registers(abi::c_arg(0), "x9"));
     asm.push(abi::branch_le("mt_row_hi"));
-    asm.push(abi::move_register("x0", "x9"));
+    asm.push(abi::move_register(abi::c_arg(0), "x9"));
     asm.push(abi::label("mt_row_hi"));
-    asm.store_state("x0", ST_TERM_ROW);
+    asm.store_state(abi::c_arg(0), ST_TERM_ROW);
     // col = clamp(x1, 0, cols-1)
-    asm.push(abi::compare_immediate("x1", "0"));
+    asm.push(abi::compare_immediate(abi::c_arg(1), "0"));
     asm.push(abi::branch_ge("mt_col_lo"));
-    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.push(abi::label("mt_col_lo"));
     asm.load_state("x9", ST_TERM_COLS);
     asm.push(abi::subtract_immediate("x9", "x9", 1)); // cols-1
-    asm.push(abi::compare_registers("x1", "x9"));
+    asm.push(abi::compare_registers(abi::c_arg(1), "x9"));
     asm.push(abi::branch_le("mt_col_hi"));
-    asm.push(abi::move_register("x1", "x9"));
+    asm.push(abi::move_register(abi::c_arg(1), "x9"));
     asm.push(abi::label("mt_col_hi"));
-    asm.store_state("x1", ST_TERM_COL);
+    asm.store_state(abi::c_arg(1), ST_TERM_COL);
     asm.push(abi::label("mt_inactive"));
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::return_());
     (term_frame(), asm.ins, asm.rel)
 }
@@ -439,20 +447,20 @@ pub(crate) fn emit_app_io_write_helper(symbol: &str, stderr: bool, newline: bool
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
-    asm.push(abi::move_register("x19", "x0")); // preserve string object
+    asm.push(abi::move_register("x19", abi::c_arg(0))); // preserve string object
 
     // term:: active -> render into the TUI grid instead of the transcript.
     asm.load_state("x9", ST_TERM_ACTIVE);
     asm.push(abi::compare_immediate("x9", "0"));
     asm.push(abi::branch_eq("not_term"));
-    asm.push(abi::move_register("x0", "x19")); // string obj
+    asm.push(abi::move_register(abi::c_arg(0), "x19")); // string obj
     asm.push(abi::move_immediate(
-        "x1",
+        abi::c_arg(1),
         "Integer",
         if newline { "1" } else { "0" },
     ));
     asm.call_internal(TERM_WRITE_SYMBOL);
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::branch("done"));
     asm.push(abi::label("not_term"));
 
@@ -469,27 +477,27 @@ pub(crate) fn emit_app_io_write_helper(symbol: &str, stderr: bool, newline: bool
     let prefix_len = if stderr { STR_STDERR_PREFIX.1.len() } else { 0 };
     let extra = prefix_len + if newline { 1 } else { 0 };
     asm.push(abi::load_u64("x20", "x19", 0)); // text len
-    asm.push(abi::add_immediate("x0", "x20", prefix_len + 17)); // 16 hdr + prefix + text + nl
+    asm.push(abi::add_immediate(abi::c_arg(0), "x20", prefix_len + 17)); // 16 hdr + prefix + text + nl
     asm.call_external("malloc");
-    asm.push(abi::move_register("x21", "x0")); // heap chunk
-                                               // On allocation failure the memcpy below would fault on the worker thread
-                                               // (bug-240). Degrade to the fd path instead: it needs no allocation, so the
-                                               // output still reaches the user rather than killing the program.
+    asm.push(abi::move_register("x21", abi::c_return(0))); // heap chunk
+                                                           // On allocation failure the memcpy below would fault on the worker thread
+                                                           // (bug-240). Degrade to the fd path instead: it needs no allocation, so the
+                                                           // output still reaches the user rather than killing the program.
     asm.push(abi::compare_immediate("x21", "0"));
     asm.push(abi::branch_eq("fd_path"));
     if stderr {
-        asm.push(abi::add_immediate("x0", "x21", 16)); // memcpy(chunk+16, "[stderr] ", 9)
-        asm.local_address("x1", STR_STDERR_PREFIX.0);
+        asm.push(abi::add_immediate(abi::c_arg(0), "x21", 16)); // memcpy(chunk+16, "[stderr] ", 9)
+        asm.local_address(abi::c_arg(1), STR_STDERR_PREFIX.0);
         asm.push(abi::move_immediate(
-            "x2",
+            abi::c_arg(2),
             "Integer",
             &prefix_len.to_string(),
         ));
         asm.call_external("memcpy");
     }
-    asm.push(abi::add_immediate("x0", "x21", 16 + prefix_len)); // memcpy(dst=chunk+16+prefix,
-    asm.push(abi::add_immediate("x1", "x19", 8)); //                     src=text bytes,
-    asm.push(abi::move_register("x2", "x20")); //                       n=text len)
+    asm.push(abi::add_immediate(abi::c_arg(0), "x21", 16 + prefix_len)); // memcpy(dst=chunk+16+prefix,
+    asm.push(abi::add_immediate(abi::c_arg(1), "x19", 8)); //                     src=text bytes,
+    asm.push(abi::move_register(abi::c_arg(2), "x20")); //                       n=text len)
     asm.call_external("memcpy");
     if newline {
         asm.push(abi::add_immediate("x9", "x21", 16 + prefix_len));
@@ -499,27 +507,27 @@ pub(crate) fn emit_app_io_write_helper(symbol: &str, stderr: bool, newline: bool
     }
     asm.push(abi::add_immediate("x9", "x20", extra)); // chunk len = text + prefix + nl
     asm.push(abi::store_u64("x9", "x21", 0));
-    asm.local_address("x0", APPEND_IDLE_SYMBOL);
-    asm.push(abi::move_register("x1", "x21")); // user_data = chunk
+    asm.local_address(abi::c_arg(0), APPEND_IDLE_SYMBOL);
+    asm.push(abi::move_register(abi::c_arg(1), "x21")); // user_data = chunk
     asm.call_external("g_idle_add");
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::branch("done"));
 
     // --- fd fallback path ---
     asm.push(abi::label("fd_path"));
-    asm.push(abi::move_immediate("x0", "Integer", fd));
-    asm.push(abi::add_immediate("x1", "x19", 8));
-    asm.push(abi::load_u64("x2", "x19", 0));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", fd));
+    asm.push(abi::add_immediate(abi::c_arg(1), "x19", 8));
+    asm.push(abi::load_u64(abi::c_arg(2), "x19", 0));
     asm.call_external("write");
     if newline {
         asm.push(abi::move_immediate("x9", "Integer", "10"));
         asm.push(abi::store_u8("x9", abi::stack_pointer(), 32));
-        asm.push(abi::move_immediate("x0", "Integer", fd));
-        asm.push(abi::add_immediate("x1", abi::stack_pointer(), 32));
-        asm.push(abi::move_immediate("x2", "Integer", "1"));
+        asm.push(abi::move_immediate(abi::c_arg(0), "Integer", fd));
+        asm.push(abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), 32));
+        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
         asm.call_external("write");
     }
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
 
     asm.push(abi::label("done"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
@@ -552,11 +560,11 @@ pub(crate) fn emit_app_io_flush_helper(symbol: &str) -> AppHookBody {
         0,
     ));
     emit_gtk_term_active_gate(&mut asm, "flush_inactive"); // present only while TUI on
-    asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
-    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.local_address(abi::c_arg(0), TERM_REDRAW_IDLE_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.call_external("g_idle_add");
     asm.push(abi::label("flush_inactive"));
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));
     asm.push(abi::return_());
@@ -583,10 +591,10 @@ pub(crate) fn emit_app_io_input_helper(symbol: &str) -> AppHookBody {
         abi::stack_pointer(),
         0,
     ));
-    asm.push(abi::store_u64("x0", abi::stack_pointer(), 8)); // preserve prompt
+    asm.push(abi::store_u64(abi::c_arg(0), abi::stack_pointer(), 8)); // preserve prompt
     asm.push(abi::move_immediate("x10", "Integer", MODE_LINE_ECHO));
     asm.store_state("x10", ST_INPUT_MODE);
-    asm.push(abi::load_u64("x0", abi::stack_pointer(), 8)); // prompt
+    asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 8)); // prompt
     asm.call_internal(IO_WRITE_SYMBOL); // x0 = prompt; result ignored
     asm.call_internal(IO_READ_LINE_SYMBOL); // result in x0/x1/x2
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
@@ -608,8 +616,8 @@ pub(crate) fn emit_app_io_input_helper(symbol: &str) -> AppHookBody {
 pub(crate) fn emit_app_io_is_terminal_helper(symbol: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
-    asm.push(abi::move_immediate("x1", "Boolean", "1")); // value = TRUE
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // tag = OK
+    asm.push(abi::move_immediate(abi::c_arg(1), "Boolean", "1")); // value = TRUE
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // tag = OK
     asm.push(abi::return_());
     (
         CodeFrame {
