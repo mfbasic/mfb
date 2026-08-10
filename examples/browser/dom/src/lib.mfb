@@ -30,17 +30,20 @@ END TYPE
 
 ' A styled range within a text run: the inclusive grapheme range [start, endIndex]
 ' of the run's text and the terminal attributes to apply over it — bold, underline,
-' and a 0xRRGGBB foreground color (-1 = the default color). Built by the inline text
-' gather from the tags a run flattens (a link → underlined + link color, <b>/<strong>
-' → bold, <u>/<ins> → underline) and consumed by the renderer to build an
-' AttributedString. Ranges are over the run's already-collapsed text, so they line up
-' with what the renderer wraps and draws.
+' and a 0xRRGGBB foreground color (-1 = the default color). `href` is the link URL
+' when the range is a hyperlink's text (empty otherwise) — the renderer uses it to
+' expose links as navigation targets; the link's decorative [brackets] carry the same
+' style but no href, so a link's target covers its text only. Built by the inline text
+' gather from the tags a run flattens (a link → underlined + link color + href,
+' <b>/<strong> → bold, <u>/<ins> → underline). Ranges are over the run's already-
+' collapsed text, so they line up with what the renderer wraps and draws.
 EXPORT TYPE TextSpan
   start AS Integer
   endIndex AS Integer
   bold AS Boolean
   underline AS Boolean
   color AS Integer
+  href AS String
 END TYPE
 
 ' A run of text. `layout` is the box the layout pass placed this run in (x, y in CSS

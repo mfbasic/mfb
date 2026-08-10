@@ -468,27 +468,30 @@ FUNC linkColor() AS Integer
   RETURN 90 * 65536 + 160 * 256 + 255
 END FUNC
 
-' One styled grapheme of an inline run.
+' One styled grapheme of an inline run. `href` is the link URL when this glyph is part
+' of a hyperlink's text (empty otherwise) — a link's [brackets] carry the link style
+' but an empty href, so a link's target covers its text only.
 TYPE Glyph
   ch AS String
   bold AS Boolean
   underline AS Boolean
   color AS Integer
+  href AS String
 END TYPE
 
-' Split a plain string into styled glyphs, one per grapheme, all carrying (b, u, c).
-FUNC styleGlyphs(s AS String, b AS Boolean, u AS Boolean, c AS Integer) AS List OF Glyph
+' Split a plain string into styled glyphs, one per grapheme, all carrying (b, u, c, href).
+FUNC styleGlyphs(s AS String, b AS Boolean, u AS Boolean, c AS Integer, href AS String) AS List OF Glyph
   MUT out AS List OF Glyph = []
   FOR EACH g IN strings::graphemes(s)
-    out = collections::append(out, Glyph[g, b, u, c])
+    out = collections::append(out, Glyph[g, b, u, c, href])
   NEXT
   RETURN out
 END FUNC
 
-FUNC gatherChildrenGlyphs(e AS ElementNode, b AS Boolean, u AS Boolean, c AS Integer) AS List OF Glyph
+FUNC gatherChildrenGlyphs(e AS ElementNode, b AS Boolean, u AS Boolean, c AS Integer, href AS String) AS List OF Glyph
   MUT out AS List OF Glyph = []
   FOR EACH k IN e.children
-    FOR EACH g IN gatherAttributed(k, b, u, c)
+    FOR EACH g IN gatherAttributed(k, b, u, c, href)
       out = collections::append(out, g)
     NEXT
   NEXT
@@ -496,61 +499,71 @@ FUNC gatherChildrenGlyphs(e AS ElementNode, b AS Boolean, u AS Boolean, c AS Int
 END FUNC
 
 ' Wrap an element's styled inline content in open/close glyphs (the same [ ]/< >
-' decoration gatherText adds), or nothing when the content is blank — the brackets
-' take the wrapping element's style so a link's brackets are coloured too.
-FUNC wrapGlyphs(e AS ElementNode, open AS String, close AS String, b AS Boolean, u AS Boolean, c AS Integer) AS List OF Glyph
-  LET inner AS List OF Glyph = gatherChildrenGlyphs(e, b, u, c)
+' decoration gatherText adds), or nothing when the content is blank. The inner content
+' carries `innerHref` and the brackets `bracketHref`: a link passes its URL as the
+' inner href and "" for the brackets, so its navigation target is the text only.
+FUNC wrapGlyphs(e AS ElementNode, open AS String, close AS String, b AS Boolean, u AS Boolean, c AS Integer, innerHref AS String, bracketHref AS String) AS List OF Glyph
+  LET inner AS List OF Glyph = gatherChildrenGlyphs(e, b, u, c, innerHref)
   MUT joined AS String = ""
   FOR EACH g IN inner
     joined = joined & g.ch
   NEXT
   IF strings::trim(joined) = "" THEN RETURN []
-  MUT out AS List OF Glyph = [Glyph[open, b, u, c]]
+  MUT out AS List OF Glyph = [Glyph[open, b, u, c, bracketHref]]
   FOR EACH g IN inner
     out = collections::append(out, g)
   NEXT
-  out = collections::append(out, Glyph[close, b, u, c])
+  out = collections::append(out, Glyph[close, b, u, c, bracketHref])
   RETURN out
 END FUNC
 
-FUNC gatherAttributed(n AS Node, b AS Boolean, u AS Boolean, c AS Integer) AS List OF Glyph
+FUNC gatherAttributed(n AS Node, b AS Boolean, u AS Boolean, c AS Integer, href AS String) AS List OF Glyph
   MATCH n
     CASE ElementNode(e)
       IF e.style.display = Display.None THEN RETURN []
-      IF e.tag = "a" THEN RETURN wrapGlyphs(e, "[", "]", b, TRUE, linkColor())
-      IF e.tag = "button" THEN RETURN wrapGlyphs(e, "<", ">", b, u, c)
-      IF e.tag = "input" THEN RETURN styleGlyphs(inputBox(e), b, u, c)
-      IF e.tag = "b" OR e.tag = "strong" THEN RETURN gatherChildrenGlyphs(e, TRUE, u, c)
-      IF e.tag = "u" OR e.tag = "ins" THEN RETURN gatherChildrenGlyphs(e, b, TRUE, c)
-      RETURN gatherChildrenGlyphs(e, b, u, c)
+      IF e.tag = "a" THEN RETURN wrapGlyphs(e, "[", "]", b, TRUE, linkColor(), collections::getOr(e.attrs, "href", ""), "")
+      IF e.tag = "button" THEN RETURN wrapGlyphs(e, "<", ">", b, u, c, href, href)
+      IF e.tag = "input" THEN RETURN styleGlyphs(inputBox(e), b, u, c, href)
+      IF e.tag = "b" OR e.tag = "strong" THEN RETURN gatherChildrenGlyphs(e, TRUE, u, c, href)
+      IF e.tag = "u" OR e.tag = "ins" THEN RETURN gatherChildrenGlyphs(e, b, TRUE, c, href)
+      RETURN gatherChildrenGlyphs(e, b, u, c, href)
     CASE TextNode(t)
-      RETURN styleGlyphs(t.text, b, u, c)
+      RETURN styleGlyphs(t.text, b, u, c, href)
     CASE ELSE
       RETURN []
   END MATCH
 END FUNC
 
-' Whether two glyphs carry the same terminal style.
+' Whether two glyphs carry the same terminal style and link.
 FUNC sameStyle(a AS Glyph, g AS Glyph) AS Boolean
-  RETURN a.bold = g.bold AND a.underline = g.underline AND a.color = g.color
+  RETURN a.bold = g.bold AND a.underline = g.underline AND a.color = g.color AND a.href = g.href
 END FUNC
 
 ' Collapse whitespace runs to single spaces and trim, exactly as collapseWs does for
-' plain text (so a run's measured line count matches), carrying each kept glyph's
-' style; a collapsed space is unstyled.
+' plain text (so a run's measured line count matches). A collapsed space carries the
+' style/href of the first whitespace glyph it replaces, so a space *inside* a styled
+' element (a link's or <b>'s internal space) stays styled and the run stays contiguous.
 FUNC collapseGlyphs(gs AS List OF Glyph) AS List OF Glyph
   MUT out AS List OF Glyph = []
   MUT pendingSpace AS Boolean = FALSE
+  MUT spB AS Boolean = FALSE
+  MUT spU AS Boolean = FALSE
+  MUT spC AS Integer = -1
+  MUT spHref AS String = ""
   MUT started AS Boolean = FALSE
   FOR EACH g IN gs
     LET isWs AS Boolean = g.ch = " " OR g.ch = "\t" OR g.ch = "\n" OR g.ch = "\r"
     IF isWs THEN
-      IF started THEN
+      IF started AND NOT pendingSpace THEN
         pendingSpace = TRUE
+        spB = g.bold
+        spU = g.underline
+        spC = g.color
+        spHref = g.href
       END IF
     ELSE
       IF pendingSpace THEN
-        out = collections::append(out, Glyph[" ", FALSE, FALSE, -1])
+        out = collections::append(out, Glyph[" ", spB, spU, spC, spHref])
         pendingSpace = FALSE
       END IF
       out = collections::append(out, g)
@@ -582,7 +595,7 @@ FUNC glyphsSpans(gs AS List OF Glyph) AS List OF TextSpan
       DO WHILE j + 1 < n AND sameStyle(collections::get(gs, j + 1), g)
         j = j + 1
       LOOP
-      spans = collections::append(spans, TextSpan[i, j, g.bold, g.underline, g.color])
+      spans = collections::append(spans, TextSpan[i, j, g.bold, g.underline, g.color, g.href])
       i = j + 1
     ELSE
       i = i + 1
@@ -598,7 +611,7 @@ END FUNC
 FUNC inlineRun(pending AS List OF Node, st AS Style, x AS Integer, y AS Integer, contentW AS Integer, cw AS Integer, linePx AS Integer) AS Sized
   MUT raw AS List OF Glyph = []
   FOR EACH k IN pending
-    FOR EACH g IN gatherAttributed(k, FALSE, FALSE, -1)
+    FOR EACH g IN gatherAttributed(k, FALSE, FALSE, -1, "")
       raw = collections::append(raw, g)
     NEXT
   NEXT

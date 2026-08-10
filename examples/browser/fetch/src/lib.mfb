@@ -78,6 +78,17 @@ FUNC resolveLocation(base AS net::Url, loc AS String) AS String
   RETURN authority & dir & target
 END FUNC
 
+' Resolve a link href against the current page URL, returning an absolute URL the app
+' can load. Wraps resolveLocation with URL parsing (a relative href becomes absolute,
+' an already-absolute one is returned as-is); on a malformed base the raw href is
+' returned unchanged.
+EXPORT FUNC resolveHref(baseUrl AS String, href AS String) AS String
+  LET abs AS String = resolveLocation(net::toUrl(ensureScheme(baseUrl)), href) TRAP(e)
+    RECOVER href
+  END TRAP
+  RETURN abs
+END FUNC
+
 ' The result of fetching a page's stylesheets: the CSS bodies to parse into rules
 ' (only the non-empty ones — an empty sheet has no rules) and how many sheets
 ' actually loaded (which is what the footer's Files count reports).

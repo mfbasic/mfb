@@ -84,6 +84,10 @@ far-left indicator is a spinner while loading, 🔒 for an https page, 🔓 othe
 - **Up / Down** — scroll vertically. **Left / Right** — pan horizontally across a
   page laid out wider than the terminal (a mouse/trackpad's scroll drives these too,
   via the terminal's alternate-screen scroll translation).
+- **Tab** — (Display Mode) focus the next **on-screen link**, wrapping within the links
+  currently visible; the focused link is highlighted. **Enter** follows it, **Esc**
+  un-focuses. Scroll to bring the links you want on screen, then Tab through them; a
+  link that scrolls out of view (or a reflow from resize/mode) drops the selection.
 - **M** — cycle the display width mode: **(s)**tandard (the terminal width),
   **(w)**ide (300 columns), **(e)**xtra-wide (600). Toggling re-lays-out whatever is
   on screen (a rendered page, the raw tree, or the fallback). The current mode shows

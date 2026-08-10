@@ -239,27 +239,54 @@ END FUNC
 ' and bold/underline appear on); a wide glyph can shift an attribute a cell, never
 ' corrupt the frame.
 
-' The terminal style resolved at one grapheme: bold/underline flags and a 0xRRGGBB
-' foreground (-1 = default).
+' The terminal style resolved at one grapheme: bold/underline flags, a 0xRRGGBB
+' foreground (-1 = default), and a link href ("" = not a link).
 TYPE Style3
   bold AS Boolean
   underline AS Boolean
   color AS Integer
+  href AS String
 END TYPE
 
-' A styled column range within one output row (inclusive [c0, c1]).
+' A styled column range within one output row (inclusive [c0, c1]); `href` is set when
+' the range is a link's text.
 TYPE RowSpan
   c0 AS Integer
   c1 AS Integer
   bold AS Boolean
   underline AS Boolean
   color AS Integer
+  href AS String
 END TYPE
 
-' The positioned canvas: the plain text rows and the styled spans recorded for each.
+' One rectangle of a navigation target on a page row: columns [c0, c1] on canvas row
+' `row` (before horizontal scroll).
+EXPORT TYPE Rect
+  row AS Integer
+  c0 AS Integer
+  c1 AS Integer
+END TYPE
+
+' A navigation target (a hyperlink): its URL and the on-screen rectangles its *text*
+' occupies (a wrapped link spans several rows; its decorative brackets are excluded).
+EXPORT TYPE Target
+  href AS String
+  rects AS List OF Rect
+END TYPE
+
+' The result of painting a page: the styled rows to draw, and the navigation targets
+' found with their rectangles (for the app's link focus / activation).
+EXPORT TYPE PaintResult
+  rows AS List OF AttributedString
+  targets AS List OF Target
+END TYPE
+
+' The positioned canvas: the plain text rows, the styled spans per row, and the
+' navigation targets accumulated as runs are painted.
 TYPE Canvas
   rows AS List OF String
   spans AS List OF List OF RowSpan
+  targets AS List OF Target
 END TYPE
 
 ' The style covering grapheme `idx` per a run's spans (ordered, non-overlapping);
@@ -267,10 +294,10 @@ END TYPE
 FUNC styleAt(spans AS List OF TextSpan, idx AS Integer) AS Style3
   FOR EACH sp IN spans
     IF idx >= sp.start AND idx <= sp.endIndex THEN
-      RETURN Style3[sp.bold, sp.underline, sp.color]
+      RETURN Style3[sp.bold, sp.underline, sp.color, sp.href]
     END IF
   NEXT
-  RETURN Style3[FALSE, FALSE, -1]
+  RETURN Style3[FALSE, FALSE, -1, ""]
 END FUNC
 
 ' The graphemes in a string (its count is used to advance the wrap offset).
@@ -290,6 +317,7 @@ FUNC mapLineSpans(spans AS List OF TextSpan, line AS String, lineOffset AS Integ
   MUT rb AS Boolean = FALSE
   MUT ru AS Boolean = FALSE
   MUT rc AS Integer = -1
+  MUT rh AS String = ""
   MUT j AS Integer = 0
   FOR EACH g IN strings::graphemes(line)
     LET col AS Integer = startCol + j
@@ -297,13 +325,13 @@ FUNC mapLineSpans(spans AS List OF TextSpan, line AS String, lineOffset AS Integ
       EXIT FOR
     END IF
     LET stl AS Style3 = styleAt(spans, lineOffset + j)
-    LET styled AS Boolean = stl.bold OR stl.underline OR stl.color >= 0
+    LET styled AS Boolean = stl.bold OR stl.underline OR stl.color >= 0 OR stl.href <> ""
     IF styled AND col >= 0 THEN
-      IF haveRun AND stl.bold = rb AND stl.underline = ru AND stl.color = rc AND col = rs1 + 1 THEN
+      IF haveRun AND stl.bold = rb AND stl.underline = ru AND stl.color = rc AND stl.href = rh AND col = rs1 + 1 THEN
         rs1 = col
       ELSE
         IF haveRun THEN
-          out = collections::append(out, RowSpan[rs0, rs1, rb, ru, rc])
+          out = collections::append(out, RowSpan[rs0, rs1, rb, ru, rc, rh])
         END IF
         haveRun = TRUE
         rs0 = col
@@ -311,17 +339,38 @@ FUNC mapLineSpans(spans AS List OF TextSpan, line AS String, lineOffset AS Integ
         rb = stl.bold
         ru = stl.underline
         rc = stl.color
+        rh = stl.href
       END IF
     ELSE
       IF haveRun THEN
-        out = collections::append(out, RowSpan[rs0, rs1, rb, ru, rc])
+        out = collections::append(out, RowSpan[rs0, rs1, rb, ru, rc, rh])
         haveRun = FALSE
       END IF
     END IF
     j = j + 1
   NEXT
   IF haveRun THEN
-    out = collections::append(out, RowSpan[rs0, rs1, rb, ru, rc])
+    out = collections::append(out, RowSpan[rs0, rs1, rb, ru, rc, rh])
+  END IF
+  RETURN out
+END FUNC
+
+' Add a rect to the target for `href`, appending a new target when this run has not
+' seen the href yet. Grouping is per run, so the same URL in two runs is two links.
+FUNC addRect(targets AS List OF Target, href AS String, rect AS Rect) AS List OF Target
+  MUT out AS List OF Target = []
+  MUT found AS Boolean = FALSE
+  FOR EACH tg IN targets
+    IF NOT found AND tg.href = href THEN
+      out = collections::append(out, Target[href, collections::append(tg.rects, rect)])
+      found = TRUE
+    ELSE
+      out = collections::append(out, tg)
+    END IF
+  NEXT
+  IF NOT found THEN
+    LET rects AS List OF Rect = [rect]
+    out = collections::append(out, Target[href, rects])
   END IF
   RETURN out
 END FUNC
@@ -338,6 +387,8 @@ FUNC paintRun(cv AS Canvas, t AS TextNode, widthCols AS Integer, cw AS Integer, 
   LET lines AS List OF String = wrapRun(collapseRun(t.text), wCols)
   MUT rows AS List OF String = cv.rows
   MUT allSpans AS List OF List OF RowSpan = cv.spans
+  MUT targets AS List OF Target = cv.targets
+  MUT runTargets AS List OF Target = []
   MUT lineOffset AS Integer = 0
   MUT i AS Integer = 0
   FOR EACH line IN lines
@@ -352,6 +403,9 @@ FUNC paintRun(cv AS Canvas, t AS TextNode, widthCols AS Integer, cw AS Integer, 
         MUT existing AS List OF RowSpan = collections::get(allSpans, row)
         FOR EACH rs IN mapLineSpans(t.spans, line, lineOffset, colX + off, rightBound)
           existing = collections::append(existing, rs)
+          IF rs.href <> "" THEN
+            runTargets = addRect(runTargets, rs.href, Rect[row, rs.c0, rs.c1])
+          END IF
         NEXT
         allSpans = collections::set(allSpans, row, existing)
       END IF
@@ -359,7 +413,10 @@ FUNC paintRun(cv AS Canvas, t AS TextNode, widthCols AS Integer, cw AS Integer, 
     lineOffset = lineOffset + graphemeCount(line) + 1
     i = i + 1
   NEXT
-  RETURN Canvas[rows, allSpans]
+  FOR EACH tg IN runTargets
+    targets = collections::append(targets, tg)
+  NEXT
+  RETURN Canvas[rows, allSpans, targets]
 END FUNC
 
 ' The (r, g, b) channels of a packed 0xRRGGBB color.
@@ -391,14 +448,15 @@ FUNC buildRow(rowText AS String, spans AS List OF RowSpan) AS AttributedString
   RETURN a
 END FUNC
 
-' Render the document to a positioned canvas of `widthCols`-wide AttributedString rows,
-' one per page row. The DOM lays out in device-independent CSS px, so paint gives it a
-' viewport of `widthCols * cellPx` px and the glyph size (`cellPx` wide, `linePx` tall),
-' maps every text run's px box down to terminal cells as it draws, and carries each
-' run's styling onto the rows (see paintRun). This is where all px → cell conversion
-' happens; the DOM never knows about terminal cells. Walks iteratively (the imported
-' Node union does not lower to a recursive function).
-EXPORT FUNC paint(root AS Node, widthCols AS Integer, cellPx AS Integer, linePx AS Integer) AS List OF AttributedString
+' Render the document to a `widthCols`-wide canvas: a `PaintResult` of one
+' AttributedString per page row plus the navigation targets found (links, with their
+' on-screen rectangles). The DOM lays out in device-independent CSS px, so paint gives
+' it a viewport of `widthCols * cellPx` px and the glyph size (`cellPx` wide, `linePx`
+' tall), maps every text run's px box down to terminal cells as it draws, carries each
+' run's styling onto the rows, and collects each link's text rectangles (see paintRun).
+' This is where all px → cell conversion happens; the DOM never knows about terminal
+' cells. Walks iteratively (the imported Node union does not lower to a recursive fn).
+EXPORT FUNC paint(root AS Node, widthCols AS Integer, cellPx AS Integer, linePx AS Integer) AS PaintResult
   LET cw AS Integer = maxOf(1, cellPx)
   LET lh AS Integer = maxOf(1, linePx)
   LET viewportPx AS Integer = maxOf(0, widthCols) * cw
@@ -411,7 +469,8 @@ EXPORT FUNC paint(root AS Node, widthCols AS Integer, cellPx AS Integer, linePx 
     rows = collections::append(rows, "")
     spans = collections::append(spans, emptyRow)
   NEXT
-  MUT cv AS Canvas = Canvas[rows, spans]
+  LET noTargets AS List OF Target = []
+  MUT cv AS Canvas = Canvas[rows, spans, noTargets]
   MUT stack AS List OF Node = [laid]
   DO WHILE len(stack) > 0
     LET i AS Integer = len(stack) - 1
@@ -436,7 +495,7 @@ EXPORT FUNC paint(root AS Node, widthCols AS Integer, cellPx AS Integer, linePx 
     out = collections::append(out, buildRow(rowText, collections::get(cv.spans, r)))
     r = r + 1
   NEXT
-  RETURN out
+  RETURN PaintResult[out, cv.targets]
 END FUNC
 
 ' The readable page text: a pre-order walk emitting text, breaking lines on

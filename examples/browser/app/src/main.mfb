@@ -46,6 +46,10 @@ IMPORT thread
 '   M / m      cycle the display width: (s)tandard=terminal width, (w)ide=300,
 '              (e)xtra-wide=600 columns (shown as (s)/(w)/(e) before Files). A new
 '              page load resets to standard.
+'   Tab        (Display Mode) focus the next on-screen link, wrapping within the
+'              links currently visible; the focused link is highlighted.
+'   Enter      (Display Mode) follow the focused link.
+'   Esc        (Display Mode) un-focus the highlighted link.
 '
 ' On a load error of any kind the error message is shown in the content area.
 '
@@ -343,11 +347,55 @@ SUB drawChrome(size AS TermSize, addressMode AS Boolean, rawMode AS Boolean, url
   END IF
 END SUB
 
+' ----- link navigation -----
+'
+' display::paint returns the page's links as `Target`s, each with the on-screen
+' rectangles its text occupies (brackets excluded). The app Tab-cycles the links that
+' are currently on screen, highlights the focused one, and loads its href on Enter.
+
+' Whether any of target `t`'s text is on a currently visible row and column.
+FUNC targetVisible(t AS Target, scroll AS Integer, contentH AS Integer, hscroll AS Integer, cols AS Integer) AS Boolean
+  FOR EACH rc IN t.rects
+    IF rc.row >= scroll AND rc.row < scroll + contentH THEN
+      IF rc.c1 >= hscroll AND rc.c0 < hscroll + cols THEN
+        RETURN TRUE
+      END IF
+    END IF
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' The next on-screen target after `from` in document order, wrapping around the visible
+' set; -1 when no target is on screen. `from` = -1 starts the scan at the first target.
+FUNC nextVisibleTarget(targets AS List OF Target, from AS Integer, scroll AS Integer, contentH AS Integer, hscroll AS Integer, cols AS Integer) AS Integer
+  LET n AS Integer = len(targets)
+  IF n = 0 THEN RETURN -1
+  MUT k AS Integer = 0
+  DO WHILE k < n
+    LET idx AS Integer = (from + 1 + k) MOD n
+    IF targetVisible(collections::get(targets, idx), scroll, contentH, hscroll, cols) THEN
+      RETURN idx
+    END IF
+    k = k + 1
+  LOOP
+  RETURN -1
+END FUNC
+
+' Overlay a selection background over columns [c0, c1] of a row (the focused link).
+FUNC highlightRow(a AS AttributedString, c0 AS Integer, c1 AS Integer) AS AttributedString
+  LET n AS Integer = len(toString(a))
+  LET s0 AS Integer = maxOf(0, c0)
+  LET s1 AS Integer = minOf(c1, n - 1)
+  IF s1 < s0 THEN RETURN a
+  RETURN astrings::addAttribute(a, s0, s1, astrings::background(60, 90, 150))
+END FUNC
+
 ' Repaint the whole content region (rows 2 .. H-3). Every row is rewritten,
 ' blanks included, so a shorter page leaves no stale lines behind. Each row is an
 ' AttributedString drawn with term::drawText, which honours its per-run bold /
-' underline / foreground colour.
-SUB drawContent(size AS TermSize, wrapped AS List OF AttributedString, scroll AS Integer, hscroll AS Integer)
+' underline / foreground colour. `focusRects` are the focused link's rectangles; their
+' cells get a selection background overlaid before the row is drawn.
+SUB drawContent(size AS TermSize, wrapped AS List OF AttributedString, scroll AS Integer, hscroll AS Integer, focusRects AS List OF Rect)
   LET cols AS Integer = size.columns
   LET contentH AS Integer = maxOf(1, size.rows - 4)
   term::setBackground(0, 0, 0)
@@ -361,7 +409,13 @@ SUB drawContent(size AS TermSize, wrapped AS List OF AttributedString, scroll AS
     ' windows the row horizontally without slicing the (opaque) AttributedString.
     term::drawText(0, 2 + r, blank)
     IF idx >= 0 AND idx < len(wrapped) THEN
-      term::drawText(0 - hscroll, 2 + r, collections::get(wrapped, idx))
+      MUT rowA AS AttributedString = collections::get(wrapped, idx)
+      FOR EACH rc IN focusRects
+        IF rc.row = idx THEN
+          rowA = highlightRow(rowA, rc.c0, rc.c1)
+        END IF
+      NEXT
+      term::drawText(0 - hscroll, 2 + r, rowA)
     END IF
   NEXT
 END SUB
@@ -413,6 +467,16 @@ FUNC main AS Integer
   ' marks the content region for repaint (a load, a scroll, or a resize); the chrome
   ' is cheap and repainted every frame. term::didResize() reports a terminal resize.
   MUT wrapped AS List OF AttributedString = []
+  ' The page's navigation targets (links) from display::paint, recomputed with
+  ' `wrapped`. `focusIdx` is the Tab-selected link (-1 = none); it is only ever set to
+  ' an on-screen link and is dropped when the page reflows or that link scrolls away.
+  MUT targets AS List OF Target = []
+  MUT focusIdx AS Integer = -1
+  ' A URL to load this frame (set by Address-Mode Enter or activating a focused link),
+  ' consumed by the load section below; "" means nothing to load.
+  MUT loadTarget AS String = ""
+  ' An empty rect list, for drawing content with no link highlighted.
+  LET noRects AS List OF Rect = []
   ' The widest content line, for clamping the horizontal scroll (Left/Right). The
   ' page can be laid out wider than the terminal (see layoutWidthFor / the width
   ' mode), and the viewport shows a `cols`-wide window starting at `hscroll`.
@@ -457,7 +521,9 @@ FUNC main AS Integer
       LET layoutW AS Integer = layoutWidthFor(widthMode, cols)
       IF needRecontent OR layoutW <> lastContentWidth THEN
         IF paintMode THEN
-          wrapped = display::paint(pageDoc, layoutW, termCellPx(), termLinePx())
+          LET pr AS PaintResult = display::paint(pageDoc, layoutW, termCellPx(), termLinePx())
+          wrapped = pr.rows
+          targets = pr.targets
         ELSE
           IF haveDom THEN
             content = display::tree(pageDoc, layoutW)
@@ -465,11 +531,14 @@ FUNC main AS Integer
             content = fallback
           END IF
           wrapped = attrLines(wrapContent(content, layoutW))
+          targets = []
         END IF
         contentPixWidth = maxLineWidth(wrapped)
         lastContentWidth = layoutW
         needRecontent = FALSE
         contentDirty = TRUE
+        ' The page reflowed: any link selection no longer maps to it.
+        focusIdx = -1
       END IF
 
       ' Keep the scroll offset in range; a change repaints the content region.
@@ -494,9 +563,22 @@ FUNC main AS Integer
         contentDirty = TRUE
       END IF
 
+      ' A focused link that has scrolled out of view loses its selection.
+      IF focusIdx >= 0 THEN
+        IF NOT targetVisible(collections::get(targets, focusIdx), scroll, contentHeight(size), hscroll, cols) THEN
+          focusIdx = -1
+          contentDirty = TRUE
+        END IF
+      END IF
+
+      MUT focusRects AS List OF Rect = noRects
+      IF focusIdx >= 0 THEN
+        focusRects = collections::get(targets, focusIdx).rects
+      END IF
+
       drawChrome(size, addressMode, rawMode, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
       IF contentDirty THEN
-        drawContent(size, wrapped, scroll, hscroll)
+        drawContent(size, wrapped, scroll, hscroll, focusRects)
         contentDirty = FALSE
       END IF
       term::sync()
@@ -508,65 +590,9 @@ FUNC main AS Integer
 
     IF addressMode THEN
       IF key = "ENTER" THEN
-        ' Leave Address Mode and load the URL. The fetch runs on a worker thread
-        ' so the UI thread stays free to animate the spinner: draw a "Loading…"
-        ' frame, start backend::fetch, then spin at ~10 fps until it finishes.
+        ' Leave Address Mode; the unified load section below fetches loadTarget.
         addressMode = FALSE
-        loadState = "loading"
-        pageTitle = ""
-        LET target AS String = strings::trim(url)
-        LET loadingLines AS List OF AttributedString = attrLines(wrapContent("Loading " & target & " ...", cols))
-        drawChrome(size, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
-        drawContent(size, loadingLines, 0, 0)
-        term::sync()
-
-        LET worker AS Thread OF String TO LoadResult = thread::start(fetch::fetch, target)
-        DO WHILE thread::isRunning(worker)
-          spinner = spinner + 1
-          drawChrome(size, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
-          term::sync()
-          ' Wait up to one frame for a key; Q aborts the load and quits.
-          IF ready(100) THEN
-            LET k AS String = readKey()
-            IF k = "q" OR k = "Q" OR k = "EOF" THEN
-              thread::cancel(worker)
-              running = FALSE
-              EXIT DO
-            END IF
-          END IF
-        LOOP
-
-        IF running THEN
-          ' Not aborted: take the result. (On abort the handle drops here,
-          ' cancelling and detaching the worker so quitting is immediate.)
-          LET page AS LoadResult = thread::waitFor(worker)
-          ' The worker parsed the page into a DOM and deep-copied it back here.
-          ' The title goes in the top bar; the document drives the content. A new
-          ' page opens in Display Mode. On error there is no DOM, so the error
-          ' message shows via `fallback`.
-          haveDom = page.ok
-          IF page.ok THEN
-            pageDoc = page.document
-            pageTitle = page.title
-          ELSE
-            fallback = page.message
-            pageTitle = ""
-          END IF
-          rawMode = FALSE
-          secure = page.secure
-          filesLoaded = page.filesLoaded
-          filesTotal = page.filesTotal
-          scroll = 0
-          hscroll = 0
-          widthMode = "s"
-          needRecontent = TRUE
-          contentDirty = TRUE
-          IF page.ok THEN
-            loadState = "ok"
-          ELSE
-            loadState = "error"
-          END IF
-        END IF
+        loadTarget = strings::trim(url)
       ELSEIF key = "ESC" THEN
         ' Esc clears the address first; a second Esc (empty field) cancels, restoring
         ' the address that was there on entering Address Mode (so a cancel is a no-op).
@@ -623,6 +649,85 @@ FUNC main AS Integer
         hscroll = 0
         needRecontent = TRUE
         contentDirty = TRUE
+      ELSEIF key = "\t" THEN
+        ' Tab: focus the next on-screen link, wrapping within the visible set.
+        focusIdx = nextVisibleTarget(targets, focusIdx, scroll, contentHeight(size), hscroll, cols)
+        contentDirty = TRUE
+      ELSEIF key = "ENTER" THEN
+        ' Enter activates the focused link: resolve its href against the current page
+        ' URL and queue the load. With no link focused it does nothing.
+        IF focusIdx >= 0 THEN
+          loadTarget = fetch::resolveHref(url, collections::get(targets, focusIdx).href)
+        END IF
+      ELSEIF key = "ESC" THEN
+        ' Esc un-highlights the focused link.
+        IF focusIdx >= 0 THEN
+          focusIdx = -1
+          contentDirty = TRUE
+        END IF
+      END IF
+    END IF
+
+    ' Unified load: Address-Mode Enter and activating a focused link both set
+    ' loadTarget. Fetch it on a worker thread while the spinner keeps animating.
+    IF loadTarget <> "" AND running THEN
+      LET target AS String = loadTarget
+      loadTarget = ""
+      url = target
+      addressMode = FALSE
+      loadState = "loading"
+      pageTitle = ""
+      focusIdx = -1
+      LET loadingLines AS List OF AttributedString = attrLines(wrapContent("Loading " & target & " ...", cols))
+      drawChrome(size, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
+      drawContent(size, loadingLines, 0, 0, noRects)
+      term::sync()
+
+      LET worker AS Thread OF String TO LoadResult = thread::start(fetch::fetch, target)
+      DO WHILE thread::isRunning(worker)
+        spinner = spinner + 1
+        drawChrome(size, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
+        term::sync()
+        ' Wait up to one frame for a key; Q aborts the load and quits.
+        IF ready(100) THEN
+          LET k AS String = readKey()
+          IF k = "q" OR k = "Q" OR k = "EOF" THEN
+            thread::cancel(worker)
+            running = FALSE
+            EXIT DO
+          END IF
+        END IF
+      LOOP
+
+      IF running THEN
+        ' Not aborted: take the result. (On abort the handle drops here, cancelling
+        ' and detaching the worker so quitting is immediate.)
+        LET page AS LoadResult = thread::waitFor(worker)
+        ' The worker parsed the page into a DOM and deep-copied it back. The title
+        ' goes in the top bar; the document drives the content. A new page opens in
+        ' Display Mode. On error there is no DOM, so the message shows via `fallback`.
+        haveDom = page.ok
+        IF page.ok THEN
+          pageDoc = page.document
+          pageTitle = page.title
+        ELSE
+          fallback = page.message
+          pageTitle = ""
+        END IF
+        rawMode = FALSE
+        secure = page.secure
+        filesLoaded = page.filesLoaded
+        filesTotal = page.filesTotal
+        scroll = 0
+        hscroll = 0
+        widthMode = "s"
+        needRecontent = TRUE
+        contentDirty = TRUE
+        IF page.ok THEN
+          loadState = "ok"
+        ELSE
+          loadState = "error"
+        END IF
       END IF
     END IF
   LOOP
