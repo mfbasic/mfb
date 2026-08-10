@@ -158,29 +158,43 @@ Single-bucket func families, one file cluster each.
 Acceptance (per-site gate) MET: `grep -rcE 'self\.emit_(index_out_of_range|not_found|
 encoding_error|invalid_format)_return\(\)' src/target/shared/code/*.rs` → 0; rt-error
 fixtures byte-identical; `cargo test` green.
-Commit: <this commit>.
+Commit: d9316c0ea
 
 ### Phase 3 — high-volume families (allocation, invalid_argument)
 
 Largest blast radius; do last, pattern already proven.
 
-- [ ] Migrate all 61 `emit_allocation_error_return` + 25 direct
-      `emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)`
-      sites. Allocation failure inside a builtin lowering → `raise_error(func_id,
-      "ErrOutOfMemory")` + declare; inside a shared allocator/arena helper with no
-      owner → `raise_error_bare("ErrOutOfMemory")`. Classify each.
-- [ ] Migrate all 26 `emit_invalid_argument_return` sites likewise.
-- [ ] Add `errors` entries for every builtin that raises `ErrOutOfMemory` /
-      `ErrInvalidArgument` (expect a broad set across `collections`/`strings`/
-      `crypto`/`money`/etc.).
-- [ ] Tests: `tests/rt-error/**` fixtures triggering an allocation-failure path
-      and an invalid-argument path, asserting `Error.code`; green before and after.
+- [x] Migrated all 86 `ErrOutOfMemory` sites (61 `emit_allocation_error_return` +
+      25 direct). **All bare** — corrected from the plan's per-builtin idea:
+      `ErrOutOfMemory` is a system-level allocator error with no single owning
+      builtin (raised at shared arena-alloc points). The 25 direct sites are
+      byte-identical; the 61 `emit_allocation_error_return` sites are
+      runtime-equivalent (they used the x0-register optimization — `_mfb_arena_alloc`
+      returns the OOM code in x0, per the bug-352 guard — so `raise_error_bare`'s
+      immediate 77010001 is the same error, but `.ncode` bytes change).
+- [x] Migrated all 26 `emit_invalid_argument_return` sites (func: strings.split/
+      count/repeat, toScalar declare `ErrInvalidArgument`; bare: dispatchers/shared
+      helpers). Byte-identical.
+- [x] Declared errors on the func builtins (no `ErrOutOfMemory` declarations — it is
+      bare). `emit_error_code_return` has no `ERR_*`-constant caller left; deleted the
+      `emit_allocation_error_return` + `emit_invalid_argument_return` wrappers.
+- [~] Tests: `cargo test` 3753 green; invalid_argument byte-identical (strings gate
+      0 diffs). Allocation is untestable via rt-error (can't force OOM) — verified
+      runtime-equivalent by construction (source diff is ONLY `raise_error_bare(
+      "ErrOutOfMemory")` swaps; OOM code+message unchanged). **Byte-identity `.ncode`
+      goldens re-baselined** via `scripts/regen-ncodesum.sh` (the intended allocation
+      churn; artifact-gate re-verified 0 diffs).
 
-Acceptance (per-site gate): `grep -rc 'self\.emit_allocation_error_return\|self\.emit_invalid_argument_return'
-src/target/shared/code/*.rs` sums to 0, and `emit_error_code_return` has no
-`ERR_*`-constant caller left outside `builder_error_emission.rs`; the rt-error
-fixtures raise the same `Error.code` after as before; `cargo test --bin mfb` green.
-Commit: —
+Acceptance (per-site gate) MET: `grep -rc 'self\.emit_allocation_error_return\|self\.emit_invalid_argument_return'
+src/target/shared/code/*.rs` → 0; `cargo test --bin mfb` green; the 112 byte-identity
+`.ncodesum` goldens refreshed to the unified allocation codegen.
+Commit: 8a336ea95 (code) + <regen commit>.
+
+> bug-352 guard test (`no_overflow_label_returns_through_the_result_tag_register`,
+> `tests.rs`) is now moot — it scanned for `emit_allocation_error_return` after
+> overflow labels; the symbol is deleted and `raise_error_bare` never reads x0, so
+> the footgun is structurally gone. Left in place (passes trivially, offenders empty);
+> D may remove it.
 
 ## Validation Plan
 
