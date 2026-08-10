@@ -38,7 +38,8 @@ IMPORT thread
 '   R / r      (Display Mode) switch to Raw Mode — the parsed DOM as a tree
 '   D / d      (Raw Mode) switch back to Display Mode
 '   In Address Mode: type to edit the URL, Backspace deletes, Enter loads the
-'                    URL and returns to Display Mode, Esc cancels.
+'                    URL and returns to Display Mode, Esc clears the address (and
+'                    cancels when it is already empty).
 '   Up / Down  scroll the content one line at a time.
 '   Left/Right pan a wider-than-screen page horizontally one column at a time.
 '   M / m      cycle the display width: (s)tandard=terminal width, (w)ide=300,
@@ -321,7 +322,7 @@ SUB drawChrome(size AS TermSize, addressMode AS Boolean, rawMode AS Boolean, url
   LET rightPart AS String = "(" & widthMode & ") Files: " & toString(filesLoaded) & "/" & toString(filesTotal)
   MUT leftPart AS String = "[Q]uit  [G]o  [R]aw  [M]ode"
   IF rawMode THEN leftPart = "[Q]uit  [G]o  [D]ocument  [M]ode"
-  IF addressMode THEN leftPart = "[Esc] Cancel  [Enter] Go"
+  IF addressMode THEN leftPart = "[Esc] Clear/Cancel  [Enter] Go"
   term::setBackground(30, 40, 60)
   term::setForeground(225, 233, 255)
   term::setBold(TRUE)
@@ -567,7 +568,12 @@ FUNC main AS Integer
           END IF
         END IF
       ELSEIF key = "ESC" THEN
-        addressMode = FALSE
+        ' Esc clears the address first; a second Esc (empty field) cancels.
+        IF len(url) > 0 THEN
+          url = ""
+        ELSE
+          addressMode = FALSE
+        END IF
       ELSEIF key = "BACKSPACE" THEN
         IF len(url) > 0 THEN url = strings::mid(url, 0, len(url) - 1)
       ELSEIF key = "EOF" THEN

@@ -77,7 +77,8 @@ Run it from an interactive terminal. The top bar shows the page **title**
 far-left indicator is a spinner while loading, 🔒 for an https page, 🔓 otherwise.
 
 - **G** — enter Address Mode; type a URL, **Backspace** deletes, **Enter** loads
-  it, **Esc** cancels. `https://` is assumed when you omit the scheme.
+  it, **Esc** clears the address (press it again on an empty field to cancel).
+  `https://` is assumed when you omit the scheme.
 - **R** — (Display Mode) switch to **Raw Mode**: the parsed DOM as an indented tree.
 - **D** — (Raw Mode) switch back to Display Mode.
 - **Up / Down** — scroll vertically. **Left / Right** — pan horizontally across a
