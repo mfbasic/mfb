@@ -612,6 +612,14 @@ impl plan::NativePlanPlatform for Platform {
                 stdin_broadcast_imports(&mut imports);
                 imports
             }
+            // plan-91-A: the parent sleep helper calls only libc `nanosleep`; the
+            // pthread set is pulled by `thread.start` (needed to obtain the handle).
+            // Gating nanosleep to this call keeps non-sleep programs byte-identical.
+            "thread.sleep" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_nanosleep".to_string(),
+                required_by: required_by.clone(),
+            }],
             "thread.start"
             | "thread.isRunning"
             | "thread.waitFor"
@@ -622,6 +630,7 @@ impl plan::NativePlanPlatform for Platform {
             | "thread.read"
             | "thread.receive"
             | "thread.emit"
+            | "thread.sleepWorker"
             | "thread.isCancelled"
             | "thread.transferResource"
             | "thread.acceptResource" => [

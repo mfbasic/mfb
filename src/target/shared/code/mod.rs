@@ -1548,6 +1548,18 @@ pub(crate) fn lower_module_for_platform(
     {
         runtime_symbols.push("_mfb_rt_thread_thread_emit".to_string());
     }
+    // plan-91-B: the NIR carries `thread.sleep`; codegen routes a worker-handle
+    // call to `thread.sleepWorker` (the cancellation-aware form). Emit the
+    // companion so the worker direction has a defined helper body.
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_thread_thread_sleep")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_thread_thread_sleepWorker")
+    {
+        runtime_symbols.push("_mfb_rt_thread_thread_sleepWorker".to_string());
+    }
     // The resource plane mirrors the data plane's direction split: the NIR carries
     // the pre-split `transferResource`/`acceptResource` target, while codegen may
     // route a worker-handle call to `emitResource` (outbound write) or a
@@ -2251,9 +2263,11 @@ fn lower_runtime_helper(
                 | "thread.drop"
                 | "thread.send"
                 | "thread.poll"
+                | "thread.sleep"
                 | "thread.read"
                 | "thread.receive"
                 | "thread.emit"
+                | "thread.sleepWorker"
                 | "thread.transferResource"
                 | "thread.acceptResource"
                 | "thread.emitResource"

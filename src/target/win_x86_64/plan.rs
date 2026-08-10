@@ -419,6 +419,9 @@ impl NativePlanPlatform for Platform {
                     import("SleepConditionVariableSRW", KERNEL32, required_by),
                     import("SwitchToThread", KERNEL32, required_by),
                     import("GetSystemTimePreciseAsFileTime", KERNEL32, required_by),
+                    // plan-91-A: the parent `thread::sleep` helper maps nanosleep
+                    // to Sleep(dwMilliseconds).
+                    import("Sleep", KERNEL32, required_by),
                 ]
             }
             // Networking (plan-47-I): every `net.*` helper is Winsock2 over

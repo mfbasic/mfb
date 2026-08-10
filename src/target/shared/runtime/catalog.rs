@@ -168,9 +168,11 @@ static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     THREAD_DROP_SPEC,
     THREAD_SEND_SPEC,
     THREAD_POLL_SPEC,
+    THREAD_SLEEP_SPEC,
     THREAD_READ_SPEC,
     THREAD_RECEIVE_SPEC,
     THREAD_EMIT_SPEC,
+    THREAD_SLEEP_WORKER_SPEC,
     THREAD_TRANSFER_SPEC,
     THREAD_ACCEPT_SPEC,
     THREAD_EMIT_RESOURCE_SPEC,
@@ -255,6 +257,9 @@ mod tests {
             "thread.drop",
             "thread.read",
             "thread.emit",
+            // plan-91-B: worker-side sleep is synthesized from `thread.sleep` in
+            // the code layer (builder_values), so it never exists at NIR level.
+            "thread.sleepWorker",
             "net.connectTcpAddr",
             // plan-90-A: `process.spawn(args, cwd, env, envReplace)` is rewritten to
             // `process.spawnEnv` in the code layer (`builder_values`), so it never

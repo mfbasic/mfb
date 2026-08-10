@@ -1,0 +1,69 @@
+' In-memory number-conversion benchmarks (plan-87 Theme 3). `toString`/`toInt`/
+' `toFloat` are exercised elsewhere only INSIDE the file-IO-bound `io format` /
+' `io readnum` rows, so their cost is entangled with `fs` writes. A pure
+' in-memory parse+render loop isolates the conversion hot path — the inner loop
+' of logging and serialization — which is genuinely distinct. Group `convert`.
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+' ---- convert int: render toString(i) + reparse toInt(s), no IO ---------------
+'
+' The integer<->text formatter/parser round-trip with no file IO. Realistic N.
+' checksum folds both the reparsed value (proves the parse) and the rendered
+' length (proves the render width). API: toString(Integer), toInt(String).
+FUNC test_convert_int(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 99999
+      LET s AS String = toString(i)
+      LET back AS Integer = toInt(s)
+      acc = acc + back + len(s)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("convert_int = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("convert", "int", times))
+END FUNC
+
+' ---- convert float: render toString(f, 6) + reparse toFloat(s) ---------------
+'
+' The Float formatter (float_format.rs) + parser round-trip, isolated from IO.
+' The value is i/8 — an exact dyadic rational, so its 6-decimal rendering is
+' exact and unambiguous across all three languages (no formatting ambiguity).
+' Realistic N. checksum folds the reparsed value scaled to micro-units plus the
+' rendered length. API: toString(Float, decimals), toFloat(String).
+'
+' The value fold ROUNDS to nearest (`+ 0.5` before `toInt`) rather than
+' truncating: mfb's `toFloat` is a naive digit-accumulation parser (acc +=
+' digit/scale) that is not correctly rounded, so e.g. toFloat("2.375000") lands
+' one ULP low at 2.37499999999999956; a plain truncation would fold that to
+' i*125000-1 while C strtod / Python float reproduce i/8 exactly. Rounding
+' (the error is < 3e-6 micro-units, far under 0.5) recovers the exact i*125000
+' in all three, so the checksum stays a stable round-trip proof. (The toFloat
+' last-ULP imprecision is a separate, pre-existing runtime limitation — see the
+' plan-87 Corrections — not introduced here.)
+FUNC test_convert_float(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 99999
+      LET v AS Float = toFloat(i) / 8.0
+      LET s AS String = toString(v, toByte(6))
+      LET b AS Float = toFloat(s)
+      acc = acc + toInt(b * 1000000.0 + 0.5) + len(s)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("convert_float = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("convert", "float", times))
+END FUNC

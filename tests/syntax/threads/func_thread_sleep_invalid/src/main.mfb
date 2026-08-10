@@ -1,0 +1,12 @@
+IMPORT thread
+IMPORT thread_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+  thread::sleep()
+  thread::sleep(t)
+  thread::sleep(1, 0)
+  thread::sleep(t, "bad")
+  thread::sleep(t, 0, 1)
+  RETURN 0
+END FUNC

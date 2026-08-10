@@ -26,6 +26,7 @@
 #include "bench.h"
 #include "bitsbench.h"
 #include "churnbench.h"
+#include "convertbench.h"
 #include "cryptobench.h"
 #include "datetimebench.h"
 #include "dispatchbench.h"
@@ -36,6 +37,7 @@
 #include "mathbench.h"
 #include "mathpipe.h"
 #include "parsebench.h"
+#include "pipelinebench.h"
 #include "regexbench.h"
 #include "scalarbench.h"
 #include "serializebench.h"
@@ -44,6 +46,7 @@
 #include "strbuildbench.h"
 #include "stringbench.h"
 #include "vectorbench.h"
+#include "widthbench.h"
 
 int RUN = 10;
 
@@ -62,7 +65,12 @@ typedef struct {
   int na; /* 1 = mfb-only row with no C peer; printed as "--" to line the tables up */
 } Result;
 
-static Result results[256];
+/* Sized well above the total row count (~262 today). The suite has grown past
+ * the original 256 — an out-of-bounds write here silently corrupts memory and
+ * crashes print_results — so keep generous headroom for future rows and guard
+ * the append below. */
+#define MAX_RESULTS 512
+static Result results[MAX_RESULTS];
 static int nresults = 0;
 
 static int cmp_ll(const void *a, const void *b) {
@@ -74,6 +82,10 @@ static int cmp_ll(const void *a, const void *b) {
  * `times` records an mfb-only row with no C peer: it prints as "--" so every
  * target's table has the same rows in the same order. */
 void record(const char *group, const char *name, long long *times, int n) {
+  if (nresults >= MAX_RESULTS) {
+    fprintf(stderr, "record: results overflow (MAX_RESULTS=%d) — raise it\n", MAX_RESULTS);
+    abort();
+  }
   if (times == NULL) {
     Result na = {group, name, 0, 0, 0, 0, 1};
     results[nresults++] = na;
@@ -745,6 +757,12 @@ int main(int argc, char **argv) {
   run_arena_group();
 
   run_scalarbench_group();
+
+  run_width_group();
+
+  run_pipeline_group();
+
+  run_convert_group();
 
   test_primes();
 

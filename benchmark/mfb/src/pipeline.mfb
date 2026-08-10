@@ -1,0 +1,109 @@
+' Chained collection HOF pipeline benchmarks (plan-87 Theme 2). The bug-430
+' matrix benches each HOF alone (one call per member); no row chains them. A
+' `filter -> transform -> reduce` pipeline is the canonical collection-processing
+' shape and stresses a cost the per-member rows never show: the intermediate
+' lists materialized between stages, plus back-to-back indirect FUNC dispatch.
+' It is also a natural future fusion target, so it is worth tracking as its own
+' regression row. Group `pipeline`.
+IMPORT io
+IMPORT strings
+IMPORT collections
+IMPORT datetime
+
+FUNC pipeAddInt(acc AS Integer, x AS Integer) AS Integer
+  RETURN acc + x
+END FUNC
+
+' ---- pipeline int: filter (even) -> transform (x3+1) -> reduce (sum) ---------
+'
+' Two intermediate lists + three HOF passes vs the single-op rows. Integer,
+' fixed-width — not arena-sensitive — so realistic N. checksum = the sum.
+FUNC test_pipeline_int(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT data AS List OF Integer = []
+  FOR i = 0 TO 9999
+    data = collections::append(data, i)
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT total AS Integer = 0
+    FOR rep = 0 TO 199
+      LET evens AS List OF Integer = collections::filter(data, isEven)
+      LET tripled AS List OF Integer = collections::transform(evens, LAMBDA(x AS Integer) -> x * 3 + 1)
+      total = collections::reduce(tripled, 0, pipeAddInt)
+    NEXT
+    checksum = total
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("pipeline_int = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("pipeline", "int", times))
+END FUNC
+
+' ---- pipeline groupagg: groupBy -> mapValues(reduce) -> values -> reduce -----
+'
+' The map-of-list aggregate-then-fold ETL shape (distinct from `listchurn
+' nested`, which builds + flattens but does not fold buckets). Realistic N
+' (Integer). checksum = the folded total (= sum of every element).
+FUNC test_pipeline_groupagg(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT data AS List OF Integer = []
+  FOR i = 0 TO 9999
+    data = collections::append(data, i)
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT total AS Integer = 0
+    FOR rep = 0 TO 99
+      LET buckets AS Map OF Integer TO List OF Integer = collections::groupBy(data, LAMBDA(n AS Integer) -> n MOD 7, LAMBDA(n AS Integer) -> n)
+      LET sums AS Map OF Integer TO Integer = collections::mapValues(buckets, LAMBDA(bucket AS List OF Integer) -> collections::reduce(bucket, 0, pipeAddInt))
+      LET bucketSums AS List OF Integer = collections::values(sums)
+      total = collections::reduce(bucketSums, 0, pipeAddInt)
+    NEXT
+    checksum = total
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("pipeline_groupagg = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("pipeline", "groupagg", times))
+END FUNC
+
+' ---- pipeline str (arena-gated): the same chain over a List OF String --------
+'
+' filter (non-empty) -> transform (strings::upper) -> reduce (concat-length
+' fold). The String-element pipeline exercises the String native-lowering path
+' end-to-end.
+'
+' TODO(plan-86-A): String reshape churn — each `transform` allocates a fresh
+' List OF String of fresh uppercased String temporaries — so the list size (50)
+' and rep count (20) are deliberately small (mirrors the matrix `Dynamic`
+' reshape rows). Raise them when plan-86 sub-plan A (String native lowering)
+' lands. API: collections::filter/transform/reduce, strings::upper.
+FUNC test_pipeline_str(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT data AS List OF String = []
+  FOR i = 0 TO 49
+    IF i MOD 7 = 0 THEN
+      data = collections::append(data, "")
+    ELSE
+      data = collections::append(data, "row" & toString(i) & "Value")
+    END IF
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT total AS Integer = 0
+    FOR rep = 0 TO 19
+      LET kept AS List OF String = collections::filter(data, isNotEmpty)
+      LET upped AS List OF String = collections::transform(kept, LAMBDA(s AS String) -> strings::upper(s))
+      total = collections::reduce(upped, 0, LAMBDA(acc AS Integer, s AS String) -> acc + len(s))
+    NEXT
+    checksum = total
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("pipeline_str = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("pipeline", "str", times))
+END FUNC
