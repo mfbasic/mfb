@@ -1,0 +1,11 @@
+IMPORT io
+
+' bug-298: a resource `src`/`dst` glob in project.json may not escape the project
+' root. The old guard split only on `/` and treated only a leading `/` as
+' absolute, so `..` traversal (and Windows/backslash/absolute spellings) slipped
+' through. path_stays_in_project now rejects any `..` component. This project's
+' resource src `../outside/secret.conf` must be rejected at the build gate.
+FUNC main AS Integer
+  io::print("hi")
+  RETURN 0
+END FUNC
