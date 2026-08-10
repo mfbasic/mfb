@@ -82,17 +82,6 @@ FUNC nextWidthMode(mode AS String) AS String
   RETURN "s"
 END FUNC
 
-' The display mode a freshly loaded page should open in, chosen from its natural content
-' width (the widest the layout wants to be at the terminal width). Standard (the terminal
-' width) when the page already fits it; otherwise the smallest mode wide enough to hold the
-' content without horizontal scrolling — wide (300) up to 300 cells, else extra-wide (600).
-' Content wider than 600 still opens extra-wide and pans with Left/Right (paint never clips).
-FUNC bestWidthMode(natural AS Integer, cols AS Integer) AS String
-  IF natural <= cols THEN RETURN "s"
-  IF natural <= 300 THEN RETURN "w"
-  RETURN "e"
-END FUNC
-
 ' Rows available for page content: everything except the 2 header and 2 footer
 ' rows. At least one row so the arithmetic below never goes negative.
 FUNC contentHeight(size AS TermSize) AS Integer
@@ -383,9 +372,8 @@ FUNC main AS Integer
   MUT pageTitle AS String = ""
   MUT scroll AS Integer = 0
   MUT hscroll AS Integer = 0
-  ' Display width mode: "s" standard (terminal width), "w" wide (300), "e" extra-wide
-  ' (600). [M] cycles it; a new page load auto-selects the smallest mode that holds the
-  ' page's natural width (see bestWidthMode), so wide layouts open at a fitting size.
+  ' Display width mode: "s" standard (terminal width), "w" wide (>=300), "e"
+  ' extra-wide (>=600). [M] cycles it; a new page load resets it to standard.
   MUT widthMode AS String = "s"
   MUT loadState AS String = "idle"
   MUT secure AS Boolean = FALSE
@@ -449,9 +437,8 @@ FUNC main AS Integer
       ' or the terminal width changed. Everything is laid out to the width-mode width
       ' (layoutW): Display Mode paints the DOM there, Raw Mode wraps the tree there,
       ' and the welcome/error fallback wraps there too — so [M] re-lays-out whatever
-      ' is on screen. paint never clips: its canvas grows to the content's natural width
-      ' even past layoutW, so the viewport shows a `cols`-wide window over the full page
-      ' (contentPixWidth is that width) and Left/Right pan across it in every mode.
+      ' is on screen. When layoutW exceeds the terminal the viewport shows a
+      ' `cols`-wide window (drawContent clips each line to `cols`); Left/Right pan.
       LET paintMode AS Boolean = haveDom AND NOT rawMode
       LET layoutW AS Integer = layoutWidthFor(widthMode, cols)
       IF needRecontent OR layoutW <> lastContentWidth THEN
@@ -557,16 +544,7 @@ FUNC main AS Integer
           filesTotal = page.filesTotal
           scroll = 0
           hscroll = 0
-          ' Auto-select the display mode from the page's natural content width so it opens
-          ' at a size that shows the whole layout: a page that fits the terminal stays
-          ' standard; a wider one (a multi-column menu, a wide table) opens wide or
-          ' extra-wide. On error there is no DOM, so fall back to standard.
-          IF page.ok THEN
-            LET natural AS Integer = display::contentWidth(pageDoc, cols, dom::terminalMetrics())
-            widthMode = bestWidthMode(natural, cols)
-          ELSE
-            widthMode = "s"
-          END IF
+          widthMode = "s"
           needRecontent = TRUE
           contentDirty = TRUE
           IF page.ok THEN

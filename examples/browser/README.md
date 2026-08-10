@@ -86,11 +86,8 @@ far-left indicator is a spinner while loading, 🔒 for an https page, 🔓 othe
 - **M** — cycle the display width mode: **(s)**tandard (the terminal width),
   **(w)**ide (300 columns), **(e)**xtra-wide (600). Toggling re-lays-out whatever is
   on screen (a rendered page, the raw tree, or the fallback). The current mode shows
-  as `(s)`/`(w)`/`(e)` just before `Files` in the footer. A newly loaded page
-  **auto-selects** the smallest mode that holds its natural content width — a page that
-  fits the terminal opens standard, a wider multi-column layout opens wide or extra-wide.
-  Because paint never clips, any mode (standard included) can be panned with Left / Right
-  when the content is wider than the terminal.
+  as `(s)`/`(w)`/`(e)` just before `Files` in the footer; loading a new address
+  resets it to standard. Wider-than-terminal modes are navigated with Left / Right.
 - **Q** — quit (also aborts an in-flight load).
 
 Redirects (301/302/303/307/308) are followed automatically, up to 10 hops.
@@ -203,15 +200,11 @@ recursing over an *imported* union):
   Text stays cell-measured; only the authored box lengths scale.
 
 `display::paint(doc, width, metrics)` consumes all of this: it runs `updateLayout`
-and then draws every text run at its box. Here `width` is only the **layout viewport**
-(the reflow target — how wide the page thinks the screen is); the **canvas** it paints
-onto grows to the content's *natural width* (`display::contentWidth` — the rightmost run
-edge), which can exceed the viewport when content cannot shrink to fit (a flex row already
-at its min-content width, a wide table). So paint **never clips**: over-wide content is
-drawn in full (one String per page row) and the app shows a `cols`-wide window that
-Left/Right pans across, in every width mode. Element boxes are invisible containers — a
-text terminal has no backgrounds or borders — so the positioned text is the whole picture:
-flex columns land side by side, padding indents. The app paints with `dom::terminalMetrics()`.
+and then draws every text run at its box onto a `width`-wide canvas (one String per
+page row) that the app scrolls a window over. Element boxes are invisible containers
+— a text terminal has no backgrounds or borders — so the positioned text is the
+whole picture: flex columns land side by side, padding indents, widths clip. The app
+paints with `dom::terminalMetrics()`.
 
 **Form controls and links** would otherwise be invisible (an `<input>` has no text,
 a link looks like plain words), so the inline layout decorates them into the flowed
