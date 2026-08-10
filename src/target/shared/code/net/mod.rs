@@ -899,7 +899,13 @@ fn lower_net_endpoint_helper(
     // here) to keep the listen codegen byte-identical.
     if !listen {
         instructions.push(abi::label(&connect_invalid));
-        emit_fail(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations, &done);
+        emit_fail(
+            symbol,
+            "ErrInvalidArgument",
+            &mut instructions,
+            &mut relocations,
+            &done,
+        );
     }
     instructions.push(abi::label(&op_fail));
     instructions.push(abi::load_u64(
@@ -927,7 +933,13 @@ fn lower_net_endpoint_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_fail(symbol, "ErrNetworkFailed", &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        "ErrNetworkFailed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     // A connect that did not complete before its deadline: close the pending
     // socket, release the resolver results, and report a timeout.
     instructions.push(abi::label(&connect_timeout));
@@ -955,15 +967,39 @@ fn lower_net_endpoint_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_fail(symbol, "ErrTimeout", &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        "ErrTimeout",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&resolve_fail));
     if listen {
-        emit_fail(symbol, "ErrAddressInvalid", &mut instructions, &mut relocations, &done);
+        emit_fail(
+            symbol,
+            "ErrAddressInvalid",
+            &mut instructions,
+            &mut relocations,
+            &done,
+        );
     } else {
-        emit_fail(symbol, "ErrAddressNotFound", &mut instructions, &mut relocations, &done);
+        emit_fail(
+            symbol,
+            "ErrAddressNotFound",
+            &mut instructions,
+            &mut relocations,
+            &done,
+        );
     }
     instructions.push(abi::label(&alloc_fail));
-    emit_fail(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
     {
         let (frame, stack_slots) =

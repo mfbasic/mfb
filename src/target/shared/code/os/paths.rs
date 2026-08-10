@@ -158,7 +158,12 @@ pub(super) fn lower_executable_path(
         ),
     }
     instructions.extend([abi::branch(&done), abi::label(&fail)]);
-    raise_error_into(symbol, "ErrUnsupported", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrUnsupported",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
@@ -439,12 +444,19 @@ pub(super) fn lower_resource_path(
 
     // Error tails: acquisition failure → ErrUnsupported; bad component → ErrInvalidPath.
     instructions.push(abi::label(&fail));
-    raise_error_into(symbol, "ErrUnsupported", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&bad_arg),
-    ]);
-    raise_error_into(symbol, "ErrInvalidPath", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrUnsupported",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&bad_arg)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidPath",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);

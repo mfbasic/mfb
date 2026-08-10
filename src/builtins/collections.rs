@@ -155,98 +155,218 @@ const fn custom(params: &'static [Parameter]) -> BuiltinOverload {
 }
 
 const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
-    native("collections.get", "get", &["ErrIndexOutOfRange", "ErrNotFound"], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("index", &["key"], "Integer"),
-    ])]),
-    native("collections.getOr", "getOr", &[], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("index", &["key"], "Integer"),
-        req("default", &["fallback"], "T"),
-    ])]),
-    native("collections.set", "set", &["ErrIndexOutOfRange"], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("index", &["key"], "Integer"),
-        req("item", &[], "T"),
-    ])]),
-    native("collections.append", "append", &[], &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("item", &["items"], "T"),
-    ])]),
-    native("collections.prepend", "prepend", &[], &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("item", &[], "T"),
-    ])]),
-    native("collections.insert", "insert", &["ErrIndexOutOfRange"], &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("index", &[], "Integer"),
-        req("item", &[], "T"),
-    ])]),
-    native("collections.removeAt", "removeAt", &["ErrIndexOutOfRange"], &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("index", &[], "Integer"),
-    ])]),
-    native("collections.removeKey", "removeKey", &[], &[custom(&[
-        req("value", &["map"], "Map OF K TO V"),
-        req("key", &[], "K"),
-    ])]),
-    native("collections.keys", "keys", &[], &[custom(&[req("value", &["map"], "Map OF K TO V")])]),
-    native("collections.values", "values", &[], &[custom(&[req("value", &["map"], "Map OF K TO V")])]),
-    native("collections.hasKey", "hasKey", &[], &[custom(&[
-        req("value", &["map"], "Map OF K TO V"),
-        req("key", &[], "K"),
-    ])]),
-    native("collections.contains", "contains", &[], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("item", &[], "T"),
-    ])]),
-    native("collections.forEach", "forEach", &[], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("action", &[], "FUNC(T) AS Nothing"),
-    ])]),
-    native("collections.transform", "transform", &[], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("f", &["transform"], "FUNC(T) AS U"),
-    ])]),
-    native("collections.filter", "filter", &[], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("predicate", &[], "FUNC(T) AS Boolean"),
-    ])]),
-    native("collections.reduce", "reduce", &[], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("initial", &["seed"], "U"),
-        req("f", &["combine"], "FUNC(U, T) AS U"),
-    ])]),
-    native("collections.reduceRight", "reduceRight", &[], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("initial", &["seed"], "U"),
-        req("f", &["combine"], "FUNC(U, T) AS U"),
-    ])]),
-    native("collections.sum", "sum", &[], &[custom(&[req("value", &["collection"], "List OF Number")])]),
-    native("collections.find", "find", &["ErrIndexOutOfRange", "ErrNotFound"], &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("item", &["needle"], "T"),
-        opt("start", &[], "Integer"),
-    ])]),
-    native("collections.mid", "mid", &["ErrIndexOutOfRange"], &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("start", &[], "Integer"),
-        req("count", &[], "Integer"),
-    ])]),
-    native("collections.replace", "replace", &[], &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("old", &["needle"], "T"),
-        req("new", &["replacement"], "T"),
-    ])]),
-    native("collections.add", "add", &[], &[custom(&[
-        req("value", &["set"], "Set OF T"),
-        req("item", &["element"], "T"),
-    ])]),
-    native("collections.remove", "remove", &[], &[custom(&[
-        req("value", &["set"], "Set OF T"),
-        req("item", &["element"], "T"),
-    ])]),
-    native("collections.toList", "toList", &[], &[custom(&[req("value", &["set"], "Set OF T")])]),
+    native(
+        "collections.get",
+        "get",
+        &["ErrIndexOutOfRange", "ErrNotFound"],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("index", &["key"], "Integer"),
+        ])],
+    ),
+    native(
+        "collections.getOr",
+        "getOr",
+        &[],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("index", &["key"], "Integer"),
+            req("default", &["fallback"], "T"),
+        ])],
+    ),
+    native(
+        "collections.set",
+        "set",
+        &["ErrIndexOutOfRange"],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("index", &["key"], "Integer"),
+            req("item", &[], "T"),
+        ])],
+    ),
+    native(
+        "collections.append",
+        "append",
+        &[],
+        &[custom(&[
+            req("value", &["list"], "List OF T"),
+            req("item", &["items"], "T"),
+        ])],
+    ),
+    native(
+        "collections.prepend",
+        "prepend",
+        &[],
+        &[custom(&[
+            req("value", &["list"], "List OF T"),
+            req("item", &[], "T"),
+        ])],
+    ),
+    native(
+        "collections.insert",
+        "insert",
+        &["ErrIndexOutOfRange"],
+        &[custom(&[
+            req("value", &["list"], "List OF T"),
+            req("index", &[], "Integer"),
+            req("item", &[], "T"),
+        ])],
+    ),
+    native(
+        "collections.removeAt",
+        "removeAt",
+        &["ErrIndexOutOfRange"],
+        &[custom(&[
+            req("value", &["list"], "List OF T"),
+            req("index", &[], "Integer"),
+        ])],
+    ),
+    native(
+        "collections.removeKey",
+        "removeKey",
+        &[],
+        &[custom(&[
+            req("value", &["map"], "Map OF K TO V"),
+            req("key", &[], "K"),
+        ])],
+    ),
+    native(
+        "collections.keys",
+        "keys",
+        &[],
+        &[custom(&[req("value", &["map"], "Map OF K TO V")])],
+    ),
+    native(
+        "collections.values",
+        "values",
+        &[],
+        &[custom(&[req("value", &["map"], "Map OF K TO V")])],
+    ),
+    native(
+        "collections.hasKey",
+        "hasKey",
+        &[],
+        &[custom(&[
+            req("value", &["map"], "Map OF K TO V"),
+            req("key", &[], "K"),
+        ])],
+    ),
+    native(
+        "collections.contains",
+        "contains",
+        &[],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("item", &[], "T"),
+        ])],
+    ),
+    native(
+        "collections.forEach",
+        "forEach",
+        &[],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("action", &[], "FUNC(T) AS Nothing"),
+        ])],
+    ),
+    native(
+        "collections.transform",
+        "transform",
+        &[],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("f", &["transform"], "FUNC(T) AS U"),
+        ])],
+    ),
+    native(
+        "collections.filter",
+        "filter",
+        &[],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("predicate", &[], "FUNC(T) AS Boolean"),
+        ])],
+    ),
+    native(
+        "collections.reduce",
+        "reduce",
+        &[],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("initial", &["seed"], "U"),
+            req("f", &["combine"], "FUNC(U, T) AS U"),
+        ])],
+    ),
+    native(
+        "collections.reduceRight",
+        "reduceRight",
+        &[],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("initial", &["seed"], "U"),
+            req("f", &["combine"], "FUNC(U, T) AS U"),
+        ])],
+    ),
+    native(
+        "collections.sum",
+        "sum",
+        &[],
+        &[custom(&[req("value", &["collection"], "List OF Number")])],
+    ),
+    native(
+        "collections.find",
+        "find",
+        &["ErrIndexOutOfRange", "ErrNotFound"],
+        &[custom(&[
+            req("value", &["list"], "List OF T"),
+            req("item", &["needle"], "T"),
+            opt("start", &[], "Integer"),
+        ])],
+    ),
+    native(
+        "collections.mid",
+        "mid",
+        &["ErrIndexOutOfRange"],
+        &[custom(&[
+            req("value", &["list"], "List OF T"),
+            req("start", &[], "Integer"),
+            req("count", &[], "Integer"),
+        ])],
+    ),
+    native(
+        "collections.replace",
+        "replace",
+        &[],
+        &[custom(&[
+            req("value", &["list"], "List OF T"),
+            req("old", &["needle"], "T"),
+            req("new", &["replacement"], "T"),
+        ])],
+    ),
+    native(
+        "collections.add",
+        "add",
+        &[],
+        &[custom(&[
+            req("value", &["set"], "Set OF T"),
+            req("item", &["element"], "T"),
+        ])],
+    ),
+    native(
+        "collections.remove",
+        "remove",
+        &[],
+        &[custom(&[
+            req("value", &["set"], "Set OF T"),
+            req("item", &["element"], "T"),
+        ])],
+    ),
+    native(
+        "collections.toList",
+        "toList",
+        &[],
+        &[custom(&[req("value", &["set"], "Set OF T")])],
+    ),
 ];
 
 /// Generic return-type resolution for collections native members. Delegates to

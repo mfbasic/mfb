@@ -410,7 +410,10 @@ mod tests {
 
         let o = ov(black_box(P_FROM_STRING), black_box("AttributedString"));
         assert_eq!(o.params.len(), P_FROM_STRING.len());
-        assert!(matches!(o.return_type, ReturnType::Fixed("AttributedString")));
+        assert!(matches!(
+            o.return_type,
+            ReturnType::Fixed("AttributedString")
+        ));
 
         let f = astrings_fn(
             black_box("astrings.demo"),

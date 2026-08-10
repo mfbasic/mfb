@@ -357,24 +357,12 @@ fn generate(
     emit_cleanup(
         symbol, "c2", HKEY, HALG, imports, platform, &mut ins, &mut rel,
     )?;
-    emit_fail(
-        symbol,
-        "ErrUnknown",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrUnknown", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_cleanup(
         symbol, "c3", HKEY, HALG, imports, platform, &mut ins, &mut rel,
     )?;
-    emit_fail(
-        symbol,
-        "ErrOutOfMemory",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
 
     let _ = cleanup;
     ins.extend([abi::label(&done), abi::return_()]);

@@ -208,11 +208,13 @@ pub(super) fn lower_os_wide_string_windows(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&fail),
-    ]);
-    raise_error_into(symbol, "ErrUnsupported", &mut instructions, &mut relocations);
+    instructions.extend([abi::branch(&done), abi::label(&fail)]);
+    raise_error_into(
+        symbol,
+        "ErrUnsupported",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
@@ -268,7 +270,12 @@ pub(super) fn lower_host_name(
         &mut relocations,
     );
     instructions.extend([abi::branch(&done), abi::label(&fail)]);
-    raise_error_into(symbol, "ErrUnsupported", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrUnsupported",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
@@ -343,7 +350,12 @@ pub(super) fn lower_user_name(
         &mut relocations,
     );
     instructions.extend([abi::branch(&done), abi::label(&fail)]);
-    raise_error_into(symbol, "ErrUnsupported", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrUnsupported",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));

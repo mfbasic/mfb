@@ -628,31 +628,13 @@ fn generate(
     };
     ins.push(abi::label(&load_fail));
     cleanup(&mut ins, "lf");
-    emit_fail(
-        symbol,
-        "ErrUnknown",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrUnknown", &mut ins, &mut rel, &done);
     ins.push(abi::label(&gen_fail));
     cleanup(&mut ins, "gf");
-    emit_fail(
-        symbol,
-        "ErrUnknown",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrUnknown", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     cleanup(&mut ins, "af");
-    emit_fail(
-        symbol,
-        "ErrOutOfMemory",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], LOCAL_SIZE);
     Ok((frame, ins, rel, slots))
@@ -904,40 +886,16 @@ fn sign(
     };
     ins.push(abi::label(&load_fail));
     cleanup(&mut ins, "lf");
-    emit_fail(
-        symbol,
-        "ErrUnknown",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrUnknown", &mut ins, &mut rel, &done);
     ins.push(abi::label(&sign_fail));
     cleanup(&mut ins, "sf");
-    emit_fail(
-        symbol,
-        "ErrUnknown",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrUnknown", &mut ins, &mut rel, &done);
     ins.push(abi::label(&invalid_fail));
     cleanup(&mut ins, "iv");
-    emit_fail(
-        symbol,
-        "ErrInvalidArgument",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     cleanup(&mut ins, "af");
-    emit_fail(
-        symbol,
-        "ErrOutOfMemory",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], LOCAL_SIZE);
     Ok((frame, ins, rel, slots))
@@ -1192,31 +1150,13 @@ fn verify(
     };
     ins.push(abi::label(&load_fail));
     cleanup(&mut ins, "lf");
-    emit_fail(
-        symbol,
-        "ErrUnknown",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrUnknown", &mut ins, &mut rel, &done);
     ins.push(abi::label(&invalid_fail));
     cleanup(&mut ins, "iv");
-    emit_fail(
-        symbol,
-        "ErrInvalidArgument",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     cleanup(&mut ins, "af");
-    emit_fail(
-        symbol,
-        "ErrOutOfMemory",
-        &mut ins,
-        &mut rel,
-        &done,
-    );
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], LOCAL_SIZE);
     Ok((frame, ins, rel, slots))

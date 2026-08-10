@@ -495,7 +495,12 @@ fn lower_link_initializer(
         abi::branch(&done),
         abi::label(&fail),
     ]);
-    raise_error_into(symbol, "ErrNativeBindingUnavailable", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrNativeBindingUnavailable",
+        &mut instructions,
+        &mut relocations,
+    );
     // Same no-origin sentinel as the per-function thunks (bug-371): the loader
     // has no MFBASIC source location, and x3 is otherwise whatever `dlopen`/
     // `dlsym` left behind.
@@ -1617,7 +1622,12 @@ fn lower_link_thunk(
 
     // call_fail: SUCCESS_ON rejected the native status.
     instructions.push(abi::label(&call_fail));
-    raise_error_into(&symbol, "ErrNativeBindingCallFailed", &mut instructions, &mut relocations);
+    raise_error_into(
+        &symbol,
+        "ErrNativeBindingCallFailed",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.push(abi::branch(&done));
 
     // sec-02: buffer_overrun: a post-call canary check found an OUT CBuffer's
@@ -1626,13 +1636,23 @@ fn lower_link_thunk(
     // and never branched to).
     if !cbuffer_slots.is_empty() {
         instructions.push(abi::label(&buffer_overrun));
-        raise_error_into(&symbol, "ErrNativeBufferOverrun", &mut instructions, &mut relocations);
+        raise_error_into(
+            &symbol,
+            "ErrNativeBufferOverrun",
+            &mut instructions,
+            &mut relocations,
+        );
         instructions.push(abi::branch(&done));
     }
 
     // alloc_fail: a marshaling allocation failed.
     instructions.push(abi::label(&alloc_fail));
-    raise_error_into(&symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    raise_error_into(
+        &symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
 
     // plan-59-B: the guard's failure epilogue. Only emitted when some param is a
     // record resource, so a LINK function that takes none is byte-identical to
@@ -1659,12 +1679,19 @@ fn lower_link_thunk(
             abi::compare_immediate("%v9", "0"),
             abi::branch_ne(&resource_moved),
         ]);
-        raise_error_into(&symbol, "ErrResourceClosed", &mut instructions, &mut relocations);
-        instructions.extend([
-            abi::branch(&done),
-            abi::label(&resource_moved),
-        ]);
-        raise_error_into(&symbol, "ErrResourceMoved", &mut instructions, &mut relocations);
+        raise_error_into(
+            &symbol,
+            "ErrResourceClosed",
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.extend([abi::branch(&done), abi::label(&resource_moved)]);
+        raise_error_into(
+            &symbol,
+            "ErrResourceMoved",
+            &mut instructions,
+            &mut relocations,
+        );
     }
 
     // Boundary-validation failure epilogues (plan-linker.md §12.3/§12.4), emitted

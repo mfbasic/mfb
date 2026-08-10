@@ -557,7 +557,12 @@ pub(crate) fn lower_program_entry(
     instructions.push(abi::branch(exit_label));
     if language_entry_returns == "Integer" {
         instructions.push(abi::label("entry_exit_range_error"));
-        raise_error_into(entry_symbol, "ErrOverflow", &mut instructions, &mut relocations);
+        raise_error_into(
+            entry_symbol,
+            "ErrOverflow",
+            &mut instructions,
+            &mut relocations,
+        );
         instructions.push(abi::branch(error_label));
     }
     instructions.extend([

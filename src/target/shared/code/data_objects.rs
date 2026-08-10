@@ -88,11 +88,13 @@ pub(super) fn raise_error_into(
     relocations: &mut Vec<CodeRelocation>,
 ) {
     let (code, symbol) = crate::builtins::errorcode::runtime_error_emission(error_name)
-        .unwrap_or_else(|| {
-            panic!("raise_error_into: `{error_name}` is not an errorCode constant")
-        });
+        .unwrap_or_else(|| panic!("raise_error_into: `{error_name}` is not an errorCode constant"));
     instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", code));
-    instructions.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_ERR_TAG,
+    ));
     push_error_message_address(from, symbol, instructions, relocations);
 }
 

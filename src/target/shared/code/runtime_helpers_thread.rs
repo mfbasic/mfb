@@ -131,7 +131,12 @@ pub(super) fn simple_thread_handle_helper(
                 abi::branch(&done),
                 abi::label(&closed),
             ]);
-            raise_error_into(symbol, "ErrResourceClosed", &mut instructions, &mut relocations);
+            raise_error_into(
+                symbol,
+                "ErrResourceClosed",
+                &mut instructions,
+                &mut relocations,
+            );
             instructions.extend([abi::label(&done)]);
         }
         ThreadSimpleOp::WaitFor => {
@@ -245,7 +250,12 @@ pub(super) fn simple_thread_handle_helper(
                 abi::branch(&done),
                 abi::label(&closed),
             ]);
-            raise_error_into(symbol, "ErrResourceClosed", &mut instructions, &mut relocations);
+            raise_error_into(
+                symbol,
+                "ErrResourceClosed",
+                &mut instructions,
+                &mut relocations,
+            );
             instructions.extend([
                 abi::store_u64(
                     RESULT_ERROR_MESSAGE_REGISTER,
@@ -437,7 +447,12 @@ pub(super) fn simple_thread_handle_helper(
                 abi::branch(&closed_unlocked),
                 abi::label(&closed),
             ]);
-            raise_error_into(symbol, "ErrResourceClosed", &mut instructions, &mut relocations);
+            raise_error_into(
+                symbol,
+                "ErrResourceClosed",
+                &mut instructions,
+                &mut relocations,
+            );
             instructions.extend([
                 abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
                 abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
@@ -732,12 +747,19 @@ pub(super) fn simple_thread_handle_helper(
                 abi::branch(&locked_done),
                 abi::label(&closed),
             ]);
-            raise_error_into(symbol, "ErrResourceClosed", &mut instructions, &mut relocations);
-            instructions.extend([
-                abi::branch(&locked_done),
-                abi::label(&invalid),
-            ]);
-            raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
+            raise_error_into(
+                symbol,
+                "ErrResourceClosed",
+                &mut instructions,
+                &mut relocations,
+            );
+            instructions.extend([abi::branch(&locked_done), abi::label(&invalid)]);
+            raise_error_into(
+                symbol,
+                "ErrInvalidArgument",
+                &mut instructions,
+                &mut relocations,
+            );
             instructions.extend([
                 abi::branch(&done),
                 abi::label(&locked_done),
@@ -910,24 +932,40 @@ pub(super) fn lower_thread_sleep_worker_helper(
         "pthread_mutex_unlock",
     )?;
     instructions.extend([
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", crate::builtins::errorcode::runtime_error("ErrInterrupted").expect("errorCode name").0),
+        abi::move_immediate(
+            RESULT_VALUE_REGISTER,
+            "Integer",
+            crate::builtins::errorcode::runtime_error("ErrInterrupted")
+                .expect("errorCode name")
+                .0,
+        ),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
     push_error_message_address(
         symbol,
-        crate::builtins::errorcode::runtime_error_emission("ErrInterrupted").expect("errorCode name").1,
+        crate::builtins::errorcode::runtime_error_emission("ErrInterrupted")
+            .expect("errorCode name")
+            .1,
         &mut instructions,
         &mut relocations,
     );
     instructions.extend([
         abi::return_(),
         abi::label(&err_arg),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", crate::builtins::errorcode::runtime_error("ErrInvalidArgument").expect("errorCode name").0),
+        abi::move_immediate(
+            RESULT_VALUE_REGISTER,
+            "Integer",
+            crate::builtins::errorcode::runtime_error("ErrInvalidArgument")
+                .expect("errorCode name")
+                .0,
+        ),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
     push_error_message_address(
         symbol,
-        crate::builtins::errorcode::runtime_error_emission("ErrInvalidArgument").expect("errorCode name").1,
+        crate::builtins::errorcode::runtime_error_emission("ErrInvalidArgument")
+            .expect("errorCode name")
+            .1,
         &mut instructions,
         &mut relocations,
     );
@@ -1129,22 +1167,28 @@ pub(super) fn thread_queue_write_helper(
         abi::branch(&unlock),
         abi::label(&interrupted),
     ]);
-    raise_error_into(symbol, "ErrInterrupted", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&unlock),
-        abi::label(&closed),
-    ]);
-    raise_error_into(symbol, "ErrResourceClosed", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&unlock),
-        abi::label(&timeout),
-    ]);
+    raise_error_into(
+        symbol,
+        "ErrInterrupted",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&unlock), abi::label(&closed)]);
+    raise_error_into(
+        symbol,
+        "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&unlock), abi::label(&timeout)]);
     raise_error_into(symbol, "ErrTimeout", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&unlock),
-        abi::label(&invalid),
-    ]);
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
+    instructions.extend([abi::branch(&unlock), abi::label(&invalid)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
     let skip_orphan_push = format!("{symbol}_skip_orphan_push");
     instructions.extend([
         abi::branch(&done),
@@ -1449,26 +1493,29 @@ pub(super) fn thread_queue_read_helper(
         abi::label(&not_found),
     ]);
     raise_error_into(symbol, "ErrNotFound", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&unlock),
-        abi::label(&interrupted),
-    ]);
-    raise_error_into(symbol, "ErrInterrupted", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&unlock),
-        abi::label(&closed),
-    ]);
-    raise_error_into(symbol, "ErrResourceClosed", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&unlock),
-        abi::label(&timeout),
-    ]);
+    instructions.extend([abi::branch(&unlock), abi::label(&interrupted)]);
+    raise_error_into(
+        symbol,
+        "ErrInterrupted",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&unlock), abi::label(&closed)]);
+    raise_error_into(
+        symbol,
+        "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&unlock), abi::label(&timeout)]);
     raise_error_into(symbol, "ErrTimeout", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&unlock),
-        abi::label(&invalid),
-    ]);
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
+    instructions.extend([abi::branch(&unlock), abi::label(&invalid)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
         abi::branch(&done),
         abi::label(&unlock),

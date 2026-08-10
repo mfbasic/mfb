@@ -34,7 +34,12 @@ pub(in crate::target::shared::code) fn lower_fs_exists_helper(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&alloc_ok),
     ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     let len = vregs.next();
     let src = vregs.next();
     let dst = vregs.next();
@@ -85,7 +90,12 @@ pub(in crate::target::shared::code) fn lower_fs_exists_helper(
         // operation could disagree about which file is named.
         abi::label(&invalid),
     ]);
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
 
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -130,7 +140,12 @@ pub(in crate::target::shared::code) fn lower_fs_kind_exists_helper(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&alloc_ok),
     ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     let len = vregs.next();
     let src = vregs.next();
     let dst = vregs.next();
@@ -193,7 +208,12 @@ pub(in crate::target::shared::code) fn lower_fs_kind_exists_helper(
         // ErrInvalidArgument rather than silently truncating at the NUL.
         abi::label(&invalid),
     ]);
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
 
     let (frame, stack_slots) =
@@ -299,11 +319,13 @@ pub(in crate::target::shared::code) fn lower_fs_current_directory_helper(
         abi::label(&read_error),
     ]);
     raise_error_into(symbol, "ErrReadFailed", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&alloc_error),
-    ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
 
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -409,11 +431,13 @@ pub(in crate::target::shared::code) fn lower_fs_temp_directory_helper(
         abi::label(&read_error),
     ]);
     raise_error_into(symbol, "ErrReadFailed", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&alloc_error),
-    ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
     // `platform.emit_temp_directory` above may park values in `sp + 0 ..
     // TEMP_DIRECTORY_SCRATCH_BYTES` across its environment lookup, so that window
@@ -459,7 +483,12 @@ pub(in crate::target::shared::code) fn lower_fs_path_operation_helper(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&alloc_ok),
     ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     let len = vregs.next();
     let src = vregs.next();
     let dst = vregs.next();
@@ -518,10 +547,13 @@ pub(in crate::target::shared::code) fn lower_fs_path_operation_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&invalid_path),
-    ]);
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
+    instructions.extend([abi::label(&invalid_path)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
 
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -679,27 +711,35 @@ pub(in crate::target::shared::code) fn lower_fs_create_directories_helper(
         abi::branch(&err_output),
         abi::label(&invalid_path),
     ]);
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&err_not_found),
-    ]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&err_not_found)]);
     raise_error_into(symbol, "ErrNotFound", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&err_access_denied),
-    ]);
-    raise_error_into(symbol, "ErrAccessDenied", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&err_output),
-    ]);
-    raise_error_into(symbol, "ErrWriteFailed", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&alloc_error),
-    ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    instructions.extend([abi::branch(&done), abi::label(&err_access_denied)]);
+    raise_error_into(
+        symbol,
+        "ErrAccessDenied",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&err_output)]);
+    raise_error_into(
+        symbol,
+        "ErrWriteFailed",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
 
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -1034,15 +1074,20 @@ pub(in crate::target::shared::code) fn lower_fs_list_directory_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&invalid),
-    ]);
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&alloc_error),
-    ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    instructions.extend([abi::label(&invalid)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -1206,15 +1251,20 @@ pub(in crate::target::shared::code) fn lower_fs_canonical_path_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&invalid),
-    ]);
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&alloc_error),
-    ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    instructions.extend([abi::label(&invalid)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -1453,15 +1503,20 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&invalid),
-    ]);
-    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&alloc_error),
-    ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    instructions.extend([abi::label(&invalid)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -1611,7 +1666,12 @@ pub(in crate::target::shared::code) fn lower_fs_path_join_helper() -> CodeFuncti
         abi::branch(&done),
         abi::label(&alloc_error),
     ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
     finalize_vreg_helper(
         "runtime.fsPathJoin",

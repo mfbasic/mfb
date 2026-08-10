@@ -544,7 +544,12 @@ pub(super) fn lower_io_write_helper(
         abi::branch(&done),
         abi::label(&write_error),
     ]);
-    raise_error_into(symbol, "ErrWriteFailed", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrWriteFailed",
+        &mut instructions,
+        &mut relocations,
+    );
     if let Some(tso) = grid_target {
         // TUI-active stdout: route the string (still in the return register) into
         // the shadow-grid back buffer. No terminal write happens here; the frame
@@ -610,7 +615,12 @@ pub(super) fn lower_io_flush_helper(
         abi::branch(&done),
         abi::label(&output_error),
     ]);
-    raise_error_into(symbol, "ErrWriteFailed", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrWriteFailed",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);

@@ -278,7 +278,11 @@ mod tests {
         assert_eq!(o.params.len(), P_SHELL.len());
         assert!(matches!(o.return_type, ReturnType::Fixed("Boolean")));
 
-        let f = nf(black_box("process.demo"), black_box("demo"), black_box(OV_POLL));
+        let f = nf(
+            black_box("process.demo"),
+            black_box("demo"),
+            black_box(OV_POLL),
+        );
         assert_eq!(f.name, "process.demo");
         assert_eq!(f.doc_slug, "demo");
         assert_eq!(f.overloads.len(), OV_POLL.len());
