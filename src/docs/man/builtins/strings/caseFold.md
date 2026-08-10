@@ -6,6 +6,7 @@ Case-fold a string to a canonical caseless form for comparison.
 
 ```
 strings::caseFold(value AS String) AS String
+strings::caseFold(value AS AttributedString) AS AttributedString
 ```
 
 ## Package
@@ -45,6 +46,11 @@ still differ after folding, so apply `strings::normalizeNfc` first when
 normalization-insensitive matching is required. The mapping is deterministic and
 locale-independent, with no language-specific tailoring. `value` is not mutated;
 the result is a new owned `String`.
+
+`value` may also be an `astrings::AttributedString`: it returns an
+`AttributedString` whose text is transformed as above, but **attributes are
+dropped** — the mapping changes the scalar count within a span, so the overlay
+cannot be remapped. [[src/builtins/strings.rs:is_tier_b_transform]]
 
 ## Parameters
 

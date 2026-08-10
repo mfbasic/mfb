@@ -6,6 +6,7 @@ Test whether a string begins with a given prefix.
 
 ```
 strings::startsWith(value AS String, prefix AS String) AS Boolean
+strings::startsWith(value AS AttributedString, prefix AS String) AS Boolean
 ```
 
 ## Package
@@ -41,6 +42,10 @@ call never fails.
 To test the end of the string use `strings::endsWith`; to test several candidate
 prefixes at once use `strings::startsWithAny`; to remove the prefix rather than
 test for it use `strings::stripPrefix`.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors). [[src/builtins/strings.rs:is_tier_a_query]]
 
 ## Parameters
 

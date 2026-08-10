@@ -6,6 +6,7 @@ Map a string to lowercase using Unicode full case mapping.
 
 ```
 strings::lower(value AS String) AS String
+strings::lower(value AS AttributedString) AS AttributedString
 ```
 
 ## Package
@@ -43,6 +44,11 @@ that matters. [[src/unicode/backend.rs:lower]]
 
 For caseless *comparison*, prefer `strings::caseFold` over lowercasing both
 operands. `value` is not mutated; the result is a new owned `String`.
+
+`value` may also be an `astrings::AttributedString`: it returns an
+`AttributedString` whose text is transformed as above, but **attributes are
+dropped** — the mapping changes the scalar count within a span, so the overlay
+cannot be remapped. [[src/builtins/strings.rs:is_tier_b_transform]]
 
 ## Parameters
 

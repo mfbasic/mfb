@@ -6,6 +6,7 @@ Replace every non-overlapping occurrence of a substring.
 
 ```
 strings::replace(value AS String, old AS String, new AS String) AS String
+strings::replace(value AS AttributedString, old AS String, new AS String) AS AttributedString
 ```
 
 ## Package
@@ -50,6 +51,11 @@ aliased, so the caller owns the returned value unconditionally.
 `old` is also accepted under the name `needle`, and `new` under the name
 `replacement`. The bare `replace` name is also defined for lists; see
 `mfb man collections replace`. [[src/builtins/strings.rs:call_param_names]]
+
+`value` may also be an `astrings::AttributedString`: it returns an
+`AttributedString` whose text is transformed exactly as the `String` overload's
+and whose attribute spans are remapped by the same edit.
+[[src/builtins/strings.rs:is_tier_b_transform]]
 
 ## Parameters
 

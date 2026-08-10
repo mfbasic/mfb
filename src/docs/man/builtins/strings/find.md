@@ -6,7 +6,9 @@ Locate the first occurrence of a substring, by Unicode scalar index.
 
 ```
 strings::find(value AS String, needle AS String) AS Integer
+strings::find(value AS AttributedString, needle AS String) AS Integer
 strings::find(value AS String, needle AS String, start AS Integer) AS Integer
+strings::find(value AS AttributedString, needle AS String, start AS Integer) AS Integer
 ```
 
 ## Package
@@ -49,6 +51,10 @@ sentinel such as `-1`. When `needle` does not occur at or after `start` it raise
 
 `find` does not mutate either operand. The bare `find` name is also defined for
 lists; see `mfb man collections find` for the `List` form.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors). [[src/builtins/strings.rs:is_tier_a_query]]
 
 ## Overloads
 

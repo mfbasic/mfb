@@ -6,6 +6,7 @@ Remove leading and trailing Unicode whitespace from a string.
 
 ```
 strings::trim(value AS String) AS String
+strings::trim(value AS AttributedString) AS AttributedString
 ```
 
 ## Package
@@ -45,6 +46,11 @@ result is a newly allocated `String`, even when nothing was trimmed.
 
 The trim is locale-independent and performs no normalization or case folding. To
 strip a specific set of scalars instead of whitespace, use `strings::trimChars`.
+
+`value` may also be an `astrings::AttributedString`: it returns an
+`AttributedString` whose text is transformed exactly as the `String` overload's
+and whose attribute spans are remapped by the same edit.
+[[src/builtins/strings.rs:is_tier_b_transform]]
 
 ## Parameters
 

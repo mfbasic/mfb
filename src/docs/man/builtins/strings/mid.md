@@ -6,6 +6,7 @@ Extract a substring by Unicode scalar index and length.
 
 ```
 strings::mid(value AS String, start AS Integer, count AS Integer) AS String
+strings::mid(value AS AttributedString, start AS Integer, count AS Integer) AS AttributedString
 ```
 
 ## Package
@@ -48,6 +49,10 @@ overflows 64 bits raises the same error.
 
 `value` is not mutated; the result is a new owned `String`. The bare `mid` name
 is also defined for lists; see `mfb man collections mid`.
+
+`value` may also be an `astrings::AttributedString`: it returns an
+`AttributedString` whose text is the same slice as the `String` overload's and
+whose attribute spans are remapped by the same edit. [[src/builtins/strings.rs:is_tier_b_transform]]
 
 ## Parameters
 

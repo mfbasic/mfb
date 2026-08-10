@@ -6,6 +6,7 @@ Measure the terminal column width of a string.
 
 ```
 strings::displayWidth(value AS String) AS Integer
+strings::displayWidth(value AS AttributedString) AS Integer
 ```
 
 ## Package
@@ -52,6 +53,10 @@ scalars.
 East Asian **Ambiguous**-width characters are treated as width `1` (narrow), the
 modern terminal default. The empty string yields `0`. `value` is not mutated and
 the call never fails.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors). [[src/builtins/strings.rs:is_tier_a_query]]
 
 ## Parameters
 

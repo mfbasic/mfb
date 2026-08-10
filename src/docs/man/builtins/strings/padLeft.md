@@ -6,7 +6,9 @@ Pad a string on the left to a given scalar width.
 
 ```
 strings::padLeft(value AS String, width AS Integer) AS String
+strings::padLeft(value AS AttributedString, width AS Integer) AS AttributedString
 strings::padLeft(value AS String, width AS Integer, padChar AS String) AS String
+strings::padLeft(value AS AttributedString, width AS Integer, padChar AS String) AS AttributedString
 ```
 
 ## Package
@@ -45,6 +47,11 @@ same error, as does a result size that cannot be represented in 64 bits.
 [[src/target/shared/code/builder_error_emission.rs:emit_checked_size_multiply]]
 
 Neither argument is mutated.
+
+`value` may also be an `astrings::AttributedString`: it returns an
+`AttributedString` whose text is transformed exactly as the `String` overload's
+and whose attribute spans are remapped by the same edit.
+[[src/builtins/strings.rs:is_tier_b_transform]]
 
 ## Overloads
 

@@ -6,6 +6,7 @@ Return the trailing Unicode scalars of a string.
 
 ```
 strings::right(value AS String, count AS Integer) AS String
+strings::right(value AS AttributedString, count AS Integer) AS AttributedString
 ```
 
 ## Package
@@ -43,6 +44,11 @@ This clamping is the difference from `strings::mid`, which raises
 `ErrIndexOutOfRange` when the requested window runs past the end.
 
 `value` is not mutated; the result is a new owned `String`.
+
+`value` may also be an `astrings::AttributedString`: it returns an
+`AttributedString` whose text is transformed exactly as the `String` overload's
+and whose attribute spans are remapped by the same edit.
+[[src/builtins/strings.rs:is_tier_b_transform]]
 
 ## Parameters
 

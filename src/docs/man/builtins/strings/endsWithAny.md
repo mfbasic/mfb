@@ -6,6 +6,7 @@ Test whether a string ends with any of several suffixes.
 
 ```
 strings::endsWithAny(value AS String, suffixes AS List OF String) AS Boolean
+strings::endsWithAny(value AS AttributedString, suffixes AS List OF String) AS Boolean
 ```
 
 ## Package
@@ -37,6 +38,10 @@ An empty string appearing as a candidate matches everything, so a `suffixes` lis
 containing `""` makes the result `TRUE` for any `value`. An empty `suffixes` list
 has no candidates and returns `FALSE`. Neither `value` nor the list is modified,
 and the call is total — it never fails.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors). [[src/builtins/strings.rs:is_tier_a_query]]
 
 ## Parameters
 

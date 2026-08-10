@@ -6,6 +6,7 @@ Test whether a string ends with a given suffix.
 
 ```
 strings::endsWith(value AS String, suffix AS String) AS Boolean
+strings::endsWith(value AS AttributedString, suffix AS String) AS Boolean
 ```
 
 ## Package
@@ -41,6 +42,10 @@ call never fails.
 To test the start of the string use `strings::startsWith`; to test several
 candidate suffixes at once use `strings::endsWithAny`; to remove the suffix
 rather than test for it use `strings::stripSuffix`.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors). [[src/builtins/strings.rs:is_tier_a_query]]
 
 ## Parameters
 

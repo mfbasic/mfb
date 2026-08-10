@@ -6,6 +6,7 @@ Return the extended grapheme cluster at a grapheme index.
 
 ```
 strings::graphemeAt(value AS String, index AS Integer) AS String
+strings::graphemeAt(value AS AttributedString, index AS Integer) AS String
 ```
 
 ## Package
@@ -43,6 +44,10 @@ range for it.
 
 `value` is not mutated; the returned `String` is a fresh copy of the selected
 cluster.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors). [[src/builtins/strings.rs:is_tier_a_query]]
 
 ## Parameters
 
