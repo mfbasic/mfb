@@ -50,6 +50,9 @@ IMPORT thread
 '              links currently visible; the focused link is highlighted.
 '   Enter      (Display Mode) follow the focused link.
 '   Esc        (Display Mode) un-focus the highlighted link.
+'   L / l      (Display Mode) open the Links list: a labelled multi-column list of
+'              every link on the page ("A) Link Text"). Type a link's letter(s) to
+'              follow it, Up/Down scroll, Esc returns to the page.
 '
 ' On a load error of any kind the error message is shown in the content area.
 '
@@ -290,7 +293,7 @@ END FUNC
 ' Draw the top bar, both rules, the footer, and place the cursor. The top bar
 ' shows the URL being edited in Address Mode ("[ind] HREF: <url>") and the page
 ' title, right-aligned, in Display Mode ("[ind]            <title>").
-SUB drawChrome(size AS TermSize, addressMode AS Boolean, rawMode AS Boolean, url AS String, title AS String, loadState AS String, secure AS Boolean, spinner AS Integer, widthMode AS String, filesLoaded AS Integer, filesTotal AS Integer)
+SUB drawChrome(size AS TermSize, addressMode AS Boolean, rawMode AS Boolean, linksMode AS Boolean, url AS String, title AS String, loadState AS String, secure AS Boolean, spinner AS Integer, widthMode AS String, filesLoaded AS Integer, filesTotal AS Integer)
   LET cols AS Integer = size.columns
   LET rows AS Integer = size.rows
   LET ind AS String = indicatorText(loadState, secure, spinner)
@@ -317,8 +320,9 @@ SUB drawChrome(size AS TermSize, addressMode AS Boolean, rawMode AS Boolean, url
   ' Row H-1: footer controls. The width-mode indicator (s)tandard / (w)ide /
   ' (e)xtra-wide sits just before the file count on the right.
   LET rightPart AS String = "(" & widthMode & ") Files: " & toString(filesLoaded) & "/" & toString(filesTotal)
-  MUT leftPart AS String = "[Q]uit  [G]o  [R]aw  [M]ode"
+  MUT leftPart AS String = "[Q]uit  [G]o  [R]aw  [L]inks  [M]ode"
   IF rawMode THEN leftPart = "[Q]uit  [G]o  [D]ocument  [M]ode"
+  IF linksMode THEN leftPart = "[Esc] Back"
   IF addressMode THEN leftPart = "[Esc] Clear/Cancel  [Enter] Go"
   term::setBackground(30, 40, 60)
   term::setForeground(225, 233, 255)
@@ -381,6 +385,22 @@ FUNC nextVisibleTarget(targets AS List OF Target, from AS Integer, scroll AS Int
   RETURN -1
 END FUNC
 
+' Whether `ch` is a single A-Z letter (a link-label character).
+FUNC isAlpha(ch AS String) AS Boolean
+  RETURN len(ch) = 1 AND strings::contains("ABCDEFGHIJKLMNOPQRSTUVWXYZ", ch)
+END FUNC
+
+' The index of the link whose label is `lab`, or -1 if none matches.
+FUNC labelIndex(items AS List OF Link, lab AS String) AS Integer
+  LET n AS Integer = len(items)
+  MUT i AS Integer = 0
+  DO WHILE i < n
+    IF display::linkLabel(i, n) = lab THEN RETURN i
+    i = i + 1
+  LOOP
+  RETURN -1
+END FUNC
+
 ' Overlay a selection background over columns [c0, c1] of a row (the focused link).
 FUNC highlightRow(a AS AttributedString, c0 AS Integer, c1 AS Integer) AS AttributedString
   LET n AS Integer = len(toString(a))
@@ -433,6 +453,11 @@ FUNC main AS Integer
   MUT running AS Boolean = TRUE
   MUT addressMode AS Boolean = FALSE
   MUT rawMode AS Boolean = FALSE
+  ' Links Mode: a labelled multi-column list of every link on the page ([L] enters it,
+  ' Esc leaves, typing a link's letter follows it). `labelBuf` accumulates the typed
+  ' label letters until a full label (see display::linkLabelWidth) is entered.
+  MUT linksMode AS Boolean = FALSE
+  MUT labelBuf AS String = ""
   MUT url AS String = ""
   ' The address as it was on entering Address Mode, restored if the edit is cancelled
   ' (so cancelling — including a clear-then-cancel — leaves the current address intact).
@@ -472,6 +497,9 @@ FUNC main AS Integer
   ' an on-screen link and is dropped when the page reflows or that link scrolls away.
   MUT targets AS List OF Target = []
   MUT focusIdx AS Integer = -1
+  ' Every link on the current page (display::links), for the [L]inks view; recomputed
+  ' on each load.
+  MUT pageLinks AS List OF Link = []
   ' A URL to load this frame (set by Address-Mode Enter or activating a focused link),
   ' consumed by the load section below; "" means nothing to load.
   MUT loadTarget AS String = ""
@@ -517,10 +545,13 @@ FUNC main AS Integer
       ' and the welcome/error fallback wraps there too — so [M] re-lays-out whatever
       ' is on screen. When layoutW exceeds the terminal the viewport shows a
       ' `cols`-wide window (drawContent clips each line to `cols`); Left/Right pan.
-      LET paintMode AS Boolean = haveDom AND NOT rawMode
+      LET paintMode AS Boolean = haveDom AND NOT rawMode AND NOT linksMode
       LET layoutW AS Integer = layoutWidthFor(widthMode, cols)
       IF needRecontent OR layoutW <> lastContentWidth THEN
-        IF paintMode THEN
+        IF linksMode THEN
+          wrapped = display::linksView(pageLinks, layoutW)
+          targets = []
+        ELSEIF paintMode THEN
           LET pr AS PaintResult = display::paint(pageDoc, layoutW, termCellPx(), termLinePx())
           wrapped = pr.rows
           targets = pr.targets
@@ -576,7 +607,7 @@ FUNC main AS Integer
         focusRects = collections::get(targets, focusIdx).rects
       END IF
 
-      drawChrome(size, addressMode, rawMode, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
+      drawChrome(size, addressMode, rawMode, linksMode, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
       IF contentDirty THEN
         drawContent(size, wrapped, scroll, hscroll, focusRects)
         contentDirty = FALSE
@@ -609,6 +640,39 @@ FUNC main AS Integer
       ELSEIF isTextKey(key) THEN
         url = url & key
       END IF
+    ELSEIF linksMode THEN
+      ' Links Mode: Esc back to the page, Up/Down scroll the list, and typing a
+      ' link's label letter(s) follows it (labelBuf gathers a multi-letter label).
+      IF key = "EOF" THEN
+        running = FALSE
+      ELSEIF key = "ESC" THEN
+        linksMode = FALSE
+        labelBuf = ""
+        scroll = 0
+        needRecontent = TRUE
+      ELSEIF key = "UP" THEN
+        IF scroll > 0 THEN
+          scroll = scroll - 1
+          contentDirty = TRUE
+        END IF
+      ELSEIF key = "DOWN" THEN
+        scroll = scroll + 1
+        contentDirty = TRUE
+      ELSEIF isTextKey(key) THEN
+        LET ch AS String = strings::upper(key)
+        IF isAlpha(ch) THEN
+          labelBuf = labelBuf & ch
+          IF len(labelBuf) >= display::linkLabelWidth(len(pageLinks)) THEN
+            LET idx AS Integer = labelIndex(pageLinks, labelBuf)
+            IF idx >= 0 THEN
+              loadTarget = fetch::resolveHref(url, collections::get(pageLinks, idx).href)
+            END IF
+            labelBuf = ""
+          END IF
+        ELSE
+          labelBuf = ""
+        END IF
+      END IF
     ELSE
       ' Display Mode or Raw Mode.
       IF key = "q" OR key = "Q" OR key = "EOF" THEN
@@ -618,6 +682,13 @@ FUNC main AS Integer
         addressMode = TRUE
       ELSEIF (key = "r" OR key = "R") AND haveDom AND NOT rawMode THEN
         rawMode = TRUE
+        scroll = 0
+        hscroll = 0
+        needRecontent = TRUE
+      ELSEIF (key = "l" OR key = "L") AND haveDom AND NOT rawMode THEN
+        ' Enter the links list.
+        linksMode = TRUE
+        labelBuf = ""
         scroll = 0
         hscroll = 0
         needRecontent = TRUE
@@ -679,14 +750,14 @@ FUNC main AS Integer
       pageTitle = ""
       focusIdx = -1
       LET loadingLines AS List OF AttributedString = attrLines(wrapContent("Loading " & target & " ...", cols))
-      drawChrome(size, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
+      drawChrome(size, FALSE, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
       drawContent(size, loadingLines, 0, 0, noRects)
       term::sync()
 
       LET worker AS Thread OF String TO LoadResult = thread::start(fetch::fetch, target)
       DO WHILE thread::isRunning(worker)
         spinner = spinner + 1
-        drawChrome(size, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
+        drawChrome(size, FALSE, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
         term::sync()
         ' Wait up to one frame for a key; Q aborts the load and quits.
         IF ready(100) THEN
@@ -710,11 +781,15 @@ FUNC main AS Integer
         IF page.ok THEN
           pageDoc = page.document
           pageTitle = page.title
+          pageLinks = display::links(pageDoc)
         ELSE
           fallback = page.message
           pageTitle = ""
+          pageLinks = []
         END IF
         rawMode = FALSE
+        linksMode = FALSE
+        labelBuf = ""
         secure = page.secure
         filesLoaded = page.filesLoaded
         filesTotal = page.filesTotal

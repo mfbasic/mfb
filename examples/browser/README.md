@@ -88,6 +88,10 @@ far-left indicator is a spinner while loading, 🔒 for an https page, 🔓 othe
   currently visible; the focused link is highlighted. **Enter** follows it, **Esc**
   un-focuses. Scroll to bring the links you want on screen, then Tab through them; a
   link that scrolls out of view (or a reflow from resize/mode) drops the selection.
+- **L** — (Display Mode) open the **Links list**: a labelled multi-column list of *every*
+  link on the page — `A) Link Text`, `B) …` (two letters past 26 links). Type a link's
+  letter(s) to follow it, **Up / Down** scroll the list, **Esc** returns to the page. The
+  column count follows the width mode, so **(w)**/**(e)** show more columns.
 - **M** — cycle the display width mode: **(s)**tandard (the terminal width),
   **(w)**ide (300 columns), **(e)**xtra-wide (600). Toggling re-lays-out whatever is
   on screen (a rendered page, the raw tree, or the fallback). The current mode shows

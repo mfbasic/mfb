@@ -498,6 +498,153 @@ EXPORT FUNC paint(root AS Node, widthCols AS Integer, cellPx AS Integer, linePx 
   RETURN PaintResult[out, cv.targets]
 END FUNC
 
+' ----- the [L]inks view: every link as a labelled multi-column list ------------
+
+' A hyperlink on the page: its URL and its visible text (for the links list).
+EXPORT TYPE Link
+  href AS String
+  text AS String
+END TYPE
+
+' The concatenated text of an element's subtree, in document order (skipping a
+' display:none subtree). Iterative — no recursion over the imported Node union.
+FUNC subtreeText(e AS ElementNode) AS String
+  MUT parts AS List OF String = []
+  MUT stack AS List OF Node = []
+  MUT j AS Integer = len(e.children) - 1
+  DO WHILE j >= 0
+    stack = collections::append(stack, collections::get(e.children, j))
+    j = j - 1
+  LOOP
+  DO WHILE len(stack) > 0
+    LET i AS Integer = len(stack) - 1
+    LET node AS Node = collections::get(stack, i)
+    stack = collections::removeAt(stack, i)
+    MATCH node
+      CASE ElementNode(ce)
+        IF ce.style.display <> Display.None THEN
+          MUT k AS Integer = len(ce.children) - 1
+          DO WHILE k >= 0
+            stack = collections::append(stack, collections::get(ce.children, k))
+            k = k - 1
+          LOOP
+        END IF
+      CASE TextNode(t)
+        parts = collections::append(parts, t.text)
+      CASE ELSE
+    END MATCH
+  LOOP
+  RETURN strings::join(parts, "")
+END FUNC
+
+' Every hyperlink (an <a> with an href) on the page, in document order, with its
+' visible text. Links inside a display:none subtree are skipped. Iterative walk.
+EXPORT FUNC links(root AS Node) AS List OF Link
+  MUT out AS List OF Link = []
+  MUT stack AS List OF Node = [root]
+  DO WHILE len(stack) > 0
+    LET i AS Integer = len(stack) - 1
+    LET node AS Node = collections::get(stack, i)
+    stack = collections::removeAt(stack, i)
+    MATCH node
+      CASE ElementNode(e)
+        IF e.style.display <> Display.None THEN
+          IF e.tag = "a" THEN
+            LET href AS String = collections::getOr(e.attrs, "href", "")
+            IF href <> "" THEN
+              LET txt AS String = strings::trim(collapse(subtreeText(e)))
+              IF txt <> "" THEN
+                out = collections::append(out, Link[href, txt])
+              END IF
+            END IF
+          END IF
+          MUT j AS Integer = len(e.children) - 1
+          DO WHILE j >= 0
+            stack = collections::append(stack, collections::get(e.children, j))
+            j = j - 1
+          LOOP
+        END IF
+      CASE ELSE
+    END MATCH
+  LOOP
+  RETURN out
+END FUNC
+
+' The number of letters in each link label: 1 for <=26 links, 2 for <=676, else 3.
+EXPORT FUNC linkLabelWidth(total AS Integer) AS Integer
+  IF total <= 26 THEN RETURN 1
+  IF total <= 676 THEN RETURN 2
+  RETURN 3
+END FUNC
+
+' The fixed-width, upper-case A-Z label for link `index` (0 -> A or AA, 25 -> Z or AZ,
+' 26 -> BA …), so the app can map a typed label straight back to a link.
+EXPORT FUNC linkLabel(index AS Integer, total AS Integer) AS String
+  LET alpha AS String = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  LET w AS Integer = linkLabelWidth(total)
+  MUT s AS String = ""
+  MUT x AS Integer = index
+  MUT k AS Integer = 0
+  DO WHILE k < w
+    LET d AS Integer = x MOD 26
+    s = strings::mid(alpha, d, 1) & s
+    x = x / 26
+    k = k + 1
+  LOOP
+  RETURN s
+END FUNC
+
+' Render the links as a multi-column labelled list — "A) Link Text" cells, one
+' AttributedString per row (labels bold), fit to `widthCols`. The column count adapts
+' to the width (so wide/extra-wide modes show more columns); a long link text is
+' clipped to its column. Row-major: labels read left-to-right, top-to-bottom.
+EXPORT FUNC linksView(items AS List OF Link, widthCols AS Integer) AS List OF AttributedString
+  LET n AS Integer = len(items)
+  MUT out AS List OF AttributedString = []
+  IF n = 0 THEN
+    out = collections::append(out, astrings::fromString("(no links on this page)"))
+    RETURN out
+  END IF
+  LET w AS Integer = maxOf(1, widthCols)
+  LET gap AS Integer = 2
+  LET minCell AS Integer = 24
+  LET cols AS Integer = maxOf(1, (w + gap) / (minCell + gap))
+  LET cellW AS Integer = maxOf(1, (w - gap * (cols - 1)) / cols)
+  LET rowsN AS Integer = (n + cols - 1) / cols
+  MUT r AS Integer = 0
+  DO WHILE r < rowsN
+    MUT line AS String = ""
+    MUT labStarts AS List OF Integer = []
+    MUT labEnds AS List OF Integer = []
+    MUT c AS Integer = 0
+    DO WHILE c < cols
+      LET index AS Integer = r * cols + c
+      IF index < n THEN
+        LET lab AS String = linkLabel(index, n)
+        LET content AS String = lab & ") " & collections::get(items, index).text
+        LET cell AS String = padTo(clip(content, cellW), cellW)
+        LET colStart AS Integer = len(line)
+        labStarts = collections::append(labStarts, colStart)
+        labEnds = collections::append(labEnds, colStart + len(lab) - 1)
+        line = line & cell
+        IF c < cols - 1 THEN
+          line = line & strings::repeat(" ", gap)
+        END IF
+      END IF
+      c = c + 1
+    LOOP
+    MUT a AS AttributedString = astrings::fromString(line)
+    MUT li AS Integer = 0
+    DO WHILE li < len(labStarts)
+      a = astrings::addAttribute(a, collections::get(labStarts, li), collections::get(labEnds, li), astrings::bold())
+      li = li + 1
+    LOOP
+    out = collections::append(out, a)
+    r = r + 1
+  LOOP
+  RETURN out
+END FUNC
+
 ' The readable page text: a pre-order walk emitting text, breaking lines on
 ' block tags, skipping the header and non-visible subtrees.
 EXPORT FUNC render(root AS Node, width AS Integer) AS String
