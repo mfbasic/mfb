@@ -124,7 +124,7 @@ const fn opt(name: &'static str, aliases: &'static [&'static str], ty: &'static 
 const fn native(
     name: &'static str,
     slug: &'static str,
-    doc_into: &'static str,
+    doc_intro: &'static str,
     doc_desc: &'static str,
     errors: &'static [&'static str],
     overloads: &'static [BuiltinOverload],
@@ -132,7 +132,7 @@ const fn native(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into,
+        doc_intro,
         doc_desc,
         errors,
         overloads,
@@ -157,7 +157,7 @@ const fn custom(params: &'static [Parameter]) -> BuiltinOverload {
 
 // Authored documentation strings for the native `collections::` members,
 // derived from src/docs/man/builtins/collections/*.md (one-line summary + the
-// Description section, citation markers stripped). See the `doc_into`/`doc_desc`
+// Description section, citation markers stripped). See the `doc_intro`/`doc_desc`
 // fields on `BuiltinFunction`.
 // ---- get ----
 const INTO_GET: &str = "Read a list item by index or a map value by key.";
@@ -1342,8 +1342,45 @@ impl BuiltinResolver for CollectionsResolver {
 }
 static COLLECTIONS_RESOLVER: CollectionsResolver = CollectionsResolver;
 
+/// Package-overview description, from `src/docs/man/builtins/collections/package.md`
+/// (its Description section, citation markers stripped).
+const COLLECTIONS_DESC: &str = r#"The `collections` package provides package-qualified helpers for `List` and `Map`
+values: element access and mutation (`get`, `set`, `append`, `prepend`, `insert`,
+`removeAt`, `removeKey`), higher-order transforms (`transform`, `filter`,
+`reduce`, `reduceRight`, `forEach`, `mapValues`), queries (`find`, `findIndex`,
+`findLastIndex`, `contains`, `any`, `all`, `hasKey`, `keys`, `values`), reshaping
+(`sort`, `sortBy`, `distinct`, `flatten`, `zip`, `chunks`, `window`, `partition`,
+`groupBy`, `merge`), and numeric folding (`sum`). `collections` is a built-in
+package: `IMPORT collections` needs no manifest dependency.
+
+These helpers do not mutate their arguments. A function that changes a collection
+returns a new value and leaves the original unchanged. List indexes are
+zero-based, and access reads without copying the collection.
+
+Element and key types follow the comparable/orderable rules: `sort` and `sortBy`
+require an orderable element or key type, and `distinct` requires a comparable
+element type. Map helpers operate on `Map OF K TO V` values, where the key type
+`K` is the map's declared key type.
+
+Predicates and other function arguments are passed as function values: a named
+`FUNC`, a `LAMBDA`, or a general built-in predicate such as `isEven`,
+`isPositive` or `isEmpty`. A built-in predicate resolves against the type
+expected at that position — the element type of the list for a higher-order
+call, or the declared type of a `FUNC(T) AS Boolean` binding — because a bare
+name like `isPositive` is defined over `Integer`, `Float` and `Fixed` and nothing
+in the reference alone chooses between them.
+
+Some helpers introduce built-in result types: `zip` produces a `List OF Pair OF
+A, B`, and `partition` produces a `Partition OF T` holding the matched and
+unmatched elements. See `mfb man types pair` and `mfb man types partition`.
+
+The List-only overloads of `find`, `mid`, and `replace` live here; their String
+overloads live in `strings::`."#;
+
 pub(crate) static COLLECTIONS: BuiltinModule = BuiltinModule {
     name: "collections",
+    doc_intro: "Sequence and map helper functions",
+    doc_desc: COLLECTIONS_DESC,
     functions: COLLECTIONS_FUNCTIONS,
     types: &[],
     source: Some(BuiltinSource {
@@ -2729,7 +2766,7 @@ mod tests {
         let f = native("collections.get", "get", "into", "desc", &[], OVS);
         assert_eq!(f.name, "collections.get");
         assert_eq!(f.doc_slug, "get");
-        assert_eq!(f.doc_into, "into");
+        assert_eq!(f.doc_intro, "into");
         assert_eq!(f.doc_desc, "desc");
         assert_eq!(f.overloads.len(), 1);
         assert_eq!(f.implementation, Implementation::Same);

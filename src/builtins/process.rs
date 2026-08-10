@@ -79,7 +79,7 @@ const fn nf(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -189,6 +189,8 @@ const PROCESS_TYPES: &[BuiltinType] = &[BuiltinType {
 
 pub(crate) static PROCESS: BuiltinModule = BuiltinModule {
     name: "process",
+    doc_intro: "",
+    doc_desc: "",
     functions: PROCESS_FUNCTIONS,
     types: PROCESS_TYPES,
     // The source companion carries the `Stream` (plan-90-B) and `Signal`

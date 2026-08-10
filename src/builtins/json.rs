@@ -40,7 +40,7 @@ const fn json_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -160,6 +160,8 @@ static JSON_RESOLVER: JsonResolver = JsonResolver;
 
 pub(crate) static JSON: BuiltinModule = BuiltinModule {
     name: "json",
+    doc_intro: "",
+    doc_desc: "",
     functions: JSON_FUNCTIONS,
     types: JSON_TYPES,
     source: Some(BuiltinSource {

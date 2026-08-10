@@ -117,7 +117,7 @@ const fn af(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -290,6 +290,8 @@ static AUDIO_RESOLVER: AudioResolver = AudioResolver;
 
 pub(crate) static AUDIO: BuiltinModule = BuiltinModule {
     name: "audio",
+    doc_intro: "",
+    doc_desc: "",
     functions: AUDIO_FUNCTIONS,
     types: AUDIO_TYPES,
     source: Some(BuiltinSource {

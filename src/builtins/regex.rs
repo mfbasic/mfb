@@ -60,7 +60,7 @@ const fn regex_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -99,6 +99,8 @@ const REGEX_FUNCTIONS: &[BuiltinFunction] = &[
 
 pub(crate) static REGEX: BuiltinModule = BuiltinModule {
     name: "regex",
+    doc_intro: "",
+    doc_desc: "",
     functions: REGEX_FUNCTIONS,
     types: &[],
     source: Some(BuiltinSource {

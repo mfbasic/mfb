@@ -101,7 +101,7 @@ const fn gfn(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -204,6 +204,8 @@ static GENERAL_RESOLVER: GeneralResolver = GeneralResolver;
 
 pub(crate) static GENERAL: BuiltinModule = BuiltinModule {
     name: "general",
+    doc_intro: "",
+    doc_desc: "",
     functions: GENERAL_FUNCTIONS,
     types: &[],
     source: None,

@@ -85,7 +85,7 @@ const fn ef(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -325,6 +325,8 @@ static ENCODING_RESOLVER: EncodingResolver = EncodingResolver;
 
 pub(crate) static ENCODING: BuiltinModule = BuiltinModule {
     name: "encoding",
+    doc_intro: "",
+    doc_desc: "",
     functions: ENCODING_FUNCTIONS,
     types: &[],
     source: Some(BuiltinSource {

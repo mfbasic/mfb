@@ -86,7 +86,7 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: PARSE,
         doc_slug: "parse",
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads: &[BuiltinOverload {
@@ -103,7 +103,7 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: STRINGIFY,
         doc_slug: "stringify",
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads: &[BuiltinOverload {
@@ -120,7 +120,7 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: PARSE_STREAM,
         doc_slug: "parseStream",
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads: &[BuiltinOverload {
@@ -137,7 +137,7 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: NEXT,
         doc_slug: "readRow",
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads: &[BuiltinOverload {
@@ -155,6 +155,8 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
 
 pub(crate) static CSV: BuiltinModule = BuiltinModule {
     name: "csv",
+    doc_intro: "",
+    doc_desc: "",
     functions: CSV_FUNCTIONS,
     types: CSV_TYPES,
     source: Some(BuiltinSource {

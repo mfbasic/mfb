@@ -48,7 +48,7 @@ const fn os_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -103,6 +103,8 @@ const OS_FUNCTIONS: &[BuiltinFunction] = &[
 
 pub(crate) static OS: BuiltinModule = BuiltinModule {
     name: "os",
+    doc_intro: "",
+    doc_desc: "",
     functions: OS_FUNCTIONS,
     types: &[],
     source: None,

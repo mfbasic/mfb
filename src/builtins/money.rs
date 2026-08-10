@@ -40,7 +40,7 @@ const fn money_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -79,6 +79,8 @@ const MONEY_TYPES: &[BuiltinType] = &[BuiltinType {
 
 pub(crate) static MONEY: BuiltinModule = BuiltinModule {
     name: "money",
+    doc_intro: "",
+    doc_desc: "",
     functions: MONEY_FUNCTIONS,
     types: MONEY_TYPES,
     source: Some(BuiltinSource {

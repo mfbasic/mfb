@@ -103,6 +103,8 @@ pub(crate) const ERRORCODE_CONSTANTS: &[(&str, &str, &str, &str)] = &[
 // helpers (`helpers 0`, `srcglue/btypes/custom 0`).
 pub(crate) static ERRORCODE: BuiltinModule = BuiltinModule {
     name: "errorCode",
+    doc_intro: "",
+    doc_desc: "",
     functions: &[],
     types: &[],
     source: None,

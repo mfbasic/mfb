@@ -121,7 +121,7 @@ const fn astrings_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -142,7 +142,7 @@ const fn astrings_internal_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -257,6 +257,8 @@ const ASTRINGS_FUNCTIONS: &[BuiltinFunction] = &[
 
 pub(crate) static ASTRINGS: BuiltinModule = BuiltinModule {
     name: "astrings",
+    doc_intro: "",
+    doc_desc: "",
     // `AttributedString` is a hardcoded always-in-scope type, not a descriptor
     // type contributed by this package (see the module comment).
     functions: ASTRINGS_FUNCTIONS,

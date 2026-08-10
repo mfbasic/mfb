@@ -167,7 +167,7 @@ const fn term_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -226,6 +226,8 @@ static TERM_RESOLVER: TermResolver = TermResolver;
 
 pub(crate) static TERM: BuiltinModule = BuiltinModule {
     name: "term",
+    doc_intro: "",
+    doc_desc: "",
     functions: TERM_FUNCTIONS,
     types: TERM_TYPES,
     source: Some(super::descriptor::BuiltinSource {

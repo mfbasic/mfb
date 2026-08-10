@@ -87,7 +87,7 @@ const fn mf(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -182,6 +182,8 @@ static MATH_RESOLVER: MathResolver = MathResolver;
 
 pub(crate) static MATH: BuiltinModule = BuiltinModule {
     name: "math",
+    doc_intro: "",
+    doc_desc: "",
     functions: MATH_FUNCTIONS,
     types: &[],
     source: None,

@@ -74,7 +74,7 @@ const fn nf(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -381,6 +381,8 @@ static NET_RESOLVER: NetResolver = NetResolver;
 
 pub(crate) static NET: BuiltinModule = BuiltinModule {
     name: "net",
+    doc_intro: "",
+    doc_desc: "",
     functions: NET_FUNCTIONS,
     types: NET_TYPES,
     source: Some(BuiltinSource {

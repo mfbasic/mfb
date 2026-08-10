@@ -188,9 +188,9 @@ pub(crate) struct BuiltinFunction {
     pub(crate) doc_slug: &'static str,
     /// Short intro/summary line for this function, authored in the renderer's
     /// Markdown subset. Empty until authored. Capped at 1024 bytes; the cap is
-    /// enforced across the whole registry by the `doc_into_within_cap` test
+    /// enforced across the whole registry by the `doc_intro_within_cap` test
     /// rather than the type, so it stays a plain `&'static str`.
-    pub(crate) doc_into: &'static str,
+    pub(crate) doc_intro: &'static str,
     /// Full reference description for this function, authored in the renderer's
     /// Markdown subset. Unbounded. Empty until authored.
     pub(crate) doc_desc: &'static str,
@@ -325,6 +325,13 @@ pub(crate) trait BuiltinResolver: Sync {
 pub(crate) struct BuiltinModule {
     /// The package name as it appears in an `IMPORT`, e.g. `"bits"`.
     pub(crate) name: &'static str,
+    /// Short one-line package summary (the package-level analogue of
+    /// [`BuiltinFunction::doc_intro`]). Empty until authored.
+    pub(crate) doc_intro: &'static str,
+    /// Full package-overview description, authored in the renderer's Markdown
+    /// subset (the package-level analogue of [`BuiltinFunction::doc_desc`]).
+    /// Empty until authored.
+    pub(crate) doc_desc: &'static str,
     pub(crate) functions: &'static [BuiltinFunction],
     pub(crate) types: &'static [BuiltinType],
     pub(crate) source: Option<BuiltinSource>,
@@ -339,6 +346,8 @@ impl std::fmt::Debug for BuiltinModule {
         // it is present, and the data fields normally.
         f.debug_struct("BuiltinModule")
             .field("name", &self.name)
+            .field("doc_intro", &self.doc_intro)
+            .field("doc_desc", &self.doc_desc)
             .field("functions", &self.functions)
             .field("types", &self.types)
             .field("source", &self.source)
@@ -894,7 +903,7 @@ mod tests {
     const ADD: BuiltinFunction = BuiltinFunction {
         name: "t.add",
         doc_slug: "add",
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads: &[BuiltinOverload {
@@ -915,7 +924,7 @@ mod tests {
     const EMIT: BuiltinFunction = BuiltinFunction {
         name: "t.emit",
         doc_slug: "emit",
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads: &[BuiltinOverload {
@@ -950,7 +959,7 @@ mod tests {
     const PICK: BuiltinFunction = BuiltinFunction {
         name: "t.pick",
         doc_slug: "pick",
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads: &[BuiltinOverload {
@@ -995,7 +1004,7 @@ mod tests {
     const NOW: BuiltinFunction = BuiltinFunction {
         name: "t.now",
         doc_slug: "now",
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads: &[BuiltinOverload {
@@ -1012,6 +1021,8 @@ mod tests {
 
     const TEST_MODULE: BuiltinModule = BuiltinModule {
         name: "t",
+        doc_intro: "",
+        doc_desc: "",
         functions: &[ADD, EMIT, PICK, NOW],
         types: TEST_TYPES,
         // A real source loader (borrowed from `app`) so the source rule and
@@ -1028,7 +1039,7 @@ mod tests {
     const OTHER_ADD: BuiltinFunction = BuiltinFunction {
         name: "u.add",
         doc_slug: "add",
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads: &[BuiltinOverload {
@@ -1045,6 +1056,8 @@ mod tests {
 
     const OTHER_MODULE: BuiltinModule = BuiltinModule {
         name: "u",
+        doc_intro: "",
+        doc_desc: "",
         functions: &[OTHER_ADD],
         types: &[],
         source: None,
@@ -1314,6 +1327,8 @@ mod tests {
     // producing a fully qualified function-name collision across modules.
     const COLLIDING_MODULE: BuiltinModule = BuiltinModule {
         name: "t2",
+        doc_intro: "",
+        doc_desc: "",
         functions: &[ADD],
         types: &[],
         source: None,
@@ -1355,17 +1370,17 @@ mod tests {
     }
 
     #[test]
-    fn doc_into_within_cap() {
-        // `doc_into` is a short intro line, capped at 1024 bytes. The bound is a
+    fn doc_intro_within_cap() {
+        // `doc_intro` is a short intro line, capped at 1024 bytes. The bound is a
         // registry-wide invariant enforced here rather than by the type, so the
         // field can stay a plain `&'static str`. Empty (unauthored) entries pass.
         for module in REGISTRY.modules() {
             for function in module.functions {
                 assert!(
-                    function.doc_into.len() <= 1024,
-                    "{} doc_into is {} bytes, exceeds the 1024-byte cap",
+                    function.doc_intro.len() <= 1024,
+                    "{} doc_intro is {} bytes, exceeds the 1024-byte cap",
                     function.name,
-                    function.doc_into.len()
+                    function.doc_intro.len()
                 );
             }
         }
@@ -1388,7 +1403,7 @@ mod tests {
                 assert!(!function.overloads.is_empty(), "{}", function.name);
                 // Documentation/contract facets (doc surface + plan-88 `errors`):
                 // off the resolution path, so read them here to keep them live.
-                let _ = (function.doc_into, function.doc_desc, function.errors);
+                let _ = (function.doc_intro, function.doc_desc, function.errors);
             }
         }
 
@@ -1524,7 +1539,7 @@ mod tests {
     const S_PICK: BuiltinFunction = BuiltinFunction {
         name: "s.pick",
         doc_slug: "pick",
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads: S_OVERLOADS,
@@ -1542,6 +1557,8 @@ mod tests {
     }];
     const S_MODULE: BuiltinModule = BuiltinModule {
         name: "s",
+        doc_intro: "",
+        doc_desc: "",
         functions: &[S_PICK],
         types: S_TYPES,
         source: Some(BuiltinSource {
@@ -1724,7 +1741,7 @@ mod tests {
     const MIXED_RET: BuiltinFunction = BuiltinFunction {
         name: "t.mixed",
         doc_slug: "mixed",
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads: &[
@@ -1747,6 +1764,8 @@ mod tests {
 
     const MIXED_MODULE: BuiltinModule = BuiltinModule {
         name: "m",
+        doc_intro: "",
+        doc_desc: "",
         functions: &[MIXED_RET],
         types: &[],
         source: None,

@@ -236,7 +236,7 @@ const fn strings_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -561,6 +561,8 @@ pub(crate) fn is_tier_a_query(name: &str) -> bool {
 
 pub(crate) static STRINGS: BuiltinModule = BuiltinModule {
     name: "strings",
+    doc_intro: "",
+    doc_desc: "",
     functions: STRINGS_FUNCTIONS,
     types: &[],
     source: Some(BuiltinSource {

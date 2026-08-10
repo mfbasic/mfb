@@ -66,7 +66,7 @@ const fn bits_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -101,6 +101,8 @@ const BITS_FUNCTIONS: &[BuiltinFunction] = &[
 
 pub(crate) static BITS: BuiltinModule = BuiltinModule {
     name: "bits",
+    doc_intro: "",
+    doc_desc: "",
     functions: BITS_FUNCTIONS,
     types: &[],
     source: None,

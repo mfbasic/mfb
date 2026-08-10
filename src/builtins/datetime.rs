@@ -115,7 +115,7 @@ const fn df(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -477,6 +477,8 @@ static DATETIME_RESOLVER: DatetimeResolver = DatetimeResolver;
 
 pub(crate) static DATETIME: BuiltinModule = BuiltinModule {
     name: "datetime",
+    doc_intro: "",
+    doc_desc: "",
     functions: DATETIME_FUNCTIONS,
     types: DATETIME_TYPES,
     source: Some(BuiltinSource {

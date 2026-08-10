@@ -30,6 +30,8 @@ use super::descriptor::BuiltinModule;
 // descriptor vocabulary models builtin calls and types, not the resource table.
 pub(crate) static RESOURCE: BuiltinModule = BuiltinModule {
     name: "resource",
+    doc_intro: "",
+    doc_desc: "",
     functions: &[],
     types: &[],
     source: None,

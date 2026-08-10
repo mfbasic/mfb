@@ -1,5 +1,5 @@
 //! Experimental `mfb man2` — render a builtin function's man page directly from
-//! the descriptor [`REGISTRY`] metadata (`doc_into` / `doc_desc` / `errors` /
+//! the descriptor [`REGISTRY`] metadata (`doc_intro` / `doc_desc` / `errors` /
 //! overload parameters) rather than from the static `src/docs/man/**` Markdown.
 //!
 //! This is a testbed for registry-driven documentation and is deliberately wired
@@ -31,7 +31,11 @@ pub(crate) fn show_man2(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         ["collections"] => {
-            Err("mfb man2 requires a function name, e.g. `mfb man2 collections get`".to_string())
+            let module = REGISTRY
+                .module("collections")
+                .expect("collections is a registered builtin package");
+            print_markdown(&render_package_markdown(module));
+            Ok(())
         }
         [package, ..] => Err(format!(
             "mfb man2 is wired for the `collections` package only (got `{package}`)"
@@ -52,13 +56,76 @@ fn lookup<'a>(module: &'a BuiltinModule, function_name: &str) -> Option<&'a Buil
     })
 }
 
+/// Build a package-overview Markdown page from the module descriptor: its
+/// `doc_intro` summary, `doc_desc` description, a listing of every member with
+/// its own `doc_intro`, and the union of every declared error.
+fn render_package_markdown(module: &BuiltinModule) -> String {
+    let mut md = String::new();
+
+    md.push_str(&format!("# {}\n\n", module.name));
+    if !module.doc_intro.is_empty() {
+        md.push_str(module.doc_intro);
+        md.push_str("\n\n");
+    }
+    if !module.doc_desc.is_empty() {
+        md.push_str("## Description\n\n");
+        md.push_str(module.doc_desc);
+        md.push_str("\n\n");
+    }
+
+    if !module.functions.is_empty() {
+        md.push_str("## Functions\n\n");
+        md.push_str("| Function | Summary |\n| --- | --- |\n");
+        for function in module.functions {
+            md.push_str(&format!(
+                "| `{}::{}` | {} |\n",
+                module.name, function.doc_slug, function.doc_intro
+            ));
+        }
+        md.push('\n');
+    }
+
+    render_package_errors(&mut md, module);
+
+    md
+}
+
+/// The union of every error declared by any member, ordered by code, resolved to
+/// `(code, message)`. The aggregate Errors table for a package overview.
+fn render_package_errors(md: &mut String, module: &BuiltinModule) {
+    let mut names: Vec<&'static str> = Vec::new();
+    for function in module.functions {
+        for &name in function.errors {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
+    if names.is_empty() {
+        return;
+    }
+    names.sort_by_key(|name| {
+        errorcode::runtime_error(name)
+            .map(|(code, _)| code)
+            .unwrap_or("")
+    });
+
+    md.push_str("## Errors\n\n");
+    md.push_str("| Code | Name | Message |\n| --- | --- | --- |\n");
+    for name in names {
+        let (code, message) = errorcode::runtime_error(name).unwrap_or(("", ""));
+        md.push_str(&format!("| `{code}` | `{name}` | {message} |\n"));
+    }
+    md.push('\n');
+}
+
 /// Build a Markdown man page for one function purely from its descriptor.
 fn render_function_markdown(module: &BuiltinModule, function: &BuiltinFunction) -> String {
     let mut md = String::new();
 
     md.push_str(&format!("# {}\n\n", function.doc_slug));
-    if !function.doc_into.is_empty() {
-        md.push_str(function.doc_into);
+    if !function.doc_intro.is_empty() {
+        md.push_str(function.doc_intro);
         md.push_str("\n\n");
     }
 
@@ -209,7 +276,7 @@ mod tests {
 
     #[test]
     fn renders_a_collections_function_from_the_registry() {
-        // `get` carries doc_into, doc_desc, and two declared errors.
+        // `get` carries doc_intro, doc_desc, and two declared errors.
         assert!(show_man2(&s(&["collections", "get"])).is_ok());
         // `findLastIndex` — the source-generic member added to the descriptor.
         assert!(show_man2(&s(&["collections", "findLastIndex"])).is_ok());
@@ -282,10 +349,36 @@ mod tests {
     }
 
     #[test]
+    fn no_function_renders_the_package_overview() {
+        // `mfb man2 collections` renders the package page from the registry.
+        assert!(show_man2(&s(&["collections"])).is_ok());
+    }
+
+    #[test]
+    fn package_markdown_has_intro_description_functions_and_aggregate_errors() {
+        let module = REGISTRY.module("collections").unwrap();
+        let md = render_package_markdown(module);
+        assert!(md.starts_with("# collections\n"));
+        // doc_intro one-liner.
+        assert!(md.contains("Sequence and map helper functions"));
+        // doc_desc description.
+        assert!(md.contains("## Description"));
+        assert!(md.contains("package-qualified helpers for `List` and `Map`"));
+        // Function listing with per-member summaries.
+        assert!(md.contains("## Functions"));
+        assert!(md.contains("| `collections::get` |"));
+        // Aggregate Errors table: the union across members, ordered by code.
+        assert!(md.contains("## Errors"));
+        assert!(md.contains("`ErrIndexOutOfRange`"));
+        assert!(md.contains("`ErrNotFound`"));
+        assert!(md.contains("`ErrOverflow`")); // from sum
+        let index_pos = md.find("77050001").unwrap();
+        let overflow_pos = md.find("77050010").unwrap();
+        assert!(index_pos < overflow_pos, "errors ordered by code");
+    }
+
+    #[test]
     fn rejects_missing_function() {
-        assert!(show_man2(&s(&["collections"]))
-            .unwrap_err()
-            .contains("requires a function name"));
         assert!(show_man2(&s(&["collections", "nope"]))
             .unwrap_err()
             .contains("unknown collections function"));

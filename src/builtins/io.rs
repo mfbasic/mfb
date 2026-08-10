@@ -43,7 +43,7 @@ const fn io_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -108,6 +108,8 @@ const IO_FUNCTIONS: &[BuiltinFunction] = &[
 
 pub(crate) static IO: BuiltinModule = BuiltinModule {
     name: "io",
+    doc_intro: "",
+    doc_desc: "",
     functions: IO_FUNCTIONS,
     types: &[],
     source: None,

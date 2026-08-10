@@ -30,7 +30,7 @@ const APP_FUNCTIONS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: GET_MODE,
         doc_slug: "getMode",
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads: &[BuiltinOverload {
@@ -47,7 +47,7 @@ const APP_FUNCTIONS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: SET_MODE,
         doc_slug: "setMode",
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads: &[BuiltinOverload {
@@ -71,6 +71,8 @@ const APP_TYPES: &[BuiltinType] = &[BuiltinType {
 
 pub(crate) static APP: BuiltinModule = BuiltinModule {
     name: "app",
+    doc_intro: "",
+    doc_desc: "",
     functions: APP_FUNCTIONS,
     types: APP_TYPES,
     source: Some(BuiltinSource {

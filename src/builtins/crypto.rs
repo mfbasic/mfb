@@ -131,7 +131,7 @@ const fn cf(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -293,6 +293,8 @@ static CRYPTO_RESOLVER: CryptoResolver = CryptoResolver;
 
 pub(crate) static CRYPTO: BuiltinModule = BuiltinModule {
     name: "crypto",
+    doc_intro: "",
+    doc_desc: "",
     functions: CRYPTO_FUNCTIONS,
     types: CRYPTO_TYPES,
     source: Some(BuiltinSource {

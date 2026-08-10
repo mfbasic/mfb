@@ -141,7 +141,7 @@ const fn assert_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -175,6 +175,8 @@ const TESTING_FUNCTIONS: &[BuiltinFunction] = &[
 
 pub(crate) static TESTING: BuiltinModule = BuiltinModule {
     name: "testing",
+    doc_intro: "",
+    doc_desc: "",
     functions: TESTING_FUNCTIONS,
     types: &[],
     source: None,

@@ -126,7 +126,7 @@ const fn hfn(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -417,6 +417,8 @@ static HTTP_RESOLVER: HttpResolver = HttpResolver;
 
 pub(crate) static HTTP: BuiltinModule = BuiltinModule {
     name: "http",
+    doc_intro: "",
+    doc_desc: "",
     functions: HTTP_FUNCTIONS,
     types: HTTP_TYPES,
     source: Some(BuiltinSource {

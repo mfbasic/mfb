@@ -127,7 +127,7 @@ const fn vf(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -277,6 +277,8 @@ static VECTOR_RESOLVER: VectorResolver = VectorResolver;
 
 pub(crate) static VECTOR: BuiltinModule = BuiltinModule {
     name: "vector",
+    doc_intro: "",
+    doc_desc: "",
     functions: VECTOR_FUNCTIONS,
     types: VECTOR_TYPES,
     source: Some(BuiltinSource {

@@ -66,7 +66,7 @@ const fn tf(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -207,6 +207,8 @@ static TLS_RESOLVER: TlsResolver = TlsResolver;
 
 pub(crate) static TLS: BuiltinModule = BuiltinModule {
     name: "tls",
+    doc_intro: "",
+    doc_desc: "",
     functions: TLS_FUNCTIONS,
     types: TLS_TYPES,
     source: None,

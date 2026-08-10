@@ -73,7 +73,7 @@ const fn ffn(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -247,6 +247,8 @@ const FS_TYPES: &[BuiltinType] = &[BuiltinType {
 
 pub(crate) static FS: BuiltinModule = BuiltinModule {
     name: "fs",
+    doc_intro: "",
+    doc_desc: "",
     functions: FS_FUNCTIONS,
     types: FS_TYPES,
     source: None,

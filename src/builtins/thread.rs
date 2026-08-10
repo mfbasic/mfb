@@ -75,7 +75,7 @@ const fn tf(
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
+        doc_intro: "",
         doc_desc: "",
         errors: &[],
         overloads,
@@ -190,6 +190,8 @@ static THREAD_RESOLVER: ThreadResolver = ThreadResolver;
 
 pub(crate) static THREAD: BuiltinModule = BuiltinModule {
     name: "thread",
+    doc_intro: "",
+    doc_desc: "",
     functions: THREAD_FUNCTIONS,
     types: THREAD_TYPES,
     source: None,
