@@ -29,9 +29,41 @@ See plan-88-A §Prerequisites (shared). Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-88-C complete | `ls planning/completed/plan-88-C-*` (exists) | NOT MET (C pending) |
-| No error emitter bypasses `raise_error` | `grep -rc 'push_error_message_address\|self\.emit_[a-z_]+_return()' src/target/shared/code/*.rs \| awk -F: '{s+=$2} END{print s}'` → 0 (outside defs) | NOT MET until C |
-| used-set populated by every path | (C acceptance: used-set non-empty on a symbol-path program) | NOT MET until C |
+| plan-88-C complete | `ls planning/completed/plan-88-C-*` (exists) | **MET** (archived `9d4af14c3`) |
+| No error emitter bypasses `raise_error` | `grep -rn 'push_error_message_address(\|self\.emit_[a-z_]*_return()' … outside defs` → 0 | **MET** (only the def + `raise_error_into`'s internal call) |
+| used-set populated by every path | (C acceptance: used-set non-empty on a symbol-path program) | **NOT MET (entry-gate stop) — see D-1. C's free-function `raise_error_into` cannot feed `CodeBuilder.used_errors`; a symbol-path-only program's used-set is empty.** |
+
+**Prerequisite verdict: entry gate NOT passed** (row 3 NOT MET). Per follow-plan §2
+D does not start until this is resolved. D-1 records the defect and a viable
+corrected Phase-1 (table-source the existing gating; drop the used-set + the
+`used_errors` field). That correction is a **material change** — it abandons
+plan-88-A's `used_errors` mechanism entirely and is a ~124-site message re-source +
+123-const deletion whose acceptance is "every fixture still **links**" (the bug-256
+hazard) plus one intended `ErrWrongMode` runtime-message change. Recommended, but
+surfaced for confirmation before executing rather than absorbed silently.
+
+> **D-1 (Prerequisites defect / Phase-1 premise corrected).** The used-set premise
+> is unsound given C's architecture, so Phase 1 is redesigned (not the goal, only the
+> mechanism):
+> - `raise_error_into` (the fixed-helper emitter C landed) is a **free function** and
+>   never touches `CodeBuilder.used_errors`; the fixed helpers are emitted at module
+>   level, outside any per-function `CodeBuilder`. So a symbol-path-only program has an
+>   **empty** used-set → prereq NOT MET.
+> - Worse, the used-set is the **wrong signal**: the per-call-site path
+>   (`emit_error_register_return`) **content-pools** its message via
+>   `emit_load_string_address_into`, so `used_errors` (populated only by those methods)
+>   does not correspond to the fixed `_mfb_str_error_*` data objects at all. And
+>   `data_objects::string_symbols` runs on the **IR module** (pre-codegen), where the
+>   relocations that *would* name the needed symbols do not yet exist — which is why the
+>   status quo gates on module-analysis in the first place.
+>
+> **Corrected Phase 1:** keep the proven, bug-256-hardened module-analysis gating in
+> `data_objects.rs`, but **source each message from `ERRORCODE_CONSTANTS`**
+> (`errorcode::runtime_error(name).1`) instead of the `ERR_*_MESSAGE` consts. That
+> deletes the message consts (invariant #2: one metadata source) with **zero** behavior
+> change (same strings, per the parity test) — except the single intended `ErrWrongMode`
+> consolidation (table message adopted). The `used_errors` field + inserts (plan-88-A/B)
+> become dead and are removed. Byte-identical except the wrong-mode data object.
 
 ## 1. Goal
 
