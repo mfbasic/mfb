@@ -23,6 +23,13 @@ FUNC minOf(a AS Integer, b AS Integer) AS Integer
   RETURN b
 END FUNC
 
+' Integer divide, rounding to nearest (half up). Used to map the DOM's CSS-px
+' geometry down to terminal cells: a px length becomes round(px / glyphSize) cells.
+FUNC divRound(a AS Integer, b AS Integer) AS Integer
+  LET d AS Integer = maxOf(1, b)
+  RETURN (a + d / 2) / d
+END FUNC
+
 ' Tags that force a line break in the rendered text.
 FUNC isBlock(name AS String) AS Boolean
   RETURN name = "p" OR name = "div" OR name = "br" OR name = "hr" OR name = "li" OR name = "ul" OR name = "ol" OR name = "tr" OR name = "table" OR name = "h1" OR name = "h2" OR name = "h3" OR name = "h4" OR name = "h5" OR name = "h6" OR name = "section" OR name = "article" OR name = "header" OR name = "footer" OR name = "nav" OR name = "aside" OR name = "main" OR name = "blockquote" OR name = "pre" OR name = "figure" OR name = "figcaption" OR name = "dl" OR name = "dd" OR name = "dt" OR name = "form"
@@ -102,12 +109,13 @@ END FUNC
 ' ----- 2D painting (consumes dom::Layout) -------------------------------------
 '
 ' paint() renders the document by its computed geometry rather than as reflowed
-' text: dom::updateLayout positions every element box and text run for the given
-' width, and paint draws each text run at its box. Element boxes are invisible
-' containers here (a text terminal has no backgrounds or borders), so the placed
-' text is the whole picture — flex columns land side by side, padding indents,
-' widths clip. The result is a `width`-wide canvas, one String per page row, that
-' the app scrolls a window over exactly like the reflowed-text lines.
+' text: dom::updateLayout positions every element box and text run in CSS px for the
+' given viewport, and paint maps each text run's px box down to terminal cells (via
+' the glyph size) as it draws. Element boxes are invisible containers here (a text
+' terminal has no backgrounds or borders), so the placed text is the whole picture —
+' flex columns land side by side, padding indents, widths clip. The result is a
+' `widthCols`-wide canvas, one String per page row, that the app scrolls a window
+' over exactly like the reflowed-text lines.
 
 ' Collapse whitespace runs to single spaces and trim, matching how the layout pass
 ' measured the run (dom's collapseWs) so paint wraps to the same line count.
@@ -200,11 +208,12 @@ FUNC wrapRun(s AS String, w AS Integer) AS List OF String
   RETURN out
 END FUNC
 
-' The laid-out page height: the root element's box height.
-FUNC pageHeight(root AS Node) AS Integer
+' The laid-out page height in terminal rows: the root element's px box height mapped
+' down by the line height `linePx`.
+FUNC pageHeight(root AS Node, linePx AS Integer) AS Integer
   MATCH root
     CASE ElementNode(e)
-      RETURN e.layout.height
+      RETURN divRound(e.layout.height, linePx)
     CASE ELSE
       RETURN 0
   END MATCH
@@ -219,33 +228,44 @@ FUNC alignOffset(align AS Justify, boxWidth AS Integer, lineWidth AS Integer) AS
   RETURN 0
 END FUNC
 
-FUNC paintRun(canvas AS List OF String, t AS TextNode, width AS Integer) AS List OF String
+' Draw one text run. The DOM gives its box in CSS px; map it down to terminal cells
+' with the glyph size (`cw` px wide, `linePx` tall): the run starts at column x/cw,
+' row y/linePx, and is `box.width/cw` columns wide. `widthCols` is the canvas width.
+FUNC paintRun(canvas AS List OF String, t AS TextNode, widthCols AS Integer, cw AS Integer, linePx AS Integer) AS List OF String
   LET box AS Layout = t.layout
-  IF box.width <= 0 THEN RETURN canvas
-  LET lines AS List OF String = wrapRun(collapseRun(t.text), box.width)
+  LET wCols AS Integer = divRound(box.width, cw)
+  IF wCols <= 0 THEN RETURN canvas
+  LET colX AS Integer = divRound(box.x, cw)
+  LET rowY AS Integer = divRound(box.y, linePx)
+  LET lines AS List OF String = wrapRun(collapseRun(t.text), wCols)
   MUT out AS List OF String = canvas
   MUT i AS Integer = 0
   FOR EACH line IN lines
-    LET row AS Integer = box.y + i
+    LET row AS Integer = rowY + i
     IF row >= 0 AND row < len(out) THEN
-      LET off AS Integer = alignOffset(t.align, box.width, strings::displayWidth(line))
+      LET off AS Integer = alignOffset(t.align, wCols, strings::displayWidth(line))
       ' Clip the line to the run's own box (not just the canvas) so a run never
       ' bleeds past its box into a neighbour — e.g. an over-narrow table column.
-      LET rightBound AS Integer = minOf(width, box.x + box.width)
-      out = collections::set(out, row, overlay(collections::get(out, row), box.x + off, line, rightBound))
+      LET rightBound AS Integer = minOf(widthCols, colX + wCols)
+      out = collections::set(out, row, overlay(collections::get(out, row), colX + off, line, rightBound))
     END IF
     i = i + 1
   NEXT
   RETURN out
 END FUNC
 
-' Render the document to a positioned canvas of `width`-wide rows, one per page
-' row. Lays the tree out to `width` cells under the metric `m` (which maps the
-' styles' CSS px to cells), then paints every text run at its box. Walks
-' iteratively (the imported Node union does not lower to a recursive function).
-EXPORT FUNC paint(root AS Node, width AS Integer, m AS Metrics) AS List OF String
-  LET laid AS Node = dom::updateLayout(root, width, m)
-  LET h AS Integer = pageHeight(laid)
+' Render the document to a positioned canvas of `widthCols`-wide rows, one per page
+' row. The DOM lays out in device-independent CSS px, so paint gives it a viewport of
+' `widthCols * cellPx` px and the glyph size (`cellPx` wide, `linePx` tall), then maps
+' every text run's px box down to terminal cells as it draws (see paintRun). This is
+' where all px → cell conversion happens; the DOM never knows about terminal cells.
+' Walks iteratively (the imported Node union does not lower to a recursive function).
+EXPORT FUNC paint(root AS Node, widthCols AS Integer, cellPx AS Integer, linePx AS Integer) AS List OF String
+  LET cw AS Integer = maxOf(1, cellPx)
+  LET lh AS Integer = maxOf(1, linePx)
+  LET viewportPx AS Integer = maxOf(0, widthCols) * cw
+  LET laid AS Node = dom::updateLayout(root, viewportPx, cw, lh, TRUE)
+  LET h AS Integer = pageHeight(laid, lh)
   MUT canvas AS List OF String = []
   FOR i = 0 TO h - 1
     canvas = collections::append(canvas, "")
@@ -263,7 +283,7 @@ EXPORT FUNC paint(root AS Node, width AS Integer, m AS Metrics) AS List OF Strin
           j = j - 1
         LOOP
       CASE TextNode(t)
-        canvas = paintRun(canvas, t, width)
+        canvas = paintRun(canvas, t, widthCols, cw, lh)
       CASE HeaderNode(hn)
       CASE ELSE
     END MATCH

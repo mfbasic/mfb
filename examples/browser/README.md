@@ -13,7 +13,7 @@ the loading spinner keeps spinning while a page loads *and* parses:
 | ----------- | ---------- | ----------------------------------------------------------------------------- |
 | `dom/`      | package    | The DOM: `Node` (`ElementNode`/`TextNode`/`HeaderNode`) + `StyleNode` (a CSS rule) + an HTML **and** CSS parser, plus `Style`/`Layout` resolution (`resolveStyles`, `updateLayout`). |
 | `fetch/`    | package    | The network worker: blocking `http::` fetch, redirects, `dom::parse`, **and loading external stylesheets**. |
-| `display/`  | package    | Renders a `dom::Node`: `paint(node, width)` → a positioned 2D canvas (via `Layout`), `render(node, width)` → reflowed text, `tree(node, width)` → an indented DOM tree. |
+| `display/`  | package    | Renders a `dom::Node`: `paint(node, widthCols, cellPx, linePx)` → a positioned 2D canvas (maps the DOM's CSS-px `Layout` to cells), `render(node, width)` → reflowed text, `tree(node, width)` → an indented DOM tree. |
 | `app/`      | executable | The TUI: layout, input, scrolling, the three modes.                          |
 
 `fetch` and `display` both import `dom` (they name its `Node` type in their APIs);
@@ -155,9 +155,10 @@ recursing over an *imported* union):
   once, on its thread, so the fully-styled document is what crosses back.
 
 - **`Layout`** (`layout.mfb`) is the computed geometry: an absolute border box
-  (`x, y, width, height` in output cells, from the viewport's top-left), stored on
-  every `ElementNode` *and* every `TextNode` (a text run's box is where it wraps).
-  `dom::updateLayout(doc, width, metrics)` derives it from `Style`. A `display:flex`
+  (`x, y, width, height` in **device-independent CSS px**, from the viewport's
+  top-left), stored on every `ElementNode` *and* every `TextNode` (a text run's box is
+  where it wraps). `dom::updateLayout(doc, viewportPx, cellPx, linePx, fitWidth)`
+  derives it from `Style`. A `display:flex`
   box uses flex layout along its `flex-direction` (honoring `flex-grow`/`shrink`/
   `basis`, `width`/`height`, `gap`, and `justify-content`); a shrinking flex item
   never drops below its **min-content** width (its longest word), matching real
@@ -185,26 +186,30 @@ recursing over an *imported* union):
   a `<center>` (or `text-align` on an ancestor) centers all descendant text. It also
   centers (or right-aligns) a **block** child that is narrower than the content box —
   a shrink-to-fit table or a fixed-width element — by shifting its laid box, so
-  `<center>` centres a whole table, not just text. Text is
-  measured by `strings::displayWidth`. Layout is recomputed on each
+  `<center>` centres a whole table, not just text. Layout is recomputed on each
   render/resize (in the app), not stored by the worker. (Current subset: single-line
   flex — `flex-wrap` falls back to nowrap — cross-axis `align-items` is not applied,
   and inline markup collapses to plain text with no per-glyph styling.)
 
-  Because `Style` lengths are CSS px but the output is in cells, `updateLayout`
-  first maps px → cells with a **`Metrics`** — `scaleX`/`scaleY` (output cells per
-  CSS px) plus a `fitWidth` policy. `dom::pixelMetrics()` is 1:1 (a pixel canvas);
-  `dom::terminalMetrics()` scales down for a ~8×16px monospace cell (so `width:600px`
-  → 75 cells, `padding:16px` → 2 cols / 1 row) and, with `fitWidth`, treats a width
-  wider than the viewport as auto so a desktop-width page reflows instead of clipping.
-  Text stays cell-measured; only the authored box lengths scale.
+  **The DOM is pixel-native and device-independent** — it lays out entirely in CSS px
+  and knows nothing about terminals. `Style` lengths are already CSS px (`60vw`/`100%`
+  resolve to `auto`, `em`/`rem` to a 16px font size), so `updateLayout` does no
+  unit conversion; it just needs the renderer's **glyph size** — `cellPx` wide,
+  `linePx` tall — to measure and wrap text (a run's px width is its column count times
+  `cellPx`, its px height its line count times `linePx`). `fitWidth` treats an explicit
+  width wider than the viewport as auto so a desktop-width page reflows to a narrow
+  viewport instead of overflowing. A future graphics renderer would call the same
+  `updateLayout` with its own viewport and font metrics and get pixel geometry back.
 
-`display::paint(doc, width, metrics)` consumes all of this: it runs `updateLayout`
-and then draws every text run at its box onto a `width`-wide canvas (one String per
-page row) that the app scrolls a window over. Element boxes are invisible containers
-— a text terminal has no backgrounds or borders — so the positioned text is the
-whole picture: flex columns land side by side, padding indents, widths clip. The app
-paints with `dom::terminalMetrics()`.
+`display::paint(doc, widthCols, cellPx, linePx)` consumes all of this: it lays the
+page out in a `widthCols * cellPx`-px viewport, then **maps each text run's px box
+down to terminal cells** (dividing by the glyph size) as it draws onto a
+`widthCols`-wide canvas (one String per page row) that the app scrolls a window over.
+This is where *all* px → cell conversion lives — the DOM never does it. Element boxes
+are invisible containers (a text terminal has no backgrounds or borders), so the
+positioned text is the whole picture: flex columns land side by side, padding indents,
+widths clip. The app supplies the terminal's ~8×16px cell (`termCellPx`/`termLinePx`)
+— the one piece of terminal knowledge, and it lives in the app, not the DOM.
 
 **Form controls and links** would otherwise be invisible (an `<input>` has no text,
 a link looks like plain words), so the inline layout decorates them into the flowed

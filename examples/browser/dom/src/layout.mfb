@@ -1,15 +1,22 @@
 ' dom/layout — compute each element's flex geometry from its resolved Style.
 '
-' After resolveStyles() has filled every ElementNode.style, updateLayout(doc, w, m)
-' walks the tree and fills each ElementNode.layout (and each TextNode.layout): an
-' absolute box (x, y, width, height in output cells from the viewport's top-left).
-' A display:flex box uses flex layout along its flex-direction; every other box
-' uses block formatting (block children stack, inline children flow into wrapped
-' runs); display:none is a zero box. Style lengths are authored in CSS px; the
-' Metrics `m` maps px to cells (1:1 for a pixel canvas, scaled down for a text
-' terminal), so the pass first rewrites the styles into cell space. Layout depends
-' on the viewport width and the metric, so it is recomputed on each render/resize
-' rather than stored once by the worker.
+' After resolveStyles() has filled every ElementNode.style,
+' updateLayout(doc, viewportPx, cellPx, linePx, fitWidth) walks the tree and fills
+' each ElementNode.layout (and each TextNode.layout): an absolute box
+' (x, y, width, height) in device-independent **CSS px** from the viewport's
+' top-left. A display:flex box uses flex layout along its flex-direction; every
+' other box uses block formatting (block children stack, inline children flow into
+' wrapped runs); display:none is a zero box.
+'
+' The DOM is device-independent: it lays out in CSS px and never knows about
+' terminal cells — a text renderer (display::) or a future pixel renderer maps the
+' px geometry to its own grid. The one thing layout needs from the renderer is the
+' glyph size in px (`cellPx` wide, `linePx` tall for a monospace font), so a text
+' run's px extent is its column count times cellPx and its px height is its line
+' count times linePx. `fitWidth` treats an explicit width wider than the viewport as
+' auto (fill), so a desktop-width page reflows to a narrow viewport instead of
+' overflowing. Layout depends on the viewport and glyph size, so it is recomputed on
+' each render/resize rather than stored once by the worker.
 '
 ' Like resolve, this lives in dom so it can recurse over dom's OWN Node union
 ' (native lowering is fine inside the defining package); a consumer that imported
@@ -23,13 +30,13 @@
 '   - single line only (flex-wrap is not honored yet; every line is nowrap)
 '   - cross axis: children start at the cross origin; column children stretch to
 '     the content width, row children keep their measured height (no align yet)
-' Text is measured by strings::displayWidth (terminal columns) and wrapped to the
-' available width to size a leaf box's height.
+' Text is measured by strings::displayWidth (columns) times the glyph width, and
+' wrapped to the available px width to size a leaf box's height.
 
 IMPORT collections
 IMPORT strings
 
-' The computed geometry of one element: an absolute border box in terminal cells,
+' The computed geometry of one element: an absolute border box in **CSS px**,
 ' (x, y) is the top-left corner measured from the viewport origin; width/height is
 ' the border box (content + padding; there are no borders). Margins position the
 ' box within its parent but are not part of these dimensions.
@@ -46,108 +53,23 @@ EXPORT FUNC zeroLayout() AS Layout
   RETURN Layout[0, 0, 0, 0]
 END FUNC
 
-' How CSS pixels map to output cells. Style lengths are authored in device-
-' independent CSS px; a target supplies scaleX / scaleY = output cells PER CSS px
-' so the same stylesheet lays out on any device. A pixel canvas is 1:1; a text
-' terminal has a wide, tall cell (~8x16 px) so it scales down, and asymmetrically
-' because a cell is taller than it is wide. `fitWidth` is a caller policy: when TRUE
-' an explicit width wider than the viewport is treated as auto (fill) so a desktop-
-' width page reflows to the terminal; when FALSE the width is kept and the overflow
-' is left for the viewer to scroll to. Text is measured in cells (glyph columns),
-' not px, so the scale applies only to the authored box lengths.
-EXPORT TYPE Metrics
-  scaleX AS Float
-  scaleY AS Float
-  fitWidth AS Boolean
-END TYPE
-
-' A 1:1 pixel canvas: one CSS px is one cell, no width fitting.
-EXPORT FUNC pixelMetrics() AS Metrics
-  RETURN Metrics[1.0, 1.0, FALSE]
-END FUNC
-
-' A text terminal: a ~8x16 px monospace cell, fitting over-wide pages to the
-' viewport (there is no horizontal scrolling yet).
-EXPORT FUNC terminalMetrics() AS Metrics
-  RETURN Metrics[0.125, 0.0625, TRUE]
-END FUNC
-
-' A custom metric: scaleX / scaleY are output cells per CSS px.
-EXPORT FUNC metrics(scaleX AS Float, scaleY AS Float, fitWidth AS Boolean) AS Metrics
-  RETURN Metrics[scaleX, scaleY, fitWidth]
-END FUNC
-
-' Round a Float to the nearest Integer (half away from zero for non-negative
-' inputs, which is all the lengths here after they are clamped to >= 0).
-FUNC roundF(f AS Float) AS Integer
-  IF f < 0.0 THEN RETURN 0
-  RETURN toInt(f + 0.5)
-END FUNC
-
-' Scale a CSS px length to cells along each axis. The *Auto variants pass the -1
-' "auto" sentinel through unscaled so it keeps its meaning.
-FUNC scaleX(px AS Integer, m AS Metrics) AS Integer
-  RETURN roundF(toFloat(px) * m.scaleX)
-END FUNC
-
-FUNC scaleY(px AS Integer, m AS Metrics) AS Integer
-  RETURN roundF(toFloat(px) * m.scaleY)
-END FUNC
-
-FUNC scaleXAuto(px AS Integer, m AS Metrics) AS Integer
-  IF px < 0 THEN RETURN px
-  RETURN scaleX(px, m)
-END FUNC
-
-FUNC scaleYAuto(px AS Integer, m AS Metrics) AS Integer
-  IF px < 0 THEN RETURN px
-  RETURN scaleY(px, m)
-END FUNC
-
-' Convert one element's Style from CSS px to output cells: width/height and each
-' box-model length scale by the axis they run along, gap by the container's main
-' axis, and flex-basis by the main axis (it is only ever consumed as a row main
-' size here). flex-grow/shrink are unitless. With fitWidth, an explicit width that
-' would exceed the viewport becomes auto so the box fills the available space
-' instead of overflowing. Padding/margin -1 (auto) collapses to 0 as it does at
-' layout, so it is scaled directly.
-FUNC scaleStyle(st AS Style, viewportCols AS Integer, m AS Metrics) AS Style
-  LET colGap AS Boolean = st.display = Display.Flex AND (st.direction = FlexDirection.Column OR st.direction = FlexDirection.ColumnReverse)
-  MUT w AS Integer = st.width
-  IF w >= 0 THEN
-    w = scaleX(w, m)
-    IF m.fitWidth AND w > viewportCols THEN w = -1
-  END IF
-  MUT s AS Style = st
-  s = WITH s { width := w }
-  s = WITH s { height := scaleYAuto(st.height, m) }
-  s = WITH s { flexBasis := scaleXAuto(st.flexBasis, m) }
-  s = WITH s { paddingLeft := scaleX(st.paddingLeft, m) }
-  s = WITH s { paddingRight := scaleX(st.paddingRight, m) }
-  s = WITH s { paddingTop := scaleY(st.paddingTop, m) }
-  s = WITH s { paddingBottom := scaleY(st.paddingBottom, m) }
-  s = WITH s { marginLeft := scaleX(st.marginLeft, m) }
-  s = WITH s { marginRight := scaleX(st.marginRight, m) }
-  s = WITH s { marginTop := scaleY(st.marginTop, m) }
-  s = WITH s { marginBottom := scaleY(st.marginBottom, m) }
-  IF colGap THEN
-    s = WITH s { gap := scaleY(st.gap, m) }
-  ELSE
-    s = WITH s { gap := scaleX(st.gap, m) }
-  END IF
-  RETURN s
-END FUNC
-
-' Rewrite every element's Style from CSS px to output cells before layout. Recurses
-' over dom's own Node union (native inside dom). Text nodes are unchanged.
-FUNC scaleTree(n AS Node, viewportCols AS Integer, m AS Metrics) AS Node
+' The width-fitting prepass: when a page is laid out into a viewport narrower than
+' an element's explicit CSS-px width, that width is treated as auto (fill) so a
+' desktop-width page reflows to a small viewport instead of overflowing off the
+' edge. A renderer that wants the authored widths verbatim (a full-size pixel
+' canvas) passes fitWidth = FALSE and skips this. Recurses over dom's own Node union
+' (native inside dom); text nodes are unchanged. No unit conversion happens here —
+' styles are already in CSS px — only the over-wide → auto clamp.
+FUNC fitTree(n AS Node, viewportPx AS Integer) AS Node
   MATCH n
     CASE ElementNode(e)
       MUT kids AS List OF Node = []
       FOR EACH c IN e.children
-        kids = collections::append(kids, scaleTree(c, viewportCols, m))
+        kids = collections::append(kids, fitTree(c, viewportPx))
       NEXT
-      RETURN elementStyled(e.tag, e.attrs, kids, scaleStyle(e.style, viewportCols, m))
+      MUT st AS Style = e.style
+      IF st.width > viewportPx THEN st = WITH st { width := -1 }
+      RETURN elementStyled(e.tag, e.attrs, kids, st)
     CASE ELSE
       RETURN n
   END MATCH
@@ -204,17 +126,18 @@ FUNC collapseWs(s AS String) AS String
   RETURN strings::join(words, " ")
 END FUNC
 
-' The one-line display width of a text run, in terminal columns.
-FUNC textWidth(s AS String) AS Integer
-  RETURN strings::displayWidth(collapseWs(s))
+' The one-line px width of a text run: its column count times the glyph width `cw`.
+FUNC textWidth(s AS String, cw AS Integer) AS Integer
+  RETURN strings::displayWidth(collapseWs(s)) * cw
 END FUNC
 
-' The number of lines a text run occupies when word-wrapped to `width` columns
-' (matching display::wrap: a single word wider than the width is left whole).
-FUNC textHeight(s AS String, width AS Integer) AS Integer
+' The px height a text run occupies when word-wrapped to `widthPx` px: its line count
+' (each `linePx` tall) at a wrap boundary of widthPx/cw columns (matching display::wrap:
+' a single word wider than the box is left whole).
+FUNC textHeight(s AS String, widthPx AS Integer, cw AS Integer, linePx AS Integer) AS Integer
   LET t AS String = collapseWs(s)
   IF t = "" THEN RETURN 0
-  LET w AS Integer = maxI(1, width)
+  LET w AS Integer = maxI(1, widthPx / cw)
   MUT lines AS Integer = 1
   MUT cur AS Integer = 0
   FOR EACH word IN strings::split(t, " ")
@@ -228,7 +151,7 @@ FUNC textHeight(s AS String, width AS Integer) AS Integer
       cur = ww
     END IF
   NEXT
-  RETURN lines
+  RETURN lines * linePx
 END FUNC
 
 ' ----- per-child flex inputs ---------------------------------------------------
@@ -264,14 +187,14 @@ END FUNC
 ' plus horizontal margins): flex-basis if set, else an explicit width, else its
 ' max-content width. Text measures to its one-line display width, capped at the
 ' available width so one very long word never forces the whole line to overflow.
-FUNC childBaseMain(n AS Node, contentW AS Integer) AS Integer
+FUNC childBaseMain(n AS Node, contentW AS Integer, cw AS Integer) AS Integer
   MATCH n
     CASE ElementNode(e)
       IF e.style.flexBasis >= 0 THEN RETURN e.style.flexBasis + maxI(0, e.style.marginLeft) + maxI(0, e.style.marginRight)
       IF e.style.width >= 0 THEN RETURN e.style.width + maxI(0, e.style.marginLeft) + maxI(0, e.style.marginRight)
-      RETURN maxContentOuterW(n)
+      RETURN maxContentOuterW(n, cw)
     CASE TextNode(t)
-      RETURN minI(contentW, textWidth(t.text))
+      RETURN minI(contentW, textWidth(t.text, cw))
     CASE ELSE
       RETURN 0
   END MATCH
@@ -281,18 +204,18 @@ END FUNC
 ' room. Structural (no trial layout, no fill): a leaf's is its text width; a
 ' container's is the row-sum or column-max of its children's max-content widths.
 ' Used to give an auto-sized row item its natural base size.
-FUNC maxContentOuterW(n AS Node) AS Integer
+FUNC maxContentOuterW(n AS Node, cw AS Integer) AS Integer
   MATCH n
     CASE ElementNode(e)
-      RETURN elementMaxContentOuterW(e)
+      RETURN elementMaxContentOuterW(e, cw)
     CASE TextNode(t)
-      RETURN textWidth(t.text)
+      RETURN textWidth(t.text, cw)
     CASE ELSE
       RETURN 0
   END MATCH
 END FUNC
 
-FUNC elementMaxContentOuterW(e AS ElementNode) AS Integer
+FUNC elementMaxContentOuterW(e AS ElementNode, cw AS Integer) AS Integer
   LET st AS Style = e.style
   IF st.display = Display.None THEN RETURN 0
   LET ml AS Integer = maxI(0, st.marginLeft)
@@ -308,7 +231,7 @@ FUNC elementMaxContentOuterW(e AS ElementNode) AS Integer
     MUT n AS Integer = 0
     FOR EACH k IN e.children
       IF isNone(k) = FALSE THEN
-        inner = inner + maxContentOuterW(k)
+        inner = inner + maxContentOuterW(k, cw)
         n = n + 1
       END IF
     NEXT
@@ -316,14 +239,14 @@ FUNC elementMaxContentOuterW(e AS ElementNode) AS Integer
   ELSEIF hasBlockChild(e) THEN
     ' a column or block with block children: the widest child wins
     FOR EACH k IN e.children
-      inner = maxI(inner, maxContentOuterW(k))
+      inner = maxI(inner, maxContentOuterW(k, cw))
     NEXT
   ELSE
     ' inline content: it flows into one run, so its natural width is the whole
     ' decorated text on one line (gatherChildren includes [link]/<button>/|field|
     ' decoration, which is what actually paints — measuring the raw text undersizes
     ' the box and clips the brackets).
-    inner = textWidth(gatherChildren(e))
+    inner = textWidth(gatherChildren(e), cw)
   END IF
   RETURN maxI(0, inner) + pl + pr + ml + mr
 END FUNC
@@ -508,12 +431,12 @@ END FUNC
 ' Lay a run of inline-level nodes as one flowed text box at (x, y), wrapping to the
 ' content width and taking its line alignment from the block's text-align. Returns
 ' the synthetic text run (empty height if it has no text).
-FUNC inlineRun(pending AS List OF Node, st AS Style, x AS Integer, y AS Integer, contentW AS Integer) AS Sized
+FUNC inlineRun(pending AS List OF Node, st AS Style, x AS Integer, y AS Integer, contentW AS Integer, cw AS Integer, linePx AS Integer) AS Sized
   MUT text AS String = ""
   FOR EACH k IN pending
     text = text & gatherText(k)
   NEXT
-  LET h AS Integer = textHeight(text, contentW)
+  LET h AS Integer = textHeight(text, contentW, cw, linePx)
   LET box AS Layout = Layout[x, y, contentW, h]
   RETURN Sized[textLaid(text, box, st.textAlign), contentW, h]
 END FUNC
@@ -557,24 +480,24 @@ END FUNC
 ' level children lay out as their own boxes, and a narrower-than-full block (a
 ' shrink-to-fit table, a fixed-width element) is centred/right-aligned per the
 ' container's text-align. Vertical spacing comes from each box's margins, not a gap.
-FUNC layoutBlock(kids AS List OF Node, st AS Style, originX AS Integer, originY AS Integer, contentW AS Integer) AS Flow
+FUNC layoutBlock(kids AS List OF Node, st AS Style, originX AS Integer, originY AS Integer, contentW AS Integer, cw AS Integer, linePx AS Integer) AS Flow
   MUT outKids AS List OF Node = []
   MUT pending AS List OF Node = []
   MUT curY AS Integer = originY
   FOR EACH k IN kids
     IF isNone(k) THEN
-      LET rn AS Sized = layoutNode(k, originX, curY, 0, FALSE)
+      LET rn AS Sized = layoutNode(k, originX, curY, 0, FALSE, cw, linePx)
       outKids = collections::append(outKids, rn.node)
     ELSEIF isBlockLevel(k) THEN
       IF len(pending) > 0 THEN
-        LET run AS Sized = inlineRun(pending, st, originX, curY, contentW)
+        LET run AS Sized = inlineRun(pending, st, originX, curY, contentW, cw, linePx)
         IF run.height > 0 THEN
           outKids = collections::append(outKids, run.node)
           curY = curY + run.height
         END IF
         pending = []
       END IF
-      LET r AS Sized = layoutNode(k, originX, curY, contentW, FALSE)
+      LET r AS Sized = layoutNode(k, originX, curY, contentW, FALSE, cw, linePx)
       outKids = collections::append(outKids, alignBlockChild(r.node, r.width, contentW, st.textAlign))
       curY = curY + r.height
     ELSE
@@ -582,7 +505,7 @@ FUNC layoutBlock(kids AS List OF Node, st AS Style, originX AS Integer, originY 
     END IF
   NEXT
   IF len(pending) > 0 THEN
-    LET run AS Sized = inlineRun(pending, st, originX, curY, contentW)
+    LET run AS Sized = inlineRun(pending, st, originX, curY, contentW, cw, linePx)
     IF run.height > 0 THEN
       outKids = collections::append(outKids, run.node)
       curY = curY + run.height
@@ -593,19 +516,19 @@ END FUNC
 
 ' Column: stack children vertically, each stretched to the content width, with a
 ' gap between visible items. Content height is the total stacked height.
-FUNC layoutColumn(kids AS List OF Node, st AS Style, originX AS Integer, originY AS Integer, contentW AS Integer) AS Flow
+FUNC layoutColumn(kids AS List OF Node, st AS Style, originX AS Integer, originY AS Integer, contentW AS Integer, cw AS Integer, linePx AS Integer) AS Flow
   LET gap AS Integer = maxI(0, st.gap)
   MUT outKids AS List OF Node = []
   MUT curY AS Integer = originY
   MUT anyPlaced AS Boolean = FALSE
   FOR EACH k IN kids
     IF isNone(k) THEN
-      LET rn AS Sized = layoutNode(k, originX, curY, 0, FALSE)
+      LET rn AS Sized = layoutNode(k, originX, curY, 0, FALSE, cw, linePx)
       outKids = collections::append(outKids, rn.node)
     ELSE
       IF anyPlaced THEN curY = curY + gap
       ' Cross axis (width): self-size — explicit width honored, else stretch to fill.
-      LET r AS Sized = layoutNode(k, originX, curY, contentW, FALSE)
+      LET r AS Sized = layoutNode(k, originX, curY, contentW, FALSE, cw, linePx)
       outKids = collections::append(outKids, r.node)
       curY = curY + r.height
       anyPlaced = TRUE
@@ -617,7 +540,7 @@ END FUNC
 ' Row: size items along the main (horizontal) axis with flex-grow/shrink/basis,
 ' distribute leftover space per justify-content, and place them left to right. The
 ' content height is the tallest item.
-FUNC layoutRow(kids AS List OF Node, st AS Style, originX AS Integer, originY AS Integer, contentW AS Integer) AS Flow
+FUNC layoutRow(kids AS List OF Node, st AS Style, originX AS Integer, originY AS Integer, contentW AS Integer, cw AS Integer, linePx AS Integer) AS Flow
   LET gap AS Integer = maxI(0, st.gap)
 
   MUT bases AS List OF Integer = []
@@ -626,12 +549,12 @@ FUNC layoutRow(kids AS List OF Node, st AS Style, originX AS Integer, originY AS
   MUT mins AS List OF Integer = []
   FOR EACH k IN kids
     IF isNone(k) = FALSE THEN
-      LET base AS Integer = childBaseMain(k, contentW)
+      LET base AS Integer = childBaseMain(k, contentW, cw)
       bases = collections::append(bases, base)
       grows = collections::append(grows, childGrow(k))
       shrinks = collections::append(shrinks, childShrink(k))
       ' Min-content, but never above the item's own base (a fixed/basis width caps it).
-      mins = collections::append(mins, minI(base, minContentW(k)))
+      mins = collections::append(mins, minI(base, minContentW(k, cw)))
     END IF
   NEXT
   LET nParts AS Integer = len(bases)
@@ -668,13 +591,13 @@ FUNC layoutRow(kids AS List OF Node, st AS Style, originX AS Integer, originY AS
   MUT placed AS Integer = 0
   FOR EACH k IN kids
     IF isNone(k) THEN
-      LET rn AS Sized = layoutNode(k, curX, originY, 0, FALSE)
+      LET rn AS Sized = layoutNode(k, curX, originY, 0, FALSE, cw, linePx)
       outKids = collections::append(outKids, rn.node)
     ELSE
       ' Main axis: impose the flex-computed outer size so the drawn box exactly
       ' fills the slot the flow reserved (no overlap, no gaps).
       LET fw AS Integer = collections::get(finals, pIdx)
-      LET r AS Sized = layoutNode(k, curX, originY, fw, TRUE)
+      LET r AS Sized = layoutNode(k, curX, originY, fw, TRUE, cw, linePx)
       outKids = collections::append(outKids, r.node)
       crossH = maxI(crossH, r.height)
       curX = curX + fw + gap
@@ -688,14 +611,14 @@ END FUNC
 
 ' Lay out a container's children. A flex box uses flex layout along its direction;
 ' everything else (block / inline) uses block formatting with inline runs.
-FUNC layoutChildren(kids AS List OF Node, st AS Style, originX AS Integer, originY AS Integer, contentW AS Integer) AS Flow
+FUNC layoutChildren(kids AS List OF Node, st AS Style, originX AS Integer, originY AS Integer, contentW AS Integer, cw AS Integer, linePx AS Integer) AS Flow
   IF st.display = Display.Flex THEN
     IF st.direction = FlexDirection.Column OR st.direction = FlexDirection.ColumnReverse THEN
-      RETURN layoutColumn(kids, st, originX, originY, contentW)
+      RETURN layoutColumn(kids, st, originX, originY, contentW, cw, linePx)
     END IF
-    RETURN layoutRow(kids, st, originX, originY, contentW)
+    RETURN layoutRow(kids, st, originX, originY, contentW, cw, linePx)
   END IF
-  RETURN layoutBlock(kids, st, originX, originY, contentW)
+  RETURN layoutBlock(kids, st, originX, originY, contentW, cw, linePx)
 END FUNC
 
 ' ----- per-node layout ---------------------------------------------------------
@@ -710,7 +633,7 @@ END FUNC
 ' Lay out a replaced element: build the field box as `rows` synthetic text runs of
 ' |----| (each `cols` dashes wide), size the element to that box plus padding, and
 ' return it. The element's own children (a textarea's default text) are dropped.
-FUNC layoutReplaced(e AS ElementNode, x AS Integer, y AS Integer) AS Sized
+FUNC layoutReplaced(e AS ElementNode, x AS Integer, y AS Integer, cw AS Integer, linePx AS Integer) AS Sized
   LET st AS Style = e.style
   LET ml AS Integer = maxI(0, st.marginLeft)
   LET mr AS Integer = maxI(0, st.marginRight)
@@ -723,17 +646,18 @@ FUNC layoutReplaced(e AS ElementNode, x AS Integer, y AS Integer) AS Sized
   LET rows AS Integer = attrInt(e.attrs, "rows", 3)
   LET cols AS Integer = attrInt(e.attrs, "cols", 20)
   LET line AS String = "|" & strings::repeat("-", cols) & "|"
-  LET boxW AS Integer = cols + 2
+  ' The field glyph is (cols + 2) columns wide and `rows` lines tall, in px.
+  LET boxW AS Integer = (cols + 2) * cw
   LET contentX AS Integer = x + ml + pl
   LET contentY AS Integer = y + mt + pt
   MUT kids AS List OF Node = []
   MUT i AS Integer = 0
   DO WHILE i < rows
-    kids = collections::append(kids, textLaid(line, Layout[contentX, contentY + i, boxW, 1], Justify.FlexStart))
+    kids = collections::append(kids, textLaid(line, Layout[contentX, contentY + i * linePx, boxW, linePx], Justify.FlexStart))
     i = i + 1
   LOOP
   LET borderW AS Integer = boxW + pl + pr
-  LET borderH AS Integer = rows + pt + pb
+  LET borderH AS Integer = rows * linePx + pt + pb
   LET box AS Layout = Layout[x + ml, y + mt, borderW, borderH]
   RETURN Sized[elementLaid(e.tag, e.attrs, kids, st, box), borderW + ml + mr, borderH + mt + mb]
 END FUNC
@@ -788,13 +712,13 @@ END FUNC
 ' The min-content width of a node: its longest unbreakable word (the narrowest a
 ' column can get without splitting a word). Uses gatherText so a control's glyph
 ' (|S:--|, [link]) counts as one unbreakable token.
-FUNC minContentW(n AS Node) AS Integer
+FUNC minContentW(n AS Node, cw AS Integer) AS Integer
   LET t AS String = collapseWs(gatherText(n))
   MUT mx AS Integer = 0
   FOR EACH w IN strings::split(t, " ")
     mx = maxI(mx, strings::displayWidth(w))
   NEXT
-  RETURN mx
+  RETURN mx * cw
 END FUNC
 
 ' Sum of the list entries in [lo, hi).
@@ -816,7 +740,7 @@ END FUNC
 ' flattened under the table element — the tr/tbody wrappers carry no visible ink, so
 ' this is all the painter needs. colspan is honored for width and placement; rowspan
 ' is treated as a single row (a known limitation).
-FUNC layoutTable(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integer, imposeWidth AS Boolean) AS Sized
+FUNC layoutTable(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integer, imposeWidth AS Boolean, cw AS Integer, linePx AS Integer) AS Sized
   LET st AS Style = e.style
   LET ml AS Integer = maxI(0, st.marginLeft)
   LET mr AS Integer = maxI(0, st.marginRight)
@@ -863,8 +787,8 @@ FUNC layoutTable(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integer
   FOR EACH r IN rows
     MUT col AS Integer = 0
     FOR EACH cell IN r.cells
-      LET perNat AS Integer = (maxContentOuterW(cell.node) + cell.span - 1) / cell.span
-      LET perMin AS Integer = (minContentW(cell.node) + cell.span - 1) / cell.span
+      LET perNat AS Integer = (maxContentOuterW(cell.node, cw) + cell.span - 1) / cell.span
+      LET perMin AS Integer = (minContentW(cell.node, cw) + cell.span - 1) / cell.span
       MUT j AS Integer = 0
       DO WHILE j < cell.span AND col + j < numCols
         LET idx AS Integer = col + j
@@ -878,8 +802,8 @@ FUNC layoutTable(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integer
 
   ' Table width: shrink-to-fit the natural columns when the width is auto (so the
   ' table is narrower than the container and can be centred by an ancestor), else
-  ' fill the explicit/imposed width. A 1-cell gap separates columns.
-  LET gap AS Integer = 1
+  ' fill the explicit/imposed width. A one-cell gap (cw px) separates columns.
+  LET gap AS Integer = cw
   LET gapsTotal AS Integer = gap * maxI(0, numCols - 1)
   LET naturalContentW AS Integer = sumList(colNat) + gapsTotal
   MUT contentW AS Integer = maxContentW
@@ -932,7 +856,7 @@ FUNC layoutTable(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integer
       LET endCol AS Integer = minI(numCols, col + cell.span)
       LET cellX AS Integer = originX + sumRange(colW, 0, col) + gap * col
       LET cellW AS Integer = sumRange(colW, col, endCol) + gap * maxI(0, endCol - col - 1)
-      LET rr AS Sized = layoutNode(cell.node, cellX, curY, maxI(0, cellW), TRUE)
+      LET rr AS Sized = layoutNode(cell.node, cellX, curY, maxI(0, cellW), TRUE, cw, linePx)
       outKids = collections::append(outKids, rr.node)
       rowH = maxI(rowH, rr.height)
       col = col + cell.span
@@ -953,16 +877,16 @@ END FUNC
 ' `imposeWidth` is TRUE the border box is forced to fill the available width less
 ' margins (a flex row item, whose main size the container already computed);
 ' otherwise the element self-sizes (explicit width, else fill — block stretch).
-FUNC layoutElement(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integer, imposeWidth AS Boolean) AS Sized
+FUNC layoutElement(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integer, imposeWidth AS Boolean, cw AS Integer, linePx AS Integer) AS Sized
   LET st AS Style = e.style
   IF st.display = Display.None THEN
     RETURN Sized[elementLaid(e.tag, e.attrs, e.children, st, Layout[x, y, 0, 0]), 0, 0]
   END IF
   IF isReplaced(e) THEN
-    RETURN layoutReplaced(e, x, y)
+    RETURN layoutReplaced(e, x, y, cw, linePx)
   END IF
   IF e.tag = "table" THEN
-    RETURN layoutTable(e, x, y, availW, imposeWidth)
+    RETURN layoutTable(e, x, y, availW, imposeWidth, cw, linePx)
   END IF
 
   LET ml AS Integer = maxI(0, st.marginLeft)
@@ -983,7 +907,7 @@ FUNC layoutElement(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integ
 
   LET originX AS Integer = x + ml + pl
   LET originY AS Integer = y + mt + pt
-  LET flow AS Flow = layoutChildren(e.children, st, originX, originY, contentW)
+  LET flow AS Flow = layoutChildren(e.children, st, originX, originY, contentW, cw, linePx)
 
   ' Border-box height: an explicit height, else the content height plus padding.
   MUT borderH AS Integer = flow.usedH + pt + pb
@@ -998,21 +922,21 @@ END FUNC
 ' width is that wrap width and the height is the resulting line count. The outer
 ' size the parent flows by is the text's ink width (never wider than available)
 ' and the same height.
-FUNC layoutText(s AS String, x AS Integer, y AS Integer, availW AS Integer) AS Sized
-  LET h AS Integer = textHeight(s, availW)
+FUNC layoutText(s AS String, x AS Integer, y AS Integer, availW AS Integer, cw AS Integer, linePx AS Integer) AS Sized
+  LET h AS Integer = textHeight(s, availW, cw, linePx)
   LET box AS Layout = Layout[x, y, availW, h]
-  RETURN Sized[textLaid(s, box, Justify.FlexStart), minI(availW, textWidth(s)), h]
+  RETURN Sized[textLaid(s, box, Justify.FlexStart), minI(availW, textWidth(s, cw)), h]
 END FUNC
 
 ' Lay out any node, returning the rebuilt node (with its box set) and its outer
 ' size.
-FUNC layoutNode(n AS Node, x AS Integer, y AS Integer, availW AS Integer, imposeWidth AS Boolean) AS Sized
+FUNC layoutNode(n AS Node, x AS Integer, y AS Integer, availW AS Integer, imposeWidth AS Boolean, cw AS Integer, linePx AS Integer) AS Sized
   MUT result AS Sized = Sized[n, 0, 0]
   MATCH n
     CASE ElementNode(e)
-      result = layoutElement(e, x, y, availW, imposeWidth)
+      result = layoutElement(e, x, y, availW, imposeWidth, cw, linePx)
     CASE TextNode(t)
-      result = layoutText(t.text, x, y, availW)
+      result = layoutText(t.text, x, y, availW, cw, linePx)
     CASE HeaderNode(h)
       result = Sized[n, 0, 0]
     CASE ELSE
@@ -1020,13 +944,22 @@ FUNC layoutNode(n AS Node, x AS Integer, y AS Integer, availW AS Integer, impose
   RETURN result
 END FUNC
 
-' Fill in every ElementNode.layout across the document by laying the tree out to
-' `viewportWidth` cells under the metric `m` (which maps the styles' CSS px to
-' cells). Call after resolveStyles(); re-call when the width or metric changes.
-' Returns the rebuilt document (records are immutable).
-EXPORT FUNC updateLayout(doc AS Node, viewportWidth AS Integer, m AS Metrics) AS Node
-  LET vp AS Integer = maxI(0, viewportWidth)
-  LET scaled AS Node = scaleTree(doc, vp, m)
-  LET r AS Sized = layoutNode(scaled, 0, 0, vp, FALSE)
+' Fill in every ElementNode.layout across the document by laying the tree out into a
+' `viewportPx`-wide viewport, in device-independent CSS px. `cellPx`/`linePx` are the
+' renderer's glyph size in px (how wide/tall one monospace character cell is), used to
+' measure and wrap text; a pixel renderer with a real font supplies its own metrics.
+' `fitWidth` treats an explicit width wider than the viewport as auto (fill) so a
+' desktop-width page reflows to a narrow viewport. Call after resolveStyles(); re-call
+' when the viewport or glyph size changes. Returns the rebuilt document (records are
+' immutable), every box in CSS px.
+EXPORT FUNC updateLayout(doc AS Node, viewportPx AS Integer, cellPx AS Integer, linePx AS Integer, fitWidth AS Boolean) AS Node
+  LET vp AS Integer = maxI(0, viewportPx)
+  LET cw AS Integer = maxI(1, cellPx)
+  LET lh AS Integer = maxI(1, linePx)
+  MUT tree AS Node = doc
+  IF fitWidth THEN
+    tree = fitTree(tree, vp)
+  END IF
+  LET r AS Sized = layoutNode(tree, 0, 0, vp, FALSE, cw, lh)
   RETURN r.node
 END FUNC

@@ -75,6 +75,19 @@ FUNC layoutWidthFor(mode AS String, cols AS Integer) AS Integer
   RETURN cols
 END FUNC
 
+' The terminal's monospace character cell in CSS px: about 8 px wide and 16 px tall.
+' The DOM lays a page out in device-independent CSS px and knows nothing about
+' terminals; display maps that px geometry back to terminal cells using this glyph
+' size. This terminal-specific knowledge lives here in the terminal app, keeping the
+' dom package pixel-native and reusable by a future graphics renderer.
+FUNC termCellPx() AS Integer
+  RETURN 8
+END FUNC
+
+FUNC termLinePx() AS Integer
+  RETURN 16
+END FUNC
+
 ' The next width mode in the toggle cycle: standard -> wide -> extra-wide -> standard.
 FUNC nextWidthMode(mode AS String) AS String
   IF mode = "s" THEN RETURN "w"
@@ -443,7 +456,7 @@ FUNC main AS Integer
       LET layoutW AS Integer = layoutWidthFor(widthMode, cols)
       IF needRecontent OR layoutW <> lastContentWidth THEN
         IF paintMode THEN
-          wrapped = display::paint(pageDoc, layoutW, dom::terminalMetrics())
+          wrapped = display::paint(pageDoc, layoutW, termCellPx(), termLinePx())
         ELSE
           IF haveDom THEN
             content = display::tree(pageDoc, layoutW)
