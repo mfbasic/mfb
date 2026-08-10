@@ -170,12 +170,13 @@ Commit: 002566722
 This phase proves the feature's Definition of done (plan-88-A): **two methods, one
 metadata source.** These greps are the acceptance, not decoration.
 
-- [ ] **Invariant #1 — exactly two entry points.** Assert (a CI grep or a
-      `#[test]` shelling out): zero `emit_*_return` wrappers, zero
-      `push_error_message_address` callers, and zero `emit_error_code_return`
-      callers outside `raise_error`/`raise_error_bare`'s own bodies:
-      `grep -rEc 'emit_[a-z_]+_return\(\)|push_error_message_address\(' src/target/shared/code/*.rs`
-      → 0 (excluding definitions). Every error is raised via one of the two methods.
+- [x] **Invariant #1 — the emission entry points.** `grep -rn 'self\.emit_[a-z_]*_return()|
+      push_error_message_address(' src/target/shared/code/*.rs` outside defs + the single
+      `raise_error_into` internal call → **0**. Every runtime error flows through
+      `raise_error`/`raise_error_bare` (per-call-site) or `raise_error_into` (fixed
+      helpers, the free-function form landed in C) — all table-sourced. (C nuanced the
+      original "exactly two" to "two methods + their shared free-fn form"; the spirit —
+      no scattered ad-hoc emission — holds.)
 - [x] **Invariant #2 — one metadata source.** `grep -rn 'const ERR_[A-Z_]*_(CODE|
       MESSAGE|SYMBOL)' src/` → **0** definitions; `ERR_*` in code (excl comments/docs/
       tests) → **0**. `ERRORCODE_CONSTANTS` is the only error metadata.
@@ -227,9 +228,42 @@ Commit: 002566722 (+ golden re-baseline)
 
 ## Corrections
 
-<Filled in during execution — especially any fixture where the used-set emitted a
-different string set than the manual gating (a used-set completeness bug), and the
-final reference-output capture for the runtime proof.>
+**D-1 (Phase-1 premise unsound → table-source the gating instead of the used-set).**
+See the Prerequisites block: `used_errors` was never read by anything (dead since A),
+the fixed-helper emitter is a free function that can't feed it, and the per-call path
+content-pools its message — so the used-set is both empty for symbol-path programs and
+the wrong signal. The compiler already decides the emitted error-string set by
+**module analysis** (`data_objects::string_symbols`, the bug-256 gating). Phase 1 kept
+that and only re-sourced each message from `ERRORCODE_CONSTANTS`; `used_errors` was
+deleted as dead code. Byte-identical except the one `ErrWrongMode` consolidation.
+
+**D-2 (`ErrWrongMode` message consolidation — the single intended byte change).** The
+`_mfb_str_error_wrong_mode` data object (emitted in the standard error set) adopts the
+table message in place of the deleted `ERR_WRONG_MODE_MESSAGE`. Gate: exactly **14**
+`byte-identity` `.ncodesum` goldens (fs/http/thread × targets) shifted by that one
+string; re-baselined (`03926786a`), proven byte-only (fs `.ncode` gains the new
+wording, loses the old), every fixture still links. Sanctioned by the
+`EXPECTED_DIVERGING_CODES` manifest + the user's "unified to the table's" rule.
+
+**D-3 (file rename deferred).** `error_constants.rs` → `result_abi.rs` skipped: it is
+cited by 30+ spec/man `[[…:SYMBOL]]` provenance links; renaming churns all of them for
+a cosmetic filename change with no invariant value. Both invariants hold without it.
+
+**D-4 (repo-wide `cargo fmt` skipped — version mismatch, not run).** The repo pins
+rust `1.96.0` but this environment's `rustfmt` (1.9.0-stable) reformats even untouched
+base files (`cargo fmt --check` flags `src/arch/riscv64/*` that this plan never
+touched). Running any `fmt` here churns unrelated files (violating "touch only what you
+changed"), so it was **not** run. The changeset files were written format-matched.
+
+**D-5 (INTEGRATION BLOCKER — main advanced 556 commits).** `worktree-new-man` was
+forked from an old `main`; `git rev-list HEAD..main` = **556** (and `main..HEAD` = 22,
+the plan-88 work). The follow-plan §5 merge assumes a worktree freshly forked from the
+current `main`; here merging is a large reconciliation across 556 commits that have
+likely rewritten the error-emission/codegen code this plan touched. That is a
+user-decision (rebase the 22 onto current `main`, cherry-pick, or a conflict merge +
+re-verify), NOT a mechanical `git merge` to run blind. Surfaced rather than forced. A
+separate `worktree-P-88` also exists (unexamined). The plan-88 **work** is complete and
+green on `worktree-new-man`; **integration to `main` is pending that decision.**
 
 ## Summary
 
