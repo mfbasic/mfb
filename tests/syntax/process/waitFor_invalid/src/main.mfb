@@ -1,0 +1,13 @@
+' plan-90-A Phase 2: `process::waitFor(p AS Process) AS Integer` rejects wrong
+' arity and a non-`Process` receiver.
+IMPORT process
+
+FUNC main AS Integer
+  ' No arguments: below the minimum arity.
+  LET a = process::waitFor()
+  ' Wrong receiver type: an Integer is not a Process.
+  LET b = process::waitFor(0)
+  ' Too many arguments.
+  LET c = process::waitFor(5, 6)
+  RETURN 0
+END FUNC

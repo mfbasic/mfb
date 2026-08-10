@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/byte-identity/process
+Wrote AST to tests/byte-identity/process/process_codegen_cover_rt.ast
+Wrote IR to tests/byte-identity/process/process_codegen_cover_rt.ir
+[exit 0]

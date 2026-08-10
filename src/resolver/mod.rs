@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use tinyjson::JsonValue;
 
 const BUILTIN_TYPES: &[&str] = &[
+    "AttributedString",
     "Boolean",
     "Byte",
     "Error",
@@ -39,6 +40,7 @@ const BUILTIN_TYPES: &[&str] = &[
     builtins::audio::AUDIO_INPUT_TYPE,
     builtins::audio::AUDIO_OUTPUT_TYPE,
     builtins::audio::AUDIO_DEVICE_TYPE,
+    builtins::process::PROCESS_TYPE,
 ];
 
 pub fn resolve_project(
@@ -70,6 +72,10 @@ pub fn resolve_project_with(
     validate_docs: bool,
 ) -> Result<(), ()> {
     let augmented = builtins::json::augmented_project(ast)?;
+    // `astrings_package.mfb` imports only `collections` (native members) and
+    // `astrings` itself (the internal overlay bridge), so it has no companion
+    // ordering dependency.
+    let augmented = builtins::astrings::augmented_project(&augmented)?;
     let augmented = builtins::app::augmented_project(&augmented)?;
     let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
@@ -87,6 +93,7 @@ pub fn resolve_project_with(
     let augmented = builtins::http::augmented_project(&augmented)?;
     let augmented = builtins::net::augmented_project(&augmented)?;
     let augmented = builtins::audio::augmented_project(&augmented)?;
+    let augmented = builtins::process::augmented_project(&augmented)?;
     // `crypto` is injected before `encoding`: `crypto_package.mfb` imports
     // `encoding`, so the encoding source companion must be added only after
     // crypto's source is present for `encoding::uses_package` to see the

@@ -1,0 +1,72 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "process_poll",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "enum",
+    "line": 17,
+    "visibility": "export",
+    "name": "Stream",
+    "members": [
+    { "name": "StdOut" },
+    { "name": "StdErr" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 33,
+    "visibility": "export",
+    "name": "Signal",
+    "members": [
+    { "name": "None" },
+    { "name": "Kill" },
+    { "name": "Terminate" },
+    { "name": "Error" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 8, "mutable": false, "name": "p", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "echo" }, { "kind": "const", "type": "String", "value": "hi" }] }] } },
+    {
+      "op": "if",
+      "line": 9,
+      "condition": { "kind": "call", "type": "Boolean", "target": "process.poll", "args": [{ "kind": "local", "name": "p" }, { "kind": "const", "type": "Integer", "value": "1000" }] },
+      "then": [
+      { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "readable" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "not" }] } }
+      ]
+    },
+    { "op": "bind", "line": 15, "mutable": false, "name": "q", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "sleep" }, { "kind": "const", "type": "String", "value": "5" }] }] } },
+    {
+      "op": "if",
+      "line": 16,
+      "condition": { "kind": "call", "type": "Boolean", "target": "process.poll", "args": [{ "kind": "local", "name": "q" }, { "kind": "const", "type": "Integer", "value": "50" }] },
+      "then": [
+      { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "readable" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "not" }] } }
+      ]
+    },
+    { "op": "return", "line": 21, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

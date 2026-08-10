@@ -612,6 +612,14 @@ impl plan::NativePlanPlatform for Platform {
                 stdin_broadcast_imports(&mut imports);
                 imports
             }
+            // plan-91-A: the parent sleep helper calls only libc `nanosleep`; the
+            // pthread set is pulled by `thread.start` (needed to obtain the handle).
+            // Gating nanosleep to this call keeps non-sleep programs byte-identical.
+            "thread.sleep" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_nanosleep".to_string(),
+                required_by: required_by.clone(),
+            }],
             "thread.start"
             | "thread.isRunning"
             | "thread.waitFor"
@@ -622,6 +630,7 @@ impl plan::NativePlanPlatform for Platform {
             | "thread.read"
             | "thread.receive"
             | "thread.emit"
+            | "thread.sleepWorker"
             | "thread.isCancelled"
             | "thread.transferResource"
             | "thread.acceptResource" => [
@@ -646,6 +655,38 @@ impl plan::NativePlanPlatform for Platform {
                 required_by: required_by.clone(),
             })
             .collect(),
+            call if crate::builtins::process::is_process_runtime_call(call) => {
+                // plan-90: fork/exec/pipe/wait + the errno accessor. Over-importing
+                // is harmless (the merged table dedups; unused imports are inert),
+                // so every process helper pulls the shared set.
+                [
+                    "_pipe",
+                    "_fork",
+                    "_dup2",
+                    "_execvp",
+                    "_close",
+                    "_waitpid",
+                    "_kill",
+                    "_read",
+                    "_write",
+                    "_fcntl",
+                    "_poll",
+                    "_signal",
+                    "__exit",
+                    "___error",
+                    "_chdir",
+                    "_setenv",
+                    "_unsetenv",
+                    "__NSGetEnviron",
+                ]
+                .into_iter()
+                .map(|symbol| PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: symbol.to_string(),
+                    required_by: required_by.clone(),
+                })
+                .collect()
+            }
             call if crate::builtins::net::is_net_call(call) => {
                 let mut imports = plan::net_libc_symbols(call)
                     .iter()

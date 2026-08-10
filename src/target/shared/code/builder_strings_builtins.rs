@@ -131,7 +131,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), count_slot));
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch9, &scratch16, 0));
-        self.emit_write_list_header_from_registers(&layout, abi::mfb_return(1), &scratch11, &scratch9);
+        self.emit_write_list_header_from_registers(
+            &layout,
+            abi::mfb_return(1),
+            &scratch11,
+            &scratch9,
+        );
 
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&write_empty));
@@ -498,6 +503,7 @@ impl CodeBuilder<'_> {
         let write_next = self.label("strings_case_map_write_next");
         let write_done = self.label("strings_case_map_write_done");
         let ascii_scan = self.label("strings_case_map_ascii_scan");
+        let ascii_scan_byte = self.label("strings_case_map_ascii_scan_byte");
         let ascii_transform = self.label("strings_case_map_ascii_transform");
         let ascii_size_overflow = self.label("strings_case_map_ascii_size_overflow");
         let ascii_alloc_ok = self.label("strings_case_map_ascii_alloc_ok");
@@ -517,8 +523,28 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch21, &scratch20, 0));
         self.emit(abi::add_immediate(&scratch22, &scratch20, 8));
+        // plan-86 F3: SWAR quick-check — test 8 bytes at a time for a high bit
+        // (0x8080808080808080 = 9259542123273814144); any set high bit means some
+        // byte >= 0x80 → the Unicode slow path. Byte-exact-equivalent to the per-byte
+        // `compare 128`, ~8× fewer iterations. A <8-byte tail falls to the byte loop.
         self.emit(abi::move_immediate(&scratch23, "Integer", "0"));
+        self.emit(abi::move_immediate(
+            &scratch24,
+            "Integer",
+            "9259542123273814144",
+        ));
         self.emit(abi::label(&ascii_scan));
+        self.emit(abi::subtract_registers(&scratch27, &scratch21, &scratch23));
+        self.emit(abi::compare_immediate(&scratch27, "8"));
+        self.emit(abi::branch_lo(&ascii_scan_byte));
+        self.emit(abi::add_registers(&scratch14, &scratch22, &scratch23));
+        self.emit(abi::load_u64(&scratch10, &scratch14, 0));
+        self.emit(abi::and_registers(&scratch10, &scratch10, &scratch24));
+        self.emit(abi::compare_immediate(&scratch10, "0"));
+        self.emit(abi::branch_ne(&case_slow));
+        self.emit(abi::add_immediate(&scratch23, &scratch23, 8));
+        self.emit(abi::branch(&ascii_scan));
+        self.emit(abi::label(&ascii_scan_byte));
         self.emit(abi::compare_registers(&scratch23, &scratch21));
         self.emit(abi::branch_ge(&ascii_transform));
         self.emit(abi::add_registers(&scratch14, &scratch22, &scratch23));
@@ -526,7 +552,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&scratch10, "128"));
         self.emit(abi::branch_ge(&case_slow));
         self.emit(abi::add_immediate(&scratch23, &scratch23, 1));
-        self.emit(abi::branch(&ascii_scan));
+        self.emit(abi::branch(&ascii_scan_byte));
 
         // Pure ASCII: allocate byte_len + 9 (8-byte header + trailing NUL),
         // matching the slow path's layout, then transform-copy in one pass.
@@ -903,7 +929,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&size_overflow));
         self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&temp_alloc_ok));
-        self.emit(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), temp_slot));
+        self.emit(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            temp_slot,
+        ));
 
         self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch21, &scratch20, 0));
@@ -1425,10 +1455,6 @@ impl CodeBuilder<'_> {
         let overflow = self.label("strings_join_overflow");
         let copy_loop = self.label("strings_join_copy_loop");
         let copy_no_delim = self.label("strings_join_copy_no_delim");
-        let delim_loop = self.label("strings_join_delim_loop");
-        let delim_done = self.label("strings_join_delim_done");
-        let value_loop = self.label("strings_join_value_loop");
-        let value_done = self.label("strings_join_value_done");
         let copy_done = self.label("strings_join_copy_done");
 
         // Copy-loop scratch as vregs, so the allocator colors them per-ISA. They
@@ -1549,16 +1575,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&copy_no_delim));
         self.emit(abi::move_register(cursor, &scratch11));
         self.emit(abi::move_register(remaining, &scratch10));
-        self.emit(abi::label(&delim_loop));
-        self.emit(abi::compare_immediate(remaining, "0"));
-        self.emit(abi::branch_eq(&delim_done));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::store_u8(byte, &scratch13, 0));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::add_immediate(&scratch13, &scratch13, 1));
-        self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::branch(&delim_loop));
-        self.emit(abi::label(&delim_done));
+        // plan-86 F2: 8-byte word-copy (+ byte tail) of the delimiter into scratch13.
+        self.emit_block_copy_advance(&scratch13, cursor, remaining, byte, "strings_join_delim");
         self.emit(abi::label(&copy_no_delim));
         self.emit(abi::load_u64(
             cursor,
@@ -1571,16 +1589,8 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         self.emit(abi::add_registers(cursor, &scratch14, cursor));
-        self.emit(abi::label(&value_loop));
-        self.emit(abi::compare_immediate(remaining, "0"));
-        self.emit(abi::branch_eq(&value_done));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::store_u8(byte, &scratch13, 0));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::add_immediate(&scratch13, &scratch13, 1));
-        self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::branch(&value_loop));
-        self.emit(abi::label(&value_done));
+        // plan-86 F2: 8-byte word-copy (+ byte tail) of the value into scratch13.
+        self.emit_block_copy_advance(&scratch13, cursor, remaining, byte, "strings_join_value");
         self.emit(abi::add_immediate(
             &scratch15,
             &scratch15,
@@ -1769,7 +1779,12 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             data_len_slot,
         ));
-        self.emit_write_list_header_from_registers(&layout, abi::mfb_return(1), &scratch11, &scratch12);
+        self.emit_write_list_header_from_registers(
+            &layout,
+            abi::mfb_return(1),
+            &scratch11,
+            &scratch12,
+        );
 
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(

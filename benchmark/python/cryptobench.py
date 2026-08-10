@@ -46,7 +46,7 @@ def test_crypto_sha512():
     # Arena-gated in mfb (plan-64-A): SHA-512's >2KB transients hit the O(n^2)
     # free-list walk. The C/Python mirrors keep the same tiny reps to line up.
     buf = _buf(1024)
-    reps = 2                 # TODO(plan-64-A): raise to 64
+    reps = 64
     times = []
     checksum = 0
     for _ in range(RUN):
@@ -65,7 +65,7 @@ def test_crypto_hmac():
     # quick-bin climb. Mirrors keep the same tiny reps to line up.
     buf = _buf(1024)
     key = _buf(32)
-    reps = 8                 # TODO(plan-64-A): raise to 64
+    reps = 64
     times = []
     checksum = 0
     for _ in range(RUN):
@@ -85,7 +85,7 @@ def test_crypto_pbkdf2():
     # work factor to line up.
     pw = _buf(16)
     salt = _buf(16)
-    iters = 64               # TODO(plan-64-A): raise to 4096
+    iters = 4096
     times = []
     checksum = 0
     for _ in range(RUN):
@@ -118,7 +118,7 @@ def test_crypto_cte():
 def test_crypto_churn():
     # Arena-gated in mfb (plan-64-A): tiny message count; the C/Python mirrors keep
     # the same count so the table lines up.
-    msgs = 16            # TODO(plan-64-A): raise to 4096
+    msgs = 4096
     times = []
     checksum = 0
     for _ in range(RUN):
@@ -148,7 +148,7 @@ def test_crypto_ed25519():
     # the bits package is transient-allocation heavy. Mirror keeps reps=1.
     sk = Ed25519PrivateKey.from_private_bytes(_ED_SEED)
     pub = Ed25519PublicKey.from_public_bytes(_ED_PUB)
-    reps = 1                 # TODO(plan-64-A): raise to 4
+    reps = 4
     times = []
     checksum = 0
     for _ in range(RUN):

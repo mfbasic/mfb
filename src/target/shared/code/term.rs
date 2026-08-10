@@ -312,6 +312,7 @@ pub(super) fn lower_term_helper(
             term_state_offset,
             &done,
         )?,
+        "term.didResize" => emit_did_resize(term_state_offset, &mut instructions),
         other => return Err(format!("unknown term runtime helper '{other}'")),
     }
 
@@ -361,6 +362,7 @@ fn emit_on(ctx: &mut EmitCtx, term_state_offset: usize, done: &str) -> Result<()
         (TERM_STATE_BOLD_OFFSET, "0"),
         (TERM_STATE_UNDERLINE_OFFSET, "0"),
         (TERM_STATE_CURSOR_VISIBLE_OFFSET, "1"),
+        (TERM_STATE_DID_RESIZE_OFFSET, "0"),
     ];
     for (offset, value) in writes {
         ctx.instructions
@@ -542,6 +544,33 @@ fn emit_is_on(term_state_offset: usize, instructions: &mut Vec<CodeInstruction>)
         RESULT_VALUE_REGISTER,
         ARENA_STATE_REGISTER,
         term_state_offset + TERM_STATE_ACTIVE_OFFSET,
+    ));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+}
+
+/// `term::didResize()` (planning/term.md #11): read the cached resize flag and
+/// clear it in the same helper, so the flag latches `true` from the moment a
+/// terminal/window size change is detected until the program observes it, then
+/// resets. Like `term::isOn` this getter is not gated on `active` — an inactive
+/// terminal never sets the flag, so it simply reads 0/false. The flag is set by
+/// the shared CLI reflow (`term_grid::emit_grid_resize`) and, in `--app` mode, by
+/// each app backend's resize hook mirroring into this same term-state slot, so the
+/// shared getter is correct in both modes.
+fn emit_did_resize(term_state_offset: usize, instructions: &mut Vec<CodeInstruction>) {
+    instructions.push(abi::load_u64(
+        RESULT_VALUE_REGISTER,
+        ARENA_STATE_REGISTER,
+        term_state_offset + TERM_STATE_DID_RESIZE_OFFSET,
+    ));
+    instructions.push(abi::move_immediate("%v9", "Integer", "0"));
+    instructions.push(abi::store_u64(
+        "%v9",
+        ARENA_STATE_REGISTER,
+        term_state_offset + TERM_STATE_DID_RESIZE_OFFSET,
     ));
     instructions.push(abi::move_immediate(
         RESULT_TAG_REGISTER,

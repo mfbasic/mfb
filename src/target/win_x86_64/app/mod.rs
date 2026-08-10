@@ -26,10 +26,10 @@ use std::collections::HashMap;
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
     AppEntrySpec, AppHookBody, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction,
-    CodeRelocation, Operand, RelocIntent, ARENA_ALLOC_SYMBOL, ARENA_STATE_REGISTER, MACAPP_PROGRAM_SYMBOL,
-    RESULT_OK_TAG, RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER, TERM_STATE_ACTIVE_OFFSET,
-    TERM_STATE_BG_OFFSET, TERM_STATE_BOLD_OFFSET, TERM_STATE_CURSOR_VISIBLE_OFFSET,
-    TERM_STATE_FG_OFFSET, TERM_STATE_UNDERLINE_OFFSET,
+    CodeRelocation, Operand, RelocIntent, ARENA_ALLOC_SYMBOL, ARENA_STATE_REGISTER,
+    MACAPP_PROGRAM_SYMBOL, RESULT_OK_TAG, RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER,
+    TERM_STATE_ACTIVE_OFFSET, TERM_STATE_BG_OFFSET, TERM_STATE_BOLD_OFFSET,
+    TERM_STATE_CURSOR_VISIBLE_OFFSET, TERM_STATE_FG_OFFSET, TERM_STATE_UNDERLINE_OFFSET,
 };
 
 const KERNEL32: &str = "kernel32.dll";
@@ -246,10 +246,18 @@ fn emit_win_wide_width(ins: &mut Vec<CodeInstruction>, cp_off: usize, w_off: usi
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), cp_off)); // cp
     for (i, (lo, hi)) in WIDE_RANGES.iter().enumerate() {
         let next = format!("ww_next_{i}");
-        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", &lo.to_string()));
+        ins.push(abi::move_immediate(
+            abi::mfb_arg(1),
+            "Integer",
+            &lo.to_string(),
+        ));
         ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
         ins.push(abi::branch_lt(&next));
-        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", &hi.to_string()));
+        ins.push(abi::move_immediate(
+            abi::mfb_arg(1),
+            "Integer",
+            &hi.to_string(),
+        ));
         ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
         ins.push(abi::branch_gt(&next));
         ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "2"));
@@ -353,7 +361,11 @@ fn emit_main() -> CodeFunction {
     }
     // cbSize = 80 (store_u64 → cbSize@0=80, style@4=0).
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "80"));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), WNDCLASS));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        WNDCLASS,
+    ));
     // lpfnWndProc = &WndProc (@+8).
     load_addr(abi::mfb_arg(0), WNDPROC_SYMBOL, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(
@@ -362,7 +374,11 @@ fn emit_main() -> CodeFunction {
         WNDCLASS + 8,
     ));
     // hInstance (@+24).
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HINSTANCE));
+    ins.push(abi::load_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        HINSTANCE,
+    ));
     ins.push(abi::store_u64(
         abi::mfb_arg(0),
         abi::stack_pointer(),
@@ -389,7 +405,11 @@ fn emit_main() -> CodeFunction {
     // caller-saved scratch BEFORE it becomes lpClassName's sibling — the SCRATCH
     // pool and ARG[4..] must NOT be used (their Win64 realizations are callee-saved,
     // and clobbering them corrupts the pinned/arena registers — see emit_open_file).
-    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", CW_USEDEFAULT));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(2),
+        "Integer",
+        CW_USEDEFAULT,
+    ));
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20)); // x
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28)); // y
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "400"));
@@ -398,7 +418,11 @@ fn emit_main() -> CodeFunction {
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x38)); // height
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x40)); // hWndParent
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x48)); // hMenu
-    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), HINSTANCE));
+    ins.push(abi::load_u64(
+        abi::mfb_arg(2),
+        abi::stack_pointer(),
+        HINSTANCE,
+    ));
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x50)); // hInstance
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x58)); // lpParam
                                                                      // Register args, ARG[2] (lpWindowName = &title) set last.
@@ -436,7 +460,11 @@ fn emit_main() -> CodeFunction {
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), HWND));
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x40)); // hWndParent = main
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x48)); // hMenu = 0 (child id)
-    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), HINSTANCE));
+    ins.push(abi::load_u64(
+        abi::mfb_arg(2),
+        abi::stack_pointer(),
+        HINSTANCE,
+    ));
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x50)); // hInstance
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x58)); // lpParam
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
@@ -474,10 +502,18 @@ fn emit_main() -> CodeFunction {
         abi::mfb_arg(0),
         STD_INPUT_FD,
     )); // -10
-    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), PIPEREAD)); // hRead
+    ins.push(abi::load_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        PIPEREAD,
+    )); // hRead
     call_external(from, "SetStdHandle", KERNEL32, &mut ins, &mut rel);
     // Stash hWrite in its global so the EDIT subclass (UI thread) can commit bytes.
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), PIPEWRITE));
+    ins.push(abi::load_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        PIPEWRITE,
+    ));
     load_addr(abi::mfb_arg(1), STDIN_WRITE_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
     // Subclass the transcript EDIT: oldproc = SetWindowLongPtrW(edit, GWLP_WNDPROC =
@@ -541,8 +577,16 @@ fn emit_main() -> CodeFunction {
     ins.push(abi::branch_ge("inject_enter")); // i >= n → done, send Enter
                                               // ch = inputbuf[i] (a UTF-16 code unit); PostMessageW(edit, WM_CHAR, ch, 0).
     load_addr(abi::mfb_arg(1), INPUT_BUF_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::shift_left_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1)); // i*2
-    ins.push(abi::add_registers(abi::mfb_arg(1), abi::mfb_arg(1), abi::mfb_arg(0)));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        1,
+    )); // i*2
+    ins.push(abi::add_registers(
+        abi::mfb_arg(1),
+        abi::mfb_arg(1),
+        abi::mfb_arg(0),
+    ));
     ins.push(abi::load_u16(abi::mfb_arg(2), abi::mfb_arg(1), 0)); // wParam = ch
     load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0)); // edit hwnd
@@ -577,7 +621,11 @@ fn emit_main() -> CodeFunction {
 
     // Message loop.
     ins.push(abi::label("msg_loop"));
-    ins.push(abi::add_immediate(abi::mfb_arg(0), abi::stack_pointer(), MSG));
+    ins.push(abi::add_immediate(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        MSG,
+    ));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0"));
     ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "0"));
@@ -586,14 +634,34 @@ fn emit_main() -> CodeFunction {
     ins.push(abi::branch_le("main_done")); // 0 = WM_QUIT, -1 = error
                                            // The worker's finish posts WM_APP_QUIT (msg.message @ MSG+8); catch it and exit
                                            // the loop so the UI thread does teardown (a worker ExitProcess faults in GDI).
-    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), MSG + 8));
-    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "4294967295"));
-    ins.push(abi::and_registers(abi::mfb_arg(1), abi::mfb_arg(1), abi::mfb_arg(2))); // low 32 = message
+    ins.push(abi::load_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        MSG + 8,
+    ));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(2),
+        "Integer",
+        "4294967295",
+    ));
+    ins.push(abi::and_registers(
+        abi::mfb_arg(1),
+        abi::mfb_arg(1),
+        abi::mfb_arg(2),
+    )); // low 32 = message
     ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_APP_QUIT));
     ins.push(abi::branch_eq("main_done"));
-    ins.push(abi::add_immediate(abi::mfb_arg(0), abi::stack_pointer(), MSG));
+    ins.push(abi::add_immediate(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        MSG,
+    ));
     call_external(from, "TranslateMessage", USER32, &mut ins, &mut rel);
-    ins.push(abi::add_immediate(abi::mfb_arg(0), abi::stack_pointer(), MSG));
+    ins.push(abi::add_immediate(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        MSG,
+    ));
     call_external(from, "DispatchMessageW", USER32, &mut ins, &mut rel);
     ins.push(abi::branch("msg_loop"));
 
@@ -612,7 +680,11 @@ fn emit_main() -> CodeFunction {
         WORKERH,
     ));
     // WaitForSingleObject(worker, INFINITE = 0xFFFFFFFF via 0 - 1).
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), WORKERH));
+    ins.push(abi::load_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        WORKERH,
+    ));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
     ins.push(abi::subtract_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 1));
     call_external(from, "WaitForSingleObject", KERNEL32, &mut ins, &mut rel);
@@ -629,7 +701,13 @@ fn emit_main() -> CodeFunction {
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
     ins.push(abi::branch_eq("main_exit"));
     load_addr(abi::mfb_arg(0), DUMP_ENV_SYM, from, &mut ins, &mut rel);
-    load_addr(abi::mfb_arg(1), "_mfb_winapp_testbuf", from, &mut ins, &mut rel);
+    load_addr(
+        abi::mfb_arg(1),
+        "_mfb_winapp_testbuf",
+        from,
+        &mut ins,
+        &mut rel,
+    );
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "200"));
     call_external(
         from,
@@ -643,7 +721,13 @@ fn emit_main() -> CodeFunction {
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x60));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "13")); // WM_GETTEXT
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "250"));
-    load_addr(abi::mfb_arg(3), "_mfb_winapp_testbuf", from, &mut ins, &mut rel);
+    load_addr(
+        abi::mfb_arg(3),
+        "_mfb_winapp_testbuf",
+        from,
+        &mut ins,
+        &mut rel,
+    );
     call_external(from, "SendMessageW", USER32, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "65535"));
     ins.push(abi::and_registers(
@@ -672,9 +756,19 @@ fn emit_main() -> CodeFunction {
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x78));
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x70));
-    load_addr(abi::mfb_arg(1), "_mfb_winapp_testbuf", from, &mut ins, &mut rel);
+    load_addr(
+        abi::mfb_arg(1),
+        "_mfb_winapp_testbuf",
+        from,
+        &mut ins,
+        &mut rel,
+    );
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x68));
-    ins.push(abi::add_immediate(abi::mfb_arg(3), abi::stack_pointer(), 0x78));
+    ins.push(abi::add_immediate(
+        abi::mfb_arg(3),
+        abi::stack_pointer(),
+        0x78,
+    ));
     call_external(from, "WriteFile", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::label("main_exit"));
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
@@ -737,7 +831,11 @@ fn emit_wndproc() -> CodeFunction {
     ins.push(abi::branch_eq("wnd_default")); // no surface → normal paint
                                              // BeginPaint(hwnd, &ps) → hdc
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
-    ins.push(abi::add_immediate(abi::mfb_arg(1), abi::stack_pointer(), PS));
+    ins.push(abi::add_immediate(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        PS,
+    ));
     call_external(from, "BeginPaint", USER32, &mut ins, &mut rel);
     ins.push(abi::store_u64(
         abi::return_register(),
@@ -769,7 +867,11 @@ fn emit_wndproc() -> CodeFunction {
     call_external(from, "BitBlt", GDI32, &mut ins, &mut rel);
     // EndPaint(hwnd, &ps)
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
-    ins.push(abi::add_immediate(abi::mfb_arg(1), abi::stack_pointer(), PS));
+    ins.push(abi::add_immediate(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        PS,
+    ));
     call_external(from, "EndPaint", USER32, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
     ins.push(abi::add_stack(FRAME));
@@ -822,8 +924,16 @@ fn emit_editproc() -> CodeFunction {
     // Save the four WndProc arguments (calls below clobber the ARG registers).
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), HWND));
     ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), MSG));
-    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), WPARAM));
-    ins.push(abi::store_u64(abi::mfb_arg(3), abi::stack_pointer(), LPARAM));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(2),
+        abi::stack_pointer(),
+        WPARAM,
+    ));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(3),
+        abi::stack_pointer(),
+        LPARAM,
+    ));
     // Only WM_CHAR feeds the pipe; everything else chains straight through.
     ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_CHAR));
     ins.push(abi::branch_ne("chain"));
@@ -835,9 +945,17 @@ fn emit_editproc() -> CodeFunction {
     ins.push(abi::branch("store_byte"));
     ins.push(abi::label("not_cr"));
     ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "255"));
-    ins.push(abi::and_registers(abi::mfb_arg(0), abi::mfb_arg(2), abi::mfb_arg(3))); // low byte
+    ins.push(abi::and_registers(
+        abi::mfb_arg(0),
+        abi::mfb_arg(2),
+        abi::mfb_arg(3),
+    )); // low byte
     ins.push(abi::label("store_byte"));
-    ins.push(abi::store_u8(abi::mfb_arg(0), abi::stack_pointer(), BYTEBUF));
+    ins.push(abi::store_u8(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        BYTEBUF,
+    ));
     // hWrite = *_mfb_winapp_stdin_write; skip if the pipe was never wired (headless).
     load_addr(abi::mfb_arg(0), STDIN_WRITE_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
@@ -971,7 +1089,11 @@ pub(super) fn emit_app_io_write_helper(
     // --- transcript path: append to the EDIT control ---
     // wbuf = arena UTF-16 scratch.
     arena_alloc("65536", symbol, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), WBUF));
+    ins.push(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        WBUF,
+    ));
     // MultiByteToWideChar(CP_UTF8, 0, str+8, len, wbuf, 32767). Stage the two stack
     // args (5th/6th) through ARG[2] before it becomes lpMultiByteStr (the SCRATCH
     // pool must not be used on Win64 — see emit_marshal_path).
@@ -994,7 +1116,11 @@ pub(super) fn emit_app_io_write_helper(
     // byte-length hack originally dodged — same fix the WM_GETTEXTLENGTH return
     // below uses), clamp to ≤ 32767, then use that wchar count. A failed conversion
     // returns 0 → NUL at wbuf[0], which is safe.
-    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "4294967295"));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(1),
+        "Integer",
+        "4294967295",
+    ));
     ins.push(abi::and_registers(
         abi::mfb_arg(0),
         abi::return_register(),
@@ -1004,9 +1130,17 @@ pub(super) fn emit_app_io_write_helper(
     ins.push(abi::branch_le("nul_len_ok"));
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "32767")); // clamp to wbuf capacity
     ins.push(abi::label("nul_len_ok"));
-    ins.push(abi::shift_left_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1)); // wchar count → byte offset
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        1,
+    )); // wchar count → byte offset
     ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), WBUF));
-    ins.push(abi::add_registers(abi::mfb_arg(0), abi::mfb_arg(1), abi::mfb_arg(0))); // wbuf + len*2
+    ins.push(abi::add_registers(
+        abi::mfb_arg(0),
+        abi::mfb_arg(1),
+        abi::mfb_arg(0),
+    )); // wbuf + len*2
     ins.push(abi::store_u16(abi::ZERO, abi::mfb_arg(0), 0));
     // caretEnd = SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0)
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), EDITH));
@@ -1021,7 +1155,11 @@ pub(super) fn emit_app_io_write_helper(
     // SendMessageW(edit, EM_SETSEL, caretEnd, caretEnd) — collapse selection at end.
     // WM_GETTEXTLENGTH returns a C `int`; mask off the garbage high word of rax so
     // the caret position is not a wild value.
-    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "4294967295"));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(2),
+        "Integer",
+        "4294967295",
+    ));
     ins.push(abi::and_registers(
         abi::return_register(),
         abi::return_register(),
@@ -1034,14 +1172,22 @@ pub(super) fn emit_app_io_write_helper(
     call_external(symbol, "SendMessageW", USER32, &mut ins, &mut rel);
     // SendMessageW(edit, EM_REPLACESEL, 0, wbuf) — insert the text at the caret.
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), EDITH));
-    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", EM_REPLACESEL));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(1),
+        "Integer",
+        EM_REPLACESEL,
+    ));
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0"));
     ins.push(abi::load_u64(abi::mfb_arg(3), abi::stack_pointer(), WBUF));
     call_external(symbol, "SendMessageW", USER32, &mut ins, &mut rel);
     if newline {
         // EDIT controls need CRLF, not a lone LF; append it after the inserted text.
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), EDITH));
-        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", EM_REPLACESEL));
+        ins.push(abi::move_immediate(
+            abi::mfb_arg(1),
+            "Integer",
+            EM_REPLACESEL,
+        ));
         ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0"));
         load_addr(abi::mfb_arg(3), CRLF_SYM, symbol, &mut ins, &mut rel);
         call_external(symbol, "SendMessageW", USER32, &mut ins, &mut rel);
@@ -1058,7 +1204,11 @@ pub(super) fn emit_app_io_write_helper(
     ins.push(abi::label("std_path"));
     // GetStdHandle(std) — std handle = -(fd) built without a negative immediate.
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
-    ins.push(abi::subtract_immediate(abi::mfb_arg(0), abi::mfb_arg(0), std_fd));
+    ins.push(abi::subtract_immediate(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        std_fd,
+    ));
     call_external(symbol, "GetStdHandle", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::store_u64(
         abi::return_register(),
@@ -1080,7 +1230,11 @@ pub(super) fn emit_app_io_write_helper(
     call_external(symbol, "WriteFile", KERNEL32, &mut ins, &mut rel);
     if newline {
         ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "10"));
-        ins.push(abi::store_u8(abi::mfb_arg(0), abi::stack_pointer(), NL_BYTE));
+        ins.push(abi::store_u8(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            NL_BYTE,
+        ));
         ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), WRITTEN));
         ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), OVERLAPPED));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HANDLE));
@@ -1113,7 +1267,11 @@ pub(super) fn emit_app_io_write_helper(
         ins.push(abi::label("term_grid_path"));
         load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, symbol, &mut ins, &mut rel);
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GMEMDC));
+        ins.push(abi::store_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            GMEMDC,
+        ));
         ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
         ins.push(abi::branch_eq("std_path")); // no surface built → inherited handle
                                               // SetTextColor(memDC, fg); SetBkColor(memDC, bg).
@@ -1137,7 +1295,11 @@ pub(super) fn emit_app_io_write_helper(
         // their 2-unit surrogate pair (one glyph); an East-Asian-wide codepoint takes
         // two columns and wraps at the edge.
         arena_alloc("65536", symbol, &mut ins, &mut rel);
-        ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), WBUF));
+        ins.push(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            WBUF,
+        ));
         ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
         ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20)); // 5th lpWideCharStr
         ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "32767"));
@@ -1148,7 +1310,11 @@ pub(super) fn emit_app_io_write_helper(
         ins.push(abi::load_u64(abi::mfb_arg(3), abi::mfb_arg(2), 0)); // cbMultiByte = len
         ins.push(abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 8)); // lpMultiByteStr = str+8
         call_external(symbol, "MultiByteToWideChar", KERNEL32, &mut ins, &mut rel);
-        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "4294967295"));
+        ins.push(abi::move_immediate(
+            abi::mfb_arg(1),
+            "Integer",
+            "4294967295",
+        ));
         ins.push(abi::and_registers(
             abi::mfb_arg(0),
             abi::return_register(),
@@ -1158,21 +1324,45 @@ pub(super) fn emit_app_io_write_helper(
         ins.push(abi::branch_le("term_wc_ok"));
         ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "32767"));
         ins.push(abi::label("term_wc_ok"));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), WCCOUNT));
+        ins.push(abi::store_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            WCCOUNT,
+        ));
         ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), GI));
         ins.push(abi::label("term_loop"));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
-        ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), WCCOUNT));
+        ins.push(abi::load_u64(
+            abi::mfb_arg(1),
+            abi::stack_pointer(),
+            WCCOUNT,
+        ));
         ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
         ins.push(abi::branch_ge("term_grid_done"));
         // unit = wbuf[i]; default cp = unit (BMP), unitCount = 1.
         ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
-        ins.push(abi::shift_left_immediate(abi::mfb_arg(1), abi::mfb_arg(0), 1)); // i*2
-        ins.push(abi::add_registers(abi::mfb_arg(2), abi::mfb_arg(2), abi::mfb_arg(1))); // &wbuf[i]
+        ins.push(abi::shift_left_immediate(
+            abi::mfb_arg(1),
+            abi::mfb_arg(0),
+            1,
+        )); // i*2
+        ins.push(abi::add_registers(
+            abi::mfb_arg(2),
+            abi::mfb_arg(2),
+            abi::mfb_arg(1),
+        )); // &wbuf[i]
         ins.push(abi::load_u16(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // unit
         ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "1"));
-        ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), UCOUNT));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), CPSLOT));
+        ins.push(abi::store_u64(
+            abi::mfb_arg(1),
+            abi::stack_pointer(),
+            UCOUNT,
+        ));
+        ins.push(abi::store_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            CPSLOT,
+        ));
         ins.push(abi::compare_immediate(abi::mfb_arg(0), "10"));
         ins.push(abi::branch_eq("term_nl"));
         ins.push(abi::compare_immediate(abi::mfb_arg(0), "13"));
@@ -1186,34 +1376,66 @@ pub(super) fn emit_app_io_write_helper(
         ins.push(abi::branch_ge("term_have_cp"));
         ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), GI));
         ins.push(abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 1));
-        ins.push(abi::load_u64(abi::mfb_arg(3), abi::stack_pointer(), WCCOUNT));
+        ins.push(abi::load_u64(
+            abi::mfb_arg(3),
+            abi::stack_pointer(),
+            WCCOUNT,
+        ));
         ins.push(abi::compare_registers(abi::mfb_arg(1), abi::mfb_arg(3)));
         ins.push(abi::branch_ge("term_have_cp"));
         // lo = wbuf[i+1]
         ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
-        ins.push(abi::shift_left_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 1)); // (i+1)*2
-        ins.push(abi::add_registers(abi::mfb_arg(2), abi::mfb_arg(2), abi::mfb_arg(1)));
+        ins.push(abi::shift_left_immediate(
+            abi::mfb_arg(1),
+            abi::mfb_arg(1),
+            1,
+        )); // (i+1)*2
+        ins.push(abi::add_registers(
+            abi::mfb_arg(2),
+            abi::mfb_arg(2),
+            abi::mfb_arg(1),
+        ));
         ins.push(abi::load_u16(abi::mfb_arg(1), abi::mfb_arg(2), 0)); // lo
-                                                              // cp = 0x10000 + ((hi-0xD800)<<10) + (lo-0xDC00); hi=ARG[0], lo=ARG[1].
+                                                                      // cp = 0x10000 + ((hi-0xD800)<<10) + (lo-0xDC00); hi=ARG[0], lo=ARG[1].
         ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "55296"));
         ins.push(abi::subtract_registers(
             abi::mfb_arg(0),
             abi::mfb_arg(0),
             abi::mfb_arg(2),
         ));
-        ins.push(abi::shift_left_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 10));
+        ins.push(abi::shift_left_immediate(
+            abi::mfb_arg(0),
+            abi::mfb_arg(0),
+            10,
+        ));
         ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "56320"));
         ins.push(abi::subtract_registers(
             abi::mfb_arg(1),
             abi::mfb_arg(1),
             abi::mfb_arg(2),
         ));
-        ins.push(abi::add_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(1)));
+        ins.push(abi::add_registers(
+            abi::mfb_arg(0),
+            abi::mfb_arg(0),
+            abi::mfb_arg(1),
+        ));
         ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "65536"));
-        ins.push(abi::add_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(2)));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), CPSLOT));
+        ins.push(abi::add_registers(
+            abi::mfb_arg(0),
+            abi::mfb_arg(0),
+            abi::mfb_arg(2),
+        ));
+        ins.push(abi::store_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            CPSLOT,
+        ));
         ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "2"));
-        ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), UCOUNT));
+        ins.push(abi::store_u64(
+            abi::mfb_arg(1),
+            abi::stack_pointer(),
+            UCOUNT,
+        ));
         ins.push(abi::label("term_have_cp"));
         // plan-70-F: fold trailing combining marks (U+0300..U+036F) and ZWJ sequences
         // (U+200D + the joined scalar) into this cluster's unit run so a single
@@ -1222,13 +1444,29 @@ pub(super) fn emit_app_io_write_helper(
         ins.push(abi::label("term_extend"));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
         ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), UCOUNT));
-        ins.push(abi::add_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(1))); // j = i + uc
-        ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), WCCOUNT));
+        ins.push(abi::add_registers(
+            abi::mfb_arg(0),
+            abi::mfb_arg(0),
+            abi::mfb_arg(1),
+        )); // j = i + uc
+        ins.push(abi::load_u64(
+            abi::mfb_arg(1),
+            abi::stack_pointer(),
+            WCCOUNT,
+        ));
         ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
         ins.push(abi::branch_ge("term_extend_done"));
         ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
-        ins.push(abi::shift_left_immediate(abi::mfb_arg(1), abi::mfb_arg(0), 1));
-        ins.push(abi::add_registers(abi::mfb_arg(2), abi::mfb_arg(2), abi::mfb_arg(1)));
+        ins.push(abi::shift_left_immediate(
+            abi::mfb_arg(1),
+            abi::mfb_arg(0),
+            1,
+        ));
+        ins.push(abi::add_registers(
+            abi::mfb_arg(2),
+            abi::mfb_arg(2),
+            abi::mfb_arg(1),
+        ));
         ins.push(abi::load_u16(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // nextUnit
         ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "8205")); // ZWJ U+200D
         ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
@@ -1242,22 +1480,46 @@ pub(super) fn emit_app_io_write_helper(
         // combining mark → extend by one unit and re-test.
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
         ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
+        ins.push(abi::store_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            UCOUNT,
+        ));
         ins.push(abi::branch("term_extend"));
         ins.push(abi::label("term_ext_zwj"));
         // ZWJ: consume the joiner, then the joined scalar (BMP 1 / astral 2 units).
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
         ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
+        ins.push(abi::store_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            UCOUNT,
+        ));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
         ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), UCOUNT));
-        ins.push(abi::add_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(1))); // k
-        ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), WCCOUNT));
+        ins.push(abi::add_registers(
+            abi::mfb_arg(0),
+            abi::mfb_arg(0),
+            abi::mfb_arg(1),
+        )); // k
+        ins.push(abi::load_u64(
+            abi::mfb_arg(1),
+            abi::stack_pointer(),
+            WCCOUNT,
+        ));
         ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
         ins.push(abi::branch_ge("term_extend_done")); // ZWJ at end (defensive)
         ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
-        ins.push(abi::shift_left_immediate(abi::mfb_arg(1), abi::mfb_arg(0), 1));
-        ins.push(abi::add_registers(abi::mfb_arg(2), abi::mfb_arg(2), abi::mfb_arg(1)));
+        ins.push(abi::shift_left_immediate(
+            abi::mfb_arg(1),
+            abi::mfb_arg(0),
+            1,
+        ));
+        ins.push(abi::add_registers(
+            abi::mfb_arg(2),
+            abi::mfb_arg(2),
+            abi::mfb_arg(1),
+        ));
         ins.push(abi::load_u16(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // unit after ZWJ
         ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "55296")); // 0xD800
         ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
@@ -1267,23 +1529,38 @@ pub(super) fn emit_app_io_write_helper(
         ins.push(abi::branch_ge("term_zwj_bmp"));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
         ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 2)); // astral scalar
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
+        ins.push(abi::store_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            UCOUNT,
+        ));
         ins.push(abi::branch("term_extend"));
         ins.push(abi::label("term_zwj_bmp"));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
         ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1)); // BMP scalar
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
+        ins.push(abi::store_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            UCOUNT,
+        ));
         ins.push(abi::branch("term_extend"));
         ins.push(abi::label("term_extend_done"));
         emit_win_wide_width(&mut ins, CPSLOT, WIDTHSLOT);
         // wide-at-edge: a width-2 glyph that would straddle the right edge wraps first.
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), WIDTHSLOT));
+        ins.push(abi::load_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            WIDTHSLOT,
+        ));
         ins.push(abi::compare_immediate(abi::mfb_arg(0), "2"));
         ins.push(abi::branch_ne("term_edge_ok"));
         load_addr(abi::mfb_arg(2), TUI_COL_SYM, symbol, &mut ins, &mut rel);
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0));
         ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-        ins.push(abi::compare_immediate(abi::mfb_arg(0), &TUI_COLS.to_string()));
+        ins.push(abi::compare_immediate(
+            abi::mfb_arg(0),
+            &TUI_COLS.to_string(),
+        ));
         ins.push(abi::branch_lt("term_edge_ok"));
         ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(2), 0)); // col = 0
         load_addr(abi::mfb_arg(1), TUI_ROW_SYM, symbol, &mut ins, &mut rel);
@@ -1296,22 +1573,49 @@ pub(super) fn emit_app_io_write_helper(
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20)); // 5th arg c
         ins.push(abi::load_u64(abi::mfb_arg(3), abi::stack_pointer(), WBUF));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
-        ins.push(abi::shift_left_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-        ins.push(abi::add_registers(abi::mfb_arg(3), abi::mfb_arg(3), abi::mfb_arg(0))); // &wbuf[i]
+        ins.push(abi::shift_left_immediate(
+            abi::mfb_arg(0),
+            abi::mfb_arg(0),
+            1,
+        ));
+        ins.push(abi::add_registers(
+            abi::mfb_arg(3),
+            abi::mfb_arg(3),
+            abi::mfb_arg(0),
+        )); // &wbuf[i]
         load_addr(abi::mfb_arg(1), TUI_COL_SYM, symbol, &mut ins, &mut rel);
         ins.push(abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(1), 0));
-        ins.push(abi::shift_left_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 3)); // x = col*8
+        ins.push(abi::shift_left_immediate(
+            abi::mfb_arg(1),
+            abi::mfb_arg(1),
+            3,
+        )); // x = col*8
         load_addr(abi::mfb_arg(2), TUI_ROW_SYM, symbol, &mut ins, &mut rel);
         ins.push(abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(2), 0));
-        ins.push(abi::shift_left_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 4)); // y = row*16
+        ins.push(abi::shift_left_immediate(
+            abi::mfb_arg(2),
+            abi::mfb_arg(2),
+            4,
+        )); // y = row*16
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GMEMDC));
         call_external(symbol, "TextOutW", GDI32, &mut ins, &mut rel);
         // col += width; wrap at TUI_COLS → col=0, row++.
         load_addr(abi::mfb_arg(2), TUI_COL_SYM, symbol, &mut ins, &mut rel);
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0));
-        ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), WIDTHSLOT));
-        ins.push(abi::add_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(1)));
-        ins.push(abi::compare_immediate(abi::mfb_arg(0), &TUI_COLS.to_string()));
+        ins.push(abi::load_u64(
+            abi::mfb_arg(1),
+            abi::stack_pointer(),
+            WIDTHSLOT,
+        ));
+        ins.push(abi::add_registers(
+            abi::mfb_arg(0),
+            abi::mfb_arg(0),
+            abi::mfb_arg(1),
+        ));
+        ins.push(abi::compare_immediate(
+            abi::mfb_arg(0),
+            &TUI_COLS.to_string(),
+        ));
         ins.push(abi::branch_ge("term_wrap"));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // col += width
         ins.push(abi::branch("term_next"));
@@ -1338,7 +1642,11 @@ pub(super) fn emit_app_io_write_helper(
         ins.push(abi::label("term_next"));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
         ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), UCOUNT));
-        ins.push(abi::add_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(1)));
+        ins.push(abi::add_registers(
+            abi::mfb_arg(0),
+            abi::mfb_arg(0),
+            abi::mfb_arg(1),
+        ));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
         ins.push(abi::branch("term_loop"));
         ins.push(abi::label("term_grid_done"));
@@ -1510,14 +1818,22 @@ fn win_set_colors(
         ARENA_STATE_REGISTER,
         tso + TERM_STATE_FG_OFFSET,
     ));
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), memdc_off));
+    ins.push(abi::load_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        memdc_off,
+    ));
     call_external(from, "SetTextColor", GDI32, ins, rel);
     ins.push(abi::load_u64(
         abi::mfb_arg(1),
         ARENA_STATE_REGISTER,
         tso + TERM_STATE_BG_OFFSET,
     ));
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), memdc_off));
+    ins.push(abi::load_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        memdc_off,
+    ));
     call_external(from, "SetBkColor", GDI32, ins, rel);
 }
 
@@ -1534,8 +1850,16 @@ fn win_stamp_bmp(
     glyph_off: usize,
     wch_off: usize,
 ) {
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), glyph_off));
-    ins.push(abi::store_u16(abi::mfb_arg(0), abi::stack_pointer(), wch_off));
+    ins.push(abi::load_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        glyph_off,
+    ));
+    ins.push(abi::store_u16(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        wch_off,
+    ));
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "1"));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20)); // 5th arg count
     ins.push(abi::add_immediate(
@@ -1543,11 +1867,31 @@ fn win_stamp_bmp(
         abi::stack_pointer(),
         wch_off,
     )); // &wch
-    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), col_off));
-    ins.push(abi::shift_left_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 3)); // x = col*8
-    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), row_off));
-    ins.push(abi::shift_left_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 4)); // y = row*16
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), memdc_off));
+    ins.push(abi::load_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        col_off,
+    ));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(1),
+        abi::mfb_arg(1),
+        3,
+    )); // x = col*8
+    ins.push(abi::load_u64(
+        abi::mfb_arg(2),
+        abi::stack_pointer(),
+        row_off,
+    ));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(2),
+        abi::mfb_arg(2),
+        4,
+    )); // y = row*16
+    ins.push(abi::load_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        memdc_off,
+    ));
     call_external(from, "TextOutW", GDI32, ins, rel);
 }
 
@@ -1585,14 +1929,34 @@ fn emit_term_draw_glyph_at(symbol: &str, tso: usize) -> AppHookBody {
         abi::mfb_arg(1),
     )); // cp - 0x10000
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "1023")); // 0x3FF
-    ins.push(abi::and_registers(abi::mfb_arg(2), abi::mfb_arg(0), abi::mfb_arg(2))); // low 10
+    ins.push(abi::and_registers(
+        abi::mfb_arg(2),
+        abi::mfb_arg(0),
+        abi::mfb_arg(2),
+    )); // low 10
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "56320")); // 0xDC00
-    ins.push(abi::add_registers(abi::mfb_arg(2), abi::mfb_arg(2), abi::mfb_arg(1))); // lo
-    ins.push(abi::shift_right_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 10)); // high 10
+    ins.push(abi::add_registers(
+        abi::mfb_arg(2),
+        abi::mfb_arg(2),
+        abi::mfb_arg(1),
+    )); // lo
+    ins.push(abi::shift_right_immediate(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        10,
+    )); // high 10
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "55296")); // 0xD800
-    ins.push(abi::add_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(1))); // hi
+    ins.push(abi::add_registers(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        abi::mfb_arg(1),
+    )); // hi
     ins.push(abi::store_u16(abi::mfb_arg(0), abi::stack_pointer(), WCH)); // hi @ +0
-    ins.push(abi::store_u16(abi::mfb_arg(2), abi::stack_pointer(), WCH + 2)); // lo @ +2
+    ins.push(abi::store_u16(
+        abi::mfb_arg(2),
+        abi::stack_pointer(),
+        WCH + 2,
+    )); // lo @ +2
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "2"));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20));
     ins.push(abi::branch("dg_units"));
@@ -1602,11 +1966,23 @@ fn emit_term_draw_glyph_at(symbol: &str, tso: usize) -> AppHookBody {
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20));
     ins.push(abi::label("dg_units"));
     // TextOutW(memDC, x*8, y*16, &WCH, count)
-    ins.push(abi::add_immediate(abi::mfb_arg(3), abi::stack_pointer(), WCH));
+    ins.push(abi::add_immediate(
+        abi::mfb_arg(3),
+        abi::stack_pointer(),
+        WCH,
+    ));
     ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), SX));
-    ins.push(abi::shift_left_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 3));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(1),
+        abi::mfb_arg(1),
+        3,
+    ));
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), SY));
-    ins.push(abi::shift_left_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 4));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(2),
+        abi::mfb_arg(2),
+        4,
+    ));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
     call_external(from, "TextOutW", GDI32, &mut ins, &mut rel);
     ins.push(abi::label("dg_done"));
@@ -1868,7 +2244,11 @@ fn emit_term_draw_text_at(symbol: &str, tso: usize) -> AppHookBody {
     ins.push(abi::label("entry"));
     ins.push(abi::subtract_stack(FRAME));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), SX));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), CURCOL)); // running col = x
+    ins.push(abi::store_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        CURCOL,
+    )); // running col = x
     ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), SY));
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x88)); // text ptr scratch
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
@@ -1879,7 +2259,11 @@ fn emit_term_draw_text_at(symbol: &str, tso: usize) -> AppHookBody {
     win_set_colors(&mut ins, &mut rel, from, tso, MEMDC);
     // Convert UTF-8 → UTF-16 into a 64 KB arena buffer.
     arena_alloc("65536", from, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), WBUF));
+    ins.push(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        WBUF,
+    ));
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20));
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "32767"));
@@ -1890,7 +2274,11 @@ fn emit_term_draw_text_at(symbol: &str, tso: usize) -> AppHookBody {
     ins.push(abi::load_u64(abi::mfb_arg(3), abi::mfb_arg(2), 0)); // len
     ins.push(abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 8)); // bytes
     call_external(from, "MultiByteToWideChar", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "4294967295"));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(1),
+        "Integer",
+        "4294967295",
+    ));
     ins.push(abi::and_registers(
         abi::mfb_arg(0),
         abi::return_register(),
@@ -1909,16 +2297,35 @@ fn emit_term_draw_text_at(symbol: &str, tso: usize) -> AppHookBody {
     ins.push(abi::branch_ge("dt_done"));
     // clip at the right edge (col only grows).
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), CURCOL));
-    ins.push(abi::compare_immediate(abi::mfb_arg(0), &TUI_COLS.to_string()));
+    ins.push(abi::compare_immediate(
+        abi::mfb_arg(0),
+        &TUI_COLS.to_string(),
+    ));
     ins.push(abi::branch_ge("dt_done"));
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
-    ins.push(abi::shift_left_immediate(abi::mfb_arg(1), abi::mfb_arg(0), 1));
-    ins.push(abi::add_registers(abi::mfb_arg(2), abi::mfb_arg(2), abi::mfb_arg(1)));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(1),
+        abi::mfb_arg(0),
+        1,
+    ));
+    ins.push(abi::add_registers(
+        abi::mfb_arg(2),
+        abi::mfb_arg(2),
+        abi::mfb_arg(1),
+    ));
     ins.push(abi::load_u16(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // unit
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "1"));
-    ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), UCOUNT));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), CPSLOT));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        UCOUNT,
+    ));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        CPSLOT,
+    ));
     // astral?
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "55296"));
     ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
@@ -1932,8 +2339,16 @@ fn emit_term_draw_text_at(symbol: &str, tso: usize) -> AppHookBody {
     ins.push(abi::compare_registers(abi::mfb_arg(1), abi::mfb_arg(3)));
     ins.push(abi::branch_ge("dt_have_cp"));
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
-    ins.push(abi::shift_left_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 1));
-    ins.push(abi::add_registers(abi::mfb_arg(2), abi::mfb_arg(2), abi::mfb_arg(1)));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(1),
+        abi::mfb_arg(1),
+        1,
+    ));
+    ins.push(abi::add_registers(
+        abi::mfb_arg(2),
+        abi::mfb_arg(2),
+        abi::mfb_arg(1),
+    ));
     ins.push(abi::load_u16(abi::mfb_arg(1), abi::mfb_arg(2), 0)); // lo
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "55296"));
     ins.push(abi::subtract_registers(
@@ -1941,19 +2356,39 @@ fn emit_term_draw_text_at(symbol: &str, tso: usize) -> AppHookBody {
         abi::mfb_arg(0),
         abi::mfb_arg(2),
     ));
-    ins.push(abi::shift_left_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 10));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        10,
+    ));
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "56320"));
     ins.push(abi::subtract_registers(
         abi::mfb_arg(1),
         abi::mfb_arg(1),
         abi::mfb_arg(2),
     ));
-    ins.push(abi::add_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::add_registers(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        abi::mfb_arg(1),
+    ));
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "65536"));
-    ins.push(abi::add_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(2)));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), CPSLOT));
+    ins.push(abi::add_registers(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        abi::mfb_arg(2),
+    ));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        CPSLOT,
+    ));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "2"));
-    ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), UCOUNT));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        UCOUNT,
+    ));
     ins.push(abi::label("dt_have_cp"));
     emit_win_wide_width(&mut ins, CPSLOT, WIDTHSLOT);
     // TextOutW(memDC, curcol*8, y*16, &wbuf[i], unitCount)
@@ -1961,22 +2396,54 @@ fn emit_term_draw_text_at(symbol: &str, tso: usize) -> AppHookBody {
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20));
     ins.push(abi::load_u64(abi::mfb_arg(3), abi::stack_pointer(), WBUF));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
-    ins.push(abi::shift_left_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-    ins.push(abi::add_registers(abi::mfb_arg(3), abi::mfb_arg(3), abi::mfb_arg(0)));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        1,
+    ));
+    ins.push(abi::add_registers(
+        abi::mfb_arg(3),
+        abi::mfb_arg(3),
+        abi::mfb_arg(0),
+    ));
     ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), CURCOL));
-    ins.push(abi::shift_left_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 3));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(1),
+        abi::mfb_arg(1),
+        3,
+    ));
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), SY));
-    ins.push(abi::shift_left_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 4));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(2),
+        abi::mfb_arg(2),
+        4,
+    ));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
     call_external(from, "TextOutW", GDI32, &mut ins, &mut rel);
     // curcol += width; i += unitCount.
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), CURCOL));
-    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), WIDTHSLOT));
-    ins.push(abi::add_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(1)));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), CURCOL));
+    ins.push(abi::load_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        WIDTHSLOT,
+    ));
+    ins.push(abi::add_registers(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        abi::mfb_arg(1),
+    ));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        CURCOL,
+    ));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
     ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), UCOUNT));
-    ins.push(abi::add_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::add_registers(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        abi::mfb_arg(1),
+    ));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
     ins.push(abi::branch("dt_loop"));
     ins.push(abi::label("dt_done"));
@@ -2024,7 +2491,11 @@ fn emit_term_on(symbol: &str, tso: usize) -> AppHookBody {
     load_addr(abi::mfb_arg(1), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::return_register(), abi::mfb_arg(1), 0));
     // bmp = CreateCompatibleBitmap(hdcScreen, W, H)
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HDC_SCREEN));
+    ins.push(abi::load_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        HDC_SCREEN,
+    ));
     ins.push(abi::move_immediate(
         abi::mfb_arg(1),
         "Integer",
@@ -2043,7 +2514,11 @@ fn emit_term_on(symbol: &str, tso: usize) -> AppHookBody {
     call_external(from, "SelectObject", GDI32, &mut ins, &mut rel);
     // ReleaseDC(NULL, hdcScreen)
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
-    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), HDC_SCREEN));
+    ins.push(abi::load_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        HDC_SCREEN,
+    ));
     call_external(from, "ReleaseDC", USER32, &mut ins, &mut rel);
     // plan-70-F: font = CreateFontW(16, 0, 0, 0, FW_NORMAL=400, 0,0,0,
     //   DEFAULT_CHARSET=1, 0,0,0, FIXED_PITCH|FF_MODERN=49, L"Consolas"); cache it +
@@ -2229,10 +2704,26 @@ fn emit_term_move_to(symbol: &str) -> AppHookBody {
 fn emit_term_set_color(tso: usize, field: usize) -> AppHookBody {
     let mut ins: Vec<CodeInstruction> = Vec::new();
     ins.push(abi::label("entry"));
-    ins.push(abi::shift_left_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 8));
-    ins.push(abi::shift_left_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 16));
-    ins.push(abi::or_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(1)));
-    ins.push(abi::or_registers(abi::mfb_arg(0), abi::mfb_arg(0), abi::mfb_arg(2)));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(1),
+        abi::mfb_arg(1),
+        8,
+    ));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(2),
+        abi::mfb_arg(2),
+        16,
+    ));
+    ins.push(abi::or_registers(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        abi::mfb_arg(1),
+    ));
+    ins.push(abi::or_registers(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        abi::mfb_arg(2),
+    ));
     ins.push(abi::store_u64(
         abi::mfb_arg(0),
         ARENA_STATE_REGISTER,

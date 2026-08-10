@@ -49,7 +49,8 @@ c_srcs=("$here/c/main.c" "$here/c/listmatrix.c" "$here/c/mapbench.c" "$here/c/ma
         "$here/c/regexbench.c" "$here/c/arenabench.c" "$here/c/scalarbench.c" \
         "$here/c/encodingbench.c" "$here/c/datetimebench.c" \
         "$here/c/dispatchbench.c" "$here/c/cryptobench.c" \
-        "$here/c/serializebench.c" "$here/c/setopsbench.c" "$here/c/setmatrix.c")
+        "$here/c/serializebench.c" "$here/c/setopsbench.c" "$here/c/setmatrix.c" \
+        "$here/c/widthbench.c" "$here/c/pipelinebench.c" "$here/c/convertbench.c")
 cc -O0 -o "$here/c/bench-O0.out" "${c_srcs[@]}" -lm -lpthread
 cc -O2 -o "$here/c/bench-O2.out" "${c_srcs[@]}" -lm -lpthread
 

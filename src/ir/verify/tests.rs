@@ -6246,18 +6246,31 @@ fn mut_set_is_defaultable() {
 }
 
 #[test]
-fn rejects_mut_set_of_resource_not_defaultable() {
-    // `MUT s AS Set OF File`: File is neither comparable nor defaultable, so the
-    // no-initializer MUT is rejected.
+fn rejects_mut_set_of_resource_ownership_and_comparable() {
+    // `MUT s AS Set OF File`: after bug-434 a `Set OF T` is ALWAYS defaultable
+    // (empty set), so the former `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` no longer
+    // fires. The binding is still rejected — on the two INDEPENDENT axes bug-434
+    // deliberately left untouched: an ordinary collection cannot own a resource
+    // (`TYPE_COLLECTION_OWNERSHIP_VIOLATION`) and a Set element must be
+    // comparable (`TYPE_REQUIRES_COMPARABLE`, File is not). Verified against the
+    // release binary: `MUT s AS Set OF File = []` is likewise rejected on these
+    // same axes, so the doc's premise that this becomes accepted was wrong.
     let f = func_returns(
         "run",
         "Nothing",
         vec![],
         vec![bind("s", "Set OF File", None, true, true)],
     );
-    expect_rule(
-        &project(vec![f], vec![]),
-        "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter()
+            .any(|r| r == "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE"),
+        "Set OF T is defaultable after bug-434; the defaultability rule must not fire: {got:?}"
+    );
+    assert!(
+        got.iter()
+            .any(|r| r == "TYPE_COLLECTION_OWNERSHIP_VIOLATION"),
+        "a resource in an ordinary collection is still rejected on the ownership axis: {got:?}"
     );
 }
 
@@ -6315,6 +6328,75 @@ fn rejects_mut_record_with_nondefaultable_field() {
             vec![record_typed("Holder", &[("cb", "FUNC() AS Integer")])],
         ),
         "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
+    );
+}
+
+#[test]
+fn accepts_mut_list_of_union_defaultable_empty() {
+    // bug-434: `List OF <union>` is always defaultable (empty list). The
+    // element type's defaultability is irrelevant — an empty list materializes
+    // no element.
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![bind("xs", "List OF Choice", None, true, true)],
+    );
+    accept(&project(vec![f], vec![union("Choice", &["Label"])]));
+}
+
+#[test]
+fn accepts_mut_map_value_union_defaultable_empty() {
+    // bug-434: `Map OF K TO <union>` is always defaultable (empty map).
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![bind("m", "Map OF String TO Choice", None, true, true)],
+    );
+    accept(&project(vec![f], vec![union("Choice", &["Label"])]));
+}
+
+#[test]
+fn accepts_mut_record_with_list_of_union_field() {
+    // bug-434: the non-defaultability of a `List OF <union>` field must NOT
+    // cascade into the containing record. A record embedding such a field is
+    // defaultable (the field defaults to the empty list).
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![bind("d", "Doc", None, true, true)],
+    );
+    accept(&project(
+        vec![f],
+        vec![
+            record_typed("Doc", &[("attrs", "List OF Choice")]),
+            union("Choice", &["Label"]),
+        ],
+    ));
+}
+
+#[test]
+fn accepts_state_list_of_nondefaultable() {
+    // bug-434 (intended STATE ripple): `File STATE List OF <union>` is a valid
+    // initial state — the empty list. Rides the same is_defaultable predicate
+    // as the MUT axis, so it falls out for free. Mirror of
+    // `rejects_state_type_not_defaultable` (a bare union STATE, still rejected):
+    // only the STATE-defaultability axis is asserted here, since binding-shape
+    // rules (LET-requires-value) are orthogonal to this ripple.
+    let mut f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![bind("h", "File STATE List OF Choice", None, true, false)],
+    );
+    f.resource_owners
+        .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
+    let got = rules(&project(vec![f], vec![union("Choice", &["Label"])]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_STATE_INVALID"),
+        "STATE List OF <union> must be a valid (empty-list) initial state: {got:?}"
     );
 }
 

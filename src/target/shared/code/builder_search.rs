@@ -779,8 +779,6 @@ impl CodeBuilder<'_> {
         let locate_end_advanced = self.label("mid_locate_end_advanced");
         let end_ready = self.label("mid_end_ready");
         let alloc_ok = self.label("mid_alloc_ok");
-        let copy_loop = self.label("mid_copy_loop");
-        let copy_done = self.label("mid_copy_done");
         let invalid_range = self.label("mid_invalid_range");
 
         self.emit(abi::load_u64(value_ptr, abi::stack_pointer(), value_slot));
@@ -907,16 +905,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(copy_src, start_ptr));
         self.emit(abi::add_immediate(copy_dst, abi::mfb_return(1), 8));
         self.emit(abi::move_register(copy_remaining, byte_len));
-        self.emit(abi::label(&copy_loop));
-        self.emit(abi::compare_immediate(copy_remaining, "0"));
-        self.emit(abi::branch_eq(&copy_done));
-        self.emit(abi::load_u8(byte, copy_src, 0));
-        self.emit(abi::store_u8(byte, copy_dst, 0));
-        self.emit(abi::add_immediate(copy_src, copy_src, 1));
-        self.emit(abi::add_immediate(copy_dst, copy_dst, 1));
-        self.emit(abi::subtract_immediate(copy_remaining, copy_remaining, 1));
-        self.emit(abi::branch(&copy_loop));
-        self.emit(abi::label(&copy_done));
+        // plan-86 F2: 8-byte word-copy (+ byte tail); advances copy_dst/copy_src.
+        self.emit_block_copy_advance(copy_dst, copy_src, copy_remaining, byte, "mid_copy");
         self.emit(abi::move_immediate(byte, "Integer", "0"));
         self.emit(abi::store_u8(byte, copy_dst, 0));
         let result = self.allocate_register()?;

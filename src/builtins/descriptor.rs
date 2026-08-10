@@ -630,6 +630,7 @@ impl BuiltinRegistry {
 /// `term` (W), `testing` (X).
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
+    &crate::builtins::astrings::ASTRINGS,
     &crate::builtins::bits::BITS,
     &crate::builtins::collections::COLLECTIONS,
     &crate::builtins::csv::CSV,
@@ -652,6 +653,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::money::MONEY,
     &crate::builtins::net::NET,
     &crate::builtins::os::OS,
+    &crate::builtins::process::PROCESS,
     &crate::builtins::thread::THREAD,
     &crate::builtins::tls::TLS,
     &crate::builtins::vector::VECTOR,
@@ -1298,7 +1300,7 @@ mod tests {
         // Migrated packages are registered and resolvable by module name and by
         // qualified function name. As of plan-72-Y/Z/AA (thread, tls, vector) the
         // LAST three packages are migrated, so the registry is now COMPLETE — every
-        // one of the 26 builtin packages is present. (This test tracked a
+        // builtin package is present (28 as of plan-90-A). (This test tracked a
         // still-unmigrated example — `math` until plan-72-P, `regex` until -T,
         // `tls` until -Z — but none remains, so it now asserts completeness.)
         assert!(REGISTRY.module("app").is_some());
@@ -1312,8 +1314,14 @@ mod tests {
         assert!(REGISTRY.function("tls.connect").is_some());
         assert!(REGISTRY.module("vector").is_some());
         assert!(REGISTRY.function("vector.length").is_some());
-        // The registry is exhaustive: all 26 builtin packages are registered.
-        assert_eq!(REGISTRY.modules().len(), 26);
+        // plan-89-A: the `astrings` package (opaque AttributedString + fromString).
+        assert!(REGISTRY.module("astrings").is_some());
+        assert!(REGISTRY.function("astrings.fromString").is_some());
+        // plan-90-A: the `process` package (opaque Process resource). Its callable
+        // surface lands in Phase 2/sub-plans, so only the module is asserted here.
+        assert!(REGISTRY.module("process").is_some());
+        // The registry is exhaustive: all 28 builtin packages are registered.
+        assert_eq!(REGISTRY.modules().len(), 28);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

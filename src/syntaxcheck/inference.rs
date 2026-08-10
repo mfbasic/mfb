@@ -632,6 +632,28 @@ impl<'a> SyntaxChecker<'a> {
         line: usize,
         _expected: Option<&Type>,
     ) -> Type {
+        // `AttributedString` is an opaque built-in with no user-visible fields
+        // (plan-89-A): it cannot be constructed with `AttributedString[...]`; it is
+        // created with `astrings::fromString(text)`.
+        if type_name == "AttributedString" {
+            self.report(
+                "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
+                "`AttributedString` is an opaque built-in type and cannot be constructed; use `astrings::fromString(text)` to create one.",
+                file,
+                line,
+            );
+            for argument in arguments {
+                self.infer_expression(
+                    file,
+                    constructor_arg_value(argument),
+                    locals,
+                    line,
+                    ExprMode::Transfer,
+                );
+            }
+            return Type::AttributedString;
+        }
+
         // `Error` and `ErrorLoc` are read-only compiler/runtime-generated records.
         // Direct construction is rejected; user errors are created with the
         // `error(code, message)` built-in instead.
@@ -731,7 +753,10 @@ impl<'a> SyntaxChecker<'a> {
         line: usize,
     ) -> Type {
         let target_type = self.infer_expression(file, target, locals, line, ExprMode::Transfer);
-        if matches!(target_type, Type::Error | Type::ErrorLoc) {
+        if matches!(
+            target_type,
+            Type::Error | Type::ErrorLoc | Type::AttributedString
+        ) {
             for update in updates {
                 self.infer_expression(file, &update.value, locals, update.line, ExprMode::Transfer);
             }
@@ -976,6 +1001,13 @@ impl<'a> SyntaxChecker<'a> {
         }
 
         if operator == "&" {
+            // plan-89-D: `AttributedString & AttributedString` concatenates two
+            // attributed strings into one (both operands attributed — no mixing with
+            // `String`). Attributes on the right operand shift by the left's scalar
+            // length (Open Decision 2).
+            if matches!(left, Type::AttributedString) && matches!(right, Type::AttributedString) {
+                return Type::AttributedString;
+            }
             if self.compatible(&Type::String, left) && self.compatible(&Type::String, right) {
                 return Type::String;
             }

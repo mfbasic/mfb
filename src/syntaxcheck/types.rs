@@ -82,6 +82,7 @@ impl<'a> SyntaxChecker<'a> {
         }
 
         match name {
+            "AttributedString" => Type::AttributedString,
             "Boolean" => Type::Boolean,
             "Byte" => Type::Byte,
             "Error" => Type::Error,
@@ -332,7 +333,10 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Scalar
             | Type::String
             | Type::Unknown => true,
-            Type::List(_)
+            // `AttributedString` wraps a list overlay (like `List`): not comparable,
+            // not orderable, never a `Map` key or `Set` element (plan-89-A).
+            Type::AttributedString
+            | Type::List(_)
             | Type::Set(_)
             | Type::Map(_, _)
             | Type::Function { .. }
@@ -1023,6 +1027,44 @@ mod types_tests {
     fn list_of_byte_from_integer_literals_accepted() {
         assert!(accepts(
             "FUNC main AS Integer\n  LET xs AS List OF Byte = [1, 2, 3]\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    // ---- plan-89-A: AttributedString opacity + value semantics -------------
+
+    #[test]
+    fn attributed_string_annotation_accepts() {
+        // The type parses as a first-class annotation and a `MUT` binding with no
+        // initializer is accepted (defaulting is enforced in ir::verify).
+        assert!(accepts(
+            "FUNC use(a AS AttributedString) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  MUT a AS AttributedString\n  RETURN use(a)\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn attributed_string_record_literal_rejected() {
+        // Opaque: no record-literal construction; use astrings::fromString.
+        assert!(rejects_with(
+            "FUNC main AS Integer\n  LET a AS AttributedString = AttributedString[\"hi\"]\n  RETURN 0\nEND FUNC\n",
+            "TYPE_READ_ONLY_RECORD_CONSTRUCTOR"
+        ));
+    }
+
+    #[test]
+    fn attributed_string_field_read_rejected() {
+        // Opaque: no user-visible fields — a `.text` read cannot be typed.
+        assert!(rejects_with(
+            "FUNC main AS Integer\n  MUT a AS AttributedString\n  LET t AS String = a.text\n  RETURN 0\nEND FUNC\n",
+            "TYPE_UNKNOWN_VALUE"
+        ));
+    }
+
+    #[test]
+    fn attributed_string_not_comparable() {
+        // Wraps a list overlay (like `List`): not comparable, so `=` cannot type.
+        assert!(rejects_with(
+            "FUNC cmp(a AS AttributedString, b AS AttributedString) AS Boolean\n  RETURN a = b\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+            "TYPE_UNKNOWN_VALUE"
         ));
     }
 }

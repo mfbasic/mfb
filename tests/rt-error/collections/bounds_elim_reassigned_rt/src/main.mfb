@@ -1,0 +1,22 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 G1 SOUNDNESS: the list `xs` is REASSIGNED to a shorter list inside the
+' loop, so the elision must NOT fire (recognize_provable_index sees `xs` in the
+' body's reassigned set). get(xs, i) at i>=2 on the len-2 list MUST trap
+' ErrIndexOutOfRange — proving the unchecked access did not fire unsoundly (a wrong
+' elision would silently OOB-read instead of trapping).
+
+FUNC main AS Integer
+  MUT xs AS List OF Integer = [10, 20, 30, 40, 50]
+  LET n AS Integer = len(xs)
+  MUT s AS Integer = 0
+  FOR i = 0 TO n - 1
+    IF i = 2 THEN
+      xs = [1, 2]
+    END IF
+    s = s + collections::get(xs, i)
+  NEXT
+  io::print("s=" & toString(s))
+  RETURN 0
+END FUNC

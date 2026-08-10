@@ -153,12 +153,15 @@ fn assert_atomic_unlinks(ncode: &Value, target: &str) {
 }
 
 /// Item (3): `fs::close` marks the File closed regardless of the `close` result.
-/// The store of the CLOSED flag (`str_u64` at `FILE_OFFSET_CLOSED == 8`) must sit
+/// The store of the CLOSED flag (`str_u64` at `FILE_OFFSET_CLOSED == 16`) must sit
 /// between the `close` call and the branch to `..._close_error`; before the fix it
 /// sat *after* that branch (only on the success fall-through).
 fn assert_close_marked_before_branch(ncode: &Value, target: &str) {
-    // `FILE_OFFSET_CLOSED == 8`; ncode stores the offset as a string field.
-    const FILE_OFFSET_CLOSED: &str = "8";
+    // `FILE_OFFSET_CLOSED == 16` — the unified resource-record header (plan-80)
+    // places the CLOSED flag word at offset 16 (tag@0/handle@8/closed@16/STATE@24);
+    // offset 8 is now the fd handle. Keep this in sync with `FILE_OFFSET_CLOSED` in
+    // src/target/shared/code/error_constants.rs. ncode stores the offset as a string.
+    const FILE_OFFSET_CLOSED: &str = "16";
     let func = helper(ncode, target, "_mfb_rt_fs_fs_close");
     let ins = ops(func);
     let close_idx = ins
@@ -173,7 +176,7 @@ fn assert_close_marked_before_branch(ncode: &Value, target: &str) {
         .map(|rel| close_idx + 1 + rel)
         .unwrap_or_else(|| panic!("{target}: fs::close has no branch to close_error"));
     // A record-field store (base is the File pointer, not the `sp` spill area) of
-    // the CLOSED flag at offset 8, sitting before the close-result branch.
+    // the CLOSED flag at offset 16, sitting before the close-result branch.
     let marked = ins[close_idx + 1..branch_idx].iter().any(|op| {
         op_name(op) == "str_u64"
             && op.get("offset").and_then(Value::as_str) == Some(FILE_OFFSET_CLOSED)

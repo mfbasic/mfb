@@ -1,0 +1,31 @@
+{
+  "project": "process_send_timeout",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "process", "line": 4 },
+    { "module": "io", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "p", "type": null, "value": { "kind": "call", "callee": "process.spawn", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "grep" }, { "kind": "string", "value": "-q" }, { "kind": "string", "value": "hello" }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.send", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "string", "value": "hello there" }, { "kind": "number", "value": "1000" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.close", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "process.waitFor", "arguments": [{ "kind": "identifier", "value": "p" }] }] }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}

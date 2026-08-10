@@ -1,0 +1,106 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 E: `LET e = collections::get(nodes, i)` consumed read-only (only a MATCH
+' scrutinee) over an immutable container `nodes` lets `get` return an aliasing borrow
+' into the container's inline element instead of a fresh copy — and the binding
+' registers no scope-drop free. The classifier follows the `MATCH e` desugar
+' (`$matchN = e; MATCH $matchN`), so BOTH `e` and the match-temp borrow. This pins
+' both correctness AND that a freed borrow does NOT corrupt the container (the
+' interleaved allocations in the stress loop would surface a UAF), plus the two
+' NEGATIVE cases where the borrow must NOT fire (escape / container reassign) — those
+' MUST fall back to the owning copy or they would dangle.
+
+TYPE Num
+  value AS Integer
+END TYPE
+TYPE Add
+  left AS Integer
+  right AS Integer
+END TYPE
+TYPE Mul
+  left AS Integer
+  right AS Integer
+END TYPE
+UNION Expr
+  Num
+  Add
+  Mul
+END UNION
+
+' BORROW: e used only as a MATCH scrutinee over the immutable param `nodes`.
+FUNC evalAt(nodes AS List OF Expr, i AS Integer) AS Integer
+  LET e AS Expr = collections::get(nodes, i)
+  MATCH e
+    CASE Num(n)
+      RETURN n.value
+    CASE Add(a)
+      RETURN a.left + a.right
+    CASE Mul(m)
+      RETURN m.left * m.right
+  END MATCH
+  RETURN 0
+END FUNC
+
+' NEGATIVE 1 — e ESCAPES (returned): must copy (not borrow), else it dangles.
+FUNC firstElem(nodes AS List OF Expr) AS Expr
+  LET e AS Expr = collections::get(nodes, 0)
+  RETURN e
+END FUNC
+
+' NEGATIVE 2 — container reassigned after the get: must copy.
+FUNC reassignCase(seed AS Integer) AS Integer
+  MUT nodes AS List OF Expr = []
+  LET a AS Expr = Add[1, 2]
+  nodes = collections::append(nodes, a)
+  LET e AS Expr = collections::get(nodes, 0)
+  LET b AS Expr = Num[seed]
+  nodes = collections::append(nodes, b)
+  MATCH e
+    CASE Add(x)
+      RETURN x.left + x.right
+    CASE Num(n)
+      RETURN n.value
+    CASE Mul(m)
+      RETURN m.left * m.right
+  END MATCH
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  MUT nodes AS List OF Expr = []
+  LET x0 AS Expr = Num[7]
+  nodes = collections::append(nodes, x0)
+  LET x1 AS Expr = Add[3, 4]
+  nodes = collections::append(nodes, x1)
+  LET x2 AS Expr = Mul[5, 6]
+  nodes = collections::append(nodes, x2)
+  LET x3 AS Expr = Num[100]
+  nodes = collections::append(nodes, x3)
+  io::print("v0=" & toString(evalAt(nodes, 0)))
+  io::print("v1=" & toString(evalAt(nodes, 1)))
+  io::print("v2=" & toString(evalAt(nodes, 2)))
+  io::print("v3=" & toString(evalAt(nodes, 3)))
+  ' escape: returned Expr must be valid in the caller (copied, not dangling).
+  LET got AS Expr = firstElem(nodes)
+  MATCH got
+    CASE Num(n)
+      io::print("escape=" & toString(n.value))
+    CASE Add(x)
+      io::print("escape=" & toString(x.left + x.right))
+    CASE Mul(m)
+      io::print("escape=" & toString(m.left * m.right))
+  END MATCH
+  io::print("reassign=" & toString(reassignCase(99)))
+  ' Stress: many borrows + MATCHes with interleaved allocations — a freed borrow
+  ' would corrupt the container element on a later alloc.
+  MUT acc AS Integer = 0
+  FOR r = 0 TO 4999
+    acc = acc + evalAt(nodes, r MOD 4)
+    acc = acc + reassignCase(r)
+    LET junk AS List OF Integer = [r, r + 1, r + 2]
+    acc = acc + len(junk)
+  NEXT
+  io::print("stress=" & toString(acc))
+  RETURN 0
+END FUNC

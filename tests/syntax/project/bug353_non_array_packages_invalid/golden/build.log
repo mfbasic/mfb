@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/project/bug353_non_array_packages_invalid
+  11 |     }
+  12 |   ],
+  13 |   "packages": "notanarray",
+     |   ^^^^^^^^^^
+tests/syntax/project/bug353_non_array_packages_invalid/project.json:13 error[2-200-0006 PROJECT_JSON_FIELD_TYPE]: project.json field has the wrong type
+               The `packages` field must be an array when present.
+[exit 1]

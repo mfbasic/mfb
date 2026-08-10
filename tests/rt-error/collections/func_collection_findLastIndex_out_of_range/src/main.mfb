@@ -1,0 +1,13 @@
+IMPORT collections
+
+' plan-86 A3: native String `findLastIndex` traps bounds (77050001) when the
+' normalized start index is out of range — here an explicit endIndex past the
+' end of a non-empty list.
+FUNC any(s AS String) AS Boolean
+  RETURN TRUE
+END FUNC
+
+FUNC main AS Integer
+  LET xs AS List OF String = ["aa", "bb", "cc"]
+  RETURN collections::findLastIndex(xs, any, 3)
+END FUNC

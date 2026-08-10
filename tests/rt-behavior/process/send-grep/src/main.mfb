@@ -1,0 +1,19 @@
+' plan-90-B Phase 1: process::send writes a line (+ trailing newline) to the
+' child's stdin. `grep -q hello` exits 0 iff it received a line containing
+' "hello" before EOF — so waitFor==0 proves send + close delivered the bytes.
+IMPORT process
+IMPORT io
+
+FUNC main AS Integer
+  RES p = process::spawn(["grep", "-q", "hello"])
+  process::send(p, "hello world")
+  process::close(p)
+  io::print(toString(process::waitFor(p)))
+
+  ' A non-matching line -> grep exits 1.
+  RES q = process::spawn(["grep", "-q", "hello"])
+  process::send(q, "goodbye")
+  process::close(q)
+  io::print(toString(process::waitFor(q)))
+  RETURN 0
+END FUNC

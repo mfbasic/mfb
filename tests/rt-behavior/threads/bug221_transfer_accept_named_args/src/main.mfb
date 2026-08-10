@@ -1,0 +1,28 @@
+IMPORT io
+IMPORT thread
+IMPORT fs
+IMPORT bug221_worker
+
+' bug-221 regression: thread::transfer/accept previously exposed no
+' call_param_names row, so `timeoutMs := N` (and any other named argument)
+' on these two calls silently failed to bind even though the structurally
+' identical thread::send/receive supported it. This program drives both
+' calls with named arguments -- including `res`/`t` reordered by name on
+' the parent-side transfer -- to prove the names now resolve to the right
+' parameter slots rather than merely being accepted as syntax.
+FUNC main AS Integer
+  LET t AS Thread OF RES File TO Integer = thread::start(bug221_worker::exchange, "seed")
+
+  RES pf AS File = fs::openFile("tests/rt-behavior/threads/bug221_transfer_accept_named_args/data/parent.txt")
+  thread::transfer(resource := pf, t := t, timeoutMs := 1000)
+
+  RES wf AS File = thread::accept(timeoutMs := 1000, t := t)
+  LET parentReceived AS Integer = len(fs::readAll(wf))
+  fs::close(wf)
+
+  LET workerReceived AS Integer = thread::waitFor(t)
+
+  io::print(toString(workerReceived))
+  io::print(toString(parentReceived))
+  RETURN 0
+END FUNC

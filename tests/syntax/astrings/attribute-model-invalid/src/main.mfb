@@ -1,0 +1,11 @@
+REM plan-89-B: the internal overlay-bridge members (`readSpans`/`writeSpans`/
+REM `scalarLen`) are native primitives the source companion builds the Tier-C
+REM members over — they are NOT exported to user code and must not resolve.
+
+IMPORT astrings
+
+FUNC main AS Integer
+  LET a AS AttributedString = astrings::fromString("hi")
+  LET spans = astrings::readSpans(a)
+  RETURN 0
+END FUNC

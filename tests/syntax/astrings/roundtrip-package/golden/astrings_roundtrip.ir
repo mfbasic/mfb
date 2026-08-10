@@ -1,0 +1,23 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "astrings_roundtrip",
+  "entry": null,
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "wrap",
+    "line": 6,
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "a", "line": 6, "type": "AttributedString", "default": null }
+    ],
+    "returns": "AttributedString",
+    "body": [
+    { "op": "return", "line": 7, "value": { "kind": "local", "name": "a" } }
+    ]
+  }
+  ]
+}

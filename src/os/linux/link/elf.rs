@@ -396,7 +396,7 @@ fn append_elf_signing_section(bytes: &mut Vec<u8>, metadata: &[u8]) {
     bytes.resize(metadata_offset, 0);
     bytes.extend_from_slice(metadata);
     let shstrtab_offset = align(bytes.len(), 1);
-    let shstrtab = b"\0.mfb_sign\0.shstrtab\0";
+    let shstrtab = b"\0.mfbsign\0.shstrtab\0";
     bytes.extend_from_slice(shstrtab);
     let shoff = align(bytes.len(), 8);
     bytes.resize(shoff, 0);
@@ -416,8 +416,11 @@ fn append_elf_signing_section(bytes: &mut Vec<u8>, metadata: &[u8]) {
         0,
     );
     section_header(
+        // `.shstrtab`'s name index within the shstrtab literal: after the leading
+        // NUL and `.mfbsign\0` (8 chars + NUL), it begins at byte 10 (bug-432
+        // renamed `.mfb_sign` → `.mfbsign`, shortening this from 11).
         bytes,
-        11,
+        10,
         3,
         0,
         0,

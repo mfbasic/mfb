@@ -77,7 +77,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 0));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), head_slot));
         self.emit(abi::store_u64(&scratch10, abi::mfb_return(1), 8));
-        self.emit(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), head_slot));
+        self.emit(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            head_slot,
+        ));
         Ok(())
     }
 

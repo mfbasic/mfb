@@ -7,7 +7,8 @@
 7. **Decoded key input** — the biggest *interactivity* gap. `io::readChar`/`readByte` give raw bytes, so arrow keys, function keys, Home/End/PgUp arrive as undecoded escape sequences. A TUI needs key *events* (`Up`, `F5`, `Enter`, modifiers). notcurses/ncurses decode these.
 8. **Mouse events** — clicks/drag/scroll. Absent entirely.
 9. **Windows / planes** — subsurfaces with their own coordinate space, clipping, and z-order (ncurses `WINDOW`/`panel`, notcurses `plane`). This is the defining abstraction of both libraries and your largest *architectural* gap; `term::` is a single flat surface today. Optional if you deliberately want flat-surface-only.
-10. **Wide-character cell width** — you're one-cell-per-scalar, so CJK/emoji (double-width) will misalign. notcurses handles this.
+10. (done) **Wide-character cell width** — you're one-cell-per-scalar, so CJK/emoji (double-width) will misalign. notcurses handles this.
+11. (done) **`term::didResize()`** — returns true after the term was resized, should be cached so it stays true after a resize until the `didResize()` is called. Should support both CLI and `--app` modes.
 
 **Windows / planes** —
 

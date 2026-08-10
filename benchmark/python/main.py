@@ -27,9 +27,11 @@ import listmatrix
 import mapbench
 import mapmatrix
 import math
+import convertbench
 import mathbench
 import mathpipe
 import os
+import pipelinebench
 import re
 import regexbench
 import scalarbench
@@ -43,6 +45,7 @@ import tempfile
 import threading
 import time
 import vectorbench
+import widthbench
 from math import (acos, asin, atan, atan2, cos, exp, log, log10, pow as mpow,
                   sin, sqrt, tan)
 
@@ -860,6 +863,15 @@ def main():
 
     # scalarbench group (roundtrip/classify/transform/listchurn)
     scalarbench.run_all(RUN, now_ns, record)
+
+    # width group (plan-87 strings::displayWidth — ascii/mixed/churn)
+    widthbench.run_all(RUN, now_ns, record)
+
+    # pipeline group (plan-87 chained HOF — int/groupagg/str)
+    pipelinebench.run_all(RUN, now_ns, record)
+
+    # convert group (plan-87 number conversion — int/float)
+    convertbench.run_all(RUN, now_ns, record)
 
     test_primes()
 

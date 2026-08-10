@@ -18,6 +18,7 @@ const BCRYPT: &str = "bcrypt.dll";
 const SECUR32: &str = "secur32.dll";
 const CRYPT32: &str = "crypt32.dll";
 const ADVAPI32: &str = "advapi32.dll";
+const SHLWAPI: &str = "shlwapi.dll"; // bug-431: PathRemoveFileSpecA for the vendored-DLL path
 const SHELL32: &str = "shell32.dll"; // os.args: CommandLineToArgvW (plan-66-B)
                                      // WASAPI audio (plan-66 G+H): the COM runtime (object activation) rides ole32; the
                                      // endpoint objects themselves are called through their vtables (no import).
@@ -418,6 +419,9 @@ impl NativePlanPlatform for Platform {
                     import("SleepConditionVariableSRW", KERNEL32, required_by),
                     import("SwitchToThread", KERNEL32, required_by),
                     import("GetSystemTimePreciseAsFileTime", KERNEL32, required_by),
+                    // plan-91-A: the parent `thread::sleep` helper maps nanosleep
+                    // to Sleep(dwMilliseconds).
+                    import("Sleep", KERNEL32, required_by),
                 ]
             }
             // Networking (plan-47-I): every `net.*` helper is Winsock2 over
@@ -481,6 +485,25 @@ impl NativePlanPlatform for Platform {
                 import("BCryptVerifySignature", BCRYPT, required_by),
             ],
             "crypto.randomBytes" => vec![import("BCryptGenRandom", BCRYPT, required_by)],
+            // plan-90-D: the process lifecycle over CreateProcessA. Over-importing
+            // the whole kernel32 set for every process.* helper is harmless (the
+            // merged IAT dedups).
+            call if crate::builtins::process::is_process_runtime_call(call) => vec![
+                import("CreateProcessA", KERNEL32, required_by),
+                import("CreatePipe", KERNEL32, required_by),
+                import("SetHandleInformation", KERNEL32, required_by),
+                import("WriteFile", KERNEL32, required_by),
+                import("ReadFile", KERNEL32, required_by),
+                import("PeekNamedPipe", KERNEL32, required_by),
+                import("SetNamedPipeHandleState", KERNEL32, required_by),
+                import("GetTickCount64", KERNEL32, required_by),
+                import("Sleep", KERNEL32, required_by),
+                import("WaitForSingleObject", KERNEL32, required_by),
+                import("GetExitCodeProcess", KERNEL32, required_by),
+                import("TerminateProcess", KERNEL32, required_by),
+                import("CloseHandle", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
             // WASAPI audio (plan-66 G+H). ole32 provides the COM runtime and object
             // activation (CoInitializeEx/CoCreateInstance/CoTaskMemFree); kernel32
             // provides the event-driven wait primitives. The IMMDevice*/IAudioClient*/
@@ -567,7 +590,52 @@ impl NativePlanPlatform for Platform {
         Vec::new()
     }
 
-    fn link_imports(&self, _required_by: &str) -> Vec<PlatformImport> {
-        Vec::new()
+    fn link_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+        // bug-431: the runtime loader `_mfb_linker_init` emits `LoadLibraryExA`
+        // + `GetProcAddress` (kernel32) instead of the POSIX `dlopen`/`dlsym`, and
+        // resolves a vendored DLL from the exe-relative `vendor/` directory by
+        // building `<exe_dir>\vendor\<name>` with `GetModuleFileNameA` +
+        // `PathRemoveFileSpecA` (shlwapi) + `lstrcatA` (kernel32). Declared
+        // unconditionally alongside the LINK support, which is itself only emitted
+        // when the program has `LINK` bindings — a non-LINK Windows build declares
+        // none of these and stays byte-identical.
+        [
+            ("LoadLibraryExA", KERNEL32),
+            ("GetProcAddress", KERNEL32),
+            ("GetModuleFileNameA", KERNEL32),
+            ("lstrcatA", KERNEL32),
+            ("PathRemoveFileSpecA", SHLWAPI),
+        ]
+        .into_iter()
+        .map(|(symbol, library)| import(symbol, library, required_by))
+        .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// bug-431: a Windows build that vendors a native `LINK` library needs the
+    /// kernel32/shlwapi loader imports so `_mfb_linker_init` can resolve the DLL
+    /// at runtime. Before the fix `link_imports` returned nothing, leaving the
+    /// loader unbindable (there was not even a `dlopen` symbol to reference).
+    #[test]
+    fn link_imports_declare_the_win32_loader() {
+        let imports = Platform.link_imports("_main");
+        let symbols: std::collections::HashSet<&str> =
+            imports.iter().map(|i| i.symbol.as_str()).collect();
+        for required in [
+            "LoadLibraryExA",
+            "GetProcAddress",
+            "GetModuleFileNameA",
+            "lstrcatA",
+            "PathRemoveFileSpecA",
+        ] {
+            assert!(
+                symbols.contains(required),
+                "win link_imports missing {required}; got {symbols:?}"
+            );
+        }
     }
 }

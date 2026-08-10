@@ -249,6 +249,17 @@ pub(crate) const ERR_TLS_FAILED_MESSAGE: &str =
     "TLS handshake, certificate validation, SNI validation, or protocol operation failed.";
 pub(crate) const ERR_TLS_FAILED_SYMBOL: &str = "_mfb_str_error_tls_failed";
 
+// -- Process (7708) ---------------------------------------------------------
+// plan-90-A: `process::spawn`/`shell` raise `ErrSpawnFailed` when the child
+// cannot be created or `execvp`'d (the child reports the failure to the parent
+// over a close-on-exec self-pipe). Operating on a dropped `Process` raises the
+// shared `ErrResourceClosed` (7703); an empty `args` list raises the shared
+// `ErrInvalidArgument` (7705).
+pub(crate) const ERR_SPAWN_FAILED_CODE: &str = "77080001";
+pub(crate) const ERR_SPAWN_FAILED_MESSAGE: &str =
+    "Child process could not be spawned (fork/exec failed, or the program was not found).";
+pub(crate) const ERR_SPAWN_FAILED_SYMBOL: &str = "_mfb_str_error_spawn_failed";
+
 // ===========================================================================
 // Entry-point & cleanup-failure diagnostic strings
 // ===========================================================================
@@ -434,6 +445,14 @@ pub(crate) const TERM_STATE_BG_OFFSET: usize = 16;
 pub(crate) const TERM_STATE_BOLD_OFFSET: usize = 24;
 pub(crate) const TERM_STATE_UNDERLINE_OFFSET: usize = 32;
 pub(crate) const TERM_STATE_CURSOR_VISIBLE_OFFSET: usize = 40;
+/// Cached "terminal was resized" flag (planning/term.md #11). Set to 1 whenever a
+/// genuine terminal/window size change is detected — the shared CLI reflow
+/// (`term_grid::emit_grid_resize`) and each app backend's resize hook — and
+/// cleared (read-and-cleared) by `term::didResize()`, so the flag latches until
+/// the program observes it. Offset 56 is the free slot between the grid pointer
+/// (48) and the raw-active flag (64). App backends that record resize on their own
+/// surface state mirror it here so the shared getter stays correct.
+pub(crate) const TERM_STATE_DID_RESIZE_OFFSET: usize = 56;
 /// Console single-key (raw/cbreak) mode: set to 1 by `term::on` once it has put
 /// stdin into `~ICANON`/`~ECHO`/`VMIN=1`/`VTIME=0` (bug-149); 0 while the tty is
 /// in its saved line discipline (never a tty, or `term::off` already restored
@@ -918,6 +937,7 @@ pub(crate) const RESOURCE_TAG_TLS_MACOS: &str = "6";
 pub(crate) const RESOURCE_TAG_TLS_SCHANNEL: &str = "7";
 pub(crate) const RESOURCE_TAG_TLS_LISTENER: &str = "8";
 pub(crate) const RESOURCE_TAG_AUDIO: &str = "9";
+pub(crate) const RESOURCE_TAG_PROCESS: &str = "10";
 pub(crate) const RESOURCE_TAG_NATIVE: &str = "255";
 
 /// The word at `RESOURCE_OFFSET_CLOSED` is a u64 flag set, not a boolean: bit 0

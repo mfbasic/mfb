@@ -843,6 +843,23 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit_money_to_string_value(&value_register, &precision)
             }
+            "AttributedString" => {
+                // The visible text is the inlined `text` String field (index 0):
+                // its record slot holds a block-relative offset, so the String
+                // block is `value_register + offset` (plan-02 §4.2). `toString`
+                // yields an OWNED String, so deep-copy that block — returning the
+                // alias would share the record's arena memory, freed at the
+                // record's scope drop (plan-89-A).
+                let text_ptr = self.allocate_register()?;
+                self.emit(abi::load_u64(&text_ptr, &value_register, 0));
+                self.emit(abi::add_registers(&text_ptr, &value_register, &text_ptr));
+                let copied = self.copy_flat_block("String", &text_ptr)?;
+                Ok(ValueResult {
+                    type_: "String".to_string(),
+                    location: Operand::from(copied.render()),
+                    text: format!("toString({})", value.text),
+                })
+            }
             other => Err(format!(
                 "native toString does not accept argument type '{other}'"
             )),

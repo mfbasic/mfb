@@ -1,0 +1,41 @@
+{
+  "project": "func_collection_findLastIndex_out_of_range",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "any",
+      "line": 6,
+      "params": [
+      { "name": "s", "type": "String", "default": null, "line": 6 }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "boolean", "value": true }, "line": 7 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "xs", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "aa" }, { "kind": "string", "value": "bb" }, { "kind": "string", "value": "cc" }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "call", "callee": "collections.findLastIndex", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "identifier", "value": "any" }, { "kind": "number", "value": "3" }] }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}

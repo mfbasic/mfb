@@ -28,6 +28,14 @@ impl CodeBuilder<'_> {
     /// eventual `arena_free` survives the intervening register clobbers; the live
     /// register in `result` is left untouched for the immediate consumer.
     fn register_pending_temp(&mut self, value: &NirValue, result: &ValueResult) {
+        // plan-86 E: a read-only `get`-borrow returns an ALIAS into the container's
+        // data region (not a fresh block), so it must NOT be registered for the
+        // statement-scope free — freeing it would `arena_free` INTO the container and
+        // corrupt the free list. The `borrow_get_result` flag is set only while
+        // lowering such a borrow's initializer.
+        if self.borrow_get_result {
+            return;
+        }
         // A register-native vector has no arena block yet; it is registered as a
         // temp only when materialized (`vector_value_as_block`), so skip it here
         // (its marker location is not a real block pointer to spill/free).
@@ -146,7 +154,29 @@ impl CodeBuilder<'_> {
     /// binding/global/return can own it, so the eventual scope-drop `arena_free`
     /// reclaims a real arena block and never an aliased or static one.
     pub(super) fn value_needs_owning_copy(&self, value: &NirValue) -> bool {
-        Self::value_is_aliasing_source(value) || self.static_string_value(value).is_some()
+        Self::value_is_aliasing_source(value)
+            || self.static_string_value(value).is_some()
+            || self.call_returns_param_borrow(value)
+    }
+
+    /// plan-86 K1: whether `value` is a call to a user function that returns a borrow
+    /// of one of its parameters (`function_returns_param_borrow`). The result aliases
+    /// the caller's argument block rather than a fresh allocation, so it is
+    /// classified as an aliasing source exactly like a `Local`: `register_pending_temp`
+    /// leaves it unfreed (the argument's owner frees it), and `lower_value_owned`
+    /// deep-copies it at an owning store. This is the caller half of the elision — the
+    /// callee (`lower_returned_value`, gated on the SAME predicate via
+    /// `current_returns_param_borrow`) returns the argument pointer uncopied, so the
+    /// single deep-copy lands here at the ownership boundary and value semantics is
+    /// unchanged.
+    fn call_returns_param_borrow(&self, value: &NirValue) -> bool {
+        let target = match value {
+            NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => target.as_str(),
+            _ => return false,
+        };
+        self.functions
+            .get(target)
+            .is_some_and(|f| function_returns_param_borrow(f, &self.callback_referenced_functions))
     }
 
     /// Whether lowering `value` yields a value whose lifetime is managed by the
@@ -570,7 +600,11 @@ impl CodeBuilder<'_> {
                         CLOSURE_OFFSET_ENV,
                     ));
                 } else {
-                    self.emit(abi::store_u64(abi::ZERO, abi::mfb_return(1), CLOSURE_OFFSET_ENV));
+                    self.emit(abi::store_u64(
+                        abi::ZERO,
+                        abi::mfb_return(1),
+                        CLOSURE_OFFSET_ENV,
+                    ));
                 }
                 self.emit(abi::move_register(&closure_register, abi::mfb_return(1)));
                 Ok(ValueResult {
@@ -674,6 +708,9 @@ impl CodeBuilder<'_> {
                     return Ok(result);
                 }
                 if let Some(result) = self.lower_strings_package_call(target, args)? {
+                    return Ok(result);
+                }
+                if let Some(result) = self.lower_astrings_package_call(target, args)? {
                     return Ok(result);
                 }
                 // Migrated `collections::`/`strings::` members arrive with their
@@ -830,6 +867,31 @@ impl CodeBuilder<'_> {
                         }
                     }
                 }
+                // plan-86 D3: native merge(a, b, preferB) for a String-key,
+                // fixed-width-value map when preferB is a compile-time TRUE (b
+                // overwrites a on a shared key == set_in_place's overwrite-or-append,
+                // so no hasKey probe needed). Presizes the copy so bulk-inserting b
+                // does not grow. Other shapes fall through to `.mfb __collections_merge`.
+                if let Some(params) = target.strip_prefix("#collections_merge$") {
+                    if args.len() == 3 {
+                        let parts: Vec<&str> = params.split('$').collect();
+                        let prefer_true = matches!(
+                            &args[2],
+                            NirValue::Const { type_, value }
+                                if type_ == "Boolean" && value == "true"
+                        );
+                        let ok = parts.len() == 2
+                            && parts[0] == "String"
+                            && matches!(
+                                parts[1],
+                                "Integer" | "Float" | "Fixed" | "Money" | "String"
+                            )
+                            && prefer_true;
+                        if ok {
+                            return self.lower_collection_merge_call(args);
+                        }
+                    }
+                }
                 // plan-64 D3: native window for 8-byte fixed-width elements with a
                 // constant size >= 1 and constant stride >= 1 (`#collections_window$T`,
                 // 2 or 3 args). Non-constant/invalid size|stride or other element
@@ -844,7 +906,7 @@ impl CodeBuilder<'_> {
                         }
                     };
                     let elem_ok = matches!(t, "Integer" | "Float" | "Fixed" | "Money");
-                    if elem_ok && (args.len() == 2 || args.len() == 3) {
+                    if (elem_ok || t == "String") && (args.len() == 2 || args.len() == 3) {
                         let size = args.get(1).and_then(const_i64);
                         let stride = if args.len() == 3 {
                             args.get(2).and_then(const_i64)
@@ -852,7 +914,14 @@ impl CodeBuilder<'_> {
                             Some(1)
                         };
                         if let (Some(sz), Some(st)) = (size, stride) {
-                            if sz >= 1 && st == 1 {
+                            // plan-86 A2: String windows are variable-size kind-0
+                            // blocks → direct slice-per-window construction (any
+                            // stride). Fixed-width keeps the contiguous-block builder
+                            // (stride 1 only).
+                            if sz >= 1 && st >= 1 && t == "String" {
+                                return self.lower_collection_window_string_call(args, sz, st);
+                            }
+                            if sz >= 1 && st == 1 && elem_ok {
                                 return self.lower_collection_window_call(args, sz, st);
                             }
                         }
@@ -870,10 +939,22 @@ impl CodeBuilder<'_> {
                                 | NirValue::Global { .. }
                                 | NirValue::LocalRef { .. }
                         );
+                        // plan-86 A2: Integer-key groupBy with a String VALUE (and a
+                        // String source T) now lowers natively — the Integer-key hash
+                        // table is unchanged; only the per-element value read + the
+                        // 1-element-bucket build handle the kind-0 String bucket
+                        // (`lower_collection_group_by_call`). Retires the O(bucket)
+                        // map-churn of the `.mfb` body (list (Dynamic) groupby 166 ms).
                         let ok = parts.len() == 3
-                            && matches!(parts[0], "Integer" | "Float" | "Fixed" | "Money")
+                            && matches!(
+                                parts[0],
+                                "Integer" | "Float" | "Fixed" | "Money" | "String"
+                            )
                             && parts[1] == "Integer"
-                            && matches!(parts[2], "Integer" | "Float" | "Fixed" | "Money")
+                            && matches!(
+                                parts[2],
+                                "Integer" | "Float" | "Fixed" | "Money" | "String"
+                            )
                             && reeval_safe;
                         if ok {
                             let (kt, vt) = (parts[1].to_string(), parts[2].to_string());
@@ -884,11 +965,21 @@ impl CodeBuilder<'_> {
                 // plan-64 D3: native chunks for 8-byte fixed-width elements with a
                 // constant size >= 1 (`#collections_chunks$T`, 2 args).
                 if let Some(t) = target.strip_prefix("#collections_chunks$") {
-                    if matches!(t, "Integer" | "Float" | "Fixed" | "Money") && args.len() == 2 {
+                    if matches!(t, "Integer" | "Float" | "Fixed" | "Money" | "String")
+                        && args.len() == 2
+                    {
                         if let Some(NirValue::Const { type_, value }) = args.get(1) {
                             if type_ == "Integer" {
                                 if let Ok(sz) = value.parse::<i64>() {
                                     if sz >= 1 {
+                                        // plan-86 A2: String inner lists are
+                                        // variable-size kind-0 blocks → direct
+                                        // slice-per-chunk construction; fixed-width
+                                        // takes the contiguous-block builder.
+                                        if t == "String" {
+                                            return self
+                                                .lower_collection_chunks_string_call(args, sz);
+                                        }
                                         return self.lower_collection_chunks_call(args, sz);
                                     }
                                 }
@@ -907,6 +998,17 @@ impl CodeBuilder<'_> {
                         && args.len() == 2
                     {
                         return self.lower_collection_partition_call(args, t);
+                    }
+                }
+                // plan-86 A3: native `collections::findLastIndex` reverse predicate
+                // scan for a String item list (`#collections_findLastIndex$String`).
+                // The 2-arg source form is padded to 3 (default `endIndex = -1`), so
+                // the native body always sees `(list, predicate, endIndex)` and
+                // handles the negative/default and explicit-endIndex cases uniformly.
+                // Other element types fall through to the `.mfb` body.
+                if let Some(t) = target.strip_prefix("#collections_findLastIndex$") {
+                    if t == "String" && args.len() == 3 {
+                        return self.lower_collection_find_last_index_call(args);
                     }
                 }
                 if native == Some("reduce") && args.len() == 3 {
@@ -1153,6 +1255,9 @@ impl CodeBuilder<'_> {
                 if let Some(result) = self.lower_strings_package_call(target, args)? {
                     return Ok(result);
                 }
+                if let Some(result) = self.lower_astrings_package_call(target, args)? {
+                    return Ok(result);
+                }
                 if target == "isEven" && args.len() == 1 {
                     return self.lower_integer_parity_predicate("isEven", &args[0], false);
                 }
@@ -1311,7 +1416,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64(&tag_register, abi::mfb_return(1), 0));
                 for (index, slot) in arg_slots.iter().enumerate() {
                     self.emit(abi::load_u64(scratch9, abi::stack_pointer(), *slot));
-                    self.emit(abi::store_u64(scratch9, abi::mfb_return(1), 8 * (index + 1)));
+                    self.emit(abi::store_u64(
+                        scratch9,
+                        abi::mfb_return(1),
+                        8 * (index + 1),
+                    ));
                 }
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
@@ -1835,6 +1944,22 @@ impl CodeBuilder<'_> {
         raw: bool,
     ) -> Result<ValueResult, String> {
         let mut helper_args = args.to_vec();
+        // plan-89-A: `io::print`/`io::write` accept an `AttributedString` and emit
+        // its visible text. Rewrite the argument to `toString(a)` — the `toString`
+        // overload deep-copies the inlined text into an owned String — so the rest
+        // of the writer path is byte-identical to a String argument.
+        if matches!(target, "io.print" | "io.write") {
+            if let Some(arg) = helper_args.first() {
+                if self.static_type_name(arg).as_deref() == Some("AttributedString") {
+                    let inner = helper_args[0].clone();
+                    helper_args[0] = NirValue::Call {
+                        target: "toString".to_string(),
+                        args: vec![inner],
+                        loc: NirSourceLoc::default(),
+                    };
+                }
+            }
+        }
         if target == "io.input" && helper_args.is_empty() {
             helper_args.push(NirValue::Const {
                 type_: "String".to_string(),
@@ -1994,6 +2119,25 @@ impl CodeBuilder<'_> {
                     "thread.read"
                 }
             }
+            // plan-91-B: the worker-side sleep is cancellation-aware (waits on the
+            // inbound not-empty condvar, wakes with ErrInterrupted on cancel), so a
+            // `thread::sleep` on a worker handle lowers to the distinct
+            // `thread.sleepWorker` helper; a parent handle keeps 91-A's plain
+            // `thread.sleep` (nanosleep).
+            "thread.sleep" => {
+                let handle = self
+                    .static_type_name(helper_args.first().ok_or_else(|| {
+                        "native runtime thread.sleep missing handle argument".to_string()
+                    })?)
+                    .ok_or_else(|| {
+                        "native runtime thread.sleep handle has unknown type".to_string()
+                    })?;
+                if builtins::thread::is_worker_thread_type(&handle) {
+                    "thread.sleepWorker"
+                } else {
+                    "thread.sleep"
+                }
+            }
             // Resource plane, split by direction like the data plane above. A
             // `thread::transfer` (lowered to `transferResource`) on a worker handle
             // writes the outbound resource queue (`emitResource`); on a parent
@@ -2055,6 +2199,57 @@ impl CodeBuilder<'_> {
                     "tls.pollList"
                 } else {
                     "tls.poll"
+                }
+            }
+            // plan-90-A: `spawn(args)` (argv only) and
+            // `spawn(args, cwd, env, envReplace)` lower through distinct helpers;
+            // the full form carries the working directory and environment map.
+            "process.spawn" => {
+                if args.len() >= 4 {
+                    "process.spawnEnv"
+                } else {
+                    "process.spawn"
+                }
+            }
+            // plan-90-B: the `timeoutMs` overloads route to distinct helpers that
+            // poll for writability before each blocking write.
+            "process.send" => {
+                if args.len() >= 3 {
+                    "process.sendTimeout"
+                } else {
+                    "process.send"
+                }
+            }
+            "process.sendBytes" => {
+                if args.len() >= 3 {
+                    "process.sendBytesTimeout"
+                } else {
+                    "process.sendBytes"
+                }
+            }
+            // plan-90-B: `poll(p, ms, from AS Stream)` routes to the stderr-capable
+            // helper; the 2-arg form always polls stdout.
+            "process.poll" => {
+                if args.len() >= 3 {
+                    "process.pollFrom"
+                } else {
+                    "process.poll"
+                }
+            }
+            // `receive(p, from AS Stream)` / `receiveBytes(p, from)` route to the
+            // stderr-capable helpers.
+            "process.receive" => {
+                if args.len() >= 2 {
+                    "process.receiveFrom"
+                } else {
+                    "process.receive"
+                }
+            }
+            "process.receiveBytes" => {
+                if args.len() >= 2 {
+                    "process.receiveBytesFrom"
+                } else {
+                    "process.receiveBytes"
                 }
             }
             _ => target,

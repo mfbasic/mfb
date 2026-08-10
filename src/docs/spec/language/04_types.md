@@ -368,7 +368,7 @@ TYPE Partition OF T
 END TYPE
 ```
 
-Unlike `MapEntry`, `Pair` places no comparability constraint on `A` or `B`. `Partition OF T` is defaultable when `T` is (two empty lists); `Pair OF A, B` is defaultable when both `A` and `B` are. The names `Pair` and `Partition` are reserved: a user `TYPE` may not redeclare them.
+Unlike `MapEntry`, `Pair` places no comparability constraint on `A` or `B`. `Partition OF T` is **always** defaultable (two empty lists), regardless of `T`, because both of its fields are `List`s (see §4.10); `Pair OF A, B` is defaultable when both `A` and `B` are. The names `Pair` and `Partition` are reserved: a user `TYPE` may not redeclare them.
 
 A `List` element type or a `Map` value type may be a **function value**
 (`FUNC(...) AS T`), including nested compositions such as `List OF List OF
@@ -377,8 +377,10 @@ semantics** (`./mfb spec memory closures`): a collection stores, copies, iterate
 and reads it as an 8-byte pointer to one shared closure object, never a deep copy,
 so a stored element is retrievable and directly callable. A function value is not
 comparable, so it may not be a `Map` **key**. (A function value is still
-non-defaultable — see §4.10 — so a `MUT` binding of a collection of function values
-needs an initializer only for the usual defaultability reason, not a special rule.)
+non-defaultable as a *bare* type — see §4.10 — but a **collection** of function
+values is defaultable to its empty form like any other collection: `MUT fs AS List
+OF FUNC(...) AS T` needs no initializer, since the empty list materializes no
+element.)
 
 Runtime collection storage is specified by the memory spec
 (`./mfb spec memory collections`).
@@ -416,14 +418,14 @@ A `MUT` binding may omit its initializer only when its type has a defined defaul
 | `String` | `""` |
 | `Scalar` | `` `\u{0}` `` (U+0000) |
 | `Nothing` | `NOTHING` |
-| `List OF T` | `[]`, when `T` has a default value |
-| `Set OF T` | Empty set, when `T` has a default value |
-| `Map OF K TO V` | Empty map, when `K` and `V` have default values |
+| `List OF T` | `[]` (always, for any `T`) |
+| `Set OF T` | Empty set (always, for any `T`) |
+| `Map OF K TO V` | Empty map (always, for any `K`, `V`) |
 | Record type | A record with every field set to its default, if every field type has a default. |
 
-Defaultability is recursive and finite: nested lists, maps, and records are defaultable only when every transitively referenced element, key, value, and field type is also defaultable, and recursive record cycles (legal only through `List`, `Map`, or `UNION`; see §4.2) do not define a default value. Enums, unions, functions, lambdas, threads, and resource handles do not have default values. A `MUT` binding of one of those types must have an initializer.
+A collection is defaultable **unconditionally** — its default is the empty collection, which materializes no element, so the defaultability of `T`, `K`, or `V` is irrelevant. Only records recurse: a record is defaultable when every one of its fields is, and recursive record cycles (legal only through `List`, `Map`, or `UNION`; see §4.2) terminate at the collection field without recursing into the element, so a record reachable only through a collection is defaultable. Enums, unions, functions, lambdas, threads, and resource handles do not have default values as *bare* types. A `MUT` binding of one of those bare types must have an initializer — but a `MUT` binding of a *collection* of them does not (it defaults to empty).
 
-The exact defaultability predicate is defined as follows. A type is defaultable when it is one of the scalars `Integer`, `Byte`, `Float`, `Fixed`, `Money`, `Scalar`, `Boolean`, the built-in record shapes `Error` and `ErrorLoc`, `String`, `Nothing`, or `Unknown` (the last is treated as defaultable so a prior type error does not cascade). A `List OF T` is defaultable when `T` is defaultable; a `Set OF T` is defaultable when `T` is defaultable (the empty set); a `Map OF K TO V` is defaultable when both `K` and `V` are defaultable. A user record `TYPE` is defaultable when every one of its fields is defaultable. Everything else is **not** defaultable: function/lambda types, the internal fallible-result type, resource-plane types (`RES`), `Thread`, `ThreadWorker`, any `TYPE` wrapped as a resource handle, and any `ENUM` or `UNION`. Defaultability is computed with a recursion guard keyed by type name: when a record type is re-entered while still being evaluated, the re-entered occurrence is treated as non-defaultable, which gives recursive record cycles no base case and therefore no default value. This predicate is enforced on the IR by the semantic verifier. [[src/ir/verify/resources.rs:is_defaultable]] [[src/ir/verify/resources.rs:is_defaultable]]
+The exact defaultability predicate is defined as follows. A type is defaultable when it is one of the scalars `Integer`, `Byte`, `Float`, `Fixed`, `Money`, `Scalar`, `Boolean`, the built-in record shapes `Error` and `ErrorLoc`, `String`, `Nothing`, or `Unknown` (the last is treated as defaultable so a prior type error does not cascade). A `List OF T`, a `Set OF T`, and a `Map OF K TO V` are **always** defaultable — their default is the empty collection (`[]` / empty set / empty map), independent of `T` / `K` / `V`, because an empty collection materializes no element. A user record `TYPE` is defaultable when every one of its fields is defaultable. Everything else is **not** defaultable: function/lambda types, the internal fallible-result type, resource-plane types (`RES`), `Thread`, `ThreadWorker`, any `TYPE` wrapped as a resource handle, and any `ENUM` or `UNION`. Defaultability is computed with a recursion guard keyed by type name: when a record type is re-entered while still being evaluated, the re-entered occurrence is treated as non-defaultable, which gives recursive record cycles no base case and therefore no default value. This predicate is enforced on the IR by the semantic verifier. [[src/ir/verify/resources.rs:is_defaultable]] [[src/ir/verify/resources.rs:is_defaultable]]
 
 ## 4.11 Comparable and Orderable Types
 

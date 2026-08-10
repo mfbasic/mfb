@@ -19,7 +19,8 @@ term::off()
 The `term` package gives a program a structured, full-screen terminal surface
 for text user interfaces: it moves the cursor, sets the foreground and
 background colors and the bold and underline attributes, clears the screen,
-shows or hides the cursor, and reports the surface size. The same surface is
+shows or hides the cursor, reports the surface size, and reports whether the
+surface was resized (`term::didResize`). The same surface is
 rendered on the console backend (using the terminal's alternate screen and ANSI
 sequences) and in windowed app mode (`mfb build --app`), so a program draws the
 same way on both.

@@ -63,7 +63,19 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
 
 * Compiler / built-ins / IR / native codegen / runtime helpers / diagnostics →
   `.ai/compiler.md` (runtime completion gate, validation & function tests, register
-  lifetimes).
+  lifetimes), plus the hard-won invariant docs — read the one(s) matching the work:
+  * `.ai/codegen-invariants.md` — arch-neutral codegen/IR/regalloc invariants
+    (register clobbers, record layout, vreg-alloc order, desugars, monomorph, diagnostics).
+  * `.ai/arch-abi.md` — per-architecture ABI/codegen traps (x86-64 SysV, Win64,
+    riscv64, macOS AArch64, Windows PE/console/audio).
+  * `.ai/collections.md` — List/Map/Set codegen (memory mgmt, in-place mutation,
+    native lowering, HOF-rewrite tradeoffs).
+  * `.ai/resources-packages.md` — the RES resource system, the package/import
+    subsystem, and builtin-package authoring seams.
+  * `.ai/net-tls.md` — networking, TLS readiness/timeout, repository-client transport security.
+  * `.ai/testing-gates.md` — artifact-gate, byte-identity, acceptance golden harness,
+    perf-golden and concurrency hazards, citation sweeps.
+  * `.ai/build-tooling.md` — rustfmt/clippy policy, cross-compile + vendor rebuild mechanics.
 * Creating or updating a man page (`src/docs/man/**`, Markdown) → follow the templates
   exactly: `.ai/man_template.md` for a per-function page, `.ai/man_type_template.md`
   for a package's consolidated `types` page, `.ai/man_package_template.md` for a

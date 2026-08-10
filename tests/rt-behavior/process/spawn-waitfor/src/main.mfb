@@ -1,0 +1,17 @@
+' plan-90-A Phase 3: spawn a child, learn its pid, wait for its exit code.
+IMPORT process
+IMPORT io
+
+FUNC main AS Integer
+  RES p = process::spawn(["echo", "hi"])
+  LET id = process::pid(p)
+  IF id > 0 THEN
+    io::print("pid-ok")
+  ELSE
+    io::print("pid-bad")
+  END IF
+  LET code = process::waitFor(p)
+  io::print("exit")
+  io::print(toString(code))
+  RETURN 0
+END FUNC

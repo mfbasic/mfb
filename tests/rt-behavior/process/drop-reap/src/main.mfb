@@ -1,0 +1,16 @@
+' plan-90-A Phase 3: a live child is force-killed and reaped when its Process
+' goes out of scope (scope-drop = SIGKILL + waitpid). The program must exit
+' promptly — NOT block for the child's full lifetime — and leave no zombie.
+IMPORT process
+IMPORT io
+
+FUNC main AS Integer
+  RES p = process::spawn(["sleep", "30"])
+  IF process::isRunning(p) THEN
+    io::print("running")
+  ELSE
+    io::print("not-running")
+  END IF
+  ' scope exit drops p -> SIGKILL + reap
+  RETURN 0
+END FUNC

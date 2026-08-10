@@ -375,6 +375,15 @@ impl LinkLibraries {
         })
     }
 
+    /// Build directly from a resolved map, for codegen tests that exercise
+    /// `emit_link_support` without a full manifest round-trip.
+    #[cfg(test)]
+    pub(crate) fn from_resolved(
+        resolved: std::collections::HashMap<String, ResolvedLibrary>,
+    ) -> Self {
+        Self { resolved }
+    }
+
     /// Every resolved `vendor` locator, for plan-46-D's copy step. `system`
     /// locators name a file the loader finds; there is nothing to copy.
     pub(crate) fn vendored(&self) -> Vec<&ResolvedLibrary> {

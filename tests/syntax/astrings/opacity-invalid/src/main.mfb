@@ -1,0 +1,14 @@
+REM plan-89-A: `AttributedString` is opaque and primitive-like — it exposes no
+REM user-visible fields, cannot be constructed with a record literal, and cannot
+REM be WITH-updated. Each line below must be rejected at compile time.
+
+FUNC main AS Integer
+  MUT a AS AttributedString
+  ' Field read on the opaque type: `text` is not user-visible.
+  LET t AS String = a.text
+  ' Record-literal construction is forbidden (use astrings::fromString).
+  LET b AS AttributedString = AttributedString["hi"]
+  ' WITH update is forbidden on the opaque type.
+  LET c AS AttributedString = WITH a { }
+  RETURN 0
+END FUNC

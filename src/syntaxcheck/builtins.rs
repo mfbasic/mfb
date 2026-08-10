@@ -41,6 +41,12 @@ const BUILTIN_ARG_MODES: &[BuiltinArgMode] = &[
         args: ArgMode::Read,
     },
     BuiltinArgMode {
+        // plan-89: every `astrings::` member reads its arguments (value-semantic;
+        // it never takes ownership of or mutates a caller's binding).
+        name: "astrings",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
         name: "crypto",
         args: ArgMode::Read,
     },
@@ -87,6 +93,14 @@ const BUILTIN_ARG_MODES: &[BuiltinArgMode] = &[
             consumes: builtins::audio::consumes_argument,
             default: ExprMode::Use,
         },
+    },
+    BuiltinArgMode {
+        // plan-90: a resource-owning package, but no call *consumes* its
+        // `Process` — `close` closes only the child's stdin and the child is
+        // reaped by scope-drop (`__drop`), so the handle is used (borrowed), never
+        // moved. Spawn's `args`/`cwd`/`env` are ordinary read/used values.
+        name: "process",
+        args: ArgMode::Use,
     },
     BuiltinArgMode {
         name: "io",

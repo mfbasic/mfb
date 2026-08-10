@@ -1,0 +1,29 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_sleep_negative_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 9, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.waitForCancelForever", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "seed" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "thread.sleep", "args": [{ "kind": "local", "name": "t" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "unexpected: sleep returned" }] } },
+    { "op": "return", "line": 12, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+    ]
+  }
+  ]
+}

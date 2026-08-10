@@ -1,0 +1,33 @@
+$ mfb build -ast -ir tests/syntax/threads/func_thread_sleep_invalid
+uses thread_workers - [Unsigned]
+   4 | FUNC main AS Integer
+   5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+   6 |   thread::sleep()
+     | ^
+tests/syntax/threads/func_thread_sleep_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `thread.sleep` has 0 argument(s), expected 2.
+   5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+   6 |   thread::sleep()
+   7 |   thread::sleep(t)
+     | ^
+tests/syntax/threads/func_thread_sleep_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `thread.sleep` has 1 argument(s), expected 2.
+   6 |   thread::sleep()
+   7 |   thread::sleep(t)
+   8 |   thread::sleep(1, 0)
+     | ^
+tests/syntax/threads/func_thread_sleep_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `thread.sleep` has argument type(s) (Integer, Integer), expected Thread OF Msg TO Out, Integer.
+   7 |   thread::sleep(t)
+   8 |   thread::sleep(1, 0)
+   9 |   thread::sleep(t, "bad")
+     | ^
+tests/syntax/threads/func_thread_sleep_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `thread.sleep` has argument type(s) (Thread OF String TO Integer, String), expected Thread OF Msg TO Out, Integer.
+   8 |   thread::sleep(1, 0)
+   9 |   thread::sleep(t, "bad")
+  10 |   thread::sleep(t, 0, 1)
+     | ^
+tests/syntax/threads/func_thread_sleep_invalid/src/main.mfb:10 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `thread.sleep` has 3 argument(s), expected 2.
+[exit 1]

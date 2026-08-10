@@ -1566,6 +1566,20 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_scalar_transform(run, tests)
   tests = test_scalar_listchurn(run, tests)
 
+  ' width group (width.mfb) — plan-87 strings::displayWidth (zero-coverage feature)
+  tests = test_width_ascii(run, tests)
+  tests = test_width_mixed(run, tests)
+  tests = test_width_churn(run, tests)
+
+  ' pipeline group (pipeline.mfb) — plan-87 chained collection HOF pipelines
+  tests = test_pipeline_int(run, tests)
+  tests = test_pipeline_groupagg(run, tests)
+  tests = test_pipeline_str(run, tests)
+
+  ' convert group (convert.mfb) — plan-87 in-memory number conversion throughput
+  tests = test_convert_int(run, tests)
+  tests = test_convert_float(run, tests)
+
   tests = test_primes(run, tests)
 
   tests = test_thread_sum(run, tests)

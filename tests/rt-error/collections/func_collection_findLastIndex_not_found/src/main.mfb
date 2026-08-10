@@ -1,0 +1,12 @@
+IMPORT collections
+
+' plan-86 A3: native String `findLastIndex` traps not-found (77050004) when no
+' element satisfies the predicate.
+FUNC never(s AS String) AS Boolean
+  RETURN FALSE
+END FUNC
+
+FUNC main AS Integer
+  LET xs AS List OF String = ["aa", "bb", "cc"]
+  RETURN collections::findLastIndex(xs, never)
+END FUNC

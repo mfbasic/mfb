@@ -1,4 +1,5 @@
 pub(crate) mod app;
+pub(crate) mod astrings;
 pub(crate) mod audio;
 pub(crate) mod bits;
 pub(crate) mod collections;
@@ -17,6 +18,7 @@ pub(crate) mod math;
 pub(crate) mod money;
 pub(crate) mod net;
 pub(crate) mod os;
+pub(crate) mod process;
 pub(crate) mod regex;
 pub(crate) mod resource;
 pub(crate) mod strings;
@@ -82,6 +84,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
         name,
         "app"
+            | "astrings"
             | "audio"
             | "bits"
             | "collections"
@@ -98,6 +101,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
             | "money"
             | "net"
             | "os"
+            | "process"
             | "regex"
             | "strings"
             | "term"
@@ -172,6 +176,7 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         "json" => json::is_builtin_type(member),
         "money" => money::is_builtin_type(member),
         "net" => net::is_builtin_type(member),
+        "process" => process::is_builtin_type(member),
         "term" => term::is_builtin_type(member),
         "thread" => thread::is_builtin_type(member),
         "tls" => tls::is_builtin_type(member),
@@ -447,6 +452,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| net::expected_arguments(name))
         .or_else(|| tls::expected_arguments(name))
         .or_else(|| audio::expected_arguments(name))
+        .or_else(|| process::expected_arguments(name))
         .or_else(|| http::expected_arguments(name))
         .or_else(|| vector::expected_arguments(name))
         .or_else(|| collections::expected_arguments(name))
@@ -573,7 +579,7 @@ pub(crate) fn is_nonescaping_callback_arg(callee: &str, index: usize) -> bool {
 /// source must not. The resolver applies this only when the calling file is not
 /// `AstFile::internal`, so the glue still resolves (bug-337-D9).
 pub(crate) fn is_internal_only_call(name: &str) -> bool {
-    crypto::is_crypto_internal_call(name)
+    crypto::is_crypto_internal_call(name) || astrings::is_astrings_internal_call(name)
 }
 
 pub(crate) fn is_builtin_call(name: &str) -> bool {
@@ -726,6 +732,7 @@ pub(crate) fn select_param_name_overload<'a>(
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     app::call_param_names(name)
+        .or_else(|| astrings::call_param_names(name))
         .or_else(|| audio::call_param_names(name))
         .or_else(|| general::call_param_names(name))
         .or_else(|| collections::call_param_names(name))
@@ -1066,6 +1073,7 @@ mod tests {
     /// such test existed).
     const ALL_BUILTIN_PACKAGES: &[&str] = &[
         "app",
+        "astrings",
         "audio",
         "bits",
         "collections",
@@ -1082,6 +1090,7 @@ mod tests {
         "money",
         "net",
         "os",
+        "process",
         "regex",
         "strings",
         "term",

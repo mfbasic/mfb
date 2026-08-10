@@ -12,6 +12,7 @@ pub enum RuntimeHelper {
     Math,
     Net,
     Os,
+    Process,
     // plan-67-B: internal runtime performance tracking. Unlike every other family
     // it is NOT reachable from MFB source (there is no `perf::` package); its four
     // helpers are invoked only by compiler-injected calls in a `--cfg perf`-built,
@@ -38,6 +39,7 @@ impl RuntimeHelper {
             RuntimeHelper::Math => "math",
             RuntimeHelper::Net => "net",
             RuntimeHelper::Os => "os",
+            RuntimeHelper::Process => "process",
             RuntimeHelper::Perf => "perf",
             RuntimeHelper::Term => "term",
             RuntimeHelper::Thread => "thread",
@@ -100,6 +102,7 @@ mod io_specs;
 mod net_specs;
 mod os_specs;
 mod perf_specs;
+mod process_specs;
 mod term_specs;
 mod thread_specs;
 mod tls_specs;
@@ -117,6 +120,7 @@ use io_specs::*;
 use net_specs::*;
 use os_specs::*;
 use perf_specs::*;
+use process_specs::*;
 use term_specs::*;
 use thread_specs::*;
 use tls_specs::*;
@@ -149,6 +153,8 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Net)
     } else if builtins::os::is_os_call(name) {
         Some(RuntimeHelper::Os)
+    } else if builtins::process::is_process_runtime_call(name) {
+        Some(RuntimeHelper::Process)
     } else if builtins::tls::is_tls_runtime_call(name) {
         Some(RuntimeHelper::Tls)
     } else {

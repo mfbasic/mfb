@@ -1,0 +1,10 @@
+' plan-90-A Phase 3: spawning a nonexistent binary raises ErrSpawnFailed, which
+' propagates as an untrapped trap (nonzero exit, error banner on stderr).
+IMPORT process
+IMPORT io
+
+FUNC main AS Integer
+  RES p = process::spawn(["/no/such/binary-xyz", "arg"])
+  io::print("unreachable")
+  RETURN 0
+END FUNC

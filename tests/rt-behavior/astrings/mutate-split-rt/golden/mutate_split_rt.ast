@@ -1,0 +1,152 @@
+{
+  "project": "mutate_split_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "astrings", "line": 6 },
+    { "module": "io", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "boldAt",
+      "line": 9,
+      "params": [
+      { "name": "a", "type": "AttributedString", "default": null, "line": 9 },
+      { "name": "i", "type": "Integer", "default": null, "line": 9 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "forEach",
+        "name": "at",
+        "iterable": { "kind": "call", "callee": "astrings.getAttributes", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "i" }] },
+        "line": 10,
+        "body": [
+        {
+          "kind": "match",
+          "expression": { "kind": "identifier", "value": "at" },
+          "line": 11,
+          "cases": [
+          {
+            "pattern": { "kind": "union", "type": "AttrFlag", "binding": "f" },
+            "guard": null,
+            "line": 12,
+            "body": [
+            {
+              "kind": "match",
+              "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "kind" },
+              "line": 13,
+              "cases": [
+              {
+                "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "AttrTypeFlag" }, "member": "Bold" } },
+                "guard": null,
+                "line": 14,
+                "body": [
+                { "kind": "return", "value": { "kind": "string", "value": "bold" }, "line": 15 }
+                ]
+              },
+              {
+                "pattern": { "kind": "else" },
+                "guard": null,
+                "line": 16,
+                "body": [
+                ]
+              }
+              ]
+            }
+            ]
+          },
+          {
+            "pattern": { "kind": "else" },
+            "guard": null,
+            "line": 18,
+            "body": [
+            ]
+          }
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "string", "value": "-" }, "line": 21 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "sizeAt",
+      "line": 24,
+      "params": [
+      { "name": "a", "type": "AttributedString", "default": null, "line": 24 },
+      { "name": "i", "type": "Integer", "default": null, "line": 24 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "forEach",
+        "name": "at",
+        "iterable": { "kind": "call", "callee": "astrings.getAttributes", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "i" }] },
+        "line": 25,
+        "body": [
+        {
+          "kind": "match",
+          "expression": { "kind": "identifier", "value": "at" },
+          "line": 26,
+          "cases": [
+          {
+            "pattern": { "kind": "union", "type": "AttrNumber", "binding": "n" },
+            "guard": null,
+            "line": 27,
+            "body": [
+            { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "n" }, "member": "value" }] }, "line": 28 }
+            ]
+          },
+          {
+            "pattern": { "kind": "else" },
+            "guard": null,
+            "line": 29,
+            "body": [
+            ]
+          }
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "string", "value": "-" }, "line": 32 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 35,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "s", "type": "AttributedString", "value": { "kind": "call", "callee": "astrings.fromString", "arguments": [{ "kind": "string", "value": "hello world, styled text here!" }] }, "line": 36 },
+      { "kind": "binding", "mutable": true, "name": "a", "type": "AttributedString", "value": { "kind": "call", "callee": "astrings.addAttribute", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "25" }, { "kind": "call", "callee": "astrings.bold", "arguments": [] }] }, "line": 39 },
+      { "kind": "assignment", "name": "a", "value": { "kind": "call", "callee": "astrings.removeAttribute", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }, { "kind": "call", "callee": "astrings.bold", "arguments": [] }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "worked: 9=" }, "right": { "kind": "call", "callee": "boldAt", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "9" }] } }, "right": { "kind": "string", "value": " 15=" } }, "right": { "kind": "call", "callee": "boldAt", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "15" }] } }, "right": { "kind": "string", "value": " 21=" } }, "right": { "kind": "call", "callee": "boldAt", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "21" }] } }] }, "line": 41 },
+      { "kind": "binding", "mutable": true, "name": "r", "type": "AttributedString", "value": { "kind": "call", "callee": "astrings.addAttribute", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "15" }, { "kind": "call", "callee": "astrings.fontSize", "arguments": [{ "kind": "number", "value": "10" }] }] }, "line": 45 },
+      { "kind": "assignment", "name": "r", "value": { "kind": "call", "callee": "astrings.addAttribute", "arguments": [{ "kind": "identifier", "value": "r" }, { "kind": "number", "value": "10" }, { "kind": "number", "value": "18" }, { "kind": "call", "callee": "astrings.fontSize", "arguments": [{ "kind": "number", "value": "20" }] }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "reveal: before@12=" }, "right": { "kind": "call", "callee": "sizeAt", "arguments": [{ "kind": "identifier", "value": "r" }, { "kind": "number", "value": "12" }] } }, "right": { "kind": "string", "value": " after@12=" } }, "right": { "kind": "call", "callee": "sizeAt", "arguments": [{ "kind": "call", "callee": "astrings.removeAttribute", "arguments": [{ "kind": "identifier", "value": "r" }, { "kind": "number", "value": "10" }, { "kind": "number", "value": "18" }, { "kind": "call", "callee": "astrings.fontSize", "arguments": [{ "kind": "number", "value": "20" }] }] }, { "kind": "number", "value": "12" }] } }] }, "line": 47 },
+      { "kind": "binding", "mutable": true, "name": "g", "type": "AttributedString", "value": { "kind": "call", "callee": "astrings.addAttribute", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "4" }, { "kind": "call", "callee": "astrings.bold", "arguments": [] }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "single: 3=" }, "right": { "kind": "call", "callee": "boldAt", "arguments": [{ "kind": "identifier", "value": "g" }, { "kind": "number", "value": "3" }] } }, "right": { "kind": "string", "value": " 4=" } }, "right": { "kind": "call", "callee": "boldAt", "arguments": [{ "kind": "identifier", "value": "g" }, { "kind": "number", "value": "4" }] } }, "right": { "kind": "string", "value": " 5=" } }, "right": { "kind": "call", "callee": "boldAt", "arguments": [{ "kind": "identifier", "value": "g" }, { "kind": "number", "value": "5" }] } }] }, "line": 51 },
+      { "kind": "binding", "mutable": true, "name": "c", "type": "AttributedString", "value": { "kind": "call", "callee": "astrings.addAttribute", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "9" }, { "kind": "call", "callee": "astrings.bold", "arguments": [] }] }, "line": 54 },
+      { "kind": "assignment", "name": "c", "value": { "kind": "call", "callee": "astrings.clearAttributes", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "7" }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "clearRange: 1=" }, "right": { "kind": "call", "callee": "boldAt", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "number", "value": "1" }] } }, "right": { "kind": "string", "value": " 4=" } }, "right": { "kind": "call", "callee": "boldAt", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "number", "value": "4" }] } }, "right": { "kind": "string", "value": " 8=" } }, "right": { "kind": "call", "callee": "boldAt", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "number", "value": "8" }] } }] }, "line": 56 },
+      { "kind": "binding", "mutable": false, "name": "whole", "type": "AttributedString", "value": { "kind": "call", "callee": "astrings.clearAttributes", "arguments": [{ "kind": "call", "callee": "astrings.addAttribute", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "9" }, { "kind": "call", "callee": "astrings.bold", "arguments": [] }] }] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "clearWhole@5=" }, "right": { "kind": "call", "callee": "boldAt", "arguments": [{ "kind": "identifier", "value": "whole" }, { "kind": "number", "value": "5" }] } }] }, "line": 60 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 61 }
+      ]
+    }
+    ]
+  }
+  ]
+}

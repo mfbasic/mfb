@@ -190,3 +190,17 @@ END FUNC
 EXPORT ISOLATED FUNC failWithError(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
   FAIL error(77050099, "worker boom")
 END FUNC
+
+' plan-91-B: worker-side thread::sleep. `sleepThenReturn` runs the sleep to
+' completion (no cancellation) and returns a sentinel. `sleepUntilCancel` starts a
+' long sleep the parent cancels mid-flight; the worker-side sleep wakes early and
+' raises ErrInterrupted (77050009), which propagates as the worker's outcome.
+EXPORT ISOLATED FUNC sleepThenReturn(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  thread::sleep(t, 200)
+  RETURN 5
+END FUNC
+
+EXPORT ISOLATED FUNC sleepUntilCancel(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  thread::sleep(t, 5000)
+  RETURN 0
+END FUNC

@@ -1,0 +1,13 @@
+' plan-90-A Phase 2: `process::isRunning(p AS Process) AS Boolean` rejects wrong
+' arity and a non-`Process` receiver.
+IMPORT process
+
+FUNC main AS Integer
+  ' No arguments: below the minimum arity.
+  LET a = process::isRunning()
+  ' Wrong receiver type: a String is not a Process.
+  LET b = process::isRunning("child")
+  ' Too many arguments.
+  LET c = process::isRunning(5, 6)
+  RETURN 0
+END FUNC

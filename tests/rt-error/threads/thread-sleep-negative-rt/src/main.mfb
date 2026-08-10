@@ -1,0 +1,13 @@
+' plan-91-A: a negative `ms` on the parent-side `thread::sleep` raises
+' `ErrInvalidArgument` (77050002) BEFORE sleeping. Left uncaught here, it aborts
+' the program with the standard runtime-error report (exit 255).
+IMPORT io
+IMPORT thread
+IMPORT thread_runtime_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancelForever, "seed", 1, 1)
+  thread::sleep(t, -1)
+  io::print("unexpected: sleep returned")
+  RETURN 1
+END FUNC

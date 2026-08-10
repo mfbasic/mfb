@@ -16,6 +16,10 @@ const SEND: &str = "thread.send";
 const POLL: &str = "thread.poll";
 const RECEIVE: &str = "thread.receive";
 const IS_CANCELLED: &str = "thread.isCancelled";
+/// plan-91-A: block the calling (parent) thread for `ms` milliseconds. The
+/// parent overload is a plain, uninterruptible wall-clock sleep; the worker-side
+/// cancellation-aware overload arrives in plan-91-B.
+const SLEEP: &str = "thread.sleep";
 /// Resource plane: move a resource across a thread boundary. `transfer` mirrors
 /// `send` and `accept` mirrors `receive`, but they carry a resource message
 /// rather than data, keeping the data channel resource-free.
@@ -115,6 +119,8 @@ const P_SEND: &[Parameter] = &[
     opt("timeoutMs", &[], "Integer"),
 ];
 const P_POLL: &[Parameter] = &[req("t", &["thread"], "Thread"), req("ms", &[], "Integer")];
+// plan-91-A: parent-handle-first, then the millisecond duration — mirrors POLL.
+const P_SLEEP: &[Parameter] = &[req("t", &["thread"], "Thread"), req("ms", &[], "Integer")];
 const P_RECEIVE: &[Parameter] = &[
     req("t", &["thread"], "Thread"),
     opt("timeoutMs", &[], "Integer"),
@@ -137,6 +143,7 @@ const THREAD_FUNCTIONS: &[BuiltinFunction] = &[
     tf(CANCEL, "cancel", &[ov(P_HANDLE)]),
     tf(SEND, "send", &[ov(P_SEND)]),
     tf(POLL, "poll", &[ov(P_POLL)]),
+    tf(SLEEP, "sleep", &[ov(P_SLEEP)]),
     tf(RECEIVE, "receive", &[ov(P_RECEIVE)]),
     tf(IS_CANCELLED, "isCancelled", &[ov(P_HANDLE)]),
     tf(TRANSFER, "transfer", &[ov(P_TRANSFER)]),
@@ -216,6 +223,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         IS_RUNNING | WAIT_FOR | CANCEL | IS_CANCELLED => Some(&[&["t", "thread"]]),
         SEND => Some(&[&["t", "thread"], &["data", "value"], &["timeoutMs"]]),
         POLL => Some(&[&["t", "thread"], &["ms"]]),
+        SLEEP => Some(&[&["t", "thread"], &["ms"]]),
         RECEIVE => Some(&[&["t", "thread"], &["timeoutMs"]]),
         // The resource-plane mirrors of send/receive and the stdin wrappers expose
         // no parameter names, so named arguments silently failed to bind even
@@ -259,6 +267,17 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             && arg_types[1] == "Integer" =>
         {
             Cow::Borrowed("Boolean")
+        }
+        // plan-91-A/B: both handle sides sleep. A parent `Thread` is a plain
+        // wall-clock delay (91-A); a `ThreadWorker` is cancellation-aware (91-B).
+        // The direction split (thread.sleep vs thread.sleepWorker) is applied at
+        // codegen in `builder_values`. Returns Nothing after blocking `ms` ms.
+        SLEEP
+            if arg_types.len() == 2
+                && is_thread_type(&arg_types[0])
+                && arg_types[1] == "Integer" =>
+        {
+            Cow::Borrowed("Nothing")
         }
         RECEIVE
             if (arg_types.len() == 1 || arg_types.len() == 2)
@@ -314,6 +333,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         IS_RUNNING | WAIT_FOR | CANCEL => Some("Thread OF Msg TO Out"),
         SEND => Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Msg, Integer"),
         POLL => Some("Thread OF Msg TO Out, Integer"),
+        // plan-91-A/B: both handle sides accepted.
+        SLEEP => Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Integer"),
         RECEIVE => Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Integer"),
         IS_CANCELLED => Some("ThreadWorker OF Msg TO Out"),
         TRANSFER => {
@@ -617,6 +638,7 @@ mod tests {
             CANCEL,
             SEND,
             POLL,
+            SLEEP,
             RECEIVE,
             IS_CANCELLED,
             TRANSFER,
@@ -660,6 +682,7 @@ mod tests {
         assert_eq!(call_param_names(IS_CANCELLED).unwrap().len(), 1);
         assert_eq!(call_param_names(SEND).unwrap().len(), 3);
         assert_eq!(call_param_names(POLL).unwrap().len(), 2);
+        assert_eq!(call_param_names(SLEEP).unwrap().len(), 2);
         assert_eq!(call_param_names(RECEIVE).unwrap().len(), 2);
         // bug-221 gave the resource-plane mirrors and the stdin wrappers their
         // parameter names; before that, named arguments silently failed to bind
@@ -679,6 +702,7 @@ mod tests {
         assert!(expected_arguments(CANCEL).is_some());
         assert!(expected_arguments(SEND).is_some());
         assert!(expected_arguments(POLL).is_some());
+        assert!(expected_arguments(SLEEP).is_some());
         assert!(expected_arguments(RECEIVE).is_some());
         assert!(expected_arguments(IS_CANCELLED).is_some());
         assert!(expected_arguments(TRANSFER).is_some());
@@ -809,6 +833,24 @@ mod tests {
         assert_eq!(rt(RECEIVE, &[t]), Some("Integer".to_string()));
         assert_eq!(rt(RECEIVE, &[t, "Integer"]), Some("Integer".to_string()));
         assert_eq!(rt(RECEIVE, &[t, "String"]), None);
+    }
+
+    #[test]
+    fn resolve_sleep_both_handle_sides() {
+        // plan-91-A/B: sleep resolves to Nothing on BOTH a parent `Thread` (plain
+        // delay) and a `ThreadWorker` (cancellation-aware); a mistyped/absent `ms`
+        // is rejected either way.
+        let t = "Thread OF Integer TO String";
+        assert_eq!(rt(SLEEP, &[t, "Integer"]), Some("Nothing".to_string()));
+        // worker handle is valid as of 91-B
+        let w = "ThreadWorker OF Integer TO String";
+        assert_eq!(rt(SLEEP, &[w, "Integer"]), Some("Nothing".to_string()));
+        // mistyped ms
+        assert_eq!(rt(SLEEP, &[t, "String"]), None);
+        assert_eq!(rt(SLEEP, &[w, "String"]), None);
+        // wrong arity
+        assert_eq!(rt(SLEEP, &[t]), None);
+        assert_eq!(rt(SLEEP, &[t, "Integer", "Integer"]), None);
     }
 
     #[test]

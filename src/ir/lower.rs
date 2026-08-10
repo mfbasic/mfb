@@ -88,6 +88,8 @@ pub fn lower_project_with_external_functions(
 ) -> IrProject {
     let augmented =
         builtins::json::augmented_project(ast).expect("built-in json package source must parse");
+    let augmented = builtins::astrings::augmented_project(&augmented)
+        .expect("built-in astrings package source must parse");
     let augmented = builtins::app::augmented_project(&augmented)
         .expect("built-in app package source must parse");
     let augmented = builtins::csv::augmented_project(&augmented)
@@ -110,6 +112,8 @@ pub fn lower_project_with_external_functions(
         .expect("built-in net package source must parse");
     let augmented = builtins::audio::augmented_project(&augmented)
         .expect("built-in audio package source must parse");
+    let augmented = builtins::process::augmented_project(&augmented)
+        .expect("built-in process package source must parse");
     // `crypto` before `encoding`: `crypto_package.mfb` imports `encoding`
     // (mirrors `http` before `net`; plan-04-crypto.md Part C).
     let augmented = builtins::crypto::augmented_project(&augmented)
@@ -2060,6 +2064,7 @@ fn expression_type(
             // shared `resolve_call_return_type` dispatches in the same order as
             // `ir::verify`, keeping the two return-type oracles in lockstep.
             if builtins::strings::is_strings_call(&canonical_callee)
+                || builtins::astrings::is_astrings_call(&canonical_callee)
                 || builtins::math::is_math_call(&canonical_callee)
                 || builtins::vector::is_vector_call(&canonical_callee)
                 || builtins::bits::is_bits_call(&canonical_callee)
@@ -2141,6 +2146,11 @@ fn expression_type(
                 return Some("Boolean".to_string());
             }
             if operator == "&" {
+                // plan-89-D: `AttributedString & AttributedString` yields an
+                // AttributedString (both operands attributed); otherwise String.
+                if expression_type(left, locals, context).as_deref() == Some("AttributedString") {
+                    return Some("AttributedString".to_string());
+                }
                 return Some("String".to_string());
             }
             let left = expression_type(left, locals, context)?;
@@ -2686,6 +2696,48 @@ fn lower_expression_with_expected(
             // empty list literal and a `Map OF ...` default (http's `headers`) to an
             // empty map literal, not a scalar const; every other default is a const.
             let mut args = args;
+            // plan-89-C: a Tier-A `strings::` query whose text argument is an
+            // `AttributedString` reads its visible text. Wrap the leading argument
+            // in `toString(a)` here — before the native vs source-companion-rewrite
+            // split — so both lowerings receive a `String` and the result equals
+            // `strings::q(toString(a))`. (Tier-B transforms are plan-89-D and return
+            // `AttributedString` instead.)
+            if builtins::strings::is_tier_a_query(&canonical_callee)
+                && !args.is_empty()
+                && normalized_builtin
+                    .first()
+                    .and_then(|arg| expression_type(arg, locals, context))
+                    .as_deref()
+                    == Some("AttributedString")
+            {
+                let inner = args[0].clone();
+                args[0] = IrValue::Call {
+                    target: "toString".to_string(),
+                    args: vec![inner],
+                    type_: "String".to_string(),
+                    loc,
+                };
+            }
+            // plan-89-D: the attribute-preserving `padLeft`/`padRight` source-companion
+            // bodies take a required `padChar`; fill the default single space for the
+            // 2-arg form of an `AttributedString` call. The native `String` forms
+            // default `padChar` in codegen, so this only affects the astrings-routed
+            // calls and leaves the `String` IR unchanged.
+            if matches!(
+                canonical_callee.as_str(),
+                "strings.padLeft" | "strings.padRight"
+            ) && args.len() == 2
+                && normalized_builtin
+                    .first()
+                    .and_then(|arg| expression_type(arg, locals, context))
+                    .as_deref()
+                    == Some("AttributedString")
+            {
+                args.push(IrValue::Const {
+                    type_: "String".to_string(),
+                    value: " ".to_string(),
+                });
+            }
             for (type_, value) in builtins::default_argument_padding(&canonical_callee, args.len())
             {
                 if type_.starts_with("List OF ") {
@@ -2778,6 +2830,13 @@ fn lower_expression_with_expected(
                         .map(|name| crate::internal_name::internalize(&name))
                 })
                 .or_else(|| {
+                    // `astrings::` Attribute-model + Tier-C members rewrite to their
+                    // `__astrings_*` source-companion bodies; `clearAttributes`
+                    // selects the whole vs ranged body by arity (plan-89-B).
+                    builtins::astrings::implementation_name(&canonical_callee, args.len())
+                        .map(|name| crate::internal_name::internalize(&name))
+                })
+                .or_else(|| {
                     // `vector::` resolves a type-specific internal name from the
                     // call's argument record types (plan-06-vector.md §5), e.g.
                     // `vector.length(Float3)` -> `#vector_length_float3`.
@@ -2848,6 +2907,24 @@ fn lower_expression_with_expected(
                         })
                         .collect();
                     builtins::audio::source_implementation_name(&canonical_callee, &arg_types)
+                        .map(crate::internal_name::internalize)
+                })
+                .or_else(|| {
+                    // plan-89-D: a Tier-B `strings::` transform whose text argument
+                    // is an `AttributedString` routes to its `__astrings_*`
+                    // attribute-preserving source-companion body (the native String
+                    // transform stays for a String argument).
+                    if !builtins::strings::is_tier_b_transform(&canonical_callee) {
+                        return None;
+                    }
+                    let first_arg_type = arguments
+                        .first()
+                        .map(call_arg_value)
+                        .and_then(|argument| expression_type(argument, locals, context));
+                    if first_arg_type.as_deref() != Some("AttributedString") {
+                        return None;
+                    }
+                    builtins::strings::tier_b_transform_impl(&canonical_callee)
                         .map(crate::internal_name::internalize)
                 })
                 .or_else(|| {
@@ -3157,15 +3234,30 @@ fn lower_expression_with_expected(
         } => {
             let result_type = expression_type(expression, locals, context)
                 .unwrap_or_else(|| "Unknown".to_string());
+            let loc = IrSourceLoc {
+                line: *line as u32,
+                column: *column as u32,
+            };
+            // plan-89-D: `AttributedString & AttributedString` concatenation routes
+            // to the `__astrings_concat` source-companion body (text concatenated,
+            // right operand's spans shifted by the left's scalar length).
+            if operator == "&" && result_type == "AttributedString" {
+                return IrValue::Call {
+                    target: crate::internal_name::internalize("__astrings_concat"),
+                    args: vec![
+                        lower_expression(left, locals, context),
+                        lower_expression(right, locals, context),
+                    ],
+                    type_: "AttributedString".to_string(),
+                    loc,
+                };
+            }
             IrValue::Binary {
                 op: operator.clone(),
                 left: Box::new(lower_expression(left, locals, context)),
                 right: Box::new(lower_expression(right, locals, context)),
                 type_: result_type,
-                loc: IrSourceLoc {
-                    line: *line as u32,
-                    column: *column as u32,
-                },
+                loc,
             }
         }
         Expression::Unary {

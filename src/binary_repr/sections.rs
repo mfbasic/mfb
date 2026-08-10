@@ -174,6 +174,10 @@ impl TypeTable {
             }
             "Byte" => TYPE_BYTE,
             "Money" => TYPE_MONEY,
+            // plan-89-A: an opaque primitive-like type, identified on the wire by
+            // its id alone (like `Scalar`/`Money`); its internal field layout is a
+            // compiler-side hardcoded table, never serialized.
+            "AttributedString" => TYPE_ATTRIBUTED_STRING,
             "Error" => {
                 strings.intern("code");
                 strings.intern("message");

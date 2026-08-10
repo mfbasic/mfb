@@ -1,0 +1,30 @@
+REM plan-89-E Phase 1: toMarkdown flag rendering. Overlapping flag spans render as
+REM correctly-nested per-run pairs (canonical order bold/italic/underline/strike/
+REM overline); delimiter characters in text are escaped; plain text is unchanged.
+
+IMPORT astrings
+IMPORT io
+
+FUNC main AS Integer
+  ' single flag
+  LET b AS AttributedString = astrings::addAttribute(astrings::fromString("hello"), 0, 4, astrings::bold())
+  io::print("single=[" & astrings::toMarkdown(b) & "]")
+
+  ' overlapping flags: bold[0,7], italic[4,10] over "hello world" — per-run nesting
+  MUT o AS AttributedString = astrings::fromString("hello world")
+  o = astrings::addAttribute(o, 0, 7, astrings::bold())
+  o = astrings::addAttribute(o, 4, 10, astrings::italic())
+  io::print("overlap=[" & astrings::toMarkdown(o) & "]")
+
+  ' all five flags on one run, canonical order + reverse close
+  LET all AS AttributedString = astrings::addAttribute(astrings::addAttribute(astrings::addAttribute(astrings::addAttribute(astrings::addAttribute(astrings::fromString("x"), 0, 0, astrings::bold()), 0, 0, astrings::italic()), 0, 0, astrings::underline()), 0, 0, astrings::strike()), 0, 0, astrings::overline())
+  io::print("all=[" & astrings::toMarkdown(all) & "]")
+
+  ' escaping the literal delimiters
+  LET e AS AttributedString = astrings::fromString("a*b_c~d^e:f\\g")
+  io::print("escape=[" & astrings::toMarkdown(e) & "]")
+
+  ' plain text unchanged
+  io::print("plain=[" & astrings::toMarkdown(astrings::fromString("plain text")) & "]")
+  RETURN 0
+END FUNC

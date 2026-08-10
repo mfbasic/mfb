@@ -15,6 +15,7 @@ use super::plan::NativePlan;
 use super::runtime;
 
 mod builder_arena_transfer;
+mod builder_astrings;
 mod builder_bits;
 mod builder_error_emission;
 mod builder_exits;
@@ -117,13 +118,14 @@ mod datetime;
 /// plan-46-D's vendor copy via `dlopen_name`, so the emitted string and the
 /// copied filename cannot diverge.
 pub(crate) mod link_locator;
-mod link_thunk;
+pub(crate) mod link_thunk;
 mod list_mutate;
 mod map_mutate;
 mod net;
 mod os;
 mod perf;
 mod private;
+mod process;
 mod simd_kernel_coeffs;
 mod term;
 mod term_grid;
@@ -249,6 +251,30 @@ struct CodeBuilder<'a> {
     /// here is only ever a direct invoke target and never escapes, so it is freed
     /// at scope end.
     value_used_locals: HashSet<String>,
+    /// plan-86 E: LET bindings `e = collections::get(L, i)` whose result is consumed
+    /// READ-ONLY (only a `MATCH` scrutinee) over an immutable container `L`. Such a
+    /// `get` returns an aliasing borrow into `L`'s inline element instead of a fresh
+    /// `copy_flat_block`, and the binding registers no scope-drop free (the container
+    /// owns the element). The copy-skip AND the free-skip are BOTH gated on this set
+    /// (a freed borrow is a double-free into the container).
+    borrow_get_locals: HashSet<String>,
+    /// plan-86 E: set while lowering the initializer of a `borrow_get_locals`
+    /// binding, so `materialize_owned_element` returns the aliasing borrow instead of
+    /// copying it. Scoped to the one initializer (reset immediately after).
+    borrow_get_result: bool,
+    /// plan-86 K1: true while lowering a function whose every value-return is a bare
+    /// parameter (`function_returns_param_borrow`). Its `RETURN <param>` returns the
+    /// argument pointer uncopied (a borrow); callers deep-copy the result only at an
+    /// owning store, so the copy moves to the caller's ownership boundary with
+    /// identical value semantics. Consistent with the caller side because both key
+    /// off the same predicate.
+    current_returns_param_borrow: bool,
+    /// plan-86 K1: names of every function used as a `FunctionRef` (callback) in the
+    /// module. Such a function is invoked through an owning ABI, so it is excluded
+    /// from the parameter-passthrough borrow elision (`function_returns_param_borrow`)
+    /// — both here (callee) and at every call site (caller) — keeping the two sides
+    /// consistent. Shared verbatim across all functions in the build.
+    callback_referenced_functions: HashSet<String>,
     /// The register-allocation strategy selected for this build (`-regalloc`).
     regalloc_kind: regalloc::RegallocKind,
     /// First scratch-register-exhaustion error recorded by an infallible vreg
@@ -427,6 +453,24 @@ struct CodeBuilder<'a> {
     /// to elide the overflow check on `local + 1`; dropped on any assignment to the
     /// local and cleared at every loop/Match/Trap boundary.
     integer_strict_upper: std::collections::HashSet<String>,
+    /// plan-86 G1: value expr of each synthetic `$for_end*` / `$for_step*` binding
+    /// the IR emits for a `FOR` bound/step, so the loop's `end`/`step` (which reach
+    /// `lower_numeric_for` as `Local($for_endN)`) can be resolved back to their
+    /// `n - k` / `1` exprs. These synthetics are write-once and unique per loop.
+    for_bound_expr: HashMap<String, NirValue>,
+    /// plan-86 G1: `n -> L` for a binding `LET n = len(L)` (both locals). Lets a
+    /// loop bound written as `n - k` resolve to `len(L) - k`. Dropped when `n` or
+    /// `L` is reassigned.
+    len_of_local: HashMap<String, String>,
+    /// plan-86 G1: induction var `i -> (L, headroom k)` for a `FOR i = 0 TO
+    /// len(L) - k` loop (`k >= 1`, step 1) where BOTH `i` and `L` are provably NOT
+    /// reassigned anywhere in the loop body. Then `get/set(L, i)` is in-range
+    /// (`i <= len-k < len`), and `get/set(L, i+1)` too when `k >= 2` — so the
+    /// per-access bounds check is elided. Set for the duration of the body and
+    /// removed after; because `i`/`L` are unmodified across the WHOLE body, the fact
+    /// stays sound throughout (no mid-body clear needed). UNSOUND elision = silent
+    /// OOB — gated by the whole-body-unmodified proof AND mandatory negative fixtures.
+    provable_index_locals: HashMap<String, (String, i64)>,
 }
 
 #[derive(Clone)]
@@ -1298,6 +1342,10 @@ pub(crate) fn lower_module_for_platform(
             )?);
         }
     }
+    // plan-86 K1: functions used as callbacks (FunctionRef) are invoked through an
+    // owning ABI, so they are excluded from the parameter-passthrough borrow elision.
+    // Computed once for the whole module and shared by every function's lowering.
+    let callback_referenced_functions = collect_function_ref_names(module);
     for function in &module.functions {
         code_functions.push(lower_function(
             function,
@@ -1307,6 +1355,7 @@ pub(crate) fn lower_module_for_platform(
             &platform_imports,
             &globals,
             &string_symbols,
+            &callback_referenced_functions,
             type_model.clone(),
         )?);
     }
@@ -1499,6 +1548,18 @@ pub(crate) fn lower_module_for_platform(
     {
         runtime_symbols.push("_mfb_rt_thread_thread_emit".to_string());
     }
+    // plan-91-B: the NIR carries `thread.sleep`; codegen routes a worker-handle
+    // call to `thread.sleepWorker` (the cancellation-aware form). Emit the
+    // companion so the worker direction has a defined helper body.
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_thread_thread_sleep")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_thread_thread_sleepWorker")
+    {
+        runtime_symbols.push("_mfb_rt_thread_thread_sleepWorker".to_string());
+    }
     // The resource plane mirrors the data plane's direction split: the NIR carries
     // the pre-split `transferResource`/`acceptResource` target, while codegen may
     // route a worker-handle call to `emitResource` (outbound write) or a
@@ -1532,6 +1593,56 @@ pub(crate) fn lower_module_for_platform(
             .any(|symbol| symbol == "_mfb_rt_net_net_connectTcpAddr")
     {
         runtime_symbols.push("_mfb_rt_net_net_connectTcpAddr".to_string());
+    }
+    // plan-90-A: the 4-arg `spawn(args, cwd, env, envReplace)` overload routes to
+    // `process.spawnEnv`, a synthesized target the NIR never names (it carries only
+    // `process.spawn`), so emit its helper body whenever `spawn` is present —
+    // mirroring `connectTcpAddr`. It shares the process libc imports.
+    // plan-90-D: these synthesized overload helpers (spawnEnv / *Timeout / *From)
+    // are Unix-only; the Windows backend handles overloads in its own emission, so
+    // do NOT force-emit the Unix helper bodies on Windows (they are stubs there).
+    let process_synth = platform.family() != PlatformFamily::Windows;
+    if process_synth
+        && runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_process_process_spawn")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_process_process_spawnEnv")
+    {
+        runtime_symbols.push("_mfb_rt_process_process_spawnEnv".to_string());
+    }
+    // plan-90-B: the 3-arg `send`/`sendBytes` timeout overloads route to
+    // `sendTimeout`/`sendBytesTimeout`, synthesized targets the NIR never names —
+    // emit each whenever its base is present.
+    for (base, timed) in [
+        (
+            "_mfb_rt_process_process_send",
+            "_mfb_rt_process_process_sendTimeout",
+        ),
+        (
+            "_mfb_rt_process_process_sendBytes",
+            "_mfb_rt_process_process_sendBytesTimeout",
+        ),
+        (
+            "_mfb_rt_process_process_poll",
+            "_mfb_rt_process_process_pollFrom",
+        ),
+        (
+            "_mfb_rt_process_process_receiveBytes",
+            "_mfb_rt_process_process_receiveBytesFrom",
+        ),
+        (
+            "_mfb_rt_process_process_receive",
+            "_mfb_rt_process_process_receiveFrom",
+        ),
+    ] {
+        if process_synth
+            && runtime_symbols.iter().any(|symbol| symbol == base)
+            && !runtime_symbols.iter().any(|symbol| symbol == timed)
+        {
+            runtime_symbols.push(timed.to_string());
+        }
     }
     // plan-76-A: the `poll(List OF RES Socket)` overload routes to `net.pollList`,
     // a synthesized target the NIR never names (it carries only `net.poll`), so
@@ -1619,6 +1730,8 @@ pub(crate) fn lower_module_for_platform(
                     | "_mfb_rt_net_net_readText"
                     | "_mfb_rt_net_net_receiveTextFrom"
                     | "_mfb_rt_tls_tls_readText"
+                    | "_mfb_rt_process_process_receive"
+                    | "_mfb_rt_process_process_receiveFrom"
             )
         })
     {
@@ -2150,9 +2263,11 @@ fn lower_runtime_helper(
                 | "thread.drop"
                 | "thread.send"
                 | "thread.poll"
+                | "thread.sleep"
                 | "thread.read"
                 | "thread.receive"
                 | "thread.emit"
+                | "thread.sleepWorker"
                 | "thread.transferResource"
                 | "thread.acceptResource"
                 | "thread.emitResource"
@@ -2251,6 +2366,113 @@ fn lower_runtime_helper(
                 call if call.starts_with("audio.") => {
                     audio::lower_audio_helper(call, symbol, platform_imports, platform)?
                 }
+                call if call.starts_with("process.") => match call {
+                    "process.spawn" => process::lower_process_spawn_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
+                    "process.shell" => {
+                        process::lower_process_shell_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.spawnEnv" => {
+                        process::lower_process_spawnenv_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.pid" => {
+                        process::lower_process_pid_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.isRunning" => {
+                        process::lower_process_isrunning_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.waitFor" => {
+                        process::lower_process_waitfor_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.close" => {
+                        process::lower_process_close_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.send" => process::lower_process_send_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                        false,
+                    )?,
+                    "process.sendTimeout" => process::lower_process_send_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                        true,
+                    )?,
+                    "process.sendBytes" => process::lower_process_send_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        true,
+                        false,
+                    )?,
+                    "process.sendBytesTimeout" => process::lower_process_send_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        true,
+                        true,
+                    )?,
+                    "process.receive" => process::lower_process_receive_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
+                    "process.receiveFrom" => process::lower_process_receive_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        true,
+                    )?,
+                    "process.receiveBytes" => process::lower_process_receivebytes_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
+                    "process.receiveBytesFrom" => process::lower_process_receivebytes_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        true,
+                    )?,
+                    "process.poll" => process::lower_process_poll_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
+                    "process.pollFrom" => process::lower_process_poll_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        true,
+                    )?,
+                    "process.signal" => {
+                        process::lower_process_signal_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.didSignal" => {
+                        process::lower_process_didsignal_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.detach" => {
+                        process::lower_process_detach_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.__drop" => {
+                        process::lower_process_drop_helper(symbol, platform_imports, platform)?
+                    }
+                    other => {
+                        return Err(format!(
+                            "native code plan does not emit runtime call '{other}'"
+                        ));
+                    }
+                },
                 call if call.starts_with("tls.") => match call {
                     "tls.connect" => {
                         tls::lower_tls_connect_helper(symbol, platform_imports, platform)?
@@ -3033,6 +3255,11 @@ fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static 
             ERR_AUDIO_DEVICE_CODE,
             ERR_AUDIO_DEVICE_MESSAGE,
             ERR_AUDIO_DEVICE_SYMBOL,
+        ),
+        (
+            ERR_SPAWN_FAILED_CODE,
+            ERR_SPAWN_FAILED_MESSAGE,
+            ERR_SPAWN_FAILED_SYMBOL,
         ),
     ]
 }

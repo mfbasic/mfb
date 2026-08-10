@@ -1,0 +1,192 @@
+# Per-architecture ABI & codegen invariants
+
+Load-bearing per-architecture ABI, register, and codegen facts for the MFB native backends, grouped by target.
+
+## x86-64 (SysV)
+
+### x86 native-call return uses c_return, not the aligned bank
+
+An external C call through `blr` (a LINK thunk, or any raw `branch_link_register` to a C function) returns its integer/pointer result in the **C-ABI return register** = `abi::c_return(0)` = `rax`. It does NOT land in the aligned MFB result bank: on x86-64 `abi::return_register()` (`mfb_return(0)`) realizes to `call_args[0]`, which is `rdi` on SysV and `rcx` on Win64 (see `realize_abi_operand` in `src/arch/x86_64/select.rs`: `(Mfb, _) => call_args`, `(C, Ret) => C_RETS=[rax,rdx]`). Nothing stages `rax` into the aligned bank after a raw `blr`, so capturing `return_register()` reads a caller-saved register the callee clobbered — every native return comes back as garbage/0.
+
+AArch64 and RISC-V (and macOS) hide this: there `return_register()` and `c_return(0)` are the SAME physical register (`x0`/`a0`). So a LINK/native-call result path that "works on macOS aarch64" can be silently broken on both x86-64 ABIs. This class is invisible to the acceptance oracle because x86-64 LINK *execution* is not recorded there (only macOS aarch64 runs) — it only shows up in an on-box run (found on boxes 2230 Win11 and 2227 Alpine musl x86_64).
+
+Rule: when a shared-codegen site consumes the result of an external/C call, name `abi::c_return(0)`, never `abi::return_register()`. The reverse also holds for staging C-call *arguments* — `emit_arena_map`-style code moves `c_return(0)` into `return_register()` explicitly after a Win64 call because the two differ.
+
+### remap_x86_abi: linear vs CFG
+
+`remap_x86_abi` (`src/arch/x86_64/select.rs`) resolves residual `x0`–`x8` operands to SysV homes by ABI role. Its incoming-parameter test used flags advanced in **emitted order** (`boundary_since_entry` / `defined_since_entry`), so any block *branched into from before* a call inherited that call's state because the call was emitted first. `fs::setBuffered` is exactly that shape: its enable arm reads the `File*` parameter but sits below the disable arm's `bl _mfb_rt_fs_file_drain`, so the parameter was colored by its next boundary (`ret`) into `rax` instead of `rdi` → store through garbage → SIGSEGV on every x86-64 program that enabled per-file buffering. Fixed via a forward MUST dataflow: `entry_clean` + `entry_undef`, meeting by intersection.
+
+**The reusable lesson:** this pass is a pile of heuristics over emitted order — `boundary_before`, `next_after`, `staged_result_def`, `defined_since_boundary`, `block_entry`. Several ARE CFG-aware; the parameter pair was not. When an x86-only miscompile has no aarch64/rv64 twin, suspect this pass first, and check whether the specific fact is tracked linearly or along control flow.
+
+**How it was proven, cheaply:** `mfb build --target linux-x86_64 --ncode` on a 4-line repro, then `git show HEAD:src/arch/x86_64/select.rs > …`, rebuild, dump again, diff the one helper. `base=rax` vs `base=rdi` in one line. Do this before reading the pass — it is ~700 lines of dataflow and reading it does not converge.
+
+### remap_x86_abi is a pure rename
+
+`remap_x86_abi` (`src/arch/x86_64/select.rs`) is effectively a **pure per-operand register rename** on the current corpus. Its ONLY `instructions.insert(...)` is the param-bridge prologue (`for (k, home) in &param_home { … if home == arg { continue } … }`), and that prologue fires **0 times** across the whole 1162-fixture corpus on BOTH linux-x86_64 and windows-x86_64 — because `param_home[n]` is only ever set to `call_args[n]` (the arg reg), making `home == arg` always true. Measured via a `BUG387-PARAMBRIDGE` probe under `MFB_BUG387_AUDIT`.
+
+**Why it matters:** the operand-level `MFB_BUG387_AUDIT` cross-check only measures per-operand register divergence, NOT inserted instructions — so "audit at zero ⟹ byte-identical deletion" would be UNSOUND if the fixpoint inserted anything the direct map can't reproduce. It doesn't. This validates the premise of deleting the fixpoint and means **no Category-2 value exists** (a pure rename gives every value one consistent register, else the current passing code would miscompile without the absent bridge). Any deletion of the fixpoint should still re-confirm param-bridge=0 immediately before deleting (a future param layout with `param_home != arg` would revive it).
+
+Separately: the redundant `mov %ret1,%ret1` self-moves in emitted code (486 linux-aarch64 / 234 macos / 486 riscv, symmetric with x86 `mov rdx,rdx`) come from `move_register(RESULT_VALUE_REGISTER, abi::RET[1])` where `RESULT_VALUE_REGISTER == RET[1]` (`error_constants.rs:26`), at 19 shared-builder sites — byte-baseline, non-divergent, do NOT blanket-elide them.
+
+### bug387 divergence audit is blind to Category 2
+
+The `MFB_BUG387_AUDIT` cross-check (`src/arch/x86_64/select.rs` `map_token_direct` vs the `remap_x86_abi` fixpoint) emits `BUG387-MISMATCH` only where a deferred role token maps context-free to a DIFFERENT register than the CFG inference chose. That population is **entirely Category 1** (the token is the wrong role alias; re-tokenize the producer to the inferred role → byte-identical on x86 AND aarch64/riscv). **Category 2** — a genuine call RESULT reused as an ARG needing a `mov rdi,rax` on x86 / `mov x0,x0` no-op (elision) on aarch64 — is **invisible to this audit by construction**: an explicit staging `mov %argK,%retK` has both operands AGREE (no mismatch), and same-index physical reuse is staged below the token layer. So a "0 Category-2 sites" audit result is NOT evidence Category 2 is empty — it must be measured separately (enumerate emitted same-register moves / values needing two tokens). See `planning/plan-71-census.md`. Dominant idiom: `%ret0`→rdi (result-named value used as call arg 0), ~99.7% of raw divergences, in the shared arena/string/collection/record builders. Every inferred register has a role-token preimage, so there is no residue category.
+
+### glibc/musl thread-entry alignment
+
+**Truth:** every x86-64 thread library reaches the start-routine (the trampoline `lower_thread_trampoline` in `src/target/shared/code/runtime_helpers.rs`) with a `call` — glibc `start_thread` → `pd->start_routine(...)`, musl's pthread dispatch, Windows `BaseThreadInitThunk` — so the trampoline is ALWAYS entered at `sp % 16 == 8` and needs exactly ONE +8 realign → an **88-byte frame** on both libcs and Windows. The realign gates on `platform.arch() == "x86_64"` ALONE (not `libc()`/`family()`). aarch64/riscv64 use `bl`/`jal` (link register, sp unchanged), enter `sp%16==0`, keep the 80-byte frame. macOS (aarch64) no realign. (An earlier belief that glibc entered 16-aligned was WRONG.)
+
+**Box proof (deterministic, 5/5 each):** glibc 2228 — 88-byte frame runs, 80-byte SIGSEGVs; musl 2227 — 88-byte runs, 96-byte (double realign) SIGSEGVs. Fixture: `tests/rt-behavior/threads/thread-bounded-queues` (expected `one two three alpha beta gamma`). A misaligned worker faults on the first SSE-to-stack-local (`movaps`/`movdqa` in `fstatat`/`pthread_create`/ntdll SwitchBack).
+
+**How the wrong belief hid for so long:** an earlier fix gated glibc OUT of the shared realign (frame 80), but `linux_x86_64::emit_thread_trampoline` carried a SECOND unconditional +8 override that silently restored glibc to 88 (correct by accident) and pushed musl to a broken 96. The override was deleted and the shared gate made per-arch. The old "80 runs on glibc" proof must have measured a build still carrying the override (effective 88) — its stated fixture never actually ran an 80-byte glibc frame. Guard test: `target::linux_common::code::tests::thread_trampoline_x86_frame_is_88_on_both_libcs`.
+
+**Enduring lesson:** an x86-64 thread/stack-ABI fix proven on ONE libc is NOT proven — verify glibc (2228) AND musl (2227). And distrust a doc/memory's alignment claim until box-run. musl binaries are dynamically linked to `/lib/ld-musl-x86_64.so.1` (absent on the glibc box), so each libc's binary must run on ITS OWN box; you cannot cross-run a musl binary on 2228 (`mfb build --target linux-x86_64` emits both `-glibc.out` and `-musl.out`).
+
+Also: the Mac's `cargo test` hangs in `macos_tls_write_capacity` (`macos_tls_write_sends_capacity_over_count_byte_list_exactly` runs forever) — environmental TLS-socket hang, unrelated to codegen.
+
+## Win64
+
+### Win64 shadow space + entry ABI
+
+Four Win64-specific codegen invariants proven by getting `-target windows-x86_64` `RETURN 42` to exit 42 on the Win11 box:
+
+1. **Shadow space is REAL and 32 bytes.** Every `call` requires the caller to own 32 bytes ABOVE its `rsp` (`[rsp+8..rsp+40]` in the callee) that the callee may freely clobber. The entry set `arena_state = rsp` (top of frame, nothing below), so every call it made (time/RNG seed, init, main) wrote shadow over `[arena+0]` = the block-list head → `arena_destroy` deref'd garbage → 0xC0000005. Fix: entry reserves `backend.shadow_space_bytes()` at the frame BOTTOM and points the arena register ABOVE it (`sp + shadow`); `shadow==0` on Linux/macOS keeps them byte-identical. See `entry.rs` + `entry_stack_misaligned_on_entry`.
+
+2. **The PE entry is `call`-reached by the loader → `sp % 16 == 8` on arrival**, NOT the Linux `_start` `sp % 16 == 0`. Without one `sub rsp,8` every downstream call is misaligned 8 and the first callee `movaps` faults. Guarded by `entry_stack_misaligned_on_entry()` (false for Linux/macOS).
+
+3. **`return_register()` (rax) ≠ `ARG[0]` (rcx) on Win64.** Linux syscalls read the first arg from x0 = return_register, so shared helpers (e.g. `arena_destroy`) hand the address in `return_register()`. A Windows DLL call (`VirtualFree`) needs it in ARG[0] — insert `move_register(ARG[0], return_register())` first.
+
+4. **The instruction encoder rejects negative immediates** (`move_immediate(_, "-10")` → "invalid immediate '-10'"). Compute negatives via add/sub (e.g. nStdHandle = `-(fd+10)` as `add fd,10; 0 - that`).
+
+The crash was diagnosed WITHOUT a debugger on the box: run the exe, then `Get-WinEvent -ProviderName "Application Error"` gives the fault offset (module-relative); `objdump -d --start-address=IMAGEBASE+offset` lands on the faulting instruction.
+
+### Win64 helper frame + zero-reg traps
+
+Writing a shared `src/target/shared/code/**` helper (numeric `Vregs` + `abi::` builders) that makes a Win64 external call (`emit_libc_call`) with >4 args or any callee at all, two non-obvious traps bite — both invisible on aarch64, both a crash/garbage on x86-64:
+
+**1. Outgoing stack args + call frame must be an explicit `subtract_stack(FRAME)` … `add_stack(FRAME)` bracket, with NO abstract vregs referenced inside it.** `finalize_vreg_body[_with_locals]` runs `finalize_frame`, which SHIFTS every `sp`-relative access UP past the callee-saved area (`adjust_stack_instruction_offsets`). So a store you emit to `sp+0x20` (the 5th Win64 arg slot) lands at `sp+0x20+save_size`, but the callee reads its stack args from the REAL `sp+0x20` → garbage/crash. The shift is skipped only at stack-adjust depth>0 (inside a `subtract_stack`/`add_stack` pair — depth is tracked by counting SubSp/AddSp). Mirror `emit_build_argv_utf8` (win_x86_64/code.rs): reserve ONE frame `subtract_stack(FRAME)` covering shadow `[0,0x20)` + the stack args `[0x20,…)` + any struct locals (STARTUPINFOA/PROCESS_INFORMATION) + your scalar state slots; keep ALL state in those slots and use only `mfb_arg(0..3)` as transient scratch (reloaded from slots after every `emit_alloc`/`emit_libc_call`, which clobber them). No vregs ⇒ no spills that `finalize` would shift out from under the depth-1 accesses. Shadow space is NOT auto-reserved — `call_external`/`emit_libc_call` emit only the `call`; a callee's 32-byte shadow write into `[sp,sp+0x20)` corrupts a frame that didn't reserve it, so EVEN a 2-arg-all-register call (WaitForSingleObject) needs the `[0,0x20)` shadow.
+
+**2. `abi::move_register(reg, abi::ZERO)` does NOT zero a register on x86-64.** There is no hardware zero register; `ZERO` maps to a GPR holding garbage. `store_u64(ZERO, base, off)` special-cases it to an immediate `$0x0` store (so zeroing memory works), but `move_register`/register args do not — the disasm shows `movq %r8,%rcx` (r8 = leftover loop garbage). Zero a register arg with `move_immediate(reg, "Integer", "0")` (the fs Win64 helpers' convention). A CreateProcessA whose `lpApplicationName`/attrs came from `move_register(_,ZERO)` gets a garbage pointer and returns FALSE. aarch64 hides this (xzr).
+
+## riscv64
+
+### riscv64 V-extension (RVV) two-profile qemu oracle
+
+Both remote riscv64 boxes LACK the V extension in hardware: `/proc/cpuinfo` isa is `rv64imafdch_...zba_zbb_zbc_zbs_...` — **no `v`** (2229 Alpine musl, 2232 Debian glibc). So a native run only ever exercises the **v=false** (scalar) path.
+
+The **v=true** oracle is `qemu-riscv64` user-mode, which emulates V (and sets `AT_HWCAP` bit 21) even on non-V hardware. No box has it installed and there is no root, but on **2232 (Debian)** you can fetch it without root: `apt-get download qemu-user` → `dpkg -x qemu-user_*.deb ~/qemuroot` → `~/qemuroot/usr/bin/qemu-riscv64` (v10.0.11). qemu-user is Linux-host-only, so it CANNOT run on the Mac; run it on 2232 (riscv-on-riscv user emulation is fine).
+
+Two-profile runtime proof for a linux-riscv64 binary (cross-compiled on the Mac, scp'd to 2232):
+- `~/qemuroot/usr/bin/qemu-riscv64 -cpu rv64,v=true  ./bin`  → HWCAP V=1 (0x200000 set)
+- `~/qemuroot/usr/bin/qemu-riscv64 -cpu rv64,v=false ./bin`  → V=0 (== a native run)
+
+Verified with a `getauxval(AT_HWCAP)` probe: native hwcap=0x112d (V=0), `v=true` hwcap=0x20112d (V=1). `gcc` (native riscv64) is present on 2232 for building reference probes.
+
+### riscv64 flag-emulation reserved slots
+
+The flagless riscv64 backend (`select_riscv64`) emulates condition flags: a bare (non-fused) `cmp` whose flag-reading branch is not adjacent must keep BOTH compared *values* live from compare to branch. `gp` (x3) holds the lhs. There is **no free second register** for the rhs, so it goes to memory:
+
+- **`tp` (x4) is a silent miscompile.** It is the hardware thread pointer; musl AND glibc pin TLS/`errno` there. Snapshotting into `tp` builds and byte-stabilizes fine and the branch is correct, but the binary SIGSEGVs at runtime the moment control returns to libc. Proven on 2229 (Alpine riscv64). NEVER clobber `tp`. (`gp` is safe — no library uses it after startup.)
+- **Shrinking `regmodel::INT_ALLOCATABLE` to reserve a temporary destabilizes the allocator** — see the riscv64 pool-shrink allocator fault below.
+
+So the landed fix snapshots the rhs to a reserved **per-thread memory word** `ARENA_FLAG_RHS_OFFSET`, carved from the rv64-only v128 slot region (`ARENA_V128_SLOTS_SIZE` 128→127 slots, `SLOT_COUNT` 128→127) so `ARENA_STATE_SIZE` and every other target's bytes are unchanged. `store_flag_rhs` spills at the compare, `load_flag_rhs` reloads into `t0` at the branch, addressed off pinned `s11`. Only the label/call invalidations remain (a callee overwrites the shared word; flags never survive a call anyway) — operand-register redefinition is now recoverable. Blast radius is surgical: only functions that hit the bare-compare path (today just `_mfb_rt_sort_string_list`) change bytes; all 6 pre-existing rv64 goldens stayed identical. Lesson: a wrong reserved-slot choice is a runtime-only fault — VALIDATE ON A riscv64 RUN (2229), never a rebuild.
+
+### riscv64 pool-shrink allocator fault (OPEN latent bug)
+
+Removing a single caller-saved temporary (`t3`) from `src/arch/riscv64/regmodel.rs` `INT_ALLOCATABLE` (11→ tried as a fix shape) made **12 unrelated rt-behavior fixtures SIGSEGV on 2229** — fixtures that never touch the flag path (their `.ncode` has no `gp`/`t3`). Restoring `t3` fixed them. So the rv64 linear-scan allocator has a **latent fault that only manifests with a smaller register pool** — a real miscompile, not just more spilling.
+
+**Why:** never treat "shrink the rv64 pool" as a free move; it trips this. The flag-emulation fix was landed WITHOUT touching the pool (memory-word snapshot instead — see the reserved-slots note above).
+
+**How to apply:** this is worth its own bug. To reproduce: drop one reg from `INT_ALLOCATABLE`, rebuild release, build any record/float rt-behavior fixture for linux-riscv64, run on 2229 → SIGSEGV. Suspect the spill-slot / eviction indexing in `regalloc/linear_scan.rs` (off-by-one against pool size).
+
+## macOS AArch64
+
+### macOS codegen latent bugs
+
+The macOS AArch64 backend (`src/target/macos_aarch64/code.rs`, `src/os/macos/link.rs`) had these latent bugs fixed while implementing the filesystem review items.
+
+1. **Raw `open` syscall never detected errors.** `emit_open_file` used a raw `svc` (`DARWIN_SYSCALL_OPEN`). Darwin signals syscall failure via the carry flag and returns the positive errno in `x0`, so `fs::open`/`readText` treated errno (e.g. ENOENT=2) as a valid fd → bogus success or a later seek/read failure. Also `emit_errno` reads libc `___error`, which a raw syscall never sets. Fixed by calling the libSystem `_open` wrapper instead — but `open(path,flags,mode)` is variadic and the Apple AArch64 ABI passes variadic args on the **stack**, so the helper now pushes `x2` (mode) to `[sp]` around the call (`subtract_stack(16); store x2,[sp,0]; bl _open; add_stack(16)`). Without the stack push, write-mode `O_CREAT` opens get a garbage mode and later reopens fail EACCES.
+
+2. **GOT address baked into import stubs used the pre-stub code length.** In `append_import_stubs`, `macho_layout(code_offset, text.len(), ...)` was computed *before* the 12-byte-per-import stubs were appended. The real `data_const_file_offset` (where the GOT lives) is `align(code_offset + final_code_len + data_len, PAGE_SIZE)`. When the stub bytes pushed the total across a 4 KB page boundary, the two `align()` results diverged by a page, so every import stub's `adrp/ldr/br` jumped through a wrong GOT slot → **layout-sensitive SIGBUS with a garbage PC** (a `br x16` to junk). The symptom: a program crashes only at a specific size/register-pressure, and inserting unrelated code (or `io::print` calls that change layout) makes it appear/disappear. Fixed by computing the layout from `text.len() + imports.len() * IMPORT_STUB_SIZE`.
+
+3. **Raw `mmap` in `arena_alloc` ignored the carry flag (same class as #1).** `emit_arena_map` in `src/target/macos_aarch64/code.rs` did a raw mmap `svc`; the shared check (`lower_arena_alloc` in `src/target/shared/code/mod.rs`) only tested `x0 >= 0`. Darwin returns the positive errno in x0 with the carry flag set on failure, so a failed mmap (ENOMEM=12) was treated as a valid mapping and dereferenced → SIGSEGV. Fixed by branching on carry-clear (`b.lo`) for success and otherwise `mvn x0, x31` to a negative sentinel so the shared `b.ge` routes to the OOM path (matches Linux's negative-errno convention). Note the cpsr carry bit is bit 29 (0x2000_0000) — handy to confirm in lldb. Verified by disassembly; a deterministic ENOMEM runtime test isn't portable on macOS because Jetsam SIGKILLs a gradually-growing process before mmap returns ENOMEM. (The `arena_alloc` clobbering x14/x15 bug surfaced this — it requested a single ~72TB mmap, which mmap rejects outright.)
+
+Debugging note: the encoder computes label offsets in a pre-pass via `instruction_size()` then emits separately (`src/arch/aarch64/encode.rs`); a mismatch there would also corrupt branches, but that was verified consistent. Conditional branches use `branch_imm19` (±1 MB, no range check).
+
+### macOS Network.framework async cancel drain
+
+`nw_connection_cancel` / `nw_listener_cancel` transition the object to `cancelled` **asynchronously**: the state-changed handler (STATE_INVOKE) runs later on the shared `mfb.tls` serial queue and dereferences the **arena-allocated** ctx on every invocation. So any codegen path that cancels an nw object and returns immediately leaves a pending handler that runs against a freed ctx once the program exits and the arena is torn down → EXC_BAD_ACCESS, intermittent/load-dependent, macOS aarch64 only.
+
+The fix on every such exit: **drain to the terminal `cancelled` state before returning** — spin blocking on the ctx semaphore (DISPATCH_TIME_FOREVER via `mov x,0; mvn` in codegen) and re-read `ctx->state` until it equals the cancelled constant. `cancelled` is terminal, so nothing fires afterward. Safe because the handler runs on a *different* dispatch thread, so the blocking wait can't deadlock — provided the exit was NOT already `cancelled` on entry (an accept/close path only enters after its own cancel call, so the cancel always produces the woken transition; connect never cancels before its wait loop).
+
+Load-bearing constants (`src/target/shared/code/tls/macos/`):
+- The connection ctx and the listener ctx **share the same prefix** — `CTX_SEM`=0, `CTX_STATE`=16 (mod.rs) — so ONE drain helper (`emit_cancel_drain` in server.rs) serves both, parameterised only by the terminal-state constant.
+- Terminal states DIFFER by object: `nw_connection_state_cancelled` = **5**, `nw_listener_state_cancelled` = **4** (listener state_t uses distinct numbering: invalid 0 / waiting 1 / ready 2 / failed 3 / cancelled 4).
+- Draining is orthogonal to the leak releases (conn release, queue/sem release): drain waits on the arena ctx semaphore, which `emit_cancel_and_release_conn` does not touch, so release-then-drain or drain-then-release both work. closeListener drains while listener+queue+ctx are still retained (before the releases) as the conservative order.
+
+Verifying without a macOS box: the runtime repro needs concurrent load + process exit and isn't reproducible off-device. Pin it instead with a codegen emit-inspection test (`macos/tests.rs`, `TlsReadTestPlatform`): assert each exit window emits the drain (back-edge label + `ldr_u32 [ctx+CTX_STATE]` + `cmp_imm <cancelled>` + `b.ne` back). The macOS byte-identity golden (`tls_codegen_cover_rt.macos-aarch64.ncodesum`) shifts; the other targets don't (Linux/Windows use their own TLS backends).
+
+### load_selector clobbers caller-saved
+
+`Asm::load_selector` (macos_aarch64/app/mod.rs) emits `local_address(x0,name); call sel_registerName; mov x1,x0` — a real external CALL. It clobbers EVERY caller-saved register (x0-x17), including all `abi::SCRATCH[..]` (x9-x15). So any value computed into scratch and needed AFTER the selector resolves is destroyed.
+
+Symptom: the macOS app term backend built the getCharacters buffer pointer into `SCRATCH[2]`, then called `load_selector`, then used the (clobbered) `SCRATCH[2]` as the `getCharacters:range:` destination → SIGSEGV in `_platform_memmove` (frame: CoreFoundation `_CFStringCheckAndGetCharacters`). Triggered by ANY multi-scalar cluster (NFD combining, ZWJ emoji) that takes the EGC-pool path in `emit_term_draw_text_helper` / `emit_term_write_string_helper`. Fault address varied run-to-run (garbage libobjc-internal value left in the reg), not constant.
+
+Rule: resolve the selector FIRST (it only needs x0/x1), or reload the scratch value AFTER `load_selector`. Do not hold a computed pointer in caller-saved scratch across it. Same family as the `arena_alloc` clobbers x14/x15 bug.
+
+Debugging note: these mfb helpers have a non-standard prologue (no fp frame), so lldb's callee-saved register RECONSTRUCTION for a deep frame is unreliable — it gave plausible-but-wrong `state`/`pool`. Ground truth came from `thread step-inst` through the buffer arithmetic reading the LIVE regs. Also: `.app` binaries load with no ASLR under lldb (`disable-aslr`) but absolute-address breakpoints in the mfb `__text` silently never fire; break on a libobjc symbol (`sel_registerName`) filtered by caller `$lr` instead.
+
+### AudioQueue strands partial buffers
+
+A macOS `AudioQueue` output buffer enqueued with `mAudioDataByteSize` < a full device period is **never completed**: its callback never fires, so it never returns to the free stack. This is not starvation and not a lost wakeup — it is the queue waiting for enough data to fill a period, forever, at end of stream.
+
+This caused `audio::close` to hang ~40-70% of runs on macOS. Fixed by making `write` fill whole buffers only, carrying a short tail in `S_PENDING_BUF`/`S_PENDING_FILL` for the next write, and having `close` pad the leftover with silence before draining.
+
+**Do not enqueue a partial AudioQueue buffer, ever.** Silence-pad instead.
+
+What measurement showed (so it need not be re-derived):
+- Exact multiples of `bufferFrames * bytesPerFrame` strand **nothing**, even with a deliberate stall between every write to force the queue dry. Starvation is not the trigger.
+- A short tail strands ~50% of runs. Duplicate `AudioQueueStart` after each enqueue (14/25 hangs) and `AudioQueueFlush` before the drain (14/25) both FAIL to fix it — the queue will not finish a short buffer by any means.
+- Proof of mechanism: attach to the hung process, `AudioQueueEnqueueBuffer` one more *full* buffer, and the stranded buffer is released and the program exits.
+
+Debugging technique that cracked it: **taking `close` out of the picture** — a probe that writes the PCM then only polls `audio::available` for 2.5 s, never closing, plateaus at 3 of 4 buffers on exactly the runs that would have hung. Do that before suspecting the synchronization. To read the state at a hang: `lldb -p <pid>`, `frame select 2` (the mfb frame), `$st = *(unsigned long*)($sp+0x50)` is the state page (STATE_OFF 48 + a 0x40 saved-register base), then `S_FREE_TOP` at `+0x120`, `S_FREE_BUFS` at `+0x128`, `S_OSOBJECT` at `+0x118`. lldb can call AudioToolbox directly to test remedies live, which beats a rebuild cycle per hypothesis.
+
+## Windows (PE / console / audio)
+
+### Windows codegen verification
+
+`windows-x86_64` codegen **does** have some `.ncodesum` byte-identity goldens and `scripts/artifact-gate.sh` **does** check them — the gate discovers targets from golden *filenames*, so any fixture that ships a `<pkg>.windows-x86_64[.app].ncodesum` golden is cross-compiled and sha256-checked on the macOS host. Confirmed present: `tests/byte-identity/math` (console) and `tests/syntax/app/macos-app-mode-{io,plumbing,term}` (app-mode). So a Windows codegen change to a *covered* fixture IS caught by the gate (it reports `DIFF …windows-x86_64[.app].ncode (sha256)`). Regenerate by building `-ncode -target windows-x86_64 [--app]` and `shasum -a 256 > golden`. `byte-identity/{datetime,http,tls,term,crypto,net,strings,general,io,encoding,regex,audio}` also ship windows `.ncodesum` goldens. (The Windows CNG EC verify fix shifted `byte-identity/crypto`'s windows sum — the other four crypto targets stayed byte-identical, and a base-vs-fix `-ncode` diff confirmed the delta was confined to the six p256/p384/p521 Sign/Verify symbols.)
+
+STALE-GOLDEN TRAP: a change to Windows codegen for a covered fixture that regenerates the OTHER targets' goldens but skips the windows sum leaves the gate RED on `main` for the next person. If you touch Windows codegen, regenerate the windows sum too; if you find one stale, it's a real gate-red to fix (regen blesses the shipped fixed bytes — verify determinism by building twice). Coverage is still partial, so for a Windows path with no golden, verify the two ways below.
+
+MORE INSTANCES: a change to a *shared* Windows emit fans out to EVERY fixture that emits it, so one un-regenerated sum becomes many stale goldens. Example: the FIONBIO ioctl constant `0x8004547E→0x8004667E` left `byte-identity/{http,net,tls}` windows sums stale (every socket program emits the non-blocking ioctl); a Windows app-mode transcript NUL clamp (`win_x86_64/app/mod.rs`) left all three `syntax/app/macos-app-mode-{io,plumbing,term}` `.windows-x86_64.app.ncodesum` stale. When you finalize, run the FULL artifact-gate on `main`, and if a DIFF is NOT your fixture, bisect the cause to the landed commit (`git log <goldenLastRegen>..HEAD -- src/target/win_x86_64 src/target/shared/code/...`), confirm it's an intended/tested change, then regen — do NOT assume it's yours. Watch for a STALE LOCAL BINARY: if `main` advanced under you (concurrent sessions merging), a `-ncode` sha built with an old `target/debug/mfb` gives a false DIFF — `cargo build --bin mfb` at HEAD before trusting a sweep.
+
+1. **CI-observable, host-independent (cross-compile on the macOS host):** `mfb build -target windows-x86_64 -nplan <proj>` dumps the import surface — assert the expected `kernel32`/etc. import with its `requiredBy` symbol (e.g. `SetConsoleOutputCP` `requiredBy "_start"`). `-ncode` dumps ops; the built `.exe` (PE, `MZ` magic) still contains string data as raw bytes (grep the PE for the UTF-8 bytes to prove output isn't transcoded). NOTE: an `entry_imports()` entry in `plan.rs` appears in `-nplan` **even if no code emits the call** — to prove the call is actually emitted, disassemble the PE with `rust-objdump` (`$(rustc --print sysroot)/.../bin/llvm-objdump -d`, ships with the rustup `llvm-tools`; system `objdump`/`llvm-objdump` are absent).
+
+2. **Runtime proof on box 2230** (`ssh -p 2230 test@127.0.0.1`, Win11 x86_64): ssh **pipes** stdout, so the interactive-console *decode* (mojibake) is NOT observable — but console *state* is. For a console-code-page fix, run `chcp 437 & myexe.exe & chcp`: a fresh console defaults to CP 437, and the exe's `SetConsoleOutputCP(65001)` flips it to 65001 (visible in the trailing `chcp`) — a `SetConsole*CP` call persists on the console after the process exits within one `cmd` session. Also assert `echo EXIT=%errorlevel%` == 0 to prove the entry shadow-space frame is sound (the usual Win64 codegen risk).
+
+### Windows codegen emit-inspection test
+
+A Windows/Schannel-only codegen bug can be RED-then-GREEN tested on the macOS host without any Windows box, because the codegen modules are compiled on **all** hosts (`pub(crate) mod schannel;` in `tls/mod.rs` — no `cfg(windows)`). The helpers just append `CodeInstruction`s; they don't execute.
+
+Pattern (`schannel_io.rs`): a `#[cfg(test)] mod` calls the private emit helper directly (the `schannel_*.rs` files are `include!`d into one `schannel` module, so `use super::*` sees every helper) with the shared `crate::target::shared::code::test_support::TestPlatform` — a Linux/AArch64 stub whose `emit_libc_call` just pushes a `bl`, enough to lower + append. **Call the emit helper directly, not a full `lower_*`**, so the returned `Vec<CodeInstruction>` still holds raw `%v8`/`%v9`/offset strings (pre-register-allocation). Then assert on `i.op == CodeOp::StrU64` + `i.get("src"/"base"/"offset")` — e.g. locate the `LdrU64` of the value from `[sp+off]`, grab its `dst`, and assert the next `StrU64` of that reg lands at the right struct offset. This pins the exact ABI fact (pointer must be stored at `SSLPARA+16`, RED at 72 / GREEN at 80) that the bug doc could only state as a "static ABI proof."
+
+Prior art: `openssl.rs` tests use `TestPlatform` + `has_label` the same way. Runs under plain `cargo test --bin mfb`. Complements the whole-pipeline goldens / PE disasm / box 2230 verification — this is the unit-level ABI guard.
+
+Gotcha hit along the way: `cargo fmt --all -- <file>` does NOT scope to that file AND main is not rustfmt-1.9.0-clean, so a tree-wide fmt churns ~90 unrelated files — verify your added block is clean with a scratch-copy `rustfmt --check` instead of running a repo-wide format.
+
+### WASAPI capture carry-over
+
+WASAPI capture requires each `IAudioCaptureClient::GetBuffer` packet be released whole — `ReleaseBuffer(NumFramesRead)` must equal the `GetBuffer` count or 0; you CANNOT partially consume a packet. The `audio::read` loop (`audio/windows_io.rs`, `lower_read`) copies `min(numFrames, framesRemaining)` from the packet then must `ReleaseBuffer(numFrames)` (the whole packet), so on the final packet of any read whose length isn't packet-aligned (the common case) the `numFrames - copyFrames` unconsumed frames are lost → gaps in captured audio. ALSA leaves the remainder in the kernel buffer, macOS in the ring; only Windows dropped it.
+
+Fix = a per-stream carry-over stash in the arena WASAPI STATE block (`windows.rs`): `W_CARRY_PTR` (one device buffer wide = `W_BUFFER * W_MIX_BPF` bytes, allocated at open, INPUT streams only), `W_CARRY_FRAMES` (total stashed), `W_CARRY_HEAD` (frame cursor). The read loop, before `ReleaseBuffer`, copies the unconsumed tail (DEVICE mix format, `W_MIX_BPF` stride) into the stash; the next read DRAINS it first (point `W_OUT1` at `carry+head*mixBpf`, reuse `emit_read_fill`) before touching a new packet. Invariant that keeps it simple: the stash is always empty when a tail is saved, because a read only enters the GetBuffer loop after fully draining the carry (drain resets to 0/0 when `head` reaches `frames`); a partial drain (request < carry) returns before the loop, so no tail-save races a live stash.
+
+Windows-only, untestable at runtime on macOS: proven by emit-inspection tests (`windows_tests.rs`: 2× `emit_read_fill` = drain + per-packet fill; a `*_carry_tail` save label) + a clean `-target windows-x86_64 -ncode` encode. Runtime proof is box 2230. The same fix batch also corrected `audio::available` (returned bytes not frames — dropped the `* BPF`) and rejected `mixCh < userCh` at SHARED open (the read converter reads `userCh` channels/frame, OOB when the device mix has fewer).
+
+### PE trailing sections must chain
+
+In `src/os/windows/link/mod.rs:write_executable`, the PE writer appends optional "trailing" sections after the functional ones (`.text`/`.rdata`/`.data`/`.idata`/`.rsrc`). There are now two: `.mfbnote` (unconditional provenance marker) and `.mfbsign` (signing blob, signed builds only). Each is placed "last, so its size shifts no earlier RVA."
+
+The trap: if each trailing section computes its own slot as `align_up(rsrc_rva + rsrc_bytes.len())` (i.e. "right after `.rsrc`"), then TWO trailing sections both land at the SAME RVA/file offset and **silently overlap** — no error, the section table just has two entries pointing at the same bytes.
+
+Rule: chain them. The unconditional `.mfbnote` is placed after `.rsrc`; `.mfbsign` must be placed after `.mfbnote` (`align_up(mfbnote_rva + mfbnote_bytes.len(), SECTION_ALIGNMENT)`), not after `.rsrc`. Any future third trailing section chains off the last one. Guard added: `signed_build_emits_both_mfbnote_and_mfbsign_disjoint` asserts non-overlapping virtual extents. The write-only linkers have no runtime verifier, so a byte/section scan test is the only guard against this class of bug.

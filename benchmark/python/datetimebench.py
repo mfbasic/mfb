@@ -54,8 +54,8 @@ def test_datetime_civil():
 
 
 def test_datetime_iso():
-    # Arena-gated (plan-44-J): tiny reps; raise when the arena fix lands.
-    reps = 8                       # TODO(plan-44-J): raise to 2000
+    # Arena-gated in mfb (plan-44-J): arena quadratic fixed by plan-64-A1; reps at target.
+    reps = 2000
     times = []
     checksum = 0
     for _ in range(RUN):

@@ -1,0 +1,44 @@
+REM plan-89-C: every Tier-A strings:: query accepts an AttributedString and
+REM returns exactly what the same query on its plaintext returns (same value,
+REM same type, same error behavior). Each line prints `<astr>/<plain>`; they must
+REM be equal.
+
+IMPORT astrings
+IMPORT strings
+IMPORT io
+
+REM `find` raises `ErrNotFound` when the needle is absent; the Tier-A overload
+REM must propagate the identical error. Return the trapped code (or the found
+REM index) so both the AttributedString and String forms can be compared.
+FUNC findCode(a AS AttributedString, plain AS String) AS String
+  LET fa AS Integer = strings::find(a, "z") TRAP(ea)
+    LET ft AS Integer = strings::find(plain, "z") TRAP(eb)
+      RETURN "trap:" & toString(ea.code) & "/" & toString(eb.code)
+    END TRAP
+    RETURN "astr-trapped-plain-not"
+  END TRAP
+  RETURN "no-trap"
+END FUNC
+
+FUNC main AS Integer
+  LET a AS AttributedString = astrings::addAttribute(astrings::fromString("hello world"), 0, 4, astrings::bold())
+  LET t AS String = "hello world"
+
+  io::print("byteLen " & toString(strings::byteLen(a)) & "/" & toString(strings::byteLen(t)))
+  io::print("contains " & toString(strings::contains(a, "world")) & "/" & toString(strings::contains(t, "world")))
+  io::print("count " & toString(strings::count(a, "l")) & "/" & toString(strings::count(t, "l")))
+  io::print("startsWith " & toString(strings::startsWith(a, "hell")) & "/" & toString(strings::startsWith(t, "hell")))
+  io::print("endsWith " & toString(strings::endsWith(a, "rld")) & "/" & toString(strings::endsWith(t, "rld")))
+  io::print("startsWithAny " & toString(strings::startsWithAny(a, ["x", "he"])) & "/" & toString(strings::startsWithAny(t, ["x", "he"])))
+  io::print("endsWithAny " & toString(strings::endsWithAny(a, ["x", "ld"])) & "/" & toString(strings::endsWithAny(t, ["x", "ld"])))
+  io::print("find " & toString(strings::find(a, "o")) & "/" & toString(strings::find(t, "o")))
+  io::print("findMissing " & findCode(a, t))
+  io::print("graphemesCount " & toString(strings::graphemesCount(a)) & "/" & toString(strings::graphemesCount(t)))
+  io::print("displayWidth " & toString(strings::displayWidth(a)) & "/" & toString(strings::displayWidth(t)))
+  io::print("graphemeAt " & strings::graphemeAt(a, 6) & "/" & strings::graphemeAt(t, 6))
+  io::print("split " & toString(len(strings::split(a, " "))) & "/" & toString(len(strings::split(t, " "))))
+  io::print("graphemes " & toString(len(strings::graphemes(a))) & "/" & toString(len(strings::graphemes(t))))
+  io::print("toBytes " & toString(len(strings::toBytes(a))) & "/" & toString(len(strings::toBytes(t))))
+  io::print("toScalars " & toString(len(strings::toScalars(a))) & "/" & toString(len(strings::toScalars(t))))
+  RETURN 0
+END FUNC

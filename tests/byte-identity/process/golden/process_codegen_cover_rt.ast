@@ -1,0 +1,58 @@
+{
+  "project": "process_codegen_cover_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 7 },
+    { "module": "process", "line": 8 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "p", "type": null, "value": { "kind": "call", "callee": "process.spawn", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "sort" }] }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "q", "type": null, "value": { "kind": "call", "callee": "process.spawn", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "env" }] }, { "kind": "string", "value": "/tmp" }, { "kind": "map", "keyType": "String", "valueType": "String", "entries": [{ "key": { "kind": "string", "value": "K" }, "value": { "kind": "string", "value": "V" } }] }, { "kind": "boolean", "value": true }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "s", "type": null, "value": { "kind": "call", "callee": "process.shell", "arguments": [{ "kind": "string", "value": "echo hi" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "process.pid", "arguments": [{ "kind": "identifier", "value": "p" }] }] }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "process.isRunning", "arguments": [{ "kind": "identifier", "value": "p" }] }] }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.send", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "string", "value": "line" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.send", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "string", "value": "line" }, { "kind": "number", "value": "1000" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.sendBytes", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "65" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "66" }] }] }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.sendBytes", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "67" }] }] }, { "kind": "number", "value": "1000" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.close", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "ready", "type": null, "value": { "kind": "call", "callee": "process.poll", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "number", "value": "100" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "readyErr", "type": null, "value": { "kind": "call", "callee": "process.poll", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "number", "value": "100" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Stream" }, "member": "StdErr" }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "line", "type": null, "value": { "kind": "call", "callee": "process.receive", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "lineErr", "type": null, "value": { "kind": "call", "callee": "process.receive", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Stream" }, "member": "StdErr" }] }, "line": 31 },
+      { "kind": "binding", "mutable": false, "name": "raw", "type": null, "value": { "kind": "call", "callee": "process.receiveBytes", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "name": "rawErr", "type": null, "value": { "kind": "call", "callee": "process.receiveBytes", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Stream" }, "member": "StdErr" }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "line" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "raw" }] }] }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.signal", "arguments": [{ "kind": "identifier", "value": "q" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Signal" }, "member": "Terminate" }] }, "line": 38 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "process.didSignal", "arguments": [{ "kind": "identifier", "value": "q" }] }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Signal" }, "member": "Kill" } },
+        "line": 39,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "killed" }] }, "line": 40 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "process.waitFor", "arguments": [{ "kind": "identifier", "value": "q" }] }] }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.detach", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 43 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 44 }
+      ]
+    }
+    ]
+  }
+  ]
+}

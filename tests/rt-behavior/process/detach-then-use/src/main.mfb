@@ -1,0 +1,12 @@
+' plan-90-C Phase 2: any process:: call on a detached handle traps
+' ErrResourceClosed (the detach set the record closed bit).
+IMPORT process
+IMPORT io
+
+FUNC main AS Integer
+  RES p = process::spawn(["sleep", "30"])
+  process::detach(p)
+  io::print(toString(process::pid(p)))
+  io::print("unreachable")
+  RETURN 0
+END FUNC

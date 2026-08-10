@@ -1,0 +1,12 @@
+{
+  "name": "bug221_transfer_accept_named_args",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "bug221_worker", "version": "=0.1.0", "source": "file:packages/bug221_worker.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

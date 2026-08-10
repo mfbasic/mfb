@@ -249,12 +249,18 @@ fn const_pool_stores_every_scalar_kind() {
 
 #[test]
 fn scalar_wire_id_and_reserved_band() {
-    // Scalar takes id 10; the table-type base moved to 20; ids 11–19 are the
-    // reserved primitive band and must have no name mapping (plan-41-B).
+    // Scalar takes id 10; the table-type base moved to 20 (plan-41-B).
+    // plan-89-A: AttributedString claimed the first reserved primitive id (11);
+    // ids 12–19 remain the reserved primitive band and must have no name mapping.
     assert_eq!(TYPE_SCALAR, 10);
+    assert_eq!(TYPE_ATTRIBUTED_STRING, 11);
     assert_eq!(FIRST_TABLE_TYPE_ID, 20);
     assert_eq!(primitive_type_name(TYPE_SCALAR), Some("Scalar"));
-    for reserved in 11..=19 {
+    assert_eq!(
+        primitive_type_name(TYPE_ATTRIBUTED_STRING),
+        Some("AttributedString")
+    );
+    for reserved in 12..=19 {
         assert_eq!(
             primitive_type_name(reserved),
             None,

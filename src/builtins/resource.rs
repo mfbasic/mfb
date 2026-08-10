@@ -235,6 +235,20 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
             kind: ResourceKind::Builtin,
         },
     );
+    entries.insert(
+        super::process::PROCESS_TYPE.to_string(),
+        ResourceInfo {
+            close_function: super::process::resource_close_function(super::process::PROCESS_TYPE)
+                .expect("Process has a built-in close op")
+                .to_string(),
+            // A Process owns child pipe fds and drives waitpid from its owning
+            // thread; not thread-sendable in v1 (plan-90-A; C revisits).
+            sendable: false,
+            // The scope-drop op (`__drop`) force-kills and reaps; it does not fail.
+            close_may_fail: false,
+            kind: ResourceKind::Builtin,
+        },
+    );
     entries
 });
 
@@ -366,6 +380,7 @@ mod tests {
             "AudioOutput",
             "TlsSocket",
             "TlsListener",
+            "Process",
         ] {
             assert!(registry.is_resource(name), "{name} missing from registry");
             assert!(

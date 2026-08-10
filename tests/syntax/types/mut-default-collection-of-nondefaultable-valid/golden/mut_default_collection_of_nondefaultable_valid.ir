@@ -1,0 +1,74 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "mut_default_collection_of_nondefaultable_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "enum",
+    "line": 10,
+    "visibility": "public",
+    "name": "AttrTypeFlag",
+    "members": [
+    { "name": "Bold" },
+    { "name": "Italic" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 15,
+    "visibility": "public",
+    "name": "AttrFlag",
+    "fields": [
+    { "visibility": null, "line": 16, "name": "attr", "type": "AttrTypeFlag" }
+    ]
+  },
+  {
+    "kind": "union",
+    "line": 19,
+    "visibility": "public",
+    "name": "Attribute",
+    "includes": [],
+    "variants": [
+    {
+      "name": "AttrFlag",
+      "line": 20,
+      "fields": [
+      { "visibility": null, "line": 16, "name": "attr", "type": "AttrTypeFlag" }
+      ]
+    }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 23,
+    "visibility": "public",
+    "name": "Doc",
+    "fields": [
+    { "visibility": null, "line": 24, "name": "text", "type": "String" },
+    { "visibility": null, "line": 25, "name": "attrs", "type": "List OF Attribute" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 28,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 29, "mutable": true, "name": "xs", "type": "List OF Attribute", "value": null },
+    { "op": "bind", "line": 30, "mutable": true, "name": "mm", "type": "Map OF String TO Attribute", "value": null },
+    { "op": "bind", "line": 31, "mutable": true, "name": "d", "type": "Doc", "value": null },
+    { "op": "return", "line": 32, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

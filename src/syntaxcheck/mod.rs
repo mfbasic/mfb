@@ -25,6 +25,11 @@ use self::helpers::*;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Type {
+    /// `AttributedString` (plan-89-A): an opaque, value-semantic built-in
+    /// wrapping a visible `String` plus an attribute overlay. Primitive-like —
+    /// it exposes no user-visible fields (opacity), is copyable/defaultable but
+    /// NOT comparable, and is always in scope (modeled on `Error`).
+    AttributedString,
     Boolean,
     Byte,
     Error,
@@ -156,6 +161,8 @@ pub fn check_project_collect(
     ast: &AstProject,
 ) -> Result<Vec<crate::rules::PendingDiagnostic>, ()> {
     let augmented = builtins::json::augmented_project(ast)?;
+    // `astrings` imports only `collections` (native members) + `astrings` itself.
+    let augmented = builtins::astrings::augmented_project(&augmented)?;
     let augmented = builtins::app::augmented_project(&augmented)?;
     let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
@@ -168,6 +175,7 @@ pub fn check_project_collect(
     let augmented = builtins::http::augmented_project(&augmented)?;
     let augmented = builtins::net::augmented_project(&augmented)?;
     let augmented = builtins::audio::augmented_project(&augmented)?;
+    let augmented = builtins::process::augmented_project(&augmented)?;
     // `crypto` before `encoding`: `crypto_package.mfb` imports `encoding`
     // (mirrors `http` before `net`; plan-04-crypto.md Part C).
     let augmented = builtins::crypto::augmented_project(&augmented)?;
@@ -709,7 +717,8 @@ impl<'a> SyntaxChecker<'a> {
                 }
                 seen.remove(name);
             }
-            Type::Boolean
+            Type::AttributedString
+            | Type::Boolean
             | Type::Byte
             | Type::Error
             | Type::ErrorLoc
@@ -1603,7 +1612,8 @@ impl<'a> SyntaxChecker<'a> {
                     );
                 }
             }
-            Type::Boolean
+            Type::AttributedString
+            | Type::Boolean
             | Type::Byte
             | Type::Error
             | Type::ErrorLoc
@@ -1620,6 +1630,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn type_name(&self, type_: &Type) -> String {
         match type_ {
+            Type::AttributedString => "AttributedString".to_string(),
             Type::Boolean => "Boolean".to_string(),
             Type::Byte => "Byte".to_string(),
             Type::Error => "Error".to_string(),

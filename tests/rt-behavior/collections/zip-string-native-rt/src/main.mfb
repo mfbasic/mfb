@@ -1,0 +1,37 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 A3: native `collections::zip` for two `List OF String`
+' (`#collections_zip$String$String`). A `Pair OF String, String` is a variable-width
+' record (two inlined String fields), so this builds each `Pair[a[i], b[i]]` via
+' `emit_build_inlined_record` and appends it into a growable outer, freeing the two
+' materialized String items and the copied Pair record each iteration. Output must
+' be byte-identical to the interpreted `.mfb` zip across equal/uneven/empty/
+' empty-string inputs and must not leak/UAF across churn.
+
+FUNC showZ(z AS List OF Pair OF String, String) AS String
+  MUT out AS String = ""
+  FOR i = 0 TO len(z) - 1
+    LET p AS Pair OF String, String = collections::get(z, i)
+    out = out & "(" & p.first & "|" & p.second & ")"
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main AS Integer
+  LET a AS List OF String = ["x", "yy", "zzz"]
+  LET b AS List OF String = ["1", "22", "333"]
+  io::print("eq: " & showZ(collections::zip(a, b)))
+  LET a2 AS List OF String = ["p", "q"]
+  io::print("aShort: " & showZ(collections::zip(a2, b)))
+  io::print("bShort: " & showZ(collections::zip(a, a2)))
+  LET es AS List OF String = []
+  io::print("empty: " & toString(len(collections::zip(es, b))))
+  io::print("estr: " & showZ(collections::zip(["", "m"], ["n", ""])))
+  MUT acc AS Integer = 0
+  FOR r = 0 TO 999
+    acc = acc + len(collections::zip(a, b))
+  NEXT
+  io::print("stress: " & toString(acc))
+  RETURN 0
+END FUNC

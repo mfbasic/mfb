@@ -208,6 +208,7 @@ carries `RESOURCE_TAG_NATIVE`:
 | 7   | `RESOURCE_TAG_TLS_SCHANNEL` | `TlsSocket` (Windows SChannel)      |
 | 8   | `RESOURCE_TAG_TLS_LISTENER` | TLS listener                        |
 | 9   | `RESOURCE_TAG_AUDIO`        | audio input/output                  |
+| 10  | `RESOURCE_TAG_PROCESS`      | child `Process`                     |
 | 255 | `RESOURCE_TAG_NATIVE`       | imported / native `LINK` resource   |
 
 [[src/target/shared/code/error_constants.rs:RESOURCE_TAG_FILE]]

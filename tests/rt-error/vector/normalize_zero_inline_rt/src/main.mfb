@@ -1,0 +1,13 @@
+IMPORT vector
+IMPORT io
+
+' plan-86 H1: normalize of a Local zero vector — the arg is re-evaluation-safe, so
+' vector::normalize INLINES, exercising the inlined guard's FAIL path (emit_error_
+' code_return 77050002). Companion to normalize_zero_rt, whose constructor-literal
+' arg takes the FUNC path instead. Must trap 7-705-0002 with the same message.
+
+FUNC main AS Integer
+  LET z AS vector::Float3 = vector::Float3[0.0, 0.0, 0.0]
+  io::print(toString(vector::normalize(z)))
+  RETURN 0
+END FUNC

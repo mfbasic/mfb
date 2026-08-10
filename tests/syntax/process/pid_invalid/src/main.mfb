@@ -1,0 +1,13 @@
+' plan-90-A Phase 2: `process::pid(p AS Process) AS Integer` rejects wrong arity
+' and a non-`Process` receiver.
+IMPORT process
+
+FUNC main AS Integer
+  ' No arguments: below the minimum arity.
+  LET a = process::pid()
+  ' Wrong receiver type: an Integer is not a Process.
+  LET b = process::pid(5)
+  ' Too many arguments.
+  LET c = process::pid(5, 6)
+  RETURN 0
+END FUNC

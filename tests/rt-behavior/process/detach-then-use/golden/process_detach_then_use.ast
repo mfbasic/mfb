@@ -1,0 +1,31 @@
+{
+  "project": "process_detach_then_use",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "process", "line": 3 },
+    { "module": "io", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "p", "type": null, "value": { "kind": "call", "callee": "process.spawn", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "sleep" }, { "kind": "string", "value": "30" }] }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.detach", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "process.pid", "arguments": [{ "kind": "identifier", "value": "p" }] }] }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unreachable" }] }, "line": 10 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 11 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -379,6 +379,52 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             push_string_value(&mut values, value.to_string());
         }
     }
+    // plan-90: `process::spawn`/`shell` raise ErrSpawnFailed; lifecycle ops raise
+    // ErrResourceClosed on a dropped handle; spawn raises ErrInvalidArgument on an
+    // empty argv and ErrAllocation on OOM; the send/poll timeout overloads raise
+    // ErrTimeout. `__drop` is emitted by scope-drop, so a program that only spawns
+    // still needs the close-path strings. The whole surface is listed so an I/O-
+    // or signal-only reference still pulls the shared close/timeout strings.
+    let process_calls = [
+        "process.spawn",
+        "process.spawnEnv",
+        "process.shell",
+        "process.pid",
+        "process.isRunning",
+        "process.waitFor",
+        "process.close",
+        "process.send",
+        "process.sendTimeout",
+        "process.sendBytes",
+        "process.sendBytesTimeout",
+        "process.receive",
+        "process.receiveFrom",
+        "process.receiveBytes",
+        "process.receiveBytesFrom",
+        "process.poll",
+        "process.pollFrom",
+        "process.signal",
+        "process.didSignal",
+        "process.detach",
+        "process.__drop",
+    ];
+    if module_uses_any_call(module, &process_calls) {
+        for value in [
+            ERR_SPAWN_FAILED_MESSAGE,
+            ERR_RESOURCE_CLOSED_MESSAGE,
+            ERR_INVALID_ARGUMENT_MESSAGE,
+            ERR_ALLOCATION_MESSAGE,
+            ERR_TIMEOUT_MESSAGE,
+        ] {
+            push_string_value(&mut values, value.to_string());
+        }
+    }
+    // `process::receive`/`receiveFrom` validate the line as UTF-8 and raise
+    // ErrEncoding on a malformed byte sequence, so the receive path needs the
+    // encoding string even when the program never calls `toString`.
+    if module_uses_any_call(module, &["process.receive", "process.receiveFrom"]) {
+        push_string_value(&mut values, ERR_ENCODING_MESSAGE.to_string());
+    }
     if module_uses_migrated(module, "find")
         || module_uses_migrated(module, "mid")
         || module_uses_migrated(module, "get")
@@ -1232,6 +1278,36 @@ pub(super) fn builtin_function_refs(module: &NirModule) -> Vec<(String, String, 
         collect_builtin_function_refs_in_ops(&function.body, &mut refs, &mut seen);
     }
     refs
+}
+
+/// plan-86 K1: names of every top-level function referenced as a `FunctionRef`
+/// (used as a callback / function value) ANYWHERE in the module. Such a function
+/// is invoked through the generic callback ABI, which takes OWNERSHIP of the
+/// callback's return value — e.g. `collections::groupBy` stores each per-element
+/// result into a bucket and frees the callee's returned block after use. A
+/// parameter-passthrough callback that returned a borrow of its argument would
+/// hand that ABI a non-owned pointer to a per-iteration temporary, causing a
+/// double-free / UAF (observed: grouped String values came back empty). So a
+/// function used as a `FunctionRef` MUST keep returning a fresh owned copy;
+/// `function_returns_param_borrow` excludes every name in this set.
+pub(super) fn collect_function_ref_names(module: &NirModule) -> HashSet<String> {
+    use nir::visit::{walk_value, NirVisitor};
+    struct Collector<'a> {
+        out: &'a mut HashSet<String>,
+    }
+    impl NirVisitor for Collector<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::FunctionRef { name, .. } = value {
+                self.out.insert(name.clone());
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut out = HashSet::new();
+    for function in &module.functions {
+        Collector { out: &mut out }.visit_ops(&function.body);
+    }
+    out
 }
 
 fn collect_builtin_function_refs_in_ops(

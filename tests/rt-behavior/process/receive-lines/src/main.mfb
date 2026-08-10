@@ -1,0 +1,15 @@
+' plan-90-B Phase 2: process::receive returns one '\n'-terminated line at a
+' time. `printf 'a\nbb\nccc'` yields lines "a\n", "bb\n", then "ccc" (drained on
+' EOF, no trailing newline). The received newline is part of each line, so the
+' first two prints show a blank line after the content.
+IMPORT process
+IMPORT io
+
+FUNC main AS Integer
+  RES p = process::spawn(["printf", "a\nbb\nccc"])
+  ' print the byte length of each line so the check is unambiguous.
+  io::print(toString(len(process::receive(p))))
+  io::print(toString(len(process::receive(p))))
+  io::print(toString(len(process::receive(p))))
+  RETURN 0
+END FUNC
