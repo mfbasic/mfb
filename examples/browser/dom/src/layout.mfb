@@ -452,17 +452,162 @@ FUNC gatherChildren(e AS ElementNode) AS String
   RETURN s
 END FUNC
 
-' Lay a run of inline-level nodes as one flowed text box at (x, y), wrapping to the
-' content width and taking its line alignment from the block's text-align. Returns
-' the synthetic text run (empty height if it has no text).
-FUNC inlineRun(pending AS List OF Node, st AS Style, x AS Integer, y AS Integer, contentW AS Integer, cw AS Integer, linePx AS Integer) AS Sized
-  MUT text AS String = ""
-  FOR EACH k IN pending
-    text = text & gatherText(k)
+' ----- attributed inline gather (the styled twin of gatherText) ----------------
+'
+' The renderer wants each run's text plus which stretches are a link / bold /
+' underline, so it can colour and style them. gatherAttributed walks the same inline
+' subtree gatherText does and produces the same characters, but as a list of Glyph
+' (one per grapheme) each tagged with the inline style in effect: a link is
+' link-coloured and underlined (and bracketed), <b>/<strong> is bold, <u>/<ins> is
+' underlined; a <button> is angle-bracketed and an <input> is its field glyph. The
+' glyphs are then collapsed (matching collapseWs) and reduced to TextSpans over the
+' collapsed text — so the spans line up with what the renderer wraps and draws.
+
+' The link foreground colour, packed 0xRRGGBB (a readable blue on a dark terminal).
+FUNC linkColor() AS Integer
+  RETURN 90 * 65536 + 160 * 256 + 255
+END FUNC
+
+' One styled grapheme of an inline run.
+TYPE Glyph
+  ch AS String
+  bold AS Boolean
+  underline AS Boolean
+  color AS Integer
+END TYPE
+
+' Split a plain string into styled glyphs, one per grapheme, all carrying (b, u, c).
+FUNC styleGlyphs(s AS String, b AS Boolean, u AS Boolean, c AS Integer) AS List OF Glyph
+  MUT out AS List OF Glyph = []
+  FOR EACH g IN strings::graphemes(s)
+    out = collections::append(out, Glyph[g, b, u, c])
   NEXT
+  RETURN out
+END FUNC
+
+FUNC gatherChildrenGlyphs(e AS ElementNode, b AS Boolean, u AS Boolean, c AS Integer) AS List OF Glyph
+  MUT out AS List OF Glyph = []
+  FOR EACH k IN e.children
+    FOR EACH g IN gatherAttributed(k, b, u, c)
+      out = collections::append(out, g)
+    NEXT
+  NEXT
+  RETURN out
+END FUNC
+
+' Wrap an element's styled inline content in open/close glyphs (the same [ ]/< >
+' decoration gatherText adds), or nothing when the content is blank — the brackets
+' take the wrapping element's style so a link's brackets are coloured too.
+FUNC wrapGlyphs(e AS ElementNode, open AS String, close AS String, b AS Boolean, u AS Boolean, c AS Integer) AS List OF Glyph
+  LET inner AS List OF Glyph = gatherChildrenGlyphs(e, b, u, c)
+  MUT joined AS String = ""
+  FOR EACH g IN inner
+    joined = joined & g.ch
+  NEXT
+  IF strings::trim(joined) = "" THEN RETURN []
+  MUT out AS List OF Glyph = [Glyph[open, b, u, c]]
+  FOR EACH g IN inner
+    out = collections::append(out, g)
+  NEXT
+  out = collections::append(out, Glyph[close, b, u, c])
+  RETURN out
+END FUNC
+
+FUNC gatherAttributed(n AS Node, b AS Boolean, u AS Boolean, c AS Integer) AS List OF Glyph
+  MATCH n
+    CASE ElementNode(e)
+      IF e.style.display = Display.None THEN RETURN []
+      IF e.tag = "a" THEN RETURN wrapGlyphs(e, "[", "]", b, TRUE, linkColor())
+      IF e.tag = "button" THEN RETURN wrapGlyphs(e, "<", ">", b, u, c)
+      IF e.tag = "input" THEN RETURN styleGlyphs(inputBox(e), b, u, c)
+      IF e.tag = "b" OR e.tag = "strong" THEN RETURN gatherChildrenGlyphs(e, TRUE, u, c)
+      IF e.tag = "u" OR e.tag = "ins" THEN RETURN gatherChildrenGlyphs(e, b, TRUE, c)
+      RETURN gatherChildrenGlyphs(e, b, u, c)
+    CASE TextNode(t)
+      RETURN styleGlyphs(t.text, b, u, c)
+    CASE ELSE
+      RETURN []
+  END MATCH
+END FUNC
+
+' Whether two glyphs carry the same terminal style.
+FUNC sameStyle(a AS Glyph, g AS Glyph) AS Boolean
+  RETURN a.bold = g.bold AND a.underline = g.underline AND a.color = g.color
+END FUNC
+
+' Collapse whitespace runs to single spaces and trim, exactly as collapseWs does for
+' plain text (so a run's measured line count matches), carrying each kept glyph's
+' style; a collapsed space is unstyled.
+FUNC collapseGlyphs(gs AS List OF Glyph) AS List OF Glyph
+  MUT out AS List OF Glyph = []
+  MUT pendingSpace AS Boolean = FALSE
+  MUT started AS Boolean = FALSE
+  FOR EACH g IN gs
+    LET isWs AS Boolean = g.ch = " " OR g.ch = "\t" OR g.ch = "\n" OR g.ch = "\r"
+    IF isWs THEN
+      IF started THEN
+        pendingSpace = TRUE
+      END IF
+    ELSE
+      IF pendingSpace THEN
+        out = collections::append(out, Glyph[" ", FALSE, FALSE, -1])
+        pendingSpace = FALSE
+      END IF
+      out = collections::append(out, g)
+      started = TRUE
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' The visible text of a collapsed glyph list.
+FUNC glyphsText(gs AS List OF Glyph) AS String
+  MUT s AS String = ""
+  FOR EACH g IN gs
+    s = s & g.ch
+  NEXT
+  RETURN s
+END FUNC
+
+' Reduce a collapsed glyph list to TextSpans over its grapheme indices: one span per
+' maximal run of styled (non-default) glyphs. Default (plain) glyphs produce no span.
+FUNC glyphsSpans(gs AS List OF Glyph) AS List OF TextSpan
+  MUT spans AS List OF TextSpan = []
+  MUT i AS Integer = 0
+  LET n AS Integer = len(gs)
+  DO WHILE i < n
+    LET g AS Glyph = collections::get(gs, i)
+    IF g.bold OR g.underline OR g.color >= 0 THEN
+      MUT j AS Integer = i
+      DO WHILE j + 1 < n AND sameStyle(collections::get(gs, j + 1), g)
+        j = j + 1
+      LOOP
+      spans = collections::append(spans, TextSpan[i, j, g.bold, g.underline, g.color])
+      i = j + 1
+    ELSE
+      i = i + 1
+    END IF
+  LOOP
+  RETURN spans
+END FUNC
+
+' Lay a run of inline-level nodes as one flowed text box at (x, y), wrapping to the
+' content width and taking its line alignment from the block's text-align. Gathers
+' the run's styled glyphs, collapses them, and carries the resulting text + spans so
+' the renderer can colour/style it. Returns the run (empty height if it has no text).
+FUNC inlineRun(pending AS List OF Node, st AS Style, x AS Integer, y AS Integer, contentW AS Integer, cw AS Integer, linePx AS Integer) AS Sized
+  MUT raw AS List OF Glyph = []
+  FOR EACH k IN pending
+    FOR EACH g IN gatherAttributed(k, FALSE, FALSE, -1)
+      raw = collections::append(raw, g)
+    NEXT
+  NEXT
+  LET glyphs AS List OF Glyph = collapseGlyphs(raw)
+  LET text AS String = glyphsText(glyphs)
+  LET spans AS List OF TextSpan = glyphsSpans(glyphs)
   LET h AS Integer = textHeight(text, contentW, cw, linePx)
   LET box AS Layout = Layout[x, y, contentW, h]
-  RETURN Sized[textLaid(text, box, st.textAlign), contentW, h]
+  RETURN Sized[textLaid(text, box, st.textAlign, spans), contentW, h]
 END FUNC
 
 ' Shift a laid subtree horizontally by dx: every box (element and text) moves right
@@ -478,7 +623,7 @@ FUNC translateNode(n AS Node, dx AS Integer) AS Node
       RETURN elementLaid(e.tag, e.attrs, kids, e.style, Layout[b.x + dx, b.y, b.width, b.height])
     CASE TextNode(t)
       LET b AS Layout = t.layout
-      RETURN textLaid(t.text, Layout[b.x + dx, b.y, b.width, b.height], t.align)
+      RETURN textLaid(t.text, Layout[b.x + dx, b.y, b.width, b.height], t.align, t.spans)
     CASE ELSE
       RETURN n
   END MATCH
@@ -677,7 +822,7 @@ FUNC layoutReplaced(e AS ElementNode, x AS Integer, y AS Integer, cw AS Integer,
   MUT kids AS List OF Node = []
   MUT i AS Integer = 0
   DO WHILE i < rows
-    kids = collections::append(kids, textLaid(line, Layout[contentX, contentY + i * linePx, boxW, linePx], Justify.FlexStart))
+    kids = collections::append(kids, textLaid(line, Layout[contentX, contentY + i * linePx, boxW, linePx], Justify.FlexStart, []))
     i = i + 1
   LOOP
   LET borderW AS Integer = boxW + pl + pr
@@ -952,7 +1097,7 @@ END FUNC
 FUNC layoutText(s AS String, x AS Integer, y AS Integer, availW AS Integer, cw AS Integer, linePx AS Integer) AS Sized
   LET h AS Integer = textHeight(s, availW, cw, linePx)
   LET box AS Layout = Layout[x, y, availW, h]
-  RETURN Sized[textLaid(s, box, Justify.FlexStart), minI(availW, textWidth(s, cw)), h]
+  RETURN Sized[textLaid(s, box, Justify.FlexStart, []), minI(availW, textWidth(s, cw)), h]
 END FUNC
 
 ' Lay out any node, returning the rebuilt node (with its box set) and its outer

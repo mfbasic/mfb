@@ -8,6 +8,7 @@
 ' boundary (see the browser README). Every MATCH on the imported (open) Node
 ' union carries a CASE ELSE, as the language requires.
 
+IMPORT astrings
 IMPORT collections
 IMPORT dom
 IMPORT regex
@@ -228,48 +229,189 @@ FUNC alignOffset(align AS Justify, boxWidth AS Integer, lineWidth AS Integer) AS
   RETURN 0
 END FUNC
 
-' Draw one text run. The DOM gives its box in CSS px; map it down to terminal cells
-' with the glyph size (`cw` px wide, `linePx` tall): the run starts at column x/cw,
-' row y/linePx, and is `box.width/cw` columns wide. `widthCols` is the canvas width.
-FUNC paintRun(canvas AS List OF String, t AS TextNode, widthCols AS Integer, cw AS Integer, linePx AS Integer) AS List OF String
+' ----- attribute plumbing -------------------------------------------------------
+'
+' paint returns AttributedString rows: the same positioned text as the plain canvas,
+' plus per-column bold/underline/foreground so term::drawText can colour and style it.
+' A run's dom TextSpans are in grapheme indices over its collapsed text; paint maps
+' them through the same word-wrap it draws, onto the row columns each glyph lands in.
+' The mapping assumes one grapheme == one column (true for the Latin text that links
+' and bold/underline appear on); a wide glyph can shift an attribute a cell, never
+' corrupt the frame.
+
+' The terminal style resolved at one grapheme: bold/underline flags and a 0xRRGGBB
+' foreground (-1 = default).
+TYPE Style3
+  bold AS Boolean
+  underline AS Boolean
+  color AS Integer
+END TYPE
+
+' A styled column range within one output row (inclusive [c0, c1]).
+TYPE RowSpan
+  c0 AS Integer
+  c1 AS Integer
+  bold AS Boolean
+  underline AS Boolean
+  color AS Integer
+END TYPE
+
+' The positioned canvas: the plain text rows and the styled spans recorded for each.
+TYPE Canvas
+  rows AS List OF String
+  spans AS List OF List OF RowSpan
+END TYPE
+
+' The style covering grapheme `idx` per a run's spans (ordered, non-overlapping);
+' default (unstyled) when none covers it.
+FUNC styleAt(spans AS List OF TextSpan, idx AS Integer) AS Style3
+  FOR EACH sp IN spans
+    IF idx >= sp.start AND idx <= sp.endIndex THEN
+      RETURN Style3[sp.bold, sp.underline, sp.color]
+    END IF
+  NEXT
+  RETURN Style3[FALSE, FALSE, -1]
+END FUNC
+
+' The graphemes in a string (its count is used to advance the wrap offset).
+FUNC graphemeCount(s AS String) AS Integer
+  RETURN len(strings::graphemes(s))
+END FUNC
+
+' Map one wrapped line's styled graphemes to row column-spans: grapheme j of the line
+' is source grapheme `lineOffset + j` (look its style up in `spans`) and lands at row
+' column `startCol + j`, clipped at `rightBound` exactly as the drawn text is. Maximal
+' same-style, contiguous columns are merged into one RowSpan.
+FUNC mapLineSpans(spans AS List OF TextSpan, line AS String, lineOffset AS Integer, startCol AS Integer, rightBound AS Integer) AS List OF RowSpan
+  MUT out AS List OF RowSpan = []
+  MUT haveRun AS Boolean = FALSE
+  MUT rs0 AS Integer = 0
+  MUT rs1 AS Integer = 0
+  MUT rb AS Boolean = FALSE
+  MUT ru AS Boolean = FALSE
+  MUT rc AS Integer = -1
+  MUT j AS Integer = 0
+  FOR EACH g IN strings::graphemes(line)
+    LET col AS Integer = startCol + j
+    IF col >= rightBound THEN
+      EXIT FOR
+    END IF
+    LET stl AS Style3 = styleAt(spans, lineOffset + j)
+    LET styled AS Boolean = stl.bold OR stl.underline OR stl.color >= 0
+    IF styled AND col >= 0 THEN
+      IF haveRun AND stl.bold = rb AND stl.underline = ru AND stl.color = rc AND col = rs1 + 1 THEN
+        rs1 = col
+      ELSE
+        IF haveRun THEN
+          out = collections::append(out, RowSpan[rs0, rs1, rb, ru, rc])
+        END IF
+        haveRun = TRUE
+        rs0 = col
+        rs1 = col
+        rb = stl.bold
+        ru = stl.underline
+        rc = stl.color
+      END IF
+    ELSE
+      IF haveRun THEN
+        out = collections::append(out, RowSpan[rs0, rs1, rb, ru, rc])
+        haveRun = FALSE
+      END IF
+    END IF
+    j = j + 1
+  NEXT
+  IF haveRun THEN
+    out = collections::append(out, RowSpan[rs0, rs1, rb, ru, rc])
+  END IF
+  RETURN out
+END FUNC
+
+' Draw one text run onto the canvas at its layout box, recording its styled spans.
+' The DOM gives the box in CSS px; map it down with the glyph size (`cw` px wide,
+' `linePx` tall): the run starts at column x/cw, row y/linePx, `box.width/cw` wide.
+FUNC paintRun(cv AS Canvas, t AS TextNode, widthCols AS Integer, cw AS Integer, linePx AS Integer) AS Canvas
   LET box AS Layout = t.layout
   LET wCols AS Integer = divRound(box.width, cw)
-  IF wCols <= 0 THEN RETURN canvas
+  IF wCols <= 0 THEN RETURN cv
   LET colX AS Integer = divRound(box.x, cw)
   LET rowY AS Integer = divRound(box.y, linePx)
   LET lines AS List OF String = wrapRun(collapseRun(t.text), wCols)
-  MUT out AS List OF String = canvas
+  MUT rows AS List OF String = cv.rows
+  MUT allSpans AS List OF List OF RowSpan = cv.spans
+  MUT lineOffset AS Integer = 0
   MUT i AS Integer = 0
   FOR EACH line IN lines
     LET row AS Integer = rowY + i
-    IF row >= 0 AND row < len(out) THEN
+    IF row >= 0 AND row < len(rows) THEN
       LET off AS Integer = alignOffset(t.align, wCols, strings::displayWidth(line))
       ' Clip the line to the run's own box (not just the canvas) so a run never
       ' bleeds past its box into a neighbour — e.g. an over-narrow table column.
       LET rightBound AS Integer = minOf(widthCols, colX + wCols)
-      out = collections::set(out, row, overlay(collections::get(out, row), colX + off, line, rightBound))
+      rows = collections::set(rows, row, overlay(collections::get(rows, row), colX + off, line, rightBound))
+      IF len(t.spans) > 0 THEN
+        MUT existing AS List OF RowSpan = collections::get(allSpans, row)
+        FOR EACH rs IN mapLineSpans(t.spans, line, lineOffset, colX + off, rightBound)
+          existing = collections::append(existing, rs)
+        NEXT
+        allSpans = collections::set(allSpans, row, existing)
+      END IF
     END IF
+    lineOffset = lineOffset + graphemeCount(line) + 1
     i = i + 1
   NEXT
-  RETURN out
+  RETURN Canvas[rows, allSpans]
 END FUNC
 
-' Render the document to a positioned canvas of `widthCols`-wide rows, one per page
-' row. The DOM lays out in device-independent CSS px, so paint gives it a viewport of
-' `widthCols * cellPx` px and the glyph size (`cellPx` wide, `linePx` tall), then maps
-' every text run's px box down to terminal cells as it draws (see paintRun). This is
-' where all px → cell conversion happens; the DOM never knows about terminal cells.
-' Walks iteratively (the imported Node union does not lower to a recursive function).
-EXPORT FUNC paint(root AS Node, widthCols AS Integer, cellPx AS Integer, linePx AS Integer) AS List OF String
+' The (r, g, b) channels of a packed 0xRRGGBB color.
+FUNC redOf(c AS Integer) AS Byte
+  RETURN toByte((c / 65536) - ((c / 16777216) * 256))
+END FUNC
+FUNC greenOf(c AS Integer) AS Byte
+  RETURN toByte((c / 256) - ((c / 65536) * 256))
+END FUNC
+FUNC blueOf(c AS Integer) AS Byte
+  RETURN toByte(c - ((c / 256) * 256))
+END FUNC
+
+' Build one row's AttributedString: the plain text plus each recorded span's bold /
+' underline / foreground applied over its columns (== scalar indices for Latin text).
+FUNC buildRow(rowText AS String, spans AS List OF RowSpan) AS AttributedString
+  MUT a AS AttributedString = astrings::fromString(rowText)
+  LET n AS Integer = len(rowText)
+  IF n = 0 THEN RETURN a
+  FOR EACH sp IN spans
+    LET s0 AS Integer = maxOf(0, sp.c0)
+    LET s1 AS Integer = minOf(sp.c1, n - 1)
+    IF s1 >= s0 THEN
+      IF sp.bold THEN a = astrings::addAttribute(a, s0, s1, astrings::bold())
+      IF sp.underline THEN a = astrings::addAttribute(a, s0, s1, astrings::underline())
+      IF sp.color >= 0 THEN a = astrings::addAttribute(a, s0, s1, astrings::foreground(redOf(sp.color), greenOf(sp.color), blueOf(sp.color)))
+    END IF
+  NEXT
+  RETURN a
+END FUNC
+
+' Render the document to a positioned canvas of `widthCols`-wide AttributedString rows,
+' one per page row. The DOM lays out in device-independent CSS px, so paint gives it a
+' viewport of `widthCols * cellPx` px and the glyph size (`cellPx` wide, `linePx` tall),
+' maps every text run's px box down to terminal cells as it draws, and carries each
+' run's styling onto the rows (see paintRun). This is where all px → cell conversion
+' happens; the DOM never knows about terminal cells. Walks iteratively (the imported
+' Node union does not lower to a recursive function).
+EXPORT FUNC paint(root AS Node, widthCols AS Integer, cellPx AS Integer, linePx AS Integer) AS List OF AttributedString
   LET cw AS Integer = maxOf(1, cellPx)
   LET lh AS Integer = maxOf(1, linePx)
   LET viewportPx AS Integer = maxOf(0, widthCols) * cw
   LET laid AS Node = dom::updateLayout(root, viewportPx, cw, lh, TRUE)
   LET h AS Integer = pageHeight(laid, lh)
-  MUT canvas AS List OF String = []
+  MUT rows AS List OF String = []
+  MUT spans AS List OF List OF RowSpan = []
+  LET emptyRow AS List OF RowSpan = []
   FOR i = 0 TO h - 1
-    canvas = collections::append(canvas, "")
+    rows = collections::append(rows, "")
+    spans = collections::append(spans, emptyRow)
   NEXT
+  MUT cv AS Canvas = Canvas[rows, spans]
   MUT stack AS List OF Node = [laid]
   DO WHILE len(stack) > 0
     LET i AS Integer = len(stack) - 1
@@ -283,12 +425,18 @@ EXPORT FUNC paint(root AS Node, widthCols AS Integer, cellPx AS Integer, linePx 
           j = j - 1
         LOOP
       CASE TextNode(t)
-        canvas = paintRun(canvas, t, widthCols, cw, lh)
+        cv = paintRun(cv, t, widthCols, cw, lh)
       CASE HeaderNode(hn)
       CASE ELSE
     END MATCH
   LOOP
-  RETURN canvas
+  MUT out AS List OF AttributedString = []
+  MUT r AS Integer = 0
+  FOR EACH rowText IN cv.rows
+    out = collections::append(out, buildRow(rowText, collections::get(cv.spans, r)))
+    r = r + 1
+  NEXT
+  RETURN out
 END FUNC
 
 ' The readable page text: a pre-order walk emitting text, breaking lines on

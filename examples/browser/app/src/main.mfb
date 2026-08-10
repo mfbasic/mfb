@@ -1,3 +1,4 @@
+IMPORT astrings
 IMPORT collections
 IMPORT display
 IMPORT dom
@@ -135,40 +136,32 @@ FUNC clipCols(s AS String, width AS Integer) AS String
   RETURN out
 END FUNC
 
-' Drop the first `n` display columns of `s`, keeping whole graphemes (a two-cell
-' glyph straddling the cut is dropped). Used to window a line for horizontal scroll.
-FUNC dropCols(s AS String, n AS Integer) AS String
-  IF n <= 0 THEN RETURN s
-  MUT out AS String = ""
-  MUT used AS Integer = 0
-  MUT dropping AS Boolean = TRUE
-  FOR EACH g IN strings::graphemes(s)
-    IF dropping THEN
-      used = used + strings::displayWidth(g)
-      IF used >= n THEN
-        dropping = FALSE
-      END IF
-    ELSE
-      out = out & g
-    END IF
-  NEXT
-  RETURN out
-END FUNC
-
 ' Truncate or space-pad a string to exactly `width` terminal columns.
 FUNC fit(s AS String, width AS Integer) AS String
   IF width <= 0 THEN RETURN ""
   RETURN padCols(clipCols(s, width), width)
 END FUNC
 
-' The widest line in a set of content lines, in display columns.
-FUNC maxLineWidth(lines AS List OF String) AS Integer
+' The widest line in a set of content rows, in display columns (the visible text of
+' each AttributedString).
+FUNC maxLineWidth(lines AS List OF AttributedString) AS Integer
   MUT m AS Integer = 0
   FOR EACH line IN lines
-    LET w AS Integer = strings::displayWidth(line)
+    LET w AS Integer = strings::displayWidth(toString(line))
     IF w > m THEN m = w
   NEXT
   RETURN m
+END FUNC
+
+' Wrap plain content lines as unstyled AttributedStrings, so the Raw view, the
+' welcome/error fallback, and the loading screen share drawContent with the styled
+' Display-mode rows that display::paint produces.
+FUNC attrLines(lines AS List OF String) AS List OF AttributedString
+  MUT out AS List OF AttributedString = []
+  FOR EACH line IN lines
+    out = collections::append(out, astrings::fromString(line))
+  NEXT
+  RETURN out
 END FUNC
 
 ' Compose one footer line: `left` flush-left, `right` flush-right, in `width`
@@ -351,21 +344,25 @@ SUB drawChrome(size AS TermSize, addressMode AS Boolean, rawMode AS Boolean, url
 END SUB
 
 ' Repaint the whole content region (rows 2 .. H-3). Every row is rewritten,
-' blanks included, so a shorter page leaves no stale lines behind.
-SUB drawContent(size AS TermSize, wrapped AS List OF String, scroll AS Integer, hscroll AS Integer)
+' blanks included, so a shorter page leaves no stale lines behind. Each row is an
+' AttributedString drawn with term::drawText, which honours its per-run bold /
+' underline / foreground colour.
+SUB drawContent(size AS TermSize, wrapped AS List OF AttributedString, scroll AS Integer, hscroll AS Integer)
   LET cols AS Integer = size.columns
   LET contentH AS Integer = maxOf(1, size.rows - 4)
   term::setBackground(0, 0, 0)
   term::setForeground(210, 214, 220)
+  term::setBold(FALSE)
+  LET blank AS String = strings::repeat(" ", maxOf(1, cols))
   FOR r = 0 TO contentH - 1
     LET idx AS Integer = scroll + r
-    MUT lineStr AS String = ""
+    ' Clear the row, then stamp the styled content shifted left by `hscroll`:
+    ' term::drawText skips negative columns and clips at the right edge, so it
+    ' windows the row horizontally without slicing the (opaque) AttributedString.
+    term::drawText(0, 2 + r, blank)
     IF idx >= 0 AND idx < len(wrapped) THEN
-      lineStr = collections::get(wrapped, idx)
+      term::drawText(0 - hscroll, 2 + r, collections::get(wrapped, idx))
     END IF
-    term::moveTo(2 + r, 0)
-    ' Window the line horizontally: drop the first `hscroll` columns, then fit.
-    io::write(fit(dropCols(lineStr, hscroll), cols))
   NEXT
 END SUB
 
@@ -415,7 +412,7 @@ FUNC main AS Integer
   ' width; `lastContentWidth` is that width, so a change re-lays-out. `contentDirty`
   ' marks the content region for repaint (a load, a scroll, or a resize); the chrome
   ' is cheap and repainted every frame. term::didResize() reports a terminal resize.
-  MUT wrapped AS List OF String = []
+  MUT wrapped AS List OF AttributedString = []
   ' The widest content line, for clamping the horizontal scroll (Left/Right). The
   ' page can be laid out wider than the terminal (see layoutWidthFor / the width
   ' mode), and the viewport shows a `cols`-wide window starting at `hscroll`.
@@ -467,7 +464,7 @@ FUNC main AS Integer
           ELSE
             content = fallback
           END IF
-          wrapped = wrapContent(content, layoutW)
+          wrapped = attrLines(wrapContent(content, layoutW))
         END IF
         contentPixWidth = maxLineWidth(wrapped)
         lastContentWidth = layoutW
@@ -518,7 +515,7 @@ FUNC main AS Integer
         loadState = "loading"
         pageTitle = ""
         LET target AS String = strings::trim(url)
-        LET loadingLines AS List OF String = wrapContent("Loading " & target & " ...", cols)
+        LET loadingLines AS List OF AttributedString = attrLines(wrapContent("Loading " & target & " ...", cols))
         drawChrome(size, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
         drawContent(size, loadingLines, 0, 0)
         term::sync()

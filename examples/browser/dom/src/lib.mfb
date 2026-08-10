@@ -28,16 +28,33 @@ EXPORT TYPE ElementNode
   layout AS Layout
 END TYPE
 
-' A run of text. `layout` is the box the layout pass placed this run in (x, y in
-' viewport cells, width = the column it wraps to, height = its wrapped line count);
-' the parser leaves it at zeroLayout() and updateLayout fills it. `align` is the
-' horizontal alignment of each wrapped line within that box (from the block's
-' text-align). A renderer draws the text at this box — element boxes are invisible
-' containers in a text terminal, so the positioned text is what actually paints.
+' A styled range within a text run: the inclusive grapheme range [start, endIndex]
+' of the run's text and the terminal attributes to apply over it — bold, underline,
+' and a 0xRRGGBB foreground color (-1 = the default color). Built by the inline text
+' gather from the tags a run flattens (a link → underlined + link color, <b>/<strong>
+' → bold, <u>/<ins> → underline) and consumed by the renderer to build an
+' AttributedString. Ranges are over the run's already-collapsed text, so they line up
+' with what the renderer wraps and draws.
+EXPORT TYPE TextSpan
+  start AS Integer
+  endIndex AS Integer
+  bold AS Boolean
+  underline AS Boolean
+  color AS Integer
+END TYPE
+
+' A run of text. `layout` is the box the layout pass placed this run in (x, y in CSS
+' px, width = the box it wraps to, height = its wrapped height); the parser leaves it
+' at zeroLayout() and updateLayout fills it. `align` is the horizontal alignment of
+' each wrapped line within that box (from the block's text-align). `spans` carries the
+' run's per-range styling (see TextSpan) for a color/bold/underline-aware renderer; it
+' is empty for plain text. A renderer draws the text at this box — element boxes are
+' invisible containers in a text terminal, so the positioned text is what paints.
 EXPORT TYPE TextNode
   text AS String
   layout AS Layout
   align AS Justify
+  spans AS List OF TextSpan
 END TYPE
 
 ' One parsed CSS rule: a selector and its property map (see parseCss in css.mfb).
@@ -94,15 +111,15 @@ EXPORT FUNC elementLaid(tag AS String, attrs AS Map OF String TO String, childre
 END FUNC
 
 EXPORT FUNC textNode(s AS String) AS Node
-  LET n AS Node = TextNode[s, zeroLayout(), Justify.FlexStart]
+  LET n AS Node = TextNode[s, zeroLayout(), Justify.FlexStart, []]
   RETURN n
 END FUNC
 
-' Build a text run carrying its computed layout box and line alignment. Used by
-' updateLayout to place each run; the renderer reads the box + align to paint the
-' text at its position.
-EXPORT FUNC textLaid(s AS String, box AS Layout, align AS Justify) AS Node
-  LET n AS Node = TextNode[s, box, align]
+' Build a text run carrying its computed layout box, line alignment, and per-range
+' styling (spans; empty for plain text). Used by updateLayout to place each run; the
+' renderer reads the box + align + spans to paint the styled text at its position.
+EXPORT FUNC textLaid(s AS String, box AS Layout, align AS Justify, spans AS List OF TextSpan) AS Node
+  LET n AS Node = TextNode[s, box, align, spans]
   RETURN n
 END FUNC
 

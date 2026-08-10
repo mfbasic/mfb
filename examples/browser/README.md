@@ -211,17 +211,29 @@ recursing over an *imported* union):
 `display::paint(doc, widthCols, cellPx, linePx)` consumes all of this: it lays the
 page out in a `widthCols * cellPx`-px viewport, then **maps each text run's px box
 down to terminal cells** (dividing by the glyph size) as it draws onto a
-`widthCols`-wide canvas (one String per page row) that the app scrolls a window over.
-This is where *all* px → cell conversion lives — the DOM never does it. Element boxes
-are invisible containers (a text terminal has no backgrounds or borders), so the
-positioned text is the whole picture: flex columns land side by side, padding indents,
-widths clip. The app supplies the terminal's ~8×16px cell (`termCellPx`/`termLinePx`)
-— the one piece of terminal knowledge, and it lives in the app, not the DOM.
+`widthCols`-wide canvas — one **`AttributedString`** per page row — that the app scrolls
+a window over. This is where *all* px → cell conversion lives — the DOM never does it.
+Element boxes are invisible containers (a text terminal has no backgrounds or borders),
+so the positioned text is the whole picture: flex columns land side by side, padding
+indents, widths clip. The app supplies the terminal's ~8×16px cell
+(`termCellPx`/`termLinePx`) — the one piece of terminal knowledge, and it lives in the
+app, not the DOM.
+
+**Styling.** Each run carries its inline styling as `dom::TextSpan`s (which stretches
+are a link, `<b>`/`<strong>`, `<u>`/`<ins>`); `paint` maps those spans through the same
+word-wrap it draws and records them on the output rows, so each row is an
+`AttributedString` with per-column **bold**, **underline**, and a **foreground colour**
+(links render in blue and underlined). The app draws every content row with
+`term::drawText(0 - hscroll, row, attributedRow)` — its negative-column skip and
+right-edge clip window the row horizontally without slicing the opaque AttributedString,
+and it honours the run's bold/underline/colour. (Mapping assumes one grapheme ≈ one
+column, true for the Latin text styling appears on; a wide glyph may shift an attribute a
+cell, never corrupt the frame.)
 
 **Form controls and links** would otherwise be invisible (an `<input>` has no text,
 a link looks like plain words), so the inline layout decorates them into the flowed
-text: a link's text is wrapped in `[brackets]`, a `<button>`/`<input type=submit>`
-label in `<angle brackets>`, and an `<input>` becomes a field glyph — `|S:----|` for
-text, `|N:----|` for a number (the dashes span its `size`), `[ ]`/`( )` for a
-checkbox/radio. A `<textarea>` is a replaced block drawn as `rows` lines of
-`|----|` (each `cols` wide). These are plain glyphs today (no color).
+text: a link's text is wrapped in `[brackets]` (and coloured), a `<button>`/`<input
+type=submit>` label in `<angle brackets>`, and an `<input>` becomes a field glyph —
+`|S:----|` for text, `|N:----|` for a number (the dashes span its `size`), `[ ]`/`( )`
+for a checkbox/radio. A `<textarea>` is a replaced block drawn as `rows` lines of
+`|----|` (each `cols` wide).
