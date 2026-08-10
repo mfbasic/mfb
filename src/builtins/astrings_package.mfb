@@ -9,6 +9,7 @@ REM (plan-89-B §3); the natives only cross the opaque-record boundary.
 IMPORT collections
 IMPORT astrings
 IMPORT strings
+IMPORT bits
 
 REM ===========================================================================
 REM The Attribute model
@@ -32,10 +33,11 @@ END ENUM
 
 DOC
   ENUM AttrTypeNumber
-  DESC A styling attribute whose value is an Integer (e.g. a font size).
+  DESC A styling attribute whose value is an Integer (e.g. a font size, or a
+  DESC packed `0xRRGGBB` color for `Foreground`/`Background`).
 END DOC
 EXPORT ENUM AttrTypeNumber
-  FontSize
+  FontSize, Foreground, Background
 END ENUM
 
 DOC
@@ -132,6 +134,23 @@ FUNC __astrings_fontSize(size AS Integer) AS Attribute
   RETURN AttrNumber[AttrTypeNumber.FontSize, size]
 END FUNC
 
+REM Pack an (r, g, b) triple into a single `0xRRGGBB` Integer — r in the high
+REM byte, b in the low byte — the payload the `Foreground`/`Background` numeric
+REM attributes carry. Each channel is a Byte, so no channel overflows its 8 bits
+REM and the packing is lossless (unlike a decimal r*100+... scheme). The `term`
+REM bridge unpacks it with the inverse shifts/masks.
+FUNC __astrings_packColor(r AS Byte, g AS Byte, b AS Byte) AS Integer
+  RETURN bits::bor(bits::bor(bits::sl(toInt(r), 16), bits::sl(toInt(g), 8)), toInt(b))
+END FUNC
+
+FUNC __astrings_foreground(r AS Byte, g AS Byte, b AS Byte) AS Attribute
+  RETURN AttrNumber[AttrTypeNumber.Foreground, __astrings_packColor(r, g, b)]
+END FUNC
+
+FUNC __astrings_background(r AS Byte, g AS Byte, b AS Byte) AS Attribute
+  RETURN AttrNumber[AttrTypeNumber.Background, __astrings_packColor(r, g, b)]
+END FUNC
+
 REM ===========================================================================
 REM Attribute <-> AttrSpan encoding
 REM ===========================================================================
@@ -167,6 +186,30 @@ FUNC __astrings_flagFromMember(m AS Integer) AS AttrTypeFlag
   RETURN AttrTypeFlag.Overline
 END FUNC
 
+REM Number attributes share `class=2`, so — like flags — they need a member
+REM ordinal to stay distinguishable in storage. `FontSize` keeps member 0 (its
+REM historical encoding, so pre-existing stored spans still decode as FontSize).
+FUNC __astrings_numberMember(t AS AttrTypeNumber) AS Integer
+  MATCH t
+    CASE AttrTypeNumber.FontSize
+      RETURN 0
+    CASE AttrTypeNumber.Foreground
+      RETURN 1
+    CASE AttrTypeNumber.Background
+      RETURN 2
+  END MATCH
+END FUNC
+
+FUNC __astrings_numberFromMember(m AS Integer) AS AttrTypeNumber
+  IF m = 1 THEN
+    RETURN AttrTypeNumber.Foreground
+  END IF
+  IF m = 2 THEN
+    RETURN AttrTypeNumber.Background
+  END IF
+  RETURN AttrTypeNumber.FontSize
+END FUNC
+
 FUNC __astrings_encodeAttr(start AS Integer, endIndex AS Integer, seq AS Integer, attr AS Attribute) AS AttrSpan
   MATCH attr
     CASE AttrFlag(f)
@@ -174,7 +217,7 @@ FUNC __astrings_encodeAttr(start AS Integer, endIndex AS Integer, seq AS Integer
     CASE AttrText(t)
       RETURN AttrSpan[start, endIndex, seq, 1, 0, t.value, 0]
     CASE AttrNumber(n)
-      RETURN AttrSpan[start, endIndex, seq, 2, 0, "", n.value]
+      RETURN AttrSpan[start, endIndex, seq, 2, __astrings_numberMember(n.kind), "", n.value]
   END MATCH
 END FUNC
 
@@ -185,7 +228,7 @@ FUNC __astrings_decodeAttr(s AS AttrSpan) AS Attribute
   IF s.class = 1 THEN
     RETURN AttrText[AttrTypeText.Font, s.text]
   END IF
-  RETURN AttrNumber[AttrTypeNumber.FontSize, s.number]
+  RETURN AttrNumber[__astrings_numberFromMember(s.member), s.number]
 END FUNC
 
 REM Structural equality of a stored span's attribute vs a target span's attribute
@@ -692,8 +735,12 @@ FUNC __astrings_mdStateAt(a AS AttributedString, i AS Integer) AS MdState
         hasFont = TRUE
         font = t.value
       CASE AttrNumber(nm)
-        hasSize = TRUE
-        size = nm.value
+        REM Only FontSize renders in markdown; Foreground/Background carry a
+        REM packed color that this bespoke format does not represent, so ignore.
+        IF nm.kind = AttrTypeNumber.FontSize THEN
+          hasSize = TRUE
+          size = nm.value
+        END IF
     END MATCH
   NEXT
   RETURN MdState[bold, italic, underline, strike, overline, hasFont, font, hasSize, size]
