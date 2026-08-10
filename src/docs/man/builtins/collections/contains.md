@@ -85,7 +85,7 @@ FNV-1a probe for the probe-eligible element types (`Integer`, `Float`, `Fixed`,
 `Byte`, `Boolean`, `String`), falling back to a linear scan over the live entries
 for any other element type. The answer is identical to the list form's; only the
 lookup strategy differs. [[src/codegen/builtins/collections/mod.rs:resolve_contains]]
-[[src/target/shared/code/builder_collection_queries.rs:emit_key_membership]]
+[[src/codegen/builtins/collections/common/set.rs:emit_key_membership]]
 
 ## Parameters
 
