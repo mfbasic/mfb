@@ -1,0 +1,11 @@
+' bug-227: an ISOLATED FUNC must be project-visible (PUBLIC — the default — or
+' EXPORT). An explicit PRIVATE ISOLATED FUNC is rejected. Pre-fix this was
+' mis-classified as TYPE_CALL_ARGUMENT_MISMATCH; the fix introduced a dedicated
+' TYPE_ISOLATED_NOT_VISIBLE (2-203-0113) and reports it here instead.
+PRIVATE ISOLATED FUNC w(x AS Integer) AS Integer
+  RETURN x
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
