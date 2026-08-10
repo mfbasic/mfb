@@ -136,12 +136,13 @@ recursing over an *imported* union):
   record with one typed field per supported property (a `Display` / `FlexDirection`
   / `FlexWrap` / `Justify` / `Align` enum, or an Integer length in **device-
   independent CSS px**, with `-1` meaning `auto`), not an open string bag. Lengths are
-  parsed by unit: `px`/unitless keep their number, `em`/`rem` use a 16px default font
-  size, and a **viewport- or container-relative** length (`60vw`, `100%`, `50vh`, …)
-  resolves to `auto` — this Style model has no containing-block width to take a
-  percentage of, so a relative width *fills* the available space (and reflows with the
-  viewport) rather than being read as a raw px number that would collapse the box to a
-  few cells. `dom::resolveStyles(doc)`
+  parsed by unit: `px`/unitless keep their number and `em`/`rem` use a 16px default
+  font size. A **`width`** additionally carries its unit (`Style.widthUnit`) so a
+  relative width resolves against the right reference at layout time: `60vw` is
+  60% of the viewport (`60vw` of an 848px viewport → 508px → 64 cells), `100%`/`50%`
+  is a fraction of the containing block, and `vh`/`vmin`/`vmax` (no height in a
+  scrolling text viewport) fall back to auto. Percent/viewport units on the other box
+  properties (they are rare there) still fall back to auto. `dom::resolveStyles(doc)`
   (`resolve.mfb`) walks the tree and for each element applies the user-agent default
   for its tag, then every matching `StyleNode` rule in document order, then the
   inline `style="…"` attribute. Selectors support **compound** simple-selectors
@@ -192,9 +193,10 @@ recursing over an *imported* union):
   and inline markup collapses to plain text with no per-glyph styling.)
 
   **The DOM is pixel-native and device-independent** — it lays out entirely in CSS px
-  and knows nothing about terminals. `Style` lengths are already CSS px (`60vw`/`100%`
-  resolve to `auto`, `em`/`rem` to a 16px font size), so `updateLayout` does no
-  unit conversion; it just needs the renderer's **glyph size** — `cellPx` wide,
+  and knows nothing about terminals. `Style` lengths are already CSS px (`em`/`rem`
+  reduced to a 16px font size), and a relative `width` (`60vw`, `100%`) is resolved
+  to px against the pixel viewport / containing block during layout, so `updateLayout`
+  does no cell conversion; it just needs the renderer's **glyph size** — `cellPx` wide,
   `linePx` tall — to measure and wrap text (a run's px width is its column count times
   `cellPx`, its px height its line count times `linePx`). `fitWidth` treats an explicit
   width wider than the viewport as auto so a desktop-width page reflows to a narrow

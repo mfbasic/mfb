@@ -10,8 +10,8 @@
 '
 ' The supported set covers display, the flex container properties, the flex item
 ' properties, box sizing, and spacing. Categorical properties are enums (grouped
-' here as the layout vocabulary grows); lengths are Integers in terminal cells,
-' with -1 meaning "auto".
+' here as the layout vocabulary grows); lengths are Integers in device-independent
+' CSS px, with -1 meaning "auto".
 
 ' The outer display type of a box. `Flex` is the one two-dimensional mode; `Block`
 ' and `Inline` are modelled as flex column / flex row when laid out; `None`
@@ -41,6 +41,16 @@ EXPORT ENUM Align
   Stretch, FlexStart, FlexEnd, Center
 END ENUM
 
+' How a length is measured, so a relative width can be resolved at layout time
+' against the right reference. `Px` is an absolute CSS-px length (the common case,
+' and what an em/rem length has already been reduced to). `Percent` is a fraction of
+' the containing block's content width; `Vw`/`Vh`/`Vmin`/`Vmax` are fractions of the
+' viewport. Only `width` carries a unit today (see Style.widthUnit); every other
+' length is absolute px, with a relative value falling back to auto.
+EXPORT ENUM LengthUnit
+  Px, Percent, Vw, Vh, Vmin, Vmax
+END ENUM
+
 EXPORT TYPE Style
   ' display + flex container
   display AS Display
@@ -52,8 +62,11 @@ EXPORT TYPE Style
   flexGrow AS Integer
   flexShrink AS Integer
   flexBasis AS Integer
-  ' box sizing (cells; -1 = auto)
+  ' box sizing (CSS px; -1 = auto). `widthUnit` tags how `width` is measured so a
+  ' relative width (a percent or viewport unit) can be resolved at layout time; for a
+  ' `Px` width (the default) it is the px value verbatim. `height` is px/auto only.
   width AS Integer
+  widthUnit AS LengthUnit
   height AS Integer
   ' spacing (cells)
   paddingTop AS Integer
@@ -77,5 +90,5 @@ END TYPE
 ' align-items:stretch, flex-grow:0, flex-shrink:1, text-align:left, everything else
 ' auto/zero). Callers start here and override with WITH for what they resolved.
 EXPORT FUNC defaultStyle() AS Style
-  RETURN Style[Display.Inline, FlexDirection.Row, FlexWrap.NoWrap, Justify.FlexStart, Align.Stretch, 0, 1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, Justify.FlexStart]
+  RETURN Style[Display.Inline, FlexDirection.Row, FlexWrap.NoWrap, Justify.FlexStart, Align.Stretch, 0, 1, -1, -1, LengthUnit.Px, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, Justify.FlexStart]
 END FUNC

@@ -72,6 +72,49 @@ FUNC lengthOf(v AS String, fb AS Integer) AS Integer
   RETURN n
 END FUNC
 
+' Resolve the `width` property, preserving its unit so layout can resolve a relative
+' width against the right reference. "auto" -> width -1; a percent/viewport unit
+' ("60vw", "100%", "50vh"…) keeps its number and tags widthUnit; everything else is an
+' absolute px length (px/unitless, em/rem via lengthOf's 16px font). A malformed value
+' leaves the width unchanged. Unlike lengthOf (which collapses relative units to auto
+' for the other box properties), width carries the unit through to layout.
+FUNC applyWidth(base AS Style, raw AS String) AS Style
+  LET t AS String = normalize(raw)
+  MUT s AS Style = base
+  IF t = "auto" THEN
+    RETURN WITH s { width := -1 }
+  END IF
+  MUT unit AS LengthUnit = LengthUnit.Px
+  MUT relative AS Boolean = TRUE
+  IF strings::endsWith(t, "%") THEN
+    unit = LengthUnit.Percent
+  ELSEIF strings::endsWith(t, "vmin") THEN
+    unit = LengthUnit.Vmin
+  ELSEIF strings::endsWith(t, "vmax") THEN
+    unit = LengthUnit.Vmax
+  ELSEIF strings::endsWith(t, "vw") THEN
+    unit = LengthUnit.Vw
+  ELSEIF strings::endsWith(t, "vh") THEN
+    unit = LengthUnit.Vh
+  ELSE
+    relative = FALSE
+  END IF
+  IF relative THEN
+    LET num AS String = leadingInt(t)
+    IF num = "" OR num = "-" THEN
+      RETURN base
+    END IF
+    s = WITH s { width := parseIntOr(num, 0) }
+    s = WITH s { widthUnit := unit }
+    RETURN s
+  END IF
+  ' Absolute: reuse lengthOf (px / unitless / em / rem), and mark the unit Px so a
+  ' later absolute rule overrides an earlier relative one in the cascade.
+  s = WITH s { width := lengthOf(t, base.width) }
+  s = WITH s { widthUnit := LengthUnit.Px }
+  RETURN s
+END FUNC
+
 ' A plain integer value (flex-grow/shrink), or `fb`.
 FUNC intOf(v AS String, fb AS Integer) AS Integer
   LET num AS String = leadingInt(v)
@@ -230,7 +273,7 @@ EXPORT FUNC applyDeclarations(base AS Style, props AS Map OF String TO String) A
   LET basis AS String = collections::getOr(props, "flex-basis", "")
   IF basis <> "" THEN s = WITH s { flexBasis := lengthOf(basis, s.flexBasis) }
   LET wd AS String = collections::getOr(props, "width", "")
-  IF wd <> "" THEN s = WITH s { width := lengthOf(wd, s.width) }
+  IF wd <> "" THEN s = applyWidth(s, wd)
   LET ht AS String = collections::getOr(props, "height", "")
   IF ht <> "" THEN s = WITH s { height := lengthOf(ht, s.height) }
   LET gp AS String = collections::getOr(props, "gap", "")

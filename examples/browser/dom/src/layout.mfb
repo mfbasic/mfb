@@ -53,26 +53,47 @@ EXPORT FUNC zeroLayout() AS Layout
   RETURN Layout[0, 0, 0, 0]
 END FUNC
 
-' The width-fitting prepass: when a page is laid out into a viewport narrower than
-' an element's explicit CSS-px width, that width is treated as auto (fill) so a
-' desktop-width page reflows to a small viewport instead of overflowing off the
-' edge. A renderer that wants the authored widths verbatim (a full-size pixel
-' canvas) passes fitWidth = FALSE and skips this. Recurses over dom's own Node union
-' (native inside dom); text nodes are unchanged. No unit conversion happens here —
-' styles are already in CSS px — only the over-wide → auto clamp.
-FUNC fitTree(n AS Node, viewportPx AS Integer) AS Node
+' The width prepass, run once before layout. It (1) resolves a viewport-relative
+' width to px — the viewport is fixed for the whole pass, so `60vw` becomes
+' 60/100 * viewportPx here; a `vh`/`vmin`/`vmax` width has no viewport height in a
+' scrolling text viewport, so it falls back to auto — and (2) applies fitWidth: an
+' explicit px width wider than the viewport becomes auto (fill) so a desktop-width
+' page reflows to a small viewport instead of overflowing off the edge. A percent
+' width is left tagged for layout, which resolves it against the containing block.
+' Recurses over dom's own Node union (native inside dom); text nodes are unchanged.
+FUNC resolveWidths(n AS Node, viewportPx AS Integer, fitWidth AS Boolean) AS Node
   MATCH n
     CASE ElementNode(e)
       MUT kids AS List OF Node = []
       FOR EACH c IN e.children
-        kids = collections::append(kids, fitTree(c, viewportPx))
+        kids = collections::append(kids, resolveWidths(c, viewportPx, fitWidth))
       NEXT
       MUT st AS Style = e.style
-      IF st.width > viewportPx THEN st = WITH st { width := -1 }
+      IF st.width >= 0 THEN
+        IF st.widthUnit = LengthUnit.Vw THEN
+          st = WITH st { width := st.width * viewportPx / 100 }
+          st = WITH st { widthUnit := LengthUnit.Px }
+        ELSEIF st.widthUnit = LengthUnit.Vh OR st.widthUnit = LengthUnit.Vmin OR st.widthUnit = LengthUnit.Vmax THEN
+          st = WITH st { width := -1 }
+        END IF
+      END IF
+      IF fitWidth AND st.widthUnit = LengthUnit.Px AND st.width > viewportPx THEN
+        st = WITH st { width := -1 }
+      END IF
       RETURN elementStyled(e.tag, e.attrs, kids, st)
     CASE ELSE
       RETURN n
   END MATCH
+END FUNC
+
+' The resolved px width of an element, or -1 for auto, given the width available to
+' it (its containing block's content width, for a percent). Viewport units are
+' already px by the time layout runs (resolveWidths), so only Percent needs the
+' containing block here.
+FUNC resolveWidthPx(st AS Style, availW AS Integer) AS Integer
+  IF st.width < 0 THEN RETURN -1
+  IF st.widthUnit = LengthUnit.Percent THEN RETURN st.width * availW / 100
+  RETURN st.width
 END FUNC
 
 ' ----- internal results ---------------------------------------------------------
@@ -191,7 +212,8 @@ FUNC childBaseMain(n AS Node, contentW AS Integer, cw AS Integer) AS Integer
   MATCH n
     CASE ElementNode(e)
       IF e.style.flexBasis >= 0 THEN RETURN e.style.flexBasis + maxI(0, e.style.marginLeft) + maxI(0, e.style.marginRight)
-      IF e.style.width >= 0 THEN RETURN e.style.width + maxI(0, e.style.marginLeft) + maxI(0, e.style.marginRight)
+      LET wpx AS Integer = resolveWidthPx(e.style, contentW)
+      IF wpx >= 0 THEN RETURN wpx + maxI(0, e.style.marginLeft) + maxI(0, e.style.marginRight)
       RETURN maxContentOuterW(n, cw)
     CASE TextNode(t)
       RETURN minI(contentW, textWidth(t.text, cw))
@@ -222,7 +244,9 @@ FUNC elementMaxContentOuterW(e AS ElementNode, cw AS Integer) AS Integer
   LET mr AS Integer = maxI(0, st.marginRight)
   LET pl AS Integer = maxI(0, st.paddingLeft)
   LET pr AS Integer = maxI(0, st.paddingRight)
-  IF st.width >= 0 THEN RETURN st.width + ml + mr
+  ' A fixed px width pins max-content; a percent width has no fixed max-content
+  ' (there is no containing block here), so fall through to the content-based size.
+  IF st.width >= 0 AND st.widthUnit = LengthUnit.Px THEN RETURN st.width + ml + mr
   MUT inner AS Integer = 0
   LET rowish AS Boolean = st.display = Display.Flex AND (st.direction = FlexDirection.Row OR st.direction = FlexDirection.RowReverse)
   IF rowish THEN
@@ -751,11 +775,12 @@ FUNC layoutTable(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integer
   LET pt AS Integer = maxI(0, st.paddingTop)
   LET pb AS Integer = maxI(0, st.paddingBottom)
   ' The maximum width the table may occupy: an explicit/imposed width, else fill.
+  LET explicitW AS Integer = resolveWidthPx(st, availW)
   MUT maxBorderW AS Integer = availW - ml - mr
-  IF imposeWidth = FALSE AND st.width >= 0 THEN maxBorderW = st.width
+  IF imposeWidth = FALSE AND explicitW >= 0 THEN maxBorderW = explicitW
   maxBorderW = maxI(0, maxBorderW)
   LET maxContentW AS Integer = maxI(0, maxBorderW - pl - pr)
-  LET autoWidth AS Boolean = imposeWidth = FALSE AND st.width < 0
+  LET autoWidth AS Boolean = imposeWidth = FALSE AND explicitW < 0
   LET originX AS Integer = x + ml + pl
   LET originY AS Integer = y + mt + pt
 
@@ -898,10 +923,12 @@ FUNC layoutElement(e AS ElementNode, x AS Integer, y AS Integer, availW AS Integ
   LET pt AS Integer = maxI(0, st.paddingTop)
   LET pb AS Integer = maxI(0, st.paddingBottom)
 
-  ' Border-box width: imposed → fill available less margins; else explicit width,
-  ' else fill available less margins.
+  ' Border-box width: imposed → fill available less margins; else the resolved
+  ' explicit width (a percent resolves against the containing block = availW); else
+  ' fill available less margins.
+  LET explicitW AS Integer = resolveWidthPx(st, availW)
   MUT borderW AS Integer = availW - ml - mr
-  IF imposeWidth = FALSE AND st.width >= 0 THEN borderW = st.width
+  IF imposeWidth = FALSE AND explicitW >= 0 THEN borderW = explicitW
   borderW = maxI(0, borderW)
   LET contentW AS Integer = maxI(0, borderW - pl - pr)
 
@@ -956,10 +983,10 @@ EXPORT FUNC updateLayout(doc AS Node, viewportPx AS Integer, cellPx AS Integer, 
   LET vp AS Integer = maxI(0, viewportPx)
   LET cw AS Integer = maxI(1, cellPx)
   LET lh AS Integer = maxI(1, linePx)
-  MUT tree AS Node = doc
-  IF fitWidth THEN
-    tree = fitTree(tree, vp)
-  END IF
+  ' Resolve viewport-relative widths to px and apply the fitWidth clamp up front (the
+  ' viewport is fixed); percent widths stay tagged and resolve against each containing
+  ' block during layout.
+  LET tree AS Node = resolveWidths(doc, vp, fitWidth)
   LET r AS Sized = layoutNode(tree, 0, 0, vp, FALSE, cw, lh)
   RETURN r.node
 END FUNC
