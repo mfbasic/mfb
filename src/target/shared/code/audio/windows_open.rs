@@ -423,15 +423,15 @@ fn lower_open(
         abi::branch(&done),
         abi::label(&invalid),
     ]);
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&unavailable));
     emit_open_cleanup(&mut ins);
-    emit_fail(symbol, ERR_AUDIO_UNAVAILABLE_CODE, ERR_AUDIO_UNAVAILABLE_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrAudioUnavailable", &mut ins, &mut rel, &done);
     ins.push(abi::label(&dev_fail));
     emit_open_cleanup(&mut ins);
-    emit_fail(symbol, ERR_AUDIO_DEVICE_CODE, ERR_AUDIO_DEVICE_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrAudioDevice", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.push(abi::label(&done));
     ins.push(abi::return_());
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME);

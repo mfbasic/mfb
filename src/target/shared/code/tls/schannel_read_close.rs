@@ -195,7 +195,7 @@ pub(super) fn lower_tls_read(
             abi::branch(&done),
             abi::label(&enc_error),
         ]);
-        emit_fail(symbol, ERR_ENCODING_CODE, ERR_ENCODING_SYMBOL, &mut ins, &mut rel, &done);
+        emit_fail(symbol, "ErrEncoding", &mut ins, &mut rel, &done);
     } else {
         emit_build_byte_list(symbol, &format!("{symbol}_bl"), &format!("{symbol}_bld"), OUTBUF, NOUT, Some(COLL), abi::RET[1], &alloc_fail, &mut ins, &mut rel);
         ins.push(abi::branch(&done));
@@ -333,15 +333,15 @@ pub(super) fn lower_tls_read(
     ]);
 
     ins.push(abi::label(&peer_closed));
-    emit_fail(symbol, ERR_CONNECTION_CLOSED_CODE, ERR_CONNECTION_CLOSED_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrConnectionClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
-    emit_fail(symbol, ERR_RESOURCE_CLOSED_CODE, ERR_RESOURCE_CLOSED_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&invalid));
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&fail));
-    emit_fail(symbol, ERR_NETWORK_FAILED_CODE, ERR_NETWORK_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
     Ok((frame, ins, rel, slots))

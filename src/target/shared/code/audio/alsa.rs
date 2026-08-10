@@ -562,8 +562,7 @@ fn lower_open(
     ]);
     emit_fail(
         symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        "ErrInvalidArgument",
         &mut instructions,
         &mut relocations,
         &done,
@@ -588,8 +587,7 @@ fn lower_open(
     )?;
     emit_fail(
         symbol,
-        ERR_AUDIO_UNAVAILABLE_CODE,
-        ERR_AUDIO_UNAVAILABLE_SYMBOL,
+        "ErrAudioUnavailable",
         &mut instructions,
         &mut relocations,
         &done,
@@ -607,8 +605,7 @@ fn lower_open(
     )?;
     emit_fail(
         symbol,
-        ERR_AUDIO_DEVICE_CODE,
-        ERR_AUDIO_DEVICE_SYMBOL,
+        "ErrAudioDevice",
         &mut instructions,
         &mut relocations,
         &done,
@@ -616,8 +613,7 @@ fn lower_open(
     instructions.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1199,8 +1195,7 @@ fn lower_write(
     ]);
     emit_fail(
         symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        "ErrInvalidArgument",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1208,8 +1203,7 @@ fn lower_write(
     instructions.push(abi::label(&unavailable));
     emit_fail(
         symbol,
-        ERR_AUDIO_UNAVAILABLE_CODE,
-        ERR_AUDIO_UNAVAILABLE_SYMBOL,
+        "ErrAudioUnavailable",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1217,8 +1211,7 @@ fn lower_write(
     instructions.push(abi::label(&dev_fail));
     emit_fail(
         symbol,
-        ERR_AUDIO_DEVICE_CODE,
-        ERR_AUDIO_DEVICE_SYMBOL,
+        "ErrAudioDevice",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1651,8 +1644,7 @@ fn lower_read(
     ]);
     emit_fail(
         symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        "ErrInvalidArgument",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1660,8 +1652,7 @@ fn lower_read(
     instructions.push(abi::label(&unavailable));
     emit_fail(
         symbol,
-        ERR_AUDIO_UNAVAILABLE_CODE,
-        ERR_AUDIO_UNAVAILABLE_SYMBOL,
+        "ErrAudioUnavailable",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1669,8 +1660,7 @@ fn lower_read(
     instructions.push(abi::label(&dev_fail));
     emit_fail(
         symbol,
-        ERR_AUDIO_DEVICE_CODE,
-        ERR_AUDIO_DEVICE_SYMBOL,
+        "ErrAudioDevice",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1678,8 +1668,7 @@ fn lower_read(
     instructions.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1885,8 +1874,7 @@ fn lower_query(
     ]);
     emit_fail(
         symbol,
-        ERR_AUDIO_UNAVAILABLE_CODE,
-        ERR_AUDIO_UNAVAILABLE_SYMBOL,
+        "ErrAudioUnavailable",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1898,8 +1886,7 @@ fn lower_query(
         instructions.push(abi::label(&invalid));
         emit_fail(
             symbol,
-            ERR_INVALID_ARGUMENT_CODE,
-            ERR_INVALID_ARGUMENT_SYMBOL,
+            "ErrInvalidArgument",
             &mut instructions,
             &mut relocations,
             &done,
@@ -2006,8 +1993,7 @@ fn lower_close(
     ]);
     emit_fail(
         symbol,
-        ERR_AUDIO_UNAVAILABLE_CODE,
-        ERR_AUDIO_UNAVAILABLE_SYMBOL,
+        "ErrAudioUnavailable",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2363,8 +2349,7 @@ fn lower_devices(
     ]);
     emit_fail(
         symbol,
-        ERR_AUDIO_UNAVAILABLE_CODE,
-        ERR_AUDIO_UNAVAILABLE_SYMBOL,
+        "ErrAudioUnavailable",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2372,8 +2357,7 @@ fn lower_devices(
     instructions.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
         &done,

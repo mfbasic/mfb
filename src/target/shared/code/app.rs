@@ -54,21 +54,17 @@ pub(super) fn prepend_wrong_mode_gate(
     relocations: &mut Vec<CodeRelocation>,
     symbol: &str,
     presentation_mode_offset: Option<usize>,
-    function_id: &str,
 ) {
     let Some(offset) = presentation_mode_offset else {
         return;
     };
-    let _builtin = crate::builtins::descriptor::REGISTRY.function(function_id);
     let ok = format!("{symbol}_mode_ok");
     let mut gate = vec![
         abi::load_u64(abi::SCRATCH[0], ARENA_STATE_REGISTER, offset),
         abi::compare_immediate(abi::SCRATCH[0], "0"), // Console == 0
         abi::branch_eq(&ok),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_WRONG_MODE_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ];
-    push_error_message_address(symbol, ERR_WRONG_MODE_SYMBOL, &mut gate, relocations);
+    raise_error_into(symbol, "ErrWrongMode", &mut gate, relocations);
     gate.push(abi::return_());
     gate.push(abi::label(&ok));
     // Splice after the `"entry"` label (index 0), before the manual prologue.

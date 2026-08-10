@@ -399,13 +399,13 @@ fn sign(
 
     ins.push(abi::label(&fail));
     emit_cleanup(symbol, "cf", HKEY, HALG, imports, platform, &mut ins, &mut rel)?;
-    emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &mut ins, &mut rel, &cleanup);
+    emit_fail(symbol, "ErrUnknown", &mut ins, &mut rel, &cleanup);
     ins.push(abi::label(&invalid));
     emit_cleanup(symbol, "ci", HKEY, HALG, imports, platform, &mut ins, &mut rel)?;
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &cleanup);
+    emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &cleanup);
     ins.push(abi::label(&alloc_fail));
     emit_cleanup(symbol, "ca", HKEY, HALG, imports, platform, &mut ins, &mut rel)?;
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &cleanup);
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &cleanup);
 
     // wipe_and_done: the CNG handles are already destroyed on every incoming path;
     // the private-buffer wipes are call-free, so they don't disturb the result regs.
@@ -556,15 +556,15 @@ fn verify(
     ]);
     ins.push(abi::label(&fail));
     emit_cleanup(symbol, "cf", HKEY, HALG, imports, platform, &mut ins, &mut rel)?;
-    emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrUnknown", &mut ins, &mut rel, &done);
     // A malformed public key (wrong length, or a right-length off-curve key that
     // BCryptImportKeyPair rejects) is an argument error, matching macOS/OpenSSL.
     ins.push(abi::label(&invalid));
     emit_cleanup(symbol, "cinv", HKEY, HALG, imports, platform, &mut ins, &mut rel)?;
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_cleanup(symbol, "ca", HKEY, HALG, imports, platform, &mut ins, &mut rel)?;
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
 
     let _ = cleanup;
     ins.extend([abi::label(&done), abi::return_()]);

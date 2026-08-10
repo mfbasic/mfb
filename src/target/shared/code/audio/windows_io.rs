@@ -342,9 +342,9 @@ fn lower_write(
         abi::branch(&done),
         abi::label(&invalid),
     ]);
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&dev_fail));
-    emit_fail(symbol, ERR_AUDIO_DEVICE_CODE, ERR_AUDIO_DEVICE_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrAudioDevice", &mut ins, &mut rel, &done);
     ins.push(abi::label(&done));
     ins.push(abi::return_());
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME);
@@ -722,11 +722,11 @@ fn lower_read(
         abi::branch(&done),
         abi::label(&invalid),
     ]);
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&dev_fail));
-    emit_fail(symbol, ERR_AUDIO_DEVICE_CODE, ERR_AUDIO_DEVICE_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrAudioDevice", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.push(abi::label(&done));
     ins.push(abi::return_());
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME);
@@ -850,8 +850,7 @@ fn lower_query(
         ins.push(abi::label(&invalid));
         emit_fail(
             symbol,
-            ERR_INVALID_ARGUMENT_CODE,
-            ERR_INVALID_ARGUMENT_SYMBOL,
+            "ErrInvalidArgument",
             &mut ins,
             &mut rel,
             &done,

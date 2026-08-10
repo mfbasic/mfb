@@ -776,8 +776,7 @@ pub(super) fn lower_tls_connect_openssl(
     ]);
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -785,8 +784,7 @@ pub(super) fn lower_tls_connect_openssl(
     instructions.push(abi::label(&tls_fail_timeout));
     emit_fail(
         symbol,
-        ERR_TIMEOUT_CODE,
-        ERR_TIMEOUT_SYMBOL,
+        "ErrTimeout",
         &mut instructions,
         &mut relocations,
         &done,
@@ -814,8 +812,7 @@ pub(super) fn lower_tls_connect_openssl(
     instructions.push(abi::label(&lf_skip_fd));
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -849,8 +846,7 @@ pub(super) fn lower_tls_connect_openssl(
     )?;
     emit_fail(
         symbol,
-        ERR_NETWORK_FAILED_CODE,
-        ERR_NETWORK_FAILED_SYMBOL,
+        "ErrNetworkFailed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -884,8 +880,7 @@ pub(super) fn lower_tls_connect_openssl(
     )?;
     emit_fail(
         symbol,
-        ERR_TIMEOUT_CODE,
-        ERR_TIMEOUT_SYMBOL,
+        "ErrTimeout",
         &mut instructions,
         &mut relocations,
         &done,
@@ -895,8 +890,7 @@ pub(super) fn lower_tls_connect_openssl(
     instructions.push(abi::label(&connect_invalid));
     emit_fail(
         symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        "ErrInvalidArgument",
         &mut instructions,
         &mut relocations,
         &done,
@@ -904,8 +898,7 @@ pub(super) fn lower_tls_connect_openssl(
     instructions.push(abi::label(&resolve_fail));
     emit_fail(
         symbol,
-        ERR_ADDRESS_NOT_FOUND_CODE,
-        ERR_ADDRESS_NOT_FOUND_SYMBOL,
+        "ErrAddressNotFound",
         &mut instructions,
         &mut relocations,
         &done,
@@ -981,8 +974,7 @@ pub(super) fn lower_tls_connect_openssl(
     instructions.push(abi::label(&alloc_fail_raw));
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1419,8 +1411,7 @@ pub(super) fn lower_tls_listen_openssl(
     )?;
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1454,8 +1445,7 @@ pub(super) fn lower_tls_listen_openssl(
     )?;
     emit_fail(
         symbol,
-        ERR_NETWORK_FAILED_CODE,
-        ERR_NETWORK_FAILED_SYMBOL,
+        "ErrNetworkFailed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1463,8 +1453,7 @@ pub(super) fn lower_tls_listen_openssl(
     instructions.push(abi::label(&resolve_fail));
     emit_fail(
         symbol,
-        ERR_ADDRESS_INVALID_CODE,
-        ERR_ADDRESS_INVALID_SYMBOL,
+        "ErrAddressInvalid",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1507,8 +1496,7 @@ pub(super) fn lower_tls_listen_openssl(
     instructions.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1847,8 +1835,7 @@ pub(super) fn lower_tls_accept_openssl(
     ]);
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1856,8 +1843,7 @@ pub(super) fn lower_tls_accept_openssl(
     instructions.push(abi::label(&accept_hs_timeout));
     emit_fail(
         symbol,
-        ERR_TIMEOUT_CODE,
-        ERR_TIMEOUT_SYMBOL,
+        "ErrTimeout",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1865,8 +1851,7 @@ pub(super) fn lower_tls_accept_openssl(
     instructions.push(abi::label(&accept_fail));
     emit_fail(
         symbol,
-        ERR_NETWORK_FAILED_CODE,
-        ERR_NETWORK_FAILED_SYMBOL,
+        "ErrNetworkFailed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1874,8 +1859,7 @@ pub(super) fn lower_tls_accept_openssl(
     instructions.push(abi::label(&accept_timeout));
     emit_fail(
         symbol,
-        ERR_TIMEOUT_CODE,
-        ERR_TIMEOUT_SYMBOL,
+        "ErrTimeout",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1885,8 +1869,7 @@ pub(super) fn lower_tls_accept_openssl(
     instructions.push(abi::label(&accept_invalid));
     emit_fail(
         symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        "ErrInvalidArgument",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1894,8 +1877,7 @@ pub(super) fn lower_tls_accept_openssl(
     instructions.push(abi::label(&closed));
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1934,8 +1916,7 @@ pub(super) fn lower_tls_accept_openssl(
     )?;
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2079,8 +2060,7 @@ pub(super) fn lower_tls_read_openssl(
         ]);
         emit_fail(
             symbol,
-            ERR_ENCODING_CODE,
-            ERR_ENCODING_SYMBOL,
+            "ErrEncoding",
             &mut instructions,
             &mut relocations,
             &done,
@@ -2141,8 +2121,7 @@ pub(super) fn lower_tls_read_openssl(
     instructions.push(abi::label(&peer_closed));
     emit_fail(
         symbol,
-        ERR_CONNECTION_CLOSED_CODE,
-        ERR_CONNECTION_CLOSED_SYMBOL,
+        "ErrConnectionClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2150,8 +2129,7 @@ pub(super) fn lower_tls_read_openssl(
     instructions.push(abi::label(&read_fail));
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2159,8 +2137,7 @@ pub(super) fn lower_tls_read_openssl(
     instructions.push(abi::label(&load_fail));
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2168,8 +2145,7 @@ pub(super) fn lower_tls_read_openssl(
     instructions.push(abi::label(&invalid));
     emit_fail(
         symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        "ErrInvalidArgument",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2177,8 +2153,7 @@ pub(super) fn lower_tls_read_openssl(
     instructions.push(abi::label(&closed));
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2186,8 +2161,7 @@ pub(super) fn lower_tls_read_openssl(
     instructions.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2312,8 +2286,7 @@ pub(super) fn lower_tls_write_openssl(
     instructions.push(abi::label(&write_fail));
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2321,8 +2294,7 @@ pub(super) fn lower_tls_write_openssl(
     instructions.push(abi::label(&load_fail));
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2330,8 +2302,7 @@ pub(super) fn lower_tls_write_openssl(
     instructions.push(abi::label(&closed));
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2486,8 +2457,7 @@ pub(super) fn lower_tls_close_openssl(
     instructions.push(abi::label(&load_fail));
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2594,8 +2564,7 @@ pub(super) fn lower_tls_close_listener_openssl(
     instructions.push(abi::label(&load_fail));
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut instructions,
         &mut relocations,
         &done,

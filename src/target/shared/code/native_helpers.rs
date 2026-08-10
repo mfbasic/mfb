@@ -119,22 +119,18 @@ pub(super) fn emit_arena_free(
     relocations.push(super::internal_branch(symbol, ARENA_FREE_SYMBOL));
 }
 
-/// Emit the standard `Result` error tail: move `code` into the value register
-/// and the ERR tag into the tag register, push the error-message data address,
-/// and branch to `done`.
+/// Emit the standard `Result` error tail for a named `errorCode` error: set the
+/// code and ERR tag, load the message data address, and branch to `done`. Sources
+/// the `(code, message-symbol)` from `ERRORCODE_CONSTANTS` via `raise_error_into`
+/// (plan-88-C), so it carries no per-error codegen constants of its own.
 pub(super) fn emit_fail(
     symbol: &str,
-    code: &str,
-    message_symbol: &str,
+    error_name: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     done: &str,
 ) {
-    instructions.extend([
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", code),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(symbol, message_symbol, instructions, relocations);
+    raise_error_into(symbol, error_name, instructions, relocations);
     instructions.push(abi::branch(done));
 }
 

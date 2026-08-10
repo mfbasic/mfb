@@ -79,8 +79,8 @@ the call only reads the filesystem and has no side effects.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `path` is empty or contains an embedded NUL byte, so it cannot be turned into a valid NUL-terminated host path. [[src/target/shared/code/fs/paths.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77010001` | `ErrOutOfMemory` | The internal NUL-terminated copy of `path`, or the `List` and its backing storage for the entry names, cannot be allocated. [[src/target/shared/code/fs/paths.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `path` is empty or contains an embedded NUL byte, so it cannot be turned into a valid NUL-terminated host path. [[src/target/shared/code/fs/paths.rs:ErrInvalidArgument]] |
+| `77010001` | `ErrOutOfMemory` | The internal NUL-terminated copy of `path`, or the `List` and its backing storage for the entry names, cannot be allocated. [[src/target/shared/code/fs/paths.rs:ErrOutOfMemory]] |
 | `77050004` | `ErrNotFound` | No entry exists at `path` (host `ENOENT`, errno 2). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
 | `77030003` | `ErrAccessDenied` | The host denies permission to open or read the directory (host `EACCES`, errno 13). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
 | `77050005` | `ErrAlreadyExists` | The host reports an existing-entry conflict while opening the directory (host `EEXIST`, errno 17). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |

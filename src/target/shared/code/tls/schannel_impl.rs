@@ -645,11 +645,11 @@ pub(super) fn lower_tls_connect(
     platform.emit_libc_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), RES));
     platform.emit_libc_call("freeaddrinfo", symbol, imports, &mut ins, &mut rel)?;
-    emit_fail(symbol, ERR_TIMEOUT_CODE, ERR_TIMEOUT_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     // A negative (non-sentinel) `timeoutMs` → ErrInvalidArgument (rejected up front,
     // before getaddrinfo/socket, so nothing to clean up).
     ins.push(abi::label(&connect_invalid));
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     // plan-73-D: a handshake recv that hit the SO_RCVTIMEO (WSAETIMEDOUT) is a
     // timeout → ErrTimeout; every other `fail` branch is a network failure.
     let fail_timeout = format!("{symbol}_fail_timeout");
@@ -661,14 +661,14 @@ pub(super) fn lower_tls_connect(
     ]);
     // A handshake/verify failure (not a handshake-recv timeout) => ErrTlsFailed,
     // matching the OpenSSL connect backend and this backend's accept path.
-    emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&fail_timeout));
-    emit_fail(symbol, ERR_TIMEOUT_CODE, ERR_TIMEOUT_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     // A socket-level (TCP connect / WSAPoll / getsockopt) failure => ErrNetworkFailed.
     ins.push(abi::label(&net_fail));
-    emit_fail(symbol, ERR_NETWORK_FAILED_CODE, ERR_NETWORK_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
     Ok((frame, ins, rel, slots))

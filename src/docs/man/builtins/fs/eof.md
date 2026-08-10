@@ -67,8 +67,8 @@ file.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `file` has already been closed, whether by an earlier `fs::close` on the same value or by a prior scope-drop. [[src/target/shared/code/fs/io.rs:ERR_RESOURCE_CLOSED_CODE]] |
-| `77020001` | `ErrRead` | The host cannot determine the file's position or length — for example on a pipe, socket, or other non-seekable handle — so a seek fails. [[src/target/shared/code/fs/io.rs:ERR_READ_CODE]] |
+| `77030004` | `ErrResourceClosed` | `file` has already been closed, whether by an earlier `fs::close` on the same value or by a prior scope-drop. [[src/target/shared/code/fs/io.rs:ErrResourceClosed]] |
+| `77020001` | `ErrRead` | The host cannot determine the file's position or length — for example on a pipe, socket, or other non-seekable handle — so a seek fails. [[src/target/shared/code/fs/io.rs:ErrReadFailed]] |
 
 ## Examples
 

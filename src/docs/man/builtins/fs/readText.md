@@ -72,8 +72,8 @@ arbitrary binary data without the UTF-8 requirement, use `fs::readBytes`.
 | `77030003` | `ErrAccessDenied` | The host denies access to `path` (host `EACCES`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
 | `77030002` | `ErrInvalidPath` | `path` is unusable as a path: a non-directory used as a directory component, an over-long path, an invalid byte sequence, or a symlink loop resolving the final component (host `ENOTDIR`, `ENAMETOOLONG`, `EILSEQ`, or `ELOOP`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
 | `77020002` | `ErrOutput` | The file cannot be opened for any other host reason not classified above. [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
-| `77020001` | `ErrRead` | Determining the file's length (seek) or reading its bytes fails partway through, before the full contents have been read. [[src/target/shared/code/fs/atomic.rs:ERR_READ_CODE]] |
-| `77020004` | `ErrEncoding` | The bytes read from the file are not valid UTF-8. [[src/target/shared/code/fs/atomic.rs:ERR_ENCODING_CODE]] |
+| `77020001` | `ErrRead` | Determining the file's length (seek) or reading its bytes fails partway through, before the full contents have been read. [[src/target/shared/code/fs/atomic.rs:ErrReadFailed]] |
+| `77020004` | `ErrEncoding` | The bytes read from the file are not valid UTF-8. [[src/target/shared/code/fs/atomic.rs:ErrEncoding]] |
 
 ## Examples
 

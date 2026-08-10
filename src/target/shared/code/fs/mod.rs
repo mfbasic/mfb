@@ -60,31 +60,23 @@ pub(super) fn emit_errno_error_mapping(
         abi::branch_eq(&err_already_exists),
         abi::branch(&err_output),
         abi::label(&err_not_found),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_NOT_FOUND_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_NOT_FOUND_SYMBOL, instructions, relocations);
+    raise_error_into(symbol, "ErrNotFound", instructions, relocations);
     instructions.extend([
         abi::branch(done),
         abi::label(&err_access_denied),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ACCESS_DENIED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_ACCESS_DENIED_SYMBOL, instructions, relocations);
+    raise_error_into(symbol, "ErrAccessDenied", instructions, relocations);
     instructions.extend([
         abi::branch(done),
         abi::label(&err_already_exists),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ALREADY_EXISTS_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_ALREADY_EXISTS_SYMBOL, instructions, relocations);
+    raise_error_into(symbol, "ErrAlreadyExists", instructions, relocations);
     instructions.extend([
         abi::branch(done),
         abi::label(&err_output),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_OUTPUT_SYMBOL, instructions, relocations);
+    raise_error_into(symbol, "ErrWriteFailed", instructions, relocations);
     instructions.push(abi::branch(done));
 }
 
@@ -171,54 +163,33 @@ pub(super) fn emit_fs_path_errno_error_mapping(
     }
     instructions.extend([
         abi::label(&err_path_not_found),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_PATH_NOT_FOUND_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_PATH_NOT_FOUND_SYMBOL, instructions, relocations);
+    raise_error_into(symbol, "ErrPathNotFound", instructions, relocations);
     instructions.extend([
         abi::branch(done),
         abi::label(&err_access_denied),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ACCESS_DENIED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_ACCESS_DENIED_SYMBOL, instructions, relocations);
+    raise_error_into(symbol, "ErrAccessDenied", instructions, relocations);
     instructions.extend([
         abi::branch(done),
         abi::label(&err_already_exists),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ALREADY_EXISTS_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_ALREADY_EXISTS_SYMBOL, instructions, relocations);
+    raise_error_into(symbol, "ErrAlreadyExists", instructions, relocations);
     instructions.extend([
         abi::branch(done),
         abi::label(&err_not_empty),
-        abi::move_immediate(
-            RESULT_VALUE_REGISTER,
-            "Integer",
-            ERR_DIRECTORY_NOT_EMPTY_CODE,
-        ),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_DIRECTORY_NOT_EMPTY_SYMBOL,
-        instructions,
-        relocations,
-    );
+    raise_error_into(symbol, "ErrResourceBusy", instructions, relocations);
     instructions.extend([
         abi::branch(done),
         abi::label(&err_invalid_path),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_PATH_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_INVALID_PATH_SYMBOL, instructions, relocations);
+    raise_error_into(symbol, "ErrInvalidPath", instructions, relocations);
     instructions.extend([
         abi::branch(done),
         abi::label(&err_output),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_OUTPUT_SYMBOL, instructions, relocations);
+    raise_error_into(symbol, "ErrWriteFailed", instructions, relocations);
     instructions.push(abi::branch(done));
 }
 

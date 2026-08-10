@@ -248,15 +248,8 @@ pub(super) fn emit_thread_queue_alloc(
     ctx.instructions.extend([
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
         abi::branch_eq(&alloc_queue_ok),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        ctx.instructions,
-        ctx.relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", ctx.instructions, ctx.relocations);
     ctx.instructions.extend([
         abi::branch(done_label),
         abi::label(&alloc_queue_ok),
@@ -286,29 +279,13 @@ pub(super) fn emit_thread_queue_alloc(
     ctx.instructions.extend([
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
         abi::branch_eq(&alloc_values_ok),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        ctx.instructions,
-        ctx.relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", ctx.instructions, ctx.relocations);
     ctx.instructions.push(abi::branch(done_label));
     // capacity * 8 wrapped 64 bits: raise the same catchable allocation error as an
     // oversized request rather than under-allocate the value array (bug-60).
-    ctx.instructions.extend([
-        abi::label(&size_overflow),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        ctx.instructions,
-        ctx.relocations,
-    );
+    ctx.instructions.push(abi::label(&size_overflow));
+    raise_error_into(symbol, "ErrOutOfMemory", ctx.instructions, ctx.relocations);
     ctx.instructions.extend([
         abi::branch(done_label),
         abi::label(&alloc_values_ok),
@@ -368,15 +345,8 @@ pub(super) fn emit_thread_queue_alloc(
         abi::branch_ne(&init_error),
         abi::branch(&init_done),
         abi::label(&init_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INTERRUPTED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INTERRUPTED_SYMBOL,
-        ctx.instructions,
-        ctx.relocations,
-    );
+    raise_error_into(symbol, "ErrInterrupted", ctx.instructions, ctx.relocations);
     ctx.instructions.push(abi::branch(done_label));
     ctx.instructions.push(abi::label(&init_done));
     Ok(())
@@ -595,15 +565,8 @@ fn lower_thread_start_helper(
     instructions.extend([
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
         abi::branch_eq(&alloc_block_ok),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&parent_done),
         abi::label(&alloc_block_ok),
@@ -639,15 +602,8 @@ fn lower_thread_start_helper(
     instructions.extend([
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
         abi::branch_eq(&alloc_worker_arena_ok),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     // Zero the whole child arena block (allocator-04): it is arena-allocated
     // (poisoned, not zero), and this initializer must stay in lockstep with the
     // program-entry zeroing (`entry_and_arena.rs` `lower_program_entry`) — that
@@ -912,29 +868,13 @@ fn lower_thread_start_helper(
         ]);
     }
 
-    instructions.extend([
-        abi::label(&invalid_limit),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_INVALID_ARGUMENT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    instructions.push(abi::label(&invalid_limit));
+    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&parent_done),
         abi::label(&spawn_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INTERRUPTED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INTERRUPTED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInterrupted", &mut instructions, &mut relocations);
     instructions.push(abi::branch(&parent_done));
     instructions.extend([abi::label(&parent_done), abi::return_()]);
 

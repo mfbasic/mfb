@@ -422,16 +422,8 @@ fn lower_link_initializer(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&fail),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_NATIVE_LINK_LOAD_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    emit_data_address(
-        symbol,
-        RESULT_ERROR_MESSAGE_REGISTER,
-        ERR_NATIVE_LINK_LOAD_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrNativeBindingUnavailable", &mut instructions, &mut relocations);
     // Same no-origin sentinel as the per-function thunks (bug-371): the loader
     // has no MFBASIC source location, and x3 is otherwise whatever `dlopen`/
     // `dlsym` left behind.
@@ -1539,18 +1531,8 @@ fn lower_link_thunk(
     ]);
 
     // call_fail: SUCCESS_ON rejected the native status.
-    instructions.extend([
-        abi::label(&call_fail),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_NATIVE_LINK_CALL_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    emit_data_address(
-        &symbol,
-        RESULT_ERROR_MESSAGE_REGISTER,
-        ERR_NATIVE_LINK_CALL_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    instructions.push(abi::label(&call_fail));
+    raise_error_into(&symbol, "ErrNativeBindingCallFailed", &mut instructions, &mut relocations);
     instructions.push(abi::branch(&done));
 
     // sec-02: buffer_overrun: a post-call canary check found an OUT CBuffer's
@@ -1558,38 +1540,14 @@ fn lower_link_thunk(
     // emitted when the function has an OUT CBuffer (otherwise the label is unused
     // and never branched to).
     if !cbuffer_slots.is_empty() {
-        instructions.extend([
-            abi::label(&buffer_overrun),
-            abi::move_immediate(
-                RESULT_VALUE_REGISTER,
-                "Integer",
-                ERR_NATIVE_BUFFER_OVERRUN_CODE,
-            ),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-        ]);
-        emit_data_address(
-            &symbol,
-            RESULT_ERROR_MESSAGE_REGISTER,
-            ERR_NATIVE_BUFFER_OVERRUN_SYMBOL,
-            &mut instructions,
-            &mut relocations,
-        );
+        instructions.push(abi::label(&buffer_overrun));
+        raise_error_into(&symbol, "ErrNativeBufferOverrun", &mut instructions, &mut relocations);
         instructions.push(abi::branch(&done));
     }
 
     // alloc_fail: a marshaling allocation failed.
-    instructions.extend([
-        abi::label(&alloc_fail),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    emit_data_address(
-        &symbol,
-        RESULT_ERROR_MESSAGE_REGISTER,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    instructions.push(abi::label(&alloc_fail));
+    raise_error_into(&symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
 
     // plan-59-B: the guard's failure epilogue. Only emitted when some param is a
     // record resource, so a LINK function that takes none is byte-identical to
@@ -1615,81 +1573,30 @@ fn lower_link_thunk(
             abi::and_registers("%v9", "%v9", "%v10"),
             abi::compare_immediate("%v9", "0"),
             abi::branch_ne(&resource_moved),
-            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
         ]);
-        emit_data_address(
-            &symbol,
-            RESULT_ERROR_MESSAGE_REGISTER,
-            ERR_RESOURCE_CLOSED_SYMBOL,
-            &mut instructions,
-            &mut relocations,
-        );
+        raise_error_into(&symbol, "ErrResourceClosed", &mut instructions, &mut relocations);
         instructions.extend([
             abi::branch(&done),
             abi::label(&resource_moved),
-            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_MOVED_CODE),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
         ]);
-        emit_data_address(
-            &symbol,
-            RESULT_ERROR_MESSAGE_REGISTER,
-            ERR_RESOURCE_MOVED_SYMBOL,
-            &mut instructions,
-            &mut relocations,
-        );
+        raise_error_into(&symbol, "ErrResourceMoved", &mut instructions, &mut relocations);
     }
 
     // Boundary-validation failure epilogues (plan-linker.md §12.3/§12.4), emitted
     // only when the signature can reach them.
-    for (needed, label, code, message) in [
-        (
-            needs_range,
-            &range_fail,
-            ERR_OVERFLOW_CODE,
-            ERR_OVERFLOW_SYMBOL,
-        ),
-        (
-            needs_encoding,
-            &encoding_fail,
-            ERR_ENCODING_CODE,
-            ERR_ENCODING_SYMBOL,
-        ),
-        (
-            needs_float_labels,
-            &nan_fail,
-            ERR_FLOAT_NAN_CODE,
-            ERR_FLOAT_NAN_SYMBOL,
-        ),
-        (
-            needs_float_labels,
-            &inf_fail,
-            ERR_FLOAT_INF_CODE,
-            ERR_FLOAT_INF_SYMBOL,
-        ),
-        (
-            needs_buffer_size,
-            &buffer_size_fail,
-            ERR_INVALID_ARGUMENT_CODE,
-            ERR_INVALID_ARGUMENT_SYMBOL,
-        ),
+    for (needed, label, error_name) in [
+        (needs_range, &range_fail, "ErrOverflow"),
+        (needs_encoding, &encoding_fail, "ErrEncoding"),
+        (needs_float_labels, &nan_fail, "ErrFloatNaN"),
+        (needs_float_labels, &inf_fail, "ErrFloatInf"),
+        (needs_buffer_size, &buffer_size_fail, "ErrInvalidArgument"),
     ] {
         if !needed {
             continue;
         }
         instructions.push(abi::branch(&done));
-        instructions.extend([
-            abi::label(label),
-            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", code),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-        ]);
-        emit_data_address(
-            &symbol,
-            RESULT_ERROR_MESSAGE_REGISTER,
-            message,
-            &mut instructions,
-            &mut relocations,
-        );
+        instructions.push(abi::label(label));
+        raise_error_into(&symbol, error_name, &mut instructions, &mut relocations);
     }
 
     // bug-371: every path out of the thunk must leave the error-origin register

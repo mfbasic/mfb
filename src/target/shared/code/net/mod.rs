@@ -140,21 +140,18 @@ const EINTR_ERRNO: &str = "4";
 /// (preset by the caller), then branch to `fail` when allocation fails. On
 /// success the block pointer is left in `x1` (`RESULT_VALUE_REGISTER`).
 
-/// Set the result registers to a failure `(code, message)` and branch to
-/// `done`.
+/// Set the result registers to a named `errorCode` failure and branch to `done`.
+/// Sources `(code, message-symbol)` from `ERRORCODE_CONSTANTS` via
+/// `raise_error_into` (plan-88-C), the same table-driven emission as
+/// `native_helpers::emit_fail`.
 fn emit_fail(
     symbol: &str,
-    code: &str,
-    message_symbol: &str,
+    error_name: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     done: &str,
 ) {
-    instructions.extend([
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", code),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(symbol, message_symbol, instructions, relocations);
+    raise_error_into(symbol, error_name, instructions, relocations);
     instructions.push(abi::branch(done));
 }
 
@@ -892,14 +889,7 @@ fn lower_net_endpoint_helper(
     // here) to keep the listen codegen byte-identical.
     if !listen {
         instructions.push(abi::label(&connect_invalid));
-        emit_fail(
-            symbol,
-            ERR_INVALID_ARGUMENT_CODE,
-            ERR_INVALID_ARGUMENT_SYMBOL,
-            &mut instructions,
-            &mut relocations,
-            &done,
-        );
+        emit_fail(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations, &done);
     }
     instructions.push(abi::label(&op_fail));
     instructions.push(abi::load_u64(
@@ -927,14 +917,7 @@ fn lower_net_endpoint_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_fail(
-        symbol,
-        ERR_NETWORK_FAILED_CODE,
-        ERR_NETWORK_FAILED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrNetworkFailed", &mut instructions, &mut relocations, &done);
     // A connect that did not complete before its deadline: close the pending
     // socket, release the resolver results, and report a timeout.
     instructions.push(abi::label(&connect_timeout));
@@ -962,43 +945,15 @@ fn lower_net_endpoint_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_fail(
-        symbol,
-        ERR_TIMEOUT_CODE,
-        ERR_TIMEOUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrTimeout", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&resolve_fail));
     if listen {
-        emit_fail(
-            symbol,
-            ERR_ADDRESS_INVALID_CODE,
-            ERR_ADDRESS_INVALID_SYMBOL,
-            &mut instructions,
-            &mut relocations,
-            &done,
-        );
+        emit_fail(symbol, "ErrAddressInvalid", &mut instructions, &mut relocations, &done);
     } else {
-        emit_fail(
-            symbol,
-            ERR_ADDRESS_NOT_FOUND_CODE,
-            ERR_ADDRESS_NOT_FOUND_SYMBOL,
-            &mut instructions,
-            &mut relocations,
-            &done,
-        );
+        emit_fail(symbol, "ErrAddressNotFound", &mut instructions, &mut relocations, &done);
     }
     instructions.push(abi::label(&alloc_fail));
-    emit_fail(
-        symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations, &done);
     instructions.extend([abi::label(&done), abi::return_()]);
     {
         let (frame, stack_slots) =

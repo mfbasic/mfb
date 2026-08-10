@@ -1790,7 +1790,6 @@ fn lower_runtime_helper(
                     &mut body.2,
                     symbol,
                     arena_layout.presentation_mode_offset,
-                    spec.call,
                 );
                 body
             }
@@ -2182,7 +2181,6 @@ fn lower_runtime_helper(
             &mut relocations,
             symbol,
             arena_layout.presentation_mode_offset,
-            spec.call,
         );
     }
     Ok(CodeFunction {

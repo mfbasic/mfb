@@ -199,10 +199,8 @@ pub(super) fn lower_os_wide_string_windows(
     instructions.extend([
         abi::branch(&done),
         abi::label(&fail),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_UNSUPPORTED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_UNSUPPORTED_SYMBOL, &mut instructions, &mut relocations);
+    raise_error_into(symbol, "ErrUnsupported", &mut instructions, &mut relocations);
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
@@ -257,16 +255,7 @@ pub(super) fn lower_host_name(
         &mut relocations,
     );
     instructions.extend([abi::branch(&done), abi::label(&fail)]);
-    instructions.extend([
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_UNSUPPORTED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_UNSUPPORTED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrUnsupported", &mut instructions, &mut relocations);
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
@@ -341,16 +330,7 @@ pub(super) fn lower_user_name(
         &mut relocations,
     );
     instructions.extend([abi::branch(&done), abi::label(&fail)]);
-    instructions.extend([
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_UNSUPPORTED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_UNSUPPORTED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrUnsupported", &mut instructions, &mut relocations);
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));

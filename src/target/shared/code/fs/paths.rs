@@ -33,15 +33,8 @@ pub(in crate::target::shared::code) fn lower_fs_exists_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&alloc_ok),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     let len = vregs.next();
     let src = vregs.next();
     let dst = vregs.next();
@@ -91,15 +84,8 @@ pub(in crate::target::shared::code) fn lower_fs_exists_helper(
         // a confused-deputy hazard where the existence check and the later
         // operation could disagree about which file is named.
         abi::label(&invalid),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INVALID_ARGUMENT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
 
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -143,15 +129,8 @@ pub(in crate::target::shared::code) fn lower_fs_kind_exists_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&alloc_ok),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     let len = vregs.next();
     let src = vregs.next();
     let dst = vregs.next();
@@ -213,15 +192,8 @@ pub(in crate::target::shared::code) fn lower_fs_kind_exists_helper(
         // Embedded NUL in the path (bug-331 §A / Phase 6): reject as
         // ErrInvalidArgument rather than silently truncating at the NUL.
         abi::label(&invalid),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INVALID_ARGUMENT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
 
     let (frame, stack_slots) =
@@ -325,22 +297,13 @@ pub(in crate::target::shared::code) fn lower_fs_current_directory_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&read_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_READ_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_READ_SYMBOL, &mut instructions, &mut relocations);
+    raise_error_into(symbol, "ErrReadFailed", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
 
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -444,22 +407,13 @@ pub(in crate::target::shared::code) fn lower_fs_temp_directory_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&read_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_READ_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_READ_SYMBOL, &mut instructions, &mut relocations);
+    raise_error_into(symbol, "ErrReadFailed", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
     // `platform.emit_temp_directory` above may park values in `sp + 0 ..
     // TEMP_DIRECTORY_SCRATCH_BYTES` across its environment lookup, so that window
@@ -504,15 +458,8 @@ pub(in crate::target::shared::code) fn lower_fs_path_operation_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&alloc_ok),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     let len = vregs.next();
     let src = vregs.next();
     let dst = vregs.next();
@@ -573,15 +520,8 @@ pub(in crate::target::shared::code) fn lower_fs_path_operation_helper(
     );
     instructions.extend([
         abi::label(&invalid_path),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INVALID_ARGUMENT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
 
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -738,63 +678,28 @@ pub(in crate::target::shared::code) fn lower_fs_create_directories_helper(
         abi::branch_eq(&err_access_denied),
         abi::branch(&err_output),
         abi::label(&invalid_path),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INVALID_ARGUMENT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&err_not_found),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_NOT_FOUND_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_NOT_FOUND_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrNotFound", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&err_access_denied),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ACCESS_DENIED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ACCESS_DENIED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrAccessDenied", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&err_output),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_OUTPUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrWriteFailed", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
 
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -1131,27 +1036,13 @@ pub(in crate::target::shared::code) fn lower_fs_list_directory_helper(
     );
     instructions.extend([
         abi::label(&invalid),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INVALID_ARGUMENT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -1317,27 +1208,13 @@ pub(in crate::target::shared::code) fn lower_fs_canonical_path_helper(
     );
     instructions.extend([
         abi::label(&invalid),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INVALID_ARGUMENT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -1578,27 +1455,13 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
     );
     instructions.extend([
         abi::label(&invalid),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INVALID_ARGUMENT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -1747,15 +1610,8 @@ pub(in crate::target::shared::code) fn lower_fs_path_join_helper() -> CodeFuncti
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&alloc_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
     finalize_vreg_helper(
         "runtime.fsPathJoin",

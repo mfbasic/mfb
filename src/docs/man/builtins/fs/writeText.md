@@ -82,7 +82,7 @@ replacement, use `fs::writeTextAtomic`.
 | `77050004` | `ErrNotFound` | The file cannot be created because a component of `path` does not exist, such as a missing parent directory (host `ENOENT`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
 | `77030003` | `ErrAccessDenied` | The host denies permission to create or open the file (host `EACCES`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
 | `77050005` | `ErrAlreadyExists` | The file cannot be opened because the target already exists in a form that conflicts with creating it (host `EEXIST`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
-| `77020002` | `ErrOutput` | The file cannot be opened for any other host reason, including `path` referring to a directory or another non-writable target, and when writing, flushing, or closing the file fails partway through. [[src/target/shared/code/fs/atomic.rs:ERR_OUTPUT_CODE]] |
+| `77020002` | `ErrOutput` | The file cannot be opened for any other host reason, including `path` referring to a directory or another non-writable target, and when writing, flushing, or closing the file fails partway through. [[src/target/shared/code/fs/atomic.rs:ErrWriteFailed]] |
 
 ## Examples
 

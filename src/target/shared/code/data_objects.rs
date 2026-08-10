@@ -66,6 +66,34 @@ pub(super) fn push_error_message_address(
     ]);
 }
 
+/// Emit a runtime error from a **fixed runtime helper** (a free-function codegen
+/// builder with no `CodeBuilder`/`self` in scope) — the free-function companion to
+/// [`CodeBuilder::raise_error`]/[`raise_error_bare`] (plan-88-C). It reproduces the
+/// historical lightweight fixed-helper error sequence exactly: set the error code
+/// immediate, set the error tag, and load the message data-object address — but
+/// sources the `(code, message-symbol)` from `ERRORCODE_CONSTANTS` instead of the
+/// per-error `ERR_*_CODE`/`ERR_*_SYMBOL` codegen constants. This is why the two
+/// emission worlds (per-call-site methods, fixed-helper free functions) now share
+/// one metadata authority while keeping their distinct instruction shapes.
+///
+/// `error_name` must be a known `errorCode` constant (e.g. `"ErrEndOfFile"`);
+/// unknown names are a codegen bug and panic. `from` is the emitting function's
+/// symbol (the relocation origin), matching `push_error_message_address`.
+pub(super) fn raise_error_into(
+    from: &str,
+    error_name: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let (code, symbol) = crate::builtins::errorcode::runtime_error_emission(error_name)
+        .unwrap_or_else(|| {
+            panic!("raise_error_into: `{error_name}` is not an errorCode constant")
+        });
+    instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", code));
+    instructions.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG));
+    push_error_message_address(from, symbol, instructions, relocations);
+}
+
 pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     let mut values = Vec::new();
     // The module's record / union-variant field types, so every walk below can

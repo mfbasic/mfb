@@ -30,7 +30,6 @@ use crate::target::shared::code::{
     RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER, ARENA_STATE_REGISTER, TERM_STATE_ACTIVE_OFFSET,
     TERM_STATE_FG_OFFSET, TERM_STATE_BG_OFFSET, TERM_STATE_BOLD_OFFSET, TERM_STATE_UNDERLINE_OFFSET,
     TERM_STATE_CURSOR_VISIBLE_OFFSET, RESULT_ERR_TAG, RESULT_ERROR_MESSAGE_REGISTER,
-    ERR_UNSUPPORTED_CODE, ERR_UNSUPPORTED_SYMBOL,
 };
 
 const KERNEL32: &str = "kernel32.dll";
@@ -1103,10 +1102,17 @@ pub(super) fn emit_app_term_helper(call: &str, symbol: &str, tso: usize) -> Opti
 fn emit_term_draw_unsupported(symbol: &str) -> AppHookBody {
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
+    // plan-88-C: source the code + message symbol from `ERRORCODE_CONSTANTS`. The
+    // shared `raise_error_into` emitter lives in the private `shared::code::data_objects`
+    // module and is not reachable across the target-module boundary, so this one
+    // win-target site loads them via the win-local `load_addr` — byte-identical to the
+    // historical `ERR_UNSUPPORTED_CODE`/`ERR_UNSUPPORTED_SYMBOL` constants.
+    let (code, msg_symbol) = crate::builtins::errorcode::runtime_error_emission("ErrUnsupported")
+        .expect("ErrUnsupported is an errorCode constant");
     ins.push(abi::label("entry"));
-    ins.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_UNSUPPORTED_CODE));
+    ins.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", code));
     ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG));
-    load_addr(RESULT_ERROR_MESSAGE_REGISTER, ERR_UNSUPPORTED_SYMBOL, symbol, &mut ins, &mut rel);
+    load_addr(RESULT_ERROR_MESSAGE_REGISTER, msg_symbol, symbol, &mut ins, &mut rel);
     ins.push(abi::return_());
     term_body(ins, rel)
 }

@@ -226,16 +226,7 @@ pub(super) fn lower_get_env(
             abi::branch(&done),
         ]);
     } else {
-        instructions.extend([
-            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_NOT_FOUND_CODE),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-        ]);
-        push_error_message_address(
-            symbol,
-            ERR_NOT_FOUND_SYMBOL,
-            &mut instructions,
-            &mut relocations,
-        );
+        raise_error_into(symbol, "ErrNotFound", &mut instructions, &mut relocations);
         instructions.push(abi::branch(&done));
     }
     instructions.push(abi::label(&alloc_error));
@@ -425,15 +416,8 @@ pub(super) fn lower_set_env(
     instructions.extend([
         abi::compare_immediate(&errno, ERRNO_ENOMEM),
         abi::branch_eq(&oom),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INVALID_ARGUMENT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
     instructions.extend([abi::branch(&done), abi::label(&oom)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);

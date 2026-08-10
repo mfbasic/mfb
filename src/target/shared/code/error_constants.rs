@@ -1093,9 +1093,9 @@ mod parity_tests {
     fn error_constants_match_table() {
         let mut diverging_codes: Vec<&str> = Vec::new();
         for &(code, message) in ERR_PAIRS {
-            let &(_name, table_code, table_message) = ERRORCODE_CONSTANTS
+            let &(_name, table_code, table_message, _symbol) = ERRORCODE_CONSTANTS
                 .iter()
-                .find(|&&(_, table_code, _)| table_code == code)
+                .find(|&&(_, table_code, ..)| table_code == code)
                 .unwrap_or_else(|| {
                     panic!("ERR_* code {code} is not in ERRORCODE_CONSTANTS (code parity broken)")
                 });
@@ -1112,5 +1112,68 @@ mod parity_tests {
             "ERR_* vs errorCode-table message divergence set changed; if intended, \
              update EXPECTED_DIVERGING_CODES (the plan-88 consolidation manifest)"
         );
+    }
+
+    /// plan-88-C byte-identity pin: `raise_error_into` sources the message
+    /// data-object symbol from `ERRORCODE_CONSTANTS`, so the table's 4th column must
+    /// reproduce the exact `ERR_*_SYMBOL` each fixed-helper site referenced before.
+    /// Every error *name* the symbol-path census emits is pinned here (irregular
+    /// symbols included). If a table symbol drifts from its codegen constant, the
+    /// fixed-helper `.ncode` bytes would change silently — this catches it.
+    #[test]
+    fn emission_symbols_match_codegen_constants() {
+        use crate::builtins::errorcode::runtime_error_emission;
+        // (error name, historical codegen symbol) for every symbol the fixed-helper
+        // (`push_error_message_address`) sites emit — the byte-identity-relevant set.
+        const EMISSION_SYMBOLS: &[(&str, &str)] = &[
+            ("ErrUnknown", ERR_UNKNOWN_SYMBOL),
+            ("ErrOutOfMemory", ERR_ALLOCATION_SYMBOL),
+            ("ErrEncoding", ERR_ENCODING_SYMBOL),
+            ("ErrEndOfFile", ERR_EOF_SYMBOL),
+            ("ErrInputFailed", ERR_INPUT_SYMBOL),
+            ("ErrInterrupted", ERR_INTERRUPTED_SYMBOL),
+            ("ErrInvalidArgument", ERR_INVALID_ARGUMENT_SYMBOL),
+            ("ErrInvalidContext", ERR_INVALID_CONTEXT_SYMBOL),
+            ("ErrNotFound", ERR_NOT_FOUND_SYMBOL),
+            ("ErrWriteFailed", ERR_OUTPUT_SYMBOL),
+            ("ErrOverflow", ERR_OVERFLOW_SYMBOL),
+            ("ErrResourceClosed", ERR_RESOURCE_CLOSED_SYMBOL),
+            ("ErrTimeout", ERR_TIMEOUT_SYMBOL),
+            ("ErrUnsupported", ERR_UNSUPPORTED_SYMBOL),
+            ("ErrWrongMode", ERR_WRONG_MODE_SYMBOL),
+            ("ErrAccessDenied", ERR_ACCESS_DENIED_SYMBOL),
+            ("ErrAlreadyExists", ERR_ALREADY_EXISTS_SYMBOL),
+            ("ErrCloseFailed", ERR_CLOSE_FAILED_SYMBOL),
+            // Irregular: code 77030005's only fixed emission is directory-not-empty.
+            ("ErrResourceBusy", ERR_DIRECTORY_NOT_EMPTY_SYMBOL),
+            ("ErrInvalidPath", ERR_INVALID_PATH_SYMBOL),
+            ("ErrPathNotFound", ERR_PATH_NOT_FOUND_SYMBOL),
+            ("ErrReadFailed", ERR_READ_SYMBOL),
+            ("ErrResourceMoved", ERR_RESOURCE_MOVED_SYMBOL),
+            ("ErrAddressInvalid", ERR_ADDRESS_INVALID_SYMBOL),
+            ("ErrAddressNotFound", ERR_ADDRESS_NOT_FOUND_SYMBOL),
+            ("ErrAudioDevice", ERR_AUDIO_DEVICE_SYMBOL),
+            ("ErrAudioUnavailable", ERR_AUDIO_UNAVAILABLE_SYMBOL),
+            ("ErrConnectionClosed", ERR_CONNECTION_CLOSED_SYMBOL),
+            ("ErrMessageTooLarge", ERR_MESSAGE_TOO_LARGE_SYMBOL),
+            ("ErrNetworkFailed", ERR_NETWORK_FAILED_SYMBOL),
+            ("ErrTlsFailed", ERR_TLS_FAILED_SYMBOL),
+            // `LINK` thunk fixed helpers (link_thunk.rs, via emit_data_address).
+            ("ErrNativeBindingUnavailable", ERR_NATIVE_LINK_LOAD_SYMBOL),
+            ("ErrNativeBindingCallFailed", ERR_NATIVE_LINK_CALL_SYMBOL),
+            ("ErrNativeBufferOverrun", ERR_NATIVE_BUFFER_OVERRUN_SYMBOL),
+            // `LINK` boundary-validation epilogues (link_thunk.rs).
+            ("ErrFloatNaN", ERR_FLOAT_NAN_SYMBOL),
+            ("ErrFloatInf", ERR_FLOAT_INF_SYMBOL),
+        ];
+        for &(name, symbol) in EMISSION_SYMBOLS {
+            let (_code, table_symbol) = runtime_error_emission(name)
+                .unwrap_or_else(|| panic!("`{name}` missing from ERRORCODE_CONSTANTS"));
+            assert_eq!(
+                table_symbol, symbol,
+                "table symbol for `{name}` ({table_symbol}) != codegen `ERR_*_SYMBOL` \
+                 ({symbol}); raise_error_into would emit different `.ncode` bytes",
+            );
+        }
     }
 }

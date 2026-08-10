@@ -149,53 +149,62 @@ that its bytes moved.
 
 ## Phases
 
-### Phase 1 — classify + pilot conversion
+### Phase 1 — free-function emitter + table symbol column (infrastructure)
 
-- [ ] Classify all 49 sites: for each, record enclosing `fn` and func-vs-bare
-      (a table in this plan’s Corrections). Command: `grep -nE
-      'push_error_message_address' <file>` then read the enclosing `fn`.
-- [ ] Convert ONE pilot site fully to `raise_error`/`raise_error_bare` (delete its
-      register-setting + `push_error_message_address` sequence), re-baseline its
-      golden, and prove via a runtime test that the pilot raises the identical
-      error code + message. Confirm the only deltas are the intended ones (source
-      loc present; `_mfb_make_error_result` used).
+Superseded design (see Corrections C-1): sites are free functions, so they use the
+byte-identical free-function emitter `raise_error_into`, NOT the `raise_error`
+methods; goldens stay **constant**, not re-baselined.
 
-Acceptance: the 49-row classification table is complete AND the pilot site, run
-end-to-end, raises the same code+message as before (goldens re-baselined, not
-held constant). No fragment primitive is introduced.
+- [x] Add a 4th `symbol` column to `ERRORCODE_CONSTANTS` (the exact historical
+      `ERR_*_SYMBOL` per error, irregular ones included) + `runtime_error_emission(name)
+      -> (code, symbol)`. `errorcode.rs`.
+- [x] Add `data_objects::raise_error_into(from, name, instructions, relocations)` —
+      emits `move code; move ERR tag; push_error_message_address(symbol)` from the
+      table, byte-identical to the historical fixed-helper sequence.
+- [x] Parity pins: `emission_symbols_match_codegen_constants` (every emitted symbol =
+      its `ERR_*_SYMBOL`), and the 4-tuple update of `error_constants_match_table`.
+
+Acceptance: `cargo test --bin mfb` green for the errorcode + parity tests; the
+emitter compiles. No golden re-baseline (byte-identical by construction).
 Commit: —
 
-### Phase 2 — migrate named-builtin helpers
+### Phase 2 — convert every emission site to the table (~307, not 49; see C-2)
 
-- [ ] Convert the symbol-path sites in `datetime.rs`, `io_stdin.rs`,
-      `io_stdout.rs`, `io_terminal.rs`, `term.rs`, `app.rs` (incl.
-      `prepend_wrong_mode_gate`) to `raise_error(func_id, name)`; add each raised
-      error to the owning builtin’s `errors` in `src/builtins/*.rs`.
-- [ ] Tests (per-site gate): for each converted helper, a `tests/rt-error/**`
-      fixture triggers its error and asserts `Error.code`, green **before** the
-      conversion (add if missing — incl. an app-mode wrong-mode fixture and a
-      stdin-from-unsubscribed-thread `ErrInvalidContext` fixture). Re-run after.
+- [x] `emit_fail` (both defs: `native_helpers` + the `net/mod.rs` duplicate) takes an
+      error *name* and delegates to `raise_error_into`; all **216** `emit_fail`
+      callers (crypto, audio/, tls/, crypto_ec/, net/) pass a name instead of a
+      `(ERR_*_CODE, ERR_*_SYMBOL)` pair.
+- [x] All **91** direct `push_error_message_address` callers + the top-level fixed
+      helpers (io_stdin/io_stdout/io_terminal/term/app/datetime/entry/float_format/
+      runtime_helpers/runtime_helpers_thread + fs/*, os/*) converted to
+      `raise_error_into` — the two `move` lines dropped, the push replaced.
+- [x] `prepend_wrong_mode_gate` uses `raise_error_into("ErrWrongMode")`; the
+      exploratory `function_id`/`_builtin` thread is reverted (the free-function
+      emitters do not validate against `builtin.errors`, uniformly).
+- [x] Inline-message family (missed by the push census): 3 inline `adrp`/`add`
+      (io_stdin/io_stdout) + 11 `emit_data_address` (link_thunk incl. boundary loop)
+      → `raise_error_into`; 3 per-target app unsupported emitters (win/macOS/linux_gtk)
+      → table-driven via `runtime_error_emission` + local loader; macOS duplicate
+      `ERR_UNSUPPORTED_*` const deleted; parity test extended to all emitted names.
 
-Acceptance (per-site gate): no `push_error_message_address` calls remain in those
-6 files (`grep -rc` → 0 each); every converted helper’s rt-error fixture raises the
-same `Error.code` after as before (message unchanged, or on the Phase-0
-consolidation list); `cargo test --bin mfb` green.
+Acceptance: zero `push_error_message_address` callers remain outside its own def +
+`raise_error_into` (`grep -rn` → those two only); zero `emit_fail` calls pass an
+`ERR_*` constant; `cargo build` clean.
 Commit: —
 
-### Phase 3 — migrate shared runtime helpers (bare)
+### Phase 3 — verify byte-identity + runtime error parity
 
-- [ ] Convert the symbol-path sites in `native_helpers.rs`, `runtime_helpers.rs`,
-      `runtime_helpers_thread.rs`, `entry.rs`, `float_format.rs` to
-      `raise_error_bare(name)`.
-- [ ] Tests (per-site gate): a `tests/rt-error/**` fixture per shared-helper error
-      path (where one can be triggered from source), asserting `Error.code`, green
-      before and after. For helpers not reachable from a program, assert via the
-      emit-inspection unit test that the raised code matches.
+- [ ] `cargo test --bin mfb` green (incl. the errorcode + parity tests).
+- [ ] `scripts/artifact-gate.sh` (byte-identity goldens): **0 diffs** — the emitter
+      reproduces every fixed-helper sequence exactly, so no golden churn (the inverse
+      of the superseded "re-baseline" plan). Any diff is a wrong name→symbol mapping
+      to fix, not a re-baseline.
+- [ ] `tests/rt-error/**` acceptance (`scripts/test-accept.sh`) green — every
+      converted error path raises the same `Error.code`+message as before (no code or
+      message change anywhere; the `ErrWrongMode` table-message consolidation is D).
 
-Acceptance (per-site gate): `grep -rc 'push_error_message_address'
-src/target/shared/code/*.rs` = 0 outside `data_objects.rs`’s definition; the
-rt-error fixtures raise the same `Error.code` after as before; `cargo test --bin
-mfb` green.
+Acceptance: `cargo test --bin mfb` green; artifact-gate 0 diffs; rt-error accept
+green; `grep -rn push_error_message_address src/` shows only the def + emitter.
 Commit: —
 
 ## Validation Plan
@@ -208,11 +217,9 @@ Commit: —
 - Runtime proof: an app-mode program that hits the wrong-mode gate, and a stdin
   read from an unsubscribed thread (`ErrInvalidContext`), still raise the same
   codes/messages after C.
-- Codegen goldens: `scripts/artifact-gate.sh` after each phase to see the delta,
-  then **re-baseline** the affected goldens (the byte change is the intended
-  unification, not a regression — AGENTS.md’s “never edit a golden until proven
-  wrong” is satisfied here by the runtime proof that the same error is raised).
-  Inspect the diff to confirm it is only error-emission sites, nothing unrelated.
+- Codegen goldens: `scripts/artifact-gate.sh` must show **0 diffs** (byte-identical
+  approach — Corrections C-1). Goldens are held CONSTANT, never re-baselined. A diff
+  means a wrong name→symbol/code mapping (root-cause and fix it), not a re-baseline.
 - Doc sync: none.
 - Acceptance: `cargo test --bin mfb` green + runtime proof that every converted
   helper raises the same code+message. After C, verify `used_errors` is populated
@@ -234,9 +241,60 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution — the 49-site classification table, and any site
-whose runtime error changed (code or message) rather than only its bytes (that is
-a real regression to fix; a byte-only change is the expected unification).>
+**C-1 (design, premise defect resolved by user decision).** The symbol-path sites
+are **free functions** (`grep -c self` = 0), so they cannot call the `&mut self`
+`raise_error`/`raise_error_bare` methods (see Prerequisites defect). Per the user's
+decision (2026-08-09), C adopts a **byte-identical free-function emitter**:
+`data_objects::raise_error_into(from, error_name, instructions, relocations)` emits
+the historical lightweight fixed-helper sequence (`move code; move ERR tag;
+push_error_message_address(symbol)`) sourcing `(code, message-symbol)` from
+`ERRORCODE_CONSTANTS` — a new **4th `symbol` column** on the table. This is a third
+emission entry point (nuancing DoD invariant #1 to "two methods + their shared
+free-fn form"), and it keeps `.ncode` **byte-identical** (no golden churn). The
+table-message consolidation for the one divergent code (`ErrWrongMode`) stays a
+**D** concern — C changes only the *emission*, not the message data-object content,
+so no runtime code/message changes anywhere.
+
+**C-2 (census was wrong by ~6×; measured by recursive grep).** The plan's "49
+symbol-path sites" came from a **non-recursive** glob (`src/target/shared/code/*.rs`)
+that silently excluded every subdirectory (`fs/ os/ net/ audio/ tls/ crypto_ec/`) —
+the "census-by-grep path-exclusion" trap. The true population, by
+`grep -rn ... src/`:
+- **91** direct `push_error_message_address` callers (fs/*, os/*, net/*, term.rs, …).
+- **216** `emit_fail(...)` callers (the shared error-tail helper in `native_helpers`)
+  across net/, audio/, tls/, crypto_ec/, crypto.rs — each passing a matched
+  `(ERR_*_CODE, ERR_*_SYMBOL)` pair (only alias: OOM code ↔ allocation symbol).
+- **2** variable-`message_symbol` helpers (`native_helpers::emit_fail` — converted;
+  `net/mod.rs` classifier — handled in place).
+
+Then a THIRD family surfaced — sites that inline the message-load instead of
+calling `push_error_message_address` (so the first census missed them entirely):
+- **3** inline `adrp`/`add_pageoff` sequences (io_stdin ×2, io_stdout ×1).
+- **6** `emit_data_address(from, RESULT_ERROR_MESSAGE_REGISTER, ERR_*_SYMBOL, …)` in
+  `link_thunk.rs` + **5** more in its boundary-validation loop (overflow/encoding/
+  float-nan/float-inf/invalid-argument).
+- **3** per-target app `terminalSize`-unsupported emitters (win/macOS/linux_gtk)
+  that use a custom x0/x1/x2 ABI (macOS even had a *duplicate local*
+  `ERR_UNSUPPORTED_*` const, now deleted). These cannot call the shared
+  `raise_error_into` (private `data_objects` module / target-boundary), so each is
+  made table-driven via `runtime_error_emission(name)` + its local loader —
+  byte-identical, still one metadata source.
+Verified byte-identical: `abi::load_page_address`/`add_page_offset` and
+`emit_data_address`/`load_addr` emit the exact `adrp`/`add_pageoff` + DataAddrHi/Lo
+relocs that `push_error_message_address` does (reloc push-order interleaving is
+irrelevant — the two vectors end up identical).
+
+Total ≈ **330** emission sites, not 49. Re-scoped in place; the approach is
+unchanged. One further irregular symbol surfaced: `ERR_DIRECTORY_NOT_EMPTY_SYMBOL`
+(code 77030005) is the sole fixed emission for `ErrResourceBusy`, so the table pins
+that historical symbol. Non-emission `ERR_*` uses left for **D**: the data-object
+message tables (`shared/code/mod.rs`, `link_thunk.rs`), the arena helper's
+code-in-x0 returns (`arena.rs`), and a resource-closed *comparison*
+(`builder_resource_cleanup.rs`).
+
+**Per-site classification / message-change audit:** <filled in as conversion lands;
+a byte-only change is the expected unification, a code/message change is a
+regression to fix.>
 
 ## Summary
 

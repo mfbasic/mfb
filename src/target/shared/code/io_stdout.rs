@@ -543,37 +543,8 @@ pub(super) fn lower_io_write_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&write_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    let output_error_symbol = ERR_OUTPUT_SYMBOL.to_string();
-    instructions.push(
-        CodeInstruction::new("adrp")
-            .field("dst", RESULT_ERROR_MESSAGE_REGISTER)
-            .field("symbol", &output_error_symbol),
-    );
-    instructions.push(
-        CodeInstruction::new("add_pageoff")
-            .field("dst", RESULT_ERROR_MESSAGE_REGISTER)
-            .field("src", RESULT_ERROR_MESSAGE_REGISTER)
-            .field("symbol", &output_error_symbol),
-    );
-    relocations.extend([
-        CodeRelocation {
-            from: symbol.to_string(),
-            to: output_error_symbol.clone(),
-            kind: RelocIntent::DataAddrHi,
-            binding: "data".to_string(),
-            library: None,
-        },
-        CodeRelocation {
-            from: symbol.to_string(),
-            to: output_error_symbol,
-            kind: RelocIntent::DataAddrLo,
-            binding: "data".to_string(),
-            library: None,
-        },
-    ]);
+    raise_error_into(symbol, "ErrWriteFailed", &mut instructions, &mut relocations);
     if let Some(tso) = grid_target {
         // TUI-active stdout: route the string (still in the return register) into
         // the shadow-grid back buffer. No terminal write happens here; the frame
@@ -631,15 +602,8 @@ pub(super) fn lower_io_flush_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&output_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_OUTPUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrWriteFailed", &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);

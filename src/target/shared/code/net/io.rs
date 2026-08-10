@@ -318,14 +318,7 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         LISTENER_FD_OFFSET,
         FLAGS_OFFSET,
     )?;
-    emit_fail(
-        symbol,
-        ERR_NETWORK_FAILED_CODE,
-        ERR_NETWORK_FAILED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrNetworkFailed", &mut instructions, &mut relocations, &done);
     // No client arrived before the deadline (poll returned 0): report a timeout,
     // matching net::connectTcp's bounded-wait error (bug-185).
     instructions.push(abi::label(&accept_timeout));
@@ -342,34 +335,13 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         LISTENER_FD_OFFSET,
         FLAGS_OFFSET,
     )?;
-    emit_fail(
-        symbol,
-        ERR_TIMEOUT_CODE,
-        ERR_TIMEOUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrTimeout", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&closed));
-    emit_fail(
-        symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrResourceClosed", &mut instructions, &mut relocations, &done);
     // plan-73-C: a negative (non-sentinel) `timeoutMs` → ErrInvalidArgument. Reached
     // from the prologue before any non-blocking-mode change, so no flags to restore.
     instructions.push(abi::label(&accept_invalid));
-    emit_fail(
-        symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&alloc_fail));
     emit_listener_flags_restore(
         &mut EmitCtx {
@@ -384,14 +356,7 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         LISTENER_FD_OFFSET,
         FLAGS_OFFSET,
     )?;
-    emit_fail(
-        symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations, &done);
     instructions.extend([abi::label(&done), abi::return_()]);
     {
         let (frame, stack_slots) =
@@ -477,41 +442,13 @@ pub(in crate::target::shared::code) fn lower_net_address_helper(
         abi::branch(&done),
         abi::label(&name_fail),
     ]);
-    emit_fail(
-        symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrResourceClosed", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&addr_fail));
-    emit_fail(
-        symbol,
-        ERR_ADDRESS_INVALID_CODE,
-        ERR_ADDRESS_INVALID_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrAddressInvalid", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&closed));
-    emit_fail(
-        symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrResourceClosed", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&alloc_fail));
-    emit_fail(
-        symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations, &done);
     instructions.extend([abi::label(&done), abi::return_()]);
     {
         let (frame, stack_slots) =
@@ -648,14 +585,7 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
             abi::branch(&done),
             abi::label(&encoding_error),
         ]);
-        emit_fail(
-            symbol,
-            ERR_ENCODING_CODE,
-            ERR_ENCODING_SYMBOL,
-            &mut instructions,
-            &mut relocations,
-            &done,
-        );
+        emit_fail(symbol, "ErrEncoding", &mut instructions, &mut relocations, &done);
     } else {
         // Build a List OF Byte with N elements.
         instructions.extend([
@@ -729,14 +659,7 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
         ]);
     }
     instructions.push(abi::label(&peer_closed));
-    emit_fail(
-        symbol,
-        ERR_CONNECTION_CLOSED_CODE,
-        ERR_CONNECTION_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrConnectionClosed", &mut instructions, &mut relocations, &done);
     // read_fail: distinguish a read timeout (EAGAIN) from a closed connection.
     instructions.push(abi::label(&read_fail));
     platform.emit_errno(
@@ -763,50 +686,15 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
         abi::compare_immediate("%v9", EINTR_ERRNO),
         abi::branch_eq(&read_retry),
     ]);
-    emit_fail(
-        symbol,
-        ERR_CONNECTION_CLOSED_CODE,
-        ERR_CONNECTION_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrConnectionClosed", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&timeout));
-    emit_fail(
-        symbol,
-        ERR_TIMEOUT_CODE,
-        ERR_TIMEOUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrTimeout", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&invalid));
-    emit_fail(
-        symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&closed));
-    emit_fail(
-        symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrResourceClosed", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&alloc_fail));
-    emit_fail(
-        symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations, &done);
     instructions.extend([abi::label(&done), abi::return_()]);
     {
         let (frame, stack_slots) =
@@ -975,32 +863,11 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
             abi::branch_eq(&write_loop),
         ]);
     }
-    emit_fail(
-        symbol,
-        ERR_CONNECTION_CLOSED_CODE,
-        ERR_CONNECTION_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrConnectionClosed", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&timeout));
-    emit_fail(
-        symbol,
-        ERR_TIMEOUT_CODE,
-        ERR_TIMEOUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrTimeout", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&closed));
-    emit_fail(
-        symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrResourceClosed", &mut instructions, &mut relocations, &done);
     instructions.extend([abi::label(&done), abi::return_()]);
     {
         let (frame, stack_slots) =
@@ -1218,14 +1085,7 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
         abi::branch(&done),
         abi::label(&resolve_fail),
     ]);
-    emit_fail(
-        symbol,
-        ERR_ADDRESS_NOT_FOUND_CODE,
-        ERR_ADDRESS_NOT_FOUND_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrAddressNotFound", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&addr_fail));
     // freeaddrinfo(res): addr_fail is reached only from the inet_ntop-failure
     // branch, where the resolver result list is always allocated (getaddrinfo
@@ -1243,23 +1103,9 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_fail(
-        symbol,
-        ERR_ADDRESS_INVALID_CODE,
-        ERR_ADDRESS_INVALID_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrAddressInvalid", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&alloc_fail));
-    emit_fail(
-        symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations, &done);
     instructions.extend([abi::label(&done), abi::return_()]);
     {
         let (frame, stack_slots) =
@@ -1453,32 +1299,11 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_fail(
-        symbol,
-        ERR_NETWORK_FAILED_CODE,
-        ERR_NETWORK_FAILED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrNetworkFailed", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&resolve_fail));
-    emit_fail(
-        symbol,
-        ERR_ADDRESS_INVALID_CODE,
-        ERR_ADDRESS_INVALID_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrAddressInvalid", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&alloc_fail));
-    emit_fail(
-        symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations, &done);
     instructions.extend([abi::label(&done), abi::return_()]);
     {
         let (frame, stack_slots) =
@@ -1751,79 +1576,23 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
             abi::branch_eq(&timeout),
         ]);
     }
-    emit_fail(
-        symbol,
-        ERR_NETWORK_FAILED_CODE,
-        ERR_NETWORK_FAILED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrNetworkFailed", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&timeout));
-    emit_fail(
-        symbol,
-        ERR_TIMEOUT_CODE,
-        ERR_TIMEOUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrTimeout", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&too_large));
-    emit_fail(
-        symbol,
-        ERR_MESSAGE_TOO_LARGE_CODE,
-        ERR_MESSAGE_TOO_LARGE_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrMessageTooLarge", &mut instructions, &mut relocations, &done);
     if text {
         instructions.push(abi::label(&encoding_error));
-        emit_fail(
-            symbol,
-            ERR_ENCODING_CODE,
-            ERR_ENCODING_SYMBOL,
-            &mut instructions,
-            &mut relocations,
-            &done,
-        );
+        emit_fail(symbol, "ErrEncoding", &mut instructions, &mut relocations, &done);
     }
     instructions.push(abi::label(&invalid));
-    emit_fail(
-        symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&addr_fail));
-    emit_fail(
-        symbol,
-        ERR_ADDRESS_INVALID_CODE,
-        ERR_ADDRESS_INVALID_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrAddressInvalid", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&closed));
-    emit_fail(
-        symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrResourceClosed", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&alloc_fail));
-    emit_fail(
-        symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations, &done);
     instructions.extend([abi::label(&done), abi::return_()]);
     {
         let (frame, stack_slots) =
@@ -2031,59 +1800,17 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
         abi::compare_immediate("%v9", platform.socket_message_size_code()),
         abi::branch_eq(&too_large),
     ]);
-    emit_fail(
-        symbol,
-        ERR_NETWORK_FAILED_CODE,
-        ERR_NETWORK_FAILED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrNetworkFailed", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&timeout));
-    emit_fail(
-        symbol,
-        ERR_TIMEOUT_CODE,
-        ERR_TIMEOUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrTimeout", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&too_large));
-    emit_fail(
-        symbol,
-        ERR_MESSAGE_TOO_LARGE_CODE,
-        ERR_MESSAGE_TOO_LARGE_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrMessageTooLarge", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&resolve_fail));
-    emit_fail(
-        symbol,
-        ERR_ADDRESS_NOT_FOUND_CODE,
-        ERR_ADDRESS_NOT_FOUND_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrAddressNotFound", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&closed));
-    emit_fail(
-        symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrResourceClosed", &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&alloc_fail));
-    emit_fail(
-        symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
+    emit_fail(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations, &done);
     instructions.extend([abi::label(&done), abi::return_()]);
     {
         let (frame, stack_slots) =
