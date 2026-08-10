@@ -438,6 +438,12 @@ FUNC resolveOne(tag AS String, attrs AS Map OF String TO String, rules AS List O
   ' Split the class attribute once, not once per class-selector below.
   LET classes AS List OF String = splitWs(collections::getOr(attrs, "class", ""))
   MUT s AS Style = uaStyle(tag)
+  ' The HTML `hidden` boolean attribute is display:none in the UA sheet
+  ' (`[hidden] { display: none }`), so `<div hidden>` is removed from layout. Seeded
+  ' as a UA default (before author rules), so an explicit `display:` rule overrides it.
+  IF collections::hasKey(attrs, "hidden") THEN
+    s = WITH s { display := Display.None }
+  END IF
   ' text-align inherits; <center> and an align= attribute are presentational seeds
   ' that a matching CSS rule (applied below) can still override.
   MUT ta AS Justify = inherited
