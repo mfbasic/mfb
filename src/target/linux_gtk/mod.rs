@@ -122,7 +122,13 @@ const ST_TERM_CELL_H: usize = ST_TERM_CELL_W + 8; // cell height in px
                                                   // A blank cell is 0, not ' ': the blanking `memset`s write whole bytes, and
                                                   // a memset of ' ' over u32 cells would pack FOUR spaces per cell. The draw
                                                   // treats 0 and ' ' alike (both render nothing).
-const ST_TERM_CHARS: usize = ST_TERM_CELL_H + 8;
+/// planning/term.md #11: cached "window was resized" flag. Set to 1 by
+/// `_mfb_gtkapp_term_resize` on a genuine cols/rows change and read-and-cleared by
+/// `term::didResize()`. Lives in the address-based GTK global (not the arena
+/// term-state) so the main-loop resize callback and the worker-side getter both
+/// reach it without the pinned arena register.
+const ST_TERM_DID_RESIZE: usize = ST_TERM_CELL_H + 8;
+const ST_TERM_CHARS: usize = ST_TERM_DID_RESIZE + 8;
 const ST_TERM_FG: usize = ST_TERM_CHARS + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 const ST_TERM_BG: usize = ST_TERM_FG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 // Draw-owned snapshot (front) copy of the three grid arrays (plan-35-E). The worker

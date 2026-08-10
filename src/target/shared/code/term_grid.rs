@@ -1061,6 +1061,15 @@ pub(super) fn emit_grid_resize(
         abi::compare_registers(newc, oldc),
         abi::branch_eq(&skip),
         abi::label(&do_rz),
+        // planning/term.md #11: a genuine terminal size change was detected — latch
+        // the resize flag so `term::didResize()` reports it. `term::didResize`
+        // read-and-clears it. `t` is a scratch immediately overwritten below.
+        abi::move_immediate(t, "Integer", "1"),
+        abi::store_u64(
+            t,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_DID_RESIZE_OFFSET,
+        ),
         // Park dims + old base across the arena calls.
         abi::store_u64(newr, sp, S_NEWR),
         abi::store_u64(newc, sp, S_NEWC),

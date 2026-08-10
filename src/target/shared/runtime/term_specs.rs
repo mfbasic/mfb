@@ -143,3 +143,9 @@ pub(crate) const TERM_TERMINAL_SIZE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec 
         returns: "TermSize",
     },
 };
+
+pub(crate) const TERM_DID_RESIZE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.didResize",
+    abi: RuntimeHelperAbi { returns: "Boolean" },
+};

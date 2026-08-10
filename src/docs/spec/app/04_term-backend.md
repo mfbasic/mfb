@@ -31,7 +31,7 @@ Eight `u64` slots, zero-initialized (the inert TUI-off default). [[src/target/sh
 | underline | 32 | underline flag |
 | cursorVisible | 40 | cursor-visible flag |
 | gridHeader | 48 | console shadow-grid header pointer (0 while off) |
-| (reserved) | 56 | one reserved slot (future: scroll region / damage rect) |
+| didResize | 56 | cached "terminal was resized" flag; latched on a genuine size change (CLI reflow), read-and-cleared by `term::didResize` |
 
 The GUI `term::on`/`off`/`setForeground`/`setBackground`/`setBold`/
 `setUnderline`/`showCursor`/`hideCursor`/`moveTo`/`clear`/`drawHLine`/`drawVLine`/
@@ -40,6 +40,12 @@ exactly as the console backend would, then additionally drive the surface (below
 Pure readers — `term::isOn` and the attribute getters — keep the shared console
 implementation; the app dispatcher returns `None` for them so they read the global
 the setters maintain. [[src/target/macos_aarch64/app/app_io.rs:emit_app_term_helper]]
+`term::didResize` is the exception among readers: because the app resize event is
+recorded on the surface's own geometry (the macOS `TVSTATE` struct, the GTK state
+global) rather than the arena term-state, each app backend implements its own
+`didResize` arm reading that surface flag, while the console/CLI backend reads the
+slot-56 flag above. In every case the read clears the flag so it latches until
+observed. [[src/target/shared/code/term.rs:emit_did_resize]]
 
 `store_term_state` is the one-line writer: `mov x9, #value; str x9, [x19,
 term_state_offset+field]`. [[src/target/macos_aarch64/app/app_io.rs:store_term_state]]
@@ -134,7 +140,8 @@ cell stays 16 bytes with a width byte at offset 14 (`C_WIDTH`).
 
 `term::off` runs the final present, frees the block, and zeroes slot 48;
 `_mfb_shutdown` frees it if `off` was skipped. On a terminal resize between frames
-the present reallocs the block and forces a full repaint (`life` re-queries the
+the present reallocs the block, latches the slot-56 `didResize` flag (for
+`term::didResize`), and forces a full repaint (`life` re-queries the
 size each loop). Slot 56 stays reserved. The console grid writer + diff presenter
 are emitted as neutral `abi::` codegen, so one implementation is
 shared across aarch64/x86/riscv and stays byte-deterministic.
@@ -183,7 +190,7 @@ view are likewise stashed under `_mfb_macapp_window_key`,
 
 A `calloc`'d buffer attached to the view via `objc_setAssociatedObject(view,
 &TVSTATE_KEY, state, OBJC_ASSOCIATION_ASSIGN)` — a plain C buffer the runtime
-never messages. Thirty-seven 8-byte fields = 296 bytes (`TV_STATE_SIZE`). [[src/target/macos_aarch64/app/term_view.rs:emit_term_init_helper]]
+never messages. Thirty-nine 8-byte fields = 312 bytes (`TV_STATE_SIZE`). [[src/target/macos_aarch64/app/term_view.rs:emit_term_init_helper]]
 
 | Field | Offset | Type | Meaning |
 |-------|--------|------|---------|
@@ -212,6 +219,8 @@ never messages. Thirty-seven 8-byte fields = 296 bytes (`TV_STATE_SIZE`). [[src/
 | `TV_FILL_X1`/`Y1`/`X2`/`Y2` | 224/232/240/248 | i64 | `fillRect` corner points (raw) |
 | `TV_GLYPH_G`/`X`/`Y` | 256/264/272 | u32,i64,i64 | `drawGlyph` code point + cell |
 | `TV_TEXT_X`/`Y` | 280/288 | i64 | `drawText` start cell (text is the object arg) |
+| `TV_POOL` | 296 | `u8*` | TermCell-parallel EGC pool base (heap) |
+| `TV_DID_RESIZE` | 304 | i64 | cached "was resized" flag; set by `setFrameSize:` on a genuine change, read-and-cleared by `term::didResize` |
 
 The `TV_CUR_*` attribute fields (64..96) are the app-mode mirror of the
 term-state global: the GUI setters write **both** the global (for readers) and
@@ -269,7 +278,9 @@ it `calloc`s a new `TermCell[]`, copies the top-left overlap
 differ), publishes `TV_CELLS`/`TV_ROWS`/`TV_COLS`, `free`s the old buffer, clamps
 the cursor into the new extent, and forces a full `setNeedsDisplay:`.
 `term::terminalSize` reads `TV_ROWS`/`TV_COLS`, so a program re-querying its size
-(as `life` does) sees the new extent. `setFrameSize:` runs on the main thread — the
+(as `life` does) sees the new extent. On a genuine geometry change it also latches
+the `TV_DID_RESIZE` flag on `TVSTATE`, which `term::didResize` read-and-clears.
+`setFrameSize:` runs on the main thread — the
 same thread as `drawRect:` and the marshaled grid writes — so the realloc cannot
 tear a concurrent draw. [[src/target/macos_aarch64/app/term_view.rs:emit_term_set_frame_size_helper]]
 

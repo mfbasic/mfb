@@ -860,12 +860,26 @@ pub(super) fn emit_term_resize_helper() -> Result<CodeFunction, String> {
     asm.load_state("x10", ST_TERM_CELL_W);
     asm.push(abi::unsigned_divide_registers("x11", "x11", "x10"));
     emit_clamp_range(&mut asm, "x11", 1, TERM_MAX_COLS, "rz_cols");
-    asm.store_state("x11", ST_TERM_COLS);
     // rows = clamp(height / cell_h, 1, MAX_ROWS).
     asm.load_state("x10", ST_TERM_CELL_H);
     asm.push(abi::unsigned_divide_registers("x12", "x12", "x10"));
     emit_clamp_range(&mut asm, "x12", 1, TERM_MAX_ROWS, "rz_rows");
+    // planning/term.md #11: latch the resize flag only on a GENUINE extent change
+    // (the "resize" signal also fires at initial allocation, where the freshly
+    // clamped cols/rows equal the activate-computed values → no spurious flag).
+    // Capture the old extent in x13/x14 before overwriting, compare, set 1 on diff.
+    asm.load_state("x13", ST_TERM_COLS); // old cols
+    asm.load_state("x14", ST_TERM_ROWS); // old rows
+    asm.store_state("x11", ST_TERM_COLS);
     asm.store_state("x12", ST_TERM_ROWS);
+    asm.push(abi::compare_registers("x13", "x11"));
+    asm.push(abi::branch_ne("rz_changed"));
+    asm.push(abi::compare_registers("x14", "x12"));
+    asm.push(abi::branch_eq("rz_nochange"));
+    asm.push(abi::label("rz_changed"));
+    asm.push(abi::move_immediate("x13", "Integer", "1"));
+    asm.store_state("x13", ST_TERM_DID_RESIZE);
+    asm.push(abi::label("rz_nochange"));
     // Force a full redraw at the new extent.
     asm.load_state("x0", ST_TERM_AREA);
     asm.call_external("gtk_widget_queue_draw");

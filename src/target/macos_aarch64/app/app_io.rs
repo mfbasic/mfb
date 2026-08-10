@@ -629,9 +629,58 @@ pub(crate) fn emit_app_term_helper(
         "term.showCursor" => emit_app_set_cursor_visible(symbol, term_state_offset, "1"),
         "term.hideCursor" => emit_app_set_cursor_visible(symbol, term_state_offset, "0"),
         "term.terminalSize" => emit_app_terminal_size(symbol, term_state_offset),
+        "term.didResize" => emit_app_did_resize(symbol),
         _ => return None,
     };
     Some(helper)
+}
+
+/// `term::didResize()` app arm (planning/term.md #11): OK(Boolean) = the cached
+/// resize flag on TVSTATE, read-and-cleared so it latches from a genuine window
+/// resize (set by the `setFrameSize:` IMP) until the program observes it. Headless
+/// (no attached surface) reads false. Result ABI x0=tag, x1=value.
+fn emit_app_did_resize(symbol: &str) -> AppHookBody {
+    let mut asm = Asm::new(symbol);
+    // Frame: lr@0, x20(state)@8.
+    let frame = 16;
+    let false_label = format!("{symbol}_false");
+    let done = format!("{symbol}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
+    // Load TVSTATE (clobbers x0/x1, not x19); nil (headless) → false.
+    emit_get_tv_state(&mut asm, abi::LOCAL[1], &false_label);
+    // value = TVSTATE.didResize, then clear it (read-and-clear).
+    asm.push(abi::load_u64("x1", abi::LOCAL[1], TV_DID_RESIZE_OFFSET));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[1],
+        TV_DID_RESIZE_OFFSET,
+    ));
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // OK tag
+    asm.push(abi::branch(&done));
+    asm.push(abi::label(&false_label));
+    asm.push(abi::move_immediate("x1", "Integer", "0")); // false
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // OK tag
+    asm.push(abi::label(&done));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
 }
 
 /// `term::sync()` app arm (plan-35-D §3). The single present: marshal a

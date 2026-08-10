@@ -477,7 +477,12 @@ const TV_TEXT_Y_OFFSET: usize = 288; // i64 row
                                      // unallocated. Position-indexed like the console pool, so scroll/resize shift it
                                      // in lockstep with the cells.
 const TV_POOL_OFFSET: usize = 296; // TermCell-parallel EGC pool base (u8* heap)
-const TV_STATE_SIZE: usize = 304;
+/// planning/term.md #11: cached "window was resized" flag. Set to 1 by the
+/// `setFrameSize:` IMP on a genuine grid-dimension change and read-and-cleared by
+/// `term::didResize()`. calloc-zeroed with the rest of TVSTATE, so it reads false
+/// until the first real resize.
+const TV_DID_RESIZE_OFFSET: usize = 304; // i64 did-resize flag
+const TV_STATE_SIZE: usize = 312;
 // A multi-scalar grapheme cluster (combining sequence, ZWJ emoji family, flag)
 // whose UTF-8 exceeds the 3 bytes that fit... no: the cell glyph is a u32
 // codepoint, so a cluster of >1 scalar is stored in the cell's pool slot. 64

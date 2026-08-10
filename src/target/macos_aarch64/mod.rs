@@ -101,6 +101,7 @@ impl NativeBackend for Backend {
                 "term.getBold",
                 "term.getUnderline",
                 "term.terminalSize",
+                "term.didResize",
                 "fs.fileExists",
                 "fs.directoryExists",
                 "fs.exists",
