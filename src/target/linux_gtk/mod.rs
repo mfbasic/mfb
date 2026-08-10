@@ -406,18 +406,19 @@ impl Asm {
 
     /// Materialize the address of a runtime-state field/array at `offset` into
     /// `dst` (clobbers `x9` for large offsets past the 12-bit add immediate).
-    fn state_array(&mut self, dst: &str, offset: usize) {
-        self.local_address(dst, STATE_SYMBOL);
+    fn state_array(&mut self, dst: impl Into<Operand>, offset: usize) {
+        let dst = dst.into();
+        self.local_address(dst.clone(), STATE_SYMBOL);
         if offset < 4096 {
-            self.push(abi::add_immediate(dst, dst, offset));
+            self.push(abi::add_immediate(dst.clone(), dst, offset));
         } else {
             self.push(abi::move_immediate("x9", "Integer", &offset.to_string()));
-            self.push(abi::add_registers(dst, dst, "x9"));
+            self.push(abi::add_registers(dst.clone(), dst, "x9"));
         }
     }
 
     /// Load runtime-state field `offset` into `dst` (clobbers `x9`).
-    fn load_state(&mut self, dst: &str, offset: usize) {
+    fn load_state(&mut self, dst: impl Into<Operand>, offset: usize) {
         self.local_address("x9", STATE_SYMBOL);
         self.push(abi::load_u64(dst, "x9", offset));
     }
@@ -426,7 +427,7 @@ impl Asm {
     /// scratch-pool register, realized `x9`). Spelled with the neutral token
     /// because some callers' sequences are injected into shared helper bodies,
     /// which the plan-34-D stream guard requires to be token-pure.
-    fn store_state(&mut self, src: &str, offset: usize) {
+    fn store_state(&mut self, src: impl Into<Operand>, offset: usize) {
         self.local_address(abi::SCRATCH[0], STATE_SYMBOL);
         self.push(abi::store_u64(src, abi::SCRATCH[0], offset));
     }
@@ -542,14 +543,14 @@ pub(crate) fn emit_app_program_entry_x86(
 fn emit_libc_start_trampoline_x86() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(MAIN_SYMBOL);
     asm.push(abi::label("entry"));
-    // The x86 selection maps x0..x5 to rdi/rsi/rdx/rcx/r8/r9 at the call.
-    asm.local_address("x0", GTK_MAIN_SYMBOL); // main
-    asm.push(abi::load_u64("x1", abi::stack_pointer(), 0)); // argc
-    asm.push(abi::add_immediate("x2", abi::stack_pointer(), 8)); // argv
-    asm.push(abi::move_immediate("x3", "Integer", "0")); // init
-    asm.push(abi::move_immediate("x4", "Integer", "0")); // fini
-    asm.push(abi::move_immediate("x5", "Integer", "0")); // rtld_fini
-                                                         // stack_end = the entry sp, passed as the 7th (stack) argument.
+    // __libc_start_main's six C arguments: main, argc, argv, init, fini, rtld_fini.
+    asm.local_address(abi::c_arg(0), GTK_MAIN_SYMBOL); // main
+    asm.push(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), 0)); // argc
+    asm.push(abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), 8)); // argv
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // init
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0")); // fini
+    asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0")); // rtld_fini
+                                                                  // stack_end = the entry sp, passed as the 7th (stack) argument.
     asm.push(abi::add_immediate("x9", abi::stack_pointer(), 0));
     asm.push(abi::subtract_stack(16));
     asm.push(abi::store_u64("x9", abi::stack_pointer(), 0));
@@ -588,8 +589,6 @@ const X86_WRAP_BYTES: usize = 56;
 pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>) {
     use crate::arch::ops::CodeOp;
     use crate::target::shared::code::{mir, regalloc};
-
-    stage_result_reuse_x86(instructions);
 
     // Rename the AArch64 scratch/parking registers to per-function vregs (one
     // per distinct register, preserving each def/use chain — the same mapping
@@ -703,45 +702,6 @@ pub(crate) fn wrap_x86_helper(triple: AppHookBody) -> AppHookBody {
     let (frame, mut instructions, relocations) = triple;
     finalize_x86_app_function(&mut instructions);
     (frame, instructions, relocations)
-}
-
-/// Make the AArch64 "call result feeds the next call's first argument" idiom
-/// explicit for x86. Hand-built sequences like
-/// `bl gtk_scrolled_window_new; bl g_object_ref_sink` rely on the result
-/// register doubling as the first argument register — true on AArch64 (both are
-/// `x0`), false on SysV x86-64 (`rax` vs `rdi`). Before every call whose `x0`
-/// was last defined by a *previous call's return* (no intervening def), insert
-/// `mov x0, x0`: the x86 role remap colors the destination as the upcoming
-/// call's first argument (`rdi`) and the source as the prior call's result
-/// (`rax`), producing exactly the missing `mov rdi, rax`. Conservative at
-/// labels (unknown provenance across merges — the hand-built bodies stage
-/// explicitly across branches).
-fn stage_result_reuse_x86(instructions: &mut Vec<CodeInstruction>) {
-    use crate::arch::ops::CodeOp;
-    let mut result_live = false;
-    let mut index = 0;
-    while index < instructions.len() {
-        match instructions[index].op {
-            CodeOp::Label => result_live = false,
-            CodeOp::BranchLink | CodeOp::BranchLinkRegister => {
-                if result_live {
-                    instructions.insert(index, abi::move_register("x0", "x0"));
-                    index += 1;
-                }
-                result_live = true;
-            }
-            _ => {
-                let defines_x0 = instructions[index]
-                    .fields
-                    .iter()
-                    .any(|(key, value)| *key == "dst" && value == "x0");
-                if defines_x0 {
-                    result_live = false;
-                }
-            }
-        }
-        index += 1;
-    }
 }
 
 /// The app-mode platform import set, shared by the aarch64 and x86-64 Linux
