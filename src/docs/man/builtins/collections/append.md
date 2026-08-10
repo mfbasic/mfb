@@ -20,20 +20,20 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 ## Description
 
 `collections::append` returns a new list whose contents are those of `value`
 followed by the appended content. It takes exactly two arguments; neither is
-optional and neither is variadic. [[src/builtins/collections.rs:COLLECTIONS]]
+optional and neither is variadic. [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 The second argument may be either a single element of the list's element type
 `T`, or another `List OF T`. The compiler picks the overload from the static type
 of that argument: an argument whose type is exactly the element type appends one
 element, and an argument whose type is exactly the same list type concatenates.
 Any other type is a compile-time error, because no other combination resolves.
-[[src/builtins/collections.rs:resolve_append]]
+[[src/codegen/builtins/collections/mod.rs:resolve_append]]
 
 Internally both forms are the same operation: the appended content is wrapped as
 a list when it is a single element, and the result is built by splicing that list
@@ -70,27 +70,27 @@ same order.
 
 Appends a single element. The result is exactly one element longer than `value`,
 with `item` as its last element.
-[[src/builtins/collections.rs:resolve_append]]
+[[src/codegen/builtins/collections/mod.rs:resolve_append]]
 
 **`collections::append OF T(value AS List OF T, item AS List OF T) AS List OF T`**
 
 Concatenates a second list of the same type. The result is
 `len(value) + len(item)` elements long, with every element of `item` following
 every element of `value`, both in their original order.
-[[src/builtins/collections.rs:resolve_append]]
+[[src/codegen/builtins/collections/mod.rs:resolve_append]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to append to; left unchanged. Also accepted under the name `list`. Must be a list type; passing a `Map` or a scalar resolves no overload and is a compile-time error. [[src/builtins/collections.rs:call_param_names]] [[src/builtins/collections.rs:resolve_append]] |
-| `item` | `T` or `List OF T` | The element to append, or a list of elements to concatenate. Also accepted under the name `items`. Its type must be exactly the element type `T` or exactly `List OF T`. [[src/builtins/collections.rs:call_param_names]] [[src/builtins/collections.rs:resolve_append]] |
+| `value` | `List OF T` | The list to append to; left unchanged. Also accepted under the name `list`. Must be a list type; passing a `Map` or a scalar resolves no overload and is a compile-time error. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/mod.rs:resolve_append]] |
+| `item` | `T` or `List OF T` | The element to append, or a list of elements to concatenate. Also accepted under the name `items`. Its type must be exactly the element type `T` or exactly `List OF T`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/mod.rs:resolve_append]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF T` | A new list with the appended content at the end, of the same type as `value`. Appending an empty list returns a list equal to `value`. [[src/builtins/collections.rs:resolve_append]] |
+| `List OF T` | A new list with the appended content at the end, of the same type as `value`. Appending an empty list returns a list equal to `value`. [[src/codegen/builtins/collections/mod.rs:resolve_append]] |
 
 ## Errors
 
@@ -103,7 +103,7 @@ equal to the element type `T` or equal to the full list type `List OF T`; there
 is no implicit widening or conversion, so appending an `Integer` to a
 `List OF Float` does not resolve. A call on a non-list first argument, or with an
 element type that does not match, resolves to no overload and is rejected at
-compile time. [[src/builtins/collections.rs:resolve_append]]
+compile time. [[src/codegen/builtins/collections/mod.rs:resolve_append]]
 
 ## Examples
 

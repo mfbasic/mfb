@@ -19,11 +19,11 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 `removeKey` is a native `collections::` member and must be called with the
 `collections::` qualifier; there is no bare `removeKey` built-in.
-[[src/builtins/collections.rs:is_native_member]]
+[[src/codegen/builtins/collections/mod.rs:is_native_member]]
 
 ## Description
 
@@ -64,14 +64,14 @@ is not a trappable domain error in this language.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Map OF K TO V` | The map to copy from. Also accepted under the name `map`. Not mutated. [[src/builtins/collections.rs:call_param_names]] |
-| `key` | `K` | The key whose entry is dropped from the copy. Must be exactly the map's key type. A key that is not present is accepted and drops nothing. [[src/builtins/collections.rs:call_param_names]] |
+| `value` | `Map OF K TO V` | The map to copy from. Also accepted under the name `map`. Not mutated. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `key` | `K` | The key whose entry is dropped from the copy. Must be exactly the map's key type. A key that is not present is accepted and drops nothing. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Map OF K TO V` | A new owned map of the same type, holding every entry of `value` except the one for `key`. Has one fewer entry than `value` when `key` was present, and the same entries as `value` when it was not. [[src/builtins/collections.rs:resolve_remove_key]] |
+| `Map OF K TO V` | A new owned map of the same type, holding every entry of `value` except the one for `key`. Has one fewer entry than `value` when `key` was present, and the same entries as `value` when it was not. [[src/codegen/builtins/collections/mod.rs:resolve_remove_key]] |
 
 ## Errors
 
@@ -80,13 +80,13 @@ No errors.
 ## Type checking
 
 `collections::removeKey` takes exactly two arguments.
-[[src/builtins/collections.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 The first must be a `Map OF K TO V`; a `List` or any non-map value is a
 compile-time type error, and there is no list counterpart here — use
 `collections::removeAt` to drop a list item by index. The second must be exactly
 the map key type `K`. The result has the same map type as the first argument.
-[[src/builtins/collections.rs:resolve_remove_key]]
+[[src/codegen/builtins/collections/mod.rs:resolve_remove_key]]
 
 ## Examples
 

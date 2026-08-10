@@ -522,12 +522,12 @@ fn exact_one_of(arg_types: &[String], expected: &[&str]) -> bool {
 /// The element type of a `List`, with any `RES` ownership-axis marker stripped:
 /// a `List OF RES File` yields the pointer element type `File`, since reading or
 /// inserting an element works with the bare resource value (§15.6).
-pub(super) fn list_element(type_name: &str) -> Option<&str> {
+pub(crate) fn list_element(type_name: &str) -> Option<&str> {
     let element = type_name.strip_prefix("List OF ")?;
     Some(element.strip_prefix("RES ").unwrap_or(element))
 }
 
-pub(super) fn map_parts(type_name: &str) -> Option<(&str, &str)> {
+pub(crate) fn map_parts(type_name: &str) -> Option<(&str, &str)> {
     let (key, value) = type_name.strip_prefix("Map OF ")?.split_once(" TO ")?;
     Some((key, value.strip_prefix("RES ").unwrap_or(value)))
 }
@@ -540,14 +540,14 @@ pub(super) fn map_parts(type_name: &str) -> Option<(&str, &str)> {
 /// insertion position, and `ir::verify` already strips it from arguments). For a
 /// non-resource element both sides pass through `base_resource_name` unchanged,
 /// so this is an exact-match compare there.
-pub(super) fn element_accepts_item(element: &str, item: &str) -> bool {
+pub(crate) fn element_accepts_item(element: &str, item: &str) -> bool {
     crate::builtins::resource::base_resource_name(element)
         == crate::builtins::resource::base_resource_name(item)
 }
 
 /// The element type of a `Set OF T` (plan-63). A Set element is always
 /// comparable and never `RES`-marked, so there is no marker to strip.
-pub(super) fn set_element(type_name: &str) -> Option<&str> {
+pub(crate) fn set_element(type_name: &str) -> Option<&str> {
     type_name.strip_prefix("Set OF ")
 }
 
@@ -558,7 +558,7 @@ pub(super) fn set_element(type_name: &str) -> Option<&str> {
 /// Integer) AS Integer` is what `collections::transform` receives over a list of
 /// two-argument function values — so the parameter list is scanned with paren
 /// depth: the closing paren and the separating commas are the ones at depth 0.
-pub(super) fn function_parts(type_name: &str) -> Option<(Vec<&str>, &str)> {
+pub(crate) fn function_parts(type_name: &str) -> Option<(Vec<&str>, &str)> {
     super::split_func_params_and_return(type_name.strip_prefix("FUNC(")?)
 }
 

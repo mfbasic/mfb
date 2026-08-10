@@ -20,11 +20,11 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 `getOr` is a native `collections::` member and must be called with the
 `collections::` qualifier; there is no bare `getOr` built-in.
-[[src/builtins/collections.rs:is_native_member]]
+[[src/codegen/builtins/collections/mod.rs:is_native_member]]
 
 ## Description
 
@@ -82,15 +82,15 @@ that key. [[src/target/shared/code/builder_collection_query.rs:lower_map_get_or]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` or `Map OF K TO V` | The collection to read from. Also accepted under the name `collection`. Not copied and not mutated. [[src/builtins/collections.rs:call_param_names]] |
-| `index` | `Integer` or `K` | The zero-based list index, or the map key. Also accepted under the name `key`. The spelling table is per position rather than per overload, so both names are accepted under either overload. [[src/builtins/collections.rs:call_param_names]] |
-| `default` | `T` or `V` | The value to return when the element is absent. Also accepted under the name `fallback`. Must be exactly the list element type for the list overload, or the map value type for the map overload. Always evaluated. [[src/builtins/collections.rs:call_param_names]] |
+| `value` | `List OF T` or `Map OF K TO V` | The collection to read from. Also accepted under the name `collection`. Not copied and not mutated. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `index` | `Integer` or `K` | The zero-based list index, or the map key. Also accepted under the name `key`. The spelling table is per position rather than per overload, so both names are accepted under either overload. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `default` | `T` or `V` | The value to return when the element is absent. Also accepted under the name `fallback`. Must be exactly the list element type for the list overload, or the map value type for the map overload. Always evaluated. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `T` (list overload) or `V` (map overload) | The selected element when it exists, otherwise `default`. Owned by the caller on both paths. [[src/builtins/collections.rs:resolve_get_or]] |
+| `T` (list overload) or `V` (map overload) | The selected element when it exists, otherwise `default`. Owned by the caller on both paths. [[src/codegen/builtins/collections/mod.rs:resolve_get_or]] |
 
 ## Errors
 
@@ -99,7 +99,7 @@ No errors.
 ## Type checking
 
 `collections::getOr` takes exactly three arguments.
-[[src/builtins/collections.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 If the first argument is a `List OF T`, the second must be exactly `Integer`,
 the third must be exactly `T`, and the call has type `T`. Otherwise the first
@@ -107,7 +107,7 @@ argument must be a `Map OF K TO V`, the second must be exactly `K`, the third
 must be exactly `V`, and the call has type `V`. A `default` whose type differs
 from the element or value type is a compile-time type error — there is no
 widening or conversion.
-[[src/builtins/collections.rs:resolve_get_or]]
+[[src/codegen/builtins/collections/mod.rs:resolve_get_or]]
 
 ## Examples
 

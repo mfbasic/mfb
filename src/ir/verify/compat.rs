@@ -232,7 +232,7 @@ impl TypeEnv {
         }
         // `collections`/`general` builtins: per-name arity, then arg-typed
         // overload resolution (syntaxcheck's check_general_builtin_call arms).
-        if builtins::collections::is_collections_call(target) {
+        if crate::codegen::builtins::collections::is_collections_call(target) {
             if let Some((min, max)) = builtins::arity(target) {
                 if self.builtin_arity_errored(target, arg_types.len(), min, max) {
                     return;

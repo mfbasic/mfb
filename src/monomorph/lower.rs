@@ -123,7 +123,7 @@ impl<'a> Monomorphizer<'a> {
             emitted_type_keys: HashSet::new(),
             emitted_function_keys: HashSet::new(),
             concrete_symbol_keys: HashMap::new(),
-            collections_bindings: crate::builtins::collections::collections_bindings(source)
+            collections_bindings: crate::codegen::builtins::collections::collections_bindings(source)
                 .into_keys()
                 .collect(),
             function_files,
@@ -143,8 +143,8 @@ impl<'a> Monomorphizer<'a> {
         if !self.collections_bindings.contains(binding) {
             return None;
         }
-        crate::builtins::collections::is_collections_function(member)
-            .then(|| crate::builtins::collections::internal_name(member))
+        crate::codegen::builtins::collections::is_collections_function(member)
+            .then(|| crate::codegen::builtins::collections::internal_name(member))
     }
 
     /// Rewrite a call to an imported overloaded function to the package's mangled

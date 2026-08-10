@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:FUNCTIONS]]
+[[src/codegen/builtins/collections/mod.rs:FUNCTIONS]]
 
 ## Description
 
@@ -27,14 +27,14 @@ IMPORT collections
 `FOR EACH` and, for each entry, storing the original `e.key` together with the
 transformed value `f(e.value)`. The keys are copied through untouched, so the
 result has exactly the same key set as `value` and the same number of entries.
-Only the value type changes, from `V` to `U`. [[src/builtins/collections_package.mfb:__collections_mapValues]]
+Only the value type changes, from `V` to `U`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_mapValues]]
 
 `f` is applied exactly once per entry in `value`. Because entries are written in
 the order `FOR EACH` yields them, the result is built by inserting keys in the
 source map's traversal order. Map traversal order is implementation-defined but
 stable for a given unchanged map value during one program run, so no ordering
 guarantee beyond that should be relied on; see `mfb man types map`.
-[[src/builtins/collections_package.mfb:__collections_mapValues]]
+[[src/codegen/builtins/collections/collections_package.mfb:__collections_mapValues]]
 
 `value` is not modified — the source map is read, and a separate result map is
 constructed and returned. When `value` is empty, `f` is never called and the
@@ -52,14 +52,14 @@ value of the required type. [[src/ast/expr.rs:parse_lambda]]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Map OF K TO V` | The source map. May be empty. Not modified. [[src/builtins/collections_package.mfb:__collections_mapValues]] |
-| `f` | `FUNC(V) AS U` | Transform applied to each entry's value. Receives only the value; the entry's key is not passed to it. Called once per entry. [[src/builtins/collections_package.mfb:__collections_mapValues]] |
+| `value` | `Map OF K TO V` | The source map. May be empty. Not modified. [[src/codegen/builtins/collections/collections_package.mfb:__collections_mapValues]] |
+| `f` | `FUNC(V) AS U` | Transform applied to each entry's value. Receives only the value; the entry's key is not passed to it. Called once per entry. [[src/codegen/builtins/collections/collections_package.mfb:__collections_mapValues]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Map OF K TO U` | A new map with the same keys as `value`, each mapped to `f` applied to that key's original value. Empty when `value` is empty. [[src/builtins/collections_package.mfb:__collections_mapValues]] |
+| `Map OF K TO U` | A new map with the same keys as `value`, each mapped to `f` applied to that key's original value. Empty when `value` is empty. [[src/codegen/builtins/collections/collections_package.mfb:__collections_mapValues]] |
 
 ## Errors
 
@@ -71,7 +71,7 @@ No errors.
 map, and `U`, the value type `f` returns. All three are inferred from the
 argument types. `K` is carried straight through to the result type, so it must
 remain a valid map key type; `U` may be any type, including `V` itself.
-[[src/builtins/collections_package.mfb:__collections_mapValues]]
+[[src/codegen/builtins/collections/collections_package.mfb:__collections_mapValues]]
 
 ## Examples
 

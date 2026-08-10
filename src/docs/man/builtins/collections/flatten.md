@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:FUNCTIONS]]
+[[src/codegen/builtins/collections/mod.rs:FUNCTIONS]]
 
 ## Description
 
@@ -29,14 +29,14 @@ inner list onto an accumulating result. It does this by calling
 is the list-concatenation overload of `append`, which accepts a second argument
 that is either the element type or the same list type as the first argument.
 Each inner list is therefore spliced in whole rather than nested as a single
-element. [[src/builtins/collections_package.mfb:__collections_flatten]] [[src/builtins/collections.rs:resolve_append]]
+element. [[src/codegen/builtins/collections/collections_package.mfb:__collections_flatten]] [[src/codegen/builtins/collections/mod.rs:resolve_append]]
 
 `flatten` removes exactly **one** level of nesting. Its parameter type is
 `List OF List OF T`, so applying it to a `List OF List OF List OF Integer`
 produces a `List OF List OF Integer` — the innermost lists survive as elements.
 Flattening further requires calling `flatten` again on the result. It is not
 recursive and there is no depth parameter.
-[[src/builtins/collections_package.mfb:__collections_flatten]]
+[[src/codegen/builtins/collections/collections_package.mfb:__collections_flatten]]
 
 Order is fully preserved: the inner lists are consumed in their own order, and
 the items within each inner list keep their relative order, so the result reads
@@ -55,13 +55,13 @@ untyped `[]` literal cannot be passed directly — bind it to a
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF List OF T` | The list of inner lists to concatenate. May be empty, and any inner list may be empty. Not modified. [[src/builtins/collections_package.mfb:__collections_flatten]] |
+| `value` | `List OF List OF T` | The list of inner lists to concatenate. May be empty, and any inner list may be empty. Not modified. [[src/codegen/builtins/collections/collections_package.mfb:__collections_flatten]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF T` | A new list holding every item of every inner list of `value`, inner lists in order and items within each inner list in order. Empty when `value` is empty or when every inner list is empty. [[src/builtins/collections_package.mfb:__collections_flatten]] |
+| `List OF T` | A new list holding every item of every inner list of `value`, inner lists in order and items within each inner list in order. Empty when `value` is empty or when every inner list is empty. [[src/codegen/builtins/collections/collections_package.mfb:__collections_flatten]] |
 
 ## Errors
 
@@ -73,7 +73,7 @@ No errors.
 the inner lists. It is inferred from the argument, which must be a
 `List OF List OF T`; a plain `List OF T` does not match, and a doubly nested
 `List OF List OF List OF T` binds `T` to `List OF ...` and so flattens only its
-outermost level. [[src/builtins/collections_package.mfb:__collections_flatten]]
+outermost level. [[src/codegen/builtins/collections/collections_package.mfb:__collections_flatten]]
 
 ## Examples
 

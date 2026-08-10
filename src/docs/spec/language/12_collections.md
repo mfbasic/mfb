@@ -36,7 +36,7 @@ pts = collections::append(pts, v)               ' in-place append on the mutable
 The global `len` is always available. Every other helper lives in the
 `collections` package and requires `IMPORT collections` (a built-in package, so
 no manifest dependency is needed). The package members fall into two
-implementation groups. [[src/builtins/collections.rs]]
+implementation groups. [[src/codegen/builtins/collections/mod.rs]]
 
 **Native members** — code-generated list/map primitives whose
 IR target is dequalified back to the bare native name:
@@ -51,10 +51,10 @@ here are the **List** overloads only; their `String` overloads live in
 `strings::`. The **Set** members `collections::add` (idempotent insert),
 `collections::remove` (no-op when absent), and `collections::toList` (elements in
 insertion order) are native too, and `collections::contains` gains a `Set OF T`
-overload alongside its `List OF T` one. [[src/builtins/collections.rs:NATIVE_MEMBERS]]
+overload alongside its `List OF T` one. [[src/codegen/builtins/collections/mod.rs:NATIVE_MEMBERS]]
 
 **Source generics** — generic MFBASIC functions defined in a bundled MFBASIC
-source companion and injected when the package is imported. [[src/builtins/collections_package.mfb]]
+source companion and injected when the package is imported. [[src/codegen/builtins/collections/collections_package.mfb]]
 A call `collections::sort(x)` is rewritten to `__collections_sort(x)` during
 monomorphization and instantiated like any generic function:
 `collections::sort`, `collections::sortBy`, `collections::take`,

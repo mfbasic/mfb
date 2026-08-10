@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:FUNCTIONS]]
+[[src/codegen/builtins/collections/mod.rs:FUNCTIONS]]
 
 ## Description
 
@@ -27,13 +27,13 @@ IMPORT collections
 pairing length `n` as the smaller of `len(a)` and `len(b)`, then for each index
 `i` from `0` to `n - 1` builds a `Pair OF A, B` whose `first` field is the item
 of `a` at `i` and whose `second` field is the item of `b` at `i`, appending each
-pair to the result. [[src/builtins/collections_package.mfb:__collections_zip]]
+pair to the result. [[src/codegen/builtins/collections/collections_package.mfb:__collections_zip]]
 
 Pairing therefore stops at the shorter input: the result length is exactly
 `min(len(a), len(b))`, and the trailing items of the longer list are dropped
 without notice. There is no padding, no filler value, and no error — zipping a
 3-item list with a 1-item list simply yields one pair. When either list is empty,
-the result is empty. [[src/builtins/collections_package.mfb:__collections_zip]]
+the result is empty. [[src/codegen/builtins/collections/collections_package.mfb:__collections_zip]]
 
 Positional correspondence is preserved: the pair at index `i` of the result
 always holds the items that were at index `i` in both inputs, so the result reads
@@ -51,14 +51,14 @@ no user callback and raises no error.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `List OF A` | The list supplying the `first` field of each pair. May be empty. Not modified. [[src/builtins/collections_package.mfb:__collections_zip]] |
-| `b` | `List OF B` | The list supplying the `second` field of each pair. May be empty, and need not be the same length as `a`. Not modified. [[src/builtins/collections_package.mfb:__collections_zip]] |
+| `a` | `List OF A` | The list supplying the `first` field of each pair. May be empty. Not modified. [[src/codegen/builtins/collections/collections_package.mfb:__collections_zip]] |
+| `b` | `List OF B` | The list supplying the `second` field of each pair. May be empty, and need not be the same length as `a`. Not modified. [[src/codegen/builtins/collections/collections_package.mfb:__collections_zip]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF Pair OF A, B` | A new list of `min(len(a), len(b))` pairs; the pair at index `i` holds `a`'s item at `i` as `first` and `b`'s item at `i` as `second`. Empty when either input is empty. [[src/builtins/collections_package.mfb:__collections_zip]] |
+| `List OF Pair OF A, B` | A new list of `min(len(a), len(b))` pairs; the pair at index `i` holds `a`'s item at `i` as `first` and `b`'s item at `i` as `second`. Empty when either input is empty. [[src/codegen/builtins/collections/collections_package.mfb:__collections_zip]] |
 
 ## Errors
 
@@ -69,7 +69,7 @@ No errors.
 `zip` is generic over `A` and `B`, the element types of the two lists. They are
 inferred independently from the two arguments and need not be the same type. The
 result type is the prelude record template `Pair` instantiated as `Pair OF A, B`.
-[[src/builtins/collections_package.mfb:__collections_zip]] [[src/ast/manifest.rs:builtin_prelude_file]]
+[[src/codegen/builtins/collections/collections_package.mfb:__collections_zip]] [[src/ast/manifest.rs:builtin_prelude_file]]
 
 ## Examples
 

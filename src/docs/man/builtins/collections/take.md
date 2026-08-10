@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:FUNCTIONS]]
+[[src/codegen/builtins/collections/mod.rs:FUNCTIONS]]
 
 ## Description
 
@@ -27,14 +27,14 @@ IMPORT collections
 of `value`, in their original order. It is a generic function written in MFBASIC
 source: the call is rewritten to the internal `__collections_take` generic and
 instantiated for the element type `T` during monomorphization.
-[[src/builtins/collections.rs:internal_name]]
-[[src/builtins/collections_package.mfb:__collections_take]]
+[[src/codegen/builtins/collections/mod.rs:internal_name]]
+[[src/codegen/builtins/collections/collections_package.mfb:__collections_take]]
 
 `take(value, count)` is defined as the half-open range `[0, count)` of `value`,
 delegated to the internal slice helper. That helper is lowered natively as a
 bulk range copy, and the native lowering is what defines the boundary behavior:
 the range start is clamped into `[0, len]` and the range stop into
-`[start, len]`. [[src/builtins/collections_package.mfb:__collections_take]]
+`[start, len]`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_take]]
 [[src/target/shared/code/builder_collection_queries.rs:try_inline_slice_op]]
 [[src/target/shared/code/builder_collection_queries.rs:lower_list_slice_range]]
 
@@ -58,8 +58,8 @@ behind.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The source list. Any length is accepted, including the empty list. Named-argument spelling is `value`. [[src/builtins/collections_package.mfb:__collections_take]] |
-| `count` | `Integer` | How many leading elements to keep. Any `Integer` is accepted: values at or below 0 yield the empty list and values at or above the length yield the whole list. Named-argument spelling is `count`. [[src/builtins/collections_package.mfb:__collections_take]] |
+| `value` | `List OF T` | The source list. Any length is accepted, including the empty list. Named-argument spelling is `value`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_take]] |
+| `count` | `Integer` | How many leading elements to keep. Any `Integer` is accepted: values at or below 0 yield the empty list and values at or above the length yield the whole list. Named-argument spelling is `count`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_take]] |
 
 ## Return value
 

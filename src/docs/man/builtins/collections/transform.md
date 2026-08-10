@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 ## Description
 
@@ -28,12 +28,12 @@ calls `f` once per element with that element as its only argument, and appends
 each returned value to a new list. The result therefore has exactly as many
 elements as `value`, in the same order. It is a **native** member: the compiler
 emits the mapping loop directly rather than instantiating an MFBASIC generic.
-[[src/builtins/collections.rs:is_native_member]]
+[[src/codegen/builtins/collections/mod.rs:is_native_member]]
 [[src/target/shared/code/builder_collection_queries.rs:lower_collection_transform_call]]
 
 The element type of the result is `f`'s success type `U`, so mapping a
 `List OF Integer` through a `FUNC(Integer) AS String` yields a `List OF String`.
-`U` may differ from `T` or equal it. [[src/builtins/collections.rs:resolve_transform]]
+`U` may differ from `T` or equal it. [[src/codegen/builtins/collections/mod.rs:resolve_transform]]
 
 `f` must be a callable *value* — a reference to a declared `FUNC`, or a
 `LAMBDA`. An overloaded built-in such as `toString` is not a callable value and
@@ -45,7 +45,7 @@ ordinary callables and can be passed directly where their type fits.
 `f` must produce a value: a callback whose success type is `Nothing` — such as a
 `SUB` — does not resolve, because there would be nothing to collect. Use
 `collections::forEach` to run a callback purely for its side effects.
-[[src/builtins/collections.rs:resolve_transform]]
+[[src/codegen/builtins/collections/mod.rs:resolve_transform]]
 
 `value` is neither modified nor consumed; the result is a freshly allocated
 list. The output is pre-sized to the source list's working set, since
@@ -71,14 +71,14 @@ at the call site rather than letting it auto-propagate.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to map. Any length is accepted, including the empty list. Also accepted under the name `collection`. [[src/builtins/collections.rs:call_param_names]] |
-| `f` | `FUNC(T) AS U` | Called once per element with that element; its return value becomes the corresponding result element. Must take exactly one parameter of the element type `T`, and its success type `U` must not be `Nothing`. Also accepted under the name `transform`. [[src/builtins/collections.rs:resolve_transform]] [[src/builtins/collections.rs:call_param_names]] |
+| `value` | `List OF T` | The list to map. Any length is accepted, including the empty list. Also accepted under the name `collection`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `f` | `FUNC(T) AS U` | Called once per element with that element; its return value becomes the corresponding result element. Must take exactly one parameter of the element type `T`, and its success type `U` must not be `Nothing`. Also accepted under the name `transform`. [[src/codegen/builtins/collections/mod.rs:resolve_transform]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF U` | A new list holding `f`'s result for each element of `value`, in source order, with the same length as `value`. For an empty `value`, an empty `List OF U`. [[src/builtins/collections.rs:resolve_transform]] [[src/target/shared/code/builder_collection_queries.rs:lower_collection_transform_call]] |
+| `List OF U` | A new list holding `f`'s result for each element of `value`, in source order, with the same length as `value`. For an empty `value`, an empty `List OF U`. [[src/codegen/builtins/collections/mod.rs:resolve_transform]] [[src/target/shared/code/builder_collection_queries.rs:lower_collection_transform_call]] |
 
 ## Errors
 
@@ -94,8 +94,8 @@ type `U` must be anything other than `Nothing`. `U` then fixes the result type
 as `List OF U`. Passing a non-list first argument, an `f` of the wrong arity, an
 `f` whose parameter type differs from `T`, or an `f` that returns `Nothing` is a
 compile-time type error — no overload resolves.
-[[src/builtins/collections.rs:resolve_transform]]
-[[src/builtins/collections.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:resolve_transform]]
+[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 ## Examples
 

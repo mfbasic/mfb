@@ -136,7 +136,7 @@ append  prepend  insert  set  mid  removeAt  filter  reduce
 
 The qualified→bare mapping ensures a *freed* bare name in user code is never
 mistaken for a collection insertion (only the `collections::` qualified op
-counts). [[src/builtins/collections.rs:native_member_bare]] For an insertion
+counts). [[src/codegen/builtins/collections/mod.rs:native_member_bare]] For an insertion
 call, argument 0 is the collection flowing into the result and arguments 1.. are
 candidate element insertions.
 

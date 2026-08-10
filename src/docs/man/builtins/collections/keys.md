@@ -19,11 +19,11 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 `keys` is a native `collections::` member and must be called with the
 `collections::` qualifier; there is no bare `keys` built-in.
-[[src/builtins/collections.rs:is_native_member]]
+[[src/codegen/builtins/collections/mod.rs:is_native_member]]
 
 ## Description
 
@@ -61,13 +61,13 @@ allocation failure is not a trappable domain error in this language.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Map OF K TO V` | The map to project. Also accepted under the name `map`. Not mutated, and not aliased by the result. [[src/builtins/collections.rs:call_param_names]] |
+| `value` | `Map OF K TO V` | The map to project. Also accepted under the name `map`. Not mutated, and not aliased by the result. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF K` | A new owned list of the map's keys, one per entry, in the map's entry order; the empty list for an empty map. [[src/builtins/collections.rs:resolve_keys]] |
+| `List OF K` | A new owned list of the map's keys, one per entry, in the map's entry order; the empty list for an empty map. [[src/codegen/builtins/collections/mod.rs:resolve_keys]] |
 
 ## Errors
 
@@ -76,12 +76,12 @@ No errors.
 ## Type checking
 
 `collections::keys` takes exactly one argument.
-[[src/builtins/collections.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 It must be a `Map OF K TO V`; a `List` or any non-map value is a compile-time
 type error. The result type is derived from the map's key type as
 `List OF K`, so a `Map OF String TO Integer` yields a `List OF String`.
-[[src/builtins/collections.rs:resolve_keys]]
+[[src/codegen/builtins/collections/mod.rs:resolve_keys]]
 
 ## Examples
 

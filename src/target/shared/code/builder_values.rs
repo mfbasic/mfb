@@ -229,7 +229,7 @@ impl CodeBuilder<'_> {
             NirValue::Local(_) => true,
             NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => {
                 matches!(
-                    crate::builtins::collections::native_member_bare(target),
+                    crate::codegen::builtins::collections::native_member_bare(target),
                     Some("get" | "getOr")
                 ) || crate::builtins::net::returns_borrowed_resource(target)
                     || crate::builtins::tls::returns_borrowed_resource(target)

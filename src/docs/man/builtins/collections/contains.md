@@ -20,11 +20,11 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 `contains` is a native `collections::` member and must be called with the
 `collections::` qualifier; there is no bare `contains` built-in.
-[[src/builtins/collections.rs:is_native_member]]
+[[src/codegen/builtins/collections/mod.rs:is_native_member]]
 
 ## Description
 
@@ -41,8 +41,8 @@ compiler picks the overload from the static type of the first argument. On a
 probe for a probe-eligible element type and a linear scan otherwise. It does not
 accept a `Map`, and it is not the substring test: the `String` form of
 `contains` lives in the `strings::` package, not here.
-[[src/builtins/collections.rs:resolve_contains]]
-[[src/builtins/collections.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:resolve_contains]]
+[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 Equality is payload comparison, resolved by the element type:
 
@@ -75,7 +75,7 @@ position of the match is needed.
 The list form scans `value` from index `0` upward, comparing each stored element
 payload against `item`, and returns `TRUE` on the first match or `FALSE` after
 examining every element. It is O(n) in the list length.
-[[src/builtins/collections.rs:resolve_contains]]
+[[src/codegen/builtins/collections/mod.rs:resolve_contains]]
 [[src/target/shared/code/builder_collection_queries.rs:lower_collection_contains]]
 
 **`collections::contains OF T(value AS Set OF T, item AS T) AS Boolean`**
@@ -84,21 +84,21 @@ The set form tests membership through the set's hash index: an O(1)-average
 FNV-1a probe for the probe-eligible element types (`Integer`, `Float`, `Fixed`,
 `Byte`, `Boolean`, `String`), falling back to a linear scan over the live entries
 for any other element type. The answer is identical to the list form's; only the
-lookup strategy differs. [[src/builtins/collections.rs:resolve_contains]]
+lookup strategy differs. [[src/codegen/builtins/collections/mod.rs:resolve_contains]]
 [[src/target/shared/code/builder_collection_queries.rs:emit_key_membership]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` or `Set OF T` | The collection to test. A list is examined left to right; a set is probed through its hash index. Also accepted under the name `collection`. Not copied and not mutated. [[src/builtins/collections.rs:call_param_names]] |
-| `item` | `T` | The value to search for. Must be exactly the collection's element type. [[src/builtins/collections.rs:call_param_names]] |
+| `value` | `List OF T` or `Set OF T` | The collection to test. A list is examined left to right; a set is probed through its hash index. Also accepted under the name `collection`. Not copied and not mutated. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `item` | `T` | The value to search for. Must be exactly the collection's element type. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when some element of `value` matches `item`; `FALSE` when none does, including for an empty list or set. [[src/builtins/collections.rs:resolve_contains]] |
+| `Boolean` | `TRUE` when some element of `value` matches `item`; `FALSE` when none does, including for an empty list or set. [[src/codegen/builtins/collections/mod.rs:resolve_contains]] |
 
 ## Errors
 
@@ -107,13 +107,13 @@ No errors.
 ## Type checking
 
 `collections::contains` takes exactly two arguments.
-[[src/builtins/collections.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 The first must be a `List OF T` or a `Set OF T`; a `Map`, a `String`, or any
 other value is a compile-time type error. The second must be exactly the element
 type `T` — a `List OF Integer` cannot be searched with a `String`, and there is
 no implicit conversion between numeric element types. The result is always
-`Boolean`. [[src/builtins/collections.rs:resolve_contains]]
+`Boolean`. [[src/codegen/builtins/collections/mod.rs:resolve_contains]]
 
 ## Examples
 

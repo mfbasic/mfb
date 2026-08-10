@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 ## Description
 
@@ -29,7 +29,7 @@ element the reducer is called as `f(accumulator, element)` — **accumulator
 first, element second** — with its return value becoming the accumulator for the
 next step. The accumulator left after the final element is the result. It is a
 **native** member: the compiler emits the fold loop directly rather than
-instantiating an MFBASIC generic. [[src/builtins/collections.rs:is_native_member]]
+instantiating an MFBASIC generic. [[src/codegen/builtins/collections/mod.rs:is_native_member]]
 [[src/target/shared/code/builder_collection_queries.rs:lower_collection_reduce_call]]
 
 The fold direction is left, from index 0 upward: the loop starts at the head of
@@ -41,7 +41,7 @@ The accumulator type `U` is fixed by `initial`. `f`'s first parameter type, its
 success type, and the type of `initial` must all be that same `U`, while `f`'s
 second parameter must be the list element type `T`. `U` may differ from `T`, so
 a `List OF String` can be folded into an `Integer`.
-[[src/builtins/collections.rs:resolve_reduce]]
+[[src/codegen/builtins/collections/mod.rs:resolve_reduce]]
 
 When `value` is empty, the loop body never runs, `f` is never called, and
 `initial` is returned unchanged.
@@ -70,15 +70,15 @@ the call site rather than letting it auto-propagate.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to fold. Any length is accepted, including the empty list. Also accepted under the name `collection`. [[src/builtins/collections.rs:call_param_names]] |
-| `initial` | `U` | The starting accumulator, and the value returned unchanged when `value` is empty. Its type fixes `U`. Also accepted under the name `seed`. [[src/builtins/collections.rs:resolve_reduce]] [[src/builtins/collections.rs:call_param_names]] |
-| `f` | `FUNC(U, T) AS U` | The reducer, called once per element as `f(accumulator, element)`. Its first parameter must be the accumulator type `U`, its second the element type `T`, and its success type `U`. Also accepted under the name `combine`. [[src/builtins/collections.rs:resolve_reduce]] [[src/builtins/collections.rs:call_param_names]] |
+| `value` | `List OF T` | The list to fold. Any length is accepted, including the empty list. Also accepted under the name `collection`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `initial` | `U` | The starting accumulator, and the value returned unchanged when `value` is empty. Its type fixes `U`. Also accepted under the name `seed`. [[src/codegen/builtins/collections/mod.rs:resolve_reduce]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `f` | `FUNC(U, T) AS U` | The reducer, called once per element as `f(accumulator, element)`. Its first parameter must be the accumulator type `U`, its second the element type `T`, and its success type `U`. Also accepted under the name `combine`. [[src/codegen/builtins/collections/mod.rs:resolve_reduce]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `U` | The accumulator after the last element, that is, the result of the final `f` call. For an empty `value`, `initial` unchanged. [[src/builtins/collections.rs:resolve_reduce]] [[src/target/shared/code/builder_collection_queries.rs:lower_collection_reduce_call]] |
+| `U` | The accumulator after the last element, that is, the result of the final `f` call. For an empty `value`, `initial` unchanged. [[src/codegen/builtins/collections/mod.rs:resolve_reduce]] [[src/target/shared/code/builder_collection_queries.rs:lower_collection_reduce_call]] |
 
 ## Errors
 
@@ -94,8 +94,8 @@ the call site rather than letting it auto-propagate.
 constraints are checked together, so an `initial` whose type does not match both
 `f`'s first parameter and `f`'s return type is a compile-time type error, as is
 a reducer with the two parameters in the opposite order. No overload resolves in
-those cases. [[src/builtins/collections.rs:resolve_reduce]]
-[[src/builtins/collections.rs:COLLECTIONS]]
+those cases. [[src/codegen/builtins/collections/mod.rs:resolve_reduce]]
+[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 ## Examples
 

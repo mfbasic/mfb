@@ -2,7 +2,6 @@ pub(crate) mod app;
 pub(crate) mod astrings;
 pub(crate) mod audio;
 pub(crate) mod bits;
-pub(crate) mod collections;
 pub(crate) mod crypto;
 pub(crate) mod csv;
 pub(crate) mod datetime;
@@ -130,13 +129,16 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
 /// A type with no fields (opaque handle / source-companion record) reports `None`,
 /// matching the legacy per-package `builtin_type_fields`.
 pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
-    crate::codegen::registry::REGISTRY.modules().iter().find_map(|module| {
-        module
-            .types
-            .iter()
-            .find(|ty| ty.name == name)
-            .and_then(|ty| (!ty.fields.is_empty()).then_some(ty.fields))
-    })
+    crate::codegen::registry::REGISTRY
+        .modules()
+        .iter()
+        .find_map(|module| {
+            module
+                .types
+                .iter()
+                .find(|ty| ty.name == name)
+                .and_then(|ty| (!ty.fields.is_empty()).then_some(ty.fields))
+        })
 }
 
 /// The internal helper a built-in package provides as an **override** of an
@@ -213,7 +215,7 @@ pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
             _ => None,
         };
     }
-    match collections::native_member_bare(name)? {
+    match crate::codegen::builtins::collections::native_member_bare(name)? {
         "get" => Some("get"),
         "getOr" => Some("getOr"),
         "set" => Some("set"),
@@ -390,8 +392,12 @@ pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Op
     let (module, function) = crate::codegen::registry::REGISTRY.function(callee)?;
     match module.resolver {
         Some(resolver) => resolver.resolve_return_type(module, function.name, arg_types),
-        None => crate::codegen::registry::DefaultResolver::resolve_call(module, function.name, arg_types)
-            .map(str::to_string),
+        None => crate::codegen::registry::DefaultResolver::resolve_call(
+            module,
+            function.name,
+            arg_types,
+        )
+        .map(str::to_string),
     }
 }
 
@@ -454,7 +460,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| process::expected_arguments(name))
         .or_else(|| http::expected_arguments(name))
         .or_else(|| vector::expected_arguments(name))
-        .or_else(|| collections::expected_arguments(name))
+        .or_else(|| crate::codegen::builtins::collections::expected_arguments(name))
         .or_else(|| general::expected_arguments(name))
         .or_else(|| thread::expected_arguments(name))
         .or_else(|| strings::expected_arguments(name))
@@ -597,7 +603,7 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
     // pre-existing admission of lowered-only names whose return type is known
     // (e.g. `tls.closeListener`).
     crate::codegen::registry::REGISTRY.function(name).is_some()
-        || collections::is_collections_call(name)
+        || crate::codegen::builtins::collections::is_collections_call(name)
         || vector::is_vector_call(name)
         || call_return_type_name(name).is_some()
 }
@@ -734,7 +740,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| astrings::call_param_names(name))
         .or_else(|| audio::call_param_names(name))
         .or_else(|| general::call_param_names(name))
-        .or_else(|| collections::call_param_names(name))
+        .or_else(|| crate::codegen::builtins::collections::call_param_names(name))
         .or_else(|| strings::call_param_names(name))
         .or_else(|| math::call_param_names(name))
         .or_else(|| bits::call_param_names(name))
@@ -805,7 +811,10 @@ pub(crate) fn registry_expected_arguments(
     legacy: impl Fn(&str) -> Option<String>,
 ) -> Option<String> {
     if let Some((module, function)) = registry.function(callee) {
-        return crate::codegen::registry::DefaultResolver::expected_arguments(module, function.name);
+        return crate::codegen::registry::DefaultResolver::expected_arguments(
+            module,
+            function.name,
+        );
     }
     legacy(callee)
 }
@@ -1343,17 +1352,27 @@ mod tests {
             |_| false
         ));
         assert_eq!(
-            registry_arity(&crate::codegen::registry::REGISTRY, "nonesuch.thing", |_| Some((1, 2))),
+            registry_arity(
+                &crate::codegen::registry::REGISTRY,
+                "nonesuch.thing",
+                |_| Some((1, 2))
+            ),
             Some((1, 2))
         );
         assert_eq!(
-            registry_return_type_name(&crate::codegen::registry::REGISTRY, "nonesuch.thing", |_| Some("Nothing")),
+            registry_return_type_name(
+                &crate::codegen::registry::REGISTRY,
+                "nonesuch.thing",
+                |_| Some("Nothing")
+            ),
             Some("Nothing")
         );
         assert_eq!(
-            registry_expected_arguments(&crate::codegen::registry::REGISTRY, "nonesuch.thing", |_| Some(
-                "X".to_string()
-            )),
+            registry_expected_arguments(
+                &crate::codegen::registry::REGISTRY,
+                "nonesuch.thing",
+                |_| Some("X".to_string())
+            ),
             Some("X".to_string())
         );
     }

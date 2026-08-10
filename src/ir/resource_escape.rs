@@ -502,7 +502,7 @@ fn is_insertion_builtin(callee: &str) -> bool {
     // in user code is never treated as a collection insertion
     // (plan-01-functions.md §5).
     matches!(
-        crate::builtins::collections::native_member_bare(callee),
+        crate::codegen::builtins::collections::native_member_bare(callee),
         Some("append" | "prepend" | "insert" | "set" | "mid" | "removeAt" | "filter" | "reduce")
     )
 }

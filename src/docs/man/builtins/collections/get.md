@@ -20,11 +20,11 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 `get` is a native `collections::` member and must be called with the
 `collections::` qualifier; there is no bare `get` built-in.
-[[src/builtins/collections.rs:is_native_member]]
+[[src/codegen/builtins/collections/mod.rs:is_native_member]]
 
 ## Description
 
@@ -80,14 +80,14 @@ Returns the value stored under `key`. A key that is not present raises
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` or `Map OF K TO V` | The collection to read from. Also accepted under the name `collection`. Not copied and not mutated. [[src/builtins/collections.rs:call_param_names]] |
-| `index` | `Integer` or `K` | The zero-based list index, or the map key. Also accepted under the name `key`. The spelling table is per position rather than per overload, so `index` and `key` are both accepted names under *either* overload — a map lookup may be written `collections::get(value := m, index := k)` and a list read may be written `collections::get(value := xs, key := 0)`. [[src/builtins/collections.rs:call_param_names]] |
+| `value` | `List OF T` or `Map OF K TO V` | The collection to read from. Also accepted under the name `collection`. Not copied and not mutated. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `index` | `Integer` or `K` | The zero-based list index, or the map key. Also accepted under the name `key`. The spelling table is per position rather than per overload, so `index` and `key` are both accepted names under *either* overload — a map lookup may be written `collections::get(value := m, index := k)` and a list read may be written `collections::get(value := xs, key := 0)`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `T` (list overload) or `V` (map overload) | The selected element, as an owned value the caller may bind, store, and free. The list overload returns the list element type; the map overload returns the map value type. [[src/builtins/collections.rs:resolve_get]] |
+| `T` (list overload) or `V` (map overload) | The selected element, as an owned value the caller may bind, store, and free. The list overload returns the list element type; the map overload returns the map value type. [[src/codegen/builtins/collections/mod.rs:resolve_get]] |
 
 ## Errors
 
@@ -99,14 +99,14 @@ Returns the value stored under `key`. A key that is not present raises
 ## Type checking
 
 `collections::get` takes exactly two arguments.
-[[src/builtins/collections.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 If the first argument is a `List OF T`, the second must be exactly `Integer` and
 the call has type `T`. Otherwise the first argument must be a `Map OF K TO V`,
 the second must be exactly the map key type `K`, and the call has type `V`. Any
 other combination — a non-collection first argument, a non-`Integer` list index,
 or a map key whose type is not `K` — is a compile-time type error.
-[[src/builtins/collections.rs:resolve_get]]
+[[src/codegen/builtins/collections/mod.rs:resolve_get]]
 
 ## Examples
 

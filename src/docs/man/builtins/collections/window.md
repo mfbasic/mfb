@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:FUNCTIONS]]
+[[src/codegen/builtins/collections/mod.rs:FUNCTIONS]]
 
 ## Description
 
@@ -28,27 +28,27 @@ each position where a full run of `size` consecutive elements still fits, emits
 that run as a window. The result is the list of those windows, in order. It is a
 generic function written in MFBASIC source, rewritten to the internal
 `__collections_window` generic and instantiated for the element type `T` during
-monomorphization. [[src/builtins/collections.rs:internal_name]]
-[[src/builtins/collections_package.mfb:__collections_window]]
+monomorphization. [[src/codegen/builtins/collections/mod.rs:internal_name]]
+[[src/codegen/builtins/collections/collections_package.mfb:__collections_window]]
 
 Every window has exactly `size` elements — there is no short final window. The
 loop advances only while `i + size` is still within the length of `value`, so a
 trailing partial run is simply not emitted, and the elements it would have
 contained are dropped from the result. This is the key difference from
 `collections::chunks`, which does emit a short final block.
-[[src/builtins/collections_package.mfb:__collections_window]]
+[[src/codegen/builtins/collections/collections_package.mfb:__collections_window]]
 
 `stride` controls the overlap and defaults to 1, so the common call
 `collections::window(value, size)` produces maximally overlapping windows that
 advance one element at a time. A `stride` equal to `size` produces
 non-overlapping windows, and a `stride` greater than `size` skips elements
-between them. [[src/builtins/collections_package.mfb:__collections_window]]
+between them. [[src/codegen/builtins/collections/collections_package.mfb:__collections_window]]
 
 When `size` is greater than the length of `value`, no window fits and the result
 is the empty list; an empty `value` likewise produces an empty result. Both
 `size` and `stride` must be at least 1, and either being below 1 is rejected at
 runtime with `ErrInvalidArgument`. Note the parameter is named `stride`, not
-`step`. [[src/builtins/collections_package.mfb:__collections_window]]
+`step`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_window]]
 
 Each window is built by the internal slice helper, which is lowered natively as
 a bulk range copy, so element payloads are copied into freshly allocated lists
@@ -61,21 +61,21 @@ independent copies of the elements they share. `value` is not modified.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to window over. Any length is accepted; a list shorter than `size` yields an empty result. Named-argument spelling is `value`. [[src/builtins/collections_package.mfb:__collections_window]] |
-| `size` | `Integer` | The number of elements in each window. Must be 1 or greater; there is no default. Named-argument spelling is `size`. [[src/builtins/collections_package.mfb:__collections_window]] |
-| `stride` | `Integer` | How many positions to advance between consecutive windows. Must be 1 or greater. Defaults to 1 when omitted. Named-argument spelling is `stride`. [[src/builtins/collections_package.mfb:__collections_window]] |
+| `value` | `List OF T` | The list to window over. Any length is accepted; a list shorter than `size` yields an empty result. Named-argument spelling is `value`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_window]] |
+| `size` | `Integer` | The number of elements in each window. Must be 1 or greater; there is no default. Named-argument spelling is `size`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_window]] |
+| `stride` | `Integer` | How many positions to advance between consecutive windows. Must be 1 or greater. Defaults to 1 when omitted. Named-argument spelling is `stride`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_window]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF List OF T` | The sliding windows of `value` in order, each holding exactly `size` elements, starting at indexes 0, `stride`, `2 * stride`, and so on for as long as a full window fits. The empty list when `size` exceeds `len(value)`. [[src/builtins/collections_package.mfb:__collections_window]] |
+| `List OF List OF T` | The sliding windows of `value` in order, each holding exactly `size` elements, starting at indexes 0, `stride`, `2 * stride`, and so on for as long as a full window fits. The empty list when `size` exceeds `len(value)`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_window]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `size` is less than 1, or `stride` is less than 1. [[src/builtins/collections_package.mfb:__collections_window]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050002` | `ErrInvalidArgument` | `size` is less than 1, or `stride` is less than 1. [[src/codegen/builtins/collections/collections_package.mfb:__collections_window]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
 | `77010001` | `ErrOutOfMemory` | The arena cannot allocate a window or the result list, or a computed size overflows. [[src/target/shared/code/builder_collection_queries.rs:lower_list_slice_range]] [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Type checking

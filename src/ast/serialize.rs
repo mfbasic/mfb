@@ -10,7 +10,7 @@ impl AstProject {
             .iter()
             .filter(|file| {
                 file.path != BUILTIN_PRELUDE_PATH
-                    && file.path != crate::builtins::collections::SOURCE_PATH
+                    && file.path != crate::codegen::builtins::collections::SOURCE_PATH
             })
             .map(|file| file.to_json(2))
             .collect::<Vec<_>>()

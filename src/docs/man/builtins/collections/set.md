@@ -20,7 +20,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 ## Description
 
@@ -28,7 +28,7 @@ IMPORT collections
 exactly three arguments; none is optional and none is variadic. The first
 argument selects the overload: a `List OF T` is addressed by an `Integer` index,
 and a `Map OF K TO V` is addressed by a key of type `K`.
-[[src/builtins/collections.rs:COLLECTIONS]] [[src/builtins/collections.rs:resolve_set]]
+[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]] [[src/codegen/builtins/collections/mod.rs:resolve_set]]
 
 The two overloads differ in more than addressing — they differ in whether a
 missing position is an error:
@@ -76,29 +76,29 @@ nothing. [[src/builtins/mod.rs:inline_builtin_raw_supported]]
 
 Replaces the existing element at `index`. Length is preserved and the index must
 be in range; this overload can raise `ErrIndexOutOfRange`.
-[[src/builtins/collections.rs:resolve_set]]
+[[src/codegen/builtins/collections/mod.rs:resolve_set]]
 
 **`collections::set OF K, V(value AS Map OF K TO V, index AS K, item AS V) AS Map OF K TO V`**
 
 Associates `item` with the key, overwriting an existing entry or inserting a new
 one. This overload cannot fail. Note that the key parameter is still spelled
 `index` canonically; `key` is accepted as an alternate name.
-[[src/builtins/collections.rs:resolve_set]] [[src/builtins/collections.rs:call_param_names]]
+[[src/codegen/builtins/collections/mod.rs:resolve_set]] [[src/codegen/builtins/collections/mod.rs:call_param_names]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` or `Map OF K TO V` | The collection to update; left unchanged. Also accepted under the name `collection`. Its shape selects the overload. [[src/builtins/collections.rs:call_param_names]] [[src/builtins/collections.rs:resolve_set]] |
-| `index` | `Integer` or `K` | For a list, the zero-based position to overwrite, valid in `0` through `len(value) - 1`. For a map, the key to assign, which may or may not already be present. Also accepted under the name `key`. Its type must be exactly `Integer` for a list, or exactly the map's key type `K`. [[src/builtins/collections.rs:call_param_names]] [[src/builtins/collections.rs:resolve_set]] |
-| `item` | `T` or `V` | The replacement element (list) or associated value (map). Its type must be exactly the list's element type `T` or the map's value type `V`. This parameter has no alternate spelling. [[src/builtins/collections.rs:call_param_names]] [[src/builtins/collections.rs:resolve_set]] |
+| `value` | `List OF T` or `Map OF K TO V` | The collection to update; left unchanged. Also accepted under the name `collection`. Its shape selects the overload. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/mod.rs:resolve_set]] |
+| `index` | `Integer` or `K` | For a list, the zero-based position to overwrite, valid in `0` through `len(value) - 1`. For a map, the key to assign, which may or may not already be present. Also accepted under the name `key`. Its type must be exactly `Integer` for a list, or exactly the map's key type `K`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/mod.rs:resolve_set]] |
+| `item` | `T` or `V` | The replacement element (list) or associated value (map). Its type must be exactly the list's element type `T` or the map's value type `V`. This parameter has no alternate spelling. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/mod.rs:resolve_set]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF T` | For the list overload: a new list of the same type and the same length as `value`, differing only at `index`. [[src/builtins/collections.rs:resolve_set]] |
-| `Map OF K TO V` | For the map overload: a new map of the same type as `value` in which the key maps to `item`. Its size is unchanged when the key was already present and one larger when it was not. [[src/builtins/collections.rs:resolve_set]] |
+| `List OF T` | For the list overload: a new list of the same type and the same length as `value`, differing only at `index`. [[src/codegen/builtins/collections/mod.rs:resolve_set]] |
+| `Map OF K TO V` | For the map overload: a new map of the same type as `value` in which the key maps to `item`. Its size is unchanged when the key was already present and one larger when it was not. [[src/codegen/builtins/collections/mod.rs:resolve_set]] |
 
 ## Errors
 
@@ -115,7 +115,7 @@ implicit widening or conversion in any position, so a `Map OF String TO Float`
 does not accept an `Integer` value. A first argument that is neither a list nor a
 map, or any type mismatch, resolves to no overload and is rejected at compile
 time; the list index range is a runtime check, not a compile-time one.
-[[src/builtins/collections.rs:resolve_set]]
+[[src/codegen/builtins/collections/mod.rs:resolve_set]]
 
 ## Examples
 

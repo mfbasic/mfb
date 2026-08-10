@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:FUNCTIONS]]
+[[src/codegen/builtins/collections/mod.rs:FUNCTIONS]]
 
 ## Description
 
@@ -28,26 +28,26 @@ arranged in ascending order of the key `keyFn(element)`. The elements themselves
 are never compared; only the keys are. It is a generic function written in
 MFBASIC source, rewritten to the internal `__collections_sortBy` generic and
 instantiated for the element type `T` and key type `U` during monomorphization.
-[[src/builtins/collections.rs:internal_name]]
-[[src/builtins/collections_package.mfb:__collections_sortBy]]
+[[src/codegen/builtins/collections/mod.rs:internal_name]]
+[[src/codegen/builtins/collections/collections_package.mfb:__collections_sortBy]]
 
 `keyFn` is applied to the whole list up front, in one pass, via
 `collections::transform`, producing a parallel list of keys. Each element's key
 is therefore computed **exactly once**, no matter how many comparisons that
 element takes part in. `keyFn` must be a function value — for example a named
 `FUNC` — and it is called once per element, in index order, before any
-comparison happens. [[src/builtins/collections_package.mfb:__collections_sortBy]]
+comparison happens. [[src/codegen/builtins/collections/collections_package.mfb:__collections_sortBy]]
 
 The sort is a bottom-up merge sort with O(n log n) comparisons, merging runs of
 width 1, then 2, then 4, and so on. Items and their keys are carried through the
 merge in parallel, so an element always travels with its own key. The merge is
 **stable**: a right-run item is taken only when its key is *strictly less than*
 the left-run item's key, so elements whose keys compare equal keep their original
-relative order. [[src/builtins/collections_package.mfb:__collections_sortBy]]
+relative order. [[src/codegen/builtins/collections/collections_package.mfb:__collections_sortBy]]
 
 When `value` has fewer than two elements, `sortBy` returns `value` unchanged.
 In that case `keyFn` is never called, because the key pass is skipped along with
-the sort. [[src/builtins/collections_package.mfb:__collections_sortBy]]
+the sort. [[src/codegen/builtins/collections/collections_package.mfb:__collections_sortBy]]
 
 There is no descending form. To order descending by a numeric key, have `keyFn`
 return the negated key. `value` is not modified.
@@ -56,14 +56,14 @@ return the negated key. `value` is not modified.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to order. Any length is accepted, including the empty list. Named-argument spelling is `value`. [[src/builtins/collections_package.mfb:__collections_sortBy]] |
-| `keyFn` | `FUNC(T) AS U` | The key projection, applied once to each element. Must be a function value taking one element and returning the sort key; `U` must be a type the `<` operator accepts. Named-argument spelling is `keyFn`. [[src/builtins/collections_package.mfb:__collections_sortBy]] |
+| `value` | `List OF T` | The list to order. Any length is accepted, including the empty list. Named-argument spelling is `value`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_sortBy]] |
+| `keyFn` | `FUNC(T) AS U` | The key projection, applied once to each element. Must be a function value taking one element and returning the sort key; `U` must be a type the `<` operator accepts. Named-argument spelling is `keyFn`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_sortBy]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF T` | A new list holding the elements of `value` ordered by ascending `keyFn(element)`, with equal-key elements in their original relative order. For a list of fewer than two elements, `value` itself. [[src/builtins/collections_package.mfb:__collections_sortBy]] |
+| `List OF T` | A new list holding the elements of `value` ordered by ascending `keyFn(element)`, with equal-key elements in their original relative order. For a list of fewer than two elements, `value` itself. [[src/codegen/builtins/collections/collections_package.mfb:__collections_sortBy]] |
 
 ## Errors
 

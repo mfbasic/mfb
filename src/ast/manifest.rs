@@ -98,7 +98,7 @@ pub fn parse_project(
     };
     // Inject the built-in `collections` package source when the project imports
     // it; its sentinel file is likewise filtered out of `-ast` output.
-    crate::builtins::collections::augmented_project(project)
+    crate::codegen::builtins::collections::augmented_project(project)
 }
 
 /// Enumerate the `.mfb` source files selected by the project manifest, for tools
@@ -111,7 +111,7 @@ pub fn parse_project(
 #[cfg(test)]
 pub fn augment_with_prelude(mut project: AstProject) -> AstProject {
     project.files.push(builtin_prelude_file());
-    crate::builtins::collections::augmented_project(project)
+    crate::codegen::builtins::collections::augmented_project(project)
         .expect("collections augmentation should not fail for test sources")
 }
 

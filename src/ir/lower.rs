@@ -2006,7 +2006,7 @@ fn expression_type(
             if builtins::general::is_general_call(&canonical_callee) {
                 let normalized =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
-                if builtins::collections::unary_callback_member_bare(callee)
+                if crate::codegen::builtins::collections::unary_callback_member_bare(callee)
                     && normalized.len() == 2
                 {
                     if let Expression::Identifier(predicate) = normalized[1] {
@@ -2031,10 +2031,10 @@ fn expression_type(
                     .collect::<Option<Vec<_>>>()?;
                 return builtins::resolve_call_return_type(&canonical_callee, &arg_types);
             }
-            if builtins::collections::is_native_member_call(&canonical_callee) {
+            if crate::codegen::builtins::collections::is_native_member_call(&canonical_callee) {
                 let normalized =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
-                if builtins::collections::unary_callback_member(&canonical_callee)
+                if crate::codegen::builtins::collections::unary_callback_member(&canonical_callee)
                     && normalized.len() == 2
                 {
                     if let Expression::Identifier(predicate) = normalized[1] {
@@ -2643,7 +2643,7 @@ fn lower_expression_with_expected(
             // Diverting those too silently dropped `forEach`'s licence for a
             // lambda to slot-reference a `MUT` capture.
             let builtin_predicate_arg =
-                (builtins::collections::unary_callback_member(&canonical_callee)
+                (crate::codegen::builtins::collections::unary_callback_member(&canonical_callee)
                     && normalized_builtin.len() == 2)
                     .then(|| match normalized_builtin[1] {
                         Expression::Identifier(predicate) => {

@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 ## Description
 
@@ -28,7 +28,7 @@ and advancing by one, calling `predicate` with each element. It returns the
 zero-based index of the first element for which `predicate` returns `TRUE`. The
 scan short-circuits at that element: no later element is examined. When the scan
 reaches the end of the list without a match, the call raises `ErrNotFound`
-(`77050004`) rather than returning a sentinel index. [[src/builtins/collections_package.mfb:__collections_findIndex]]
+(`77050004`) rather than returning a sentinel index. [[src/codegen/builtins/collections/collections_package.mfb:__collections_findIndex]]
 
 `start` defaults to `0`, so the common call form scans the whole list. It is
 validated **before** any element is read: the call raises `ErrIndexOutOfRange`
@@ -55,22 +55,22 @@ non-escaping is `collections::forEach`, not `findIndex`. [[src/builtins/mod.rs:i
 
 `findIndex` is a generic implemented in MFBASIC source; a call is rewritten to
 the internal `__collections_findIndex` generic and instantiated for the element
-type like any other generic function. [[src/builtins/collections.rs:FUNCTIONS]] It
+type like any other generic function. [[src/codegen/builtins/collections/mod.rs:FUNCTIONS]] It
 does not mutate `value`.
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to scan. Not modified. [[src/builtins/collections_package.mfb:__collections_findIndex]] |
-| `predicate` | `FUNC(T) AS Boolean` | Test applied to each element from `start` upward; the scan stops at the first call returning `TRUE`. An error it raises propagates to the caller. [[src/builtins/collections_package.mfb:__collections_findIndex]] |
-| `start` | `Integer` | Zero-based index at which the forward scan begins. Optional, default `0`. Must satisfy `0 <= start <= len(value)`; a negative value is out of range, not an offset from the end. [[src/builtins/collections_package.mfb:__collections_findIndex]] |
+| `value` | `List OF T` | The list to scan. Not modified. [[src/codegen/builtins/collections/collections_package.mfb:__collections_findIndex]] |
+| `predicate` | `FUNC(T) AS Boolean` | Test applied to each element from `start` upward; the scan stops at the first call returning `TRUE`. An error it raises propagates to the caller. [[src/codegen/builtins/collections/collections_package.mfb:__collections_findIndex]] |
+| `start` | `Integer` | Zero-based index at which the forward scan begins. Optional, default `0`. Must satisfy `0 <= start <= len(value)`; a negative value is out of range, not an offset from the end. [[src/codegen/builtins/collections/collections_package.mfb:__collections_findIndex]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The zero-based index of the first element at or after `start` for which `predicate` returns `TRUE`. The result is always in `start .. len(value) - 1`; there is no sentinel for "not found" — that case raises instead. [[src/builtins/collections_package.mfb:__collections_findIndex]] |
+| `Integer` | The zero-based index of the first element at or after `start` for which `predicate` returns `TRUE`. The result is always in `start .. len(value) - 1`; there is no sentinel for "not found" — that case raises instead. [[src/codegen/builtins/collections/collections_package.mfb:__collections_findIndex]] |
 
 ## Errors
 
@@ -86,7 +86,7 @@ does not mutate `value`.
 elements are never compared to one another — they are only passed to
 `predicate`. The second argument must be a function value taking exactly one `T`
 and returning `Boolean`, and `start`, when supplied, must be an `Integer`.
-[[src/builtins/collections_package.mfb:__collections_findIndex]]
+[[src/codegen/builtins/collections/collections_package.mfb:__collections_findIndex]]
 
 ## Examples
 

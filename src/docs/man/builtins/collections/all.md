@@ -19,14 +19,14 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 ## Description
 
 `collections::all` walks `value` from index `0` upward and calls `predicate`
 with each element in turn. It returns `FALSE` as soon as a call returns `FALSE`,
 without examining any later element, and returns `TRUE` only after every element
-has been tested and all matched. [[src/builtins/collections_package.mfb:__collections_all]]
+has been tested and all matched. [[src/codegen/builtins/collections/collections_package.mfb:__collections_all]]
 
 The scan short-circuits: `predicate` is called at most once per element, and no
 call is made for elements after the first non-matching one. Callers must not
@@ -46,21 +46,21 @@ non-escaping is `collections::forEach`, not `all`. [[src/builtins/mod.rs:is_none
 
 `all` is a generic implemented in MFBASIC source; a call is rewritten to the
 internal `__collections_all` generic and instantiated for the element type like
-any other generic function. [[src/builtins/collections.rs:FUNCTIONS]] It does not
+any other generic function. [[src/codegen/builtins/collections/mod.rs:FUNCTIONS]] It does not
 mutate `value` and has no other side effects beyond whatever `predicate` does.
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to scan, in index order starting at `0`. An empty list is accepted and yields `TRUE`. Not modified. [[src/builtins/collections_package.mfb:__collections_all]] |
-| `predicate` | `FUNC(T) AS Boolean` | Test applied to each element. Called with one element at a time; the scan stops at the first call that returns `FALSE`. An error it raises propagates to the caller. [[src/builtins/collections_package.mfb:__collections_all]] |
+| `value` | `List OF T` | The list to scan, in index order starting at `0`. An empty list is accepted and yields `TRUE`. Not modified. [[src/codegen/builtins/collections/collections_package.mfb:__collections_all]] |
+| `predicate` | `FUNC(T) AS Boolean` | Test applied to each element. Called with one element at a time; the scan stops at the first call that returns `FALSE`. An error it raises propagates to the caller. [[src/codegen/builtins/collections/collections_package.mfb:__collections_all]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `predicate` returns `TRUE` for every element of `value`, including when `value` is empty; `FALSE` when at least one element fails the test. [[src/builtins/collections_package.mfb:__collections_all]] |
+| `Boolean` | `TRUE` when `predicate` returns `TRUE` for every element of `value`, including when `value` is empty; `FALSE` when at least one element fails the test. [[src/codegen/builtins/collections/collections_package.mfb:__collections_all]] |
 
 ## Errors
 
@@ -72,7 +72,7 @@ No errors.
 imposes no comparability or orderability constraint on `T`, because elements are
 never compared to one another — they are only passed to `predicate`. The second
 argument must be a function value taking exactly one `T` and returning
-`Boolean`. [[src/builtins/collections_package.mfb:__collections_all]]
+`Boolean`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_all]]
 
 ## Examples
 

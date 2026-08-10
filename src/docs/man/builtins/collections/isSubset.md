@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT collections
 and `FALSE` otherwise. It walks the elements of `a` and returns `FALSE` as soon as
 `collections::contains` reports one that is absent from `b`; if the walk finishes
 with no such element, it returns `TRUE`.
-[[src/builtins/collections_package.mfb:__collections_isSubset]]
+[[src/codegen/builtins/collections/collections_package.mfb:__collections_isSubset]]
 
 `isSubset` is **pure**: it inspects both arguments and mutates neither. The empty
 set is a subset of every set, so `isSubset(Set OF T { }, b)` is always `TRUE`. A
@@ -38,20 +38,20 @@ set is a subset of itself, and equal sets are subsets of each other.
 
 `isSubset` is a generic implemented in MFBASIC source; a call is rewritten to the
 internal `__collections_isSubset` generic and instantiated for the element type
-like any other generic function. [[src/builtins/collections.rs:FUNCTIONS]]
+like any other generic function. [[src/codegen/builtins/collections/mod.rs:FUNCTIONS]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Set OF T` | The candidate subset, whose elements are each tested for membership in `b`. Not modified. `T` must be a comparable type. [[src/builtins/collections_package.mfb:__collections_isSubset]] |
-| `b` | `Set OF T` | The candidate superset, of the same type as `a`. Not modified. [[src/builtins/collections_package.mfb:__collections_isSubset]] |
+| `a` | `Set OF T` | The candidate subset, whose elements are each tested for membership in `b`. Not modified. `T` must be a comparable type. [[src/codegen/builtins/collections/collections_package.mfb:__collections_isSubset]] |
+| `b` | `Set OF T` | The candidate superset, of the same type as `a`. Not modified. [[src/codegen/builtins/collections/collections_package.mfb:__collections_isSubset]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when every element of `a` is in `b` (including when `a` is empty); `FALSE` when some element of `a` is not in `b`. [[src/builtins/collections_package.mfb:__collections_isSubset]] |
+| `Boolean` | `TRUE` when every element of `a` is in `b` (including when `a` is empty); `FALSE` when some element of `a` is not in `b`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_isSubset]] |
 
 ## Errors
 
@@ -62,7 +62,7 @@ No errors.
 Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
 arguments are not both sets of the same element type does not resolve and is
-rejected at compile time. [[src/builtins/collections_package.mfb:__collections_isSubset]]
+rejected at compile time. [[src/codegen/builtins/collections/collections_package.mfb:__collections_isSubset]]
 
 ## Examples
 

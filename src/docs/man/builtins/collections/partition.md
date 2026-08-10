@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 The `Partition OF T` result type needs no import of its own: it is a
 compiler-owned generic record template in the always-in-scope builtin prelude.
@@ -31,7 +31,7 @@ compiler-owned generic record template in the always-in-scope builtin prelude.
 `predicate` with each element. Each element is appended to the `matched` list
 when `predicate` returns `TRUE` and to the `unmatched` list otherwise, and the
 two lists are returned together in a single `Partition OF T` record.
-[[src/builtins/collections_package.mfb:__collections_partition]]
+[[src/codegen/builtins/collections/collections_package.mfb:__collections_partition]]
 
 Unlike `collections::any` and `collections::all`, `partition` does **not**
 short-circuit: `predicate` is called exactly once for every element of `value`,
@@ -65,20 +65,20 @@ doing so, but allocation failure is not a trappable domain error, and the
 
 `partition` is a generic implemented in MFBASIC source; a call is rewritten to
 the internal `__collections_partition` generic and instantiated for the element
-type like any other generic function. [[src/builtins/collections.rs:FUNCTIONS]]
+type like any other generic function. [[src/codegen/builtins/collections/mod.rs:FUNCTIONS]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to split, visited in index order from `0`. An empty list is accepted and yields two empty lists. Not modified. [[src/builtins/collections_package.mfb:__collections_partition]] |
-| `predicate` | `FUNC(T) AS Boolean` | Classifier applied to every element exactly once. `TRUE` sends the element to `matched`, `FALSE` to `unmatched`. An error it raises propagates to the caller. [[src/builtins/collections_package.mfb:__collections_partition]] |
+| `value` | `List OF T` | The list to split, visited in index order from `0`. An empty list is accepted and yields two empty lists. Not modified. [[src/codegen/builtins/collections/collections_package.mfb:__collections_partition]] |
+| `predicate` | `FUNC(T) AS Boolean` | Classifier applied to every element exactly once. `TRUE` sends the element to `matched`, `FALSE` to `unmatched`. An error it raises propagates to the caller. [[src/codegen/builtins/collections/collections_package.mfb:__collections_partition]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Partition OF T` | A record with fields `matched AS List OF T` (the elements for which `predicate` returned `TRUE`) and `unmatched AS List OF T` (the rest), each in original relative order. Their lengths always sum to `len(value)`. [[src/builtins/collections_package.mfb:__collections_partition]] [[src/ast/manifest.rs:builtin_prelude_file]] |
+| `Partition OF T` | A record with fields `matched AS List OF T` (the elements for which `predicate` returned `TRUE`) and `unmatched AS List OF T` (the rest), each in original relative order. Their lengths always sum to `len(value)`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_partition]] [[src/ast/manifest.rs:builtin_prelude_file]] |
 
 ## Errors
 
@@ -92,7 +92,7 @@ elements are never compared to one another — they are only passed to
 `predicate`. The second argument must be a function value taking exactly one `T`
 and returning `Boolean`. The result binding, when annotated, is written
 `Partition OF T` with the same `T` as the input's element type.
-[[src/builtins/collections_package.mfb:__collections_partition]]
+[[src/codegen/builtins/collections/collections_package.mfb:__collections_partition]]
 
 ## Examples
 

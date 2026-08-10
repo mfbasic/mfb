@@ -19,14 +19,14 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 ## Description
 
 `collections::forEach` walks `value` from the first element to the last and
 calls `action` once per element, passing the element as the single argument. It
 is a **native** member: the compiler emits the traversal loop directly rather
-than instantiating an MFBASIC generic. [[src/builtins/collections.rs:is_native_member]]
+than instantiating an MFBASIC generic. [[src/codegen/builtins/collections/mod.rs:is_native_member]]
 [[src/target/shared/code/builder_collection_queries.rs:lower_collection_for_each_call]]
 
 The loop is a straight forward scan over the list's entry table with no
@@ -39,7 +39,7 @@ no result collection at all and evaluates to `Nothing`.
 success type must be `Nothing`. A `SUB` is therefore accepted directly, since a
 `SUB` has success type `Nothing`; a `FUNC` that produces a value is rejected at
 compile time. To collect results instead of discarding them, use
-`collections::transform`. [[src/builtins/collections.rs:resolve_for_each]]
+`collections::transform`. [[src/codegen/builtins/collections/mod.rs:resolve_for_each]]
 
 `action` must be a callable *value* — a reference to a declared `SUB` or `FUNC`.
 A package member such as `io::print` is not a callable value and cannot be
@@ -69,14 +69,14 @@ An empty `value` calls `action` zero times.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to walk. Any length is accepted, including the empty list. Also accepted under the name `collection`. [[src/builtins/collections.rs:call_param_names]] |
-| `action` | `FUNC(T) AS Nothing` | Called once per element with that element. Must take exactly one parameter of the element type `T` and have success type `Nothing`, so a `SUB(T)` qualifies. There is no alternate name for this parameter. [[src/builtins/collections.rs:resolve_for_each]] [[src/builtins/collections.rs:call_param_names]] |
+| `value` | `List OF T` | The list to walk. Any length is accepted, including the empty list. Also accepted under the name `collection`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `action` | `FUNC(T) AS Nothing` | Called once per element with that element. Must take exactly one parameter of the element type `T` and have success type `Nothing`, so a `SUB(T)` qualifies. There is no alternate name for this parameter. [[src/codegen/builtins/collections/mod.rs:resolve_for_each]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `forEach` produces no value. [[src/builtins/collections.rs:resolve_for_each]] |
+| `Nothing` | `forEach` produces no value. [[src/codegen/builtins/collections/mod.rs:resolve_for_each]] |
 
 ## Errors
 
@@ -91,8 +91,8 @@ callable of exactly one parameter whose type equals the element type `T` and
 whose success type is exactly `Nothing`. Passing a non-list first argument, an
 `action` of the wrong arity, an `action` whose parameter type differs from `T`,
 or an `action` that returns a value is a compile-time type error — no overload
-resolves. [[src/builtins/collections.rs:resolve_for_each]]
-[[src/builtins/collections.rs:COLLECTIONS]]
+resolves. [[src/codegen/builtins/collections/mod.rs:resolve_for_each]]
+[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 ## Examples
 

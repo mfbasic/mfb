@@ -19,17 +19,17 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 `remove` is a native `collections::` member and must be called with the
 `collections::` qualifier; there is no bare `remove` built-in.
-[[src/builtins/collections.rs:is_native_member]]
+[[src/codegen/builtins/collections/mod.rs:is_native_member]]
 
 ## Description
 
 `collections::remove` returns a new `Set OF T` containing every element of
 `value` except `item`. It takes exactly two arguments; neither is optional and
-neither is variadic. [[src/builtins/collections.rs:COLLECTIONS]]
+neither is variadic. [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 Removal is a **no-op when the element is absent**: if no element equal to `item`
 is in `value`, the result is a set with the same elements and the same length.
@@ -53,14 +53,14 @@ rather than a failure, so no path raises a trappable domain error and an inline
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Set OF T` | The set to remove from; left unchanged. Also accepted under the name `set`. Must be a set type; passing a `List` or a scalar resolves no overload and is a compile-time error. [[src/builtins/collections.rs:call_param_names]] [[src/builtins/collections.rs:resolve_set_remove]] |
-| `item` | `T` | The element to remove. Also accepted under the name `element`. Its type must be exactly the element type `T`. [[src/builtins/collections.rs:call_param_names]] [[src/builtins/collections.rs:resolve_set_remove]] |
+| `value` | `Set OF T` | The set to remove from; left unchanged. Also accepted under the name `set`. Must be a set type; passing a `List` or a scalar resolves no overload and is a compile-time error. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/mod.rs:resolve_set_remove]] |
+| `item` | `T` | The element to remove. Also accepted under the name `element`. Its type must be exactly the element type `T`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/mod.rs:resolve_set_remove]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Set OF T` | A new set without `item`, of the same type as `value`. Removing an element not in `value` returns a set equal to `value`. [[src/builtins/collections.rs:resolve_set_remove]] |
+| `Set OF T` | A new set without `item`, of the same type as `value`. Removing an element not in `value` returns a set equal to `value`. [[src/codegen/builtins/collections/mod.rs:resolve_set_remove]] |
 
 ## Errors
 
@@ -73,8 +73,8 @@ element type `T`; there is no implicit widening or conversion. A call on a
 non-set first argument, or with an element type that does not match, resolves to
 no overload and is rejected at compile time. Because a set requires a comparable
 element type, `T` must be comparable.
-[[src/builtins/collections.rs:resolve_set_remove]]
-[[src/builtins/collections.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:resolve_set_remove]]
+[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 ## Examples
 

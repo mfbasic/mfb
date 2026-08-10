@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT collections
 `a`, in `b`, or in both. It starts from the elements of `a` and adds each element
 of `b`; because `collections::add` is idempotent, an element already present is
 not duplicated, so the result contains each distinct element exactly once.
-[[src/builtins/collections_package.mfb:__collections_union]]
+[[src/codegen/builtins/collections/collections_package.mfb:__collections_union]]
 
 `union` is **pure**: it returns a new value and mutates neither argument. Element
 insertion order follows the elements of `a` first, then the elements of `b` that
@@ -41,20 +41,20 @@ the result, but allocation failure is not a trappable domain error, and the
 
 `union` is a generic implemented in MFBASIC source; a call is rewritten to the
 internal `__collections_union` generic and instantiated for the element type like
-any other generic function. [[src/builtins/collections.rs:FUNCTIONS]]
+any other generic function. [[src/codegen/builtins/collections/mod.rs:FUNCTIONS]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Set OF T` | The first set. Not modified. `T` must be a comparable type. [[src/builtins/collections_package.mfb:__collections_union]] |
-| `b` | `Set OF T` | The second set, of the same type as `a`. Not modified. [[src/builtins/collections_package.mfb:__collections_union]] |
+| `a` | `Set OF T` | The first set. Not modified. `T` must be a comparable type. [[src/codegen/builtins/collections/collections_package.mfb:__collections_union]] |
+| `b` | `Set OF T` | The second set, of the same type as `a`. Not modified. [[src/codegen/builtins/collections/collections_package.mfb:__collections_union]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Set OF T` | A new set containing every element of `a` and `b`; its length is between `max(len(a), len(b))` and `len(a) + len(b)`. [[src/builtins/collections_package.mfb:__collections_union]] |
+| `Set OF T` | A new set containing every element of `a` and `b`; its length is between `max(len(a), len(b))` and `len(a) + len(b)`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_union]] |
 
 ## Errors
 
@@ -65,7 +65,7 @@ No errors.
 Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
 arguments are not both sets of the same element type does not resolve and is
-rejected at compile time. [[src/builtins/collections_package.mfb:__collections_union]]
+rejected at compile time. [[src/codegen/builtins/collections/collections_package.mfb:__collections_union]]
 
 ## Examples
 

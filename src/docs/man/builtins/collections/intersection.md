@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT collections
 that are in both `a` and `b`. It walks the elements of `a` and keeps each one
 that `collections::contains` reports as present in `b`, so an element only
 survives when it appears in both sets.
-[[src/builtins/collections_package.mfb:__collections_intersection]]
+[[src/codegen/builtins/collections/collections_package.mfb:__collections_intersection]]
 
 `intersection` is **pure**: it returns a new value and mutates neither argument.
 Surviving elements keep the insertion order they had in `a`. The intersection of
@@ -41,20 +41,20 @@ infallible. [[src/builtins/mod.rs:inline_builtin_is_infallible]]
 `intersection` is a generic implemented in MFBASIC source; a call is rewritten to
 the internal `__collections_intersection` generic and instantiated for the
 element type like any other generic function.
-[[src/builtins/collections.rs:FUNCTIONS]]
+[[src/codegen/builtins/collections/mod.rs:FUNCTIONS]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Set OF T` | The first set, walked to decide element order. Not modified. `T` must be a comparable type. [[src/builtins/collections_package.mfb:__collections_intersection]] |
-| `b` | `Set OF T` | The second set, of the same type as `a`, tested for membership. Not modified. [[src/builtins/collections_package.mfb:__collections_intersection]] |
+| `a` | `Set OF T` | The first set, walked to decide element order. Not modified. `T` must be a comparable type. [[src/codegen/builtins/collections/collections_package.mfb:__collections_intersection]] |
+| `b` | `Set OF T` | The second set, of the same type as `a`, tested for membership. Not modified. [[src/codegen/builtins/collections/collections_package.mfb:__collections_intersection]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Set OF T` | A new set of the elements common to `a` and `b`; its length is between `0` and `min(len(a), len(b))`. [[src/builtins/collections_package.mfb:__collections_intersection]] |
+| `Set OF T` | A new set of the elements common to `a` and `b`; its length is between `0` and `min(len(a), len(b))`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_intersection]] |
 
 ## Errors
 
@@ -65,7 +65,7 @@ No errors.
 Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
 arguments are not both sets of the same element type does not resolve and is
-rejected at compile time. [[src/builtins/collections_package.mfb:__collections_intersection]]
+rejected at compile time. [[src/codegen/builtins/collections/collections_package.mfb:__collections_intersection]]
 
 ## Examples
 

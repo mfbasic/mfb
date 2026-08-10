@@ -19,11 +19,11 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 `hasKey` is a native `collections::` member and must be called with the
 `collections::` qualifier; there is no bare `hasKey` built-in.
-[[src/builtins/collections.rs:is_native_member]]
+[[src/codegen/builtins/collections/mod.rs:is_native_member]]
 
 ## Description
 
@@ -34,7 +34,7 @@ the matching value is never materialized — only the key is compared.
 
 This is a map-only member. There is no list or `String` form: to test list
 membership use `collections::contains`, and to test for a substring use the
-`strings::` package. [[src/builtins/collections.rs:COLLECTIONS]]
+`strings::` package. [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 Key comparison is a comparison of the stored key payload. Fixed-width keys
 compare their raw stored bits (one byte for `Boolean` and `Byte`, four for
@@ -62,14 +62,14 @@ When the goal is simply to obtain a value with a fallback,
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Map OF K TO V` | The map to test. Also accepted under the name `map`. Not copied and not mutated. [[src/builtins/collections.rs:call_param_names]] |
-| `key` | `K` | The key to look for. Must be exactly the map's key type. [[src/builtins/collections.rs:call_param_names]] |
+| `value` | `Map OF K TO V` | The map to test. Also accepted under the name `map`. Not copied and not mutated. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `key` | `K` | The key to look for. Must be exactly the map's key type. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `value` has an entry for `key`; `FALSE` when it does not, including for every key when the map is empty. [[src/builtins/collections.rs:resolve_has_key]] |
+| `Boolean` | `TRUE` when `value` has an entry for `key`; `FALSE` when it does not, including for every key when the map is empty. [[src/codegen/builtins/collections/mod.rs:resolve_has_key]] |
 
 ## Errors
 
@@ -78,13 +78,13 @@ No errors.
 ## Type checking
 
 `collections::hasKey` takes exactly two arguments.
-[[src/builtins/collections.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 The first must be a `Map OF K TO V`; a `List` or any non-map value is a
 compile-time type error. The second must be exactly the map key type `K` — there
 is no conversion, so probing a `Map OF String TO Integer` with an `Integer` does
 not compile. The result is always `Boolean`, independently of `V`.
-[[src/builtins/collections.rs:resolve_has_key]]
+[[src/codegen/builtins/collections/mod.rs:resolve_has_key]]
 
 ## Examples
 

@@ -21,21 +21,21 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 ## Description
 
 `collections::sum` walks `value` from the first element to the last and adds
 each element into a running total, returning that total. It is a **native**
 member: the compiler emits the accumulation loop directly rather than
-instantiating an MFBASIC generic. [[src/builtins/collections.rs:is_native_member]]
+instantiating an MFBASIC generic. [[src/codegen/builtins/collections/mod.rs:is_native_member]]
 [[src/target/shared/code/builder_collection_queries.rs:lower_collection_sum]]
 
 There are exactly **three** overloads — `List OF Integer`, `List OF Float`, and
 `List OF Fixed` — and the return type always matches the element type. There is
 no `List OF Byte`, no `List OF Money`, and no general "any numeric list" form:
 any other element type fails to resolve at compile time, and the lowering
-rejects it a second time. [[src/builtins/collections.rs:resolve_sum]]
+rejects it a second time. [[src/codegen/builtins/collections/mod.rs:resolve_sum]]
 [[src/target/shared/code/builder_collection_queries.rs:lower_collection_sum]]
 
 The accumulator is initialized to zero of the element type and the elements are
@@ -45,7 +45,7 @@ respectively without any addition being performed.
 
 `value` is neither modified nor consumed. `sum` takes no callback and has no
 optional argument; it is a single-argument member.
-[[src/builtins/collections.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 For the `Integer` and `Fixed` overloads each step is a **checked** 64-bit
 addition: if the running total leaves the destination range, the addition fails
@@ -92,13 +92,13 @@ with `ErrOverflow`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF Integer`, `List OF Float`, or `List OF Fixed` | The list to total. Any length is accepted, including the empty list. The element type selects the overload. Also accepted under the name `collection`. [[src/builtins/collections.rs:resolve_sum]] [[src/builtins/collections.rs:call_param_names]] |
+| `value` | `List OF Integer`, `List OF Float`, or `List OF Fixed` | The list to total. Any length is accepted, including the empty list. The element type selects the overload. Also accepted under the name `collection`. [[src/codegen/builtins/collections/mod.rs:resolve_sum]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer`, `Float`, or `Fixed` | The total of every element, matching the element type of `value`. For an empty list, the zero of that type. [[src/builtins/collections.rs:resolve_sum]] [[src/target/shared/code/builder_collection_queries.rs:lower_collection_sum]] |
+| `Integer`, `Float`, or `Fixed` | The total of every element, matching the element type of `value`. For an empty list, the zero of that type. [[src/codegen/builtins/collections/mod.rs:resolve_sum]] [[src/target/shared/code/builder_collection_queries.rs:lower_collection_sum]] |
 
 ## Errors
 

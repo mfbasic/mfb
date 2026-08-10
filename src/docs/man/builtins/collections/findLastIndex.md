@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/builtins/collections.rs:is_collections_call]]
+[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
 
 ## Description
 
@@ -30,7 +30,7 @@ element (in that backward order) for which `predicate` returns `TRUE` — that i
 the last matching element at or before `endIndex`. The scan short-circuits at
 that element: no lower index is examined. When the scan passes index `0` without
 a match, the call raises `ErrNotFound` (`77050004`) rather than returning a
-sentinel index. [[src/builtins/collections_package.mfb:__collections_findLastIndex]]
+sentinel index. [[src/codegen/builtins/collections/collections_package.mfb:__collections_findLastIndex]]
 
 The third parameter is named `endIndex`. It is resolved in two steps, and the
 order matters:
@@ -43,7 +43,7 @@ order matters:
    (`77050001`) when the resolved index is less than `0` or greater than or
    equal to `len(value)`.
 
-[[src/builtins/collections_package.mfb:__collections_findLastIndex]]
+[[src/codegen/builtins/collections/collections_package.mfb:__collections_findLastIndex]]
 
 Because the range check runs on the resolved index, the upper bound is
 `len(value) - 1`, not `len(value)`. This is deliberately asymmetric with
@@ -66,22 +66,22 @@ non-escaping is `collections::forEach`, not `findLastIndex`. [[src/builtins/mod.
 
 `findLastIndex` is a generic implemented in MFBASIC source; a call is rewritten
 to the internal `__collections_findLastIndex` generic and instantiated for the
-element type like any other generic function. [[src/builtins/collections.rs:FUNCTIONS]]
+element type like any other generic function. [[src/codegen/builtins/collections/mod.rs:FUNCTIONS]]
 It does not mutate `value`.
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to scan. Not modified. An empty list always raises `ErrIndexOutOfRange`. [[src/builtins/collections_package.mfb:__collections_findLastIndex]] |
-| `predicate` | `FUNC(T) AS Boolean` | Test applied to each element from the resolved end position downward; the scan stops at the first call returning `TRUE`. An error it raises propagates to the caller. [[src/builtins/collections_package.mfb:__collections_findLastIndex]] |
-| `endIndex` | `Integer` | Zero-based index at which the backward scan begins. Optional, default `-1`. A negative value is resolved as `len(value) + endIndex`, so `-1` is the last element and `-len(value)` is the first; after resolution the index must satisfy `0 <= index < len(value)`. [[src/builtins/collections_package.mfb:__collections_findLastIndex]] |
+| `value` | `List OF T` | The list to scan. Not modified. An empty list always raises `ErrIndexOutOfRange`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_findLastIndex]] |
+| `predicate` | `FUNC(T) AS Boolean` | Test applied to each element from the resolved end position downward; the scan stops at the first call returning `TRUE`. An error it raises propagates to the caller. [[src/codegen/builtins/collections/collections_package.mfb:__collections_findLastIndex]] |
+| `endIndex` | `Integer` | Zero-based index at which the backward scan begins. Optional, default `-1`. A negative value is resolved as `len(value) + endIndex`, so `-1` is the last element and `-len(value)` is the first; after resolution the index must satisfy `0 <= index < len(value)`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_findLastIndex]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The zero-based index of the last element at or before the resolved `endIndex` for which `predicate` returns `TRUE`. The result is always in `0 .. resolved endIndex`; there is no sentinel for "not found" — that case raises instead. [[src/builtins/collections_package.mfb:__collections_findLastIndex]] |
+| `Integer` | The zero-based index of the last element at or before the resolved `endIndex` for which `predicate` returns `TRUE`. The result is always in `0 .. resolved endIndex`; there is no sentinel for "not found" — that case raises instead. [[src/codegen/builtins/collections/collections_package.mfb:__collections_findLastIndex]] |
 
 ## Errors
 
@@ -97,7 +97,7 @@ It does not mutate `value`.
 because elements are never compared to one another — they are only passed to
 `predicate`. The second argument must be a function value taking exactly one `T`
 and returning `Boolean`, and `endIndex`, when supplied, must be an `Integer`.
-[[src/builtins/collections_package.mfb:__collections_findLastIndex]]
+[[src/codegen/builtins/collections/collections_package.mfb:__collections_findLastIndex]]
 
 ## Examples
 

@@ -1,9 +1,9 @@
+use crate::ast::{AstFile, AstProject};
 use crate::codegen::registry::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
     DefaultValue, Implementation, InjectionRule, Lowering, NativeLower, Parameter, ParameterType,
     ReturnType,
 };
-use crate::ast::{AstFile, AstProject};
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use std::borrow::Cow;
@@ -58,7 +58,7 @@ const FUNCTIONS: &[&str] = &[
 /// (plan-01-functions.md §5). These keep the native code generator's bare-name
 /// lowering: the resolve logic is reused verbatim from `general`, and the IR
 /// call target is dequalified back to the bare native name (see
-/// `super::native_builtin_target`). `find`/`mid`/`replace` accept ONLY the List
+/// `crate::builtins::native_builtin_target`). `find`/`mid`/`replace` accept ONLY the List
 /// overload here; their String overloads live in `strings::`.
 const NATIVE_MEMBERS: &[&str] = &[
     "get",
@@ -1501,11 +1501,11 @@ pub(crate) fn native_member_bare(name: &str) -> Option<&str> {
 pub(crate) fn resolve_call<'a>(
     name: &str,
     arg_types: &'a [String],
-) -> Option<super::general::ResolvedCall<'a>> {
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     let return_type = COLLECTIONS
         .resolver?
         .resolve_return_type(&COLLECTIONS, name, arg_types)?;
-    Some(super::general::ResolvedCall {
+    Some(crate::builtins::general::ResolvedCall {
         return_type: Cow::Owned(return_type),
     })
 }
@@ -1518,7 +1518,7 @@ pub(crate) fn resolve_call<'a>(
 fn dispatch_resolve<'a>(
     name: &str,
     arg_types: &'a [String],
-) -> Option<super::general::ResolvedCall<'a>> {
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     match native_member_bare(name)? {
         "get" => resolve_get(arg_types),
         "getOr" => resolve_get_or(arg_types),
@@ -1550,36 +1550,42 @@ fn dispatch_resolve<'a>(
 
 /// `collections::add(Set OF T, T) AS Set OF T` (plan-63-B): insert an element,
 /// idempotent (a duplicate is dropped). Set-only — a List uses `append`.
-fn resolve_set_add<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_set_add<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
-    let element = super::general::set_element(&arg_types[0])?;
-    (arg_types[1] == element).then_some(super::general::ResolvedCall {
+    let element = crate::builtins::general::set_element(&arg_types[0])?;
+    (arg_types[1] == element).then_some(crate::builtins::general::ResolvedCall {
         return_type: Cow::Borrowed(&arg_types[0]),
     })
 }
 
 /// `collections::remove(Set OF T, T) AS Set OF T` (plan-63-B): remove an element;
 /// removing an absent element is a no-op. Set-only.
-fn resolve_set_remove<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_set_remove<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
-    let element = super::general::set_element(&arg_types[0])?;
-    (arg_types[1] == element).then_some(super::general::ResolvedCall {
+    let element = crate::builtins::general::set_element(&arg_types[0])?;
+    (arg_types[1] == element).then_some(crate::builtins::general::ResolvedCall {
         return_type: Cow::Borrowed(&arg_types[0]),
     })
 }
 
 /// `collections::toList(Set OF T) AS List OF T` (plan-63-B): the elements in
 /// stable insertion order. Set-only.
-fn resolve_set_to_list<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_set_to_list<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 1 {
         return None;
     }
-    let element = super::general::set_element(&arg_types[0])?;
-    Some(super::general::ResolvedCall {
+    let element = crate::builtins::general::set_element(&arg_types[0])?;
+    Some(crate::builtins::general::ResolvedCall {
         return_type: Cow::Owned(format!("List OF {element}")),
     })
 }
@@ -1587,257 +1593,291 @@ fn resolve_set_to_list<'a>(arg_types: &'a [String]) -> Option<super::general::Re
 /// List-overload resolvers for `find`/`mid`/`replace`, migrated to `collections::`
 /// (plan-01-functions.md §5). These keep the original bare-name overload logic so
 /// `collections::` can reuse it; the String overloads live in `strings::`.
-fn resolve_find_list<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_find_list<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if !(2..=3).contains(&arg_types.len()) {
         return None;
     }
-    let element = super::general::list_element(&arg_types[0])?;
+    let element = crate::builtins::general::list_element(&arg_types[0])?;
     (arg_types.get(2).is_none_or(|type_| type_ == "Integer")
         && (arg_types[1] == element || arg_types[1] == arg_types[0]))
-        .then_some(super::general::ResolvedCall {
+        .then_some(crate::builtins::general::ResolvedCall {
             return_type: Cow::Borrowed("Integer"),
         })
 }
 
-fn resolve_mid_list<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_mid_list<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     (arg_types.len() == 3
-        && super::general::list_element(&arg_types[0]).is_some()
+        && crate::builtins::general::list_element(&arg_types[0]).is_some()
         && arg_types[1] == "Integer"
         && arg_types[2] == "Integer")
-        .then_some(super::general::ResolvedCall {
+        .then_some(crate::builtins::general::ResolvedCall {
             return_type: Cow::Borrowed(&arg_types[0]),
         })
 }
 
-fn resolve_replace_list<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_replace_list<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     // Arity first: `arg_types[0]`/`list_element` must not be indexed before the
     // length is known, or an empty/short slice panics (bug-98).
     if arg_types.len() != 3 {
         return None;
     }
-    let element = super::general::list_element(&arg_types[0])?;
-    (arg_types[1] == element && arg_types[2] == element).then_some(super::general::ResolvedCall {
-        return_type: Cow::Borrowed(&arg_types[0]),
-    })
+    let element = crate::builtins::general::list_element(&arg_types[0])?;
+    (arg_types[1] == element && arg_types[2] == element).then_some(
+        crate::builtins::general::ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        },
+    )
 }
 
-fn resolve_get<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_get<'a>(arg_types: &'a [String]) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
-    if let Some(element) = super::general::list_element(&arg_types[0]) {
-        return (arg_types[1] == "Integer").then_some(super::general::ResolvedCall {
+    if let Some(element) = crate::builtins::general::list_element(&arg_types[0]) {
+        return (arg_types[1] == "Integer").then_some(crate::builtins::general::ResolvedCall {
             return_type: Cow::Borrowed(element),
         });
     }
-    let (key, value) = super::general::map_parts(&arg_types[0])?;
-    (arg_types[1] == key).then_some(super::general::ResolvedCall {
+    let (key, value) = crate::builtins::general::map_parts(&arg_types[0])?;
+    (arg_types[1] == key).then_some(crate::builtins::general::ResolvedCall {
         return_type: Cow::Borrowed(value),
     })
 }
 
-fn resolve_get_or<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_get_or<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 3 {
         return None;
     }
-    if let Some(element) = super::general::list_element(&arg_types[0]) {
+    if let Some(element) = crate::builtins::general::list_element(&arg_types[0]) {
         return (arg_types[1] == "Integer"
-            && super::general::element_accepts_item(element, &arg_types[2]))
-        .then_some(super::general::ResolvedCall {
+            && crate::builtins::general::element_accepts_item(element, &arg_types[2]))
+        .then_some(crate::builtins::general::ResolvedCall {
             return_type: Cow::Borrowed(element),
         });
     }
-    let (key, value) = super::general::map_parts(&arg_types[0])?;
-    (arg_types[1] == key && super::general::element_accepts_item(value, &arg_types[2])).then_some(
-        super::general::ResolvedCall {
+    let (key, value) = crate::builtins::general::map_parts(&arg_types[0])?;
+    (arg_types[1] == key && crate::builtins::general::element_accepts_item(value, &arg_types[2]))
+        .then_some(crate::builtins::general::ResolvedCall {
             return_type: Cow::Borrowed(value),
-        },
-    )
+        })
 }
 
-fn resolve_set<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_set<'a>(arg_types: &'a [String]) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 3 {
         return None;
     }
-    if let Some(element) = super::general::list_element(&arg_types[0]) {
+    if let Some(element) = crate::builtins::general::list_element(&arg_types[0]) {
         return (arg_types[1] == "Integer"
-            && super::general::element_accepts_item(element, &arg_types[2]))
-        .then_some(super::general::ResolvedCall {
+            && crate::builtins::general::element_accepts_item(element, &arg_types[2]))
+        .then_some(crate::builtins::general::ResolvedCall {
             return_type: Cow::Borrowed(&arg_types[0]),
         });
     }
-    let (key, value) = super::general::map_parts(&arg_types[0])?;
-    (arg_types[1] == key && super::general::element_accepts_item(value, &arg_types[2])).then_some(
-        super::general::ResolvedCall {
-            return_type: Cow::Borrowed(&arg_types[0]),
-        },
-    )
-}
-
-fn resolve_append<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
-    if arg_types.len() != 2 {
-        return None;
-    }
-    let element = super::general::list_element(&arg_types[0])?;
-    (super::general::element_accepts_item(element, &arg_types[1]) || arg_types[1] == arg_types[0])
-        .then_some(super::general::ResolvedCall {
+    let (key, value) = crate::builtins::general::map_parts(&arg_types[0])?;
+    (arg_types[1] == key && crate::builtins::general::element_accepts_item(value, &arg_types[2]))
+        .then_some(crate::builtins::general::ResolvedCall {
             return_type: Cow::Borrowed(&arg_types[0]),
         })
 }
 
-fn resolve_prepend<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_append<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
-    let element = super::general::list_element(&arg_types[0])?;
-    super::general::element_accepts_item(element, &arg_types[1]).then_some(
-        super::general::ResolvedCall {
+    let element = crate::builtins::general::list_element(&arg_types[0])?;
+    (crate::builtins::general::element_accepts_item(element, &arg_types[1])
+        || arg_types[1] == arg_types[0])
+        .then_some(crate::builtins::general::ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        })
+}
+
+fn resolve_prepend<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = crate::builtins::general::list_element(&arg_types[0])?;
+    crate::builtins::general::element_accepts_item(element, &arg_types[1]).then_some(
+        crate::builtins::general::ResolvedCall {
             return_type: Cow::Borrowed(&arg_types[0]),
         },
     )
 }
 
-fn resolve_insert<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_insert<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 3 {
         return None;
     }
-    let element = super::general::list_element(&arg_types[0])?;
-    (arg_types[1] == "Integer" && super::general::element_accepts_item(element, &arg_types[2]))
-        .then_some(super::general::ResolvedCall {
-            return_type: Cow::Borrowed(&arg_types[0]),
-        })
-}
-
-fn resolve_remove_at<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
-    (arg_types.len() == 2
-        && super::general::list_element(&arg_types[0]).is_some()
-        && arg_types[1] == "Integer")
-        .then_some(super::general::ResolvedCall {
-            return_type: Cow::Borrowed(&arg_types[0]),
-        })
-}
-
-fn resolve_remove_key<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
-    if arg_types.len() != 2 {
-        return None;
-    }
-    let (key, _) = super::general::map_parts(&arg_types[0])?;
-    (arg_types[1] == key).then_some(super::general::ResolvedCall {
+    let element = crate::builtins::general::list_element(&arg_types[0])?;
+    (arg_types[1] == "Integer"
+        && crate::builtins::general::element_accepts_item(element, &arg_types[2]))
+    .then_some(crate::builtins::general::ResolvedCall {
         return_type: Cow::Borrowed(&arg_types[0]),
     })
 }
 
-fn resolve_keys<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_remove_at<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
+    (arg_types.len() == 2
+        && crate::builtins::general::list_element(&arg_types[0]).is_some()
+        && arg_types[1] == "Integer")
+        .then_some(crate::builtins::general::ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        })
+}
+
+fn resolve_remove_key<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let (key, _) = crate::builtins::general::map_parts(&arg_types[0])?;
+    (arg_types[1] == key).then_some(crate::builtins::general::ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+fn resolve_keys<'a>(arg_types: &'a [String]) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 1 {
         return None;
     }
-    let (key, _) = super::general::map_parts(&arg_types[0])?;
-    Some(super::general::ResolvedCall {
+    let (key, _) = crate::builtins::general::map_parts(&arg_types[0])?;
+    Some(crate::builtins::general::ResolvedCall {
         return_type: Cow::Owned(format!("List OF {key}")),
     })
 }
 
-fn resolve_values<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_values<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 1 {
         return None;
     }
-    let (_, value) = super::general::map_parts(&arg_types[0])?;
-    Some(super::general::ResolvedCall {
+    let (_, value) = crate::builtins::general::map_parts(&arg_types[0])?;
+    Some(crate::builtins::general::ResolvedCall {
         return_type: Cow::Owned(format!("List OF {value}")),
     })
 }
 
-fn resolve_has_key<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_has_key<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
-    let (key, _) = super::general::map_parts(&arg_types[0])?;
-    (arg_types[1] == key).then_some(super::general::ResolvedCall {
+    let (key, _) = crate::builtins::general::map_parts(&arg_types[0])?;
+    (arg_types[1] == key).then_some(crate::builtins::general::ResolvedCall {
         return_type: Cow::Borrowed("Boolean"),
     })
 }
 
-fn resolve_contains<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_contains<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
     // `contains` has a List overload (linear scan) and a Set overload (hash
     // probe, plan-63-B); both take `(collection, element) AS Boolean`.
-    let element = super::general::list_element(&arg_types[0])
-        .or_else(|| super::general::set_element(&arg_types[0]))?;
-    (arg_types[1] == element).then_some(super::general::ResolvedCall {
+    let element = crate::builtins::general::list_element(&arg_types[0])
+        .or_else(|| crate::builtins::general::set_element(&arg_types[0]))?;
+    (arg_types[1] == element).then_some(crate::builtins::general::ResolvedCall {
         return_type: Cow::Borrowed("Boolean"),
     })
 }
 
-fn resolve_sum<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_sum<'a>(arg_types: &'a [String]) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 1 {
         return None;
     }
     match arg_types[0].as_str() {
-        "List OF Integer" => Some(super::general::ResolvedCall {
+        "List OF Integer" => Some(crate::builtins::general::ResolvedCall {
             return_type: Cow::Borrowed("Integer"),
         }),
-        "List OF Float" => Some(super::general::ResolvedCall {
+        "List OF Float" => Some(crate::builtins::general::ResolvedCall {
             return_type: Cow::Borrowed("Float"),
         }),
-        "List OF Fixed" => Some(super::general::ResolvedCall {
+        "List OF Fixed" => Some(crate::builtins::general::ResolvedCall {
             return_type: Cow::Borrowed("Fixed"),
         }),
         _ => None,
     }
 }
 
-fn resolve_for_each<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_for_each<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
-    let element = super::general::list_element(&arg_types[0])?;
-    let (params, returns) = super::general::function_parts(&arg_types[1])?;
+    let element = crate::builtins::general::list_element(&arg_types[0])?;
+    let (params, returns) = crate::builtins::general::function_parts(&arg_types[1])?;
     (params.len() == 1 && params[0] == element && returns == "Nothing").then_some(
-        super::general::ResolvedCall {
+        crate::builtins::general::ResolvedCall {
             return_type: Cow::Borrowed("Nothing"),
         },
     )
 }
 
-fn resolve_transform<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_transform<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
-    let element = super::general::list_element(&arg_types[0])?;
-    let (params, returns) = super::general::function_parts(&arg_types[1])?;
+    let element = crate::builtins::general::list_element(&arg_types[0])?;
+    let (params, returns) = crate::builtins::general::function_parts(&arg_types[1])?;
     (params.len() == 1 && params[0] == element && returns != "Nothing").then_some(
-        super::general::ResolvedCall {
+        crate::builtins::general::ResolvedCall {
             return_type: Cow::Owned(format!("List OF {returns}")),
         },
     )
 }
 
-fn resolve_filter<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_filter<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
-    let element = super::general::list_element(&arg_types[0])?;
-    let (params, returns) = super::general::function_parts(&arg_types[1])?;
+    let element = crate::builtins::general::list_element(&arg_types[0])?;
+    let (params, returns) = crate::builtins::general::function_parts(&arg_types[1])?;
     (params.len() == 1 && params[0] == element && returns == "Boolean").then_some(
-        super::general::ResolvedCall {
+        crate::builtins::general::ResolvedCall {
             return_type: Cow::Borrowed(&arg_types[0]),
         },
     )
 }
 
-fn resolve_reduce<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+fn resolve_reduce<'a>(
+    arg_types: &'a [String],
+) -> Option<crate::builtins::general::ResolvedCall<'a>> {
     if arg_types.len() != 3 {
         return None;
     }
-    let element = super::general::list_element(&arg_types[0])?;
-    let (params, returns) = super::general::function_parts(&arg_types[2])?;
+    let element = crate::builtins::general::list_element(&arg_types[0])?;
+    let (params, returns) = crate::builtins::general::function_parts(&arg_types[2])?;
     (params.len() == 2
         && params[0] == arg_types[1]
         && params[1] == element
         && returns == arg_types[1])
-        .then_some(super::general::ResolvedCall {
+        .then_some(crate::builtins::general::ResolvedCall {
             return_type: Cow::Borrowed(&arg_types[1]),
         })
 }

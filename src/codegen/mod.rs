@@ -5,4 +5,5 @@
 //! seam, which each backend resolves per arch/os. Owns the builtin registry
 //! (`registry`) and, as functions migrate, their target-generic lowering.
 
+pub(crate) mod builtins;
 pub(crate) mod registry;

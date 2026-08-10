@@ -374,18 +374,20 @@ Create `src/codegen`; move `descriptor.rs` → `src/codegen/registry.rs` verbati
 - [x] Fixed one dangling spec citation (see Corrections).
 
 Acceptance: MET — `artifact-gate.sh collections` 0 diffs (all 5); `cargo test --bin mfb` 3836 passed, 0 failed.
-Commit: —
+Commit: 0bf877510
 
 ### Phase 3 — Move the `collections` package into `src/codegen`
 
-Relocate the package module; update its 10 consumers. Pure relocation.
+Relocate the package module; update its consumers. Pure relocation.
 
-- [ ] `src/codegen/builtins/mod.rs` (`pub mod collections;`); `src/codegen/mod.rs` gains `pub mod builtins;`.
-- [ ] `git mv src/builtins/collections.rs src/codegen/builtins/collections/mod.rs`; remove `mod collections;` from `src/builtins/mod.rs`.
-- [ ] Update the 10 consumers of `builtins::collections::*` → `crate::codegen::builtins::collections::*` (public fn names unchanged).
-- [ ] Keep `collections_package.mfb` include path working (`include_str!` is relative to the file — adjust the path in the moved `source_file()`).
+- [x] Created `src/codegen/builtins/mod.rs` (`pub(crate) mod collections;`); `src/codegen/mod.rs` gained `pub(crate) mod builtins;`.
+- [x] `git mv src/builtins/collections.rs → src/codegen/builtins/collections/mod.rs`; also `git mv collections_package.mfb` into the same dir (co-located so `include_str!("collections_package.mfb")` stays relative); removed `mod collections;` from `builtins/mod.rs`. `SOURCE_PATH` (logical sentinel) left unchanged.
+- [x] Rewrote consumers → `crate::codegen::builtins::collections::*` (incl. the 4 bare `collections::` code sites in `builtins/mod.rs` and the `REGISTRY` static reference). Public fn names unchanged.
+- [x] Rewrote the module's own `super::general::` (91) + `super::native_builtin_target` (1) → `crate::builtins::…` (collections left `builtins`). See Corrections.
+- [x] Promoted 5 `general` resolver helpers `pub(super)` → `pub(crate)` (collections is no longer a `builtins` sibling). See Corrections.
+- [x] Repointed 273 `collections.rs` + 141 `collections_package.mfb` doc citations to the new paths (see Corrections).
 
-Acceptance: byte-identical `artifact-gate.sh collections` (all 5) + `cargo test --bin mfb` green.
+Acceptance: MET — `artifact-gate.sh collections` 0 diffs (all 5); `cargo test --bin mfb` 3836 passed, 0 failed; 0 warnings.
 Commit: —
 
 ### Phase 4 — Fully migrate `get`; delete the old symbol (largest blast radius last)
@@ -464,6 +466,20 @@ Commit: —
   → `[[src/codegen/registry.rs]]` (caught by `spec_citations_resolve`). The
   registry-move importer count was 31 files (matched §2); no other doc referenced
   the moved file.
+- **Phase 3 was bigger than "10 consumers".** The move also required:
+  (a) rewriting the module's own 91 `super::general::` + 1 `super::native_builtin_target`
+  refs to `crate::builtins::…` (collections stays out of `builtins` but still calls
+  its resolver helpers); (b) promoting 5 `general` helpers `pub(super)→pub(crate)`
+  (`list_element`, `map_parts`, `element_accepts_item`, `set_element`,
+  `function_parts` — `ResolvedCall` was already `pub(crate)`); (c) fixing 4 bare
+  `collections::` code sites in `builtins/mod.rs`; (d) repointing **273**
+  `src/builtins/collections.rs` and **141** `collections_package.mfb` doc citations
+  (`man_citations_resolve` + `spec_citations_resolve`). Doc-sync is NOT "none" for
+  a package move — the man pages cite the package source heavily.
+- **Process note:** a two-pass `s/builtins::collections/codegen::builtins::collections/`
+  perl collided with its own first pass (`crate::codegen::codegen::…`) and missed
+  grouped/`bare` import forms. Fixed by collapsing `codegen::codegen::→codegen::`
+  and a lookbehind prefix pass. Prefer a single lookbehind substitution for path moves.
 
 ## Summary
 
