@@ -30,8 +30,36 @@ See plan-88-A §Prerequisites (shared). Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-88-B complete | `ls planning/completed/plan-88-B-*` (exists) | NOT MET (B pending) |
-| No `emit_*_return` **call sites** remain | `grep -rc 'self\.emit_[a-z_]+_return()' src/target/shared/code/*.rs \| awk -F: '{s+=$2} END{print s}'` → 0 | NOT MET until B |
+| plan-88-B complete | `ls planning/completed/plan-88-B-*` | MET (`402aa0596`) |
+| No `emit_*_return` **call sites** remain | `grep -rc 'self\.emit_[a-z_]+_return()' src/target/shared/code/*.rs` → 0 | MET |
+| **The symbol-path helpers are `&mut CodeBuilder` methods (can call `raise_error`)** | `grep -nE 'fn (lower_io_\|lower_term_helper\|emit_thread\|thread_queue\|lower_thread\|prepend_wrong_mode_gate)' … \| grep -c self` → **0** | **NOT MET** |
+
+> **PREREQUISITE DEFECT (premise falsified) — the entry gate should have tested
+> this.** All 48 symbol-path sites live in **free functions** (e.g.
+> `pub(super) fn lower_io_poll_input_helper(symbol, platform_imports, platform,
+> app_mode) -> HelperResult`, `prepend_wrong_mode_gate(instructions, relocations,
+> …)`) that build a `Vec<CodeInstruction>` directly via the free function
+> `push_error_message_address(instructions, relocations, …)`. `raise_error` /
+> `raise_error_bare` are `&mut self` **`CodeBuilder` methods** — a free function
+> cannot call them. `grep -c self` over every symbol-path helper fn = 0.
+>
+> So C's design ("the sites converge on the two methods") **cannot work as
+> written**. Resolving it needs a design decision with real tradeoffs, and one
+> option contradicts the feature's explicit "exactly two entry points" invariant:
+> - **(a) Refactor** the ~11 fixed-helper free functions into `CodeBuilder`
+>   methods so they can call `raise_error`. Large and structurally invasive — these
+>   emit *fixed runtime routines* (`_mfb_rt_io_*`, `_mfb_rt_thread_*`) built once
+>   per program from helper-registration code, not per-statement lowering; they
+>   have no `self`/`current_loc` and returning a `HelperBody` is their contract.
+> - **(b) A free-function / fragment emitter** (`raise_error_into(instructions,
+>   relocations, used_errors, name)`) that shares the table + used-set. Smaller,
+>   but it is a **third** emission entry point — it nuances (or breaks) the
+>   Definition-of-done invariant #1 ("exactly two"). It could also **preserve the
+>   helpers' lightweight register-set emission byte-identically** (table-sourced
+>   code + message symbol), avoiding C's golden churn entirely.
+>
+> This is a user decision (it bears on the explicit invariant), so plan-88 is
+> paused here after A + B. See Corrections.
 
 ## 1. Goal
 
