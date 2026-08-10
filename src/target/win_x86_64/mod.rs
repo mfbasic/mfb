@@ -143,6 +143,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "io.isOutputTerminal",
     "io.isErrorTerminal",
     "term.terminalSize",
+    "term.didResize",
     "thread.start",
     "thread.waitFor",
     "thread.send",

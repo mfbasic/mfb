@@ -12,6 +12,7 @@ pub(crate) fn emit_app_term_helper(call: &str, symbol: &str, tso: usize) -> Opti
         "term.on" => emit_app_term_on(symbol, tso),
         "term.off" => emit_app_term_off(symbol, tso),
         "term.isOn" => emit_app_term_is_on(symbol),
+        "term.didResize" => emit_app_term_did_resize(symbol),
         "term.clear" => emit_app_term_clear(symbol),
         "term.sync" => emit_app_term_sync(symbol),
         "term.moveTo" => emit_app_term_move_to(symbol),
@@ -212,6 +213,8 @@ fn emit_app_term_on(symbol: &str, tso: usize) -> AppHookBody {
         ST_TERM_CUR_BG,
         ST_TERM_CUR_BOLD,
         ST_TERM_CUR_UNDERLINE,
+        // planning/term.md #11: entering TUI mode starts with no pending resize.
+        ST_TERM_DID_RESIZE,
     ] {
         asm.store_state("x10", field);
     }
@@ -299,6 +302,22 @@ fn emit_app_term_is_on(symbol: &str) -> AppHookBody {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.load_state("x1", ST_TERM_ACTIVE); // value
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // tag = OK
+    asm.push(abi::return_());
+    (term_frame(), asm.ins, asm.rel)
+}
+
+/// `term::didResize` (planning/term.md #11): OK(Boolean) = the cached resize flag,
+/// read-and-cleared so it latches from a genuine window resize until observed. The
+/// flag lives in the address-based GTK state global (set by `_mfb_gtkapp_term_resize`
+/// on the main loop), so this worker-side read needs no arena register. Result ABI
+/// x0=tag, x1=value; leaf helper (state access is adrp/add + ldr/str, no call).
+fn emit_app_term_did_resize(symbol: &str) -> AppHookBody {
+    let mut asm = Asm::new(symbol);
+    asm.push(abi::label("entry"));
+    asm.load_state("x1", ST_TERM_DID_RESIZE); // value (uses x9 for the address)
+    asm.push(abi::move_immediate("x2", "Integer", "0"));
+    asm.store_state("x2", ST_TERM_DID_RESIZE); // clear (uses SCRATCH[0] for the address)
     asm.push(abi::move_immediate("x0", "Integer", "0")); // tag = OK
     asm.push(abi::return_());
     (term_frame(), asm.ins, asm.rel)

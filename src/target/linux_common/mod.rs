@@ -115,6 +115,7 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "term.getBold",
     "term.getUnderline",
     "term.terminalSize",
+    "term.didResize",
     "fs.fileExists",
     "fs.directoryExists",
     "fs.exists",

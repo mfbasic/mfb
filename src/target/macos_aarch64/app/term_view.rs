@@ -3499,6 +3499,17 @@ pub(super) fn emit_term_set_frame_size_helper() -> CodeFunction {
     asm.push(abi::branch_eq("sfs_done"));
     asm.push(abi::label("sfs_resize"));
 
+    // planning/term.md #11: a genuine grid-dimension change reached this branch —
+    // latch the resize flag on TVSTATE (LOCAL[1]) so `term::didResize()` reports it
+    // (that getter read-and-clears it). SCRATCH[0] is free here; the next calloc
+    // clobbers it, but the store has already landed.
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[1],
+        TV_DID_RESIZE_OFFSET,
+    ));
+
     // newCells = calloc(newRows*newCols, CELL_SIZE); leave the grid intact on OOM.
     asm.push(abi::multiply_registers("x0", abi::LOCAL[5], abi::LOCAL[6]));
     asm.push(abi::move_immediate("x1", "Integer", &CELL_SIZE.to_string()));

@@ -183,6 +183,54 @@ END FUNC
 }
 
 #[test]
+fn native_term_did_resize_reports_false_without_a_resize() {
+    // `term::didResize` (planning/term.md #11) is a cached read-and-clear Boolean:
+    // FALSE while off, and FALSE after `on()`+`sync()` when the terminal size has
+    // not changed. Two consecutive reads both stay FALSE (no spurious latch). The
+    // resize→TRUE path is a live size change, exercised by the app backends and the
+    // CLI reflow, not reproducible from this fixed-size harness.
+    let project = temp_project(
+        "native_term_did_resize",
+        r#"
+IMPORT io
+IMPORT term
+
+FUNC main AS Integer
+  LET offResize AS Boolean = term::didResize()
+  term::on()
+  term::sync()
+  LET a AS Boolean = term::didResize()
+  LET b AS Boolean = term::didResize()
+  term::off()
+  io::print("OFF:" & toString(offResize))
+  io::print("A:" & toString(a))
+  io::print("B:" & toString(b))
+  RETURN 0
+END FUNC
+"#,
+    );
+    let executable = build_project(&project);
+
+    for out in [
+        run_with_stdin(&executable, b""),
+        run_under_pty(&executable).replace("\r\n", "\n"),
+    ] {
+        assert!(
+            out.contains("OFF:FALSE"),
+            "didResize should be FALSE while off: {out:?}"
+        );
+        assert!(
+            out.contains("A:FALSE"),
+            "didResize should be FALSE with no resize: {out:?}"
+        );
+        assert!(
+            out.contains("B:FALSE"),
+            "second didResize should stay FALSE (read-and-clear, no latch): {out:?}"
+        );
+    }
+}
+
+#[test]
 fn native_term_on_resets_state_to_defaults() {
     // on() resets all state to defaults every time it is called (plan-01-term.md
     // §4.2): set non-defaults, off(), on() again, read the defaults back.

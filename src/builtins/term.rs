@@ -54,6 +54,7 @@ pub(crate) const GET_BACKGROUND: &str = "term.getBackground";
 pub(crate) const GET_BOLD: &str = "term.getBold";
 pub(crate) const GET_UNDERLINE: &str = "term.getUnderline";
 pub(crate) const TERMINAL_SIZE: &str = "term.terminalSize";
+pub(crate) const DID_RESIZE: &str = "term.didResize";
 
 // plan-72-X W: `TERM` is the descriptor authority for `term::`. Every call's
 // return type is a function of the NAME alone (`resolve_call` ignores its argument
@@ -201,6 +202,7 @@ const TERM_FUNCTIONS: &[BuiltinFunction] = &[
     term_fn(GET_BOLD, "getBold", OV_BOOL_EMPTY),
     term_fn(GET_UNDERLINE, "getUnderline", OV_BOOL_EMPTY),
     term_fn(TERMINAL_SIZE, "terminalSize", OV_SIZE_EMPTY),
+    term_fn(DID_RESIZE, "didResize", OV_BOOL_EMPTY),
 ];
 
 /// Return-type resolution for the term calls, delegating to the hand-authored
@@ -246,7 +248,7 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         ON | OFF | IS_ON | SHOW_CURSOR | HIDE_CURSOR | CLEAR | SYNC | GET_FOREGROUND
-        | GET_BACKGROUND | GET_BOLD | GET_UNDERLINE | TERMINAL_SIZE => Some(&[]),
+        | GET_BACKGROUND | GET_BOLD | GET_UNDERLINE | TERMINAL_SIZE | DID_RESIZE => Some(&[]),
         SET_FOREGROUND | SET_BACKGROUND => Some(&[&["r"], &["g"], &["b"]]),
         SET_BOLD | SET_UNDERLINE => Some(&[&["enabled"]]),
         MOVE_TO => Some(&[&["row"], &["column"]]),
@@ -265,7 +267,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 pub(crate) fn param_types(name: &str) -> Option<&'static [&'static str]> {
     match name {
         ON | OFF | IS_ON | SHOW_CURSOR | HIDE_CURSOR | CLEAR | SYNC | GET_FOREGROUND
-        | GET_BACKGROUND | GET_BOLD | GET_UNDERLINE | TERMINAL_SIZE => Some(&[]),
+        | GET_BACKGROUND | GET_BOLD | GET_UNDERLINE | TERMINAL_SIZE | DID_RESIZE => Some(&[]),
         SET_FOREGROUND | SET_BACKGROUND => Some(&["Byte", "Byte", "Byte"]),
         SET_BOLD | SET_UNDERLINE => Some(&["Boolean"]),
         MOVE_TO => Some(&["Integer", "Integer"]),
@@ -343,6 +345,7 @@ mod tests {
         GET_BOLD,
         GET_UNDERLINE,
         TERMINAL_SIZE,
+        DID_RESIZE,
     ];
 
     const NO_ARG: &[&str] = &[
@@ -358,6 +361,7 @@ mod tests {
         GET_BOLD,
         GET_UNDERLINE,
         TERMINAL_SIZE,
+        DID_RESIZE,
     ];
 
     #[test]
@@ -489,7 +493,7 @@ mod tests {
         ] {
             assert_eq!(call_return_type_name(name), Some("Nothing"), "{name}");
         }
-        for name in [IS_ON, GET_BOLD, GET_UNDERLINE] {
+        for name in [IS_ON, GET_BOLD, GET_UNDERLINE, DID_RESIZE] {
             assert_eq!(call_return_type_name(name), Some("Boolean"), "{name}");
         }
         for name in [GET_FOREGROUND, GET_BACKGROUND] {
