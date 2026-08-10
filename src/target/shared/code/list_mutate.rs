@@ -8,7 +8,7 @@ impl CodeBuilder<'_> {
     /// each `valueOffset` shifted by `A.dataLength`, tail `A` entries verbatim.
     /// Append is `index == count`, prepend is `index == 0`. Phase 2 keeps the
     /// result tight (`capacity == count`).
-    pub(super) fn lower_list_insert_collection(
+    pub(crate) fn lower_list_insert_collection(
         &mut self,
         base_slot: usize,
         index_slot: usize,
@@ -1857,7 +1857,7 @@ impl CodeBuilder<'_> {
     /// the same `index out of range` error as the rebuild path. The caller
     /// guarantees the buffer is uniquely owned and not an active `FOR EACH`
     /// iterable. Returns the (possibly new) buffer pointer.
-    pub(super) fn lower_list_set_in_place(
+    pub(crate) fn lower_list_set_in_place(
         &mut self,
         buffer_slot: usize,
         index_slot: usize,
@@ -2091,7 +2091,7 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn lower_list_remove_at(
+    pub(crate) fn lower_list_remove_at(
         &mut self,
         base_slot: usize,
         index_slot: usize,

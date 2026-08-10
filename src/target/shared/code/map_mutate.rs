@@ -913,7 +913,7 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn lower_map_concat(
+    pub(crate) fn lower_map_concat(
         &mut self,
         left_slot: usize,
         right_slot: usize,

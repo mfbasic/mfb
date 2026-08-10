@@ -1374,7 +1374,7 @@ impl CodeBuilder<'_> {
         self.lower_collection_values(type_, slots, "map")
     }
 
-    pub(super) fn lower_collection_values(
+    pub(crate) fn lower_collection_values(
         &mut self,
         type_: &str,
         slots: Vec<CollectionValueSlot>,
@@ -2344,7 +2344,7 @@ impl CodeBuilder<'_> {
 /// Must agree with `CodeBuilder::collection_payload_alignment` for every arm;
 /// `fixed_width_agrees_with_payload_alignment` asserts that so the two cannot
 /// drift.
-pub(super) fn list_element_is_fixed_width(element_type: &str) -> Option<usize> {
+pub(crate) fn list_element_is_fixed_width(element_type: &str) -> Option<usize> {
     match element_type {
         "Boolean" | "Byte" => Some(1),
         "Scalar" => Some(4),

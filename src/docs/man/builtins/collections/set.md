@@ -43,7 +43,7 @@ missing position is an error:
   overwritten; when it is absent a new entry is inserted. The map overload has no
   failure path at all — it raises no domain error for any key.
   [[src/target/shared/code/map_mutate.rs:lower_map_set_in_place]]
-  [[src/target/shared/code/collection_mutate.rs:lower_collection_set]]
+  [[src/codegen/builtins/collections/func_set.rs:lower_set]]
 
 `set` is value-semantic in both overloads. The collection named by `value` is
 unchanged; the updated collection is the returned value, and a program observes
@@ -61,7 +61,7 @@ which is where its `0 <= index < len(value)` bound comes from; the map overload
 is composed from `removeKey` — which is a filter and never fails on a missing
 key — followed by a concatenation of the single new entry, which is why an
 absent key inserts rather than raising.
-[[src/target/shared/code/collection_mutate.rs:lower_collection_set]]
+[[src/codegen/builtins/collections/func_set.rs:lower_set]]
 [[src/target/shared/code/map_mutate.rs:lower_map_remove_key]]
 
 `set` is classified **fallible** overall because of the list overload's range

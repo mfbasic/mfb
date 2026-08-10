@@ -13,10 +13,13 @@ mod func_contains;
 mod func_get;
 mod func_get_or;
 mod func_has_key;
+mod func_insert;
 mod func_keys;
 mod func_prepend;
 mod func_remove;
+mod func_remove_at;
 mod func_remove_key;
+mod func_set;
 mod func_sum;
 mod func_to_list;
 mod func_values;
@@ -174,110 +177,6 @@ const fn custom(params: &'static [Parameter]) -> BuiltinOverload {
 // Description section, citation markers stripped). See the `doc_intro`/`doc_desc`
 // fields on `BuiltinFunction`.
 // (`get`'s doc consts + entry moved to func_get.rs, plan-95.)
-
-// ---- set ----
-const INTO_SET: &str = "Return a collection with one element replaced, or one map key assigned";
-const DESC_SET: &str = r#"`collections::set` returns a new collection with one position updated. It takes
-exactly three arguments; none is optional and none is variadic. The first
-argument selects the overload: a `List OF T` is addressed by an `Integer` index,
-and a `Map OF K TO V` is addressed by a key of type `K`.
-
-The two overloads differ in more than addressing — they differ in whether a
-missing position is an error:
-
-- For a **list**, the index must already exist. The bound is
-  `0 <= index < len(value)`; the result has the same length as `value` and only
-  the element at `index` differs. An index equal to the length is **not** an
-  append position and raises `ErrIndexOutOfRange`, as does any negative index.
-  Use `collections::append` or `collections::insert` to grow a list.
-
-- For a **map**, the key need not exist. When the key is present its value is
-  overwritten; when it is absent a new entry is inserted. The map overload has no
-  failure path at all — it raises no domain error for any key.
-
-`set` is value-semantic in both overloads. The collection named by `value` is
-unchanged; the updated collection is the returned value, and a program observes
-the update only through what it does with that return value. When the compiler
-can prove the target is a uniquely owned local being reassigned — the
-`c = collections::set(c, k, v)` shape, on a non-`by_ref` local that is not the
-live iterable of an enclosing `FOR EACH` — it lowers the call to an in-place
-update instead of rebuilding the collection. This is an optimization only; the
-observable semantics, including the list bounds check, are identical either way.
-
-On the general (copying) path the list overload is composed from
-`removeAt(index)` followed by an insert of the replacement at the same index,
-which is where its `0 <= index < len(value)` bound comes from; the map overload
-is composed from `removeKey` — which is a filter and never fails on a missing
-key — followed by a concatenation of the single new entry, which is why an
-absent key inserts rather than raising.
-
-`set` is classified **fallible** overall because of the list overload's range
-check, so an inline `TRAP` on a `set` call compiles and catches that failure
-rather than being reported as a dead handler. On the list path the bounds test
-runs before any replacement value is materialized, so a rejected index allocates
-nothing."#;
-
-// ---- insert ----
-const INTO_INSERT: &str = "Return a list with one element inserted before a given index";
-const DESC_INSERT: &str = r#"`collections::insert` returns a new list in which `item` occupies position
-`index`, every element of `value` below `index` keeps its position, and every
-element from `index` onward is shifted up by one. The result is always exactly
-one element longer than `value`. It takes exactly three arguments; none is
-optional and none is variadic.
-
-`index` is zero-based and is validated as `0 <= index <= len(value)`. The upper
-bound is **inclusive**: `index` equal to the current length is the append
-position and is accepted, producing the same result as
-`collections::append(value, item)`. A negative `index`, or an `index` strictly
-greater than the length, raises `ErrIndexOutOfRange`.
-
-Only the single-element form exists. `item` must have exactly the element type
-`T`; passing another `List OF T` resolves no overload, and the lowering rejects a
-list-typed item explicitly with "insert expects a single item, not a list".
-Internally the element is wrapped as a one-element list and spliced into `value`
-at `index`, which is the same splice that backs `append` (index `= len`) and
-`prepend` (index `0`).
-
-`insert` is value-semantic. The list named by `value` is unchanged; the modified
-list is the returned value, and a program observes the update only through what
-it does with that return value. There is no in-place fast path for `insert` at an
-arbitrary index — the compiler's in-place assignment recognizers cover
-`append`, bulk `append`, `prepend`, `set`, and string concatenation, not
-`insert`.
-
-`insert` is **fallible**: the range check is a real trappable domain error, so an
-inline `TRAP` on an `insert` call compiles and catches the out-of-range failure
-rather than being reported as a dead handler. The bounds test runs before any
-allocation for the result, so a rejected index allocates nothing."#;
-
-// ---- removeAt ----
-const INTO_REMOVE_AT: &str = "Return a list with the element at a given index removed";
-const DESC_REMOVE_AT: &str = r#"`collections::removeAt` returns a new list containing every element of `value`
-except the one at `index`, with the elements above `index` shifted down by one to
-close the gap and all other relative order preserved. The result is always
-exactly one element shorter than `value`. It takes exactly two arguments; neither
-is optional and neither is variadic.
-
-`index` is zero-based and is validated as `0 <= index < len(value)`. The upper
-bound is **exclusive**: unlike `collections::insert`, `index` equal to the length
-is not a valid position — there is nothing there to remove — and raises
-`ErrIndexOutOfRange`, as does any negative `index`. Removing from an empty list
-therefore always raises, since no index satisfies the range.
-
-`removeAt` is value-semantic. The list named by `value` is unchanged; the
-shortened list is the returned value, and a program observes the update only
-through what it does with that return value. There is no in-place fast path for
-`removeAt` — the compiler's in-place assignment recognizers cover `append`, bulk
-`append`, `prepend`, `set`, and string concatenation, not `removeAt`.
-
-`removeAt` is **fallible**: the range check is a real trappable domain error, so
-an inline `TRAP` on a `removeAt` call compiles and catches the out-of-range
-failure rather than being reported as a dead handler. The bounds test runs before
-the result block is allocated, so a rejected index allocates nothing.
-
-`removeAt` operates on lists only. To drop a key from a `Map OF K TO V`, use
-`collections::removeKey`, which takes a key rather than an index and does not
-raise when the key is absent."#;
 
 // ---- forEach ----
 const INTO_FOR_EACH: &str = "Call an action once for each element of a list, in order";
@@ -671,43 +570,11 @@ It does not mutate `value`."#;
 const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
     func_get::GET,
     func_get_or::GET_OR,
-    native(
-        "collections.set",
-        "set",
-        INTO_SET,
-        DESC_SET,
-        &["ErrIndexOutOfRange"],
-        &[custom(&[
-            req("value", &["collection"], "List OF T"),
-            req("index", &["key"], "Integer"),
-            req("item", &[], "T"),
-        ])],
-    ),
+    func_set::SET,
     func_append::APPEND,
     func_prepend::PREPEND,
-    native(
-        "collections.insert",
-        "insert",
-        INTO_INSERT,
-        DESC_INSERT,
-        &["ErrIndexOutOfRange"],
-        &[custom(&[
-            req("value", &["list"], "List OF T"),
-            req("index", &[], "Integer"),
-            req("item", &[], "T"),
-        ])],
-    ),
-    native(
-        "collections.removeAt",
-        "removeAt",
-        INTO_REMOVE_AT,
-        DESC_REMOVE_AT,
-        &["ErrIndexOutOfRange"],
-        &[custom(&[
-            req("value", &["list"], "List OF T"),
-            req("index", &[], "Integer"),
-        ])],
-    ),
+    func_insert::INSERT,
+    func_remove_at::REMOVE_AT,
     func_remove_key::REMOVE_KEY,
     func_keys::KEYS,
     func_values::VALUES,

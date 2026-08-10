@@ -77,12 +77,12 @@ use module_analysis::*;
 mod audio;
 mod builder_collection_compare;
 mod builder_collection_layout;
-pub(crate) use builder_collection_layout::kind2_payload_size;
 use builder_collection_layout::{
-    byte_list_block_kind, byte_list_entry_stride, list_block_kind, list_element_is_fixed_width,
-    list_entry_stride, push_collection_data_base_from_capacity, recursive_transfer_types,
-    thread_copy_symbol, type_participates_in_cycle,
+    byte_list_block_kind, byte_list_entry_stride, list_block_kind, list_entry_stride,
+    push_collection_data_base_from_capacity, recursive_transfer_types, thread_copy_symbol,
+    type_participates_in_cycle,
 };
+pub(crate) use builder_collection_layout::{kind2_payload_size, list_element_is_fixed_width};
 mod app;
 mod builder_collection_queries;
 mod builder_collection_query;
@@ -651,15 +651,15 @@ enum ExitDestination {
 }
 
 #[derive(Clone)]
-struct PayloadSlot {
-    slot: usize,
-    type_: String,
+pub(crate) struct PayloadSlot {
+    pub(crate) slot: usize,
+    pub(crate) type_: String,
 }
 
 #[derive(Clone)]
-struct CollectionValueSlot {
-    key: Option<PayloadSlot>,
-    value: PayloadSlot,
+pub(crate) struct CollectionValueSlot {
+    pub(crate) key: Option<PayloadSlot>,
+    pub(crate) value: PayloadSlot,
 }
 
 struct CollectionTypeLayout {

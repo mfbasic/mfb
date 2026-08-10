@@ -7,7 +7,7 @@ impl CodeBuilder<'_> {
     /// [`Self::free_intermediate_collection`]) — leaving it live leaked one
     /// block per value-path append/prepend/insert/set (bug-01's fourth leak:
     /// ~40% of all allocations under `r = append(r, expr)` churn).
-    pub(super) fn collection_argument_as_list_slot(
+    pub(crate) fn collection_argument_as_list_slot(
         &mut self,
         list_type: &str,
         element_type: &str,
@@ -55,7 +55,7 @@ impl CodeBuilder<'_> {
     /// preserving `result` across the `arena_free` call (which clobbers every
     /// caller-saved register). No-op for non-flat types, mirroring the
     /// reassignment free guard.
-    pub(super) fn free_intermediate_collection(
+    pub(crate) fn free_intermediate_collection(
         &mut self,
         block_slot: usize,
         type_: &str,

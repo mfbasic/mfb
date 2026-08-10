@@ -737,15 +737,6 @@ impl CodeBuilder<'_> {
                 if native == Some("replace") && args.len() == 3 {
                     return self.lower_replace(args);
                 }
-                if native == Some("insert") && args.len() == 3 {
-                    return self.lower_collection_insert(args);
-                }
-                if native == Some("removeAt") && args.len() == 2 {
-                    return self.lower_collection_remove_at(args);
-                }
-                if native == Some("set") && args.len() == 3 {
-                    return self.lower_collection_set(args);
-                }
                 if native == Some("forEach") && args.len() == 2 {
                     return self.lower_collection_for_each_call(args);
                 }
@@ -1779,9 +1770,6 @@ impl CodeBuilder<'_> {
             result
         } else {
             match crate::builtins::native_builtin_target(target) {
-                Some("set") => self.lower_collection_set(args),
-                Some("insert") => self.lower_collection_insert(args),
-                Some("removeAt") => self.lower_collection_remove_at(args),
                 Some("find") => self.lower_find(args),
                 Some("mid") => self.lower_mid(args),
                 Some("transform") => self.lower_collection_transform_call(args),
