@@ -2276,9 +2276,9 @@ impl CodeBuilder<'_> {
         );
 
         self.emit(abi::label(&bounds_label));
-        self.raise_error_bare("ErrIndexOutOfRange")?;
+        self.raise_error("collections.findLastIndex", "ErrIndexOutOfRange")?;
         self.emit(abi::label(&not_found_label));
-        self.raise_error_bare("ErrNotFound")?;
+        self.raise_error("collections.findLastIndex", "ErrNotFound")?;
 
         self.emit(abi::label(&match_label));
         self.free_collection_loop_item(item_slot, &element_type)?;

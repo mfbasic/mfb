@@ -1,7 +1,6 @@
 use super::descriptor::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
-    DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
-    ParameterType, ReturnType,
+    DefaultValue, Implementation, InjectionRule, Lowering, Parameter, ParameterType, ReturnType,
 };
 use crate::ast::{AstFile, AstProject};
 use std::borrow::Cow;
@@ -125,14 +124,16 @@ const fn opt(name: &'static str, aliases: &'static [&'static str], ty: &'static 
 const fn native(
     name: &'static str,
     slug: &'static str,
+    doc_into: &'static str,
+    doc_desc: &'static str,
     errors: &'static [&'static str],
     overloads: &'static [BuiltinOverload],
 ) -> BuiltinFunction {
     BuiltinFunction {
         name,
         doc_slug: slug,
-        doc_into: "",
-        doc_desc: "",
+        doc_into,
+        doc_desc,
         errors,
         overloads,
         implementation: Implementation::Same,
@@ -154,99 +155,1175 @@ const fn custom(params: &'static [Parameter]) -> BuiltinOverload {
     }
 }
 
+// Authored documentation strings for the native `collections::` members,
+// derived from src/docs/man/builtins/collections/*.md (one-line summary + the
+// Description section, citation markers stripped). See the `doc_into`/`doc_desc`
+// fields on `BuiltinFunction`.
+// ---- get ----
+const INTO_GET: &str = "Read a list item by index or a map value by key.";
+const DESC_GET: &str = r#"`collections::get` reads one element out of a collection. The collection itself
+is neither copied nor mutated: the lowering stores only a handle to it, walks
+its lookup table, and materializes just the selected payload.
+
+The value returned is **owned** by the caller. Scalars are returned by value and
+a `String` payload is materialized fresh, while a composite payload stored
+inline in the collection's data region is copied into a standalone arena block
+before it is handed back, so binding, storing, and freeing the result cannot
+disturb the source collection.
+
+`get` is the only fallible member of this group. It reports a missing element as
+a trappable domain error rather than substituting anything, and it is
+raw-supported, so an inline `TRAP` on a `collections::get` call catches the real
+runtime error. When a fallback value is more convenient than an error, use
+`collections::getOr`; when only presence matters, use `collections::hasKey`.
+
+For the map overload, key comparison is a comparison of the stored key payload:
+fixed-width keys compare their raw 64-bit (or 32-bit, or single-byte) stored
+bits and `String` keys compare length first and then bytes. A `Float` key is
+therefore matched bit-for-bit, so `NaN` never matches any key and `-0.0` does
+not match a stored `0.0`.
+
+Map lookup for the common key types `String`, `Integer`, `Float`, `Fixed`,
+`Byte`, and `Boolean` goes through the map's hash bucket index; other key types
+fall back to a linear scan of the entry table. This is a performance difference
+only — both paths select the same entry and raise the same error when the key is
+absent."#;
+
+// ---- getOr ----
+const INTO_GET_OR: &str =
+    "Read a list item or map value, returning a supplied default when it is absent.";
+const DESC_GET_OR: &str = r#"`collections::getOr` is the total counterpart of `collections::get`. It performs
+the same lookup, but instead of raising a domain error when the element is
+missing it returns `default`. It raises no trappable error at all, which is
+precisely the difference between the two: an inline `TRAP` on a
+`collections::getOr` call has a dead handler.
+
+The collection is neither copied nor mutated; only the selected payload is
+materialized.
+
+Both the found path and the default path return an **owned** value. When the
+element type is `String`, the supplied `default` is copied into a fresh owned
+string on the fallback path rather than being returned as a borrow, so the
+result can be bound and freed identically no matter which path ran. A composite
+payload read out of the collection is likewise copied into a standalone block
+before it is returned.
+
+`default` is an ordinary argument expression, so it is evaluated before the
+lookup runs, whether or not it ends up being used.
+
+For the map overload, key comparison is a comparison of the stored key payload:
+fixed-width keys compare their raw stored bits and `String` keys compare length
+and then bytes. A `Float` key is matched bit-for-bit, so `NaN` never matches and
+`-0.0` does not match a stored `0.0`; such a lookup simply yields `default`.
+
+Map lookup for the common key types `String`, `Integer`, `Float`, `Fixed`,
+`Byte`, and `Boolean` goes through the map's hash bucket index — the same probe
+`collections::get` uses — with `default` substituted on the probe's not-found
+branch; other key types fall back to a linear scan of the entry table. This is
+a performance difference only — both paths select the same entry and yield the
+same `default` when the key is absent."#;
+
+// ---- set ----
+const INTO_SET: &str = "Return a collection with one element replaced, or one map key assigned";
+const DESC_SET: &str = r#"`collections::set` returns a new collection with one position updated. It takes
+exactly three arguments; none is optional and none is variadic. The first
+argument selects the overload: a `List OF T` is addressed by an `Integer` index,
+and a `Map OF K TO V` is addressed by a key of type `K`.
+
+The two overloads differ in more than addressing — they differ in whether a
+missing position is an error:
+
+- For a **list**, the index must already exist. The bound is
+  `0 <= index < len(value)`; the result has the same length as `value` and only
+  the element at `index` differs. An index equal to the length is **not** an
+  append position and raises `ErrIndexOutOfRange`, as does any negative index.
+  Use `collections::append` or `collections::insert` to grow a list.
+
+- For a **map**, the key need not exist. When the key is present its value is
+  overwritten; when it is absent a new entry is inserted. The map overload has no
+  failure path at all — it raises no domain error for any key.
+
+`set` is value-semantic in both overloads. The collection named by `value` is
+unchanged; the updated collection is the returned value, and a program observes
+the update only through what it does with that return value. When the compiler
+can prove the target is a uniquely owned local being reassigned — the
+`c = collections::set(c, k, v)` shape, on a non-`by_ref` local that is not the
+live iterable of an enclosing `FOR EACH` — it lowers the call to an in-place
+update instead of rebuilding the collection. This is an optimization only; the
+observable semantics, including the list bounds check, are identical either way.
+
+On the general (copying) path the list overload is composed from
+`removeAt(index)` followed by an insert of the replacement at the same index,
+which is where its `0 <= index < len(value)` bound comes from; the map overload
+is composed from `removeKey` — which is a filter and never fails on a missing
+key — followed by a concatenation of the single new entry, which is why an
+absent key inserts rather than raising.
+
+`set` is classified **fallible** overall because of the list overload's range
+check, so an inline `TRAP` on a `set` call compiles and catches that failure
+rather than being reported as a dead handler. On the list path the bounds test
+runs before any replacement value is materialized, so a rejected index allocates
+nothing."#;
+
+// ---- append ----
+const INTO_APPEND: &str =
+    "Return a list with one element, or every element of another list, added at the end";
+const DESC_APPEND: &str = r#"`collections::append` returns a new list whose contents are those of `value`
+followed by the appended content. It takes exactly two arguments; neither is
+optional and neither is variadic.
+
+The second argument may be either a single element of the list's element type
+`T`, or another `List OF T`. The compiler picks the overload from the static type
+of that argument: an argument whose type is exactly the element type appends one
+element, and an argument whose type is exactly the same list type concatenates.
+Any other type is a compile-time error, because no other combination resolves.
+
+Internally both forms are the same operation: the appended content is wrapped as
+a list when it is a single element, and the result is built by splicing that list
+into `value` at index `count(value)` — the one-past-the-end position, which the
+splice accepts as the append position. Existing elements keep their relative
+order, and the appended content is placed after all of them in its own order.
+
+`append` is value-semantic. The list named by `value` is unchanged; the modified
+list is the returned value, and a program observes the update only through what
+it does with that return value. When the compiler can prove the target is a
+uniquely owned local being reassigned — the `list = collections::append(list, x)`
+shape, on a non-`by_ref` local that is not the live iterable of an enclosing
+`FOR EACH` — it lowers the call to an in-place grow with geometric spare
+capacity, making a repeated append amortized O(1) rather than a full copy. This
+is an optimization only: the observable semantics are identical either way.
+
+`append` is **infallible**: no path in its lowering raises a trappable domain
+error. It has no index to range-check and no lookup to miss, so it is classified
+as infallible alongside `prepend` and `replace`, and an inline `TRAP` written on
+an `append` call has a dead handler (the front end reports
+`TYPE_INLINE_TRAP_DEAD_HANDLER`). Allocation exhaustion is not a trappable domain
+error in this language.
+
+Appending an empty list returns a copy of `value` with the same elements in the
+same order."#;
+
+// ---- prepend ----
+const INTO_PREPEND: &str = "Return a list with one element added at the start";
+const DESC_PREPEND: &str = r#"`collections::prepend` returns a new list whose first element is `item` and whose
+remaining elements are those of `value` in their original order. The result is
+always exactly one element longer than `value`. It takes exactly two arguments;
+neither is optional and neither is variadic.
+
+Unlike `collections::append`, `prepend` has **only** the single-element form.
+There is no list-into-list overload: the second argument must have exactly the
+element type `T`, and passing another `List OF T` resolves no overload and is a
+compile-time error. The lowering rejects a list-typed item explicitly as well.
+To place a whole list in front of another, use `collections::append` with the
+operands reversed — `collections::append(front, back)`.
+
+Internally the element is wrapped as a one-element list and spliced into `value`
+at index `0`, so the operation is the index-`0` case of the same splice that
+backs `append` and `insert`.
+
+`prepend` is value-semantic. The list named by `value` is unchanged; the modified
+list is the returned value. When the compiler can prove the target is a uniquely
+owned local being reassigned — the `list = collections::prepend(list, x)` shape,
+on a non-`by_ref` local that is not the live iterable of an enclosing `FOR EACH` —
+it lowers the call to an in-place shift-and-insert with geometric spare capacity
+instead of a full copy. This is an optimization only; the observable semantics
+are identical either way. Note that prepending must shift every existing lookup
+entry right by one, so a repeated prepend stays O(n) per call even on the
+in-place path, unlike `append`.
+
+`prepend` is **infallible**: no path in its lowering raises a trappable domain
+error. It has no index to range-check and no lookup to miss, so it is classified
+as infallible alongside `append` and `replace`, and an inline `TRAP` written on a
+`prepend` call has a dead handler (the front end reports
+`TYPE_INLINE_TRAP_DEAD_HANDLER`). Allocation exhaustion is not a trappable domain
+error in this language.
+
+Prepending to an empty list yields a one-element list."#;
+
+// ---- insert ----
+const INTO_INSERT: &str = "Return a list with one element inserted before a given index";
+const DESC_INSERT: &str = r#"`collections::insert` returns a new list in which `item` occupies position
+`index`, every element of `value` below `index` keeps its position, and every
+element from `index` onward is shifted up by one. The result is always exactly
+one element longer than `value`. It takes exactly three arguments; none is
+optional and none is variadic.
+
+`index` is zero-based and is validated as `0 <= index <= len(value)`. The upper
+bound is **inclusive**: `index` equal to the current length is the append
+position and is accepted, producing the same result as
+`collections::append(value, item)`. A negative `index`, or an `index` strictly
+greater than the length, raises `ErrIndexOutOfRange`.
+
+Only the single-element form exists. `item` must have exactly the element type
+`T`; passing another `List OF T` resolves no overload, and the lowering rejects a
+list-typed item explicitly with "insert expects a single item, not a list".
+Internally the element is wrapped as a one-element list and spliced into `value`
+at `index`, which is the same splice that backs `append` (index `= len`) and
+`prepend` (index `0`).
+
+`insert` is value-semantic. The list named by `value` is unchanged; the modified
+list is the returned value, and a program observes the update only through what
+it does with that return value. There is no in-place fast path for `insert` at an
+arbitrary index — the compiler's in-place assignment recognizers cover
+`append`, bulk `append`, `prepend`, `set`, and string concatenation, not
+`insert`.
+
+`insert` is **fallible**: the range check is a real trappable domain error, so an
+inline `TRAP` on an `insert` call compiles and catches the out-of-range failure
+rather than being reported as a dead handler. The bounds test runs before any
+allocation for the result, so a rejected index allocates nothing."#;
+
+// ---- removeAt ----
+const INTO_REMOVE_AT: &str = "Return a list with the element at a given index removed";
+const DESC_REMOVE_AT: &str = r#"`collections::removeAt` returns a new list containing every element of `value`
+except the one at `index`, with the elements above `index` shifted down by one to
+close the gap and all other relative order preserved. The result is always
+exactly one element shorter than `value`. It takes exactly two arguments; neither
+is optional and neither is variadic.
+
+`index` is zero-based and is validated as `0 <= index < len(value)`. The upper
+bound is **exclusive**: unlike `collections::insert`, `index` equal to the length
+is not a valid position — there is nothing there to remove — and raises
+`ErrIndexOutOfRange`, as does any negative `index`. Removing from an empty list
+therefore always raises, since no index satisfies the range.
+
+`removeAt` is value-semantic. The list named by `value` is unchanged; the
+shortened list is the returned value, and a program observes the update only
+through what it does with that return value. There is no in-place fast path for
+`removeAt` — the compiler's in-place assignment recognizers cover `append`, bulk
+`append`, `prepend`, `set`, and string concatenation, not `removeAt`.
+
+`removeAt` is **fallible**: the range check is a real trappable domain error, so
+an inline `TRAP` on a `removeAt` call compiles and catches the out-of-range
+failure rather than being reported as a dead handler. The bounds test runs before
+the result block is allocated, so a rejected index allocates nothing.
+
+`removeAt` operates on lists only. To drop a key from a `Map OF K TO V`, use
+`collections::removeKey`, which takes a key rather than an index and does not
+raise when the key is absent."#;
+
+// ---- removeKey ----
+const INTO_REMOVE_KEY: &str = "Return a copy of a map with the entry for one key removed.";
+const DESC_REMOVE_KEY: &str = r#"`collections::removeKey` produces a **new** map containing every entry of
+`value` except the one whose key matches `key`. It does not edit `value` in
+place: the lowering scans the entry table to count the entries it will retain
+and size their payloads, allocates a fresh map block, and copies the retained
+entries into it. The original map is left untouched and remains usable.
+
+Retained entries are copied in their existing order, so the surviving entries of
+the result keep the relative order they had in `value`.
+
+Removing a key that is not present is not an error. The scan simply retains
+every entry, and the call returns a fresh map with the same contents as `value`.
+Note that this is a new map rather than the same map object — a `removeKey` for
+an absent key still allocates and copies, it does not return the argument
+itself. The result therefore has `len(value)` entries when `key` was absent, or
+`len(value) - 1` entries when it was present. Because a map holds at most one
+entry per key, at most one entry is ever dropped.
+
+Key comparison is a comparison of the stored key payload: fixed-width keys
+compare their raw stored bits and a `String` key compares length and then bytes.
+Since the comparison is bitwise, a `Float` key of `NaN` matches no entry, so
+such a call always returns an unchanged copy.
+
+`collections::removeKey` raises no trappable domain error — neither a missing
+key nor an empty map fails — so an inline `TRAP` on a `removeKey` call has a
+dead handler. Building the result map does allocate, and an allocation failure
+is not a trappable domain error in this language."#;
+
+// ---- keys ----
+const INTO_KEYS: &str = "Return a map's keys as a list.";
+const DESC_KEYS: &str = r#"`collections::keys` builds a new `List OF K` holding the key of every entry in
+`value`. It walks the map's lookup-entry table front to back, copying each
+entry's key payload into a freshly allocated list block. The source map is not
+mutated and its own storage is not aliased by the result — the returned list is
+an independent, owned collection.
+
+The result has exactly one item per map entry, so its length equals
+`len(value)`. An empty map yields an empty list. Each key appears exactly once,
+because a map holds at most one entry per key.
+
+**Ordering.** The projection walks the lookup-entry array directly, and that
+array is maintained in insertion order; the hash bucket index is separate
+derived metadata that does not reorder it. `collections::keys` and
+`collections::values` walk the same array over the same entries and differ only
+in which payload field of each entry they copy, so the two results are
+index-aligned: item `i` of `collections::keys(m)` is the key of the entry whose
+value is item `i` of `collections::values(m)`. The language specification
+describes map iteration order as implementation-defined but stable for a given
+unchanged map, so treat insertion order as the current implementation's behavior
+rather than a guarantee to rely on across versions.
+
+`collections::keys` raises no trappable domain error, so an inline `TRAP` on a
+`keys` call has a dead handler. Building the result list does allocate, and an
+allocation failure is not a trappable domain error in this language."#;
+
+// ---- values ----
+const INTO_VALUES: &str = "Return a map's values as a list.";
+const DESC_VALUES: &str = r#"`collections::values` builds a new `List OF V` holding the value of every entry
+in `value`. It walks the map's lookup-entry table front to back, copying each
+entry's value payload into a freshly allocated list block. The source map is not
+mutated and its own storage is not aliased by the result — the returned list is
+an independent, owned collection.
+
+The result has exactly one item per map entry, so its length equals
+`len(value)`. An empty map yields an empty list. Unlike the key projection, the
+result may contain duplicates, because distinct keys may store equal values.
+
+**Ordering.** The projection walks the lookup-entry array directly, and that
+array is maintained in insertion order; the hash bucket index is separate
+derived metadata that does not reorder it. `collections::values` and
+`collections::keys` are the same traversal over the same entries and differ only
+in which payload field of each entry they copy, so the two results are
+index-aligned: item `i` of `collections::values(m)` is the value of the entry
+whose key is item `i` of `collections::keys(m)`. The language specification
+describes map iteration order as implementation-defined but stable for a given
+unchanged map, so treat insertion order as the current implementation's behavior
+rather than a guarantee to rely on across versions.
+
+`collections::values` raises no trappable domain error, so an inline `TRAP` on a
+`values` call has a dead handler. Building the result list does allocate, and an
+allocation failure is not a trappable domain error in this language."#;
+
+// ---- hasKey ----
+const INTO_HAS_KEY: &str = "Test whether a map contains an entry for a key.";
+const DESC_HAS_KEY: &str = r#"`collections::hasKey` returns `TRUE` when `value` holds an entry whose key
+matches `key`, and `FALSE` otherwise. The map is neither copied nor mutated, and
+the matching value is never materialized — only the key is compared.
+
+This is a map-only member. There is no list or `String` form: to test list
+membership use `collections::contains`, and to test for a substring use the
+`strings::` package.
+
+Key comparison is a comparison of the stored key payload. Fixed-width keys
+compare their raw stored bits (one byte for `Boolean` and `Byte`, four for
+`Scalar`, eight for `Integer`, `Float`, `Fixed`, and `Money`), and a `String`
+key compares its length first and then its bytes. Because the comparison is
+bitwise, a `Float` key of `NaN` never reports as present and `-0.0` does not
+match a stored `0.0`.
+
+For the key types `String`, `Integer`, `Float`, `Fixed`, `Byte`, and `Boolean`
+the probe uses the map's hash bucket index; other key types use a linear scan of
+the entry table. Both paths compare exactly the same key bytes and return the
+same answer.
+
+`collections::hasKey` raises no trappable domain error, so an inline `TRAP` on a
+`hasKey` call has a dead handler.
+
+Use `hasKey` to guard a `collections::get`, which *does* fail on a missing key.
+When the goal is simply to obtain a value with a fallback,
+`collections::getOr` does it in one call and avoids the second lookup."#;
+
+// ---- contains ----
+const INTO_CONTAINS: &str = "Test whether a list holds an item equal to a given value.";
+const DESC_CONTAINS: &str = r#"`collections::contains` scans `value` from index `0` upward and returns `TRUE`
+as soon as an element matches `item`, or `FALSE` after every element has been
+examined without a match. The list is neither copied nor mutated, and no element
+payload is materialized — the scan compares stored bytes in place.
+
+`contains` also has a **`Set OF T`** overload. Both forms take
+`(collection, element) AS Boolean` and answer the same membership question; the
+compiler picks the overload from the static type of the first argument. On a
+`List` the scan is linear (below); on a `Set` membership is an O(1)-average hash
+probe for a probe-eligible element type and a linear scan otherwise. It does not
+accept a `Map`, and it is not the substring test: the `String` form of
+`contains` lives in the `strings::` package, not here.
+
+Equality is payload comparison, resolved by the element type:
+
+- `Boolean` and `Byte` compare one stored byte; `Scalar` compares four; and
+  `Integer`, `Float`, `Fixed`, and `Money` compare their stored 64-bit value.
+- `String` compares length first, then bytes, so the match is exact and
+  byte-oriented — no case folding, trimming, or Unicode normalization is applied.
+- A record element is compared field by field.
+- A resource handle, or a nested collection that is not stored flat, is compared
+  by its stored handle rather than by its contents.
+
+Because numeric comparison is bitwise, a `Float` search for `NaN` is always
+`FALSE` even if the list contains `NaN`, and searching for `-0.0` does not match
+a stored `0.0`.
+
+An empty list always yields `FALSE`, since the loop exits on the first bounds
+check. `collections::contains` raises no trappable domain error, so an inline
+`TRAP` on a `contains` call has a dead handler.
+
+`contains` answers only whether a match exists. Use `collections::find` when the
+position of the match is needed."#;
+
+// ---- forEach ----
+const INTO_FOR_EACH: &str = "Call an action once for each element of a list, in order";
+const DESC_FOR_EACH: &str = r#"`collections::forEach` walks `value` from the first element to the last and
+calls `action` once per element, passing the element as the single argument. It
+is a **native** member: the compiler emits the traversal loop directly rather
+than instantiating an MFBASIC generic.
+
+The loop is a straight forward scan over the list's entry table with no
+reordering and no skipping, so `action` observes exactly the elements of `value`
+in their stored order. `value` is neither copied nor modified; `forEach` builds
+no result collection at all and evaluates to `Nothing`.
+
+`action` must accept exactly one argument of the element type `T` and its
+success type must be `Nothing`. A `SUB` is therefore accepted directly, since a
+`SUB` has success type `Nothing`; a `FUNC` that produces a value is rejected at
+compile time. To collect results instead of discarding them, use
+`collections::transform`.
+
+`action` must be a callable *value* — a reference to a declared `SUB` or `FUNC`.
+A package member such as `io::print` is not a callable value and cannot be
+passed here; wrap it in a `SUB` of your own, as the first example below does.
+
+`action` is invoked through the shared direct-callable path, which restores a
+closure's captured environment around each call, so a callable value that
+carries an environment works as well as a plain named reference.
+
+`forEach` raises no domain error of its own. It is classified fallible solely
+because a failing `action` propagates: when the callback returns a non-`Ok`
+result, the loop stops immediately at that element, later elements are never
+visited, and the callback's own error is passed straight through — unchanged, so
+whatever code and message the callback raised is what the caller sees. Because
+`forEach` owns no accumulator, no cleanup runs on that path.
+
+An inline `TRAP` on a `forEach` call captures that propagated callback error at
+the call site rather than letting it auto-propagate.
+
+An empty `value` calls `action` zero times."#;
+
+// ---- transform ----
+const INTO_TRANSFORM: &str =
+    "Map every element of a list through a function and collect the results";
+const DESC_TRANSFORM: &str = r#"`collections::transform` walks `value` from the first element to the last,
+calls `f` once per element with that element as its only argument, and appends
+each returned value to a new list. The result therefore has exactly as many
+elements as `value`, in the same order. It is a **native** member: the compiler
+emits the mapping loop directly rather than instantiating an MFBASIC generic.
+
+The element type of the result is `f`'s success type `U`, so mapping a
+`List OF Integer` through a `FUNC(Integer) AS String` yields a `List OF String`.
+`U` may differ from `T` or equal it.
+
+`f` must be a callable *value* — a reference to a declared `FUNC`, or a
+`LAMBDA`. An overloaded built-in such as `toString` is not a callable value and
+cannot be passed here; wrap it in a one-line `FUNC` of your own instead. The
+single-argument `general` predicates (`isEven`, `isOdd`, and friends) *are*
+ordinary callables and can be passed directly where their type fits.
+
+`f` must produce a value: a callback whose success type is `Nothing` — such as a
+`SUB` — does not resolve, because there would be nothing to collect. Use
+`collections::forEach` to run a callback purely for its side effects.
+
+`value` is neither modified nor consumed; the result is a freshly allocated
+list. The output is pre-sized to the source list's working set, since
+`transform` emits exactly one entry per source element, and each mapped value is
+then appended in place.
+
+An empty `value` calls `f` zero times and yields an empty `List OF U`.
+
+`transform` raises no domain error of its own. It is classified fallible solely
+because a failing `f` propagates: when the callback returns a non-`Ok` result,
+the loop stops immediately at that element, later elements are never visited, no
+result list is produced, and the callback's own error is passed through
+unchanged. The partially built output is freed on that path before the error
+leaves.
+
+An inline `TRAP` on a `transform` call captures that propagated callback error
+at the call site rather than letting it auto-propagate."#;
+
+// ---- filter ----
+const INTO_FILTER: &str = "Keep the elements of a list for which a predicate returns TRUE";
+const DESC_FILTER: &str = r#"`collections::filter` walks `value` from the first element to the last, calls
+`predicate` once per element, and appends the element to a new list when the
+predicate returns `TRUE`. Elements for which the predicate returns `FALSE` are
+skipped. It is a **native** member: the compiler emits the selection loop
+directly rather than instantiating an MFBASIC generic.
+
+Relative order is preserved: kept elements appear in the result in the same
+order they had in `value`. The result has the same type as `value`, so filtering
+a `List OF String` yields a `List OF String`, and its length is between zero and
+the length of `value`.
+
+`value` is neither modified nor consumed; the result is a freshly allocated
+list, pre-sized to the source so the per-element append never has to regrow.
+
+`predicate` must accept exactly one argument of the element type `T` and return
+`Boolean`. This is enforced both when the call is resolved and again in the
+lowering.
+
+The single-argument `general` predicates — `isEven`, `isOdd`, `isPositive`,
+`isNegative`, `isZero`, `isEmpty`, and `isNotEmpty` — are ordinary
+`FUNC(T) AS Boolean` callables and can be passed directly whenever their
+argument type matches the element type.
+
+An empty `value` calls `predicate` zero times and yields an empty list.
+
+`filter` raises no domain error of its own. It is classified fallible solely
+because a failing `predicate` propagates: when the callback returns a non-`Ok`
+result, the loop stops immediately at that element, later elements are never
+visited, no result list is produced, and the callback's own error is passed
+through unchanged. The partially built output is freed on that path before the
+error leaves.
+
+An inline `TRAP` on a `filter` call captures that propagated callback error at
+the call site rather than letting it auto-propagate."#;
+
+// ---- reduce ----
+const INTO_REDUCE: &str = "Fold a list left to right into a single accumulated value";
+const DESC_REDUCE: &str = r#"`collections::reduce` folds `value` into one value. The accumulator starts as
+`initial`. The list is walked from the first element to the last, and for each
+element the reducer is called as `f(accumulator, element)` — **accumulator
+first, element second** — with its return value becoming the accumulator for the
+next step. The accumulator left after the final element is the result. It is a
+**native** member: the compiler emits the fold loop directly rather than
+instantiating an MFBASIC generic.
+
+The fold direction is left, from index 0 upward: the loop starts at the head of
+the entry table and advances one entry per step. For a right-to-left fold, use
+`collections::reduceRight`.
+
+The accumulator type `U` is fixed by `initial`. `f`'s first parameter type, its
+success type, and the type of `initial` must all be that same `U`, while `f`'s
+second parameter must be the list element type `T`. `U` may differ from `T`, so
+a `List OF String` can be folded into an `Integer`.
+
+When `value` is empty, the loop body never runs, `f` is never called, and
+`initial` is returned unchanged.
+
+`value` is not modified. Unlike the other three callback members, `reduce`
+deliberately does not free the per-element item it materializes for the
+callback, because the reducer is allowed to return that item itself as the new
+accumulator — freeing it would turn a leak into a use-after-free. Intermediate
+accumulators are likewise left unfreed.
+
+`reduce` raises no domain error of its own. It is classified fallible solely
+because a failing `f` propagates: when the reducer returns a non-`Ok` result,
+the fold stops immediately at that element, later elements are never visited,
+and the reducer's own error is passed through unchanged. No cleanup runs on that
+path, since the accumulator may still alias the borrowed `initial`.
+
+An inline `TRAP` on a `reduce` call captures that propagated reducer error at
+the call site rather than letting it auto-propagate."#;
+
+// ---- reduceRight ----
+const INTO_REDUCE_RIGHT: &str =
+    "Fold a list into a single value, walking from the last item to the first";
+const DESC_REDUCE_RIGHT: &str = r#"`collections::reduceRight` folds `value` into a single accumulated result. The
+accumulator starts at `initial`. The function walks the list from the last index
+down to index 0, and at each step replaces the accumulator with
+`f(accumulator, item)`. When the walk finishes, the accumulator is returned.
+
+The accumulator is the **first** argument of `f` and the list item is the second
+— the same argument order `collections::reduce` uses. Only the traversal
+direction differs between the two: `reduce` moves from the first item to the
+last, `reduceRight` from the last to the first. `f` is therefore declared as
+`FUNC(U, T) AS U`, not `FUNC(T, U) AS U`.
+
+For a three-item list `[x, y, z]`, the result is
+`f(f(f(initial, z), y), x)`. Direction matters whenever `f` is not associative
+and commutative: folding `[1, 2, 3]` from the right with subtraction and an
+initial accumulator of `0` yields `((0 - 3) - 2) - 1`, or `-6`.
+
+`f` is called exactly once per item, so an empty `value` calls `f` not at all and
+returns `initial` unchanged. `value` is not modified.
+
+The accumulator type `U` need not match the element type `T`; `reduceRight` can
+fold a list into a value of an entirely different type, such as building a
+`String` from a `List OF Integer`.
+
+`f` is an ordinary MFBASIC function value invoked with an ordinary call. If it
+fails at any step, its error propagates out of `reduceRight` to the caller and
+can be caught by the caller's `TRAP` block; the partially accumulated value is
+discarded. `reduceRight` itself raises no error of its own.
+
+`f` may be a named `FUNC` or a `LAMBDA` expression, since both produce a function
+value of the required type."#;
+
+// ---- sum ----
+const INTO_SUM: &str = "Add up the elements of an Integer, Float, or Fixed list";
+const DESC_SUM: &str = r#"`collections::sum` walks `value` from the first element to the last and adds
+each element into a running total, returning that total. It is a **native**
+member: the compiler emits the accumulation loop directly rather than
+instantiating an MFBASIC generic.
+
+There are exactly **three** overloads — `List OF Integer`, `List OF Float`, and
+`List OF Fixed` — and the return type always matches the element type. There is
+no `List OF Byte`, no `List OF Money`, and no general "any numeric list" form:
+any other element type fails to resolve at compile time, and the lowering
+rejects it a second time.
+
+The accumulator is initialized to zero of the element type and the elements are
+added in list order, so an empty `value` yields `0`, `0.0`, or `0.0F`
+respectively without any addition being performed.
+
+`value` is neither modified nor consumed. `sum` takes no callback and has no
+optional argument; it is a single-argument member.
+
+For the `Integer` and `Fixed` overloads each step is a **checked** 64-bit
+addition: if the running total leaves the destination range, the addition fails
+with `ErrOverflow` rather than wrapping. `Fixed` shares the `Integer` path
+because it is a scaled 64-bit integer. The `Float` overload uses IEEE-754
+double addition and never raises — an out-of-range total becomes `±Inf` in the
+usual floating-point way.
+
+Note a wrinkle worth knowing before writing a handler: the compiler's inline-
+built-in fallibility census classifies `sum` as **infallible**, so attaching an
+inline `TRAP` to a `sum` call raises the `TYPE_INLINE_TRAP_DEAD_HANDLER`
+diagnostic and that handler does not receive the overflow. The overflow is still
+raised at run time and still propagates out of the enclosing function, where an
+ordinary function-level `TRAP` can handle it.
+
+To total a list of some other element type, or to accumulate with different
+rules, fold it with `collections::reduce`."#;
+
+// ---- find ----
+const INTO_FIND: &str =
+    "Return the index of the first matching element or contiguous sublist in a list";
+const DESC_FIND: &str = r#"`collections::find` scans `value` forward from `start` and returns the
+zero-based index of the first match. It is a **native** member: the compiler
+emits the search loop directly rather than instantiating an MFBASIC generic.
+
+This page documents the `List` form only. `collections::find` accepts nothing
+but a `List` as its first argument; the `String` search of the same name lives in
+`strings::`.
+
+Two searches share the name, chosen by the type of the second argument. When it
+has the element type `T`, `find` performs an **element search**. When it has the
+same `List OF T` type as `value`, `find` performs a **contiguous sublist
+search**. The element form is tested first, so for a list of lists — where the
+element type is itself a `List` — a second argument of that element type is read
+as an element search. Any other second-argument type fails to resolve at compile
+time.
+
+`start` is optional. When it is omitted the search begins at index 0; the
+lowering supplies that default itself, so an omitted `start` and an explicit `0`
+behave identically.
+
+`start` is validated before anything is compared. A negative `start`, or a
+`start` greater than the length of `value`, fails with `ErrIndexOutOfRange`. A
+`start` exactly equal to the length is **valid**: it selects an empty search
+range, which yields `ErrNotFound` for an element search and, for a sublist
+search with an empty needle, the index `start` itself.
+
+When no match exists at or after `start`, `find` fails with `ErrNotFound`. It
+never returns a sentinel such as `-1`; a search that may legitimately come up
+empty needs a `TRAP`, or `collections::contains` if only the yes/no answer is
+wanted.
+
+Element equality is decided on the stored payload. `String` elements compare by
+length and then byte for byte; `Integer`, `Float`, `Fixed`, and `Money` elements
+compare as their stored 64-bit pattern, so `Float` matching is bit-exact and a
+`NaN` never matches itself; `Boolean`, `Byte`, and `Scalar` compare as their
+narrower stored value; record elements compare field by field. A nested
+collection that is stored as a handle rather than inlined compares by identity,
+not by contents.
+
+`value` is neither modified nor consumed, and no new collection is allocated."#;
+
+// ---- mid ----
+const INTO_MID: &str = "Return a new list holding a contiguous run of elements taken from a list";
+const DESC_MID: &str = r#"`collections::mid` returns a new list holding the `count` elements of `value`
+that begin at the zero-based index `start`, in their original order. It is a
+**native** member: the compiler emits the slice loop directly rather than
+instantiating an MFBASIC generic.
+
+This page documents the `List` form only. `collections::mid` accepts nothing but
+a `List` as its first argument; the `String` slice of the same name lives in
+`strings::`.
+
+All three arguments are required — there is no two-argument "to the end" form —
+and `start` and `count` must both be exactly `Integer`.
+
+The range is **validated, not clamped**. Before any element is copied the
+lowering checks, in order, that `start` is not negative, that `count` is not
+negative, that `start` is not greater than the length of `value`, that
+`start + count` does not wrap around, and that `start + count` is not greater
+than the length of `value`. Any of those failing raises `ErrIndexOutOfRange`.
+A short trailing run is therefore an error rather than a truncated result: on a
+three-element list, `mid(value, 2, 2)` fails instead of returning one element.
+
+Empty results are legal at the boundaries, since `start` may equal the length of
+`value` and `count` may be `0`: on a four-element list, `mid(value, 4, 0)`
+returns an empty list.
+
+The result is a freshly allocated, independently owned list of the same type as
+`value`; `value` itself is neither modified nor consumed, and element payloads
+are copied into the new list's own data region rather than shared.
+
+`mid` copies the selected run using a fast contiguous path when the source
+entries covering the slice are stored in order and packed tightly, and falls
+back to a per-entry copy otherwise. A list whose entry records have been
+permuted without moving the underlying data — the result of a sorted directory
+listing, for instance — takes the fallback. Either way the returned elements are
+the same."#;
+
+// ---- replace ----
+const INTO_REPLACE: &str = "Return a list with every element equal to a given value replaced";
+const DESC_REPLACE: &str = r#"`collections::replace` returns a new list of the same length as `value` in which
+every element equal to `old` has been replaced by `new`, and every other element
+is carried over unchanged. It takes exactly three arguments; none is optional and
+none is variadic.
+
+All matches are replaced, not just the first, and positions are preserved: the
+result has the same length and the same ordering as `value`, differing only at
+the indices where `old` occurred. When `old` does not occur, the result is a copy
+of `value`. When `value` is empty, the result is empty.
+
+Matching compares each element's stored payload against `old` using the same
+element-equality test the rest of the collections layer uses, so the element type
+must be one for which that comparison is defined; `old` and `new` must both have
+exactly the element type `T`. `new` may itself be equal to `old`, in which case
+the result is equal to `value`.
+
+Only the **List** overload of `replace` lives in `collections`. The `String`
+overload — replacing a substring within a `String` — is a different function that
+lives in `strings::`. A `String` first argument does not resolve here.
+
+`replace` is value-semantic. The list named by `value` is unchanged; the modified
+list is the returned value, and a program observes the update only through what
+it does with that return value. There is no in-place fast path for `replace` —
+the compiler's in-place assignment recognizers cover `append`, bulk `append`,
+`prepend`, `set`, and string concatenation, not `replace`.
+
+`replace` is **infallible**: no path in its lowering raises a trappable domain
+error. It has no index to range-check, and a `new` that never matches is a
+success producing an unchanged copy, not a failure — so it is classified as
+infallible alongside `append` and `prepend`, and an inline `TRAP` written on a
+`replace` call has a dead handler (the front end reports
+`TYPE_INLINE_TRAP_DEAD_HANDLER`). Allocation exhaustion is not a trappable domain
+error in this language."#;
+
+// ---- add ----
+const INTO_ADD: &str = "Return a set with one element inserted, leaving the argument unchanged";
+const DESC_ADD: &str = r#"`collections::add` returns a new `Set OF T` containing every element of `value`
+plus `item`. It takes exactly two arguments; neither is optional and neither is
+variadic.
+
+Insertion is **idempotent**: if an equal element is already in `value`, the
+result is a set with the same elements — no duplicate is created and the length
+is unchanged. When `item` is new, the result has one more element than `value`,
+appended in insertion order so a later `collections::toList` places it last.
+
+`add` is value-semantic. The set named by `value` is unchanged; the modified set
+is the returned value, and a program observes the update only through what it
+does with that return value. When the compiler can prove the target is a
+uniquely-owned local being reassigned — the `set = collections::add(set, x)`
+shape — it may update the live buffer in place; this is an optimization only, and
+the observable semantics are identical either way.
+
+`add` is **infallible**: no path in its lowering raises a trappable domain error,
+so an inline `TRAP` written on an `add` call has a dead handler. Allocation
+exhaustion is not a trappable domain error in this language."#;
+
+// ---- remove ----
+const INTO_REMOVE: &str = "Return a set with one element removed, leaving the argument unchanged";
+const DESC_REMOVE: &str = r#"`collections::remove` returns a new `Set OF T` containing every element of
+`value` except `item`. It takes exactly two arguments; neither is optional and
+neither is variadic.
+
+Removal is a **no-op when the element is absent**: if no element equal to `item`
+is in `value`, the result is a set with the same elements and the same length.
+When `item` is present, the result has exactly one fewer element and the
+remaining elements keep their relative insertion order.
+
+`remove` is value-semantic. The set named by `value` is unchanged; the modified
+set is the returned value, and a program observes the update only through what it
+does with that return value. When the compiler can prove the target is a
+uniquely-owned local being reassigned — the `set = collections::remove(set, x)`
+shape — it may update the live buffer in place; this is an optimization only, and
+the observable semantics are identical either way.
+
+`remove` is **infallible**: removing an absent element is defined as a no-op
+rather than a failure, so no path raises a trappable domain error and an inline
+`TRAP` written on a `remove` call has a dead handler."#;
+
+// ---- toList ----
+const INTO_TO_LIST: &str = "Return the elements of a set as a list, in insertion order";
+const DESC_TO_LIST: &str = r#"`collections::toList` returns a new `List OF T` holding every element of the set
+`value` exactly once, in the set's stable insertion order. It takes exactly one
+argument, which is neither optional nor variadic.
+
+The set is neither copied for the caller nor mutated: the result is a freshly
+built list. Because a set already holds each element at most once, the resulting
+list has no duplicates and its length equals `len(value)`. An empty set yields an
+empty list.
+
+`toList` is **infallible**: no path in its lowering raises a trappable domain
+error, so an inline `TRAP` written on a `toList` call has a dead handler."#;
+
+// ---- findIndex ----
+const INTO_FIND_INDEX: &str =
+    "Index of the first element at or after a start position that satisfies a predicate";
+const DESC_FIND_INDEX: &str = r#"`collections::findIndex` scans `value` **forward**, beginning at index `start`
+and advancing by one, calling `predicate` with each element. It returns the
+zero-based index of the first element for which `predicate` returns `TRUE`. The
+scan short-circuits at that element: no later element is examined. When the scan
+reaches the end of the list without a match, the call raises `ErrNotFound`
+(`77050004`) rather than returning a sentinel index.
+
+`start` defaults to `0`, so the common call form scans the whole list. It is
+validated **before** any element is read: the call raises `ErrIndexOutOfRange`
+(`77050001`) when `start < 0` or `start > len(value)`. Two consequences are
+worth stating precisely:
+
+- `start` equal to `len(value)` is **legal**. It selects an empty scan, so the
+  call raises `ErrNotFound`, not `ErrIndexOutOfRange`. `start` strictly greater
+  than `len(value)` is the out-of-range case.
+- A negative `start` is **not** interpreted as an offset from the end of the
+  list. It is simply out of range and raises `ErrIndexOutOfRange`. This is
+  deliberately asymmetric with `collections::findLastIndex`, whose `endIndex`
+  parameter *does* resolve negative values from the end.
+
+On an empty list every legal `start` is `0`, which is `len(value)`, so
+`findIndex` on an empty list raises `ErrNotFound`.
+
+`predicate` is an ordinary function value of type `FUNC(T) AS Boolean` — a named
+`FUNC` or a `LAMBDA`. Because it is called as an ordinary call, an error raised
+inside `predicate` propagates out of the `collections::findIndex` call to the
+caller rather than being reported as a non-match. Note that a lambda passed here
+may not capture an outer `MUT` binding; the callback position proven
+non-escaping is `collections::forEach`, not `findIndex`.
+
+`findIndex` is a generic implemented in MFBASIC source; a call is rewritten to
+the internal `__collections_findIndex` generic and instantiated for the element
+type like any other generic function.  It
+does not mutate `value`."#;
+
+// ---- findLastIndex ----
+const INTO_FIND_LAST_INDEX: &str =
+    "Index of the last element at or before an end position that satisfies a predicate";
+const DESC_FIND_LAST_INDEX: &str = r#"`collections::findLastIndex` scans `value` **backward**, beginning at the
+element selected by `endIndex` and decreasing by one down to index `0`, calling
+`predicate` with each element. It returns the zero-based index of the first
+element (in that backward order) for which `predicate` returns `TRUE` — that is,
+the last matching element at or before `endIndex`. The scan short-circuits at
+that element: no lower index is examined. When the scan passes index `0` without
+a match, the call raises `ErrNotFound` (`77050004`) rather than returning a
+sentinel index.
+
+The third parameter is named `endIndex`. It is resolved in two steps, and the
+order matters:
+
+1. **Negative resolution.** A negative `endIndex` counts from the end of the
+   list: the effective index becomes `len(value) + endIndex`. The default of
+   `-1` therefore selects the last element, so the common call form scans the
+   whole list from its end. A non-negative `endIndex` is used as written.
+2. **Range check.** *After* resolution, the call raises `ErrIndexOutOfRange`
+   (`77050001`) when the resolved index is less than `0` or greater than or
+   equal to `len(value)`.
+
+Because the range check runs on the resolved index, the upper bound is
+`len(value) - 1`, not `len(value)`. This is deliberately asymmetric with
+`collections::findIndex`, whose `start` may equal `len(value)` and whose
+negative values are rejected instead of resolved.
+
+One consequence is worth stating explicitly: on an **empty** list `len(value)`
+is `0`, so every `endIndex` resolves outside `0 .. -1` and is rejected. The
+default `-1` resolves to `-1`, which fails the range check. `findLastIndex` on
+an empty list therefore raises `ErrIndexOutOfRange` (`77050001`), **not**
+`ErrNotFound`. A caller that treats "no match" and "empty input" alike must
+handle both codes.
+
+`predicate` is an ordinary function value of type `FUNC(T) AS Boolean` — a named
+`FUNC` or a `LAMBDA`. Because it is called as an ordinary call, an error raised
+inside `predicate` propagates out of the `collections::findLastIndex` call to
+the caller rather than being reported as a non-match. Note that a lambda passed
+here may not capture an outer `MUT` binding; the callback position proven
+non-escaping is `collections::forEach`, not `findLastIndex`.
+
+`findLastIndex` is a generic implemented in MFBASIC source; a call is rewritten
+to the internal `__collections_findLastIndex` generic and instantiated for the
+element type like any other generic function.
+It does not mutate `value`."#;
+
 const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
-    native("collections.get", "get", &["ErrIndexOutOfRange", "ErrNotFound"], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("index", &["key"], "Integer"),
-    ])]),
-    native("collections.getOr", "getOr", &[], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("index", &["key"], "Integer"),
-        req("default", &["fallback"], "T"),
-    ])]),
-    native("collections.set", "set", &["ErrIndexOutOfRange"], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("index", &["key"], "Integer"),
-        req("item", &[], "T"),
-    ])]),
-    native("collections.append", "append", &[], &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("item", &["items"], "T"),
-    ])]),
-    native("collections.prepend", "prepend", &[], &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("item", &[], "T"),
-    ])]),
-    native("collections.insert", "insert", &["ErrIndexOutOfRange"], &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("index", &[], "Integer"),
-        req("item", &[], "T"),
-    ])]),
-    native("collections.removeAt", "removeAt", &["ErrIndexOutOfRange"], &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("index", &[], "Integer"),
-    ])]),
-    native("collections.removeKey", "removeKey", &[], &[custom(&[
-        req("value", &["map"], "Map OF K TO V"),
-        req("key", &[], "K"),
-    ])]),
-    native("collections.keys", "keys", &[], &[custom(&[req("value", &["map"], "Map OF K TO V")])]),
-    native("collections.values", "values", &[], &[custom(&[req("value", &["map"], "Map OF K TO V")])]),
-    native("collections.hasKey", "hasKey", &[], &[custom(&[
-        req("value", &["map"], "Map OF K TO V"),
-        req("key", &[], "K"),
-    ])]),
-    native("collections.contains", "contains", &[], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("item", &[], "T"),
-    ])]),
-    native("collections.forEach", "forEach", &[], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("action", &[], "FUNC(T) AS Nothing"),
-    ])]),
-    native("collections.transform", "transform", &[], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("f", &["transform"], "FUNC(T) AS U"),
-    ])]),
-    native("collections.filter", "filter", &[], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("predicate", &[], "FUNC(T) AS Boolean"),
-    ])]),
-    native("collections.reduce", "reduce", &[], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("initial", &["seed"], "U"),
-        req("f", &["combine"], "FUNC(U, T) AS U"),
-    ])]),
-    native("collections.reduceRight", "reduceRight", &[], &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("initial", &["seed"], "U"),
-        req("f", &["combine"], "FUNC(U, T) AS U"),
-    ])]),
-    native("collections.sum", "sum", &[], &[custom(&[req("value", &["collection"], "List OF Number")])]),
-    native("collections.find", "find", &["ErrIndexOutOfRange", "ErrNotFound"], &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("item", &["needle"], "T"),
-        opt("start", &[], "Integer"),
-    ])]),
-    native("collections.mid", "mid", &["ErrIndexOutOfRange"], &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("start", &[], "Integer"),
-        req("count", &[], "Integer"),
-    ])]),
-    native("collections.replace", "replace", &[], &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("old", &["needle"], "T"),
-        req("new", &["replacement"], "T"),
-    ])]),
-    native("collections.add", "add", &[], &[custom(&[
-        req("value", &["set"], "Set OF T"),
-        req("item", &["element"], "T"),
-    ])]),
-    native("collections.remove", "remove", &[], &[custom(&[
-        req("value", &["set"], "Set OF T"),
-        req("item", &["element"], "T"),
-    ])]),
-    native("collections.toList", "toList", &[], &[custom(&[req("value", &["set"], "Set OF T")])]),
+    native(
+        "collections.get",
+        "get",
+        INTO_GET,
+        DESC_GET,
+        &["ErrIndexOutOfRange", "ErrNotFound"],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("index", &["key"], "Integer"),
+        ])],
+    ),
+    native(
+        "collections.getOr",
+        "getOr",
+        INTO_GET_OR,
+        DESC_GET_OR,
+        &[],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("index", &["key"], "Integer"),
+            req("default", &["fallback"], "T"),
+        ])],
+    ),
+    native(
+        "collections.set",
+        "set",
+        INTO_SET,
+        DESC_SET,
+        &["ErrIndexOutOfRange"],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("index", &["key"], "Integer"),
+            req("item", &[], "T"),
+        ])],
+    ),
+    native(
+        "collections.append",
+        "append",
+        INTO_APPEND,
+        DESC_APPEND,
+        &[],
+        &[custom(&[
+            req("value", &["list"], "List OF T"),
+            req("item", &["items"], "T"),
+        ])],
+    ),
+    native(
+        "collections.prepend",
+        "prepend",
+        INTO_PREPEND,
+        DESC_PREPEND,
+        &[],
+        &[custom(&[
+            req("value", &["list"], "List OF T"),
+            req("item", &[], "T"),
+        ])],
+    ),
+    native(
+        "collections.insert",
+        "insert",
+        INTO_INSERT,
+        DESC_INSERT,
+        &["ErrIndexOutOfRange"],
+        &[custom(&[
+            req("value", &["list"], "List OF T"),
+            req("index", &[], "Integer"),
+            req("item", &[], "T"),
+        ])],
+    ),
+    native(
+        "collections.removeAt",
+        "removeAt",
+        INTO_REMOVE_AT,
+        DESC_REMOVE_AT,
+        &["ErrIndexOutOfRange"],
+        &[custom(&[
+            req("value", &["list"], "List OF T"),
+            req("index", &[], "Integer"),
+        ])],
+    ),
+    native(
+        "collections.removeKey",
+        "removeKey",
+        INTO_REMOVE_KEY,
+        DESC_REMOVE_KEY,
+        &[],
+        &[custom(&[
+            req("value", &["map"], "Map OF K TO V"),
+            req("key", &[], "K"),
+        ])],
+    ),
+    native(
+        "collections.keys",
+        "keys",
+        INTO_KEYS,
+        DESC_KEYS,
+        &[],
+        &[custom(&[req("value", &["map"], "Map OF K TO V")])],
+    ),
+    native(
+        "collections.values",
+        "values",
+        INTO_VALUES,
+        DESC_VALUES,
+        &[],
+        &[custom(&[req("value", &["map"], "Map OF K TO V")])],
+    ),
+    native(
+        "collections.hasKey",
+        "hasKey",
+        INTO_HAS_KEY,
+        DESC_HAS_KEY,
+        &[],
+        &[custom(&[
+            req("value", &["map"], "Map OF K TO V"),
+            req("key", &[], "K"),
+        ])],
+    ),
+    native(
+        "collections.contains",
+        "contains",
+        INTO_CONTAINS,
+        DESC_CONTAINS,
+        &[],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("item", &[], "T"),
+        ])],
+    ),
+    native(
+        "collections.forEach",
+        "forEach",
+        INTO_FOR_EACH,
+        DESC_FOR_EACH,
+        &[],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("action", &[], "FUNC(T) AS Nothing"),
+        ])],
+    ),
+    native(
+        "collections.transform",
+        "transform",
+        INTO_TRANSFORM,
+        DESC_TRANSFORM,
+        &[],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("f", &["transform"], "FUNC(T) AS U"),
+        ])],
+    ),
+    native(
+        "collections.filter",
+        "filter",
+        INTO_FILTER,
+        DESC_FILTER,
+        &[],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("predicate", &[], "FUNC(T) AS Boolean"),
+        ])],
+    ),
+    native(
+        "collections.reduce",
+        "reduce",
+        INTO_REDUCE,
+        DESC_REDUCE,
+        &[],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("initial", &["seed"], "U"),
+            req("f", &["combine"], "FUNC(U, T) AS U"),
+        ])],
+    ),
+    native(
+        "collections.reduceRight",
+        "reduceRight",
+        INTO_REDUCE_RIGHT,
+        DESC_REDUCE_RIGHT,
+        &[],
+        &[custom(&[
+            req("value", &["collection"], "List OF T"),
+            req("initial", &["seed"], "U"),
+            req("f", &["combine"], "FUNC(U, T) AS U"),
+        ])],
+    ),
+    native(
+        "collections.sum",
+        "sum",
+        INTO_SUM,
+        DESC_SUM,
+        &["ErrOverflow"],
+        &[custom(&[req("value", &["collection"], "List OF Number")])],
+    ),
+    native(
+        "collections.find",
+        "find",
+        INTO_FIND,
+        DESC_FIND,
+        &["ErrIndexOutOfRange", "ErrNotFound"],
+        &[custom(&[
+            req("value", &["list"], "List OF T"),
+            req("item", &["needle"], "T"),
+            opt("start", &[], "Integer"),
+        ])],
+    ),
+    native(
+        "collections.mid",
+        "mid",
+        INTO_MID,
+        DESC_MID,
+        &["ErrIndexOutOfRange"],
+        &[custom(&[
+            req("value", &["list"], "List OF T"),
+            req("start", &[], "Integer"),
+            req("count", &[], "Integer"),
+        ])],
+    ),
+    native(
+        "collections.replace",
+        "replace",
+        INTO_REPLACE,
+        DESC_REPLACE,
+        &[],
+        &[custom(&[
+            req("value", &["list"], "List OF T"),
+            req("old", &["needle"], "T"),
+            req("new", &["replacement"], "T"),
+        ])],
+    ),
+    native(
+        "collections.add",
+        "add",
+        INTO_ADD,
+        DESC_ADD,
+        &[],
+        &[custom(&[
+            req("value", &["set"], "Set OF T"),
+            req("item", &["element"], "T"),
+        ])],
+    ),
+    native(
+        "collections.remove",
+        "remove",
+        INTO_REMOVE,
+        DESC_REMOVE,
+        &[],
+        &[custom(&[
+            req("value", &["set"], "Set OF T"),
+            req("item", &["element"], "T"),
+        ])],
+    ),
+    native(
+        "collections.toList",
+        "toList",
+        INTO_TO_LIST,
+        DESC_TO_LIST,
+        &[],
+        &[custom(&[req("value", &["set"], "Set OF T")])],
+    ),
+    // `findIndex`/`findLastIndex` are source-generic (they resolve and, for most
+    // element types, run from the injected `.mfb` companion) with a native
+    // String-item fast path for `findLastIndex`. They are listed here ONLY so
+    // their errors and documentation are registered; they are deliberately kept
+    // out of `NATIVE_MEMBERS`, so `is_native_member_call` still routes them
+    // through the source-generic path. The parameter types are documentation.
+    native(
+        "collections.findIndex",
+        "findIndex",
+        INTO_FIND_INDEX,
+        DESC_FIND_INDEX,
+        &["ErrIndexOutOfRange", "ErrNotFound"],
+        &[custom(&[
+            req("value", &["list"], "List OF T"),
+            req("predicate", &[], "FUNC(T) AS Boolean"),
+            opt("start", &[], "Integer"),
+        ])],
+    ),
+    native(
+        "collections.findLastIndex",
+        "findLastIndex",
+        INTO_FIND_LAST_INDEX,
+        DESC_FIND_LAST_INDEX,
+        &["ErrIndexOutOfRange", "ErrNotFound"],
+        &[custom(&[
+            req("value", &["list"], "List OF T"),
+            req("predicate", &[], "FUNC(T) AS Boolean"),
+            opt("endIndex", &[], "Integer"),
+        ])],
+    ),
 ];
 
 /// Generic return-type resolution for collections native members. Delegates to
@@ -307,7 +1384,12 @@ pub(crate) fn is_collections_call(name: &str) -> bool {
 /// (`collections.get`, ...). Used to route the call into `general`'s resolve
 /// logic and to dequalify the IR target back to the bare native name.
 pub(crate) fn is_native_member_call(name: &str) -> bool {
-    DefaultResolver::contains(&COLLECTIONS, name)
+    // Keyed off `NATIVE_MEMBERS`, NOT `DefaultResolver::contains(&COLLECTIONS, ..)`:
+    // `findIndex`/`findLastIndex` are descriptor functions (for their errors/doc
+    // metadata) but are source-generic, so they must NOT be routed as native
+    // members here. `native_member_bare` consults `NATIVE_MEMBERS`, which
+    // deliberately excludes them.
+    native_member_bare(name).is_some()
 }
 
 /// Whether a native `collections.<member>` call takes a **unary callback over
@@ -1644,9 +2726,11 @@ mod tests {
 
         // `native` takes a `&'static [BuiltinOverload]`; the overloads are a `const`.
         const OVS: &[BuiltinOverload] = &[custom(&[req("value", &[], "List OF T")])];
-        let f = native("collections.get", "get", &[], OVS);
+        let f = native("collections.get", "get", "into", "desc", &[], OVS);
         assert_eq!(f.name, "collections.get");
         assert_eq!(f.doc_slug, "get");
+        assert_eq!(f.doc_into, "into");
+        assert_eq!(f.doc_desc, "desc");
         assert_eq!(f.overloads.len(), 1);
         assert_eq!(f.implementation, Implementation::Same);
         assert_eq!(f.lowering, Lowering::Helper);
