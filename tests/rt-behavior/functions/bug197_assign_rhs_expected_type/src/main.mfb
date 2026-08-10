@@ -1,0 +1,21 @@
+IMPORT io
+
+' bug-197: an Assign (not LET) whose RHS is a return-type-overloaded call had no
+' expected type, so `n = make()` failed with TYPE_OVERLOAD_AMBIGUOUS even though
+' the identical `LET n AS Integer = make()` worked. The fix passes the assignment
+' target's declared type (Integer) as the expected type, so the Integer overload
+' is chosen and the String overload ("wrong") is never reachable.
+FUNC make() AS Integer
+  RETURN 42
+END FUNC
+
+FUNC make() AS String
+  RETURN "wrong"
+END FUNC
+
+FUNC main AS Integer
+  MUT n AS Integer = 0
+  n = make()
+  io::print(toString(n))   ' 42 post-fix; TYPE_OVERLOAD_AMBIGUOUS pre-fix
+  RETURN 0
+END FUNC

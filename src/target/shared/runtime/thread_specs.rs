@@ -59,6 +59,14 @@ pub(crate) const THREAD_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     abi: RuntimeHelperAbi { returns: "Boolean" },
 };
 
+// plan-91-A: parent-side plain sleep. Blocks the calling thread for `ms`
+// milliseconds via libc `nanosleep` (Win32 `Sleep`) and returns Nothing.
+pub(crate) const THREAD_SLEEP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.sleep",
+    abi: RuntimeHelperAbi { returns: "Nothing" },
+};
+
 pub(crate) const THREAD_READ_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.read",
@@ -74,6 +82,15 @@ pub(crate) const THREAD_RECEIVE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const THREAD_EMIT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.emit",
+    abi: RuntimeHelperAbi { returns: "Nothing" },
+};
+
+// plan-91-B: worker-side cancellation-aware sleep. A source `thread::sleep` on a
+// `ThreadWorker` handle lowers here (see `builder_values`); it waits on the
+// inbound queue's not-empty condvar and wakes with `ErrInterrupted` on cancel.
+pub(crate) const THREAD_SLEEP_WORKER_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.sleepWorker",
     abi: RuntimeHelperAbi { returns: "Nothing" },
 };
 

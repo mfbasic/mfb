@@ -1,0 +1,21 @@
+IMPORT io
+
+' bug-198: a top-level (global) FUNC-valued binding used in CALL position was
+' rejected at resolve with SYMBOL_UNKNOWN_IDENTIFIER ("Callable `GLOBAL_ADDER` is
+' not a top-level function."), even though the same global works in value
+' position and a local binding works in call position. The fix makes resolve_callable
+' also accept top_level_visible_in_file, so the call resolves, builds, links, and runs.
+LET GLOBAL_ADDER AS FUNC(Integer) AS Integer = add1
+
+FUNC add1(n AS Integer) AS Integer
+  RETURN n + 1
+END FUNC
+
+FUNC main AS Integer
+  ' Call position through the global binding (was rejected pre-fix).
+  io::print(toString(GLOBAL_ADDER(5)))
+  ' Value position through the same global (worked pre-fix; keep it covered).
+  LET g AS FUNC(Integer) AS Integer = GLOBAL_ADDER
+  io::print(toString(g(41)))
+  RETURN 0
+END FUNC

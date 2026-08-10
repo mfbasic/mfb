@@ -1,0 +1,26 @@
+' bug-174 item C: two re-export aliases with the same name/target must be rejected
+' as SYMBOL_DUPLICATE_TOP_LEVEL. Pre-fix, insert_alias_function (src/resolver/mod.rs)
+' only checked self.top_levels (which never holds function names) before pushing
+' into self.functions, so a second `EXPORT FUNC close AS demoLink::close` silently
+' coexisted as an unintended overload instead of being rejected. The fix scans
+' self.functions for an equal-params/no-return-type collision, mirroring
+' insert_function.
+RESOURCE Db CLOSE BY demoLink::close
+
+LINK "demo" AS demoLink
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "demo_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+EXPORT FUNC close AS demoLink::close
+EXPORT FUNC close AS demoLink::close
+
+IMPORT io
+
+FUNC main() AS Integer
+  io::print("unreachable")
+  RETURN 0
+END FUNC

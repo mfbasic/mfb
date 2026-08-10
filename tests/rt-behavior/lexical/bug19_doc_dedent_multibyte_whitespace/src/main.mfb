@@ -1,0 +1,21 @@
+IMPORT io
+
+' bug-19: DOC EXAMPLE dedent measured indentation in BYTES; an EXAMPLE mixing a
+' 1-byte space with a 2-byte NBSP (U+00A0) put the byte minimum inside the NBSP
+' char and panicked "byte index 1 is not a char boundary". Dedent is now a CHAR
+' prefix, so this builds and runs.
+DOC
+FUNC helper()
+EXAMPLE
+ a
+  b
+END EXAMPLE
+END DOC
+FUNC helper() AS Integer
+  RETURN 7
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(helper()))
+  RETURN 0
+END FUNC

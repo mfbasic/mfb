@@ -1,0 +1,41 @@
+{
+  "project": "bug19_doc_dedent_multibyte_whitespace",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    { "kind": "doc", "header": "FUNC", "name": "helper", "signature": [], "attrs": [], "desc": [], "deprecated": [], "group": [], "args": [], "ret": [], "errors": [], "props": [], "example": ["a\n b"], "line": 7 },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "helper",
+      "line": 14,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "7" }, "line": 15 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "helper", "arguments": [] }] }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 20 }
+      ]
+    }
+    ]
+  }
+  ]
+}

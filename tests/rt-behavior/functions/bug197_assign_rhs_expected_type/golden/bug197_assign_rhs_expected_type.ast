@@ -1,0 +1,55 @@
+{
+  "project": "bug197_assign_rhs_expected_type",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "make",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "42" }, "line": 9 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "make",
+      "line": 12,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "string", "value": "wrong" }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 17 },
+      { "kind": "assignment", "name": "n", "value": { "kind": "call", "callee": "make", "arguments": [] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "n" }] }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 20 }
+      ]
+    }
+    ]
+  }
+  ]
+}

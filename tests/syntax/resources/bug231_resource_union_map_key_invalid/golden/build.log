@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/syntax/resources/bug231_resource_union_map_key_invalid
+  13 | 
+  14 | FUNC main AS Integer
+  15 |   LET m AS Map OF Handle TO Integer = Map OF Handle TO Integer { }
+     | ^
+tests/syntax/resources/bug231_resource_union_map_key_invalid/src/main.mfb:15 error[2-203-0056 TYPE_COLLECTION_OWNERSHIP_VIOLATION]: ordinary collections cannot store resource or thread ownership
+               Ordinary collections cannot store key values of type `Handle` because they contain a resource or thread handle.
+  13 | 
+  14 | FUNC main AS Integer
+  15 |   LET m AS Map OF Handle TO Integer = Map OF Handle TO Integer { }
+     | ^
+tests/syntax/resources/bug231_resource_union_map_key_invalid/src/main.mfb:15 error[2-203-0056 TYPE_COLLECTION_OWNERSHIP_VIOLATION]: ordinary collections cannot store resource or thread ownership
+               Ordinary collections cannot store key values of type `Handle` because they contain a resource or thread handle.
+  13 | 
+  14 | FUNC main AS Integer
+  15 |   LET m AS Map OF Handle TO Integer = Map OF Handle TO Integer { }
+     | ^
+tests/syntax/resources/bug231_resource_union_map_key_invalid/src/main.mfb:15 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Map key type requires a comparable type, got `Handle`.
+  13 | 
+  14 | FUNC main AS Integer
+  15 |   LET m AS Map OF Handle TO Integer = Map OF Handle TO Integer { }
+     | ^
+tests/syntax/resources/bug231_resource_union_map_key_invalid/src/main.mfb:15 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Map key type requires a comparable type, got `Handle`.
+[exit 1]

@@ -31,11 +31,11 @@ per-member or pattern-throughput rows.
 
 All three themes use members that ship today (verified against `mfb man`):
 
-| # | Prerequisite | Check | Status (2026-08-04) |
+| # | Prerequisite | Check | Status (2026-08-09) |
 |---|---|---|---|
-| P1 | `strings::displayWidth` exists | `mfb man strings displayWidth` resolves | **MET** — landed by plan-70-A (`strings::displayWidth(value AS String) AS Integer`) |
-| P2 | `collections::filter`/`transform`/`reduce` exist | `mfb man collections filter` / `transform` / `reduce` resolve | **MET** — all ship |
-| P3 | `toString`/`toInt`/`toFloat` exist | `mfb man general toString` / `toInt` / `toFloat` resolve | **MET** — always-in-scope general functions |
+| P1 | `strings::displayWidth` exists | `mfb man strings displayWidth` resolves | **MET** — `mfb man strings displayWidth` resolves: `strings::displayWidth(value AS String) AS Integer` |
+| P2 | `collections::filter`/`transform`/`reduce`/`groupBy`/`mapValues`/`values` exist | `mfb man collections` lists them | **MET** — all six listed in `mfb man collections` FUNCTIONS index (note: `groupBy(value, keyFn, valFn)` requires 3 args) |
+| P3 | `toString`/`toInt`/`toFloat` exist | `mfb man general` lists them | **MET** — all three listed in `mfb man general` TOPICS (`toString(Float)` takes optional decimals=2; `toInt` takes optional base as a separate arity) |
 
 ## Design rules (match the existing suite)
 
@@ -185,3 +185,74 @@ conversion hot path (logging/serialization inner loops), which is genuinely dist
   verified against `mfb man`).
 - Not a replacement for the per-member or pattern-throughput rows — this is *additive* (chained-pattern
   throughput + a zero-coverage feature); the existing suite stays as the surface + churn check.
+
+## Implementation status (2026-08-09)
+
+All 8 benchmarks landed in all three languages, each with a checksum that matches
+bit-for-bit across mfb / C -O0 / C -O2 / Python (verified via `benchmark/run.sh`):
+
+| group | row | checksum | notes |
+|---|---|---|---|
+| `width` | `ascii` | 8250000 | realistic N (2000 folds × 4125-col buffer) |
+| `width` | `mixed` | 480320 | realistic N (`displayWidth` per rep; `graphemesCount` once) |
+| `width` | `churn` | 360 | **arena-gated tiny** (`TODO(arena grapheme-churn)`) |
+| `pipeline` | `int` | 74990000 | realistic N |
+| `pipeline` | `groupagg` | 49995000 | realistic N |
+| `pipeline` | `str` | 412 | **arena-gated small** (`TODO(plan-86-A)`) |
+| `convert` | `int` | 5000438890 | realistic N |
+| `convert` | `float` | 624993751111120 | realistic N; value fold rounds to nearest |
+
+New files: `benchmark/{mfb/src,c,python}/{width,pipeline,convert}.{mfb,c,py}`
+(+ `.h` for C), registered in each `main.*` driver, `run.sh`'s C source list, and
+the `README.md` coverage/caveat sections.
+
+## Corrections
+
+- **Prerequisites re-measured (all still MET), commands corrected.** P1 via
+  `mfb man strings displayWidth` (resolves: `displayWidth(value AS String) AS
+  Integer`); P2/P3 via the `mfb man collections` / `mfb man general` FUNCTION
+  indexes (all members listed). Status column updated with the 2026-08-09 checks.
+- **`groupBy` requires three args, not two.** The plan's "`groupBy` a `List OF
+  Integer` by `n MOD K`" reads as a two-arg key-projection, but `mfb man
+  collections groupBy` shows `groupBy(value, keyFn, valFn)` — the two-arg form is
+  a compile error (it cannot infer `V`). `pipeline groupagg` passes an identity
+  `valFn` (`LAMBDA(n) -> n`).
+- **`width mixed`: `graphemesCount` moved out of the timed `reps` loop.** As first
+  written it folded `displayWidth(base) + graphemesCount(base)` per rep, which
+  degraded quadratically across the run loop (34 ms → 1105 ms at `--run 10`).
+  Root cause: `strings::graphemesCount` is one of the grapheme members that
+  allocates a transient the residual grapheme-churn quadratic
+  (`[[arena-transient-churn-quadratic-graphemes]]`) degrades on; `displayWidth`
+  itself streams with no retained temporary and stays flat (the `ascii` row is
+  dead flat). Fix: `displayWidth` runs in the loop, `graphemesCount` is called
+  once for the companion count. checksum = `1000*480 + 320 = 480320`. This keeps
+  `width mixed` a realistic-N same-buffer row (plan Phase 1) rather than an
+  arena-gated one.
+- **`convert float`: value fold rounds to nearest (discovered `toFloat`
+  imprecision).** The plan predicted `toString(i/8, 6)` render + `toFloat` reparse
+  would round-trip exactly (`i/8` is an exact dyadic rational). It does not: mfb's
+  `toFloat` is a naive digit-accumulation parser (`emit_parse_decimal_string_to_
+  double` in `src/target/shared/code/builder_conversions.rs` — `acc += digit /
+  10^k` per fractional digit, compounding division rounding), so it is **not
+  correctly rounded** — `toFloat("2.375000")` returns `2.37499999999999956` (one
+  ULP low) where C `strtod` and Python `float` return `2.375` exactly. A plain
+  `toInt(b*1e6)` truncation folded 8884 of the 100000 values one micro-unit low,
+  breaking cross-language parity. Fix: fold `toInt(b*1e6 + 0.5)` (round to
+  nearest) in all three languages; the parse error is < 3e-6 micro-units, far
+  under 0.5, so `i*125000` is recovered exactly everywhere → checksum
+  `624993751111120`. **This is a genuine, pre-existing runtime precision bug in
+  `toFloat`, independent of plan-87.** It is too large to fix here (a
+  correctly-rounded decimal→double parser is a separate assembly-level rewrite);
+  it is documented here and in `benchmark/README.md` for a future bug/fix. The
+  `toFloat` man page makes no correctly-rounded guarantee, so the behavior is not
+  a broken documented contract, only an undocumented limitation.
+- **C `main.c` `results[256]` buffer overflow — enlarged to 512 + bounds guard
+  (pre-existing latent bug my rows triggered).** The suite records one `Result`
+  per row into a fixed `static Result results[256]`; before plan-87 the C target
+  recorded 249 rows (2 rows of headroom). The 8 new C rows pushed it to 257,
+  overflowing the array — the out-of-bounds writes corrupted adjacent BSS and
+  `print_results` segfaulted mid-table (exit 139), *after* every stderr checksum
+  had already printed. Fix: `#define MAX_RESULTS 512` with generous headroom, and
+  a guard in `record()` that `abort()`s with a clear message on overflow instead
+  of silently corrupting memory. C now exits 0 with 257 rows and all checksums
+  match.

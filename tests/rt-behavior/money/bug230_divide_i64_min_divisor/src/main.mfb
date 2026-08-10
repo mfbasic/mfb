@@ -1,0 +1,16 @@
+IMPORT io
+IMPORT money
+
+' bug-230: Money / Integer with an i64::MIN divisor took the wrong rounding branch.
+' emit_apply_rounding does signed compares (half = abs_divisor - abs_rem) that assume
+' a small positive magnitude, but emit_abs_i64 leaves i64::MIN unchanged (negative),
+' so `half` went negative and branch_gt(round_up) fired -> raw 2 instead of raw 1.
+' The fix runtime-guards k == i64::MIN and returns the exact truncated quotient.
+' Here raw(m) = i64::MIN and k = i64::MIN, so m / k = quotient 1, remainder 0 = 0.00001m.
+FUNC main AS Integer
+  LET p5 AS Byte = 5
+  LET m AS Money = -92233720368547.75808m
+  LET k AS Integer = -9223372036854775808
+  io::print(toString(m / k, p5))   ' 0.00001 post-fix; 0.00002 pre-fix
+  RETURN 0
+END FUNC

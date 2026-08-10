@@ -166,6 +166,25 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
                 abi::label(&done),
             ]);
         }
+        // nanosleep(&req, &rem): Win32 has no nanosleep. `req` (c_arg(0)) is a
+        // RELATIVE timespec {tv_sec, tv_nsec} (plan-91-A's parent sleep helper);
+        // convert it to whole milliseconds and call Sleep(dwMilliseconds). Sleep
+        // is uninterruptible, so report POSIX success (0) — the shared EINTR-retry
+        // loop then exits after this single Sleep.
+        "nanosleep" => {
+            ctx.instructions.extend([
+                abi::load_u64(abi::c_arg(1), abi::c_arg(0), 0), // tv_sec
+                abi::load_u64(abi::c_arg(2), abi::c_arg(0), 8), // tv_nsec
+                abi::move_immediate(abi::c_arg(3), "Integer", "1000"),
+                abi::multiply_registers(abi::c_arg(1), abi::c_arg(1), abi::c_arg(3)), // sec*1000
+                abi::move_immediate(abi::c_arg(3), "Integer", "1000000"),
+                abi::unsigned_divide_registers(abi::c_arg(2), abi::c_arg(2), abi::c_arg(3)), // nsec/1e6
+                abi::add_registers(abi::c_arg(0), abi::c_arg(1), abi::c_arg(2)), // total ms → dwMilliseconds
+            ]);
+            call(ctx, from, "Sleep")?;
+            ctx.instructions
+                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+        }
         // pthread_detach(handle=x0): release our reference; the thread runs on.
         "pthread_detach" => {
             call(ctx, from, "CloseHandle")?;
@@ -427,6 +446,10 @@ pub(super) fn lower_thread_helper(
         "thread.poll" => {
             simple_thread_handle_helper(symbol, ThreadSimpleOp::Poll, platform_imports, platform)
         }
+        "thread.sleep" => lower_thread_sleep_helper(symbol, platform_imports, platform),
+        "thread.sleepWorker" => {
+            lower_thread_sleep_worker_helper(symbol, platform_imports, platform)
+        }
         "thread.read" => thread_queue_read_helper(
             symbol,
             THREAD_OFFSET_OUTBOUND_QUEUE,
@@ -528,6 +551,109 @@ fn lower_thread_stdin_subscription_helper(symbol: &str, subscribe: bool) -> Help
     ));
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 0);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+/// plan-91-A: parent-side `thread::sleep(t, ms)`. Blocks the CALLING thread for
+/// `ms` milliseconds via libc `nanosleep` (Win32 `Sleep`) and returns `Nothing`.
+/// This is a plain, uninterruptible wall-clock sleep — it reads nothing from the
+/// handle's queues and does not observe cancellation (that is the worker-side
+/// overload, plan-91-B). For parity with `thread::poll` on a parent handle it
+/// still returns `ErrResourceClosed` on an already-closed `Thread`, and
+/// `ErrInvalidArgument` on a negative `ms`; `ms == 0` is an immediate no-op.
+fn lower_thread_sleep_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    const FRAME_SIZE: usize = 48;
+    // Two relative `timespec { tv_sec; tv_nsec }` (16 bytes each): `req` is the
+    // requested remaining sleep, `rem` the kernel's leftover on an EINTR wake.
+    const REQ_OFFSET: usize = 8;
+    const REM_OFFSET: usize = 24;
+
+    let ok = format!("{symbol}_ok");
+    let err_arg = format!("{symbol}_invalid");
+    let err_closed = format!("{symbol}_closed");
+    let retry = format!("{symbol}_retry");
+
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    instructions.extend([
+        // Parent handle-state parity with `poll`: an already-closed handle is
+        // `ErrResourceClosed` before any sleep. A plain aligned-word read of the
+        // state suffices — the sleep needs nothing else from the handle.
+        abi::load_u64("%v9", abi::c_arg(0), THREAD_OFFSET_STATE),
+        abi::compare_immediate("%v9", THREAD_STATE_CLOSED),
+        abi::branch_eq(&err_closed),
+        // ms validation: < 0 rejects, == 0 is an immediate no-op Ok.
+        abi::compare_immediate(abi::c_arg(1), "0"),
+        abi::branch_lt(&err_arg),
+        abi::branch_eq(&ok),
+        // ms -> relative {tv_sec, tv_nsec}: sec = ms/1000, nsec = (ms%1000)*1e6.
+        // Same split as `emit_thread_deadline`, but RELATIVE (no clock_gettime add).
+        abi::move_register("%v9", abi::c_arg(1)),
+        abi::move_immediate("%v10", "Integer", "1000"),
+        abi::signed_divide_registers("%v11", "%v9", "%v10"),
+        abi::multiply_subtract_registers("%v12", "%v11", "%v10", "%v9"),
+        abi::move_immediate("%v13", "Integer", "1000000"),
+        abi::multiply_registers("%v12", "%v12", "%v13"),
+        abi::store_u64("%v11", abi::stack_pointer(), REQ_OFFSET),
+        abi::store_u64("%v12", abi::stack_pointer(), REQ_OFFSET + 8),
+        abi::label(&retry),
+        abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), REQ_OFFSET), // &req
+        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), REM_OFFSET), // &rem
+    ]);
+    emit_thread_external_call(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "nanosleep",
+    )?;
+    instructions.extend([
+        // 0 = the full sleep elapsed. Non-zero = EINTR (a signal cut it short);
+        // the kernel wrote the leftover into `rem`, so copy rem->req and re-enter
+        // so a signal cannot truncate the sleep. nsec/sec are always in range, so
+        // EINVAL is impossible — any non-zero return is an interrupt.
+        abi::compare_immediate(abi::mfb_return(0), "0"),
+        abi::branch_eq(&ok),
+        abi::load_u64("%v9", abi::stack_pointer(), REM_OFFSET),
+        abi::store_u64("%v9", abi::stack_pointer(), REQ_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), REM_OFFSET + 8),
+        abi::store_u64("%v9", abi::stack_pointer(), REQ_OFFSET + 8),
+        abi::branch(&retry),
+        // Nothing return: only the OK tag (no result value), like the stdin wrapper.
+        abi::label(&ok),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::return_(),
+        abi::label(&err_arg),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::return_(),
+        abi::label(&err_closed),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
     Ok((frame, instructions, relocations, stack_slots))
 }
 

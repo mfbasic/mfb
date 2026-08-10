@@ -43,13 +43,17 @@ chained pipelines, compile-once/run-many — rather than one call per member:
 | `regexbench`        | compile-once/match-many, capture-group rewrite, `\|`-alternation find-all, and pattern-driven replace |
 | `arena`             | mixed-size transient-churn / long-lived+short-lived / grow-shrink — the **regression gate for the arena free list** (see below) |
 | `scalarbench`       | the `Scalar` primitive (plan-41): string↔`List OF Scalar` round-trip, `is*` classification sweep, `toInt`/`toScalar` transform pipeline, and the 4-byte `List OF Scalar` payload width |
+| `width`             | `strings::displayWidth` (plan-87) — the first benchmark of terminal display width (UAX #29 grapheme segmentation + a per-cluster utf8proc column-width lookup): `ascii` (all-narrow EGC fast path over a fixed ~4 KB buffer), `mixed` (the wide-CJK / zero-width-combining / ZWJ-emoji slow path over a curated corpus, plus a companion `graphemesCount`), and `churn` (per-row segmentation of fresh String temporaries — arena-gated, tiny) |
+| `pipeline`          | chained collection HOF pipelines (plan-87) — the shape the per-member matrix never chains, stressing the intermediate lists materialized between stages: `int` (`filter`→`transform`→`reduce` over a `List OF Integer`), `groupagg` (`groupBy`→`mapValues(reduce)`→`values`→`reduce` map-of-list ETL fold), and `str` (the same chain over a `List OF String` with `strings::upper` — arena-gated, small) |
+| `convert`           | in-memory number-conversion throughput (plan-87), isolating `toString`/`toInt`/`toFloat` from the file-IO-bound `io format`/`readnum` rows: `int` (`toString`/`toInt` round-trip) and `float` (`toString(_,6)`/`toFloat` round-trip over exact dyadic values) |
 
 The `io` group also gains `readnum` (read+parse), `buf_on`/`buf_off` (buffered vs
 unbuffered write, quantifying the buffering win), `format` (mixed Int/Float/String
 formatting), and `binary` (`strings::toBytes` + `fs` byte round-trip); the `string`
 group gains `unibig` (realistic-size Unicode churn). These new rows live in
 per-theme files (`mapchurn.*`, `listchurn.*`, `mathpipe.*`, `strbuild.*`,
-`regexbench.*`, `arena.*`, `scalarbench.*`) mirrored across all three languages.
+`regexbench.*`, `arena.*`, `scalarbench.*`, `width.*`, `pipeline.*`, `convert.*`)
+mirrored across all three languages.
 
 Three more per-member groups extend the existing surface (plan-45): the `map`
 group gains `intkey` (Integer-keyed `hasKey`/`get`/`getOr` sweep — the distinct
@@ -59,6 +63,25 @@ buckets); the `list` group gains `sort_asc`/`sort_desc`/`sort_rand` (`collection
 over pre-sorted / reverse / coprime-stride-scrambled permutations of `0..N-1` — the
 merge sort's best/worst/average shapes, all sorting to the same canonical order so
 one shared order-sensitive checksum proves each shape sorted correctly).
+
+Three more groups (plan-87) close the last narrow gaps. `width` is the first
+benchmark of `strings::displayWidth` (plan-70), which had zero coverage — a
+distinct fourth string measure (UAX #29 extended-grapheme-cluster segmentation +
+a per-cluster utf8proc column-width lookup) separate from `len` (scalars),
+`byteLen` (UTF-8 bytes), and `graphemesCount` (clusters). `pipeline` benches the
+canonical `filter → transform → reduce` chain the per-member matrix never chains,
+stressing the intermediate lists materialized between stages plus back-to-back
+indirect FUNC dispatch. `convert` isolates the `toString`/`toInt`/`toFloat`
+conversion hot path (logging / serialization inner loops) from the file-IO-bound
+`io format`/`readnum` rows. The C/Python peers reproduce every checksum
+bit-for-bit: `width`'s peers hand-roll the display-width logic over the
+*controlled* corpus (a per-scalar width table — combining marks and ZWJ are 0,
+East-Asian-Wide and emoji are 2, else 1 — plus a one-scalar lookahead that
+collapses a ZWJ sequence and a combining mark into their lead cluster), and
+`convert float` folds its reparsed value **rounded to nearest** so the checksum
+absorbs mfb's last-ULP `toFloat` imprecision (a naive digit-accumulation parser,
+so e.g. `toFloat("2.375000")` lands one ULP low) — the value it folds, `i*125000`,
+is recovered exactly in all three languages.
 
 Two critical-feature groups (plan-65) close remaining coverage gaps. The `crypto`
 group is the first benchmark of the `crypto::` package — a portable software core
@@ -165,6 +188,19 @@ Python `record(group, name, None)` does.
   grows quadratically in text length, so the rows exercise distinct *shapes*
   (capture / alternation / replace) rather than large volumes, and the match
   counts still match across all three (ASCII patterns).
+- **`width` (plan-87)** has no C/Python display-width builtin, so the peers
+  hand-roll the width logic over the *controlled* mixed corpus (a per-scalar width
+  table plus a one-scalar ZWJ/combining lookahead); the corpus is chosen so that
+  reproduces mfb's `displayWidth`/`graphemesCount` exactly and the column/cluster
+  checksums match bit-for-bit (`ascii=8250000`, `mixed=480320`, `churn=360`).
+- **`convert float` (plan-87)** folds its reparsed value **rounded to nearest**
+  rather than truncated, because mfb's `toFloat` is a naive digit-accumulation
+  parser that is not correctly rounded (e.g. `toFloat("2.375000")` returns
+  `2.37499999999999956`, one ULP low, where C `strtod` / Python `float` return
+  `2.375` exactly). The parse error is far under 0.5 micro-units, so rounding
+  recovers the exact `i*125000` in all three and the checksum matches
+  (`int=5000438890`, `float=624993751111120`). This is a pre-existing runtime
+  precision limitation, not a property of the benchmark.
 
 ### Arena-churn caveat + regression gate (plan-39-A)
 
@@ -212,6 +248,20 @@ each is authored tiny on purpose, to be bumped to a realistic `reps`/`iterations
 in the commit that lands plan-64-A and must stay linear. (Only `crypto sha256` and
 `crypto cte` are Phase 1 — their transients stay in the quick bins and their
 per-call cost is flat across the run loop — and run at realistic counts today.)
+
+The plan-87 rows carrying arena markers are two: `width churn` (`TODO(arena
+grapheme-churn)`) segments many *fresh* short String temporaries per iteration, so
+it hits the residual grapheme-transient-churn quadratic that
+`strings::graphemes`/`graphemesCount`/`displayWidth`-over-fresh-strings still
+degrade on — authored tiny (8 rows × 5 passes), to be bumped and kept linear when
+that residual lands; and `pipeline str` (`TODO(plan-86-A)`) reshapes a `List OF
+String` through `filter`/`transform`(`upper`)/`reduce`, allocating fresh String
+temporaries, so it is authored small (50 elems × 20 reps) until plan-86 sub-plan A
+(String native lowering) lands. Their same-buffer / Integer siblings — `width
+ascii`, `width mixed` (`displayWidth` alone streams with no retained temporary and
+stays flat; the degrading `graphemesCount` companion is called once, not per rep),
+`pipeline int`, `pipeline groupagg`, and both `convert` rows — are Phase 1 and run
+at realistic sizes today.
 
 The bug-430 **collection-container matrix** (`list.mfb`, `setops.mfb` — each
 collection op replicated across a `Fixed`/`Dynamic` × plain/`Record`/`State` grid)

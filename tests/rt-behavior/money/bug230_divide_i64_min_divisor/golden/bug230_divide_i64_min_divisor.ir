@@ -1,0 +1,40 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug230_divide_i64_min_divisor",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "enum",
+    "line": 23,
+    "visibility": "export",
+    "name": "Rounding",
+    "members": [
+    { "name": "Commercial" },
+    { "name": "Banker" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 10,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 11, "mutable": false, "name": "p5", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "5" } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "m", "type": "Money", "value": { "kind": "const", "type": "Money", "value": "-92233720368547.75808" } },
+    { "op": "bind", "line": 13, "mutable": false, "name": "k", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "-9223372036854775808" } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Money", "op": "/", "left": { "kind": "local", "name": "m" }, "right": { "kind": "local", "name": "k" } }, { "kind": "local", "name": "p5" }] }] } },
+    { "op": "return", "line": 15, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

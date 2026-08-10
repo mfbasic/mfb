@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/rt-behavior/functions/bug197_assign_rhs_expected_type
+Wrote AST to tests/rt-behavior/functions/bug197_assign_rhs_expected_type/bug197_assign_rhs_expected_type.ast
+Wrote IR to tests/rt-behavior/functions/bug197_assign_rhs_expected_type/bug197_assign_rhs_expected_type.ir
+[exit 0]
+$ mfb build tests/rt-behavior/functions/bug197_assign_rhs_expected_type
+Wrote executable to tests/rt-behavior/functions/bug197_assign_rhs_expected_type/build/bug197_assign_rhs_expected_type.out
+[exit 0]
+$ tests/rt-behavior/functions/bug197_assign_rhs_expected_type/build/bug197_assign_rhs_expected_type.out
+42
+[exit 0]

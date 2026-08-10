@@ -1,0 +1,9 @@
+' bug-11: a Fixed literal with an extreme scientific exponent (e.g. 1e9999999999)
+' drove expand_scientific_notation into a multi-GB digit-string blowup / hang
+' before any range check. fixed_raw_from_decimal now rejects extreme exponents in
+' O(1), so the literal is cleanly rejected with TYPE_FIXED_LITERAL_OVERFLOW
+' instead of hanging.
+FUNC main AS Integer
+  LET x AS Fixed = 1e9999999999
+  RETURN 0
+END FUNC
