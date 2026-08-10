@@ -1136,7 +1136,7 @@ impl CodeBuilder<'_> {
     /// by `str d` and later read as `ldr x` (copy/transfer/marshalling) is
     /// unchanged — only the in-flight register class differs (plan-01
     /// float-dnative §1 non-goals).
-    pub(super) fn store_value_at(&mut self, value: &ValueResult, base: &str, offset: usize) {
+    pub(crate) fn store_value_at(&mut self, value: &ValueResult, base: &str, offset: usize) {
         if Self::float_is_dnative(value) {
             self.emit(abi::store_double(&value.location, base, offset));
         } else {

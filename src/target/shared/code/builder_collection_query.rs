@@ -67,7 +67,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(loop_label));
     }
 
-    pub(super) fn lower_list_get(
+    pub(crate) fn lower_list_get(
         &mut self,
         collection_slot: usize,
         key_slot: usize,
@@ -445,7 +445,7 @@ impl CodeBuilder<'_> {
         Ok(entry_slot)
     }
 
-    pub(super) fn lower_map_get(
+    pub(crate) fn lower_map_get(
         &mut self,
         collection_slot: usize,
         key_slot: usize,

@@ -388,7 +388,7 @@ Relocate the package module; update its consumers. Pure relocation.
 - [x] Repointed 273 `collections.rs` + 141 `collections_package.mfb` doc citations to the new paths (see Corrections).
 
 Acceptance: MET — `artifact-gate.sh collections` 0 diffs (all 5); `cargo test --bin mfb` 3836 passed, 0 failed; 0 warnings.
-Commit: —
+Commit: 3f5225ca8
 
 ### Phase 4 — Fully migrate `get`; delete the old symbol (largest blast radius last)
 
@@ -396,13 +396,14 @@ Move the real lowering into `func_get.rs`, promote the measured helper set to
 `pub(crate)`, point `Native` at the free fn, delete `lower_collection_get` and both
 ladder arms.
 
-- [ ] Measure the visibility surface (grep `self.<method>(` over the `lower_collection_get`/`lower_list_get`/`lower_map_get` span); promote exactly that `pub(super)` set to `pub(crate)`; record it in Corrections.
-- [ ] Create `src/codegen/builtins/collections/func_get.rs`: `fn lower_get`, `get`'s `BuiltinFunction` const (with doc consts `INTO_GET`/`DESC_GET` moved here), `Implementation::Native(lower_get)`.
-- [ ] `collections/mod.rs`: reference `func_get::GET` in `COLLECTIONS_FUNCTIONS`; drop `get`'s inline entry and its `INTO_GET`/`DESC_GET`.
-- [ ] Replace the Phase-1 shim with `Native(lower_get)`; delete `fn lower_collection_get` and the `:727` + `:1795` `Some("get")` arms in `builder_values.rs`.
-- [ ] Tests: keep the existing collections unit tests green; add a test asserting `grep`-level absence is impossible to unit-test, so instead assert `REGISTRY.function("collections.get")` resolves and `native_builtin_target("collections.get") == Some("get")` still holds (the type-resolution path is untouched).
+- [x] Measured the visibility surface (see Corrections) and promoted exactly it to `pub(crate)`: 8 `CodeBuilder` methods + `type_utils` module & its 2 type helpers + `ValueResult.{type_, location}` fields.
+- [x] Created `src/codegen/builtins/collections/func_get.rs`: free `lower_get` (body moved verbatim, `self.`→`builder.`), `get`'s `BuiltinFunction` const `GET` (via `super::native_lowered`, with `INTO_GET`/`DESC_GET` moved here), `Implementation::Native(lower_get)`.
+- [x] `collections/mod.rs`: `mod func_get;`; the table now references `func_get::GET`; dropped `get`'s inline entry, its `INTO_GET`/`DESC_GET`, the Phase-1 shim, and the now-unused `CodeBuilder`/`ValueResult`/`NirValue` imports.
+- [x] Deleted `fn lower_collection_get` (builder_collection_queries.rs) and both `Some("get")` ladder arms in `builder_values.rs`; `get` now routes solely through the dual-path seam.
+- [x] Repointed the `get.md` `lower_collection_get` citation → `func_get.rs:lower_get`.
+- [x] `only_get_carries_native_lowering` (Phase 1) already asserts `get` resolves + is the sole `Native`; the type-resolution path (`native_builtin_target`) is untouched (verified green).
 
-Acceptance: `grep -rn 'fn lower_collection_get' src/target` → empty; `grep -rn 'lower_collection_get' src` → only `func_get.rs`. Byte-identical `artifact-gate.sh collections` (all 5). `cargo test --bin mfb` green. **Runtime proof:** build+run a sample app that calls both `collections::get` overloads and prints the results, matching a pre-plan reference capture.
+Acceptance: MET — `grep -rn 'fn lower_collection_get' src/target` → empty; the only `lower_collection_get` in `src` is a doc comment in `func_get.rs`. Byte-identical `artifact-gate.sh collections` 0 diffs (all 5). `cargo test --bin mfb` 3836 passed, 0 failed, 0 warnings. **Runtime proof:** a `collections::get` list+map program printed `10 / 30 / 36` as expected.
 Commit: —
 
 ## Validation Plan
@@ -480,6 +481,18 @@ Commit: —
   perl collided with its own first pass (`crate::codegen::codegen::…`) and missed
   grouped/`bare` import forms. Fixed by collapsing `codegen::codegen::→codegen::`
   and a lookbehind prefix pass. Prefer a single lookbehind substitution for path moves.
+- **Phase 4 measured visibility surface** (`pub(super)→pub(crate)`, no wider): the
+  8 methods `lower_collection_get`'s body called — `is_provable_index_access`,
+  `lower_value`, `allocate_stack_object`, `emit`, `store_value_at`, `lower_list_get`,
+  `lower_map_get`, `materialize_owned_element`; the two free type helpers
+  `list_element_type`/`map_type_parts` **and their `mod type_utils`** (was a private
+  module); and **`ValueResult.{type_, location}` fields** (the struct was already
+  `pub(crate)` from Phase 1, its fields were not). `abi` was already reachable
+  (`crate::target::shared::abi`). `func_get` reaches `mod.rs`'s private
+  `native_lowered`/`custom`/`req` via `super::` (child-of-module access, no promotion).
+- **Doc-sync (Phase 4):** `get.md`'s `[[…builder_collection_queries.rs:lower_collection_get]]`
+  citation repointed to `[[…func_get.rs:lower_get]]`. (The citation test checks the
+  file, not the symbol, so the suite was green either way — fixed for accuracy.)
 
 ## Summary
 

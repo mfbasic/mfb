@@ -132,7 +132,7 @@ mod term_grid;
 #[cfg(test)]
 mod tests;
 pub(crate) mod tls;
-mod type_utils;
+pub(crate) mod type_utils;
 use builder_vector_inline::{vector_call_is_inlined, vector_field_count};
 use type_utils::*;
 mod function_lowering;
@@ -494,8 +494,8 @@ struct GlobalValue {
 
 #[derive(Clone)]
 pub(crate) struct ValueResult {
-    type_: String,
-    location: Operand,
+    pub(crate) type_: String,
+    pub(crate) location: Operand,
     text: String,
 }
 

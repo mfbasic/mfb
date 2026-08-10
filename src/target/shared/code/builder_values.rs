@@ -1,7 +1,7 @@
 use super::*;
 
 impl CodeBuilder<'_> {
-    pub(super) fn lower_value(&mut self, value: &NirValue) -> Result<ValueResult, String> {
+    pub(crate) fn lower_value(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         // Track the source location of the node being lowered so that any error
         // freshly created while lowering it (overflow, divide-by-zero, helper
         // failure, conversion failure) stamps a real `ErrorLoc`. The save/restore
@@ -727,9 +727,6 @@ impl CodeBuilder<'_> {
                 let native = crate::builtins::native_builtin_target(target);
                 if native == Some("contains") && args.len() == 2 {
                     return self.lower_collection_contains(args);
-                }
-                if native == Some("get") && args.len() == 2 {
-                    return self.lower_collection_get(args);
                 }
                 if native == Some("getOr") && args.len() == 3 {
                     return self.lower_collection_get_or(args);
@@ -1818,7 +1815,6 @@ impl CodeBuilder<'_> {
             result
         } else {
             match crate::builtins::native_builtin_target(target) {
-                Some("get") => self.lower_collection_get(args),
                 Some("set") => self.lower_collection_set(args),
                 Some("insert") => self.lower_collection_insert(args),
                 Some("removeAt") => self.lower_collection_remove_at(args),

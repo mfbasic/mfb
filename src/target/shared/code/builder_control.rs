@@ -1294,7 +1294,7 @@ impl CodeBuilder<'_> {
     /// True when `list_arg == Local(L)` and `index_arg` is `Local(i)` (needs
     /// headroom `k >= 1`) or `i + 1` (needs `k >= 2`), with
     /// `provable_index_locals[i] == (L, k)`.
-    pub(super) fn is_provable_index_access(
+    pub(crate) fn is_provable_index_access(
         &self,
         list_arg: &NirValue,
         index_arg: &NirValue,

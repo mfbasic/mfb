@@ -4,11 +4,11 @@ use crate::codegen::registry::{
     DefaultValue, Implementation, InjectionRule, Lowering, NativeLower, Parameter, ParameterType,
     ReturnType,
 };
-use crate::target::shared::code::{CodeBuilder, ValueResult};
-use crate::target::shared::nir::NirValue;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
+
+mod func_get;
 
 /// Path of the compiler-owned `collections` package source injected into every
 /// project that imports it. This is the `AstFile.path` (see `source_file`), so
@@ -165,15 +165,6 @@ const fn native_lowered(
     function
 }
 
-/// plan-95 Phase 1 shim for `collections::get`. A free function (not the method
-/// item `CodeBuilder::lower_collection_get`, whose impl-bound `CodeBuilder`
-/// lifetime will not coerce to the higher-ranked [`NativeLower`]) delegating to
-/// the lowering that still lives in `src/target`. Phase 4 replaces this with the
-/// real `lower_get` body moved into `func_get.rs`.
-fn lower_get(builder: &mut CodeBuilder, args: &[NirValue]) -> Result<ValueResult, String> {
-    builder.lower_collection_get(args)
-}
-
 // One overload per member, carrying the merged parameter-name table; the resolver
 // owns the actual per-overload (List/Map/Set) type resolution, so `return_type` is
 // `Custom` throughout and the parameter *types* are documentation only.
@@ -188,35 +179,7 @@ const fn custom(params: &'static [Parameter]) -> BuiltinOverload {
 // derived from src/docs/man/builtins/collections/*.md (one-line summary + the
 // Description section, citation markers stripped). See the `doc_intro`/`doc_desc`
 // fields on `BuiltinFunction`.
-// ---- get ----
-const INTO_GET: &str = "Read a list item by index or a map value by key.";
-const DESC_GET: &str = r#"`collections::get` reads one element out of a collection. The collection itself
-is neither copied nor mutated: the lowering stores only a handle to it, walks
-its lookup table, and materializes just the selected payload.
-
-The value returned is **owned** by the caller. Scalars are returned by value and
-a `String` payload is materialized fresh, while a composite payload stored
-inline in the collection's data region is copied into a standalone arena block
-before it is handed back, so binding, storing, and freeing the result cannot
-disturb the source collection.
-
-`get` is the only fallible member of this group. It reports a missing element as
-a trappable domain error rather than substituting anything, and it is
-raw-supported, so an inline `TRAP` on a `collections::get` call catches the real
-runtime error. When a fallback value is more convenient than an error, use
-`collections::getOr`; when only presence matters, use `collections::hasKey`.
-
-For the map overload, key comparison is a comparison of the stored key payload:
-fixed-width keys compare their raw 64-bit (or 32-bit, or single-byte) stored
-bits and `String` keys compare length first and then bytes. A `Float` key is
-therefore matched bit-for-bit, so `NaN` never matches any key and `-0.0` does
-not match a stored `0.0`.
-
-Map lookup for the common key types `String`, `Integer`, `Float`, `Fixed`,
-`Byte`, and `Boolean` goes through the map's hash bucket index; other key types
-fall back to a linear scan of the entry table. This is a performance difference
-only — both paths select the same entry and raise the same error when the key is
-absent."#;
+// (`get`'s doc consts + entry moved to func_get.rs, plan-95.)
 
 // ---- getOr ----
 const INTO_GET_OR: &str =
@@ -1063,21 +1026,7 @@ element type like any other generic function.
 It does not mutate `value`."#;
 
 const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
-    native_lowered(
-        "collections.get",
-        "get",
-        INTO_GET,
-        DESC_GET,
-        &["ErrIndexOutOfRange", "ErrNotFound"],
-        &[custom(&[
-            req("value", &["collection"], "List OF T"),
-            req("index", &["key"], "Integer"),
-        ])],
-        // plan-95 Phase 1: route `get` through the descriptor's Native lowering.
-        // The body still lives in `src/target` (called via the `lower_get` shim);
-        // it moves to func_get.rs in Phase 4.
-        lower_get,
-    ),
+    func_get::GET,
     native(
         "collections.getOr",
         "getOr",

@@ -300,14 +300,14 @@ pub(super) fn set_element_type(type_: &str) -> Option<String> {
     type_.strip_prefix("Set OF ").map(str::to_string)
 }
 
-pub(super) fn list_element_type(type_: &str) -> Option<String> {
+pub(crate) fn list_element_type(type_: &str) -> Option<String> {
     let element = type_.strip_prefix("List OF ")?;
     // A `List OF RES File` element stores and is read as the bare resource pointer
     // (`File`); the `RES` ownership-axis marker is not part of the value (§15.6).
     Some(strip_res_marker(element).to_string())
 }
 
-pub(super) fn map_type_parts(type_: &str) -> Option<(String, String)> {
+pub(crate) fn map_type_parts(type_: &str) -> Option<(String, String)> {
     let rest = type_.strip_prefix("Map OF ")?;
     let (key, value) = rest.split_once(" TO ")?;
     Some((key.to_string(), strip_res_marker(value).to_string()))

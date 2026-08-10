@@ -7,7 +7,7 @@ impl CodeBuilder<'_> {
     /// **owned** value the caller may bind, store, and free, so copy such a
     /// alias into a standalone arena block (scalars are by-value and `String`
     /// is already materialized fresh, so they pass through). plan-02 Phase 8.
-    pub(super) fn materialize_owned_element(
+    pub(crate) fn materialize_owned_element(
         &mut self,
         result: ValueResult,
     ) -> Result<ValueResult, String> {
@@ -29,67 +29,6 @@ impl CodeBuilder<'_> {
             });
         }
         Ok(result)
-    }
-
-    pub(crate) fn lower_collection_get(
-        &mut self,
-        args: &[NirValue],
-    ) -> Result<ValueResult, String> {
-        // plan-86 G1: is `args[1]` a provably-in-range index into the list `args[0]`?
-        // (Computed from the RAW NIR before lowering, against `provable_index_locals`.)
-        let unchecked = self.is_provable_index_access(&args[0], &args[1]);
-        let collection = self.lower_value(&args[0])?;
-        let collection_slot = self.allocate_stack_object("get_collection", 8);
-        self.emit(abi::store_u64(
-            &collection.location,
-            abi::stack_pointer(),
-            collection_slot,
-        ));
-
-        let key = self.lower_value(&args[1])?;
-        let key_slot = self.allocate_stack_object("get_key", 8);
-        // A `d`-native float map key stores via `str d`, bit-identical to the
-        // `str x` a later bitwise key compare reads (plan-01 float-dnative).
-        self.store_value_at(&key, abi::stack_pointer(), key_slot);
-
-        if let Some(element_type) = list_element_type(&collection.type_) {
-            if key.type_ != "Integer" {
-                return Err(format!(
-                    "native collection get list index must be Integer, got {}",
-                    key.type_
-                ));
-            }
-            let result = self.lower_list_get(
-                collection_slot,
-                key_slot,
-                &collection.type_,
-                &element_type,
-                unchecked,
-            )?;
-            return self.materialize_owned_element(result);
-        }
-
-        if let Some((key_type, value_type)) = map_type_parts(&collection.type_) {
-            if key.type_ != key_type {
-                return Err(format!(
-                    "native collection get map key must be {}, got {}",
-                    key_type, key.type_
-                ));
-            }
-            let result = self.lower_map_get(
-                collection_slot,
-                key_slot,
-                &collection.type_,
-                &key_type,
-                &value_type,
-            )?;
-            return self.materialize_owned_element(result);
-        }
-
-        Err(format!(
-            "native collection get does not accept {}",
-            collection.type_
-        ))
     }
 
     pub(super) fn lower_collection_contains(

@@ -31,7 +31,7 @@ IMPORT collections
 `collections::get` reads one element out of a collection. The collection itself
 is neither copied nor mutated: the lowering stores only a handle to it, walks
 its lookup table, and materializes just the selected payload.
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_get]]
+[[src/codegen/builtins/collections/func_get.rs:lower_get]]
 
 The value returned is **owned** by the caller. Scalars are returned by value and
 a `String` payload is materialized fresh, while a composite payload stored

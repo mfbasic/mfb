@@ -249,7 +249,7 @@ impl CodeBuilder<'_> {
         }
     }
 
-    pub(super) fn allocate_stack_object(&mut self, name: &str, size: usize) -> usize {
+    pub(crate) fn allocate_stack_object(&mut self, name: &str, size: usize) -> usize {
         let offset = self.stack_size;
         let size = align(size, 8);
         self.stack_size += size;
@@ -279,7 +279,7 @@ impl CodeBuilder<'_> {
     }
 
     #[track_caller]
-    pub(super) fn emit(&mut self, mut instruction: CodeInstruction) {
+    pub(crate) fn emit(&mut self, mut instruction: CodeInstruction) {
         // plan-71-C Phase 0: refine the instruction's source to the builder's
         // `self.emit(...)` call site (the caller of `emit`), which is the exact
         // shared-builder line the audit needs — more precise than the `abi::`
