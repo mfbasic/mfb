@@ -600,7 +600,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&not_surrogate));
                 self.emit(abi::branch(&ok));
                 self.emit(abi::label(&invalid));
-                self.emit_invalid_argument_return()?;
+                self.raise_error("toScalar", "ErrInvalidArgument")?;
                 self.emit(abi::label(&ok));
                 let register = self.allocate_register()?;
                 self.emit(abi::move_register(&register, &cp));
@@ -785,7 +785,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&invalid));
         self.emit(abi::branch(&ok));
         self.emit(abi::label(&invalid));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&ok));
         let result = self.allocate_register()?;
         self.emit(abi::move_register(&result, cp));

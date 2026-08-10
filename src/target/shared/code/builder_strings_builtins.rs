@@ -1829,7 +1829,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         self.emit(abi::branch(&done));
         self.emit(abi::label(&invalid_delimiter));
-        self.emit_invalid_argument_return()?;
+        self.raise_error("strings.split", "ErrInvalidArgument")?;
         self.emit(abi::label(&done));
 
         Ok(ValueResult {
@@ -2116,7 +2116,7 @@ impl CodeBuilder<'_> {
         let after = self.label("strings_count_after");
         self.emit(abi::branch(&after));
         self.emit(abi::label(&invalid));
-        self.emit_invalid_argument_return()?;
+        self.raise_error("strings.count", "ErrInvalidArgument")?;
         self.emit(abi::label(&after));
         Ok(ValueResult {
             type_: "Integer".to_string(),
@@ -2240,7 +2240,7 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::branch(&build));
         self.emit(abi::label(&invalid));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&build));
         self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), ptr_slot));
         self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), len_slot));
@@ -2371,7 +2371,7 @@ impl CodeBuilder<'_> {
         let after = self.label("strings_repeat_after");
         self.emit(abi::branch(&after));
         self.emit(abi::label(&invalid));
-        self.emit_invalid_argument_return()?;
+        self.raise_error("strings.repeat", "ErrInvalidArgument")?;
         self.emit(abi::label(&after));
         Ok(ValueResult {
             type_: "String".to_string(),
@@ -2644,7 +2644,7 @@ impl CodeBuilder<'_> {
         let after = self.label("strings_pad_after");
         self.emit(abi::branch(&after));
         self.emit(abi::label(&invalid));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&after));
         let label = if right {
             "strings.padRight"

@@ -285,7 +285,7 @@ impl CodeBuilder<'_> {
             let ok = self.label("money_float_div_ok");
             self.emit(abi::float_compare_zero_d(&fval));
             self.emit(abi::branch_ne(&ok));
-            self.emit_invalid_argument_return()?;
+            self.raise_error_bare("ErrInvalidArgument")?;
             self.emit(abi::label(&ok));
             self.emit(abi::float_divide_d(&result, &money_d, &fval));
         } else {

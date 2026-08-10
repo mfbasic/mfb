@@ -154,7 +154,7 @@ const GENERAL_FUNCTIONS: &[BuiltinFunction] = &[
     gfn_err(TO_FIXED, "toFixed", &["ErrOverflow", "ErrInvalidFormat"], &[ov(P_V_STR, "Fixed")]),
     gfn_err(TO_BYTE, "toByte", &["ErrOverflow"], &[ov(P_V_INT, "Byte")]),
     gfn_err(TO_MONEY, "toMoney", &["ErrInvalidFormat"], &[ov(P_V_STR, "Money")]),
-    gfn(TO_SCALAR, "toScalar", &[ov(P_V_INT, "Scalar")]),
+    gfn_err(TO_SCALAR, "toScalar", &["ErrInvalidArgument"], &[ov(P_V_INT, "Scalar")]),
     gfn(IS_NUMERIC, "isNumeric", &[ovc(P_V_STR)]),
     gfn(IS_EVEN, "isEven", &[ovc(P_V_INT)]),
     gfn(IS_ODD, "isOdd", &[ovc(P_V_INT)]),

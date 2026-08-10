@@ -1209,7 +1209,7 @@ impl CodeBuilder<'_> {
         let ok_label = self.label("nonzero");
         self.emit(abi::compare_immediate(value, "0"));
         self.emit(abi::branch_ne(&ok_label));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&ok_label));
         Ok(())
     }
@@ -1267,7 +1267,7 @@ impl CodeBuilder<'_> {
         let remaining = self.allocate_register()?;
         self.emit(abi::compare_immediate(exponent, "0"));
         self.emit(abi::branch_ge(&nonnegative));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&nonnegative));
         self.emit(abi::move_register(&remaining, exponent));
         self.emit(abi::move_immediate(dst, "Integer", "1"));
@@ -1491,14 +1491,14 @@ impl CodeBuilder<'_> {
         let done_label = self.label("fixed_pow_done");
         self.emit(abi::compare_immediate(exponent, "0"));
         self.emit(abi::branch_ge(&nonnegative));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&nonnegative));
         self.emit(abi::arithmetic_shift_right_immediate(&whole, exponent, 32));
         self.emit(abi::shift_left_immediate(&remaining, &whole, 32));
         self.emit(abi::compare_registers(&remaining, exponent));
         let exponent_is_whole = self.label("fixed_pow_whole");
         self.emit(abi::branch_eq(&exponent_is_whole));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&exponent_is_whole));
         self.emit(abi::move_register(&remaining, &whole));
         self.emit(abi::move_immediate(dst, "Fixed", &one_raw.to_string()));

@@ -101,7 +101,7 @@ impl CodeBuilder<'_> {
         let no_err = self.label("simd_fxsqrt_no_err");
         self.emit(abi::compare_immediate(&lane0, "0"));
         self.emit(abi::branch_eq(&no_err));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&no_err));
 
         Ok(ValueResult {

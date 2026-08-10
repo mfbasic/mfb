@@ -637,7 +637,7 @@ impl CodeBuilder<'_> {
         let lengths_ok = self.label("simd_bin_lengths_ok");
         self.emit(abi::compare_registers(&count, &rcount));
         self.emit(abi::branch_eq(&lengths_ok));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&lengths_ok));
 
         let count_slot = self.allocate_stack_object("simd_bin_count", 8);
@@ -832,7 +832,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_le(&bounds_ok));
             }
         }
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&bounds_ok));
 
         self.reset_temporary_registers();

@@ -33,10 +33,6 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(code, message)
     }
 
-    pub(super) fn emit_invalid_argument_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_MESSAGE)
-    }
-
     pub(super) fn emit_allocation_error_return(&mut self) -> Result<(), String> {
         self.emit_error_register_return(RESULT_TAG_REGISTER, ERR_ALLOCATION_MESSAGE)
     }

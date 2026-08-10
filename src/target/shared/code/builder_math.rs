@@ -721,7 +721,7 @@ impl CodeBuilder<'_> {
                 let done = self.label("math_clamp_done");
                 self.emit(abi::compare_registers(&low_reg, &high_reg));
                 self.emit(abi::branch_le(&bounds_valid));
-                self.emit_invalid_argument_return()?;
+                self.raise_error_bare("ErrInvalidArgument")?;
                 self.emit(abi::label(&bounds_valid));
                 self.emit(abi::compare_registers(&value_reg, &low_reg));
                 self.emit(abi::branch_lt(&take_low));
@@ -750,7 +750,7 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::float_compare_zero_d(abi::FP_SCRATCH[2]));
                 self.emit(abi::branch_le(&bounds_valid));
-                self.emit_invalid_argument_return()?;
+                self.raise_error_bare("ErrInvalidArgument")?;
                 self.emit(abi::label(&bounds_valid));
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &value_reg));
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], &low_reg));
@@ -939,7 +939,7 @@ impl CodeBuilder<'_> {
         let bounds_valid = self.label("math_rand_bounds_valid");
         self.emit(abi::compare_registers(&min_reg, &max_reg));
         self.emit(abi::branch_le(&bounds_valid));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&bounds_valid));
         // span = (max - min) + 1; wraps to 0 only for the full Integer range,
         // which the `full_range` branch handles by returning a single raw draw.
@@ -1102,7 +1102,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::compare_immediate(&value.location, "0"));
                 let valid = self.label("math_fixed_sqrt_valid");
                 self.emit(abi::branch_ge(&valid));
-                self.emit_invalid_argument_return()?;
+                self.raise_error_bare("ErrInvalidArgument")?;
                 self.emit(abi::label(&valid));
                 // Deterministic raw Q32.32 square root (no host floating-point).
                 let dst = self.emit_fixed_sqrt(&value.location)?;

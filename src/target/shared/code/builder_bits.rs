@@ -133,7 +133,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&count_reg, "63"));
         self.emit(abi::branch_le(&valid));
         self.emit(abi::label(&out_of_range));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&valid));
         let dst = self.allocate_register()?;
         match function {
