@@ -20,7 +20,8 @@ parameter, or return of that type needs no `IMPORT`. Building or operating on an
 
 The `astrings` package works with `AttributedString`, an opaque built-in that
 pairs visible `String` text with an attribute overlay describing per-range style
-(bold, italic, font, size, …). The type is **value-semantic**: it copies deeply,
+(bold, italic, font, size, foreground/background color, …). The type is
+**value-semantic**: it copies deeply,
 drops with its owning scope, and defaults to empty text with no attributes. It is
 **opaque** — it exposes no user-visible fields (`a.text` does not compile), cannot
 be built with a record literal (`AttributedString[...]`), and cannot be
