@@ -149,13 +149,9 @@ END FUNC
 ' bounds exactly: take(count) = slice(0, count) (count<0 or >len both collapse the
 ' same way), drop(count) = slice(count, len). Do not read the dead MFBASIC
 ' __collections_slice body as the spec of that clamping.
-FUNC __collections_take OF T(value AS List OF T, count AS Integer) AS List OF T
-  RETURN __collections_slice(value, 0, count)
-END FUNC
+'@@MFB_BODY:take@@
 
-FUNC __collections_drop OF T(value AS List OF T, count AS Integer) AS List OF T
-  RETURN __collections_slice(value, count, len(value))
-END FUNC
+'@@MFB_BODY:drop@@
 
 ' __collections_reduceRight was removed here: `reduceRight` is now lowered as a
 ' native member (plan-86-B, B2), the reverse-walk twin of native `reduce`, so it
@@ -167,27 +163,9 @@ END FUNC
 ' `src/target/shared/code/builder_collection_queries.rs`.
 ' (line-span preserved: 9 comment lines + 1 blank == the removed 10-line body.)
 
-FUNC __collections_any OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Boolean
-  MUT i AS Integer = 0
-  WHILE i < len(value)
-    IF predicate(collections::get(value, i)) THEN
-      RETURN TRUE
-    END IF
-    i = i + 1
-  END WHILE
-  RETURN FALSE
-END FUNC
+'@@MFB_BODY:any@@
 
-FUNC __collections_all OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Boolean
-  MUT i AS Integer = 0
-  WHILE i < len(value)
-    IF NOT predicate(collections::get(value, i)) THEN
-      RETURN FALSE
-    END IF
-    i = i + 1
-  END WHILE
-  RETURN TRUE
-END FUNC
+'@@MFB_BODY:all@@
 
 FUNC __collections_findIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, start AS Integer = 0) AS Integer
   IF start < 0 OR start > len(value) THEN
@@ -243,39 +221,11 @@ FUNC __collections_groupBy OF T, K, V(value AS List OF T, keyFn AS FUNC(T) AS K,
   RETURN result
 END FUNC
 
-FUNC __collections_mapValues OF K, V, U(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U
-  MUT result AS Map OF K TO U = Map OF K TO U {}
-  FOR EACH e IN value
-    result = collections::set(result, e.key, f(e.value))
-  NEXT
-  RETURN result
-END FUNC
+'@@MFB_BODY:mapValues@@
 
-FUNC __collections_flatten OF T(value AS List OF List OF T) AS List OF T
-  MUT result AS List OF T = []
-  MUT i AS Integer = 0
-  WHILE i < len(value)
-    LET inner AS List OF T = collections::get(value, i)
-    result = collections::append(result, inner)
-    i = i + 1
-  END WHILE
-  RETURN result
-END FUNC
+'@@MFB_BODY:flatten@@
 
-FUNC __collections_zip OF A, B(a AS List OF A, b AS List OF B) AS List OF Pair OF A, B
-  MUT result AS List OF Pair OF A, B = []
-  MUT n AS Integer = len(a)
-  IF len(b) < n THEN
-    n = len(b)
-  END IF
-  MUT i AS Integer = 0
-  WHILE i < n
-    LET p AS Pair OF A, B = Pair[collections::get(a, i), collections::get(b, i)]
-    result = collections::append(result, p)
-    i = i + 1
-  END WHILE
-  RETURN result
-END FUNC
+'@@MFB_BODY:zip@@
 
 FUNC __collections_chunks OF T(value AS List OF T, chunkSize AS Integer) AS List OF List OF T
   IF chunkSize < 1 THEN

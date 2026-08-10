@@ -9,16 +9,21 @@ use std::path::Path;
 
 pub(crate) mod common;
 mod func_add;
+mod func_all;
+mod func_any;
 mod func_append;
 mod func_contains;
 mod func_distinct;
+mod func_drop;
 mod func_filter;
+mod func_flatten;
 mod func_for_each;
 mod func_get;
 mod func_get_or;
 mod func_has_key;
 mod func_insert;
 mod func_keys;
+mod func_map_values;
 mod func_prepend;
 mod func_reduce;
 mod func_reduce_right;
@@ -27,7 +32,9 @@ mod func_remove_at;
 mod func_remove_key;
 mod func_set;
 mod func_sum;
+mod func_take;
 mod func_to_list;
+mod func_zip;
 // `pub(crate)`: source-generic fast paths in `src/target` (sortBy, mapValues,
 // groupBy) reuse `lower_transform` directly until they too migrate (plan-96).
 pub(crate) mod func_transform;
@@ -451,6 +458,13 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
     // Source-generic members (Implementation::Mfb): body owned by the descriptor,
     // assembled into the injected package source by `assembled_source()`.
     func_distinct::DISTINCT,
+    func_take::TAKE,
+    func_drop::DROP,
+    func_any::ANY,
+    func_all::ALL,
+    func_flatten::FLATTEN,
+    func_map_values::MAP_VALUES,
+    func_zip::ZIP,
     // `findIndex`/`findLastIndex` are source-generic (they resolve and, for most
     // element types, run from the injected `.mfb` companion) with a native
     // String-item fast path for `findLastIndex`. They are listed here ONLY so

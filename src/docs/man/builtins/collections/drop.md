@@ -28,13 +28,13 @@ its leading `count` elements, in their original order. It is a generic function
 written in MFBASIC source: the call is rewritten to the internal
 `__collections_drop` generic and instantiated for the element type `T` during
 monomorphization. [[src/codegen/builtins/collections/mod.rs:internal_name]]
-[[src/codegen/builtins/collections/package.mfb:__collections_drop]]
+[[src/codegen/builtins/collections/func_drop.rs:__collections_drop]]
 
 `drop(value, count)` is defined as the half-open range `[count, len(value))` of
 `value`, delegated to the internal slice helper. That helper is lowered natively
 as a bulk range copy, and the native lowering is what defines the boundary
 behavior: the range start is clamped into `[0, len]` and the range stop into
-`[start, len]`. [[src/codegen/builtins/collections/package.mfb:__collections_drop]]
+`[start, len]`. [[src/codegen/builtins/collections/func_drop.rs:__collections_drop]]
 [[src/target/shared/code/builder_collection_queries.rs:try_inline_slice_op]]
 [[src/target/shared/code/builder_collection_queries.rs:lower_list_slice_range]]
 
@@ -58,8 +58,8 @@ the returned list does not share storage with `value`. `value` is not modified.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The source list. Any length is accepted, including the empty list. Named-argument spelling is `value`. [[src/codegen/builtins/collections/package.mfb:__collections_drop]] |
-| `count` | `Integer` | How many leading elements to discard. Any `Integer` is accepted: values at or below 0 return the whole list and values at or above the length return the empty list. Named-argument spelling is `count`. [[src/codegen/builtins/collections/package.mfb:__collections_drop]] |
+| `value` | `List OF T` | The source list. Any length is accepted, including the empty list. Named-argument spelling is `value`. [[src/codegen/builtins/collections/func_drop.rs:__collections_drop]] |
+| `count` | `Integer` | How many leading elements to discard. Any `Integer` is accepted: values at or below 0 return the whole list and values at or above the length return the empty list. Named-argument spelling is `count`. [[src/codegen/builtins/collections/func_drop.rs:__collections_drop]] |
 
 ## Return value
 
