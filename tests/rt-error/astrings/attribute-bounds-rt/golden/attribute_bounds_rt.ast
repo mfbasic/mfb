@@ -1,0 +1,28 @@
+{
+  "project": "attribute_bounds_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "astrings", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "s", "type": "AttributedString", "value": { "kind": "call", "callee": "astrings.fromString", "arguments": [{ "kind": "string", "value": "abcde" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "bad", "type": "AttributedString", "value": { "kind": "call", "callee": "astrings.addAttribute", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "5" }, { "kind": "call", "callee": "astrings.bold", "arguments": [] }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
+      ]
+    }
+    ]
+  }
+  ]
+}

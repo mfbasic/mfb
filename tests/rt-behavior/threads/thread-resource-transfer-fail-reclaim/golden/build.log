@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-behavior/threads/thread-resource-transfer-fail-reclaim
+uses thread_res_sink - [Unsigned]
+Wrote AST to tests/rt-behavior/threads/thread-resource-transfer-fail-reclaim/thread_resource_transfer_fail_reclaim.ast
+Wrote IR to tests/rt-behavior/threads/thread-resource-transfer-fail-reclaim/thread_resource_transfer_fail_reclaim.ir
+[exit 0]
+$ mfb build tests/rt-behavior/threads/thread-resource-transfer-fail-reclaim
+uses thread_res_sink - [Unsigned]
+Wrote executable to tests/rt-behavior/threads/thread-resource-transfer-fail-reclaim/build/thread_resource_transfer_fail_reclaim.out
+[exit 0]
+$ tests/rt-behavior/threads/thread-resource-transfer-fail-reclaim/build/thread_resource_transfer_fail_reclaim.out
+22
+[exit 0]

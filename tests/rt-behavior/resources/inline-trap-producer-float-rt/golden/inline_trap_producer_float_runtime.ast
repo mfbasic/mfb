@@ -1,0 +1,62 @@
+{
+  "project": "inline_trap_producer_float_runtime",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 1 },
+    { "module": "fs", "line": 2 },
+    { "module": "io", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 17,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "values": [] }, "line": 18 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 19 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "3" } },
+        "line": 20,
+        "body": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": {
+          "kind": "trapped",
+          "binding": "e",
+          "line": 21,
+          "expression": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/resources/inline-trap-producer-float-rt/src/main.mfb" }] },
+          "handler": [
+          { "kind": "continue", "loop": "while", "line": 22 }
+          ]
+        }, "line": 21 },
+        { "kind": "assignment", "name": "handles", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "identifier", "value": "f" }] }, "line": 24 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 25 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "opened=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "handles" }] }] } }] }, "line": 27 },
+      { "kind": "binding", "mutable": true, "name": "read", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 28 },
+      {
+        "kind": "forEach",
+        "name": "h",
+        "iterable": { "kind": "identifier", "value": "handles" },
+        "line": 29,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "h" }] }, "line": 30 },
+        { "kind": "assignment", "name": "read", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "read" }, "right": { "kind": "number", "value": "1" } }, "line": 31 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "read=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "read" }] } }] }, "line": 33 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 34 }
+      ]
+    }
+    ]
+  }
+  ]
+}

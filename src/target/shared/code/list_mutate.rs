@@ -38,14 +38,9 @@ impl CodeBuilder<'_> {
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
         for register in [
-            scratch20.as_str(),
-            scratch21.as_str(),
-            scratch22.as_str(),
-            scratch23.as_str(),
-            scratch24.as_str(),
-            scratch25.as_str(),
+            scratch20, scratch21, scratch22, scratch23, scratch24, scratch25,
         ] {
-            self.mark_register_used(register);
+            self.mark_register_used(&register.render());
         }
         // bug-175 E: a variable-length element payload (a record with an inline
         // String, a data union, or a flat nested collection) must start on an
@@ -124,7 +119,7 @@ impl CodeBuilder<'_> {
             &scratch15,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -132,7 +127,7 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -443,7 +438,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: format!("list update {list_type} over {element_type}"),
         })
     }
@@ -487,14 +482,9 @@ impl CodeBuilder<'_> {
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
         for register in [
-            scratch20.as_str(),
-            scratch21.as_str(),
-            scratch22.as_str(),
-            scratch23.as_str(),
-            scratch24.as_str(),
-            scratch25.as_str(),
+            scratch20, scratch21, scratch22, scratch23, scratch24, scratch25,
         ] {
-            self.mark_register_used(register);
+            self.mark_register_used(&register.render());
         }
         let item = PayloadSlot {
             slot: item_slot,
@@ -642,7 +632,7 @@ impl CodeBuilder<'_> {
             &scratch15,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -650,7 +640,7 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             new_buf_slot,
         ));
@@ -750,8 +740,9 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_DATA_CAPACITY,
         ));
-        self.emit(abi::add_registers(abi::ARG[1], &scratch10, &scratch11));
-        self.emit(abi::move_register(abi::return_register(), &scratch8));
+        self.emit(abi::add_registers(abi::c_arg(1), &scratch10, &scratch11));
+        // plan-71-C Family-1a: the pointer is arg 0 of the arena-free call → `%arg0`.
+        self.emit(abi::move_register(abi::c_arg(0), &scratch8));
         self.emit_arena_free_call();
         // Install the grown buffer; fall through to write the new element.
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
@@ -872,7 +863,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: format!("append in place {list_type} over {element_type}"),
         })
     }
@@ -1084,7 +1075,7 @@ impl CodeBuilder<'_> {
             &scratch15,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -1092,7 +1083,7 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             new_buf_slot,
         ));
@@ -1188,8 +1179,9 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_OFFSET_DATA_CAPACITY,
         ));
-        self.emit(abi::add_registers(abi::ARG[1], &scratch10, &scratch11));
-        self.emit(abi::move_register(abi::return_register(), &scratch8));
+        self.emit(abi::add_registers(abi::c_arg(1), &scratch10, &scratch11));
+        // plan-71-C Family-1a: the pointer is arg 0 of the arena-free call → `%arg0`.
+        self.emit(abi::move_register(abi::c_arg(0), &scratch8));
         self.emit_arena_free_call();
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64(&nb, abi::stack_pointer(), buffer_slot));
@@ -1305,7 +1297,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: format!("bulk append in place {list_type} over {element_type}"),
         })
     }
@@ -1348,14 +1340,9 @@ impl CodeBuilder<'_> {
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
         for register in [
-            scratch20.as_str(),
-            scratch21.as_str(),
-            scratch22.as_str(),
-            scratch23.as_str(),
-            scratch24.as_str(),
-            scratch25.as_str(),
+            scratch20, scratch21, scratch22, scratch23, scratch24, scratch25,
         ] {
-            self.mark_register_used(register);
+            self.mark_register_used(&register.render());
         }
         let item = PayloadSlot {
             slot: item_slot,
@@ -1501,7 +1488,7 @@ impl CodeBuilder<'_> {
             &scratch15,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -1509,7 +1496,7 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             new_buf_slot,
         ));
@@ -1854,7 +1841,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: format!("prepend in place {list_type} over {element_type}"),
         })
     }
@@ -1902,14 +1889,9 @@ impl CodeBuilder<'_> {
             ));
         }
         for register in [
-            scratch20.as_str(),
-            scratch21.as_str(),
-            scratch22.as_str(),
-            scratch23.as_str(),
-            scratch24.as_str(),
-            scratch25.as_str(),
+            scratch20, scratch21, scratch22, scratch23, scratch24, scratch25,
         ] {
-            self.mark_register_used(register);
+            self.mark_register_used(&register.render());
         }
         let item = PayloadSlot {
             slot: item_slot,
@@ -2088,7 +2070,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&keep, abi::stack_pointer(), buffer_slot));
         let threaded = ValueResult {
             type_: list_type.to_string(),
-            location: keep,
+            location: Operand::from(keep.render()),
             text: String::new(),
         };
         let threaded = self.free_intermediate_collection(singleton_slot, list_type, threaded)?;
@@ -2104,7 +2086,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: format!("set in place {list_type} over {element_type}"),
         })
     }
@@ -2137,14 +2119,9 @@ impl CodeBuilder<'_> {
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
         for register in [
-            scratch20.as_str(),
-            scratch21.as_str(),
-            scratch22.as_str(),
-            scratch23.as_str(),
-            scratch24.as_str(),
-            scratch25.as_str(),
+            scratch20, scratch21, scratch22, scratch23, scratch24, scratch25,
         ] {
-            self.mark_register_used(register);
+            self.mark_register_used(&register.render());
         }
         let result_slot = self.allocate_stack_object("list_remove_result", 8);
         let data_len_slot = self.allocate_stack_object("list_remove_data_len", 8);
@@ -2225,7 +2202,7 @@ impl CodeBuilder<'_> {
             &scratch15,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -2233,7 +2210,7 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -2403,7 +2380,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: format!("removeAt({list_type}, Integer) over {element_type}"),
         })
     }
@@ -2479,7 +2456,7 @@ impl CodeBuilder<'_> {
             &scratch10,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -2487,7 +2464,7 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -2503,7 +2480,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: output_type.to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: format!("reserved list {output_type}"),
         })
     }

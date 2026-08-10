@@ -23,6 +23,22 @@ combining sequence (`"a\u{301}"` = 2 scalars, 1 grapheme), a ZWJ emoji sequence
 scalars, 1 grapheme). Byte indices differ from scalar indices for any non-ASCII
 scalar (`é` = 2 bytes, `日` = 3, `😀` = 4). [[src/unicode/backend.rs:graphemes]]
 
+## Display columns (a measure, not an index)
+
+A fourth unit — the **display column** — is a *measure* of how many fixed-width
+terminal cells a string occupies, not an addressable index (you cannot slice by
+column). Each scalar's column width comes from the embedded utf8proc property
+table's `charwidth` field (`(flags >> 4) & 0b11`, see
+`01_tables-and-algorithms.md`): East-Asian-Wide and Wide scalars are 2 columns,
+most scalars are 1, and a zero-width scalar (a combining mark, folded into its
+base grapheme) contributes 0. `strings::displayWidth(s)` sums the per-grapheme
+width (the base scalar's width; combining marks add nothing), so a grapheme is 1
+or 2 columns regardless of its scalar count — `"café"` (NFD) is 4, `"日本語"` is 6,
+`"👨‍👩‍👧‍👦"` is 2. The `term::` backends lay one grapheme per cell at this width; a
+wide grapheme reserves a trailing cell and wraps at the right edge.
+[[src/builtins/strings.rs:DISPLAY_WIDTH]]
+[[src/unicode/runtime_tables.rs:charwidth]]
+
 ## Scalar / byte mapping
 
 The runtime converts between a scalar index and a byte offset on demand; it never

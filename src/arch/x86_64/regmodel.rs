@@ -336,16 +336,16 @@ mod tests {
         // spill/reload widths and mnemonics per class.
         let sp = m.emit_spill(RegClass::Int, "rbx", 8);
         assert_eq!(sp.op.mnemonic(), "str_u64");
-        assert_eq!(sp.get("src"), Some("rbx"));
-        assert_eq!(sp.get("base"), Some("rsp"));
-        assert_eq!(sp.get("offset"), Some("8"));
+        assert_eq!(sp.get("src").as_deref(), Some("rbx"));
+        assert_eq!(sp.get("base").as_deref(), Some("rsp"));
+        assert_eq!(sp.get("offset").as_deref(), Some("8"));
         assert_eq!(
             m.emit_spill(RegClass::Fp, "xmm0", 16).op.mnemonic(),
             "str_q"
         );
         let rl = m.emit_reload(RegClass::Int, "rbx", 8);
         assert_eq!(rl.op.mnemonic(), "ldr_u64");
-        assert_eq!(rl.get("dst"), Some("rbx"));
+        assert_eq!(rl.get("dst").as_deref(), Some("rbx"));
         assert_eq!(
             m.emit_reload(RegClass::Fp, "xmm0", 16).op.mnemonic(),
             "ldr_q"
@@ -354,8 +354,8 @@ mod tests {
         assert_eq!(m.spill_slot_bytes(), 16);
         let mv = m.emit_move("rbx", "r10");
         assert_eq!(mv.op.mnemonic(), "mov");
-        assert_eq!(mv.get("dst"), Some("rbx"));
-        assert_eq!(mv.get("src"), Some("r10"));
+        assert_eq!(mv.get("dst").as_deref(), Some("rbx"));
+        assert_eq!(mv.get("src").as_deref(), Some("r10"));
         assert_eq!(m.arena_base(), "r15");
         assert_eq!(m.math_pool_base(), None);
     }
@@ -399,24 +399,24 @@ mod tests {
         // Integer spill/reload use the 64-bit str/ldr; FP use the 128-bit movups.
         let int_spill = m.emit_spill(RegClass::Int, "rbx", 8);
         assert_eq!(int_spill.op.mnemonic(), "str_u64");
-        assert_eq!(int_spill.get("src"), Some("rbx"));
-        assert_eq!(int_spill.get("base"), Some("rsp"));
-        assert_eq!(int_spill.get("offset"), Some("8"));
+        assert_eq!(int_spill.get("src").as_deref(), Some("rbx"));
+        assert_eq!(int_spill.get("base").as_deref(), Some("rsp"));
+        assert_eq!(int_spill.get("offset").as_deref(), Some("8"));
         assert_eq!(
             m.emit_spill(RegClass::Fp, "xmm3", 16).op.mnemonic(),
             "str_q"
         );
         let int_reload = m.emit_reload(RegClass::Int, "rbx", 8);
         assert_eq!(int_reload.op.mnemonic(), "ldr_u64");
-        assert_eq!(int_reload.get("dst"), Some("rbx"));
+        assert_eq!(int_reload.get("dst").as_deref(), Some("rbx"));
         assert_eq!(
             m.emit_reload(RegClass::Fp, "xmm3", 16).op.mnemonic(),
             "ldr_q"
         );
         let mov = m.emit_move("rax", "rbx");
         assert_eq!(mov.op.mnemonic(), "mov");
-        assert_eq!(mov.get("dst"), Some("rax"));
-        assert_eq!(mov.get("src"), Some("rbx"));
+        assert_eq!(mov.get("dst").as_deref(), Some("rax"));
+        assert_eq!(mov.get("src").as_deref(), Some("rbx"));
         // arena_base is pinned to r15; the math pool base is an allocator vreg.
         assert_eq!(m.arena_base(), "r15");
         assert_eq!(m.math_pool_base(), None);

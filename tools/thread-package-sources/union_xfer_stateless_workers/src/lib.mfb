@@ -1,0 +1,20 @@
+IMPORT thread
+
+UNION Stream
+  File
+  Socket
+END UNION
+
+' plan-75: a *stateless* resource union was equally broken — its variant record
+' pointer aliased the sender's arena. The worker accepts a `RES Stream`, matches
+' the arrived variant, and returns a code (1 = File) — the value survives the
+' transfer's deep copy independently of the sender thread's freed arena.
+EXPORT ISOLATED FUNC takeUnionVariant(t AS ThreadWorker OF RES Stream TO Integer, seed AS String) AS Integer
+  RES s AS Stream = thread::accept(t, 1000)
+  MATCH s
+    CASE File(f)
+      RETURN 1
+    CASE Socket(sock)
+      RETURN 2
+  END MATCH
+END FUNC

@@ -30,51 +30,65 @@ entry, thread trampoline, arena mmap/munmap, and app-mode hooks. [[src/arch/x86_
 
 ## Instruction selection
 
-`select_x86(&[MirInstruction]) -> Vec<CodeInstruction>` mirrors `select_aarch64`'s
-structural conversion, reached through `Backend::select`. [[src/arch/x86_64/select.rs:select_x86]] [[src/arch/x86_64/backend.rs:select]]
+`select_x86(Vec<MirInstruction>) -> Vec<CodeInstruction>` mirrors `select_aarch64`'s
+structural conversion, reached through `Backend::select`. It consumes the MIR
+stream by value so each non-fused instruction's field bag is moved (not cloned)
+into the produced machine instruction. [[src/arch/x86_64/select.rs:select_x86]] [[src/arch/x86_64/backend.rs:select]]
 
 - `MirOp::AddrOf` → a single `Adrp` (the x86 encoder turns it into a RIP-relative
   `lea`; AArch64's page-offset second instruction becomes zero bytes here).
 - A fused flagless op is split via the shared `fused_setter_codeop` into its
   setter op plus the flag-reading branch (`cmp; jcc`), exactly the AArch64 shape.
 - Non-fused MIR ops map 1:1 to a `CodeOp` via `op.to_code()`.
-- After conversion, `ARENA_BASE` is renamed to `r15` and `remap_x86_abi` runs.
+- After conversion, `ARENA_BASE` is renamed to `r15` and every ABI token is
+  realized to its x86 register by a **direct table lookup** on its explicit
+  convention (no control-flow inference — plan-85).
 
 [[src/arch/x86_64/select.rs:select_x86]]
 
-**The hard part of selection is ABI remapping.** Shared lowering names its
-call-boundary registers by role token (`%arg`/`%ret`/`%sysnr`/`%sysarg`/`%sysret`/
-`%closure_env`), which a seam (`abi::realize_abi_token`)
-translates back to the AArch64 spelling (`%arg3` → `x3`, `%sysnr` → `x8`, …) before
-selection. A selected stream then still carries residual AArch64 physical registers
-(the ABI regs `x0`–`x8`, `sp`, `x31`/`xzr`, link reg `x30`, and leftover scratch
-`x9`–`x30`). `remap_x86_abi` rewrites them to System V homes. This is materially
-more complex than AArch64 selection because AArch64 has 8 argument registers while
-System V has 6, and because a register's role (argument vs return vs staged result)
-must be resolved by the nearest call / syscall / `ret` boundary along the
-control-flow graph:
+**ABI realization is a direct table lookup keyed on a convention-explicit token
+(plan-85, bug-387).** Shared lowering names each call-boundary register by a token
+that states its calling CONVENTION and role — the six-token vocabulary
+`%argMFB`/`%retMFB` (MFB internal), `%argC`/`%retC` (platform C ABI), `%argSys`/
+`%retSys` (kernel syscall). Every convention token is a typed
+`Operand::Abi{convention, role, index}` — plan-85-D typed every emission site, every
+parameter/result `location`, and the fused compare-branch / `addr_of` expansion, so
+a convention token never flows as a `Raw` string and there is no string-form realizer
+(the earlier `map_convention_token` seam was deleted with the last erasure).
+`select_x86` realizes each one directly:
 
-- `AbiBoundary` classifies each Call / Syscall / Ret boundary.
-- `map_abi_register` maps `x0`–`x8` to a home from `CALL_ARGS` / `SYS_ARGS` / `RETS`.
-- `map_scratch_register` maps residual `x9`+ scratch, deliberately avoiding `rax`
-  and `rdx` (implicit in `mul`/`div`) and arranging AArch64 callee-saved `x19`–`x28`
-  onto x86 callee-saved `rbx`/`rbp`/`r12`/`r13`.
-- The link register `x30` has no x86 equivalent (`call` pushes / `ret` pops), so
-  its frame save/restore is dropped entirely; `x31`/`xzr` is the zero register.
-- A forward CFG dataflow distinguishes call arguments from call results and
-  handles the runtime's 4-register error-`Result` convention.
+- A typed `Operand::Abi{convention, role, index}` → `realize_abi_operand` (a direct
+  table lookup). MFB's convention is **aligned**: `%argMFB`, `%retMFB`, and `%argC`
+  all draw from the call-argument bank (`[rdi,rsi,rdx,rcx,…]` on SysV — an MFB result
+  and its reuse as an argument are the SAME register, no staging move). Only a genuine
+  C/kernel RETURN keeps `rax`: `%retC` → `rax:rdx`, `%retSys` → `rax`, `%argSys` → the
+  syscall file (`rdi,rsi,rdx,r10,r8,r9`).
+- The syscall-number register `%sysnr` (the one neutral token with no convention
+  spelling) realizes to `rax`.
+- `realize_x86_residual` then maps the mechanical leftover a selected stream still
+  carries — the remaining neutral tokens (`%scratchN`/`%localN`/…) via
+  `realize_abi_token` to `x9`–`x30`, then scratch `x9`–`x30` via `map_scratch_register`
+  (avoiding `rax`/`rdx`, which `mul`/`div` use implicitly, and landing AArch64
+  callee-saved `x19`–`x28` on x86 callee-saved `rbx`/`rbp`/`r12`/`r13`), `sp` → `rsp`,
+  `x31`/`xzr` → the zero token, the `dN`/`vN`/`qN` float bank → `xmmN`, and the link
+  register `x30`/`lr` dropped (`call` pushes / `ret` pops). A residual `x0`–`x8` would
+  mean an unrealized ABI token escaped stage 1 and trips a `debug_assert`.
 
-> **Why the inference is needed.** Mapping role tokens straight to System V homes
-> is not sufficient on x86: the entry stub and runtime-helper bodies stage
-> call/syscall arguments through result-accessor registers (`%ret0`, and `x1`/`x2`
-> for string data/length) rather than `%arg` tokens. On AArch64 that is
-> byte-identical (both `%ret0` and `%arg0` realize `x0`), but on x86 the roles
-> diverge (`%ret0` → `rax`, an argument needs `rdi`). The forward-CFG inference is
-> what distinguishes an argument from a result by its nearest call/syscall/`ret`
-> boundary, so it cannot be dropped without those sites naming `%arg`/`%sysarg`
-> tokens explicitly.
+> **Why there is no CFG inference (and why there used to be).** Before plan-85 the
+> shared stream named call-boundary registers by an *overloaded* role token
+> (`%arg`/`%ret`) that collapsed to the same AArch64 `xN` for both roles, and the
+> entry/helper bodies staged call arguments through result-accessor registers. That
+> forced a 646-line `remap_x86_abi` forward-CFG fixpoint to re-infer, on x86, whether
+> each `xN` was an argument (`rdi`) or a result (`rax`) from its nearest call/
+> syscall/`ret` boundary. Making the tokens convention-EXPLICIT and aligning the MFB
+> convention removed the ambiguity, so the fixpoint was **deleted** — every register
+> is now a direct lookup. AArch64/RISC-V stay byte-identical (their banks are
+> positional — every convention/role collapses to `x{index}`); SysV-x86 moved to the
+> aligned layout. A C/kernel result (`rax`) that feeds an MFB consumer is staged into
+> the aligned bank once, at the `emit_linux_c_call` chokepoint, on `linux-x86_64`
+> only.
 
-[[src/arch/x86_64/select.rs:remap_x86_abi]] [[src/arch/x86_64/select.rs:map_abi_register]] [[src/arch/x86_64/select.rs:map_scratch_register]]
+[[src/arch/x86_64/select.rs:realize_abi_operand]] [[src/arch/x86_64/select.rs:realize_x86_residual]] [[src/arch/x86_64/select.rs:map_scratch_register]]
 
 ## Encoding (REX / ModRM / SIB)
 

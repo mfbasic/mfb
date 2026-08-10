@@ -59,6 +59,7 @@ TYPE __regex_Class
   neg AS Boolean
   fold AS Boolean
   items AS List OF __regex_ClassItem
+  ascii AS List OF Boolean
 END TYPE
 TYPE __regex_Anchor
   kind AS Integer
@@ -226,10 +227,10 @@ FUNC __regex_toScalars(s AS String) AS List OF String
 END FUNC
 
 FUNC __regex_makeCtx(value AS String) AS __regex_Ctx
-  LET chars AS List OF String = __regex_toScalars(value)
-  MUT cps AS List OF Integer = []
-  FOR EACH ch IN chars
-    cps = collections::append(cps, __regex_scalarToCp(ch))
+  LET cps AS List OF Integer = encoding::utf32Encode(value)
+  MUT chars AS List OF String = []
+  FOR EACH cp IN cps
+    chars = collections::append(chars, encoding::utf32Decode([cp]))
   NEXT
   RETURN __regex_Ctx[chars, cps, len(chars)]
 END FUNC
@@ -334,129 +335,17 @@ FUNC __regex_isGcName(name AS String) AS Boolean
   RETURN FALSE
 END FUNC
 
+' plan-77 R2: canonicalize against the full generated Unicode script list
+' (`__regex_scriptCanonName`, from third_party/unicode/Scripts-16.0.0.txt) instead
+' of the 10 hand-listed scripts.
 FUNC __regex_scriptCanon(low AS String) AS String
-  IF low = "latin" THEN
-    RETURN "Latin"
-  END IF
-  IF low = "greek" THEN
-    RETURN "Greek"
-  END IF
-  IF low = "cyrillic" THEN
-    RETURN "Cyrillic"
-  END IF
-  IF low = "han" THEN
-    RETURN "Han"
-  END IF
-  IF low = "hiragana" THEN
-    RETURN "Hiragana"
-  END IF
-  IF low = "katakana" THEN
-    RETURN "Katakana"
-  END IF
-  IF low = "hangul" THEN
-    RETURN "Hangul"
-  END IF
-  IF low = "arabic" THEN
-    RETURN "Arabic"
-  END IF
-  IF low = "hebrew" THEN
-    RETURN "Hebrew"
-  END IF
-  IF low = "common" THEN
-    RETURN "Common"
-  END IF
-  RETURN ""
+  RETURN __regex_scriptCanonName(low)
 END FUNC
 
+' plan-77 R2: a scalar is in script `name` iff its generated Script property
+' (`__regex_scriptOf`) equals `name`.
 FUNC __regex_scriptTest(name AS String, cp AS Integer) AS Boolean
-  IF name = "Latin" THEN
-    IF cp >= 65 AND cp <= 90 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 97 AND cp <= 122 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 192 AND cp <= 696 AND cp <> 215 AND cp <> 247 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 7680 AND cp <= 7935 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 65313 AND cp <= 65338 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 65345 AND cp <= 65370 THEN
-      RETURN TRUE
-    END IF
-    RETURN FALSE
-  END IF
-  IF name = "Greek" THEN
-    IF cp >= 880 AND cp <= 1023 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 7936 AND cp <= 8191 THEN
-      RETURN TRUE
-    END IF
-    RETURN FALSE
-  END IF
-  IF name = "Cyrillic" THEN
-    RETURN cp >= 1024 AND cp <= 1327
-  END IF
-  IF name = "Han" THEN
-    IF cp >= 19968 AND cp <= 40959 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 13312 AND cp <= 19903 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 63744 AND cp <= 64255 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 131072 AND cp <= 173791 THEN
-      RETURN TRUE
-    END IF
-    RETURN FALSE
-  END IF
-  IF name = "Hiragana" THEN
-    RETURN cp >= 12353 AND cp <= 12447
-  END IF
-  IF name = "Katakana" THEN
-    IF cp >= 12449 AND cp <= 12543 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 65382 AND cp <= 65439 THEN
-      RETURN TRUE
-    END IF
-    RETURN FALSE
-  END IF
-  IF name = "Hangul" THEN
-    IF cp >= 44032 AND cp <= 55203 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 4352 AND cp <= 4607 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 12592 AND cp <= 12687 THEN
-      RETURN TRUE
-    END IF
-    RETURN FALSE
-  END IF
-  IF name = "Arabic" THEN
-    IF cp >= 1536 AND cp <= 1791 THEN
-      RETURN TRUE
-    END IF
-    IF cp >= 1872 AND cp <= 1919 THEN
-      RETURN TRUE
-    END IF
-    RETURN FALSE
-  END IF
-  IF name = "Hebrew" THEN
-    RETURN cp >= 1425 AND cp <= 1524
-  END IF
-  IF name = "Common" THEN
-    RETURN cp < 65 OR (cp > 122 AND cp < 192)
-  END IF
-  RETURN FALSE
+  RETURN __regex_scriptOf(cp) = name
 END FUNC
 
 FUNC __regex_isScriptName(low AS String) AS Boolean
@@ -618,22 +507,29 @@ FUNC __regex_propMatchItem(name AS String, neg AS Boolean, cp AS Integer) AS Boo
 END FUNC
 
 FUNC __regex_classMatch(cls AS __regex_Class, pos AS Integer, ctx AS __regex_Ctx) AS Boolean
-  LET ch AS String = collections::get(ctx.text, pos)
   LET cp AS Integer = collections::get(ctx.cps, pos)
-  MUT hit AS Boolean = __regex_classMatchOne(cls.items, ch, cp)
-  IF cls.fold AND hit = FALSE THEN
-    LET lc AS String = strings::lower(ch)
-    IF lc <> ch AND len(lc) = 1 THEN
-      IF __regex_classMatchOne(cls.items, lc, __regex_scalarToCp(lc)) THEN
-        hit = TRUE
+  MUT hit AS Boolean = FALSE
+  IF cp >= 0 AND cp <= 127 THEN
+    ' plan-77 R4: O(1) precomputed ASCII membership (fold already baked in by
+    ' __regex_asciiClassBitset; `neg` is applied below, not in the bitset).
+    hit = collections::get(cls.ascii, cp)
+  ELSE
+    LET ch AS String = collections::get(ctx.text, pos)
+    hit = __regex_classMatchOne(cls.items, ch, cp)
+    IF cls.fold AND hit = FALSE THEN
+      LET lc AS String = strings::lower(ch)
+      IF lc <> ch AND len(lc) = 1 THEN
+        IF __regex_classMatchOne(cls.items, lc, __regex_scalarToCp(lc)) THEN
+          hit = TRUE
+        END IF
       END IF
     END IF
-  END IF
-  IF cls.fold AND hit = FALSE THEN
-    LET uc AS String = strings::upper(ch)
-    IF uc <> ch AND len(uc) = 1 THEN
-      IF __regex_classMatchOne(cls.items, uc, __regex_scalarToCp(uc)) THEN
-        hit = TRUE
+    IF cls.fold AND hit = FALSE THEN
+      LET uc AS String = strings::upper(ch)
+      IF uc <> ch AND len(uc) = 1 THEN
+        IF __regex_classMatchOne(cls.items, uc, __regex_scalarToCp(uc)) THEN
+          hit = TRUE
+        END IF
       END IF
     END IF
   END IF
@@ -969,8 +865,16 @@ FUNC __regex_searchFrom(prog AS __regex_Program, ctx AS __regex_Ctx, from AS Int
   ' bug-315: one budget per search, not per start offset -- the scan over start
   ' positions is itself part of the work an adversarial pattern multiplies.
   __regex_steps = 0
+  ' plan-77 R5: if the pattern must begin with a fixed literal code point, skip
+  ' start offsets that cannot match it instead of running the full engine at each.
+  LET firstCp AS Integer = __regex_requiredFirstCp(prog.root)
   MUT s AS Integer = from
   WHILE s <= ctx.n
+    IF firstCp >= 0 THEN
+      WHILE s < ctx.n AND collections::get(ctx.cps, s) <> firstCp
+        s = s + 1
+      END WHILE
+    END IF
     LET r AS __regex_Result = __regex_tryAt(prog, ctx, s)
     IF r.ok THEN
       RETURN r
@@ -1333,7 +1237,7 @@ FUNC __regex_parseClass(pat AS List OF String, n AS Integer, i AS Integer, flags
     items = collections::append(items, sng)
     count = count + 1
   LOOP
-  LET node AS __regex_Node = __regex_Class[neg, flags.ci, items]
+  LET node AS __regex_Node = __regex_makeClass(neg, flags.ci, items)
   RETURN __regex_Parse[node, idx, g, names]
 END FUNC
 
@@ -1588,14 +1492,14 @@ FUNC __regex_parseEscapeAtom(pat AS List OF String, n AS Integer, i AS Integer, 
   IF sk <> 0 THEN
     LET item AS __regex_ClassItem = __regex_Short[sk]
     LET items AS List OF __regex_ClassItem = [item]
-    LET node AS __regex_Node = __regex_Class[FALSE, flags.ci, items]
+    LET node AS __regex_Node = __regex_makeClass(FALSE, flags.ci, items)
     RETURN __regex_Parse[node, i + 2, g, names]
   END IF
   IF e = "p" OR e = "P" THEN
     LET pp AS __regex_PropParse = __regex_parseProp(pat, n, i + 2, (e = "P"))
     LET item AS __regex_ClassItem = __regex_Prop[pp.name, pp.neg]
     LET items AS List OF __regex_ClassItem = [item]
-    LET node AS __regex_Node = __regex_Class[FALSE, flags.ci, items]
+    LET node AS __regex_Node = __regex_makeClass(FALSE, flags.ci, items)
     RETURN __regex_Parse[node, pp.nxt, g, names]
   END IF
   LET lit AS __regex_LitScalar = __regex_parseLiteralEscape(pat, n, i, flags.verbose)
@@ -1975,4 +1879,67 @@ FUNC __regex_replace(value AS String, pattern AS String, replacement AS String) 
   NEXT
   out = out & strings::mid(value, cursor, ctx.n - cursor)
   RETURN out
+END FUNC
+
+' plan-77 R4: precompute a 0..127 ASCII membership table for a character class so
+' __regex_classMatch does an O(1) lookup per input position instead of an
+' O(items) scan (plus its string comparisons). Built ONCE when the class node is
+' constructed, using the exact same logic __regex_classMatch would run for a
+' non-ASCII scalar — __regex_classMatchOne with case folding applied when the
+' class is case-insensitive. `neg` is NOT baked in here; __regex_classMatch
+' negates the looked-up bit so a single table serves both `[…]` and `[^…]`.
+FUNC __regex_asciiClassBitset(items AS List OF __regex_ClassItem, fold AS Boolean) AS List OF Boolean
+  MUT bits AS List OF Boolean = []
+  MUT cp AS Integer = 0
+  WHILE cp <= 127
+    LET ch AS String = encoding::utf32Decode([cp])
+    MUT hit AS Boolean = __regex_classMatchOne(items, ch, cp)
+    IF fold AND hit = FALSE THEN
+      LET lc AS String = strings::lower(ch)
+      IF lc <> ch AND len(lc) = 1 THEN
+        IF __regex_classMatchOne(items, lc, __regex_scalarToCp(lc)) THEN
+          hit = TRUE
+        END IF
+      END IF
+    END IF
+    IF fold AND hit = FALSE THEN
+      LET uc AS String = strings::upper(ch)
+      IF uc <> ch AND len(uc) = 1 THEN
+        IF __regex_classMatchOne(items, uc, __regex_scalarToCp(uc)) THEN
+          hit = TRUE
+        END IF
+      END IF
+    END IF
+    bits = collections::append(bits, hit)
+    cp = cp + 1
+  END WHILE
+  RETURN bits
+END FUNC
+
+FUNC __regex_makeClass(neg AS Boolean, fold AS Boolean, items AS List OF __regex_ClassItem) AS __regex_Class
+  RETURN __regex_Class[neg, fold, items, __regex_asciiClassBitset(items, fold)]
+END FUNC
+
+' plan-77 R5: the code point a match MUST begin with, or -1 when the pattern has
+' no fixed first literal (so __regex_searchFrom can fast-skip start offsets). Only
+' a non-folding literal yields a fixed cp; Concat/Group are transparent to their
+' first child. Everything else (Any, Class, Anchor, Alt, Repeat — which may be
+' optional or multi-valued) is conservatively "unknown" (-1).
+FUNC __regex_requiredFirstCp(node AS __regex_Node) AS Integer
+  MATCH node
+    CASE __regex_Lit(lit)
+      IF lit.fold THEN
+        RETURN -1
+      END IF
+      RETURN __regex_scalarToCp(lit.ch)
+    CASE __regex_Concat(cat)
+      IF len(cat.parts) = 0 THEN
+        RETURN -1
+      END IF
+      RETURN __regex_requiredFirstCp(collections::get(cat.parts, 0))
+    CASE __regex_Group(grp)
+      RETURN __regex_requiredFirstCp(grp.child)
+    CASE ELSE
+      RETURN -1
+  END MATCH
 END FUNC

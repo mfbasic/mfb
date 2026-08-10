@@ -1,0 +1,35 @@
+' plan-77 C3: csv dialect (custom delimiter / quote / newline) round trip.
+IMPORT collections
+IMPORT csv
+IMPORT io
+
+FUNC main() AS Integer
+  ' Semicolon delimiter, single-quote quote. "b;c" needs quoting (delimiter),
+  ' "d'e" needs quoting (quote char, doubled to ''). Display with "|" newline.
+  LET grid AS List OF List OF String = [["a", "b;c", "d'e"], ["1", "2", "3"]]
+  io::print("semi=" & csv::stringify(grid, ";", "'", "|"))
+
+  ' Full round trip through the same dialect recovers the cells exactly.
+  LET back AS List OF List OF String = csv::parse(csv::stringify(grid, ";", "'", "\n"), ";", "'")
+  io::print("rows=" & toString(len(back)))
+  io::print("r0f1=" & collections::get(collections::get(back, 0), 1))
+  io::print("r0f2=" & collections::get(collections::get(back, 0), 2))
+
+  ' Tab-delimited parse.
+  LET tsv AS List OF List OF String = csv::parse("x\ty\tz", "\t", "\"")
+  io::print("tsvcols=" & toString(len(collections::get(tsv, 0))))
+
+  ' The one-argument default is still RFC-4180 (comma, double quote).
+  io::print("default=" & csv::stringify([["p,q", "r"]]))
+
+  ' plan-77 C4: streaming read yields the same rows as csv::parse, incl. dialect.
+  MUT streamed AS Integer = 0
+  MUT row AS CsvRow = csv::readRow(csv::parseStream("x;'y;z';w", ";", "'"))
+  WHILE row.done = FALSE
+    io::print("stream row " & toString(streamed) & " ncols=" & toString(len(row.fields)) & " f1=" & collections::get(row.fields, 1))
+    streamed = streamed + 1
+    row = csv::readRow(row.reader)
+  END WHILE
+  io::print("streamed=" & toString(streamed))
+  RETURN 0
+END FUNC

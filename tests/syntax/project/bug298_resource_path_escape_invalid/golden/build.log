@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/project/bug298_resource_path_escape_invalid
+  11 |     }
+  12 |   ],
+  13 |   "resources": [
+     |   ^^^^^^^^^^^
+tests/syntax/project/bug298_resource_path_escape_invalid/project.json:13 error[2-200-0006 PROJECT_JSON_FIELD_TYPE]: project.json field has the wrong type
+               Resource entry #0 field `src` contains a `..` component (`../outside/secret.conf`) — it may not escape the project root. A resource source is a glob relative to the project root.
+[exit 1]

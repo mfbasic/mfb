@@ -1,0 +1,12 @@
+{
+  "name": "thread_resource_transfer_fail_reclaim",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "thread_res_sink", "version": "=0.1.0", "source": "file:packages/thread_res_sink.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

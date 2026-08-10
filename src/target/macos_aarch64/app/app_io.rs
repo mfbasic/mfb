@@ -285,11 +285,11 @@ fn emit_set_input_mode_instructions(asm: &mut Asm, mode: &str) {
     // which the plan-34-D stream guard requires to be token-pure. The tokens
     // realize to the same x0–x3 at the selection seam.
     asm.load_selector(SEL_SHARED_APPLICATION.0);
-    asm.external_data(abi::ARG[0], CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.external_data(abi::mfb_arg(0), CLASS_NS_APPLICATION, LIB_APPKIT);
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.local_address(abi::ARG[1], INPUT_MODE_KEY);
-    asm.push(abi::move_immediate(abi::ARG[2], "Integer", mode));
-    asm.push(abi::move_immediate(abi::ARG[3], "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
+    asm.local_address(abi::mfb_arg(1), INPUT_MODE_KEY);
+    asm.push(abi::move_immediate(abi::mfb_arg(2), "Integer", mode));
+    asm.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
     asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
 }
 
@@ -629,9 +629,58 @@ pub(crate) fn emit_app_term_helper(
         "term.showCursor" => emit_app_set_cursor_visible(symbol, term_state_offset, "1"),
         "term.hideCursor" => emit_app_set_cursor_visible(symbol, term_state_offset, "0"),
         "term.terminalSize" => emit_app_terminal_size(symbol, term_state_offset),
+        "term.didResize" => emit_app_did_resize(symbol),
         _ => return None,
     };
     Some(helper)
+}
+
+/// `term::didResize()` app arm (planning/term.md #11): OK(Boolean) = the cached
+/// resize flag on TVSTATE, read-and-cleared so it latches from a genuine window
+/// resize (set by the `setFrameSize:` IMP) until the program observes it. Headless
+/// (no attached surface) reads false. Result ABI x0=tag, x1=value.
+fn emit_app_did_resize(symbol: &str) -> AppHookBody {
+    let mut asm = Asm::new(symbol);
+    // Frame: lr@0, x20(state)@8.
+    let frame = 16;
+    let false_label = format!("{symbol}_false");
+    let done = format!("{symbol}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
+    // Load TVSTATE (clobbers x0/x1, not x19); nil (headless) → false.
+    emit_get_tv_state(&mut asm, abi::LOCAL[1], &false_label);
+    // value = TVSTATE.didResize, then clear it (read-and-clear).
+    asm.push(abi::load_u64("x1", abi::LOCAL[1], TV_DID_RESIZE_OFFSET));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[1],
+        TV_DID_RESIZE_OFFSET,
+    ));
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // OK tag
+    asm.push(abi::branch(&done));
+    asm.push(abi::label(&false_label));
+    asm.push(abi::move_immediate("x1", "Integer", "0")); // false
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // OK tag
+    asm.push(abi::label(&done));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
 }
 
 /// `term::sync()` app arm (plan-35-D §3). The single present: marshal a
@@ -995,7 +1044,11 @@ fn emit_app_draw_line(symbol: &str, term_state_offset: usize, is_horizontal: boo
     let done = format!("{symbol}_done");
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
     asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 16));
     asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 24));
@@ -1038,7 +1091,10 @@ fn emit_app_draw_line(symbol: &str, term_state_offset: usize, is_horizontal: boo
     ));
     for (ordinal, codepoint) in table.iter().enumerate().skip(1) {
         let next = format!("{symbol}_g{ordinal}");
-        asm.push(abi::compare_immediate(abi::SCRATCH[0], &ordinal.to_string()));
+        asm.push(abi::compare_immediate(
+            abi::SCRATCH[0],
+            &ordinal.to_string(),
+        ));
         asm.push(abi::branch_ne(&next));
         asm.push(abi::move_immediate(
             abi::SCRATCH[1],
@@ -1049,19 +1105,39 @@ fn emit_app_draw_line(symbol: &str, term_state_offset: usize, is_horizontal: boo
         asm.push(abi::label(&next));
     }
     asm.push(abi::label(&gdone));
-    asm.push(abi::store_u64(abi::SCRATCH[1], abi::LOCAL[2], TV_DRAW_GLYPH_OFFSET));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[1],
+        abi::LOCAL[2],
+        TV_DRAW_GLYPH_OFFSET,
+    ));
     asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 40));
-    asm.push(abi::store_u64(abi::SCRATCH[0], abi::LOCAL[2], TV_DRAW_FIXED_OFFSET));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[2],
+        TV_DRAW_FIXED_OFFSET,
+    ));
     asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 48));
-    asm.push(abi::store_u64(abi::SCRATCH[0], abi::LOCAL[2], TV_DRAW_LO_OFFSET));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[2],
+        TV_DRAW_LO_OFFSET,
+    ));
     asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 56));
-    asm.push(abi::store_u64(abi::SCRATCH[0], abi::LOCAL[2], TV_DRAW_HI_OFFSET));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[2],
+        TV_DRAW_HI_OFFSET,
+    ));
     asm.push(abi::move_immediate(
         abi::SCRATCH[0],
         "Integer",
         if is_horizontal { "1" } else { "0" },
     ));
-    asm.push(abi::store_u64(abi::SCRATCH[0], abi::LOCAL[2], TV_DRAW_HORIZ_OFFSET));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[2],
+        TV_DRAW_HORIZ_OFFSET,
+    ));
     // [tv performSelectorOnMainThread:@selector(mfbDrawLine:) withObject:nil
     //     waitUntilDone:YES]
     asm.load_selector(SEL_MFB_DRAW_LINE.0);
@@ -1119,7 +1195,11 @@ fn emit_app_draw_box(symbol: &str, term_state_offset: usize) -> AppHookBody {
     let dst = abi::SCRATCH[1];
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
     asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 16));
     asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 24));
@@ -1211,7 +1291,11 @@ fn emit_app_fill_rect(symbol: &str, term_state_offset: usize) -> AppHookBody {
     let dst = abi::SCRATCH[1];
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
     asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 16));
     asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 24));
@@ -1292,7 +1376,11 @@ fn emit_app_draw_glyph(symbol: &str, term_state_offset: usize) -> AppHookBody {
     let v = abi::SCRATCH[0];
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
     asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 16));
     asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 24));
@@ -1364,7 +1452,11 @@ fn emit_app_draw_text(symbol: &str, term_state_offset: usize) -> AppHookBody {
     let v = abi::SCRATCH[0];
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
     asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 16));
     asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 24));
@@ -1405,7 +1497,7 @@ fn emit_app_draw_text(symbol: &str, term_state_offset: usize) -> AppHookBody {
     asm.push(abi::move_register("x0", abi::LOCAL[2]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[2], "x0")); // nsstr
-    // [tv performSelectorOnMainThread:mfbDrawText: withObject:nsstr waitUntilDone:YES]
+                                                       // [tv performSelectorOnMainThread:mfbDrawText: withObject:nsstr waitUntilDone:YES]
     asm.load_selector(SEL_MFB_DRAW_TEXT.0);
     asm.push(abi::move_register(abi::LOCAL[3], "x1"));
     asm.load_selector(SEL_PERFORM_ON_MAIN.0);

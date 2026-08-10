@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
 use super::descriptor::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, DefaultResolver,
-    DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType,
+    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver,
+    DefaultResolver, DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType,
 };
 
 const ERROR: &str = "error";
@@ -350,6 +350,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
                         | "String"
                         | "Byte"
                         | "Scalar"
+                        | "AttributedString"
                 ) || arg_types[0] == "List OF Byte")
             {
                 ResolvedCall {
@@ -507,6 +508,19 @@ pub(super) fn list_element(type_name: &str) -> Option<&str> {
 pub(super) fn map_parts(type_name: &str) -> Option<(&str, &str)> {
     let (key, value) = type_name.strip_prefix("Map OF ")?.split_once(" TO ")?;
     Some((key, value.strip_prefix("RES ").unwrap_or(value)))
+}
+
+/// Whether a collection element type accepts a candidate item type, ignoring a
+/// uniform `STATE T` clause either side may carry (bug-427). A stateful
+/// resource-union element (`Stream STATE PendingState`) keeps its STATE clause in
+/// the list's type string so an extracted element can read `.state`, but a
+/// resource item is compared by its bare handle type (the STATE is opaque at the
+/// insertion position, and `ir::verify` already strips it from arguments). For a
+/// non-resource element both sides pass through `base_resource_name` unchanged,
+/// so this is an exact-match compare there.
+pub(super) fn element_accepts_item(element: &str, item: &str) -> bool {
+    crate::builtins::resource::base_resource_name(element)
+        == crate::builtins::resource::base_resource_name(item)
 }
 
 /// The element type of a `Set OF T` (plan-63). A Set element is always
@@ -942,7 +956,10 @@ mod tests {
             expected_arguments(TO_MONEY),
             Some("String, Integer, Float, Fixed, or Byte")
         );
-        assert_eq!(expected_arguments(TO_SCALAR), Some("Integer, String, or Byte"));
+        assert_eq!(
+            expected_arguments(TO_SCALAR),
+            Some("Integer, String, or Byte")
+        );
     }
 
     #[test]
@@ -968,5 +985,4 @@ mod tests {
         // An unbalanced parameter list has no top-level close paren.
         assert_eq!(function_parts("FUNC(FUNC(Integer) AS Integer"), None);
     }
-
 }

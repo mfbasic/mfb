@@ -53,7 +53,7 @@ pub(super) fn emit_env_lock(ctx: &mut EmitCtx) -> Result<(), String> {
     push_symbol_address(
         symbol,
         OS_ENV_LOCK_SYMBOL,
-        abi::ARG[0],
+        abi::c_arg(0),
         ctx.instructions,
         ctx.relocations,
     );
@@ -90,7 +90,7 @@ pub(super) fn emit_env_unlock_return(ctx: &mut EmitCtx, vregs: &mut Vregs) -> Re
     push_symbol_address(
         symbol,
         OS_ENV_LOCK_SYMBOL,
-        abi::ARG[0],
+        abi::c_arg(0),
         ctx.instructions,
         ctx.relocations,
     );
@@ -127,9 +127,12 @@ pub(super) fn lower_get_env(
     let fallback = vregs.next();
     let cname = vregs.next();
     let value = vregs.next();
-    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, abi::ARG[0])];
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&name, abi::c_arg(0)),
+    ];
     if with_fallback {
-        instructions.push(abi::move_register(&fallback, abi::ARG[1]));
+        instructions.push(abi::move_register(&fallback, abi::c_arg(1)));
     }
     let mut relocations = Vec::new();
     // Serialize the whole `getenv` + marshal-into-arena against a concurrent
@@ -151,12 +154,17 @@ pub(super) fn lower_get_env(
         &mut instructions,
         &mut relocations,
     );
-    instructions.push(abi::move_register(abi::ARG[0], &cname));
+    instructions.push(abi::move_register(abi::c_arg(0), &cname));
     // Windows has no `getenv`: GetEnvironmentVariableW + UTF-16↔UTF-8 marshal,
     // leaving a UTF-8 value C-string pointer (0 = unset) in the return register —
     // the same contract the not-found/build-string tail below expects (plan-66-B).
     if platform.family() == PlatformFamily::Windows {
-        platform.emit_env_get(symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_env_get(
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
     } else {
         platform.emit_libc_call(
             "getenv",
@@ -167,7 +175,8 @@ pub(super) fn lower_get_env(
         )?;
     }
     instructions.extend([
-        abi::move_register(&value, abi::return_register()),
+        // plan-85: getenv's char* return is a C result (`rax`, `%retC`).
+        abi::move_register(&value, abi::c_return(0)),
         abi::compare_immediate(&value, "0"),
         abi::branch_eq(&not_found),
     ]);
@@ -196,7 +205,7 @@ pub(super) fn lower_get_env(
         instructions.extend([
             abi::load_u64(&flen, &fallback, 0),
             abi::add_immediate(abi::return_register(), &flen, 9),
-            abi::move_immediate(abi::ARG[1], "Integer", "8"),
+            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
             abi::branch_link(ARENA_ALLOC_SYMBOL),
         ]);
         alloc_reloc(symbol, &mut relocations);
@@ -204,7 +213,7 @@ pub(super) fn lower_get_env(
             abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
             abi::branch_ne(&alloc_error),
             abi::label(&alloc_ok),
-            abi::move_register(&block, abi::RET[1]),
+            abi::move_register(&block, abi::mfb_return(1)),
             abi::load_u64(&flen, &fallback, 0),
             abi::store_u64(&flen, &block, 0),
             abi::add_immediate(&src, &fallback, 8),
@@ -259,7 +268,10 @@ pub(super) fn lower_has_env(
     let mut vregs = Vregs::new();
     let name = vregs.next();
     let cname = vregs.next();
-    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, abi::ARG[0])];
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&name, abi::c_arg(0)),
+    ];
     let mut relocations = Vec::new();
     // Serialize the `getenv` probe against a concurrent `os::setEnv` relocating
     // `environ` (bug-64).
@@ -280,12 +292,17 @@ pub(super) fn lower_has_env(
         &mut instructions,
         &mut relocations,
     );
-    instructions.push(abi::move_register(abi::ARG[0], &cname));
+    instructions.push(abi::move_register(abi::c_arg(0), &cname));
     // Windows: GetEnvironmentVariableW (via emit_env_get) leaves a non-zero UTF-8
     // value pointer when the variable exists, 0 when unset — the same nonzero-means-
     // present test as POSIX getenv (plan-66-B).
     if platform.family() == PlatformFamily::Windows {
-        platform.emit_env_get(symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_env_get(
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
     } else {
         platform.emit_libc_call(
             "getenv",
@@ -296,7 +313,8 @@ pub(super) fn lower_has_env(
         )?;
     }
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
+        // plan-85: getenv's char* return is a C result (`rax`, `%retC`).
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_ne(&present),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -343,8 +361,8 @@ pub(super) fn lower_set_env(
     let errno = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::move_register(&name, abi::ARG[0]),
-        abi::move_register(&value, abi::ARG[1]),
+        abi::move_register(&name, abi::c_arg(0)),
+        abi::move_register(&value, abi::c_arg(1)),
     ];
     let mut relocations = Vec::new();
     // Hold the lock across `setenv` so a concurrent env reader on another thread
@@ -377,15 +395,20 @@ pub(super) fn lower_set_env(
         &mut relocations,
     );
     instructions.extend([
-        abi::move_register(abi::ARG[0], &cname),
-        abi::move_register(abi::ARG[1], &cvalue),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
+        abi::move_register(abi::c_arg(0), &cname),
+        abi::move_register(abi::c_arg(1), &cvalue),
+        abi::move_immediate(abi::c_arg(2), "Integer", "1"),
     ]);
     // Windows: SetEnvironmentVariableW(wideName, wideValue) via emit_env_set, which
     // marshals both and returns the POSIX convention (0 = success) the branch below
     // expects (plan-66-B).
     if platform.family() == PlatformFamily::Windows {
-        platform.emit_env_set(symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_env_set(
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
     } else {
         platform.emit_libc_call(
             "setenv",
@@ -408,7 +431,7 @@ pub(super) fn lower_set_env(
     // ErrInvalidArgument: empty name, or a name containing '=').
     platform.emit_errno(
         symbol,
-        &errno,
+        (&errno).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -449,7 +472,10 @@ pub(super) fn lower_unset_env(
     let mut vregs = Vregs::new();
     let name = vregs.next();
     let cname = vregs.next();
-    let mut instructions = vec![abi::label("entry"), abi::move_register(&name, abi::ARG[0])];
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&name, abi::c_arg(0)),
+    ];
     let mut relocations = Vec::new();
     // Hold the lock across `unsetenv` so a concurrent env reader on another thread
     // never observes a half-relocated `environ` (bug-64).
@@ -470,12 +496,17 @@ pub(super) fn lower_unset_env(
         &mut instructions,
         &mut relocations,
     );
-    instructions.push(abi::move_register(abi::ARG[0], &cname));
+    instructions.push(abi::move_register(abi::c_arg(0), &cname));
     // Windows: SetEnvironmentVariableW(name, NULL) deletes the variable; a NULL
     // value pointer in ARG[1] selects the delete path in emit_env_set (plan-66-B).
     if platform.family() == PlatformFamily::Windows {
-        instructions.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
-        platform.emit_env_set(symbol, platform_imports, &mut instructions, &mut relocations)?;
+        instructions.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
+        platform.emit_env_set(
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
     } else {
         platform.emit_libc_call(
             "unsetenv",
@@ -620,7 +651,7 @@ pub(super) fn lower_environ(
         abi::multiply_registers(&scratch, &count, &scratch),
         abi::add_registers(&scratch, &scratch, &data_bytes),
         abi::add_immediate(abi::return_register(), &scratch, COLLECTION_HEADER_SIZE),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(symbol, &mut relocations);
@@ -628,7 +659,7 @@ pub(super) fn lower_environ(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&collection, abi::RET[1]),
+        abi::move_register(&collection, abi::mfb_return(1)),
         // Header.
         abi::move_immediate(&scratch, "Byte", &COLLECTION_KIND_MAP.to_string()),
         abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_KIND),

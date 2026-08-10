@@ -1,0 +1,10 @@
+IMPORT io
+
+REM plan-78 benchmark probe: the trivial baseline. A single print with no
+REM regex/collection/transcendental lowering, so its compile time is dominated
+REM by fixed front-end + link cost, not by the lowering/regalloc hot path this
+REM plan speeds up. Establishes the floor the other two probes are measured against.
+FUNC main AS Integer
+  io::print("bench")
+  RETURN 0
+END FUNC

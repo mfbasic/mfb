@@ -1117,8 +1117,9 @@ mod tests {
         };
         let faults = check_struct_slot(&view);
         assert!(
-            faults.iter().any(|f| f.rule == "NATIVE_CSTRUCT_INVALID"
-                && f.message.contains("CPtr")),
+            faults
+                .iter()
+                .any(|f| f.rule == "NATIVE_CSTRUCT_INVALID" && f.message.contains("CPtr")),
             "expected a CPtr fault"
         );
     }
@@ -1139,8 +1140,7 @@ mod tests {
         assert!(
             faults
                 .iter()
-                .any(|f| f.rule == "NATIVE_STRUCT_FIELD_MISMATCH"
-                    && f.message.contains("count")),
+                .any(|f| f.rule == "NATIVE_STRUCT_FIELD_MISMATCH" && f.message.contains("count")),
             "expected a coverage-must-be-total fault for `count`"
         );
     }
@@ -1176,7 +1176,10 @@ mod tests {
         // CONST pin) is a causality error: `n` has no value before the call.
         let view = BufferSlotsView {
             function: "read",
-            slots: vec![("buf", "CBuffer", AbiDirection::Out), ("n", "CInt32", AbiDirection::In)],
+            slots: vec![
+                ("buf", "CBuffer", AbiDirection::Out),
+                ("n", "CInt32", AbiDirection::In),
+            ],
             buffers: vec![("buf", vec!["n"])],
             const_slots: vec![],
             param_names: vec![],

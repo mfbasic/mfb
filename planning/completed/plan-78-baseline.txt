@@ -1,0 +1,41 @@
+plan-78 lowering/regalloc benchmark baselines (pre-B/C)
+=======================================================
+
+Measured 2026-08-02 on the plan-78 integration worktree, HEAD forked from main
+36b9a08cc, via `bash scripts/bench-lowering.sh` (two full runs). Host: darwin
+24.6.0 (Apple Silicon, aarch64). Timings are wall-clock seconds of the compile
+(`-ncode` dump for the two synthetic probes; `mfb test` compile+run for the
+acceptance suite), for both the debug and release compiler.
+
+Probe          | debug (run1 / run2)   | release (run1 / run2)
+---------------+-----------------------+----------------------
+trivial        | 0.73 / 0.61           | 0.41 / 0.35
+one-regex      | 33.13 / 29.21         | 6.73 / 6.72
+acceptance     | 267.47 / 266.24       | 57.47 / 52.75
+
+Two-run spread is within +-20% on every probe (acceptance debug <1%), so the
+harness is a stable oracle for B/C before/after comparison.
+
+Inlined regex function size (pre-allocation, one-regex probe)
+------------------------------------------------------------
+The single constant `regex::match("a","a")` lowers the regex engine inline as
+one function the allocator colors whole:
+
+    instructions = 860,981
+    int vregs    = 135,293
+    fp vregs     = 0
+
+(Captured via the `MFB_BENCH_LOWERING` env-gated size probe in
+`regalloc::allocate`, which reports any function of >=100k instructions just
+before coloring. The post-allocation `-ncode` dump shows the same body larger
+still after spill code is inserted; the 860,981 above is what regalloc receives.)
+
+This is the workload plan-78-C targets: ~135k integer virtual registers colored
+in one function, where the analysis `str::eq`/SipHash hot loops and the
+`colored_mask_at` O(vregs x interval) spill construction dominate. The fp file
+is unused here (regex is integer-only), so the int class carries the whole cost.
+
+Perf goals to meet after C (from plan-78-C Goal):
+  one-regex debug        <= 3 s   (from ~29-33 s)
+  mfb test tests/acceptance debug <= 60 s (from ~266 s / 4m26s)
+with `artifact-gate ... all` still byte-identical throughout.

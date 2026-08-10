@@ -147,7 +147,12 @@ impl TypeEnv {
                         base = resource_base_type(t);
                     }
                 }
-                if matches!(base, "Error" | "ErrorLoc") {
+                if base == "AttributedString" {
+                    self.emit(
+                        "TYPE_READ_ONLY_RECORD_UPDATE",
+                        "`AttributedString` is an opaque built-in type and cannot be updated with `WITH`.".to_string(),
+                    );
+                } else if matches!(base, "Error" | "ErrorLoc") {
                     self.emit(
                         "TYPE_READ_ONLY_RECORD_UPDATE",
                         format!("`{base}` is a read-only built-in record and cannot be updated."),
@@ -296,9 +301,22 @@ impl TypeEnv {
         let Some(inner) = self.infer_type(value, locals) else {
             return;
         };
-        let Some(element) = resource_base_type(&inner).strip_prefix("Result OF ") else {
+        // Strip the `Result OF ` wrapper FIRST, then normalize the success
+        // type's resource base the same way `annotated` is normalized above
+        // (drop `RES ` + any ` STATE T`). Base-normalizing the composite
+        // `Result OF <res> STATE T` string first is a no-op — `base_resource_name`
+        // declines to split a ` STATE ` whose base contains a space — so the
+        // element would keep its STATE (`Stream STATE PendingState`) while the
+        // annotation was reduced to its base (`Stream`), and a correct,
+        // STATE-carrying resource-union `ResultValue` (the only IR shape that
+        // hits this) would be rejected asymmetrically (bug-429). Its
+        // `type_ == success_type` invariant holds; the two sides must normalize
+        // identically.
+        let inner_base = inner.strip_prefix("RES ").unwrap_or(&inner);
+        let Some(success) = inner_base.strip_prefix("Result OF ") else {
             return; // the value is not a known `Result` → nothing to reconcile
         };
+        let element = resource_base_type(success);
         if element.is_empty() || element == "Unknown" {
             return;
         }

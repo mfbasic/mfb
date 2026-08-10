@@ -160,16 +160,19 @@ pub(crate) fn default_argument_padding(
 }
 
 pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
-    // The engine and the generated Unicode general-category table
-    // (`unicode_gencat.mfb`, see `scripts/gen_regex_unicode.py`) are kept as
-    // separate physical files so the table can be regenerated mechanically, but
-    // they compile as one source file: MFBASIC `FUNC`s are file-local unless
-    // exported, and `PACKAGE` visibility is not valid in an executable, so the
-    // engine's calls to `__regex_genCat` must be intra-file.
+    // The engine and the two generated Unicode tables — general-category
+    // (`unicode_gencat.mfb`, see `scripts/gen_regex_unicode.py`) and the Script
+    // property (`unicode_scripts.mfb`, see `scripts/gen_regex_scripts.py`,
+    // plan-77 R2) — are kept as separate physical files so each table can be
+    // regenerated mechanically, but they compile as one source file: MFBASIC
+    // `FUNC`s are file-local unless exported, and `PACKAGE` visibility is not
+    // valid in an executable, so the engine's calls to `__regex_genCat` /
+    // `__regex_scriptOf` / `__regex_scriptCanonName` must be intra-file.
     let combined = format!(
-        "{}\n{}",
+        "{}\n{}\n{}",
         include_str!("regex_package.mfb"),
         include_str!("unicode_gencat.mfb"),
+        include_str!("unicode_scripts.mfb"),
     );
     crate::ast::parse_source_internal(
         Path::new("<builtin-regex>"),
@@ -307,10 +310,7 @@ mod tests {
         assert_eq!(func.name, MATCH);
         assert_eq!(func.doc_slug, "match");
         assert_eq!(func.overloads.len(), 1);
-        assert_eq!(
-            func.implementation,
-            Implementation::Rewrite(INTERNAL_MATCH)
-        );
+        assert_eq!(func.implementation, Implementation::Rewrite(INTERNAL_MATCH));
         assert_eq!(func.lowering, Lowering::Helper);
         assert!(!func.flags.internal_only);
         assert!(!func.flags.return_type_overloaded);

@@ -640,6 +640,11 @@ impl<'a> FileParser<'a> {
                 // whose scope-ownership transfers across a function boundary.
                 let value_res = self.match_keyword(Keyword::Res);
                 let second = self.parse_type_name()?;
+                // A stateful resource-union value carries a uniform `STATE T`
+                // clause on the element (`Map OF K TO RES Stream STATE S`,
+                // bug-427), folded into the value type string exactly as the
+                // thread resource plane does (`parse_resource_plane_type`).
+                let second = self.parse_optional_element_state(second, value_res)?;
                 name.push_str(" OF ");
                 name.push_str(&first);
                 name.push_str(" TO ");
@@ -658,6 +663,11 @@ impl<'a> FileParser<'a> {
                 let element_res =
                     name.eq_ignore_ascii_case("List") && self.match_keyword(Keyword::Res);
                 let arg = self.parse_type_name()?;
+                // A stateful resource-union element carries a uniform `STATE T`
+                // clause (`List OF RES Stream STATE S`, bug-427), folded into the
+                // element type string exactly as the thread resource plane does
+                // (`parse_resource_plane_type`).
+                let arg = self.parse_optional_element_state(arg, element_res)?;
                 name.push_str(" OF ");
                 if element_res {
                     name.push_str("RES ");
@@ -763,6 +773,39 @@ impl<'a> FileParser<'a> {
             Some(state) => Some(format!("{resource} STATE {state}")),
             None => Some(resource),
         }
+    }
+
+    /// Fold an optional `STATE T` clause into a collection element/value type
+    /// (`RES Stream STATE PendingState`, bug-427), mirroring the thread resource
+    /// plane's `parse_resource_plane_type`. A stateful resource union may name a
+    /// uniform STATE type across its variants, and a `List`/`Map` element must be
+    /// able to carry it so an extracted element can read `.state`.
+    ///
+    /// A `STATE` clause is only meaningful on a `RES` element (a resource). After
+    /// a non-`RES` element it is rejected with a clear parse diagnostic rather
+    /// than being left as a dangling token, so a bare (no-`RES`) resource element
+    /// still surfaces `TYPE_RESOURCE_REQUIRES_RES` at type checking. When no
+    /// `STATE` clause follows, the element string is returned unchanged.
+    fn parse_optional_element_state(
+        &mut self,
+        element: String,
+        element_res: bool,
+    ) -> Option<String> {
+        if !self.check_identifier_ci("STATE") {
+            return Some(element);
+        }
+        if !element_res {
+            let token = self.peek().clone();
+            self.report(
+                "MFB_PARSE_UNEXPECTED_TOKEN",
+                "A `STATE` clause requires a `RES` collection element; a \
+                 non-resource element cannot carry state.",
+                &token,
+            );
+            return None;
+        }
+        let state = self.parse_optional_state()?;
+        Some(format!("{element} STATE {state}"))
     }
 
     pub(super) fn parse_function_type_name(&mut self, isolated: bool) -> Option<String> {
@@ -1007,10 +1050,7 @@ mod tests {
         // ~300 nested `List OF …` trips `parse_type_name`'s `enter_type` false
         // body (569-582) and its bail (597).
         on_big_stack(|| {
-            let src = format!(
-                "SUB s(x AS {}Integer)\nEND SUB\n",
-                "List OF ".repeat(300),
-            );
+            let src = format!("SUB s(x AS {}Integer)\nEND SUB\n", "List OF ".repeat(300),);
             assert!(parse(&src).is_err());
         });
     }
@@ -1028,7 +1068,8 @@ mod tests {
     #[test]
     fn primary_scalar_literal() {
         // A backtick scalar literal reaches the `Scalar` primary arm (472).
-        let file = crate::testutil::parse_file("FUNC f AS Integer\n  LET x = `A`\n  RETURN 0\nEND FUNC\n");
+        let file =
+            crate::testutil::parse_file("FUNC f AS Integer\n  LET x = `A`\n  RETURN 0\nEND FUNC\n");
         // A successful parse is enough to exercise the arm; confirm it parsed.
         assert!(!file.items.is_empty());
     }
@@ -1045,10 +1086,10 @@ mod tests {
     #[test]
     fn map_literal_missing_open_brace() {
         // `Map OF K TO V` with no `{` bails in `parse_map_literal` (882).
-        assert!(
-            parse("FUNC f AS Integer\n  LET m = Map OF Integer TO Integer 5\n  RETURN 0\nEND FUNC\n")
-                .is_err()
-        );
+        assert!(parse(
+            "FUNC f AS Integer\n  LET m = Map OF Integer TO Integer 5\n  RETURN 0\nEND FUNC\n"
+        )
+        .is_err());
     }
 
     #[test]
@@ -1095,6 +1136,8 @@ mod tests {
     fn constructor_argument_list_detail_default_arm() {
         // A non-`RBracket` closing → the `_` detail arm (445).
         let mut p = parser_over(")");
-        assert!(p.parse_constructor_argument_list(TokenKind::RParen).is_some());
+        assert!(p
+            .parse_constructor_argument_list(TokenKind::RParen)
+            .is_some());
     }
 }

@@ -15,6 +15,7 @@ use super::plan::NativePlan;
 use super::runtime;
 
 mod builder_arena_transfer;
+mod builder_astrings;
 mod builder_bits;
 mod builder_error_emission;
 mod builder_exits;
@@ -49,6 +50,10 @@ mod codegen_utils;
 use codegen_utils::*;
 mod code_impl;
 use code_impl::{join_json, ToCodeJson};
+mod operand;
+pub(crate) use operand::{AbiConvention, AbiRole, Operand, VirtualRegister};
+mod selfmove_probe;
+pub(crate) use selfmove_probe::bug387_selfmove_lines;
 mod fs;
 use fs::*;
 mod float_format;
@@ -77,13 +82,13 @@ use builder_collection_layout::{
     list_element_is_fixed_width, list_entry_stride, push_collection_data_base_from_capacity,
     recursive_transfer_types, thread_copy_symbol, type_participates_in_cycle,
 };
+mod app;
 mod builder_collection_queries;
 mod builder_collection_query;
 mod builder_control;
 mod builder_conversions;
 mod builder_emit_helpers;
 mod builder_fixed_math;
-mod app;
 mod builder_fmod;
 mod builder_fs_paths;
 mod builder_inplace_assign;
@@ -113,13 +118,14 @@ mod datetime;
 /// plan-46-D's vendor copy via `dlopen_name`, so the emitted string and the
 /// copied filename cannot diverge.
 pub(crate) mod link_locator;
-mod link_thunk;
+pub(crate) mod link_thunk;
 mod list_mutate;
 mod map_mutate;
-mod perf;
 mod net;
 mod os;
+mod perf;
 mod private;
+mod process;
 mod simd_kernel_coeffs;
 mod term;
 mod term_grid;
@@ -240,6 +246,35 @@ struct CodeBuilder<'a> {
     /// Such a local may be observed or mutated through the slot reference, so it is never
     /// loop-promoted (its slot must stay authoritative).
     address_taken_locals: HashSet<String>,
+    /// plan-77 M6: locals used as a *value* (read `Local` or address-taken
+    /// `LocalRef`) anywhere in the function. A closure binding whose name is NOT
+    /// here is only ever a direct invoke target and never escapes, so it is freed
+    /// at scope end.
+    value_used_locals: HashSet<String>,
+    /// plan-86 E: LET bindings `e = collections::get(L, i)` whose result is consumed
+    /// READ-ONLY (only a `MATCH` scrutinee) over an immutable container `L`. Such a
+    /// `get` returns an aliasing borrow into `L`'s inline element instead of a fresh
+    /// `copy_flat_block`, and the binding registers no scope-drop free (the container
+    /// owns the element). The copy-skip AND the free-skip are BOTH gated on this set
+    /// (a freed borrow is a double-free into the container).
+    borrow_get_locals: HashSet<String>,
+    /// plan-86 E: set while lowering the initializer of a `borrow_get_locals`
+    /// binding, so `materialize_owned_element` returns the aliasing borrow instead of
+    /// copying it. Scoped to the one initializer (reset immediately after).
+    borrow_get_result: bool,
+    /// plan-86 K1: true while lowering a function whose every value-return is a bare
+    /// parameter (`function_returns_param_borrow`). Its `RETURN <param>` returns the
+    /// argument pointer uncopied (a borrow); callers deep-copy the result only at an
+    /// owning store, so the copy moves to the caller's ownership boundary with
+    /// identical value semantics. Consistent with the caller side because both key
+    /// off the same predicate.
+    current_returns_param_borrow: bool,
+    /// plan-86 K1: names of every function used as a `FunctionRef` (callback) in the
+    /// module. Such a function is invoked through an owning ABI, so it is excluded
+    /// from the parameter-passthrough borrow elision (`function_returns_param_borrow`)
+    /// — both here (callee) and at every call site (caller) — keeping the two sides
+    /// consistent. Shared verbatim across all functions in the build.
+    callback_referenced_functions: HashSet<String>,
     /// The register-allocation strategy selected for this build (`-regalloc`).
     regalloc_kind: regalloc::RegallocKind,
     /// First scratch-register-exhaustion error recorded by an infallible vreg
@@ -289,6 +324,18 @@ struct CodeBuilder<'a> {
     /// is in [`trap_discard_error_results`]: it makes `emit_error_register_return`
     /// and `materialize_current_result` emit only a bare tag on the error path.
     raw_result_discard_error: bool,
+    /// bug-425: set transiently by the thread-send lowering while it copies a
+    /// thread-sendable resource into the destination arena. `copy_resource_to_current_arena`
+    /// otherwise flags the *source* record `moved|closed` at copy time — before the
+    /// enqueue outcome is known — which tombstones the sender's handle even when the
+    /// transfer then fails with `ErrTimeout`/`ErrInterrupted`/`ErrResourceClosed`, so
+    /// the sender's `TRAP`/scope cleanup can neither use nor close it (a leak the man
+    /// page forbids: a failed transfer keeps the resource with the sender). When set,
+    /// the copy skips the source flagging; the send helper re-emits it on the enqueue
+    /// success branch instead (mirroring `deactivate_moved_resource_arguments`). The
+    /// accept side and the nested union/collection copies leave this false and keep
+    /// flagging inline (their source is a transient queue record, already garbage).
+    suppress_resource_source_flag: bool,
     /// Re-entrancy guard for the inline-error → function-`TRAP` route (bug-03).
     /// Set while `emit_error_register_return` is routing an inline failure to the
     /// enclosing trap; the trap route itself builds an `Error` inline, whose OOM
@@ -406,6 +453,24 @@ struct CodeBuilder<'a> {
     /// to elide the overflow check on `local + 1`; dropped on any assignment to the
     /// local and cleared at every loop/Match/Trap boundary.
     integer_strict_upper: std::collections::HashSet<String>,
+    /// plan-86 G1: value expr of each synthetic `$for_end*` / `$for_step*` binding
+    /// the IR emits for a `FOR` bound/step, so the loop's `end`/`step` (which reach
+    /// `lower_numeric_for` as `Local($for_endN)`) can be resolved back to their
+    /// `n - k` / `1` exprs. These synthetics are write-once and unique per loop.
+    for_bound_expr: HashMap<String, NirValue>,
+    /// plan-86 G1: `n -> L` for a binding `LET n = len(L)` (both locals). Lets a
+    /// loop bound written as `n - k` resolve to `len(L) - k`. Dropped when `n` or
+    /// `L` is reassigned.
+    len_of_local: HashMap<String, String>,
+    /// plan-86 G1: induction var `i -> (L, headroom k)` for a `FOR i = 0 TO
+    /// len(L) - k` loop (`k >= 1`, step 1) where BOTH `i` and `L` are provably NOT
+    /// reassigned anywhere in the loop body. Then `get/set(L, i)` is in-range
+    /// (`i <= len-k < len`), and `get/set(L, i+1)` too when `k >= 2` — so the
+    /// per-access bounds check is elided. Set for the duration of the body and
+    /// removed after; because `i`/`L` are unmodified across the WHOLE body, the fact
+    /// stays sound throughout (no mid-body clear needed). UNSOUND elision = silent
+    /// OOB — gated by the whole-body-unmodified proof AND mandatory negative fixtures.
+    provable_index_locals: HashMap<String, (String, i64)>,
 }
 
 #[derive(Clone)]
@@ -430,7 +495,7 @@ struct GlobalValue {
 #[derive(Clone)]
 struct ValueResult {
     type_: String,
-    location: String,
+    location: Operand,
     text: String,
 }
 
@@ -502,14 +567,30 @@ struct ResourceUnionCleanup {
 /// nul-terminated singly linked list of `{record_ptr, next}` nodes, with its
 /// head in `head_slot`; draining walks it head-first (most-recent first) and
 /// closes each record once (the close is closed-flag idempotent).
+/// How each node of an owned-list is closed at drain: a concrete resource
+/// element has one registered close op; a resource-union element (bug-429) is
+/// tag-dispatched to its active variant's close op, then its uniform STATE block
+/// is freed — the same drop a lone `RES u AS Union STATE S` binding runs.
+#[derive(Clone)]
+enum OwnedListDrop {
+    /// A single registered close op applied to each node's record pointer.
+    Concrete(String),
+    /// A resource-union element: `(tag, close_symbol)` per variant, plus the
+    /// union's uniform `STATE` type (when it has one) to free after the close.
+    Union {
+        variants: Vec<(usize, String)>,
+        state_type: Option<String>,
+    },
+}
+
 #[derive(Clone)]
 struct OwnedListCleanup {
     /// The owning collection binding's name (for transfer-on-return lookup).
     name: String,
     /// Stack offset of the list head pointer (0 when empty).
     head_slot: usize,
-    /// Close op symbol for the collection's resource element type.
-    close_symbol: String,
+    /// How each node's resource is closed (concrete close op vs union dispatch).
+    drop: OwnedListDrop,
 }
 
 /// An owned, non-escaping flat value freed at scope-drop (plan-01 Phase 5 /
@@ -524,6 +605,12 @@ struct OwnedValueCleanup {
     type_: String,
     /// Stack offset of the binding's slot (holds the block pointer).
     stack_offset: usize,
+    /// plan-77 M6: when `Some`, this is a non-escaping closure binding rather than
+    /// a flat value; the slot holds the closure object pointer and the vec is the
+    /// static types of its captures. The drop frees the object, its env block, and
+    /// each freeable-flat capture (skipping by-value scalars/floats) instead of a
+    /// single flat `arena_free`.
+    closure_captures: Option<Vec<String>>,
 }
 
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free
@@ -535,7 +622,7 @@ struct OwnedValueCleanup {
 struct PendingTemp {
     type_: String,
     slot: usize,
-    location: String,
+    location: Operand,
 }
 
 #[derive(Clone)]
@@ -1255,6 +1342,10 @@ pub(crate) fn lower_module_for_platform(
             )?);
         }
     }
+    // plan-86 K1: functions used as callbacks (FunctionRef) are invoked through an
+    // owning ABI, so they are excluded from the parameter-passthrough borrow elision.
+    // Computed once for the whole module and shared by every function's lowering.
+    let callback_referenced_functions = collect_function_ref_names(module);
     for function in &module.functions {
         code_functions.push(lower_function(
             function,
@@ -1264,6 +1355,7 @@ pub(crate) fn lower_module_for_platform(
             &platform_imports,
             &globals,
             &string_symbols,
+            &callback_referenced_functions,
             type_model.clone(),
         )?);
     }
@@ -1456,6 +1548,18 @@ pub(crate) fn lower_module_for_platform(
     {
         runtime_symbols.push("_mfb_rt_thread_thread_emit".to_string());
     }
+    // plan-91-B: the NIR carries `thread.sleep`; codegen routes a worker-handle
+    // call to `thread.sleepWorker` (the cancellation-aware form). Emit the
+    // companion so the worker direction has a defined helper body.
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_thread_thread_sleep")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_thread_thread_sleepWorker")
+    {
+        runtime_symbols.push("_mfb_rt_thread_thread_sleepWorker".to_string());
+    }
     // The resource plane mirrors the data plane's direction split: the NIR carries
     // the pre-split `transferResource`/`acceptResource` target, while codegen may
     // route a worker-handle call to `emitResource` (outbound write) or a
@@ -1489,6 +1593,80 @@ pub(crate) fn lower_module_for_platform(
             .any(|symbol| symbol == "_mfb_rt_net_net_connectTcpAddr")
     {
         runtime_symbols.push("_mfb_rt_net_net_connectTcpAddr".to_string());
+    }
+    // plan-90-A: the 4-arg `spawn(args, cwd, env, envReplace)` overload routes to
+    // `process.spawnEnv`, a synthesized target the NIR never names (it carries only
+    // `process.spawn`), so emit its helper body whenever `spawn` is present —
+    // mirroring `connectTcpAddr`. It shares the process libc imports.
+    // plan-90-D: these synthesized overload helpers (spawnEnv / *Timeout / *From)
+    // are Unix-only; the Windows backend handles overloads in its own emission, so
+    // do NOT force-emit the Unix helper bodies on Windows (they are stubs there).
+    let process_synth = platform.family() != PlatformFamily::Windows;
+    if process_synth
+        && runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_process_process_spawn")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_process_process_spawnEnv")
+    {
+        runtime_symbols.push("_mfb_rt_process_process_spawnEnv".to_string());
+    }
+    // plan-90-B: the 3-arg `send`/`sendBytes` timeout overloads route to
+    // `sendTimeout`/`sendBytesTimeout`, synthesized targets the NIR never names —
+    // emit each whenever its base is present.
+    for (base, timed) in [
+        (
+            "_mfb_rt_process_process_send",
+            "_mfb_rt_process_process_sendTimeout",
+        ),
+        (
+            "_mfb_rt_process_process_sendBytes",
+            "_mfb_rt_process_process_sendBytesTimeout",
+        ),
+        (
+            "_mfb_rt_process_process_poll",
+            "_mfb_rt_process_process_pollFrom",
+        ),
+        (
+            "_mfb_rt_process_process_receiveBytes",
+            "_mfb_rt_process_process_receiveBytesFrom",
+        ),
+        (
+            "_mfb_rt_process_process_receive",
+            "_mfb_rt_process_process_receiveFrom",
+        ),
+    ] {
+        if process_synth
+            && runtime_symbols.iter().any(|symbol| symbol == base)
+            && !runtime_symbols.iter().any(|symbol| symbol == timed)
+        {
+            runtime_symbols.push(timed.to_string());
+        }
+    }
+    // plan-76-A: the `poll(List OF RES Socket)` overload routes to `net.pollList`,
+    // a synthesized target the NIR never names (it carries only `net.poll`), so
+    // emit its helper body whenever `poll` is present — mirroring `connectTcpAddr`.
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_net_net_poll")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_net_net_pollList")
+    {
+        runtime_symbols.push("_mfb_rt_net_net_pollList".to_string());
+    }
+    // plan-76-C: `tls.pollList` is the synthesized list-multiplex target (the NIR
+    // names only `tls.poll`), and its portable driver calls the scalar
+    // `_mfb_rt_tls_tls_poll` — so emit both whenever `tls.poll` is present.
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_tls_tls_poll")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_tls_tls_pollList")
+    {
+        runtime_symbols.push("_mfb_rt_tls_tls_pollList".to_string());
     }
     // App-mode io.input composes io.write (prompt -> transcript) + io.readLine
     // (read the window input pipe), so ensure both helpers are emitted
@@ -1552,6 +1730,8 @@ pub(crate) fn lower_module_for_platform(
                     | "_mfb_rt_net_net_readText"
                     | "_mfb_rt_net_net_receiveTextFrom"
                     | "_mfb_rt_tls_tls_readText"
+                    | "_mfb_rt_process_process_receive"
+                    | "_mfb_rt_process_process_receiveFrom"
             )
         })
     {
@@ -1672,13 +1852,28 @@ pub(crate) fn lower_module_for_platform(
     // heuristic could deem a `caseFold(localVar)` static (folded, table skipped)
     // while codegen lowered it at runtime, leaving the `_mfb_unicode_casefold_*`
     // relocation undefined — a deterministic build failure this closes.
-    let references_unicode_table = code_functions.iter().any(|function| {
-        function.relocations.iter().any(|relocation| {
+    let referenced_unicode_tables: std::collections::HashSet<&str> = code_functions
+        .iter()
+        .flat_map(|function| function.relocations.iter())
+        .filter(|relocation| {
             relocation.binding == "data" && relocation.to.starts_with("_mfb_unicode_")
         })
-    });
-    if references_unicode_table || module_uses_unicode_runtime_tables(module) {
-        data_objects.extend(unicode_runtime_data_objects());
+        .map(|relocation| relocation.to.as_str())
+        .collect();
+    if !referenced_unicode_tables.is_empty() {
+        // Per-symbol emission (plan-77 U5): emit exactly the tables some function
+        // relocates against, so a program that only reaches part of the unicode
+        // surface (e.g. `strings::graphemes` but no case mapping) stops carrying
+        // the tables it never touches.
+        data_objects.extend(unicode_runtime_data_objects(Some(
+            &referenced_unicode_tables,
+        )));
+    } else if module_uses_unicode_runtime_tables(module) {
+        // The NIR heuristic sees unicode use but no relocation names a specific
+        // table (practically unreachable — the builder emits a relocation for
+        // every table read). Fall back to the full set rather than risk an
+        // undefined symbol.
+        data_objects.extend(unicode_runtime_data_objects(None));
     }
 
     // MIR seam for the hand-written runtime helpers (plan-00-F). Builder-emitted
@@ -1756,413 +1951,573 @@ fn lower_runtime_helper(
     // (frame, instructions, relocations, stack_slots) tuple each arm computes.
     // Build that tuple here, then construct the single CodeFunction after the
     // match (the shape the net.*/tls.* inner-match arms already used).
-    let (frame, mut instructions, mut relocations, stack_slots) = if builtins::term::is_term_call(
-        spec.call,
-    ) {
-        let term_state_offset = term_state_offset.ok_or_else(|| {
-            format!("native code plan emits '{symbol}' without reserving term state")
-        })?;
-        // App mode drives the synthesized TermView surface (plan-01-term.md §6.3):
-        // `emit_app_term_helper` now dispatches EVERY term:: helper — the mode
-        // toggle plus clear/sync/moveTo/color/attr/cursor/size — to the platform's
-        // app backend (Phase 5 landed on every app platform). It falls through to
-        // the shared console backend below only in non-app builds.
-        let app_term_helper = if app_mode {
-            platform.emit_app_term_helper(spec.call, symbol, term_state_offset)
-        } else {
-            None
-        };
-        match app_term_helper {
-            Some(result) => {
-                // plan-62-E: every app-mode `term::` helper (including `on`) is gated
-                // on the `Console` presentation mode — outside it, `term::` raises the
-                // trappable `ErrWrongMode` before touching the (absent) grid. No-op
-                // when the program cannot leave `Console` (`presentation_mode_offset`
-                // is `None`), so a program that never uses `app::` is unchanged.
-                let mut body = pad_no_slots(result?);
-                app::prepend_wrong_mode_gate(
-                    &mut body.1,
-                    &mut body.2,
+    let (frame, mut instructions, mut relocations, stack_slots) =
+        if builtins::term::is_term_call(spec.call) {
+            let term_state_offset = term_state_offset.ok_or_else(|| {
+                format!("native code plan emits '{symbol}' without reserving term state")
+            })?;
+            // App mode drives the synthesized TermView surface (plan-01-term.md §6.3):
+            // `emit_app_term_helper` now dispatches EVERY term:: helper — the mode
+            // toggle plus clear/sync/moveTo/color/attr/cursor/size — to the platform's
+            // app backend (Phase 5 landed on every app platform). It falls through to
+            // the shared console backend below only in non-app builds.
+            let app_term_helper = if app_mode {
+                platform.emit_app_term_helper(spec.call, symbol, term_state_offset)
+            } else {
+                None
+            };
+            match app_term_helper {
+                Some(result) => {
+                    // plan-62-E: every app-mode `term::` helper (including `on`) is gated
+                    // on the `Console` presentation mode — outside it, `term::` raises the
+                    // trappable `ErrWrongMode` before touching the (absent) grid. No-op
+                    // when the program cannot leave `Console` (`presentation_mode_offset`
+                    // is `None`), so a program that never uses `app::` is unchanged.
+                    let mut body = pad_no_slots(result?);
+                    app::prepend_wrong_mode_gate(
+                        &mut body.1,
+                        &mut body.2,
+                        symbol,
+                        arena_layout.presentation_mode_offset,
+                    );
+                    body
+                }
+                None => term::lower_term_helper(
+                    spec.call,
                     symbol,
-                    arena_layout.presentation_mode_offset,
-                );
-                body
+                    term_state_offset,
+                    platform_imports,
+                    platform,
+                )?,
             }
-            None => term::lower_term_helper(
-                spec.call,
-                symbol,
-                term_state_offset,
-                platform_imports,
-                platform,
-            )?,
-        }
-    } else if crypto_ec::ec_call(spec.call).is_some() {
-        crypto_ec::lower_crypto_ec_helper(spec.call, symbol, platform_imports, platform)?
-    } else {
-        match spec.call {
-            "app.getMode" | "app.setMode" => {
-                // plan-62-B: state read/write off the per-arena presentation-mode
-                // slot; setMode additionally calls the (no-op in B) per-backend
-                // surface-reconcile seam. App builds only — the slot is reserved
-                // only when `is_app()`, so its absence here is an internal error.
-                let presentation_mode_offset =
-                    arena_layout.presentation_mode_offset.ok_or_else(|| {
-                        format!(
-                            "native code plan emits '{symbol}' without reserving the \
+        } else if crypto_ec::ec_call(spec.call).is_some() {
+            crypto_ec::lower_crypto_ec_helper(spec.call, symbol, platform_imports, platform)?
+        } else {
+            match spec.call {
+                "app.getMode" | "app.setMode" => {
+                    // plan-62-B: state read/write off the per-arena presentation-mode
+                    // slot; setMode additionally calls the (no-op in B) per-backend
+                    // surface-reconcile seam. App builds only — the slot is reserved
+                    // only when `is_app()`, so its absence here is an internal error.
+                    let presentation_mode_offset =
+                        arena_layout.presentation_mode_offset.ok_or_else(|| {
+                            format!(
+                                "native code plan emits '{symbol}' without reserving the \
                              presentation-mode slot"
-                        )
-                    })?;
-                app::lower_app_helper(spec.call, symbol, presentation_mode_offset, platform)?
-            }
-            "crypto.randomBytes" => {
-                crypto::lower_crypto_random_bytes_helper(symbol, platform_imports, platform)?
-            }
-            "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
-                datetime::lower_datetime_helper(spec.call, symbol, platform_imports, platform)?
-            }
-            // plan-67-B: internal perf-tracking helpers (injected, never NIR-level).
-            "perf.init" | "perf.start" | "perf.end" | "perf.done" => {
-                perf::lower_perf_helper(spec.call, symbol, platform_imports, platform)?
-            }
-            call if builtins::os::is_os_call(call) => os::lower_os_helper(
-                spec.call,
-                symbol,
-                build_mode,
-                module_name,
-                platform_imports,
-                platform,
-            )?,
-            call if call.starts_with("io.") || call.starts_with("fs.") => match call {
-                "io.print" | "io.write" | "io.printError" | "io.writeError" => {
-                    let stderr = matches!(spec.call, "io.printError" | "io.writeError");
-                    let newline = matches!(spec.call, "io.print" | "io.printError");
-                    // App mode routes io output to the AppKit transcript window
-                    // (plan-04-macos-app.md §5.4) instead of a file descriptor.
-                    if app_mode {
-                        pad_no_slots(
-                            platform
-                                .emit_app_io_write_helper(
-                                    symbol,
-                                    stderr,
-                                    newline,
-                                    term_state_offset,
-                                    platform_imports,
-                                )
-                                .ok_or_else(|| {
+                            )
+                        })?;
+                    app::lower_app_helper(spec.call, symbol, presentation_mode_offset, platform)?
+                }
+                "crypto.randomBytes" => {
+                    crypto::lower_crypto_random_bytes_helper(symbol, platform_imports, platform)?
+                }
+                "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
+                    datetime::lower_datetime_helper(spec.call, symbol, platform_imports, platform)?
+                }
+                // plan-67-B: internal perf-tracking helpers (injected, never NIR-level).
+                "perf.init" | "perf.start" | "perf.end" | "perf.done" => {
+                    perf::lower_perf_helper(spec.call, symbol, platform_imports, platform)?
+                }
+                call if builtins::os::is_os_call(call) => os::lower_os_helper(
+                    spec.call,
+                    symbol,
+                    build_mode,
+                    module_name,
+                    platform_imports,
+                    platform,
+                )?,
+                call if call.starts_with("io.") || call.starts_with("fs.") => match call {
+                    "io.print" | "io.write" | "io.printError" | "io.writeError" => {
+                        let stderr = matches!(spec.call, "io.printError" | "io.writeError");
+                        let newline = matches!(spec.call, "io.print" | "io.printError");
+                        // App mode routes io output to the AppKit transcript window
+                        // (plan-04-macos-app.md §5.4) instead of a file descriptor.
+                        if app_mode {
+                            pad_no_slots(
+                                platform
+                                    .emit_app_io_write_helper(
+                                        symbol,
+                                        stderr,
+                                        newline,
+                                        term_state_offset,
+                                        platform_imports,
+                                    )
+                                    .ok_or_else(|| {
+                                        format!(
+                                        "native target '{}' does not support app-mode io helpers",
+                                        platform.target()
+                                    )
+                                    })??,
+                            )
+                        } else {
+                            lower_io_write_helper(
+                                symbol,
+                                platform_imports,
+                                platform,
+                                stderr,
+                                newline,
+                                term_state_offset,
+                            )?
+                        }
+                    }
+                    "io.flush" => {
+                        // App-mode transcript writes are synchronous (each io write blocks on
+                        // the main thread via performSelectorOnMainThread), so output is
+                        // already visible; flush succeeds immediately (plan §5.4).
+                        if app_mode {
+                            pad_no_slots(platform.emit_app_io_flush_helper(symbol).ok_or_else(
+                                || {
                                     format!(
                                         "native target '{}' does not support app-mode io helpers",
                                         platform.target()
                                     )
-                                })??,
-                        )
-                    } else {
-                        lower_io_write_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            stderr,
-                            newline,
-                            term_state_offset,
-                        )?
+                                },
+                            )??)
+                        } else {
+                            lower_io_flush_helper(symbol, platform_imports, platform)?
+                        }
                     }
-                }
-                "io.flush" => {
-                    // App-mode transcript writes are synchronous (each io write blocks on
-                    // the main thread via performSelectorOnMainThread), so output is
-                    // already visible; flush succeeds immediately (plan §5.4).
-                    if app_mode {
-                        pad_no_slots(platform.emit_app_io_flush_helper(symbol).ok_or_else(
-                            || {
-                                format!(
-                                    "native target '{}' does not support app-mode io helpers",
-                                    platform.target()
-                                )
-                            },
-                        )??)
-                    } else {
-                        lower_io_flush_helper(symbol, platform_imports, platform)?
+                    "io.isBuffered" => lower_io_is_buffered_helper(symbol, app_mode)?,
+                    "io.setBuffered" => lower_io_set_buffered_helper(symbol, app_mode)?,
+                    "io.pollInput" => {
+                        lower_io_poll_input_helper(symbol, platform_imports, platform, app_mode)?
                     }
-                }
-                "io.isBuffered" => lower_io_is_buffered_helper(symbol, app_mode)?,
-                "io.setBuffered" => lower_io_set_buffered_helper(symbol, app_mode)?,
-                "io.pollInput" => {
-                    lower_io_poll_input_helper(symbol, platform_imports, platform, app_mode)?
-                }
-                "io.input" | "io.readLine" => {
-                    // App-mode io.input writes its prompt to the transcript (via io.write)
-                    // then reads a line (via io.readLine); io.readLine itself is the
-                    // unchanged console helper, which reads fd 0 — the window input pipe
-                    // in app mode (plan §5.4). All other read helpers are likewise
-                    // unchanged and read the pipe.
-                    if app_mode && spec.call == "io.input" {
-                        pad_no_slots(platform.emit_app_io_input_helper(symbol).ok_or_else(
-                            || {
-                                format!(
-                                    "native target '{}' does not support app-mode io helpers",
-                                    platform.target()
-                                )
-                            },
-                        )??)
-                    } else {
-                        lower_io_read_line_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            spec.call == "io.input",
-                            app_mode,
-                            // bug-149: only a console build that also uses `term::`
-                            // brackets the line read with a cooked-mode restore.
-                            if app_mode { None } else { term_state_offset },
-                        )?
-                    }
-                }
-                "io.readChar" => {
-                    lower_io_read_char_helper(symbol, platform_imports, platform, app_mode)?
-                }
-                "io.readByte" => {
-                    lower_io_read_byte_helper(symbol, platform_imports, platform, app_mode)?
-                }
-                "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
-                    let fd = match spec.call {
-                        "io.isInputTerminal" => 0,
-                        "io.isOutputTerminal" => 1,
-                        "io.isErrorTerminal" => 2,
-                        _ => unreachable!(),
-                    };
-                    // App mode: the window is the interactive console, so these return
-                    // TRUE rather than probing a file descriptor (plan §5.4).
-                    if app_mode {
-                        pad_no_slots(
-                            platform
-                                .emit_app_io_is_terminal_helper(symbol)
-                                .ok_or_else(|| {
+                    "io.input" | "io.readLine" => {
+                        // App-mode io.input writes its prompt to the transcript (via io.write)
+                        // then reads a line (via io.readLine); io.readLine itself is the
+                        // unchanged console helper, which reads fd 0 — the window input pipe
+                        // in app mode (plan §5.4). All other read helpers are likewise
+                        // unchanged and read the pipe.
+                        if app_mode && spec.call == "io.input" {
+                            pad_no_slots(platform.emit_app_io_input_helper(symbol).ok_or_else(
+                                || {
                                     format!(
                                         "native target '{}' does not support app-mode io helpers",
                                         platform.target()
                                     )
-                                })??,
-                        )
-                    } else {
-                        lower_io_is_terminal_helper(symbol, platform_imports, platform, fd)?
+                                },
+                            )??)
+                        } else {
+                            lower_io_read_line_helper(
+                                symbol,
+                                platform_imports,
+                                platform,
+                                spec.call == "io.input",
+                                app_mode,
+                                // bug-149: only a console build that also uses `term::`
+                                // brackets the line read with a cooked-mode restore.
+                                if app_mode { None } else { term_state_offset },
+                            )?
+                        }
                     }
-                }
-                "fs.exists" => lower_fs_exists_helper(symbol, platform_imports, platform)?,
-                "fs.fileExists" | "fs.directoryExists" => {
-                    let kind = if spec.call == "fs.fileExists" {
-                        FS_MODE_REGULAR
-                    } else {
-                        FS_MODE_DIRECTORY
-                    };
-                    lower_fs_kind_exists_helper(symbol, platform_imports, platform, kind)?
-                }
-                "fs.currentDirectory" | "fs.tempDirectory" => {
-                    if spec.call == "fs.currentDirectory" {
-                        lower_fs_current_directory_helper(symbol, platform_imports, platform)?
-                    } else {
-                        lower_fs_temp_directory_helper(symbol, platform_imports, platform)?
+                    "io.readChar" => {
+                        lower_io_read_char_helper(symbol, platform_imports, platform, app_mode)?
                     }
+                    "io.readByte" => {
+                        lower_io_read_byte_helper(symbol, platform_imports, platform, app_mode)?
+                    }
+                    "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
+                        let fd = match spec.call {
+                            "io.isInputTerminal" => 0,
+                            "io.isOutputTerminal" => 1,
+                            "io.isErrorTerminal" => 2,
+                            _ => unreachable!(),
+                        };
+                        // App mode: the window is the interactive console, so these return
+                        // TRUE rather than probing a file descriptor (plan §5.4).
+                        if app_mode {
+                            pad_no_slots(
+                                platform
+                                    .emit_app_io_is_terminal_helper(symbol)
+                                    .ok_or_else(|| {
+                                        format!(
+                                        "native target '{}' does not support app-mode io helpers",
+                                        platform.target()
+                                    )
+                                    })??,
+                            )
+                        } else {
+                            lower_io_is_terminal_helper(symbol, platform_imports, platform, fd)?
+                        }
+                    }
+                    "fs.exists" => lower_fs_exists_helper(symbol, platform_imports, platform)?,
+                    "fs.fileExists" | "fs.directoryExists" => {
+                        let kind = if spec.call == "fs.fileExists" {
+                            FS_MODE_REGULAR
+                        } else {
+                            FS_MODE_DIRECTORY
+                        };
+                        lower_fs_kind_exists_helper(symbol, platform_imports, platform, kind)?
+                    }
+                    "fs.currentDirectory" | "fs.tempDirectory" => {
+                        if spec.call == "fs.currentDirectory" {
+                            lower_fs_current_directory_helper(symbol, platform_imports, platform)?
+                        } else {
+                            lower_fs_temp_directory_helper(symbol, platform_imports, platform)?
+                        }
+                    }
+                    "fs.setCurrentDirectory"
+                    | "fs.deleteFile"
+                    | "fs.createDirectory"
+                    | "fs.deleteDirectory" => {
+                        let operation = match spec.call {
+                            "fs.setCurrentDirectory" => FsPathOperation::Chdir,
+                            "fs.deleteFile" => FsPathOperation::Unlink,
+                            "fs.createDirectory" => FsPathOperation::Mkdir,
+                            "fs.deleteDirectory" => FsPathOperation::Rmdir,
+                            _ => unreachable!(),
+                        };
+                        lower_fs_path_operation_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            operation,
+                        )?
+                    }
+                    "fs.createDirectories" => {
+                        lower_fs_create_directories_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.listDirectory" => {
+                        lower_fs_list_directory_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.open" | "fs.openFile" | "fs.openFileNoFollow" => {
+                        let no_follow = spec.call == "fs.openFileNoFollow";
+                        lower_fs_open_helper(symbol, platform_imports, platform, no_follow)?
+                    }
+                    "fs.openWithin" => {
+                        lower_fs_open_within_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.createTempFile" => {
+                        lower_fs_create_temp_file_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.close" => lower_fs_close_helper(symbol, platform_imports, platform, true)?,
+                    "fs.setBuffered" => lower_fs_set_buffered_helper(symbol)?,
+                    "fs.isBuffered" => lower_fs_is_buffered_helper(symbol)?,
+                    "fs.flush" => lower_fs_flush_helper(symbol)?,
+                    "fs.writeAll" => lower_fs_write_all_helper(symbol, platform_imports, platform)?,
+                    "fs.writeAllBytes" => {
+                        lower_fs_write_all_bytes_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.readText" => {
+                        lower_fs_read_text_path_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.readBytes" => {
+                        lower_fs_read_bytes_path_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.writeText" | "fs.appendText" => {
+                        let append = spec.call == "fs.appendText";
+                        lower_fs_write_path_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            append,
+                            false,
+                        )?
+                    }
+                    "fs.writeBytes" | "fs.appendBytes" => {
+                        let append = spec.call == "fs.appendBytes";
+                        lower_fs_write_path_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            append,
+                            true,
+                        )?
+                    }
+                    "fs.writeTextAtomic" | "fs.writeBytesAtomic" => {
+                        let value_kind = if spec.call == "fs.writeTextAtomic" {
+                            AtomicWriteValueKind::String
+                        } else {
+                            AtomicWriteValueKind::Bytes
+                        };
+                        lower_fs_atomic_write_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            value_kind,
+                        )?
+                    }
+                    "fs.readAll" => lower_fs_read_all_helper(symbol, platform_imports, platform)?,
+                    "fs.readAllBytes" => {
+                        lower_fs_read_all_bytes_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.readLine" => lower_fs_read_line_helper(symbol, platform_imports, platform)?,
+                    "fs.eof" => lower_fs_eof_helper(symbol, platform_imports, platform)?,
+                    "fs.canonicalPath" => {
+                        lower_fs_canonical_path_helper(symbol, platform_imports, platform)?
+                    }
+                    "fs.isWithin" => lower_fs_is_within_helper(symbol, platform_imports, platform)?,
+                    // Defensive: unreachable — `spec_for_symbol` at the top already
+                    // rejects any io.*/fs.* symbol that has no spec. Kept only because
+                    // matching a `&str` is not exhaustive without a catch-all.
+                    other => {
+                        return Err(format!(
+                            "native code plan does not emit runtime call '{other}'"
+                        ));
+                    }
+                },
+                "thread.start"
+                | "thread.isRunning"
+                | "thread.waitFor"
+                | "thread.cancel"
+                | "thread.drop"
+                | "thread.send"
+                | "thread.poll"
+                | "thread.sleep"
+                | "thread.read"
+                | "thread.receive"
+                | "thread.emit"
+                | "thread.sleepWorker"
+                | "thread.transferResource"
+                | "thread.acceptResource"
+                | "thread.emitResource"
+                | "thread.readResource"
+                | "thread.isCancelled"
+                | "thread.openStdIn"
+                | "thread.closeStdIn" => lower_thread_helper(
+                    symbol,
+                    spec.call,
+                    uses_rng,
+                    arena_layout.global_slots,
+                    platform_imports,
+                    platform,
+                )?,
+                call if call.starts_with("net.") => match call {
+                    "net.lookup" => {
+                        net::lower_net_lookup_helper(symbol, platform_imports, platform)?
+                    }
+                    "net.connectTcp" => {
+                        net::lower_net_connect_tcp_helper(symbol, platform_imports, platform)?
+                    }
+                    "net.connectTcpAddr" => {
+                        net::lower_net_connect_tcp_addr_helper(symbol, platform_imports, platform)?
+                    }
+                    "net.listenTcp" => {
+                        net::lower_net_listen_tcp_helper(symbol, platform_imports, platform)?
+                    }
+                    "net.accept" => {
+                        net::lower_net_accept_helper(symbol, platform_imports, platform)?
+                    }
+                    "net.poll" => net::lower_net_poll_helper(symbol, platform_imports, platform)?,
+                    "net.pollList" => {
+                        net::lower_net_poll_list_helper(symbol, platform_imports, platform)?
+                    }
+                    "net.read" => {
+                        net::lower_net_read_helper(symbol, platform_imports, platform, false)?
+                    }
+                    "net.readText" => {
+                        net::lower_net_read_helper(symbol, platform_imports, platform, true)?
+                    }
+                    "net.write" => {
+                        net::lower_net_write_helper(symbol, platform_imports, platform, false)?
+                    }
+                    "net.writeText" => {
+                        net::lower_net_write_helper(symbol, platform_imports, platform, true)?
+                    }
+                    // A socket/listener handle shares the `File` record layout, so the
+                    // standard (vreg-allocated) file close helper closes net handles too.
+                    "net.close" => {
+                        lower_fs_close_helper(symbol, platform_imports, platform, false)?
+                    }
+                    "net.localAddress" => {
+                        net::lower_net_address_helper(symbol, platform_imports, platform, false)?
+                    }
+                    "net.remoteAddress" => {
+                        net::lower_net_address_helper(symbol, platform_imports, platform, true)?
+                    }
+                    "net.setReadTimeout" => net::lower_net_set_timeout_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
+                    "net.setWriteTimeout" => {
+                        net::lower_net_set_timeout_helper(symbol, platform_imports, platform, true)?
+                    }
+                    "net.bindUdp" => {
+                        net::lower_net_bind_udp_helper(symbol, platform_imports, platform)?
+                    }
+                    "net.receiveFrom" => net::lower_net_receive_from_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
+                    "net.receiveTextFrom" => net::lower_net_receive_from_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        true,
+                    )?,
+                    "net.sendTo" => {
+                        net::lower_net_send_to_helper(symbol, platform_imports, platform, false)?
+                    }
+                    "net.sendTextTo" => {
+                        net::lower_net_send_to_helper(symbol, platform_imports, platform, true)?
+                    }
+                    // Defensive: unreachable (see the io.*/fs.* arm); required only for
+                    // `&str` match exhaustiveness.
+                    other => {
+                        return Err(format!(
+                            "native code plan does not emit runtime call '{other}'"
+                        ));
+                    }
+                },
+                call if call.starts_with("audio.") => {
+                    audio::lower_audio_helper(call, symbol, platform_imports, platform)?
                 }
-                "fs.setCurrentDirectory"
-                | "fs.deleteFile"
-                | "fs.createDirectory"
-                | "fs.deleteDirectory" => {
-                    let operation = match spec.call {
-                        "fs.setCurrentDirectory" => FsPathOperation::Chdir,
-                        "fs.deleteFile" => FsPathOperation::Unlink,
-                        "fs.createDirectory" => FsPathOperation::Mkdir,
-                        "fs.deleteDirectory" => FsPathOperation::Rmdir,
-                        _ => unreachable!(),
-                    };
-                    lower_fs_path_operation_helper(symbol, platform_imports, platform, operation)?
-                }
-                "fs.createDirectories" => {
-                    lower_fs_create_directories_helper(symbol, platform_imports, platform)?
-                }
-                "fs.listDirectory" => {
-                    lower_fs_list_directory_helper(symbol, platform_imports, platform)?
-                }
-                "fs.open" | "fs.openFile" | "fs.openFileNoFollow" => {
-                    let no_follow = spec.call == "fs.openFileNoFollow";
-                    lower_fs_open_helper(symbol, platform_imports, platform, no_follow)?
-                }
-                "fs.openWithin" => lower_fs_open_within_helper(symbol, platform_imports, platform)?,
-                "fs.createTempFile" => {
-                    lower_fs_create_temp_file_helper(symbol, platform_imports, platform)?
-                }
-                "fs.close" => lower_fs_close_helper(symbol, platform_imports, platform, true)?,
-                "fs.setBuffered" => lower_fs_set_buffered_helper(symbol)?,
-                "fs.isBuffered" => lower_fs_is_buffered_helper(symbol)?,
-                "fs.flush" => lower_fs_flush_helper(symbol)?,
-                "fs.writeAll" => lower_fs_write_all_helper(symbol, platform_imports, platform)?,
-                "fs.writeAllBytes" => {
-                    lower_fs_write_all_bytes_helper(symbol, platform_imports, platform)?
-                }
-                "fs.readText" => {
-                    lower_fs_read_text_path_helper(symbol, platform_imports, platform)?
-                }
-                "fs.readBytes" => {
-                    lower_fs_read_bytes_path_helper(symbol, platform_imports, platform)?
-                }
-                "fs.writeText" | "fs.appendText" => {
-                    let append = spec.call == "fs.appendText";
-                    lower_fs_write_path_helper(symbol, platform_imports, platform, append, false)?
-                }
-                "fs.writeBytes" | "fs.appendBytes" => {
-                    let append = spec.call == "fs.appendBytes";
-                    lower_fs_write_path_helper(symbol, platform_imports, platform, append, true)?
-                }
-                "fs.writeTextAtomic" | "fs.writeBytesAtomic" => {
-                    let value_kind = if spec.call == "fs.writeTextAtomic" {
-                        AtomicWriteValueKind::String
-                    } else {
-                        AtomicWriteValueKind::Bytes
-                    };
-                    lower_fs_atomic_write_helper(symbol, platform_imports, platform, value_kind)?
-                }
-                "fs.readAll" => lower_fs_read_all_helper(symbol, platform_imports, platform)?,
-                "fs.readAllBytes" => {
-                    lower_fs_read_all_bytes_helper(symbol, platform_imports, platform)?
-                }
-                "fs.readLine" => lower_fs_read_line_helper(symbol, platform_imports, platform)?,
-                "fs.eof" => lower_fs_eof_helper(symbol, platform_imports, platform)?,
-                "fs.canonicalPath" => {
-                    lower_fs_canonical_path_helper(symbol, platform_imports, platform)?
-                }
-                "fs.isWithin" => lower_fs_is_within_helper(symbol, platform_imports, platform)?,
-                // Defensive: unreachable — `spec_for_symbol` at the top already
-                // rejects any io.*/fs.* symbol that has no spec. Kept only because
-                // matching a `&str` is not exhaustive without a catch-all.
+                call if call.starts_with("process.") => match call {
+                    "process.spawn" => process::lower_process_spawn_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
+                    "process.shell" => {
+                        process::lower_process_shell_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.spawnEnv" => {
+                        process::lower_process_spawnenv_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.pid" => {
+                        process::lower_process_pid_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.isRunning" => {
+                        process::lower_process_isrunning_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.waitFor" => {
+                        process::lower_process_waitfor_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.close" => {
+                        process::lower_process_close_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.send" => process::lower_process_send_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                        false,
+                    )?,
+                    "process.sendTimeout" => process::lower_process_send_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                        true,
+                    )?,
+                    "process.sendBytes" => process::lower_process_send_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        true,
+                        false,
+                    )?,
+                    "process.sendBytesTimeout" => process::lower_process_send_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        true,
+                        true,
+                    )?,
+                    "process.receive" => process::lower_process_receive_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
+                    "process.receiveFrom" => process::lower_process_receive_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        true,
+                    )?,
+                    "process.receiveBytes" => process::lower_process_receivebytes_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
+                    "process.receiveBytesFrom" => process::lower_process_receivebytes_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        true,
+                    )?,
+                    "process.poll" => process::lower_process_poll_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
+                    "process.pollFrom" => process::lower_process_poll_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        true,
+                    )?,
+                    "process.signal" => {
+                        process::lower_process_signal_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.didSignal" => {
+                        process::lower_process_didsignal_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.detach" => {
+                        process::lower_process_detach_helper(symbol, platform_imports, platform)?
+                    }
+                    "process.__drop" => {
+                        process::lower_process_drop_helper(symbol, platform_imports, platform)?
+                    }
+                    other => {
+                        return Err(format!(
+                            "native code plan does not emit runtime call '{other}'"
+                        ));
+                    }
+                },
+                call if call.starts_with("tls.") => match call {
+                    "tls.connect" => {
+                        tls::lower_tls_connect_helper(symbol, platform_imports, platform)?
+                    }
+                    "tls.listen" => {
+                        tls::lower_tls_listen_helper(symbol, platform_imports, platform)?
+                    }
+                    "tls.accept" => {
+                        tls::lower_tls_accept_helper(symbol, platform_imports, platform)?
+                    }
+                    "tls.read" => {
+                        tls::lower_tls_read_helper(symbol, platform_imports, platform, false)?
+                    }
+                    "tls.readText" => {
+                        tls::lower_tls_read_helper(symbol, platform_imports, platform, true)?
+                    }
+                    "tls.write" => {
+                        tls::lower_tls_write_helper(symbol, platform_imports, platform, false)?
+                    }
+                    "tls.writeText" => {
+                        tls::lower_tls_write_helper(symbol, platform_imports, platform, true)?
+                    }
+                    "tls.poll" => tls::lower_tls_poll_helper(symbol, platform_imports, platform)?,
+                    "tls.pollList" => {
+                        tls::lower_tls_poll_list_helper(symbol, platform_imports, platform)?
+                    }
+                    "tls.close" => tls::lower_tls_close_helper(symbol, platform_imports, platform)?,
+                    "tls.closeListener" => {
+                        tls::lower_tls_close_listener_helper(symbol, platform_imports, platform)?
+                    }
+                    // Defensive: unreachable (see the io.*/fs.* arm); required only for
+                    // `&str` match exhaustiveness.
+                    other => {
+                        return Err(format!(
+                            "native code plan does not emit runtime call '{other}'"
+                        ));
+                    }
+                },
                 other => {
                     return Err(format!(
                         "native code plan does not emit runtime call '{other}'"
                     ));
                 }
-            },
-            "thread.start"
-            | "thread.isRunning"
-            | "thread.waitFor"
-            | "thread.cancel"
-            | "thread.drop"
-            | "thread.send"
-            | "thread.poll"
-            | "thread.read"
-            | "thread.receive"
-            | "thread.emit"
-            | "thread.transferResource"
-            | "thread.acceptResource"
-            | "thread.emitResource"
-            | "thread.readResource"
-            | "thread.isCancelled"
-            | "thread.openStdIn"
-            | "thread.closeStdIn" => lower_thread_helper(
-                symbol,
-                spec.call,
-                uses_rng,
-                arena_layout.global_slots,
-                platform_imports,
-                platform,
-            )?,
-            call if call.starts_with("net.") => match call {
-                "net.lookup" => net::lower_net_lookup_helper(symbol, platform_imports, platform)?,
-                "net.connectTcp" => {
-                    net::lower_net_connect_tcp_helper(symbol, platform_imports, platform)?
-                }
-                "net.connectTcpAddr" => {
-                    net::lower_net_connect_tcp_addr_helper(symbol, platform_imports, platform)?
-                }
-                "net.listenTcp" => {
-                    net::lower_net_listen_tcp_helper(symbol, platform_imports, platform)?
-                }
-                "net.accept" => net::lower_net_accept_helper(symbol, platform_imports, platform)?,
-                "net.poll" => net::lower_net_poll_helper(symbol, platform_imports, platform)?,
-                "net.read" => {
-                    net::lower_net_read_helper(symbol, platform_imports, platform, false)?
-                }
-                "net.readText" => {
-                    net::lower_net_read_helper(symbol, platform_imports, platform, true)?
-                }
-                "net.write" => {
-                    net::lower_net_write_helper(symbol, platform_imports, platform, false)?
-                }
-                "net.writeText" => {
-                    net::lower_net_write_helper(symbol, platform_imports, platform, true)?
-                }
-                // A socket/listener handle shares the `File` record layout, so the
-                // standard (vreg-allocated) file close helper closes net handles too.
-                "net.close" => lower_fs_close_helper(symbol, platform_imports, platform, false)?,
-                "net.localAddress" => {
-                    net::lower_net_address_helper(symbol, platform_imports, platform, false)?
-                }
-                "net.remoteAddress" => {
-                    net::lower_net_address_helper(symbol, platform_imports, platform, true)?
-                }
-                "net.setReadTimeout" => {
-                    net::lower_net_set_timeout_helper(symbol, platform_imports, platform, false)?
-                }
-                "net.setWriteTimeout" => {
-                    net::lower_net_set_timeout_helper(symbol, platform_imports, platform, true)?
-                }
-                "net.bindUdp" => {
-                    net::lower_net_bind_udp_helper(symbol, platform_imports, platform)?
-                }
-                "net.receiveFrom" => {
-                    net::lower_net_receive_from_helper(symbol, platform_imports, platform, false)?
-                }
-                "net.receiveTextFrom" => {
-                    net::lower_net_receive_from_helper(symbol, platform_imports, platform, true)?
-                }
-                "net.sendTo" => {
-                    net::lower_net_send_to_helper(symbol, platform_imports, platform, false)?
-                }
-                "net.sendTextTo" => {
-                    net::lower_net_send_to_helper(symbol, platform_imports, platform, true)?
-                }
-                // Defensive: unreachable (see the io.*/fs.* arm); required only for
-                // `&str` match exhaustiveness.
-                other => {
-                    return Err(format!(
-                        "native code plan does not emit runtime call '{other}'"
-                    ));
-                }
-            },
-            call if call.starts_with("audio.") => {
-                audio::lower_audio_helper(call, symbol, platform_imports, platform)?
             }
-            call if call.starts_with("tls.") => match call {
-                "tls.connect" => tls::lower_tls_connect_helper(symbol, platform_imports, platform)?,
-                "tls.listen" => tls::lower_tls_listen_helper(symbol, platform_imports, platform)?,
-                "tls.accept" => tls::lower_tls_accept_helper(symbol, platform_imports, platform)?,
-                "tls.read" => {
-                    tls::lower_tls_read_helper(symbol, platform_imports, platform, false)?
-                }
-                "tls.readText" => {
-                    tls::lower_tls_read_helper(symbol, platform_imports, platform, true)?
-                }
-                "tls.write" => {
-                    tls::lower_tls_write_helper(symbol, platform_imports, platform, false)?
-                }
-                "tls.writeText" => {
-                    tls::lower_tls_write_helper(symbol, platform_imports, platform, true)?
-                }
-                "tls.close" => tls::lower_tls_close_helper(symbol, platform_imports, platform)?,
-                "tls.closeListener" => {
-                    tls::lower_tls_close_listener_helper(symbol, platform_imports, platform)?
-                }
-                // Defensive: unreachable (see the io.*/fs.* arm); required only for
-                // `&str` match exhaustiveness.
-                other => {
-                    return Err(format!(
-                        "native code plan does not emit runtime call '{other}'"
-                    ));
-                }
-            },
-            other => {
-                return Err(format!(
-                    "native code plan does not emit runtime call '{other}'"
-                ));
-            }
-        }
-    };
+        };
     // plan-62-E: the console-reading `io::` helpers (`input`/`readLine`/`readChar`)
     // are gated on the `Console` presentation mode in an app build that uses `app::`
     // — outside `Console` the window input pipe has no producer, so an ungated read
@@ -2224,6 +2579,18 @@ pub(super) fn emit_alloc(
     ]);
 }
 
+/// `arena_free(x0 = ptr, x1 = size)` — return a compiler-sized allocation to the
+/// arena. The caller preloads `x0`/`x1`; one internal-call relocation per (from,to)
+/// covers all sites in `symbol`. Companion of [`emit_alloc`].
+pub(super) fn emit_arena_free(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::branch_link(ARENA_FREE_SYMBOL));
+    relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+}
+
 fn internal_branch(from: &str, to: &str) -> CodeRelocation {
     CodeRelocation {
         from: from.to_string(),
@@ -2277,7 +2644,7 @@ fn lower_map_build_buckets_helper() -> CodeFunction {
         // incoming param homes in rax/rdx by role, which the div/msub below
         // clobber — destroying it before the final store. As a vreg the
         // allocator keeps it in a safe (or spilled) location. AArch64 unaffected.
-        abi::move_register("%v18", abi::ARG[0]),
+        abi::move_register("%v18", abi::c_arg(0)),
         // dataBase (v11) = map + HEADER + capacity*ENTRY ; bucketBase (v12) += dataCap.
         abi::load_u64("%v9", "%v18", COLLECTION_OFFSET_COUNT),
         abi::load_u64("%v14", "%v18", COLLECTION_OFFSET_CAPACITY),
@@ -2382,8 +2749,8 @@ fn lower_map_bucket_put_helper() -> CodeFunction {
         abi::label("entry"),
         // Capture map ptr (x0) and entry index (x1) into vregs before the div/msub
         // below clobber their x86 arg-register homes (rax/rdx). AArch64 unaffected.
-        abi::move_register("%v20", abi::ARG[0]),
-        abi::move_register("%v21", abi::ARG[1]),
+        abi::move_register("%v20", abi::c_arg(0)),
+        abi::move_register("%v21", abi::c_arg(1)),
         abi::load_u64("%v14", "%v20", COLLECTION_OFFSET_CAPACITY),
         abi::move_immediate("%v16", "Integer", &entry_size),
         abi::multiply_registers("%v11", "%v14", "%v16"),
@@ -2474,9 +2841,9 @@ fn lower_map_probe_helper() -> CodeFunction {
         // on x86 (esp. rdx via its div), so x0/x1/x2 must not be read after it.
         // The build call still receives the map implicitly in rdi (unclobbered
         // until then). AArch64 unaffected.
-        abi::move_register("%v20", abi::ARG[0]),
-        abi::move_register("%v21", abi::ARG[1]),
-        abi::move_register("%v22", abi::ARG[2]),
+        abi::move_register("%v20", abi::c_arg(0)),
+        abi::move_register("%v21", abi::c_arg(1)),
+        abi::move_register("%v22", abi::c_arg(2)),
         // Lazy build if not ready.
         abi::load_u8("%v9", "%v20", COLLECTION_OFFSET_BUCKETS_READY),
         abi::compare_immediate("%v9", "0"),
@@ -2541,7 +2908,7 @@ fn lower_map_probe_helper() -> CodeFunction {
         abi::subtract_immediate("%v6", "%v6", 1),
         abi::branch(&cloop),
         abi::label(&cmatch),
-        abi::move_register(abi::RET[0], "%v13"),
+        abi::move_register(abi::mfb_return(0), "%v13"),
         abi::branch(&done),
         abi::label(&pnext),
         abi::add_immediate("%v4", "%v4", 1),
@@ -2551,8 +2918,8 @@ fn lower_map_probe_helper() -> CodeFunction {
         abi::label(&nowrap),
         abi::branch(&ploop),
         abi::label(&notfound),
-        abi::move_immediate(abi::RET[0], "Integer", "0"),
-        abi::subtract_immediate(abi::RET[0], abi::RET[0], 1), // -1
+        abi::move_immediate(abi::mfb_return(0), "Integer", "0"),
+        abi::subtract_immediate(abi::mfb_return(0), abi::mfb_return(0), 1), // -1
         abi::label(&done),
         abi::return_(),
     ];
@@ -2726,7 +3093,7 @@ fn standard_error_messages() -> Vec<(&'static str, &'static str, &'static str)> 
         "ErrWriteFailed", "ErrEndOfFile", "ErrEncoding", "ErrInputFailed",
         "ErrInvalidContext", "ErrWrongMode", "ErrAddressInvalid", "ErrAddressNotFound",
         "ErrNetworkFailed", "ErrConnectionClosed", "ErrMessageTooLarge", "ErrTlsFailed",
-        "ErrAudioUnavailable", "ErrAudioDevice",
+        "ErrAudioUnavailable", "ErrAudioDevice", "ErrSpawnFailed",
     ]
     .into_iter()
     .map(|name| {

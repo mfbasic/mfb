@@ -1,0 +1,122 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "reduce_accumulator_reclaim_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "concat",
+    "line": 15,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "acc", "line": 15, "type": "String", "default": null },
+    { "name": "x", "line": 15, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 16, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "acc" }, "right": { "kind": "local", "name": "x" } } }
+    ]
+  },
+  {
+    "name": "pickLast",
+    "line": 21,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "acc", "line": 21, "type": "String", "default": null },
+    { "name": "x", "line": 21, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 22, "value": { "kind": "local", "name": "x" } }
+    ]
+  },
+  {
+    "name": "keepAcc",
+    "line": 26,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "acc", "line": 26, "type": "String", "default": null },
+    { "name": "x", "line": 26, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 27, "value": { "kind": "local", "name": "acc" } }
+    ]
+  },
+  {
+    "name": "sumLen",
+    "line": 32,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "acc", "line": 32, "type": "Integer", "default": null },
+    { "name": "s", "line": 32, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 33, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "s" }] } } }
+    ]
+  },
+  {
+    "name": "sum",
+    "line": 38,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "acc", "line": 38, "type": "Integer", "default": null },
+    { "name": "x", "line": 38, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 39, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc" }, "right": { "kind": "local", "name": "x" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 42,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 43, "mutable": false, "name": "xs", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "ab" }, { "kind": "const", "type": "String", "value": "cde" }, { "kind": "const", "type": "String", "value": "fghi" }, { "kind": "const", "type": "String", "value": "j" }, { "kind": "const", "type": "String", "value": "klmno" }] } },
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "concat=" }, "right": { "kind": "call", "type": "String", "target": "collections.reduce", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "functionRef", "name": "concat", "type": "FUNC(String, String) AS String" }] } }] } },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pickLast=" }, "right": { "kind": "call", "type": "String", "target": "collections.reduce", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "functionRef", "name": "pickLast", "type": "FUNC(String, String) AS String" }] } }] } },
+    { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "keepAcc=[" }, "right": { "kind": "call", "type": "String", "target": "collections.reduce", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "String", "value": "seed" }, { "kind": "functionRef", "name": "keepAcc", "type": "FUNC(String, String) AS String" }] } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "sumLen=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.reduce", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "functionRef", "name": "sumLen", "type": "FUNC(Integer, String) AS Integer" }] }] } }] } },
+    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "rr-concat=" }, "right": { "kind": "call", "type": "String", "target": "collections.reduceRight", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "functionRef", "name": "concat", "type": "FUNC(String, String) AS String" }] } }] } },
+    { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "rr-pickLast=" }, "right": { "kind": "call", "type": "String", "target": "collections.reduceRight", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "functionRef", "name": "pickLast", "type": "FUNC(String, String) AS String" }] } }] } },
+    { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "rr-keepAcc=[" }, "right": { "kind": "call", "type": "String", "target": "collections.reduceRight", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "String", "value": "seed" }, { "kind": "functionRef", "name": "keepAcc", "type": "FUNC(String, String) AS String" }] } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "eval", "line": 56, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "rr-sumLen=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.reduceRight", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "functionRef", "name": "sumLen", "type": "FUNC(Integer, String) AS Integer" }] }] } }] } },
+    { "op": "bind", "line": 58, "mutable": false, "name": "ns", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "eval", "line": 59, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "sum=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.reduce", "args": [{ "kind": "local", "name": "ns" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "functionRef", "name": "sum", "type": "FUNC(Integer, Integer) AS Integer" }] }] } }] } },
+    { "op": "bind", "line": 63, "mutable": true, "name": "round", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 64, "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 65,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "round" }, "right": { "kind": "const", "type": "Integer", "value": "500" } },
+      "body": [
+      { "op": "bind", "line": 66, "mutable": false, "name": "r", "type": "String", "value": { "kind": "call", "type": "String", "target": "collections.reduce", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "functionRef", "name": "concat", "type": "FUNC(String, String) AS String" }] } },
+      { "op": "bind", "line": 67, "mutable": false, "name": "rr", "type": "String", "value": { "kind": "call", "type": "String", "target": "collections.reduceRight", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "functionRef", "name": "concat", "type": "FUNC(String, String) AS String" }] } },
+      { "op": "assign", "line": 68, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "r" }] } }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "rr" }] } } },
+      { "op": "assign", "line": 69, "name": "round", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "round" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 71, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "repeat total=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] } }] } },
+    { "op": "return", "line": 72, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

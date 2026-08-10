@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/functions/bug227_private_isolated_func_invalid
+   3 | ' mis-classified as TYPE_CALL_ARGUMENT_MISMATCH; the fix introduced a dedicated
+   4 | ' TYPE_ISOLATED_NOT_VISIBLE (2-203-0113) and reports it here instead.
+   5 | PRIVATE ISOLATED FUNC w(x AS Integer) AS Integer
+     | ^
+tests/syntax/functions/bug227_private_isolated_func_invalid/src/main.mfb:5 error[2-203-0113 TYPE_ISOLATED_NOT_VISIBLE]: ISOLATED function must be a project-visible FUNC declaration
+               ISOLATED function `#c2515768f1aa7dc6$w` must be a project-visible FUNC declaration (PUBLIC — the default — or EXPORT, not PRIVATE).
+[exit 1]

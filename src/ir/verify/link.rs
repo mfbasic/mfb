@@ -645,7 +645,7 @@ impl TypeEnv {
         // minus `Unknown`, since an unresolved name is NOT provably data
         // (bug-342 A9). Derived from the base so a new primitive flows here.
         PRIMITIVE_TYPES.contains(&base)
-            || matches!(base, "Error" | "ErrorLoc")
+            || matches!(base, "Error" | "ErrorLoc" | "AttributedString")
             || base.starts_with("List OF ")
             || base.starts_with("Set OF ")
             || base.starts_with("Map OF ")

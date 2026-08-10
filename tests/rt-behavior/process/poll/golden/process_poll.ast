@@ -1,0 +1,51 @@
+{
+  "project": "process_poll",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "process", "line": 4 },
+    { "module": "io", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "p", "type": null, "value": { "kind": "call", "callee": "process.spawn", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "echo" }, { "kind": "string", "value": "hi" }] }] }, "line": 8 },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "process.poll", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "number", "value": "1000" }] },
+        "line": 9,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "readable" }] }, "line": 10 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "not" }] }, "line": 12 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "q", "type": null, "value": { "kind": "call", "callee": "process.spawn", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "sleep" }, { "kind": "string", "value": "5" }] }] }, "line": 15 },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "process.poll", "arguments": [{ "kind": "identifier", "value": "q" }, { "kind": "number", "value": "50" }] },
+        "line": 16,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "readable" }] }, "line": 17 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "not" }] }, "line": 19 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 21 }
+      ]
+    }
+    ]
+  }
+  ]
+}

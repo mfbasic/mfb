@@ -151,7 +151,7 @@ fn marshal_cstring(
     instructions.extend([
         abi::load_u64(&len, src, 0),
         abi::add_immediate(abi::return_register(), &len, 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(symbol, relocations);
@@ -159,7 +159,7 @@ fn marshal_cstring(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(alloc_fail),
         abi::label(&alloc_ok),
-        abi::move_register(out, abi::RET[1]),
+        abi::move_register(out, abi::mfb_return(1)),
         abi::load_u64(&len, src, 0),
         abi::add_immediate(&src_cursor, src, 8),
         abi::move_register(&dst, out),
@@ -215,7 +215,7 @@ fn build_string_from_cstr(
         abi::label(&count_done),
         // 8-byte length header + bytes + NUL terminator.
         abi::add_immediate(abi::return_register(), &length, 9),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(symbol, relocations);
@@ -223,7 +223,7 @@ fn build_string_from_cstr(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(alloc_fail),
         abi::label(&alloc_ok),
-        abi::move_register(&block, abi::RET[1]),
+        abi::move_register(&block, abi::mfb_return(1)),
         abi::store_u64(&length, &block, 0),
         abi::move_register(&src, cstr),
         abi::add_immediate(&dst, &block, 8),
@@ -276,7 +276,7 @@ fn build_string_from_len(
     let byte = vregs.next();
     instructions.extend([
         abi::add_immediate(abi::return_register(), len, 9),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(symbol, relocations);
@@ -284,7 +284,7 @@ fn build_string_from_len(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(alloc_fail),
         abi::label(&alloc_ok),
-        abi::move_register(&block, abi::RET[1]),
+        abi::move_register(&block, abi::mfb_return(1)),
         abi::store_u64(len, &block, 0),
         abi::move_register(&cursor, src),
         abi::add_immediate(&dst, &block, 8),

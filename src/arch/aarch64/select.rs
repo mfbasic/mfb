@@ -12,12 +12,12 @@ use crate::arch::aarch64::abi;
 use crate::arch::aarch64::regmodel::ARENA_BASE_REGISTER;
 use crate::arch::ops::CodeOp;
 use crate::target::shared::code::mir::{
-    fused_setter_codeop, rename_field_values, MirInstruction, MirOp, ARENA_BASE, FUSED_COND_FIELD,
-    FUSED_SHARE_FIELD,
+    code_fields_from_mir, fused_setter_codeop, rename_operand_field_values, MirInstruction, MirOp,
+    ARENA_BASE, FUSED_COND_FIELD, FUSED_SHARE_FIELD,
 };
-use crate::target::shared::code::CodeInstruction;
+use crate::target::shared::code::{CodeInstruction, Operand};
 
-pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruction> {
+pub(crate) fn select_aarch64(instructions: Vec<MirInstruction>) -> Vec<CodeInstruction> {
     let mut out = Vec::with_capacity(instructions.len());
     for instruction in instructions {
         if instruction.op == MirOp::AddrOf {
@@ -36,8 +36,8 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                 .find(|(key, _)| *key == "symbol")
                 .map(|(_, value)| value.clone())
                 .expect("addr_of carries a symbol field");
-            out.push(abi::load_page_address(&dst, &symbol));
-            out.push(abi::add_page_offset(&dst, &dst, &symbol));
+            out.push(abi::load_page_address(&dst, &symbol.render()));
+            out.push(abi::add_page_offset(&dst, &dst, &symbol.render()));
             continue;
         }
         if let Some(setter_op) = fused_setter_codeop(instruction.op) {
@@ -50,8 +50,8 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                 .iter()
                 .position(|(key, _)| *key == FUSED_COND_FIELD)
                 .expect("fused MIR op carries a cond field");
-            let setter_fields = instruction.fields[..split].to_vec();
-            let branch_op = CodeOp::from_mnemonic(&instruction.fields[split].1)
+            let setter_fields = code_fields_from_mir(&instruction.fields[..split]);
+            let branch_op = CodeOp::from_mnemonic(&instruction.fields[split].1.render())
                 .expect("fused MIR op carries a valid branch mnemonic");
             let mut branch_fields = Vec::new();
             let mut shared = false;
@@ -68,19 +68,26 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                 out.push(CodeInstruction {
                     op: setter_op,
                     fields: setter_fields,
+                    source: instruction.source,
                 });
             }
             out.push(CodeInstruction {
                 op: branch_op,
                 fields: branch_fields,
+                source: instruction.source,
             });
         } else {
+            // Common (non-fused) case: MOVE the field bag into the CodeInstruction
+            // instead of `code_fields_from_mir`'s `to_vec` clone (plan-84 Phase 2).
+            let op = instruction
+                .op
+                .to_code()
+                .expect("non-fused MIR op maps to a single CodeOp");
+            let source = instruction.source;
             out.push(CodeInstruction {
-                op: instruction
-                    .op
-                    .to_code()
-                    .expect("non-fused MIR op maps to a single CodeOp"),
-                fields: instruction.fields.clone(),
+                op,
+                fields: instruction.fields,
+                source,
             });
         }
     }
@@ -96,11 +103,76 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
     // (plan-00-D §2, plan-34-A).
     for instruction in &mut out {
         for (_, value) in instruction.fields.iter_mut() {
-            if let Some(reg) = abi::realize_abi_token(value) {
-                *value = reg.to_string();
+            // Only a `Raw` `%`-token or a typed `Operand::Abi` can realize to a
+            // register; a `VReg`/`Phys`/`Imm` never does. Match directly to skip
+            // the per-field `render()` alloc over the whole selected stream
+            // (plan-79).
+            match value {
+                Operand::Raw(text) => {
+                    if let Some(reg) = abi::realize_abi_token(text) {
+                        *value = Operand::from(reg);
+                    }
+                }
+                // A convention-explicit ABI token (plan-85-A) realizes positionally
+                // to `x{index}` — on AArch64 every convention/role collapses to the
+                // same `xN`, so this is byte-identical to the legacy token.
+                Operand::Abi { index, .. } => {
+                    *value = Operand::from(abi::realize_abi_positional(*index));
+                }
+                _ => {}
             }
         }
-        rename_field_values(&mut instruction.fields, ARENA_BASE, ARENA_BASE_REGISTER);
+        rename_operand_field_values(&mut instruction.fields, ARENA_BASE, ARENA_BASE_REGISTER);
+    }
+    // plan-71-B Phase 1: the Category-2 self-move probe. `out` now carries fully
+    // realized ABI registers (`%argK`/`%retK` → `xN`), so a same-index staging
+    // move would already read as a `mov xN,xN` no-op here. Report those under
+    // `MFB_BUG387_SELFMOVE`; unset, this reads nothing and every emitted byte is
+    // unchanged (the scan never mutates `out`).
+    if std::env::var_os("MFB_BUG387_SELFMOVE").is_some() {
+        for line in crate::target::shared::code::bug387_selfmove_lines(&out, "aarch64") {
+            eprintln!("{line}");
+        }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::target::shared::code::mir::lower_to_mir;
+
+    fn values(out: &[CodeInstruction]) -> Vec<String> {
+        out.iter()
+            .flat_map(|inst| inst.fields.iter().map(|(_, v)| v.render()))
+            .collect()
+    }
+
+    #[test]
+    fn explicit_abi_tokens_realize_to_positional_x_registers() {
+        // plan-85-A: a typed `Operand::Abi` realizes positionally to `x{index}` on
+        // AArch64 — every convention/role collapses to the same `xN`, so it is
+        // byte-identical to the legacy `%argK`/`%retK`. %retC1 → x1, %argSys3 → x3,
+        // %retSys → x0.
+        let out = select_aarch64(lower_to_mir(&[
+            CodeInstruction::new("mov")
+                .field("dst", abi::mfb_return(0))
+                .field("src", abi::mfb_arg(2)),
+            CodeInstruction::new("mov")
+                .field("dst", abi::c_return(1))
+                .field("src", abi::sys_arg(3)),
+            CodeInstruction::new("mov")
+                .field("dst", abi::sys_return())
+                .field("src", abi::c_arg(7)),
+        ]));
+        let vals = values(&out);
+        assert!(
+            vals.contains(&"x0".to_string()),
+            "%retMFB0/%retSys → x0: {vals:?}"
+        );
+        assert!(vals.contains(&"x2".to_string()), "%argMFB2 → x2: {vals:?}");
+        assert!(vals.contains(&"x1".to_string()), "%retC1 → x1: {vals:?}");
+        assert!(vals.contains(&"x3".to_string()), "%argSys3 → x3: {vals:?}");
+        assert!(vals.contains(&"x7".to_string()), "%argC7 → x7: {vals:?}");
+    }
 }

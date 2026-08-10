@@ -42,7 +42,7 @@ def _csv_stringify(grid):
 
 def test_serialize_json():
     tree = json.loads(_JSON_TEXT)
-    reps = 4                 # TODO(plan-64-A): raise to 200
+    reps = 200
     times = []
     checksum = 0
     for _ in range(RUN):
@@ -57,7 +57,7 @@ def test_serialize_json():
 
 
 def test_serialize_roundtrip():
-    reps = 4                 # TODO(plan-64-A): raise to 100
+    reps = 100
     times = []
     checksum = 0
     for _ in range(RUN):
@@ -73,7 +73,7 @@ def test_serialize_roundtrip():
 
 
 def test_serialize_csv():
-    reps = 4                 # TODO(plan-64-A): raise to 200
+    reps = 200
     times = []
     checksum = 0
     for _ in range(RUN):

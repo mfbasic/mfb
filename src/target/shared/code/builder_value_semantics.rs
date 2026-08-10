@@ -2,29 +2,30 @@ use super::*;
 
 impl CodeBuilder<'_> {
     /// Resolve a resource *value* pointer (held in `value_ptr`) of declared
-    /// `type_` to the pointer to its 80-byte resource **record**, whose `STATE`
-    /// slot is at `FILE_OFFSET_STATE`. For a concrete resource the value already
+    /// `type_` to the pointer to its resource **record**, whose `STATE`
+    /// slot is at `RESOURCE_OFFSET_STATE` (24, free in every backend layout —
+    /// plan-80). For a concrete resource the value already
     /// IS the record. For a resource union (plan-74) the value is a
     /// `{ tag @0, record-ptr @8 }` block, so the record is loaded from `+8` — the
     /// single indirection that makes every STATE path work for a union.
     pub(super) fn emit_resource_record_ptr(
         &mut self,
-        value_ptr: &str,
+        value_ptr: impl Into<Operand>,
         type_: &str,
     ) -> Result<String, String> {
         if self.is_resource_union_type(type_) {
             let record = self.allocate_register()?;
             self.emit(abi::load_u64(&record, value_ptr, 8));
-            Ok(record)
+            Ok(record.render())
         } else {
-            Ok(value_ptr.to_string())
+            Ok(value_ptr.into().render())
         }
     }
 
     /// Default-initialize a `RES` binding's `STATE` payload. The resource value
     /// at `resource_slot` is a pointer to its record (a concrete resource) or to a
     /// `{tag, record-ptr}` union block whose record is at `+8` (`resource_type`
-    /// selects, plan-74); if the state slot (`FILE_OFFSET_STATE`) of the record is
+    /// selects, plan-74); if the state slot (`RESOURCE_OFFSET_STATE`) of the record is
     /// null, allocate and store a default `state_type` record. A resource that
     /// already carries state (moved/returned in) is left untouched. Values are
     /// spilled to the stack across allocations to avoid register aliasing.
@@ -38,7 +39,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&block, abi::stack_pointer(), resource_slot));
         let ptr = self.emit_resource_record_ptr(&block, resource_type)?;
         let current = self.allocate_register()?;
-        self.emit(abi::load_u64(&current, &ptr, FILE_OFFSET_STATE));
+        self.emit(abi::load_u64(&current, &ptr, RESOURCE_OFFSET_STATE));
         let done = self.label("resource_state_init_done");
         self.emit(abi::compare_immediate(&current, "0"));
         self.emit(abi::branch_ne(&done));
@@ -54,9 +55,51 @@ impl CodeBuilder<'_> {
         let ptr2 = self.emit_resource_record_ptr(&block2, resource_type)?;
         let value = self.allocate_register()?;
         self.emit(abi::load_u64(&value, abi::stack_pointer(), default_slot));
-        self.emit(abi::store_u64(&value, &ptr2, FILE_OFFSET_STATE));
+        self.emit(abi::store_u64(&value, &ptr2, RESOURCE_OFFSET_STATE));
         self.emit(abi::label(&done));
         Ok(())
+    }
+
+    /// Materialize a fresh CLOSED resource record: an arena record zeroed
+    /// (invalid internals) with its shared `RESOURCE_OFFSET_CLOSED` (16) flag
+    /// set. This is the record a `RES x = <fallible> TRAP` error path binds when
+    /// it needs a resource value it can never re-open — every later op then
+    /// short-circuits safely (`close` is an idempotent no-op; `read`/`write`/…
+    /// raise via their closed guard), and no null handle is ever exposed. The
+    /// caller attaches STATE (a concrete resource IS this record; a resource
+    /// union wraps it at `+8`), so this returns the bare record register.
+    fn emit_closed_resource_record(&mut self) -> Result<VirtualRegister, String> {
+        let record = self.allocate_register()?;
+        self.emit(abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            RESOURCE_RECORD_SIZE,
+        ));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit_symbol_call(ARENA_ALLOC_SYMBOL);
+        let alloc_ok = self.label("default_resource_alloc_ok");
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::move_register(&record, abi::mfb_return(1)));
+        // Zero the record (invalid internals), then mark it closed.
+        let bytes: usize = RESOURCE_RECORD_SIZE_BYTES;
+        let mut offset = 0;
+        while offset < bytes {
+            self.emit(abi::store_u64(abi::ZERO, &record, offset));
+            offset += 8;
+        }
+        let one = self.allocate_register()?;
+        self.emit(abi::move_immediate(&one, "Integer", "1"));
+        // The single canonical closed-flag offset, shared by every built-in
+        // resource record (enforced by the compile-time asserts beside each
+        // per-resource closed-offset constant).
+        self.emit(abi::store_u64(&one, &record, RESOURCE_OFFSET_CLOSED));
+        Ok(record)
     }
 
     pub(super) fn lower_default_value(&mut self, type_: &str) -> Result<ValueResult, String> {
@@ -66,7 +109,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, "Integer", "0"));
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: "default Nothing".to_string(),
                 })
             }
@@ -75,7 +118,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, "Boolean", "0"));
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: "default Boolean".to_string(),
                 })
             }
@@ -84,7 +127,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, type_, "0"));
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: format!("default {type_}"),
                 })
             }
@@ -92,7 +135,7 @@ impl CodeBuilder<'_> {
                 let register = self.load_empty_string_constant()?;
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: "default String".to_string(),
                 })
             }
@@ -104,6 +147,67 @@ impl CodeBuilder<'_> {
                     text: format!("default {type_}"),
                 })
             }
+            _ if self.is_resource_union_type(type_) => {
+                // A resource UNION has no reconstructible default either; the site
+                // that needs one is the error-path binding of a
+                // `RES x = <fallible> TRAP` whose result is a resource union
+                // (`Stream STATE PendingState`, bug-429). Return a real
+                // `{tag@0, record-ptr@8}` union value whose record is CLOSED, so
+                // its tag-dispatched drop is a safe no-op and a `RECOVER`ed
+                // union's `.state`/`MATCH` reads a valid (closed) record rather
+                // than dereferencing null. Which variant tag is used is
+                // immaterial — the record is closed, so every variant's close op
+                // short-circuits on the shared closed flag.
+                let record = self.emit_closed_resource_record()?;
+                let record_slot = self.allocate_stack_object("default_union_record", 8);
+                self.emit(abi::store_u64(&record, abi::stack_pointer(), record_slot));
+                // The union block: `{tag@0, record-ptr@8}`, 16 bytes.
+                let block = self.allocate_register()?;
+                self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
+                self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+                self.emit_arena_alloc_call();
+                let alloc_ok = self.label("default_union_alloc_ok");
+                self.emit(abi::branch_eq(&alloc_ok));
+                self.emit_allocation_error_return()?;
+                self.emit(abi::label(&alloc_ok));
+                self.emit(abi::move_register(&block, abi::mfb_return(1)));
+                let variants = self.resource_union_cleanup(type_).ok_or_else(|| {
+                    format!("native code cannot resolve resource-union variants for '{type_}'")
+                })?;
+                let (tag, _) = variants.first().ok_or_else(|| {
+                    format!("resource union '{type_}' has no variants for a default value")
+                })?;
+                let tag_register = self.allocate_register()?;
+                self.emit(abi::move_immediate(
+                    &tag_register,
+                    "UnionTag",
+                    &tag.to_string(),
+                ));
+                self.emit(abi::store_u64(&tag_register, &block, 0));
+                let record_reg = self.allocate_register()?;
+                self.emit(abi::load_u64(
+                    &record_reg,
+                    abi::stack_pointer(),
+                    record_slot,
+                ));
+                self.emit(abi::store_u64(&record_reg, &block, 8));
+                // Initialize the active variant record's uniform STATE through the
+                // union value (`emit_resource_record_ptr` derefs `+8`), so a
+                // `RECOVER`ed union's `.state` never dereferences null — the same
+                // guarantee the concrete branch gives.
+                if let Some(state) = crate::builtins::resource::state_type_name(type_) {
+                    let state = state.to_string();
+                    let block_slot = self.allocate_stack_object("default_union_block", 8);
+                    self.emit(abi::store_u64(&block, abi::stack_pointer(), block_slot));
+                    self.emit_resource_state_init(block_slot, &state, type_)?;
+                    self.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
+                }
+                Ok(ValueResult {
+                    type_: type_.to_string(),
+                    location: Operand::from(block.render()),
+                    text: format!("closed union {type_}"),
+                })
+            }
             _ if crate::builtins::is_resource_type(type_)
                 || self
                     .type_model
@@ -113,42 +217,10 @@ impl CodeBuilder<'_> {
                 // A resource wraps an OS handle we cannot re-open, so it has no
                 // reconstructible default. The site that needs one is the
                 // error-path binding of `RES x = <fallible> TRAP`. Return a CLOSED
-                // resource: an arena record whose internals are invalid but whose
-                // `closed` flag — offset 8, shared by every built-in resource
-                // record — is set. Every operation then short-circuits safely:
-                // `close` is an idempotent no-op and `read`/`write`/... raise via
-                // their closed guard. No null handle is ever exposed to a program.
-                let record = self.allocate_register()?;
-                self.emit(abi::move_immediate(
-                    abi::return_register(),
-                    "Integer",
-                    RESOURCE_RECORD_SIZE,
-                ));
-                self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
-                self.emit_symbol_call(ARENA_ALLOC_SYMBOL);
-                let alloc_ok = self.label("default_resource_alloc_ok");
-                self.emit(abi::compare_immediate(
-                    abi::return_register(),
-                    RESULT_OK_TAG,
-                ));
-                self.emit(abi::branch_eq(&alloc_ok));
-                self.raise_error_bare("ErrOutOfMemory")?;
-                self.emit(abi::label(&alloc_ok));
-                self.emit(abi::move_register(&record, abi::RET[1]));
-                // Zero the record (invalid internals), then mark it closed.
-                let bytes: usize = RESOURCE_RECORD_SIZE_BYTES;
-                let mut offset = 0;
-                while offset < bytes {
-                    self.emit(abi::store_u64(abi::ZERO, &record, offset));
-                    offset += 8;
-                }
-                let one = self.allocate_register()?;
-                self.emit(abi::move_immediate(&one, "Integer", "1"));
-                // The single canonical closed-flag offset, shared by every
-                // built-in resource record (enforced by the compile-time asserts
-                // beside each per-resource closed-offset constant).
-                self.emit(abi::store_u64(&one, &record, RESOURCE_OFFSET_CLOSED)); // closed flag
-
+                // resource record (see `emit_closed_resource_record`); every
+                // operation then short-circuits safely and no null handle is ever
+                // exposed to a program.
+                let record = self.emit_closed_resource_record()?;
                 // A stateful resource's `STATE` payload is null in the zeroed
                 // record, so give it the same default record a real `RES … STATE`
                 // binding gets — otherwise a `RECOVER`ed closed resource's
@@ -164,7 +236,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: record,
+                    location: Operand::from(record.render()),
                     text: format!("closed {type_}"),
                 })
             }
@@ -186,7 +258,7 @@ impl CodeBuilder<'_> {
                 let register = self.emit_build_inlined_record(type_, &field_slots)?;
                 Ok(ValueResult {
                     type_: type_.to_string(),
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: format!("default {type_}"),
                 })
             }
@@ -218,10 +290,10 @@ impl CodeBuilder<'_> {
                 let record =
                     self.emit_resource_record_ptr(&target_value.location, &target_value.type_)?;
                 let register = self.allocate_register()?;
-                self.emit(abi::load_u64(&register, &record, FILE_OFFSET_STATE));
+                self.emit(abi::load_u64(&register, &record, RESOURCE_OFFSET_STATE));
                 return Ok(ValueResult {
                     type_: state_type,
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: "state".to_string(),
                 });
             }
@@ -315,7 +387,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: field_type,
-            location: register,
+            location: Operand::from(register.render()),
             text: format!("{}.{}", target_value.text, member),
         })
     }
@@ -334,8 +406,8 @@ impl CodeBuilder<'_> {
             .ok_or_else(|| format!("native code WITH target '{type_}' is not a record"))?;
         let base_reg = self.temporary_vreg();
         let field_reg = self.temporary_vreg();
-        let base = base_reg.as_str();
-        let field = field_reg.as_str();
+        let base = &base_reg;
+        let field = &field_reg;
         let target_value = self.lower_value(target)?;
         let target_slot = self.allocate_stack_object("with_target", 8);
         self.emit(abi::store_u64(
@@ -395,7 +467,7 @@ impl CodeBuilder<'_> {
         let register = self.emit_build_inlined_record(type_, &field_slots)?;
         Ok(ValueResult {
             type_: type_.to_string(),
-            location: register,
+            location: Operand::from(register.render()),
             text: format!("with {}", target_value.text),
         })
     }
@@ -451,15 +523,15 @@ impl CodeBuilder<'_> {
         let remaining_v = self.temporary_vreg();
         let right_cur_v = self.temporary_vreg();
         let byte_v = self.temporary_vreg();
-        let left_len = left_len_v.as_str();
-        let right_len = right_len_v.as_str();
-        let total_len = total_len_v.as_str();
-        let left_cur = left_cur_v.as_str();
-        let write_cur = write_cur_v.as_str();
-        let l8 = l8_v.as_str();
-        let remaining = remaining_v.as_str();
-        let right_cur = right_cur_v.as_str();
-        let byte = byte_v.as_str();
+        let left_len = &left_len_v;
+        let right_len = &right_len_v;
+        let total_len = &total_len_v;
+        let left_cur = &left_cur_v;
+        let write_cur = &write_cur_v;
+        let l8 = &l8_v;
+        let remaining = &remaining_v;
+        let right_cur = &right_cur_v;
+        let byte = &byte_v;
 
         self.emit(abi::load_u64(left_cur, abi::stack_pointer(), left_slot));
         self.emit(abi::load_u64(write_cur, abi::stack_pointer(), right_slot));
@@ -469,11 +541,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(right_len, write_cur, 0));
         self.emit(abi::add_registers(total_len, left_len, right_len));
         self.emit(abi::store_u64(total_len, abi::stack_pointer(), total_slot));
-        self.emit(abi::add_immediate(abi::return_register(), total_len, 9));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
+        self.emit(abi::add_immediate(abi::c_arg(0), total_len, 9));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.raise_error_bare("ErrOutOfMemory")?;
+        self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         // Capture the allocation result into a register while x1 is
         // unambiguously the call result at this boundary. The physical return
@@ -482,7 +555,7 @@ impl CodeBuilder<'_> {
         // break the result-vs-argument dataflow, so a later consumer would
         // arg-map the value. A neutral register carries it safely.
         let result_ptr = self.allocate_register()?;
-        self.emit(abi::move_register(&result_ptr, abi::RET[1]));
+        self.emit(abi::move_register(&result_ptr, abi::mfb_return(1)));
         self.emit(abi::load_u64(left_cur, abi::stack_pointer(), left_slot));
         self.emit(abi::load_u64(right_cur, abi::stack_pointer(), right_slot));
         self.emit(abi::add_immediate(right_cur, right_cur, 8));
@@ -520,7 +593,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result_ptr,
+            location: Operand::from(result_ptr.render()),
             text: format!("({} & {})", left.text, right.text),
         })
     }
@@ -540,7 +613,7 @@ impl CodeBuilder<'_> {
             ARENA_STATE_REGISTER,
             global.offset,
         ));
-        Ok(register)
+        Ok(register.render())
     }
 
     pub(super) fn local_constant_value(&self, value: &NirValue) -> Option<NirValue> {
@@ -848,6 +921,7 @@ impl CodeBuilder<'_> {
             }
             "thread.cancel"
             | "thread.send"
+            | "thread.sleep"
             | "thread.transferResource"
             | "thread.emitResource"
             | "thread.openStdIn"
@@ -946,6 +1020,10 @@ impl CodeBuilder<'_> {
             || is_collection_type(payload_type)
             || payload_type.starts_with("Result OF ")
             || self.type_model.record_fields.contains_key(payload_type)
-            || self.type_model.union_names.contains(payload_type)
+            // A **data** union is inlined whole; a **resource** union is a scalar
+            // pointer to its `{tag, ptr}` block, like a concrete resource, so it
+            // occupies the 8-byte payload word — not an inlinable block (plan-75
+            // gap 4). `union_is_data` base-strips any `STATE T` suffix.
+            || self.union_is_data(payload_type)
     }
 }

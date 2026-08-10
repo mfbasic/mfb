@@ -1,0 +1,7 @@
+$ mfb build -ast -ir tests/syntax/astrings/roundtrip-package
+Wrote AST to tests/syntax/astrings/roundtrip-package/astrings_roundtrip.ast
+Wrote IR to tests/syntax/astrings/roundtrip-package/astrings_roundtrip.ir
+[exit 0]
+$ mfb build tests/syntax/astrings/roundtrip-package
+Wrote package to tests/syntax/astrings/roundtrip-package/astrings_roundtrip.mfp
+[exit 0]

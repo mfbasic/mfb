@@ -1,0 +1,62 @@
+{
+  "project": "http_async_stream_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "http", "line": 5 },
+    { "module": "net", "line": 6 },
+    { "module": "io", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "drive",
+      "line": 9,
+      "params": [
+      { "name": "u", "type": "Url", "default": null, "line": 9 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "PendingState", "name": "s", "type": "Stream", "value": { "kind": "call", "callee": "http.startRead", "arguments": [{ "kind": "identifier", "value": "u" }] }, "line": 10 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "http.done", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "boolean", "value": false } },
+        "line": 11,
+        "body": [
+        {
+          "kind": "if",
+          "condition": { "kind": "call", "callee": "http.ready", "arguments": [{ "kind": "identifier", "value": "s" }] },
+          "line": 12,
+          "then": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "http.pump", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 13 }
+          ],
+          "else": [
+          ]
+        }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "resp", "type": "Response", "value": { "kind": "call", "callee": "http.finish", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 16 },
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "resp" }, "member": "status" }, "line": 17 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 20,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 21 }
+      ]
+    }
+    ]
+  }
+  ]
+}

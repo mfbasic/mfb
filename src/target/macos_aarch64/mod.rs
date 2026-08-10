@@ -101,6 +101,7 @@ impl NativeBackend for Backend {
                 "term.getBold",
                 "term.getUnderline",
                 "term.terminalSize",
+                "term.didResize",
                 "fs.fileExists",
                 "fs.directoryExists",
                 "fs.exists",
@@ -143,6 +144,7 @@ impl NativeBackend for Backend {
                 "thread.cancel",
                 "thread.send",
                 "thread.poll",
+                "thread.sleep",
                 "thread.receive",
                 "thread.transferResource",
                 "thread.acceptResource",
@@ -175,6 +177,8 @@ impl NativeBackend for Backend {
                 "tls.readText",
                 "tls.write",
                 "tls.writeText",
+                "tls.poll",
+                "tls.pollList",
                 "tls.close",
                 "tls.closeListener",
                 "audio.devices",
@@ -191,6 +195,22 @@ impl NativeBackend for Backend {
                 "audio.xruns",
                 "audio.closeInput",
                 "audio.closeOutput",
+                "process.spawn",
+                "process.spawnEnv",
+                "process.shell",
+                "process.pid",
+                "process.isRunning",
+                "process.waitFor",
+                "process.close",
+                "process.send",
+                "process.sendBytes",
+                "process.receive",
+                "process.receiveBytes",
+                "process.poll",
+                "process.signal",
+                "process.didSignal",
+                "process.detach",
+                "process.__drop",
             ],
         }
     }
@@ -348,9 +368,9 @@ fn write_executable(
         }
         // `LinuxApp`/`WindowsApp` are other-toolkit selections; they never reach
         // the macOS backend (the CLI picks the build mode from the target OS).
-        NativeBuildMode::LinuxApp | NativeBuildMode::WindowsApp => Err(
-            "internal error: macOS backend received a non-macOS app build mode".to_string(),
-        ),
+        NativeBuildMode::LinuxApp | NativeBuildMode::WindowsApp => {
+            Err("internal error: macOS backend received a non-macOS app build mode".to_string())
+        }
     }
 }
 

@@ -1,0 +1,8 @@
+{
+  "name": "func_thread_start_self_http_fanout",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "plan-81 worked example: an exported ISOLATED FUNC that fetches a document, fanned out N times via self:: from within the same package.",
+  "sources": [{ "root": "src", "role": "package", "include": ["**/*.mfb"] }]
+}

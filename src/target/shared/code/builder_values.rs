@@ -28,6 +28,14 @@ impl CodeBuilder<'_> {
     /// eventual `arena_free` survives the intervening register clobbers; the live
     /// register in `result` is left untouched for the immediate consumer.
     fn register_pending_temp(&mut self, value: &NirValue, result: &ValueResult) {
+        // plan-86 E: a read-only `get`-borrow returns an ALIAS into the container's
+        // data region (not a fresh block), so it must NOT be registered for the
+        // statement-scope free — freeing it would `arena_free` INTO the container and
+        // corrupt the free list. The `borrow_get_result` flag is set only while
+        // lowering such a borrow's initializer.
+        if self.borrow_get_result {
+            return;
+        }
         // A register-native vector has no arena block yet; it is registered as a
         // temp only when materialized (`vector_value_as_block`), so skip it here
         // (its marker location is not a real block pointer to spill/free).
@@ -89,6 +97,7 @@ impl CodeBuilder<'_> {
             self.emit_owned_value_drop(&OwnedValueCleanup {
                 type_: temp.type_,
                 stack_offset: temp.slot,
+                closure_captures: None,
             })?;
         }
         Ok(())
@@ -128,7 +137,7 @@ impl CodeBuilder<'_> {
             let copied = self.copy_flat_block(&result.type_, &result.location)?;
             return Ok(ValueResult {
                 type_: result.type_,
-                location: copied,
+                location: Operand::from(copied.render()),
                 text: result.text,
             });
         }
@@ -145,7 +154,29 @@ impl CodeBuilder<'_> {
     /// binding/global/return can own it, so the eventual scope-drop `arena_free`
     /// reclaims a real arena block and never an aliased or static one.
     pub(super) fn value_needs_owning_copy(&self, value: &NirValue) -> bool {
-        Self::value_is_aliasing_source(value) || self.static_string_value(value).is_some()
+        Self::value_is_aliasing_source(value)
+            || self.static_string_value(value).is_some()
+            || self.call_returns_param_borrow(value)
+    }
+
+    /// plan-86 K1: whether `value` is a call to a user function that returns a borrow
+    /// of one of its parameters (`function_returns_param_borrow`). The result aliases
+    /// the caller's argument block rather than a fresh allocation, so it is
+    /// classified as an aliasing source exactly like a `Local`: `register_pending_temp`
+    /// leaves it unfreed (the argument's owner frees it), and `lower_value_owned`
+    /// deep-copies it at an owning store. This is the caller half of the elision — the
+    /// callee (`lower_returned_value`, gated on the SAME predicate via
+    /// `current_returns_param_borrow`) returns the argument pointer uncopied, so the
+    /// single deep-copy lands here at the ownership boundary and value semantics is
+    /// unchanged.
+    fn call_returns_param_borrow(&self, value: &NirValue) -> bool {
+        let target = match value {
+            NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => target.as_str(),
+            _ => return false,
+        };
+        self.functions
+            .get(target)
+            .is_some_and(|f| function_returns_param_borrow(f, &self.callback_referenced_functions))
     }
 
     /// Whether lowering `value` yields a value whose lifetime is managed by the
@@ -189,13 +220,20 @@ impl CodeBuilder<'_> {
     ///   never a transfer: the collection's owning scope closes it. Every other
     ///   call — `fs::openFile`, a user `FUNC … AS RES File` — *does* transfer
     ///   ownership to this binding and must keep its cleanup.
+    /// * `net.poll(List OF RES Socket)` (plan-76-A) — the readiness multiplex
+    ///   returns a pointer to the first ready list element, the exact
+    ///   borrowed-element shape as `collections::get`: the list still owns and
+    ///   closes it. Classified via `net::returns_borrowed_resource`.
     pub(super) fn value_aliases_live_resource(value: &NirValue) -> bool {
         match value {
             NirValue::Local(_) => true,
-            NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => matches!(
-                crate::builtins::collections::native_member_bare(target),
-                Some("get" | "getOr")
-            ),
+            NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => {
+                matches!(
+                    crate::builtins::collections::native_member_bare(target),
+                    Some("get" | "getOr")
+                ) || crate::builtins::net::returns_borrowed_resource(target)
+                    || crate::builtins::tls::returns_borrowed_resource(target)
+            }
             _ => false,
         }
     }
@@ -231,6 +269,25 @@ impl CodeBuilder<'_> {
                 || self.union_is_data(type_))
     }
 
+    /// plan-77 M6: the static type of a closure capture, used by the closure
+    /// scope-drop to decide whether the env slot holds a freeable owned block.
+    /// ONLY a `Local` capture qualifies: it is deep-copied (`lower_value_owned`)
+    /// into its own arena block, so freeing it is sound. Everything else returns
+    /// `""` so the drop LEAVES the slot — a by-ref capture (`LocalRef` / a
+    /// `by_ref` `Capture`) holds a pointer to another binding's slot, NOT an owned
+    /// block, and a by-value scalar/float is stored inline; freeing either would
+    /// be a wild free. Leaving them is a safe (bounded, arena-reclaimed) leak.
+    pub(super) fn capture_free_type(&self, capture: &NirValue) -> String {
+        match capture {
+            NirValue::Local(name) => self
+                .locals
+                .get(name)
+                .map(|local| local.type_.clone())
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
+    }
+
     fn lower_value_inner(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         let scratch9_reg = self.temporary_vreg();
         let scratch10_reg = self.temporary_vreg();
@@ -240,13 +297,13 @@ impl CodeBuilder<'_> {
         // so `next_vreg` — and therefore the byte-identical codegen it drives —
         // is unchanged.
         let _ = self.temporary_vreg();
-        let scratch9 = scratch9_reg.as_str();
-        let scratch10 = scratch10_reg.as_str();
+        let scratch9 = &scratch9_reg;
+        let scratch10 = &scratch10_reg;
         if let Some(string_value) = self.static_string_value(value) {
             let register = self.load_string_constant(&string_value)?;
             return Ok(ValueResult {
                 type_: "String".to_string(),
-                location: register,
+                location: Operand::from(register.render()),
                 text: format!("String({string_value})"),
             });
         }
@@ -261,7 +318,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, type_, &immediate));
                 Ok(ValueResult {
                     type_: type_.clone(),
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: format!("{type_}({value})"),
                 })
             }
@@ -269,7 +326,7 @@ impl CodeBuilder<'_> {
                 if self.type_model.union_variants.contains_key(name) {
                     return Ok(ValueResult {
                         type_: "VariantTag".to_string(),
-                        location: name.clone(),
+                        location: Operand::from(name.clone()),
                         text: name.clone(),
                     });
                 }
@@ -290,16 +347,16 @@ impl CodeBuilder<'_> {
                     if self.dnative_floats() {
                         return Ok(ValueResult {
                             type_: "Float".to_string(),
-                            location: d,
+                            location: Operand::from(d),
                             text: name.clone(),
                         });
                     }
                     let register = self.allocate_register()?;
                     self.emit(abi::float_move_x_from_d(&register, &d));
-                    self.float_residents.insert(register.clone(), d);
+                    self.float_residents.insert(register.render(), d);
                     return Ok(ValueResult {
                         type_: "Float".to_string(),
-                        location: register,
+                        location: Operand::from(register.render()),
                         text: name.clone(),
                     });
                 }
@@ -320,7 +377,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_double(&d, abi::stack_pointer(), stack_offset));
                     return Ok(ValueResult {
                         type_,
-                        location: d,
+                        location: Operand::from(d.render()),
                         text: name.clone(),
                     });
                 }
@@ -335,7 +392,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     type_,
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: name.clone(),
                 })
             }
@@ -360,7 +417,7 @@ impl CodeBuilder<'_> {
                 ));
                 Ok(ValueResult {
                     type_: type_.clone(),
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: format!("&{name}"),
                 })
             }
@@ -380,7 +437,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_double(&d, &address, 0));
                     return Ok(ValueResult {
                         type_: value_type,
-                        location: d,
+                        location: Operand::from(d.render()),
                         text: name.clone(),
                     });
                 }
@@ -388,7 +445,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, &address, 0));
                 Ok(ValueResult {
                     type_: value_type,
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: name.clone(),
                 })
             }
@@ -427,7 +484,7 @@ impl CodeBuilder<'_> {
                 });
                 Ok(ValueResult {
                     type_: type_.clone(),
-                    location: closure_register,
+                    location: Operand::from(closure_register.render()),
                     text: name.clone(),
                 })
             }
@@ -480,12 +537,12 @@ impl CodeBuilder<'_> {
                         "Integer",
                         &env_size,
                     ));
-                    self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+                    self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
                     self.emit_arena_alloc_call();
                     self.emit(abi::branch_eq(&alloc_ok));
                     self.raise_error_bare("ErrOutOfMemory")?;
                     self.emit(abi::label(&alloc_ok));
-                    self.emit(abi::move_register(&env_register, abi::RET[1]));
+                    self.emit(abi::move_register(&env_register, abi::mfb_return(1)));
                     self.emit(abi::store_u64(
                         &env_register,
                         abi::stack_pointer(),
@@ -513,12 +570,13 @@ impl CodeBuilder<'_> {
                 };
                 let closure_register = self.allocate_register()?;
                 let alloc_ok = self.label("closure_alloc_ok");
+                // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
                 self.emit(abi::move_immediate(
-                    abi::return_register(),
+                    abi::c_arg(0),
                     "Integer",
                     &CLOSURE_OBJECT_SIZE.to_string(),
                 ));
-                self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+                self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
                 self.emit_arena_alloc_call();
                 self.emit(abi::branch_eq(&alloc_ok));
                 self.raise_error_bare("ErrOutOfMemory")?;
@@ -530,7 +588,7 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::store_u64(
                     &function_register,
-                    abi::RET[1],
+                    abi::mfb_return(1),
                     CLOSURE_OFFSET_CODE,
                 ));
                 if let Some(env_slot) = env_slot {
@@ -538,16 +596,20 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
                     self.emit(abi::store_u64(
                         &env_register,
-                        abi::RET[1],
+                        abi::mfb_return(1),
                         CLOSURE_OFFSET_ENV,
                     ));
                 } else {
-                    self.emit(abi::store_u64(abi::ZERO, abi::RET[1], CLOSURE_OFFSET_ENV));
+                    self.emit(abi::store_u64(
+                        abi::ZERO,
+                        abi::mfb_return(1),
+                        CLOSURE_OFFSET_ENV,
+                    ));
                 }
-                self.emit(abi::move_register(&closure_register, abi::RET[1]));
+                self.emit(abi::move_register(&closure_register, abi::mfb_return(1)));
                 Ok(ValueResult {
                     type_: type_.clone(),
-                    location: closure_register,
+                    location: Operand::from(closure_register.render()),
                     text: name.clone(),
                 })
             }
@@ -560,7 +622,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, CLOSURE_ENV_REGISTER, index * 8));
                 Ok(ValueResult {
                     type_: type_.clone(),
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: format!("capture[{index}]"),
                 })
             }
@@ -603,7 +665,7 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     local.stack_offset,
                                 ));
-                                register
+                                Operand::from(register.render())
                             },
                             text: target.clone(),
                         };
@@ -631,7 +693,7 @@ impl CodeBuilder<'_> {
                         self.emit(abi::load_u64(&register, &address, 0));
                         let callable = ValueResult {
                             type_: global.type_,
-                            location: register,
+                            location: Operand::from(register.render()),
                             text: target.clone(),
                         };
                         return self.emit_function_value_call(
@@ -646,6 +708,9 @@ impl CodeBuilder<'_> {
                     return Ok(result);
                 }
                 if let Some(result) = self.lower_strings_package_call(target, args)? {
+                    return Ok(result);
+                }
+                if let Some(result) = self.lower_astrings_package_call(target, args)? {
                     return Ok(result);
                 }
                 // Migrated `collections::`/`strings::` members arrive with their
@@ -737,17 +802,54 @@ impl CodeBuilder<'_> {
                 if let Some(params) = target.strip_prefix("#collections_sortBy$") {
                     if args.len() == 2 {
                         let mut parts = params.split('$');
-                        let item_ok = parts
-                            .next()
-                            .map(|t| matches!(t, "Integer" | "Float" | "Fixed" | "Money"))
-                            .unwrap_or(false);
+                        let item = parts.next().unwrap_or("");
                         let key_ok = parts
                             .next()
                             .map(|u| matches!(u, "Integer" | "Fixed" | "Money"))
                             .unwrap_or(false);
+                        // plan-86 A1: a String item list sorts an Integer index
+                        // permutation and gathers the Strings once (see
+                        // `lower_collection_sortby_call`); the keys are rebuilt via a
+                        // re-lowered `transform(source, keyFn)`, so the SOURCE (args[0])
+                        // must be re-eval-safe (a bare re-load, no side effects). The
+                        // keyFn (args[1]) is a pure functionRef/callable value whose
+                        // re-lowering is a pointer load, so it needs no such guard.
+                        // Fixed-width items take the direct value merge unconditionally.
+                        let source_reeval_safe = matches!(
+                            &args[0],
+                            NirValue::Local(_)
+                                | NirValue::Const { .. }
+                                | NirValue::Global { .. }
+                                | NirValue::LocalRef { .. }
+                        );
+                        let item_ok = matches!(item, "Integer" | "Float" | "Fixed" | "Money")
+                            || (item == "String" && source_reeval_safe);
                         if item_ok && key_ok {
                             return self.lower_collection_sortby_call(args);
                         }
+                    }
+                }
+                // plan-86 A1: native `collections::sort` (`#collections_sort$T`, 1
+                // arg) — an index-permutation merge. String compares
+                // lexicographically (byte compare + materialized gather);
+                // signed-8-byte fixed-width items (Integer/Fixed/Money) compare by a
+                // direct word compare + word gather. Float is excluded (NaN order).
+                // The source is lowered exactly once, so no re-eval guard is needed.
+                if let Some(t) = target.strip_prefix("#collections_sort$") {
+                    if matches!(t, "String" | "Integer" | "Fixed" | "Money") && args.len() == 1 {
+                        return self.lower_collection_sort_call(args);
+                    }
+                }
+                // plan-86 A3: native `collections::flatten` (`#collections_flatten$T`,
+                // 1 arg) for a simple result element T (String or fixed-width) — the
+                // inner lists are inline self-contained blocks, bulk-appended into the
+                // result with no per-inner copy. A nested `List OF List OF List ...`
+                // (T itself a list) falls through to the `.mfb` body.
+                if let Some(t) = target.strip_prefix("#collections_flatten$") {
+                    if matches!(t, "String" | "Integer" | "Float" | "Fixed" | "Money")
+                        && args.len() == 1
+                    {
+                        return self.lower_collection_flatten_call(args);
                     }
                 }
                 // plan-64 C2: native mapValues when the value type is unchanged and
@@ -765,6 +867,31 @@ impl CodeBuilder<'_> {
                         }
                     }
                 }
+                // plan-86 D3: native merge(a, b, preferB) for a String-key,
+                // fixed-width-value map when preferB is a compile-time TRUE (b
+                // overwrites a on a shared key == set_in_place's overwrite-or-append,
+                // so no hasKey probe needed). Presizes the copy so bulk-inserting b
+                // does not grow. Other shapes fall through to `.mfb __collections_merge`.
+                if let Some(params) = target.strip_prefix("#collections_merge$") {
+                    if args.len() == 3 {
+                        let parts: Vec<&str> = params.split('$').collect();
+                        let prefer_true = matches!(
+                            &args[2],
+                            NirValue::Const { type_, value }
+                                if type_ == "Boolean" && value == "true"
+                        );
+                        let ok = parts.len() == 2
+                            && parts[0] == "String"
+                            && matches!(
+                                parts[1],
+                                "Integer" | "Float" | "Fixed" | "Money" | "String"
+                            )
+                            && prefer_true;
+                        if ok {
+                            return self.lower_collection_merge_call(args);
+                        }
+                    }
+                }
                 // plan-64 D3: native window for 8-byte fixed-width elements with a
                 // constant size >= 1 and constant stride >= 1 (`#collections_window$T`,
                 // 2 or 3 args). Non-constant/invalid size|stride or other element
@@ -779,7 +906,7 @@ impl CodeBuilder<'_> {
                         }
                     };
                     let elem_ok = matches!(t, "Integer" | "Float" | "Fixed" | "Money");
-                    if elem_ok && (args.len() == 2 || args.len() == 3) {
+                    if (elem_ok || t == "String") && (args.len() == 2 || args.len() == 3) {
                         let size = args.get(1).and_then(const_i64);
                         let stride = if args.len() == 3 {
                             args.get(2).and_then(const_i64)
@@ -787,7 +914,14 @@ impl CodeBuilder<'_> {
                             Some(1)
                         };
                         if let (Some(sz), Some(st)) = (size, stride) {
-                            if sz >= 1 && st == 1 {
+                            // plan-86 A2: String windows are variable-size kind-0
+                            // blocks → direct slice-per-window construction (any
+                            // stride). Fixed-width keeps the contiguous-block builder
+                            // (stride 1 only).
+                            if sz >= 1 && st >= 1 && t == "String" {
+                                return self.lower_collection_window_string_call(args, sz, st);
+                            }
+                            if sz >= 1 && st == 1 && elem_ok {
                                 return self.lower_collection_window_call(args, sz, st);
                             }
                         }
@@ -805,10 +939,22 @@ impl CodeBuilder<'_> {
                                 | NirValue::Global { .. }
                                 | NirValue::LocalRef { .. }
                         );
+                        // plan-86 A2: Integer-key groupBy with a String VALUE (and a
+                        // String source T) now lowers natively — the Integer-key hash
+                        // table is unchanged; only the per-element value read + the
+                        // 1-element-bucket build handle the kind-0 String bucket
+                        // (`lower_collection_group_by_call`). Retires the O(bucket)
+                        // map-churn of the `.mfb` body (list (Dynamic) groupby 166 ms).
                         let ok = parts.len() == 3
-                            && matches!(parts[0], "Integer" | "Float" | "Fixed" | "Money")
+                            && matches!(
+                                parts[0],
+                                "Integer" | "Float" | "Fixed" | "Money" | "String"
+                            )
                             && parts[1] == "Integer"
-                            && matches!(parts[2], "Integer" | "Float" | "Fixed" | "Money")
+                            && matches!(
+                                parts[2],
+                                "Integer" | "Float" | "Fixed" | "Money" | "String"
+                            )
                             && reeval_safe;
                         if ok {
                             let (kt, vt) = (parts[1].to_string(), parts[2].to_string());
@@ -819,11 +965,21 @@ impl CodeBuilder<'_> {
                 // plan-64 D3: native chunks for 8-byte fixed-width elements with a
                 // constant size >= 1 (`#collections_chunks$T`, 2 args).
                 if let Some(t) = target.strip_prefix("#collections_chunks$") {
-                    if matches!(t, "Integer" | "Float" | "Fixed" | "Money") && args.len() == 2 {
+                    if matches!(t, "Integer" | "Float" | "Fixed" | "Money" | "String")
+                        && args.len() == 2
+                    {
                         if let Some(NirValue::Const { type_, value }) = args.get(1) {
                             if type_ == "Integer" {
                                 if let Ok(sz) = value.parse::<i64>() {
                                     if sz >= 1 {
+                                        // plan-86 A2: String inner lists are
+                                        // variable-size kind-0 blocks → direct
+                                        // slice-per-chunk construction; fixed-width
+                                        // takes the contiguous-block builder.
+                                        if t == "String" {
+                                            return self
+                                                .lower_collection_chunks_string_call(args, sz);
+                                        }
                                         return self.lower_collection_chunks_call(args, sz);
                                     }
                                 }
@@ -831,16 +987,35 @@ impl CodeBuilder<'_> {
                         }
                     }
                 }
-                // plan-64 D4: native partition for 8-byte fixed-width elements
-                // (`#collections_partition$T`, 2 args). String/Scalar/Byte fall
-                // through to the `.mfb` `__collections_partition`.
+                // plan-64 D4 / plan-86 A2: native partition for 8-byte fixed-width
+                // elements (Integer/Float/Fixed/Money) and for String (the body
+                // reads each item through `load_collection_loop_item` and writes it
+                // through `lower_list_append_in_place`, both String-correct, and
+                // frees the materialized item after the append — see A2). Scalar/Byte
+                // still fall through to the `.mfb` `__collections_partition`.
                 if let Some(t) = target.strip_prefix("#collections_partition$") {
-                    if matches!(t, "Integer" | "Float" | "Fixed" | "Money") && args.len() == 2 {
+                    if matches!(t, "Integer" | "Float" | "Fixed" | "Money" | "String")
+                        && args.len() == 2
+                    {
                         return self.lower_collection_partition_call(args, t);
+                    }
+                }
+                // plan-86 A3: native `collections::findLastIndex` reverse predicate
+                // scan for a String item list (`#collections_findLastIndex$String`).
+                // The 2-arg source form is padded to 3 (default `endIndex = -1`), so
+                // the native body always sees `(list, predicate, endIndex)` and
+                // handles the negative/default and explicit-endIndex cases uniformly.
+                // Other element types fall through to the `.mfb` body.
+                if let Some(t) = target.strip_prefix("#collections_findLastIndex$") {
+                    if t == "String" && args.len() == 3 {
+                        return self.lower_collection_find_last_index_call(args);
                     }
                 }
                 if native == Some("reduce") && args.len() == 3 {
                     return self.lower_collection_reduce_call(args);
+                }
+                if native == Some("reduceRight") && args.len() == 3 {
+                    return self.lower_collection_reduce_right_call(args);
                 }
                 if target == "toString" && (args.len() == 1 || args.len() == 2) {
                     return self.lower_to_string(args);
@@ -852,7 +1027,7 @@ impl CodeBuilder<'_> {
                     let register = self.load_string_constant(&type_name)?;
                     return Ok(ValueResult {
                         type_: "String".to_string(),
-                        location: register,
+                        location: Operand::from(register.render()),
                         text: format!("typeName({type_name})"),
                     });
                 }
@@ -925,7 +1100,7 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     local.stack_offset,
                                 ));
-                                register
+                                Operand::from(register.render())
                             },
                             text: target.clone(),
                         };
@@ -1064,7 +1239,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     type_: format!("Result OF {success_type}"),
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: format!("callResult {target}"),
                 })
             }
@@ -1078,6 +1253,9 @@ impl CodeBuilder<'_> {
                     return Ok(result);
                 }
                 if let Some(result) = self.lower_strings_package_call(target, args)? {
+                    return Ok(result);
+                }
+                if let Some(result) = self.lower_astrings_package_call(target, args)? {
                     return Ok(result);
                 }
                 if target == "isEven" && args.len() == 1 {
@@ -1101,7 +1279,7 @@ impl CodeBuilder<'_> {
                     let register = self.load_string_constant(&type_name)?;
                     return Ok(ValueResult {
                         type_: "String".to_string(),
-                        location: register,
+                        location: Operand::from(register.render()),
                         text: format!("typeName({type_name})"),
                     });
                 }
@@ -1167,7 +1345,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
                     return Ok(ValueResult {
                         type_: type_.clone(),
-                        location: result,
+                        location: Operand::from(result.render()),
                         text: format!("construct {type_}({})", join_texts(&arg_values)),
                     });
                 }
@@ -1214,20 +1392,20 @@ impl CodeBuilder<'_> {
                     "Integer",
                     &union_size.to_string(),
                 ));
-                self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+                self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
                 self.emit_arena_alloc_call();
                 self.emit(abi::branch_eq(&alloc_ok));
                 self.raise_error_bare("ErrOutOfMemory")?;
                 self.emit(abi::label(&alloc_ok));
                 self.emit(abi::store_u64(
-                    abi::RET[1],
+                    abi::mfb_return(1),
                     abi::stack_pointer(),
                     result_slot,
                 ));
                 let zero_register = self.allocate_register()?;
                 self.emit(abi::move_immediate(&zero_register, "Integer", "0"));
                 for offset in (0..union_size).step_by(8) {
-                    self.emit(abi::store_u64(&zero_register, abi::RET[1], offset));
+                    self.emit(abi::store_u64(&zero_register, abi::mfb_return(1), offset));
                 }
                 let tag_register = self.allocate_register()?;
                 self.emit(abi::move_immediate(
@@ -1235,15 +1413,19 @@ impl CodeBuilder<'_> {
                     "UnionTag",
                     &tag.to_string(),
                 ));
-                self.emit(abi::store_u64(&tag_register, abi::RET[1], 0));
+                self.emit(abi::store_u64(&tag_register, abi::mfb_return(1), 0));
                 for (index, slot) in arg_slots.iter().enumerate() {
                     self.emit(abi::load_u64(scratch9, abi::stack_pointer(), *slot));
-                    self.emit(abi::store_u64(scratch9, abi::RET[1], 8 * (index + 1)));
+                    self.emit(abi::store_u64(
+                        scratch9,
+                        abi::mfb_return(1),
+                        8 * (index + 1),
+                    ));
                 }
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     type_: union_name,
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: format!("construct {type_}({})", join_texts(&arg_values)),
                 })
             }
@@ -1292,7 +1474,7 @@ impl CodeBuilder<'_> {
                         self.emit_wrap_record_in_union(member_type, tag, wrapped_slot)?;
                     return Ok(ValueResult {
                         type_: union_type.clone(),
-                        location: register,
+                        location: Operand::from(register.render()),
                         text: format!("wrap {member_type} as {union_type}"),
                     });
                 }
@@ -1323,20 +1505,20 @@ impl CodeBuilder<'_> {
                     "Integer",
                     &union_size.to_string(),
                 ));
-                self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+                self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
                 self.emit_arena_alloc_call();
                 self.emit(abi::branch_eq(&alloc_ok));
                 self.raise_error_bare("ErrOutOfMemory")?;
                 self.emit(abi::label(&alloc_ok));
                 self.emit(abi::store_u64(
-                    abi::RET[1],
+                    abi::mfb_return(1),
                     abi::stack_pointer(),
                     result_slot,
                 ));
                 let zero_register = self.allocate_register()?;
                 self.emit(abi::move_immediate(&zero_register, "Integer", "0"));
                 for offset in (0..union_size).step_by(8) {
-                    self.emit(abi::store_u64(&zero_register, abi::RET[1], offset));
+                    self.emit(abi::store_u64(&zero_register, abi::mfb_return(1), offset));
                 }
                 let tag_register = self.allocate_register()?;
                 self.emit(abi::move_immediate(
@@ -1344,7 +1526,7 @@ impl CodeBuilder<'_> {
                     "UnionTag",
                     &tag.to_string(),
                 ));
-                self.emit(abi::store_u64(&tag_register, abi::RET[1], 0));
+                self.emit(abi::store_u64(&tag_register, abi::mfb_return(1), 0));
                 // Only resource variants reach here — every data variant returned
                 // early above via `emit_wrap_record_in_union`. A resource variant
                 // stores its handle pointer as a single word at +8 (plan-02 §4.2).
@@ -1355,7 +1537,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     type_: union_type.clone(),
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: format!("wrap {member_type} as {union_type}"),
                 })
             }
@@ -1368,7 +1550,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_u64(&register, &source.location, 8));
                     return Ok(ValueResult {
                         type_: type_.clone(),
-                        location: register,
+                        location: Operand::from(register.render()),
                         text: format!("extract {type_} from {}", source.text),
                     });
                 }
@@ -1380,7 +1562,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::add_immediate(&register, &source.location, 16));
                 Ok(ValueResult {
                     type_: type_.clone(),
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: format!("extract {type_} from {}", source.text),
                 })
             }
@@ -1399,7 +1581,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&end_label));
                 Ok(ValueResult {
                     type_: "Boolean".to_string(),
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: "resultIsOk".to_string(),
                 })
             }
@@ -1426,7 +1608,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     type_,
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: "resultValue".to_string(),
                 })
             }
@@ -1437,7 +1619,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::add_immediate(&register, &result.location, 16));
                 Ok(ValueResult {
                     type_: "Error".to_string(),
-                    location: register,
+                    location: Operand::from(register.render()),
                     text: "resultError".to_string(),
                 })
             }
@@ -1482,7 +1664,7 @@ impl CodeBuilder<'_> {
                         ));
                         return Ok(ValueResult {
                             type_: type_name.clone(),
-                            location: register,
+                            location: Operand::from(register.render()),
                             text: format!("{type_name}.{member}"),
                         });
                     }
@@ -1519,7 +1701,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::label(&done_label));
                     return Ok(ValueResult {
                         type_: "Boolean".to_string(),
-                        location: register,
+                        location: Operand::from(register.render()),
                         text: format!("(NOT {})", operand.text),
                     });
                 }
@@ -1619,6 +1801,7 @@ impl CodeBuilder<'_> {
                 Some("transform") => self.lower_collection_transform_call(args),
                 Some("filter") => self.lower_collection_filter_call(args),
                 Some("reduce") => self.lower_collection_reduce_call(args),
+                Some("reduceRight") => self.lower_collection_reduce_right_call(args),
                 Some("forEach") => self.lower_collection_for_each_call(args),
                 other => Err(format!(
                     "native raw inline builtin '{target}' ({other:?}) is not supported"
@@ -1694,7 +1877,7 @@ impl CodeBuilder<'_> {
             let register = self.load_string_constant(&type_name)?;
             return Ok(ValueResult {
                 type_: "String".to_string(),
-                location: register,
+                location: Operand::from(register.render()),
                 text: format!("typeName({type_name})"),
             });
         }
@@ -1743,6 +1926,16 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// plan-76-A: `net::poll`'s first argument is a `List OF RES Socket` (the
+    /// multiplex overload) rather than a scalar `Socket` (the readiness query). The
+    /// two overloads share the `net.poll` NIR name; this selects the `net.pollList`
+    /// helper by the receiver's static type.
+    fn net_poll_is_list_form(&self, args: &[NirValue]) -> bool {
+        args.first()
+            .and_then(|arg| self.static_type_name(arg))
+            .is_some_and(|ty| ty.starts_with("List OF "))
+    }
+
     pub(super) fn lower_runtime_helper_call(
         &mut self,
         helper: runtime::RuntimeHelper,
@@ -1751,6 +1944,22 @@ impl CodeBuilder<'_> {
         raw: bool,
     ) -> Result<ValueResult, String> {
         let mut helper_args = args.to_vec();
+        // plan-89-A: `io::print`/`io::write` accept an `AttributedString` and emit
+        // its visible text. Rewrite the argument to `toString(a)` — the `toString`
+        // overload deep-copies the inlined text into an owned String — so the rest
+        // of the writer path is byte-identical to a String argument.
+        if matches!(target, "io.print" | "io.write") {
+            if let Some(arg) = helper_args.first() {
+                if self.static_type_name(arg).as_deref() == Some("AttributedString") {
+                    let inner = helper_args[0].clone();
+                    helper_args[0] = NirValue::Call {
+                        target: "toString".to_string(),
+                        args: vec![inner],
+                        loc: NirSourceLoc::default(),
+                    };
+                }
+            }
+        }
         if target == "io.input" && helper_args.is_empty() {
             helper_args.push(NirValue::Const {
                 type_: "String".to_string(),
@@ -1856,6 +2065,29 @@ impl CodeBuilder<'_> {
         }
         let result_type = self
             .thread_runtime_return_type(target, &helper_args)
+            // plan-76-A: `net.poll` is return-type-overloaded (scalar `Socket →
+            // Boolean` vs list `List OF RES Socket → Socket`), so the fixed
+            // `call_return_type_name` yields `None`; select by argument shape here.
+            .or_else(|| {
+                (target == "net.poll").then(|| {
+                    if self.net_poll_is_list_form(&helper_args) {
+                        builtins::net::SOCKET_TYPE.to_string()
+                    } else {
+                        "Boolean".to_string()
+                    }
+                })
+            })
+            // plan-76-C: `tls.poll` is likewise return-type-overloaded — the list
+            // form yields a borrowed `TlsSocket`, the scalar a `Boolean`.
+            .or_else(|| {
+                (target == "tls.poll").then(|| {
+                    if self.net_poll_is_list_form(&helper_args) {
+                        builtins::tls::TLS_SOCKET_TYPE.to_string()
+                    } else {
+                        "Boolean".to_string()
+                    }
+                })
+            })
             .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
             .ok_or_else(|| format!("native runtime call '{target}' has no return type"))?;
         let runtime_target = match target {
@@ -1885,6 +2117,25 @@ impl CodeBuilder<'_> {
                     "thread.receive"
                 } else {
                     "thread.read"
+                }
+            }
+            // plan-91-B: the worker-side sleep is cancellation-aware (waits on the
+            // inbound not-empty condvar, wakes with ErrInterrupted on cancel), so a
+            // `thread::sleep` on a worker handle lowers to the distinct
+            // `thread.sleepWorker` helper; a parent handle keeps 91-A's plain
+            // `thread.sleep` (nanosleep).
+            "thread.sleep" => {
+                let handle = self
+                    .static_type_name(helper_args.first().ok_or_else(|| {
+                        "native runtime thread.sleep missing handle argument".to_string()
+                    })?)
+                    .ok_or_else(|| {
+                        "native runtime thread.sleep handle has unknown type".to_string()
+                    })?;
+                if builtins::thread::is_worker_thread_type(&handle) {
+                    "thread.sleepWorker"
+                } else {
+                    "thread.sleep"
                 }
             }
             // Resource plane, split by direction like the data plane above. A
@@ -1927,6 +2178,78 @@ impl CodeBuilder<'_> {
                     "net.connectTcpAddr"
                 } else {
                     "net.connectTcp"
+                }
+            }
+            // plan-76-A: the readiness-multiplex overload `poll(List OF RES Socket)`
+            // lowers through a distinct helper (`net.pollList`) that builds a
+            // `pollfd[n]` over the list's fds and returns the first ready element's
+            // record ptr, vs the scalar `poll(Socket) → Boolean`.
+            "net.poll" => {
+                if self.net_poll_is_list_form(args) {
+                    "net.pollList"
+                } else {
+                    "net.poll"
+                }
+            }
+            // plan-76-C: `tls::poll(List OF RES TlsSocket)` lowers through the portable
+            // `tls.pollList` driver (scans the list via the scalar readiness helper),
+            // vs the scalar `tls::poll(TlsSocket) → Boolean`.
+            "tls.poll" => {
+                if self.net_poll_is_list_form(args) {
+                    "tls.pollList"
+                } else {
+                    "tls.poll"
+                }
+            }
+            // plan-90-A: `spawn(args)` (argv only) and
+            // `spawn(args, cwd, env, envReplace)` lower through distinct helpers;
+            // the full form carries the working directory and environment map.
+            "process.spawn" => {
+                if args.len() >= 4 {
+                    "process.spawnEnv"
+                } else {
+                    "process.spawn"
+                }
+            }
+            // plan-90-B: the `timeoutMs` overloads route to distinct helpers that
+            // poll for writability before each blocking write.
+            "process.send" => {
+                if args.len() >= 3 {
+                    "process.sendTimeout"
+                } else {
+                    "process.send"
+                }
+            }
+            "process.sendBytes" => {
+                if args.len() >= 3 {
+                    "process.sendBytesTimeout"
+                } else {
+                    "process.sendBytes"
+                }
+            }
+            // plan-90-B: `poll(p, ms, from AS Stream)` routes to the stderr-capable
+            // helper; the 2-arg form always polls stdout.
+            "process.poll" => {
+                if args.len() >= 3 {
+                    "process.pollFrom"
+                } else {
+                    "process.poll"
+                }
+            }
+            // `receive(p, from AS Stream)` / `receiveBytes(p, from)` route to the
+            // stderr-capable helpers.
+            "process.receive" => {
+                if args.len() >= 2 {
+                    "process.receiveFrom"
+                } else {
+                    "process.receive"
+                }
+            }
+            "process.receiveBytes" => {
+                if args.len() >= 2 {
+                    "process.receiveBytesFrom"
+                } else {
+                    "process.receiveBytes"
                 }
             }
             _ => target,

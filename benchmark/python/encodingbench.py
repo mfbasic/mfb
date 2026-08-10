@@ -21,9 +21,9 @@ def _buf(n):
 
 
 def test_encoding_base64():
-    # Arena-gated (plan-44-J): tiny buffer/reps; raise when the arena fix lands.
-    buf = _buf(64)          # TODO(plan-44-J): raise to 4096
-    reps = 4                # TODO(plan-44-J): raise to 200
+    # Arena-gated in mfb (plan-44-J): arena quadratic fixed by plan-64-A1; buffer/reps at target.
+    buf = _buf(4096)
+    reps = 200
     times = []
     checksum = 0
     for _ in range(RUN):

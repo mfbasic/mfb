@@ -1,0 +1,45 @@
+' Byte-identity codegen coverage for the `process` package (plan-90-E). Calls
+' every function and every overload so each runtime helper (`_mfb_rt_process_*`)
+' is emitted and covered by the per-target .ncodesum goldens. Compile-only by
+' design: it spawns children and drives their pipes unconditionally, so the
+' harness never executes it (no .run golden) — it exists purely so the artifact
+' gate can see every process backend's generated code.
+IMPORT io
+IMPORT process
+
+FUNC main AS Integer
+  ' spawn overloads: argv, and the full (argv, cwd, env, envReplace) form.
+  RES p = process::spawn(["sort"])
+  RES q = process::spawn(["env"], "/tmp", Map OF String TO String { "K" := "V" }, TRUE)
+  RES s = process::shell("echo hi")
+
+  ' lifecycle queries.
+  io::print(toString(process::pid(p)))
+  io::print(toString(process::isRunning(p)))
+
+  ' streaming write: send/sendBytes, plain and with a timeout.
+  process::send(p, "line")
+  process::send(p, "line", 1000)
+  process::sendBytes(p, [toByte(65), toByte(66)])
+  process::sendBytes(p, [toByte(67)], 1000)
+  process::close(p)
+
+  ' readiness + reads: poll/receive/receiveBytes, stdout and stream-selected.
+  LET ready = process::poll(p, 100)
+  LET readyErr = process::poll(p, 100, Stream.StdErr)
+  LET line = process::receive(p)
+  LET lineErr = process::receive(p, Stream.StdErr)
+  LET raw = process::receiveBytes(p)
+  LET rawErr = process::receiveBytes(p, Stream.StdErr)
+  io::print(line)
+  io::print(toString(len(raw)))
+
+  ' signals + observation + detach.
+  process::signal(q, Signal.Terminate)
+  IF process::didSignal(q) = Signal.Kill THEN
+    io::print("killed")
+  END IF
+  io::print(toString(process::waitFor(q)))
+  process::detach(s)
+  RETURN 0
+END FUNC

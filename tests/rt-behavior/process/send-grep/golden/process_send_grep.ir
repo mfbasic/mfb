@@ -1,0 +1,56 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "process_send_grep",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "enum",
+    "line": 17,
+    "visibility": "export",
+    "name": "Stream",
+    "members": [
+    { "name": "StdOut" },
+    { "name": "StdErr" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 33,
+    "visibility": "export",
+    "name": "Signal",
+    "members": [
+    { "name": "None" },
+    { "name": "Kill" },
+    { "name": "Terminate" },
+    { "name": "Error" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 8, "mutable": false, "name": "p", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "grep" }, { "kind": "const", "type": "String", "value": "-q" }, { "kind": "const", "type": "String", "value": "hello" }] }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "process.send", "args": [{ "kind": "local", "name": "p" }, { "kind": "const", "type": "String", "value": "hello world" }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "process.close", "args": [{ "kind": "local", "name": "p" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "process.waitFor", "args": [{ "kind": "local", "name": "p" }] }] }] } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "q", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "grep" }, { "kind": "const", "type": "String", "value": "-q" }, { "kind": "const", "type": "String", "value": "hello" }] }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "process.send", "args": [{ "kind": "local", "name": "q" }, { "kind": "const", "type": "String", "value": "goodbye" }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "process.close", "args": [{ "kind": "local", "name": "q" }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "process.waitFor", "args": [{ "kind": "local", "name": "q" }] }] }] } },
+    { "op": "return", "line": 18, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

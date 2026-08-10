@@ -299,7 +299,11 @@ mod tests {
             dir.path().join("build").join("sealed-glibc.AppImage")
         );
         let bytes = std::fs::read(&appimage).unwrap();
-        assert_eq!(&bytes[0..4], b"\x7fELF", "AppImage begins with the ELF runtime");
+        assert_eq!(
+            &bytes[0..4],
+            b"\x7fELF",
+            "AppImage begins with the ELF runtime"
+        );
 
         remove_appdir(dir.path(), "sealed", LinuxFlavor::Glibc).expect("remove appdir");
         assert!(!appdir.exists(), "intermediate AppDir removed");

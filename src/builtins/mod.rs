@@ -1,4 +1,5 @@
 pub(crate) mod app;
+pub(crate) mod astrings;
 pub(crate) mod audio;
 pub(crate) mod bits;
 pub(crate) mod collections;
@@ -17,6 +18,7 @@ pub(crate) mod math;
 pub(crate) mod money;
 pub(crate) mod net;
 pub(crate) mod os;
+pub(crate) mod process;
 pub(crate) mod regex;
 pub(crate) mod resource;
 pub(crate) mod strings;
@@ -82,6 +84,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
         name,
         "app"
+            | "astrings"
             | "audio"
             | "bits"
             | "collections"
@@ -98,6 +101,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
             | "money"
             | "net"
             | "os"
+            | "process"
             | "regex"
             | "strings"
             | "term"
@@ -165,12 +169,14 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         "app" => app::is_builtin_type(member),
         "audio" => audio::is_builtin_type(member),
         "crypto" => crypto::is_builtin_type(member),
+        "csv" => csv::is_builtin_type(member),
         "datetime" => datetime::is_builtin_type(member),
         "fs" => fs::is_builtin_type(member),
         "http" => http::is_builtin_type(member),
         "json" => json::is_builtin_type(member),
         "money" => money::is_builtin_type(member),
         "net" => net::is_builtin_type(member),
+        "process" => process::is_builtin_type(member),
         "term" => term::is_builtin_type(member),
         "thread" => thread::is_builtin_type(member),
         "tls" => tls::is_builtin_type(member),
@@ -225,6 +231,7 @@ pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
         "transform" => Some("transform"),
         "filter" => Some("filter"),
         "reduce" => Some("reduce"),
+        "reduceRight" => Some("reduceRight"),
         "sum" => Some("sum"),
         "find" => Some("find"),
         "mid" => Some("mid"),
@@ -278,7 +285,8 @@ pub(crate) fn inline_trap_unsupported(target: &str) -> bool {
 ///   `strings::mid`, and `find` (`collections::find`/`strings::find`) raise
 ///   through the shared `emit_error_register_return` tail, whose
 ///   `raw_result_capture` branch redirects the domain error (plan-21-B);
-/// - the callback loop members `forEach`/`transform`/`filter`/`reduce` route a
+/// - the callback loop members `forEach`/`transform`/`filter`/`reduce`/
+///   `reduceRight` route a
 ///   failing user callback through `emit_callback_failure_exit`, which frees each
 ///   member's loop-scoped intermediate before joining the capture (plan-26-B).
 ///
@@ -304,6 +312,7 @@ pub(crate) fn inline_builtin_raw_supported(target: &str) -> bool {
                     | "transform"
                     | "filter"
                     | "reduce"
+                    | "reduceRight"
             )
         )
 }
@@ -327,8 +336,8 @@ pub(crate) fn inline_builtin_raw_supported(target: &str) -> bool {
 /// error): the `bits::` variable shifts `sl`/`sr`/`sra` (out-of-range count
 /// raises `ErrInvalidArgument`), the index members `get`/`set`/`insert`/`removeAt`,
 /// `strings::mid`, `find` (negative start raises), and the callback members
-/// `forEach`/`transform`/`filter`/`reduce` (a failing callback raises a real
-/// error). `target` is the canonical callee (`collections.get`, `strings.mid`,
+/// `forEach`/`transform`/`filter`/`reduce`/`reduceRight` (a failing callback
+/// raises a real error). `target` is the canonical callee (`collections.get`, `strings.mid`,
 /// `bits.sl`) or a bare general-builtin name.
 pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
     // Every `bits::` op is total EXCEPT the variable shifts (`sl`/`sr`/`sra`),
@@ -443,6 +452,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| net::expected_arguments(name))
         .or_else(|| tls::expected_arguments(name))
         .or_else(|| audio::expected_arguments(name))
+        .or_else(|| process::expected_arguments(name))
         .or_else(|| http::expected_arguments(name))
         .or_else(|| vector::expected_arguments(name))
         .or_else(|| collections::expected_arguments(name))
@@ -526,6 +536,7 @@ pub(crate) fn default_argument_padding(
         datetime::default_argument_padding(callee, provided),
         crypto::default_argument_padding(callee, provided),
         http::default_argument_padding(callee, provided),
+        csv::default_argument_padding(callee, provided),
     ] {
         if !pad.is_empty() {
             return pad;
@@ -568,7 +579,7 @@ pub(crate) fn is_nonescaping_callback_arg(callee: &str, index: usize) -> bool {
 /// source must not. The resolver applies this only when the calling file is not
 /// `AstFile::internal`, so the glue still resolves (bug-337-D9).
 pub(crate) fn is_internal_only_call(name: &str) -> bool {
-    crypto::is_crypto_internal_call(name)
+    crypto::is_crypto_internal_call(name) || astrings::is_astrings_internal_call(name)
 }
 
 pub(crate) fn is_builtin_call(name: &str) -> bool {
@@ -693,6 +704,7 @@ pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static
     audio::call_param_name_overloads(name)
         .or_else(|| net::call_param_name_overloads(name))
         .or_else(|| datetime::call_param_name_overloads(name))
+        .or_else(|| tls::call_param_name_overloads(name))
 }
 
 /// Pick the overload a call selects, given how many arguments were passed
@@ -720,6 +732,7 @@ pub(crate) fn select_param_name_overload<'a>(
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     app::call_param_names(name)
+        .or_else(|| astrings::call_param_names(name))
         .or_else(|| audio::call_param_names(name))
         .or_else(|| general::call_param_names(name))
         .or_else(|| collections::call_param_names(name))
@@ -1060,6 +1073,7 @@ mod tests {
     /// such test existed).
     const ALL_BUILTIN_PACKAGES: &[&str] = &[
         "app",
+        "astrings",
         "audio",
         "bits",
         "collections",
@@ -1076,6 +1090,7 @@ mod tests {
         "money",
         "net",
         "os",
+        "process",
         "regex",
         "strings",
         "term",
@@ -1318,18 +1333,22 @@ mod tests {
         // adapter returns exactly the closure's answer. (This test tracked a
         // still-unmigrated real example — `math` until plan-72-P, `regex` until -T,
         // `tls` until -Z — but none remains.)
-        assert!(registry_is_call(&descriptor::REGISTRY, "nonesuch.thing", |name| {
-            name == "nonesuch.thing"
-        }));
-        assert!(!registry_is_call(&descriptor::REGISTRY, "nonesuch.other", |_| false));
+        assert!(registry_is_call(
+            &descriptor::REGISTRY,
+            "nonesuch.thing",
+            |name| { name == "nonesuch.thing" }
+        ));
+        assert!(!registry_is_call(
+            &descriptor::REGISTRY,
+            "nonesuch.other",
+            |_| false
+        ));
         assert_eq!(
             registry_arity(&descriptor::REGISTRY, "nonesuch.thing", |_| Some((1, 2))),
             Some((1, 2))
         );
         assert_eq!(
-            registry_return_type_name(&descriptor::REGISTRY, "nonesuch.thing", |_| Some(
-                "Nothing"
-            )),
+            registry_return_type_name(&descriptor::REGISTRY, "nonesuch.thing", |_| Some("Nothing")),
             Some("Nothing")
         );
         assert_eq!(
@@ -1339,5 +1358,4 @@ mod tests {
             Some("X".to_string())
         );
     }
-
 }

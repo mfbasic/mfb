@@ -174,6 +174,10 @@ impl TypeTable {
             }
             "Byte" => TYPE_BYTE,
             "Money" => TYPE_MONEY,
+            // plan-89-A: an opaque primitive-like type, identified on the wire by
+            // its id alone (like `Scalar`/`Money`); its internal field layout is a
+            // compiler-side hardcoded table, never serialized.
+            "AttributedString" => TYPE_ATTRIBUTED_STRING,
             "Error" => {
                 strings.intern("code");
                 strings.intern("message");
@@ -200,6 +204,21 @@ impl TypeTable {
                     // empty-record placeholder (the old fallback below, which then
                     // failed with `truncated binary representation`).
                     self.foreign_type(strings, name, &fref)
+                } else if let Some((bare, fref)) = name
+                    .rsplit_once('.')
+                    .and_then(|(_, bare)| self.foreign_types.get(bare).cloned().map(|f| (bare, f)))
+                {
+                    // bug-436: a package-qualified imported type (`leaf435::Node`)
+                    // lowers to the dotted IR type name `leaf435.Node`, but the
+                    // foreign-type identities are keyed by bare exported name
+                    // (`Node`). Resolve the dotted reference to the same foreign
+                    // entry the unqualified spelling produces — interned under the
+                    // bare name so both spellings emit an identical type table —
+                    // rather than degrading to an empty-record placeholder that
+                    // fails read-back with `truncated binary representation`.
+                    // (The composite-type keys use `#`, never `.`, so only a
+                    // qualified `pkg.Type` reference reaches this arm.)
+                    self.foreign_type(strings, bare, &fref)
                 } else {
                     self.add_entry(strings, "", name, 1, Vec::new())
                 }
@@ -459,7 +478,8 @@ impl TypeTable {
                 continue;
             };
             if entry.kind == FOREIGN_TYPE_KIND && entry.abi_export_kind.is_none() {
-                entry.abi_export_kind = Some(decode_export_kind(checked_u16_at(&entry.payload, 0)?)?);
+                entry.abi_export_kind =
+                    Some(decode_export_kind(checked_u16_at(&entry.payload, 0)?)?);
             }
         }
         Ok(())

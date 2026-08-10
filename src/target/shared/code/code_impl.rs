@@ -1,25 +1,59 @@
 use super::*;
 
 impl CodeInstruction {
+    #[track_caller]
     pub(crate) fn new(op: &str) -> Self {
         Self {
             op: CodeOp::from_mnemonic(op).unwrap_or_else(|err| panic!("{err}")),
             fields: Vec::new(),
+            // plan-71-C Phase 0: record where this instruction was built. With the
+            // `abi::` emit helpers also `#[track_caller]`, this resolves to the
+            // shared-builder line, not `abi.rs`. `self.emit()` refines it to the
+            // builder's `emit` call site for the common path.
+            source: Some(core::panic::Location::caller()),
         }
     }
 
-    pub(crate) fn field(mut self, name: &'static str, value: &str) -> Self {
-        self.fields.push((name, value.to_string()));
+    /// Append a named operand field. Accepts any `impl Into<Operand>` (a typed
+    /// `Operand`, or a `&str`/`&String`/`String` that becomes `Operand::Raw`).
+    /// plan-78-B stores the typed `Operand` directly; the rendered spelling is
+    /// produced on demand by [`Self::get`] / the dump formatters.
+    pub(crate) fn field(mut self, name: &'static str, value: impl Into<Operand>) -> Self {
+        self.fields.push((name, value.into()));
         self
     }
 
-    /// Value of a named field, if present. Used by the peephole pass to read
-    /// register/offset operands without re-deriving them from the encoder.
-    pub(crate) fn get(&self, name: &str) -> Option<&str> {
+    /// Rendered value of a named field, if present. Used by the peephole pass,
+    /// `finalize_frame`, and the CFG builder to read register/offset/label
+    /// operands without re-deriving them from the encoder.
+    ///
+    /// plan-78-B Phase 1: this returns an owned `String` (not the old borrowed
+    /// `&str`) ahead of the storage flip. Once `fields` stores `Operand`
+    /// (Phase 2) a rendered value cannot be borrowed from the store — it is
+    /// produced on demand — so the owned return is forced; doing it now, while
+    /// storage is still `String`, isolates the caller ripple (`… == Some("x0")`
+    /// becomes `….as_deref() == Some("x0")`) from the flip itself. Callers that
+    /// want the typed operand use [`Self::operand`] (added with the flip); this
+    /// stays the string-comparison / re-parse convenience.
+    pub(crate) fn get(&self, name: &str) -> Option<String> {
         self.fields
             .iter()
             .find(|(key, _)| *key == name)
-            .map(|(_, value)| value.as_str())
+            .map(|(_, value)| value.render())
+    }
+
+    /// The typed operand of a named field, if present. plan-78-C reads register
+    /// identity (class + id/index) off this without the string re-parse `get()`
+    /// + the analysis sniffs would otherwise do. The typed-storage accessor is the
+    /// reason plan-78-B flipped `fields` to `Operand`; the hot-path consumer lands
+    /// in plan-78-C, so it carries a targeted allow until then (a Phase-2 codegen
+    /// test already exercises it, proving the flip stores a real typed value).
+    #[allow(dead_code)] // consumed by plan-78-C's typed regalloc; proven live by the Phase-2 test
+    pub(crate) fn operand(&self, name: &str) -> Option<&Operand> {
+        self.fields
+            .iter()
+            .find(|(key, _)| *key == name)
+            .map(|(_, value)| value)
     }
 
     pub(super) fn validate(&self) -> Result<(), String> {
@@ -250,7 +284,7 @@ impl ToCodeJson for CodeParam {
             pad,
             json_string(&self.name),
             json_string(&self.type_),
-            json_string(&self.location)
+            json_string(&self.location.render())
         )
     }
 }
@@ -262,7 +296,7 @@ impl ToCodeJson for CodeInstruction {
         fields.extend(
             self.fields
                 .iter()
-                .map(|(name, value)| format!("\"{name}\": {}", json_string(value))),
+                .map(|(name, value)| format!("\"{name}\": {}", json_string(&value.render()))),
         );
         format!("\n{}{{ {} }}", pad, fields.join(", "))
     }

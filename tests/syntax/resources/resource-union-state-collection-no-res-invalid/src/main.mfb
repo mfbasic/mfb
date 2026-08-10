@@ -1,0 +1,17 @@
+' bug-427 non-goal: a `STATE` clause is only meaningful on a `RES` collection
+' element (a stateful resource). A bare (no-`RES`) element carrying `STATE` is
+' rejected with a clear parse diagnostic rather than being left as a dangling
+' token — a resource in a collection still requires `RES` (§15.6).
+TYPE PendingState
+  bytes AS Integer
+END TYPE
+
+UNION Stream
+  File
+  Socket
+END UNION
+
+FUNC main AS Integer
+  MUT streams AS List OF Stream STATE PendingState = []
+  RETURN 0
+END FUNC

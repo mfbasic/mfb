@@ -1,7 +1,7 @@
 use crate::ast::{
     AstFile, AstProject, CallArg, ConstructorArg, ExitTarget, Expression, Function, FunctionKind,
     Item, LoopKind, MatchPattern, RecordUpdate, Statement, TopLevelBinding, TypeDecl, TypeDeclKind,
-    TypeField, Visibility,
+    TypeField, Visibility, SELF_IMPORT,
 };
 use crate::binary_repr::{
     self, BinaryReprExportKind, BinaryReprTypeExport, BinaryReprTypeField, BinaryReprTypeVariant,
@@ -25,6 +25,11 @@ use self::helpers::*;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Type {
+    /// `AttributedString` (plan-89-A): an opaque, value-semantic built-in
+    /// wrapping a visible `String` plus an attribute overlay. Primitive-like —
+    /// it exposes no user-visible fields (opacity), is copyable/defaultable but
+    /// NOT comparable, and is always in scope (modeled on `Error`).
+    AttributedString,
     Boolean,
     Byte,
     Error,
@@ -156,6 +161,12 @@ pub fn check_project_collect(
     ast: &AstProject,
 ) -> Result<Vec<crate::rules::PendingDiagnostic>, ()> {
     let augmented = builtins::json::augmented_project(ast)?;
+    // The `term`↔`astrings` drawText bridge, injected only when a program imports
+    // BOTH packages; it imports term/astrings/strings, so it precedes all three so
+    // their `uses_package` sees the dependency (mirrors `http` before `net`).
+    let augmented = builtins::term::bridge_augmented_project(&augmented)?;
+    // `astrings` imports only `collections` (native members) + `astrings` itself.
+    let augmented = builtins::astrings::augmented_project(&augmented)?;
     let augmented = builtins::app::augmented_project(&augmented)?;
     let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
@@ -168,6 +179,7 @@ pub fn check_project_collect(
     let augmented = builtins::http::augmented_project(&augmented)?;
     let augmented = builtins::net::augmented_project(&augmented)?;
     let augmented = builtins::audio::augmented_project(&augmented)?;
+    let augmented = builtins::process::augmented_project(&augmented)?;
     // `crypto` before `encoding`: `crypto_package.mfb` imports `encoding`
     // (mirrors `http` before `net`; plan-04-crypto.md Part C).
     let augmented = builtins::crypto::augmented_project(&augmented)?;
@@ -709,7 +721,8 @@ impl<'a> SyntaxChecker<'a> {
                 }
                 seen.remove(name);
             }
-            Type::Boolean
+            Type::AttributedString
+            | Type::Boolean
             | Type::Byte
             | Type::Error
             | Type::ErrorLoc
@@ -731,6 +744,18 @@ impl<'a> SyntaxChecker<'a> {
                 let binding = import.binding_name().to_string();
                 let package = import.package_name().to_string();
                 if !seen.insert(binding.clone()) || builtins::is_builtin_import(&package) {
+                    continue;
+                }
+                // `IMPORT self` binds the current package's own EXPORT interface,
+                // not a `.mfp` on disk. Register those exports under the `self`/alias
+                // binding as imported-package signatures so `self::worker` looks up
+                // like any external import and the thread-entry checker accepts it
+                // with zero `self` awareness (plan-81-import-self.md §4.2). Reached
+                // only in a package project — an executable's `IMPORT self` is a hard
+                // resolver error (`IMPORT_SELF_IN_EXECUTABLE`) that aborts the build
+                // before syntaxcheck runs.
+                if package == SELF_IMPORT {
+                    self.collect_self_exports(&binding);
                     continue;
                 }
                 let package_file = self
@@ -787,6 +812,63 @@ impl<'a> SyntaxChecker<'a> {
                         .or_default()
                         .push(sig);
                 }
+            }
+        }
+    }
+
+    /// Register the current project's EXPORT top-level FUNC/SUB declarations under
+    /// the `self`/alias `binding` as imported-package signatures
+    /// (`imported_package_export = true`, `Visibility::Export`), mirroring the
+    /// `.mfp` export-loading loop in `collect_package_functions`. This is what makes
+    /// `self::worker` resolve to a signature the thread-entry checker accepts, and
+    /// — because only EXPORT declarations are registered — makes `self::` expose
+    /// exactly the public API an external importer would see (a `self::` reference
+    /// to a PUBLIC/PRIVATE symbol finds no `self.`-keyed sig and fails, just like an
+    /// external import). The existing bare in-project registrations (flag `false`,
+    /// keyed by bare name) from `collect_functions` are left untouched, so ordinary
+    /// unqualified in-project calls are unaffected (plan-81-import-self.md §4.2).
+    fn collect_self_exports(&mut self, binding: &str) {
+        for file in &self.ast.files {
+            for item in &file.items {
+                let Item::Function(function) = item else {
+                    continue;
+                };
+                if function.visibility != Visibility::Export {
+                    continue;
+                }
+                let return_type = match function.kind {
+                    FunctionKind::Func => function
+                        .return_type
+                        .as_deref()
+                        .map(|name| self.parse_type(name))
+                        .unwrap_or(Type::Unknown),
+                    FunctionKind::Sub => Type::Nothing,
+                };
+                let params = function
+                    .params
+                    .iter()
+                    .map(|param| ParamSig {
+                        name: param.name.clone(),
+                        type_: param
+                            .type_name
+                            .as_deref()
+                            .map(|name| self.parse_type(name))
+                            .unwrap_or(Type::Unknown),
+                        has_default: param.default.is_some(),
+                    })
+                    .collect();
+                self.functions
+                    .entry(format!("{binding}.{}", function.name))
+                    .or_default()
+                    .push(FunctionSig {
+                        kind: function.kind,
+                        params,
+                        return_type,
+                        isolated: function.isolated,
+                        imported_package_export: true,
+                        visibility: Visibility::Export,
+                        owner_file_path: file.path.clone(),
+                    });
             }
         }
     }
@@ -1534,7 +1616,8 @@ impl<'a> SyntaxChecker<'a> {
                     );
                 }
             }
-            Type::Boolean
+            Type::AttributedString
+            | Type::Boolean
             | Type::Byte
             | Type::Error
             | Type::ErrorLoc
@@ -1551,6 +1634,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn type_name(&self, type_: &Type) -> String {
         match type_ {
+            Type::AttributedString => "AttributedString".to_string(),
             Type::Boolean => "Boolean".to_string(),
             Type::Byte => "Byte".to_string(),
             Type::Error => "Error".to_string(),
@@ -2342,7 +2426,14 @@ mod checker_tests {
             Type::Set(Box::new(Type::Integer)),
             Type::Result(Box::new(Type::String)),
         ] {
-            checker.validate_package_metadata_type(file_ref, 1, &pkg, &element_ty, "ctx", &mut seen);
+            checker.validate_package_metadata_type(
+                file_ref,
+                1,
+                &pkg,
+                &element_ty,
+                "ctx",
+                &mut seen,
+            );
         }
 
         // Function type: parameter list + return-type recursion.
@@ -2364,12 +2455,8 @@ mod checker_tests {
         checker.validate_package_metadata_type(file_ref, 1, &pkg, &thread_ty, "ctx", &mut seen);
 
         // ThreadWorker with no resource plane: the same arm, `None` branches.
-        let worker_ty = Type::ThreadWorker(
-            Box::new(Type::Integer),
-            None,
-            None,
-            Box::new(Type::Nothing),
-        );
+        let worker_ty =
+            Type::ThreadWorker(Box::new(Type::Integer), None, None, Box::new(Type::Nothing));
         checker.validate_package_metadata_type(file_ref, 1, &pkg, &worker_ty, "ctx", &mut seen);
 
         // A `User` type not present in `type_infos` and not a resource: the

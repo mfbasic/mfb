@@ -252,7 +252,7 @@ impl CodeBuilder<'_> {
                 self.emit_float_result_check(&result, FloatInfinityError::Infinity)?;
                 Ok(ValueResult {
                     type_: "Float".to_string(),
-                    location: result,
+                    location: Operand::from(result.render()),
                     text,
                 })
             }
@@ -279,12 +279,12 @@ impl CodeBuilder<'_> {
                 let values = vec![
                     ValueResult {
                         type_: "Fixed".to_string(),
-                        location: left_reg,
+                        location: Operand::from(left_reg.render()),
                         text: left.text,
                     },
                     ValueResult {
                         type_: "Fixed".to_string(),
-                        location: right_reg,
+                        location: Operand::from(right_reg.render()),
                         text: right.text,
                     },
                 ];
@@ -463,11 +463,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&dst, &value.location));
                 self.emit(abi::branch(&done));
                 self.emit(abi::label(&negative));
-                self.emit(abi::subtract_registers(
-                    dst.as_str(),
-                    abi::ZERO,
-                    &value.location,
-                ));
+                self.emit(abi::subtract_registers(&dst, abi::ZERO, &value.location));
                 self.emit(abi::label(&done));
             }
             "Float" => {
@@ -485,7 +481,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: value.type_,
-            location: dst,
+            location: Operand::from(dst.render()),
             text: format!("math.abs({})", value.text),
         })
     }
@@ -671,7 +667,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: left.type_,
-            location: dst,
+            location: Operand::from(dst.render()),
             text: format!("math.{function}({}, {})", left.text, right.text),
         })
     }
@@ -782,7 +778,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: value.type_,
-            location: dst,
+            location: Operand::from(dst.render()),
             text: format!("math.clamp({}, {}, {})", value.text, low.text, high.text),
         })
     }
@@ -825,7 +821,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: dst,
+            location: Operand::from(dst.render()),
             text: format!("math.{function}({})", value.text),
         })
     }
@@ -835,14 +831,28 @@ impl CodeBuilder<'_> {
     /// (using `mask` as scratch), then compare it against 2047 — the all-ones
     /// Inf/NaN field — leaving the flags set for the caller's branch. Registers are
     /// caller-allocated so the divergent range-check tails stay per-site.
-    pub(super) fn emit_float_exponent_classify(&mut self, exponent: &str, mask: &str, bits: &str) {
-        self.emit(abi::shift_right_immediate(exponent, bits, 52));
-        self.emit(abi::move_immediate(mask, "Integer", "2047"));
-        self.emit(abi::and_registers(exponent, exponent, mask));
-        self.emit(abi::compare_immediate(exponent, "2047"));
+    pub(super) fn emit_float_exponent_classify(
+        &mut self,
+        exponent: impl Into<Operand>,
+        mask: impl Into<Operand>,
+        bits: impl Into<Operand>,
+    ) {
+        let exponent = exponent.into();
+        let mask = mask.into();
+        self.emit(abi::shift_right_immediate(exponent.clone(), bits, 52));
+        self.emit(abi::move_immediate(mask.clone(), "Integer", "2047"));
+        self.emit(abi::and_registers(
+            exponent.clone(),
+            exponent.clone(),
+            mask.clone(),
+        ));
+        self.emit(abi::compare_immediate(exponent.clone(), "2047"));
     }
 
-    fn emit_float_rounding_integer_range_check(&mut self, source_bits: &str) -> Result<(), String> {
+    fn emit_float_rounding_integer_range_check(
+        &mut self,
+        source_bits: impl Into<Operand>,
+    ) -> Result<(), String> {
         let bits = self.allocate_register()?;
         let exponent = self.allocate_register()?;
         let sign = self.allocate_register()?;
@@ -1038,7 +1048,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: result_type,
-            location: result,
+            location: Operand::from(result.render()),
             text: format!("math.rand({}, {})", min.text, max.text),
         })
     }
@@ -1050,7 +1060,7 @@ impl CodeBuilder<'_> {
             return Err(format!("math.seed does not accept {}", value.type_));
         }
         let text = format!("math.seed({})", value.text);
-        self.emit(abi::move_register(abi::ARG[1], &value.location));
+        self.emit(abi::move_register(abi::c_arg(1), &value.location));
         self.emit(abi::move_register(
             abi::return_register(),
             ARENA_STATE_REGISTER,
@@ -1065,7 +1075,7 @@ impl CodeBuilder<'_> {
         });
         Ok(ValueResult {
             type_: "Nothing".to_string(),
-            location: abi::return_register().to_string(),
+            location: abi::return_register(),
             text,
         })
     }
@@ -1091,7 +1101,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::float_sqrt_d(&result, &src));
             return Ok(ValueResult {
                 type_: "Float".to_string(),
-                location: result,
+                location: Operand::from(result.render()),
                 text,
             });
         }
@@ -1108,7 +1118,7 @@ impl CodeBuilder<'_> {
                 let dst = self.emit_fixed_sqrt(&value.location)?;
                 Ok(ValueResult {
                     type_: "Fixed".to_string(),
-                    location: dst,
+                    location: Operand::from(dst.render()),
                     text: format!("math.sqrt({})", value.text),
                 })
             }
@@ -1161,14 +1171,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), slot));
         Ok(ValueResult {
             type_: "Fixed".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text,
         })
     }
 
     pub(super) fn emit_float_result_check(
         &mut self,
-        bits: &str,
+        bits: impl Into<Operand>,
         infinity_error: FloatInfinityError,
     ) -> Result<(), String> {
         // A finite f64 has a biased exponent below 0x7FF. Drop the sign bit by
@@ -1219,7 +1229,7 @@ impl CodeBuilder<'_> {
     /// the line/char it stamps — is byte-identical to the GPR path.
     pub(super) fn emit_float_result_check_fp(
         &mut self,
-        value: &str,
+        value: impl Into<Operand>,
         infinity_error: FloatInfinityError,
     ) -> Result<(), String> {
         let nan = self.label("float_result_nan");

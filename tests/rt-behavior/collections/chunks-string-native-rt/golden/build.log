@@ -1,0 +1,19 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/chunks-string-native-rt
+Wrote AST to tests/rt-behavior/collections/chunks-string-native-rt/chunks_string_native_rt.ast
+Wrote IR to tests/rt-behavior/collections/chunks-string-native-rt/chunks_string_native_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/chunks-string-native-rt
+Wrote executable to tests/rt-behavior/collections/chunks-string-native-rt/build/chunks_string_native_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/chunks-string-native-rt/build/chunks_string_native_rt.out
+s2: [a,bb,][ccc,dddd,][e,ff,][ggg,]
+s3: [a,bb,ccc,][dddd,e,ff,][ggg,]
+s1: [a,][bb,][ccc,][dddd,][e,][ff,][ggg,]
+s7: [a,bb,ccc,dddd,e,ff,ggg,]
+s10: [a,bb,ccc,dddd,e,ff,ggg,]
+empty: 0
+one: [z,]
+estr: [,x,][,]
+src: 7
+stress: 4000
+[exit 0]

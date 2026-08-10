@@ -139,6 +139,7 @@ registry order. [[src/builtins/errorcode.rs:ERRORCODE_CONSTANTS]]
 | `7-705-0020` | `77050020` | `ErrWrongMode`               | Operation requires a presentation mode the program is not in: in an `--app` build, `term::*` and the console-reading `io::` calls (`io::input`/`io::readLine`/`io::readChar`) require `app::Mode.Console` (plan-62-E). |
 | `7-703-0009` | `77030009` | `ErrResourceMoved`            | Resource handle was moved to another thread by `thread::transfer` and is no longer usable by the sender. |
 | `7-703-0010` | `77030010` | `ErrNativeBufferOverrun`      | Native `LINK` `OUT CBuffer` callee wrote past its declared `SIZE` (buffer overrun detected). |
+| `7-708-0001` | `77080001` | `ErrSpawnFailed`              | Child process could not be spawned (fork/exec failed, or the program was not found). |
 
 ## Resolution API
 

@@ -225,7 +225,7 @@
     "returns": "Integer",
     "frame": { "stackSize": 32, "calleeSaved": [] },
     "params": [
-    { "name": "color", "type": "Color", "location": "%arg0" }
+    { "name": "color", "type": "Color", "location": "%argMFB0" }
     ],
     "stackSlots": [
     { "name": "color_0", "type": "color", "offset": 0 },
@@ -276,7 +276,7 @@
     "returns": "Integer",
     "frame": { "stackSize": 32, "calleeSaved": [] },
     "params": [
-    { "name": "color", "type": "Color", "location": "%arg0" }
+    { "name": "color", "type": "Color", "location": "%argMFB0" }
     ],
     "stackSlots": [
     { "name": "color_0", "type": "color", "offset": 0 },
@@ -323,7 +323,7 @@
     "returns": "Integer",
     "frame": { "stackSize": 256, "calleeSaved": ["lr"] },
     "params": [
-    { "name": "shape", "type": "Shape", "location": "%arg0" }
+    { "name": "shape", "type": "Shape", "location": "%argMFB0" }
     ],
     "stackSlots": [
     { "name": "shape_0", "type": "shape", "offset": 16 },
@@ -622,6 +622,7 @@
     { "op": "ldr_u64", "dst": "x0", "base": "sp", "offset": "24" },
     { "op": "mov", "dst": "x1", "src": "x8" },
     { "op": "bl", "target": "_mfb_arena_free" },
+    { "op": "str_u64", "src": "xzr", "base": "sp", "offset": "24" },
     { "op": "label", "name": "owned_value_free_skip_19" },
     { "op": "ldr_u64", "dst": "x1", "base": "sp", "offset": "160" },
     { "op": "ldr_u64", "dst": "x0", "base": "sp", "offset": "168" },
@@ -657,6 +658,7 @@
     { "op": "ldr_u64", "dst": "x0", "base": "sp", "offset": "24" },
     { "op": "mov", "dst": "x1", "src": "x8" },
     { "op": "bl", "target": "_mfb_arena_free" },
+    { "op": "str_u64", "src": "xzr", "base": "sp", "offset": "24" },
     { "op": "label", "name": "owned_value_free_skip_22" },
     { "op": "ldr_u64", "dst": "x1", "base": "sp", "offset": "160" },
     { "op": "ldr_u64", "dst": "x0", "base": "sp", "offset": "168" },
@@ -676,6 +678,7 @@
     { "op": "ldr_u64", "dst": "x0", "base": "sp", "offset": "24" },
     { "op": "mov", "dst": "x1", "src": "x8" },
     { "op": "bl", "target": "_mfb_arena_free" },
+    { "op": "str_u64", "src": "xzr", "base": "sp", "offset": "24" },
     { "op": "label", "name": "owned_value_free_skip_23" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
     { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "0" },
@@ -706,7 +709,7 @@
     "returns": "Integer",
     "frame": { "stackSize": 256, "calleeSaved": ["lr"] },
     "params": [
-    { "name": "shape", "type": "Shape", "location": "%arg0" }
+    { "name": "shape", "type": "Shape", "location": "%argMFB0" }
     ],
     "stackSlots": [
     { "name": "shape_0", "type": "shape", "offset": 16 },
@@ -1004,6 +1007,7 @@
     { "op": "ldr_u64", "dst": "x0", "base": "sp", "offset": "24" },
     { "op": "mov", "dst": "x1", "src": "x8" },
     { "op": "bl", "target": "_mfb_arena_free" },
+    { "op": "str_u64", "src": "xzr", "base": "sp", "offset": "24" },
     { "op": "label", "name": "owned_value_free_skip_19" },
     { "op": "ldr_u64", "dst": "x1", "base": "sp", "offset": "160" },
     { "op": "ldr_u64", "dst": "x0", "base": "sp", "offset": "168" },
@@ -1031,6 +1035,7 @@
     { "op": "ldr_u64", "dst": "x0", "base": "sp", "offset": "24" },
     { "op": "mov", "dst": "x1", "src": "x8" },
     { "op": "bl", "target": "_mfb_arena_free" },
+    { "op": "str_u64", "src": "xzr", "base": "sp", "offset": "24" },
     { "op": "label", "name": "owned_value_free_skip_21" },
     { "op": "ldr_u64", "dst": "x1", "base": "sp", "offset": "160" },
     { "op": "ldr_u64", "dst": "x0", "base": "sp", "offset": "168" },
@@ -1050,6 +1055,7 @@
     { "op": "ldr_u64", "dst": "x0", "base": "sp", "offset": "24" },
     { "op": "mov", "dst": "x1", "src": "x8" },
     { "op": "bl", "target": "_mfb_arena_free" },
+    { "op": "str_u64", "src": "xzr", "base": "sp", "offset": "24" },
     { "op": "label", "name": "owned_value_free_skip_22" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
     { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "0" },

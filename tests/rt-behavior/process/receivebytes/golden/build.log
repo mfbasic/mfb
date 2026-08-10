@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/rt-behavior/process/receivebytes
+Wrote AST to tests/rt-behavior/process/receivebytes/process_receivebytes.ast
+Wrote IR to tests/rt-behavior/process/receivebytes/process_receivebytes.ir
+[exit 0]
+$ mfb build tests/rt-behavior/process/receivebytes
+Wrote executable to tests/rt-behavior/process/receivebytes/build/process_receivebytes.out
+[exit 0]
+$ tests/rt-behavior/process/receivebytes/build/process_receivebytes.out
+104
+105
+[exit 0]

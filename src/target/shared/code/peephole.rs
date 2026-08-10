@@ -42,11 +42,16 @@ use super::regalloc;
 use super::types::CodeInstruction;
 
 /// What an instruction does to the registers that forwarding cares about.
-enum Effect<'a> {
+///
+/// Owns its operand strings (`String`, not a borrow of the instruction): since
+/// plan-78-B `CodeInstruction::get` renders an owned value rather than lending a
+/// `&str`, there is nothing in the instruction to borrow. The forwarding loop
+/// took owned copies anyway, so this is byte-identical.
+enum Effect {
     /// Store `src` to `[sp + offset]`.
-    StoreSp { src: &'a str, offset: &'a str },
+    StoreSp { src: String, offset: String },
     /// Load into `dst` from `[sp + offset]`.
-    LoadSp { dst: &'a str, offset: &'a str },
+    LoadSp { dst: String, offset: String },
     /// Defines exactly the single register named by its `dst` field; no other
     /// register or memory effect that matters here.
     DefDst,
@@ -62,25 +67,43 @@ enum Effect<'a> {
 /// `sdiv`/`udiv`/`msub` expand to sequences that clobber rdx:rax beyond their
 /// named `dst`, which the arch-neutral `DefDst` classification cannot express
 /// (bug-284 C8). aarch64 and riscv64 have no such implicit clobbers.
-fn classify(instruction: &CodeInstruction, is_x86: bool) -> Effect<'_> {
+fn classify(instruction: &CodeInstruction, is_x86: bool) -> Effect {
     match instruction.op {
-        CodeOp::StrU64 => match (
-            instruction.get("base"),
-            instruction.get("offset"),
-            instruction.get("src"),
-        ) {
-            (Some("sp"), Some(offset), Some(src)) => Effect::StoreSp { src, offset },
-            _ => Effect::Barrier, // store to a non-sp base may alias a frame slot
-        },
-        CodeOp::LdrU64 => match (
-            instruction.get("base"),
-            instruction.get("offset"),
-            instruction.get("dst"),
-        ) {
-            (Some("sp"), Some(offset), Some(dst)) => Effect::LoadSp { dst, offset },
-            (Some(_), _, Some(_)) => Effect::DefDst, // non-sp load: just defines dst
-            _ => Effect::Barrier,
-        },
+        CodeOp::StrU64 => {
+            // Peek `base` through a borrow so a non-sp store never renders its
+            // `offset`/`src` (it flushes anyway); only an sp store owns them (they
+            // key the slot map).
+            if instruction
+                .operand("base")
+                .is_some_and(|b| b.rendered() == "sp")
+            {
+                match (instruction.get("offset"), instruction.get("src")) {
+                    (Some(offset), Some(src)) => Effect::StoreSp { src, offset },
+                    _ => Effect::Barrier,
+                }
+            } else {
+                Effect::Barrier // store to a non-sp base may alias a frame slot
+            }
+        }
+        CodeOp::LdrU64 => {
+            if instruction
+                .operand("base")
+                .is_some_and(|b| b.rendered() == "sp")
+            {
+                match (instruction.get("offset"), instruction.get("dst")) {
+                    (Some(offset), Some(dst)) => Effect::LoadSp { dst, offset },
+                    // base==sp but a field is missing: a bare dst still just
+                    // defines dst (matches the old `(Some(_),_,Some(_))` arm).
+                    (_, Some(_)) => Effect::DefDst,
+                    _ => Effect::Barrier,
+                }
+            } else if instruction.operand("base").is_some() && instruction.operand("dst").is_some()
+            {
+                Effect::DefDst // non-sp load: just defines dst
+            } else {
+                Effect::Barrier
+            }
+        }
         // Compares write only the flags.
         CodeOp::Cmp | CodeOp::CmpImm | CodeOp::FCmpD | CodeOp::FCmpZeroD => Effect::NoDef,
         // bug-284 C8: on x86-64 these expand to sequences that clobber rdx:rax in
@@ -100,7 +123,7 @@ fn classify(instruction: &CodeInstruction, is_x86: bool) -> Effect<'_> {
         | CodeOp::MSub => {
             if is_x86 {
                 Effect::Barrier
-            } else if instruction.get("dst").is_some() {
+            } else if instruction.operand("dst").is_some() {
                 Effect::DefDst
             } else {
                 Effect::Barrier
@@ -157,7 +180,7 @@ fn classify(instruction: &CodeInstruction, is_x86: bool) -> Effect<'_> {
         | CodeOp::FCvtmsXFromD
         | CodeOp::FCvtpsXFromD
         | CodeOp::FCvtasXFromD => {
-            if instruction.get("dst").is_some() {
+            if instruction.operand("dst").is_some() {
                 Effect::DefDst
             } else {
                 Effect::Barrier
@@ -221,11 +244,9 @@ pub(super) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
     for index in 0..instructions.len() {
         match classify(&instructions[index], is_x86) {
             Effect::StoreSp { src, offset } => {
-                let (src, offset) = (src.to_string(), offset.to_string());
                 set_slot(&mut slots, &offset, &src);
             }
             Effect::LoadSp { dst, offset } => {
-                let (dst, offset) = (dst.to_string(), offset.to_string());
                 if let Some(reg) = slot_reg(&slots, &offset) {
                     if reg != dst {
                         instructions[index] = abi::move_register(&dst, &reg);
@@ -235,8 +256,8 @@ pub(super) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
                 invalidate_reg(&mut slots, &dst);
             }
             Effect::DefDst => {
-                if let Some(dst) = instructions[index].get("dst") {
-                    let dst = dst.to_string();
+                if let Some(dst) = instructions[index].operand("dst") {
+                    let dst = dst.rendered();
                     invalidate_reg(&mut slots, &dst);
                 } else {
                     slots.clear();
@@ -292,21 +313,21 @@ pub(super) fn remove_fp_shuttles(
         let folded: Option<(u32, CodeInstruction)> = match (first.op, second.op) {
             // Result shuttle: fmov xN, dM ; str xN, [base,#off]  ->  str d dM, [base,#off].
             (CodeOp::FMovXFromD, CodeOp::StrU64) => fold_pair(
-                first.get("dst"),
-                first.get("src"),
-                second.get("src"),
-                second.get("base"),
-                second.get("offset"),
-                abi::store_double,
+                first.get("dst").as_deref(),
+                first.get("src").as_deref(),
+                second.get("src").as_deref(),
+                second.get("base").as_deref(),
+                second.get("offset").as_deref(),
+                |src, base, off| abi::store_double(src, base, off),
             ),
             // Operand reload: ldr xN, [base,#off] ; fmov dM, xN  ->  ldr d dM, [base,#off].
             (CodeOp::LdrU64, CodeOp::FMovDFromX) => fold_pair(
-                first.get("dst"),
-                second.get("dst"),
-                second.get("src"),
-                first.get("base"),
-                first.get("offset"),
-                abi::load_double,
+                first.get("dst").as_deref(),
+                second.get("dst").as_deref(),
+                second.get("src").as_deref(),
+                first.get("base").as_deref(),
+                first.get("offset").as_deref(),
+                |src, base, off| abi::load_double(src, base, off),
             ),
             _ => None,
         };
@@ -350,7 +371,7 @@ fn fold_pair(
     linked: Option<&str>,
     base: Option<&str>,
     offset: Option<&str>,
-    build: fn(&str, &str, usize) -> CodeInstruction,
+    build: impl Fn(&str, &str, usize) -> CodeInstruction,
 ) -> Option<(u32, CodeInstruction)> {
     let (gpr, fpr, linked, base, offset) = (gpr?, fpr?, linked?, base?, offset?);
     if gpr != linked || gpr == base {
@@ -396,11 +417,11 @@ mod tests {
         );
         assert_eq!(instructions.len(), 3);
         assert_eq!(instructions[0].op, CodeOp::StrD);
-        assert_eq!(instructions[0].get("src"), Some("d11"));
-        assert_eq!(instructions[0].get("offset"), Some("1120"));
+        assert_eq!(instructions[0].get("src").as_deref(), Some("d11"));
+        assert_eq!(instructions[0].get("offset").as_deref(), Some("1120"));
         assert_eq!(instructions[1].op, CodeOp::LdrD);
-        assert_eq!(instructions[1].get("dst"), Some("d9"));
-        assert_eq!(instructions[1].get("offset"), Some("80"));
+        assert_eq!(instructions[1].get("dst").as_deref(), Some("d9"));
+        assert_eq!(instructions[1].get("offset").as_deref(), Some("80"));
         assert_eq!(instructions[2].op, CodeOp::Ret);
     }
 
@@ -454,8 +475,8 @@ mod tests {
         ];
         forward_stores_to_loads(&mut instructions, false);
         assert_eq!(instructions[2].op, CodeOp::Mov);
-        assert_eq!(instructions[2].get("dst"), Some("x8"));
-        assert_eq!(instructions[2].get("src"), Some("x10"));
+        assert_eq!(instructions[2].get("dst").as_deref(), Some("x8"));
+        assert_eq!(instructions[2].get("src").as_deref(), Some("x10"));
     }
 
     /// bug-284 C8: on x86-64 `mul`/`umulh`/`smulh`/`sdiv`/`udiv`/`msub` expand to
@@ -499,7 +520,7 @@ mod tests {
         let mut instructions = stream();
         forward_stores_to_loads(&mut instructions, false);
         assert_eq!(instructions[2].op, CodeOp::Mov);
-        assert_eq!(instructions[2].get("src"), Some("rax"));
+        assert_eq!(instructions[2].get("src").as_deref(), Some("rax"));
     }
 
     /// A later store that *partially overwrites* an 8-byte slot (offset `#12`
@@ -526,7 +547,7 @@ mod tests {
         forward_stores_to_loads(&mut instructions, false);
         // The load survives as a real memory reload.
         assert_eq!(instructions[2].op, CodeOp::LdrU64);
-        assert_eq!(instructions[2].get("dst"), Some("x8"));
-        assert_eq!(instructions[2].get("offset"), Some("8"));
+        assert_eq!(instructions[2].get("dst").as_deref(), Some("x8"));
+        assert_eq!(instructions[2].get("offset").as_deref(), Some("8"));
     }
 }

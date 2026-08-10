@@ -7,22 +7,25 @@ impl CodeBuilder<'_> {
     /// path op keeps its own `fs_path_*_trim_{loop,done}` names in the goldens.
     fn emit_trailing_slash_trim(
         &mut self,
-        length: &str,
-        bytes: &str,
-        cursor: &str,
-        byte: &str,
+        length: impl Into<Operand>,
+        bytes: impl Into<Operand>,
+        cursor: impl Into<Operand>,
+        byte: impl Into<Operand>,
         trim_loop: &str,
         trim_done: &str,
     ) {
+        let length = length.into();
+        let cursor = cursor.into();
+        let byte = byte.into();
         self.emit(abi::label(trim_loop));
-        self.emit(abi::compare_immediate(length, "1"));
+        self.emit(abi::compare_immediate(length.clone(), "1"));
         self.emit(abi::branch_le(trim_done));
-        self.emit(abi::add_registers(cursor, bytes, length));
-        self.emit(abi::subtract_immediate(cursor, cursor, 1));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::compare_immediate(byte, "47"));
+        self.emit(abi::add_registers(cursor.clone(), bytes, length.clone()));
+        self.emit(abi::subtract_immediate(cursor.clone(), cursor.clone(), 1));
+        self.emit(abi::load_u8(byte.clone(), cursor.clone(), 0));
+        self.emit(abi::compare_immediate(byte.clone(), "47"));
         self.emit(abi::branch_ne(trim_done));
-        self.emit(abi::subtract_immediate(length, length, 1));
+        self.emit(abi::subtract_immediate(length.clone(), length.clone(), 1));
         self.emit(abi::branch(trim_loop));
         self.emit(abi::label(trim_done));
     }
@@ -61,8 +64,9 @@ impl CodeBuilder<'_> {
         }
         let parts_slot = self.spill_to_slot("fs_path_join_parts", &parts.location);
         let alloc_ok = self.label("fs_path_join_alloc_ok");
+        // plan-71-C Family-1a: the parts pointer is arg 0 of the fs_path_join call → `%arg0`.
         self.emit(abi::load_u64(
-            abi::return_register(),
+            abi::c_arg(0),
             abi::stack_pointer(),
             parts_slot,
         ));
@@ -82,7 +86,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "fs.pathJoin".to_string(),
         })
     }
@@ -146,7 +150,7 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&start, &span)?;
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "fs.pathBaseName".to_string(),
         })
     }
@@ -229,7 +233,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&out, abi::stack_pointer(), final_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: out,
+            location: Operand::from(out.render()),
             text: "fs.pathDirName".to_string(),
         })
     }
@@ -292,7 +296,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "fs.pathExtension".to_string(),
         })
     }
@@ -353,8 +357,9 @@ impl CodeBuilder<'_> {
         // manufactures a 1-byte content from a 0-byte input, so its NUL would land at
         // offset 9 -- one past a `length + 9` request. Reserve `length + 10` so that
         // fallback's terminator stays in-bounds without relying on arena size rounding.
-        self.emit(abi::add_immediate(abi::return_register(), &scratch10, 10));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
+        self.emit(abi::add_immediate(abi::c_arg(0), &scratch10, 10));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -363,12 +368,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch10, &scratch9, 0));
         self.emit(abi::add_immediate(&scratch11, &scratch9, 8));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
-        self.emit(abi::store_u64(abi::ZERO, abi::RET[1], 0));
-        self.emit(abi::store_u8(abi::ZERO, abi::RET[1], 8));
+        self.emit(abi::store_u64(abi::ZERO, abi::mfb_return(1), 0));
+        self.emit(abi::store_u8(abi::ZERO, abi::mfb_return(1), 8));
         self.emit(abi::store_u64(
             abi::ZERO,
             abi::stack_pointer(),
@@ -691,7 +696,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "fs.pathNormalize".to_string(),
         })
     }

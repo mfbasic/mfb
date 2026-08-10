@@ -1,0 +1,8 @@
+{
+  "name": "import_self_alias",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "IMPORT self AS me binds the current package's exported interface under an alias (plan-81-import-self.md).",
+  "sources": [{ "root": "src", "role": "package", "include": ["**/*.mfb"] }]
+}

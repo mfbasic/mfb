@@ -58,7 +58,7 @@ fn win_call(
         let frame = (0x20 + stack * 8 + 15) & !15;
         ins.push(abi::subtract_stack(frame));
         for i in 0..stack {
-            ins.push(abi::store_u64(abi::ARG[4 + i], abi::stack_pointer(), 0x20 + i * 8));
+            ins.push(abi::store_u64(abi::c_arg(4 + i), abi::stack_pointer(), 0x20 + i * 8));
         }
         platform.emit_libc_call(symbol, from, imports, ins, rel)?;
         ins.push(abi::add_stack(frame));
@@ -98,20 +98,20 @@ fn emit_read_file(
     // Allocate the 64 KiB read buffer.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "65536"),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, ins, rel, alloc_fail);
-    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), buf_off));
+    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), buf_off));
     // CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
     //   FILE_ATTRIBUTE_NORMAL, NULL).
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), wide_off),
-        abi::move_immediate(abi::ARG[1], "Integer", "2147483648"), // GENERIC_READ 0x80000000
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),          // FILE_SHARE_READ
-        abi::move_immediate(abi::ARG[3], "Integer", "0"),          // lpSecurityAttributes
-        abi::move_immediate(abi::ARG[4], "Integer", "3"),          // OPEN_EXISTING
-        abi::move_immediate(abi::ARG[5], "Integer", "128"),        // FILE_ATTRIBUTE_NORMAL
-        abi::move_immediate(abi::ARG[6], "Integer", "0"),          // hTemplateFile
+        abi::move_immediate(abi::c_arg(1), "Integer", "2147483648"), // GENERIC_READ 0x80000000
+        abi::move_immediate(abi::c_arg(2), "Integer", "1"),          // FILE_SHARE_READ
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),          // lpSecurityAttributes
+        abi::move_immediate(abi::c_arg(4), "Integer", "3"),          // OPEN_EXISTING
+        abi::move_immediate(abi::c_arg(5), "Integer", "128"),        // FILE_ATTRIBUTE_NORMAL
+        abi::move_immediate(abi::c_arg(6), "Integer", "0"),          // hTemplateFile
     ]);
     win_call(symbol, "CreateFileW", 7, false, imports, platform, ins, rel)?;
     // INVALID_HANDLE_VALUE is (HANDLE)-1 (full 64-bit -1) → < 0.
@@ -124,11 +124,11 @@ fn emit_read_file(
     // one ReadFile up to EOF; PEM cert/key files are tiny.
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), hfile_off),
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), buf_off),
-        abi::move_immediate(abi::ARG[2], "Integer", "65536"),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), buf_off),
+        abi::move_immediate(abi::c_arg(2), "Integer", "65536"),
         abi::load_u64("%v10", abi::stack_pointer(), work_off),
-        abi::add_immediate(abi::ARG[3], "%v10", stl::BYTESRD),
-        abi::move_immediate(abi::ARG[4], "Integer", "0"),
+        abi::add_immediate(abi::c_arg(3), "%v10", stl::BYTESRD),
+        abi::move_immediate(abi::c_arg(4), "Integer", "0"),
     ]);
     // Zero the count slot first (ReadFile writes only the low DWORD).
     ins.push(abi::store_u64(abi::ZERO, "%v10", stl::BYTESRD));
@@ -172,10 +172,10 @@ fn emit_pem_to_der(
     // DER is smaller than its base64 PEM; a buffer the size of the PEM is ample.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "65536"),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, ins, rel, alloc_fail);
-    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), der_off));
+    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), der_off));
     // Seed the in/out capacity DWORD with the buffer size.
     ins.extend([
         abi::load_u64("%v10", abi::stack_pointer(), work_off),
@@ -183,12 +183,12 @@ fn emit_pem_to_der(
         abi::store_u32("%v9", "%v10", stl::CBBIN),
         // CryptStringToBinaryA(pem, pemLen, BASE64HEADER, der, &cbBin, NULL, NULL)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), pem_off),
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), pem_len_off),
-        abi::move_immediate(abi::ARG[2], "Integer", CRYPT_STRING_BASE64HEADER),
-        abi::load_u64(abi::ARG[3], abi::stack_pointer(), der_off),
-        abi::add_immediate(abi::ARG[4], "%v10", stl::CBBIN),
-        abi::move_immediate(abi::ARG[5], "Integer", "0"),
-        abi::move_immediate(abi::ARG[6], "Integer", "0"),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), pem_len_off),
+        abi::move_immediate(abi::c_arg(2), "Integer", CRYPT_STRING_BASE64HEADER),
+        abi::load_u64(abi::c_arg(3), abi::stack_pointer(), der_off),
+        abi::add_immediate(abi::c_arg(4), "%v10", stl::CBBIN),
+        abi::move_immediate(abi::c_arg(5), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(6), "Integer", "0"),
     ]);
     win_call(symbol, "CryptStringToBinaryA", 7, false, imports, platform, ins, rel)?;
     ins.extend([
@@ -278,10 +278,10 @@ pub(super) fn lower_tls_listen(
     let mut rel = Vec::new();
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST),
-        abi::store_u64(abi::ARG[1], abi::stack_pointer(), PORT),
-        abi::store_u64(abi::ARG[2], abi::stack_pointer(), CERT),
-        abi::store_u64(abi::ARG[3], abi::stack_pointer(), KEY),
-        abi::store_u64(abi::ARG[4], abi::stack_pointer(), BACKLOG),
+        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT),
+        abi::store_u64(abi::c_arg(2), abi::stack_pointer(), CERT),
+        abi::store_u64(abi::c_arg(3), abi::stack_pointer(), KEY),
+        abi::store_u64(abi::c_arg(4), abi::stack_pointer(), BACKLOG),
     ]);
     // hints: zero 48 bytes, ai_flags=AI_PASSIVE|AF_INET, ai_socktype=SOCK_STREAM.
     for o in (0..48).step_by(8) {
@@ -306,9 +306,9 @@ pub(super) fn lower_tls_listen(
         abi::label(&resolved),
         // getaddrinfo(host, NULL, &hints, &res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), HOSTCSTR),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), HINTS),
-        abi::add_immediate(abi::ARG[3], abi::stack_pointer(), RES),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), HINTS),
+        abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), RES),
     ]);
     platform.emit_libc_call("getaddrinfo", symbol, imports, &mut ins, &mut rel)?;
     ins.extend([
@@ -317,8 +317,8 @@ pub(super) fn lower_tls_listen(
         // socket(ai_family, ai_socktype, ai_protocol)
         abi::load_u64("%v9", abi::stack_pointer(), RES),
         abi::load_u32(abi::return_register(), "%v9", 4),
-        abi::load_u32(abi::ARG[1], "%v9", 8),
-        abi::load_u32(abi::ARG[2], "%v9", 12),
+        abi::load_u32(abi::c_arg(1), "%v9", 8),
+        abi::load_u32(abi::c_arg(2), "%v9", 12),
     ]);
     platform.emit_libc_call("socket", symbol, imports, &mut ins, &mut rel)?;
     ins.extend([
@@ -337,18 +337,18 @@ pub(super) fn lower_tls_listen(
         abi::move_immediate("%v9", "Integer", "1"),
         abi::store_u64("%v9", abi::stack_pointer(), ONE),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD),
-        abi::move_immediate(abi::ARG[1], "Integer", platform.sol_socket()),
-        abi::move_immediate(abi::ARG[2], "Integer", platform.so_reuseaddr()),
-        abi::add_immediate(abi::ARG[3], abi::stack_pointer(), ONE),
-        abi::move_immediate(abi::ARG[4], "Integer", "4"),
+        abi::move_immediate(abi::c_arg(1), "Integer", platform.sol_socket()),
+        abi::move_immediate(abi::c_arg(2), "Integer", platform.so_reuseaddr()),
+        abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), ONE),
+        abi::move_immediate(abi::c_arg(4), "Integer", "4"),
     ]);
     sspi_call(symbol, "setsockopt", "ws2_32.dll", 5, imports, platform, &mut ins, &mut rel)?;
     ins.extend([
         // bind(fd, ai_addr, ai_addrlen)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD),
         abi::load_u64("%v9", abi::stack_pointer(), RES),
-        abi::load_u64(abi::ARG[1], "%v9", addr_off),
-        abi::load_u32(abi::ARG[2], "%v9", 16),
+        abi::load_u64(abi::c_arg(1), "%v9", addr_off),
+        abi::load_u32(abi::c_arg(2), "%v9", 16),
     ]);
     platform.emit_libc_call("bind", symbol, imports, &mut ins, &mut rel)?;
     ins.extend([
@@ -357,7 +357,7 @@ pub(super) fn lower_tls_listen(
         abi::branch_lt(&op_fail),
         // listen(fd, backlog)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD),
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), BACKLOG),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), BACKLOG),
     ]);
     platform.emit_libc_call("listen", symbol, imports, &mut ins, &mut rel)?;
     ins.extend([
@@ -373,11 +373,11 @@ pub(super) fn lower_tls_listen(
     // Allocate the persistent WORK block (zeroed) that the listener record points at.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", &stl::SIZE.to_string()),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &tls_fail_fd);
-    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), WORK));
-    ins.push(abi::move_register("%v10", abi::RET[1]));
+    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), WORK));
+    ins.push(abi::move_register("%v10", abi::mfb_return(1)));
     for o in (0..stl::SIZE).step_by(8) {
         ins.push(abi::store_u64(abi::ZERO, "%v10", o));
     }
@@ -389,8 +389,8 @@ pub(super) fn lower_tls_listen(
     // DER (an arena alloc that outlives this call), so the buffer is not freed.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", X509_PKCS7_ENCODING),
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), DERBUF),
-        abi::load_u64(abi::ARG[2], abi::stack_pointer(), DERLEN),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), DERBUF),
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), DERLEN),
     ]);
     win_call(symbol, "CertCreateCertificateContext", 3, false, imports, platform, &mut ins, &mut rel)?;
     ins.extend([
@@ -410,14 +410,14 @@ pub(super) fn lower_tls_listen(
     //   CRYPT_DECODE_ALLOC_FLAG, NULL, &WORK.PKINFO, &WORK.CBPK) — unwrap PKCS#8.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", X509_PKCS7_ENCODING),
-        abi::move_immediate(abi::ARG[1], "Integer", "44"), // PKCS_PRIVATE_KEY_INFO
-        abi::load_u64(abi::ARG[2], abi::stack_pointer(), DERBUF),
-        abi::load_u64(abi::ARG[3], abi::stack_pointer(), DERLEN),
-        abi::move_immediate(abi::ARG[4], "Integer", "32768"), // CRYPT_DECODE_ALLOC_FLAG
-        abi::move_immediate(abi::ARG[5], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "44"), // PKCS_PRIVATE_KEY_INFO
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), DERBUF),
+        abi::load_u64(abi::c_arg(3), abi::stack_pointer(), DERLEN),
+        abi::move_immediate(abi::c_arg(4), "Integer", "32768"), // CRYPT_DECODE_ALLOC_FLAG
+        abi::move_immediate(abi::c_arg(5), "Integer", "0"),
         abi::load_u64("%v10", abi::stack_pointer(), WORK),
-        abi::add_immediate(abi::ARG[6], "%v10", stl::PKINFO),
-        abi::add_immediate(abi::ARG[7], "%v10", stl::CBPK),
+        abi::add_immediate(abi::c_arg(6), "%v10", stl::PKINFO),
+        abi::add_immediate(abi::c_arg(7), "%v10", stl::CBPK),
     ]);
     win_call(symbol, "CryptDecodeObjectEx", 8, false, imports, platform, &mut ins, &mut rel)?;
     ins.extend([
@@ -430,13 +430,13 @@ pub(super) fn lower_tls_listen(
         abi::load_u64("%v10", abi::stack_pointer(), WORK),
         abi::load_u64("%v11", "%v10", stl::PKINFO), // CRYPT_PRIVATE_KEY_INFO*
         abi::move_immediate(abi::return_register(), "Integer", X509_PKCS7_ENCODING),
-        abi::move_immediate(abi::ARG[1], "Integer", "43"), // PKCS_RSA_PRIVATE_KEY
-        abi::load_u64(abi::ARG[2], "%v11", 40),            // PrivateKey.pbData
-        abi::load_u32(abi::ARG[3], "%v11", 32),            // PrivateKey.cbData
-        abi::move_immediate(abi::ARG[4], "Integer", "32768"),
-        abi::move_immediate(abi::ARG[5], "Integer", "0"),
-        abi::add_immediate(abi::ARG[6], "%v10", stl::KBLOB),
-        abi::add_immediate(abi::ARG[7], "%v10", stl::CBKB),
+        abi::move_immediate(abi::c_arg(1), "Integer", "43"), // PKCS_RSA_PRIVATE_KEY
+        abi::load_u64(abi::c_arg(2), "%v11", 40),            // PrivateKey.pbData
+        abi::load_u32(abi::c_arg(3), "%v11", 32),            // PrivateKey.cbData
+        abi::move_immediate(abi::c_arg(4), "Integer", "32768"),
+        abi::move_immediate(abi::c_arg(5), "Integer", "0"),
+        abi::add_immediate(abi::c_arg(6), "%v10", stl::KBLOB),
+        abi::add_immediate(abi::c_arg(7), "%v10", stl::CBKB),
     ]);
     win_call(symbol, "CryptDecodeObjectEx", 8, false, imports, platform, &mut ins, &mut rel)?;
     ins.extend([
@@ -454,10 +454,10 @@ pub(super) fn lower_tls_listen(
         ins.extend([
             abi::load_u64("%v10", abi::stack_pointer(), WORK),
             abi::add_immediate(abi::return_register(), "%v10", stl::HPROV),
-            abi::add_immediate(abi::ARG[1], "%v10", stl::CONTNAME),
-            abi::move_immediate(abi::ARG[2], "Integer", "0"),
-            abi::move_immediate(abi::ARG[3], "Integer", "24"), // PROV_RSA_AES
-            abi::move_immediate(abi::ARG[4], "Integer", flag), // 16=DELETEKEYSET, 8=NEWKEYSET
+            abi::add_immediate(abi::c_arg(1), "%v10", stl::CONTNAME),
+            abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+            abi::move_immediate(abi::c_arg(3), "Integer", "24"), // PROV_RSA_AES
+            abi::move_immediate(abi::c_arg(4), "Integer", flag), // 16=DELETEKEYSET, 8=NEWKEYSET
         ]);
         win_call(symbol, "CryptAcquireContextW", 5, false, imports, platform, &mut ins, &mut rel)?;
         if check {
@@ -472,11 +472,11 @@ pub(super) fn lower_tls_listen(
     ins.extend([
         abi::load_u64("%v10", abi::stack_pointer(), WORK),
         abi::load_u64(abi::return_register(), "%v10", stl::HPROV),
-        abi::load_u64(abi::ARG[1], "%v10", stl::KBLOB),
-        abi::load_u32(abi::ARG[2], "%v10", stl::CBKB),
-        abi::move_immediate(abi::ARG[3], "Integer", "0"),
-        abi::move_immediate(abi::ARG[4], "Integer", "0"),
-        abi::add_immediate(abi::ARG[5], "%v10", stl::HKEY),
+        abi::load_u64(abi::c_arg(1), "%v10", stl::KBLOB),
+        abi::load_u32(abi::c_arg(2), "%v10", stl::CBKB),
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(4), "Integer", "0"),
+        abi::add_immediate(abi::c_arg(5), "%v10", stl::HKEY),
     ]);
     win_call(symbol, "CryptImportKey", 6, false, imports, platform, &mut ins, &mut rel)?;
     ins.extend([
@@ -497,9 +497,9 @@ pub(super) fn lower_tls_listen(
         abi::store_u32("%v9", "%v10", stl::KPI + 40),
         // CertSetCertificateContextProperty(cert, CERT_KEY_PROV_INFO_PROP_ID=2, 0, &kpi)
         abi::load_u64(abi::return_register(), "%v10", stl::CERTPTR),
-        abi::move_immediate(abi::ARG[1], "Integer", "2"),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
-        abi::add_immediate(abi::ARG[3], "%v10", stl::KPI),
+        abi::move_immediate(abi::c_arg(1), "Integer", "2"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+        abi::add_immediate(abi::c_arg(3), "%v10", stl::KPI),
     ]);
     win_call(symbol, "CertSetCertificateContextProperty", 4, false, imports, platform, &mut ins, &mut rel)?;
     ins.extend([
@@ -529,10 +529,10 @@ pub(super) fn lower_tls_listen(
     // AcquireCredentialsHandleW(NULL, USP_NAME, SECPKG_CRED_INBOUND, NULL,
     //   &SCHANNEL_CRED, NULL, NULL, &WORK.CRED, &WORK.EXPIRY)
     ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
-    wide_addr(symbol, abi::ARG[1], USP_NAME, &mut ins, &mut rel);
+    wide_addr(symbol, abi::c_arg(1), USP_NAME, &mut ins, &mut rel);
     ins.extend([
-        abi::move_immediate(abi::ARG[2], "Integer", SECPKG_CRED_INBOUND),
-        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", SECPKG_CRED_INBOUND),
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
     sspi_call_ext(
         symbol,
@@ -550,20 +550,23 @@ pub(super) fn lower_tls_listen(
         abi::branch_lt(&tls_fail_fd),
     ]);
 
-    // Build the listener record { fd, closed=0, WORK ptr @16, 0 @24 }.
+    // Build the listener record: canonical header { tag, fd, closed=0, STATE=0 }
+    // then the tail { WORK block ptr @TLS_SCHANNEL_OFFSET_BLOCK } (plan-80).
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &tls_fail_fd);
     ins.extend([
+        abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_LISTENER),
+        abi::store_u64("%v9", abi::mfb_return(1), RESOURCE_OFFSET_TAG),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_STATE),
         abi::load_u64("%v9", abi::stack_pointer(), FD),
-        abi::store_u64("%v9", abi::RET[1], TLS_OFFSET_FD),
-        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_CLOSED),
+        abi::store_u64("%v9", abi::mfb_return(1), TLS_OFFSET_FD),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), WORK),
-        abi::store_u64("%v9", abi::RET[1], 16),
-        abi::store_u64(abi::ZERO, abi::RET[1], 24),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::store_u64("%v9", abi::mfb_return(1), TLS_SCHANNEL_OFFSET_BLOCK),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
@@ -634,14 +637,14 @@ pub(super) fn lower_tls_accept(
     let mut rel = Vec::new();
     // return_register = listener record { fd@0, closed@8, WORK@16 }; ARG[1] = timeoutMs.
     ins.extend([
-        abi::store_u64(abi::ARG[1], abi::stack_pointer(), TIMEOUT),
+        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTOF),
         abi::load_u64("%v9", abi::return_register(), TLS_LISTENER_OFFSET_CLOSED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
         abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_FD),
         abi::store_u64("%v9", abi::stack_pointer(), LISTENFD),
-        abi::load_u64("%v9", abi::return_register(), 16), // WORK ptr
+        abi::load_u64("%v9", abi::return_register(), TLS_SCHANNEL_OFFSET_BLOCK), // WORK ptr
         abi::add_immediate("%v9", "%v9", stl::CRED),
         abi::store_u64("%v9", abi::stack_pointer(), LCRED),
         // plan-73-D: the unbounded sentinel => a blocking accept (omit = block); `0`
@@ -668,8 +671,8 @@ pub(super) fn lower_tls_accept(
         abi::store_u16("%v10", abi::stack_pointer(), POLLFD + 8),
         abi::store_u16(abi::ZERO, abi::stack_pointer(), POLLFD + 10),
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
-        abi::load_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT),
     ]);
     platform.emit_libc_call("WSAPoll", symbol, imports, &mut ins, &mut rel)?;
     ins.extend([
@@ -680,8 +683,8 @@ pub(super) fn lower_tls_accept(
         abi::label(&no_timeout),
         // accept(fd, NULL, NULL)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), LISTENFD),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
     platform.emit_libc_call("accept", symbol, imports, &mut ins, &mut rel)?;
     ins.extend([
@@ -726,11 +729,11 @@ pub(super) fn lower_tls_accept(
     // Allocate the per-connection STATE block (zeroed header) + mark it server-side.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", &st::SIZE.to_string()),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), STATE));
-    ins.push(abi::move_register("%v10", abi::RET[1]));
+    ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), STATE));
+    ins.push(abi::move_register("%v10", abi::mfb_return(1)));
     for o in (0..st::RECV).step_by(8) {
         ins.push(abi::store_u64(abi::ZERO, "%v10", o));
     }
@@ -748,11 +751,11 @@ pub(super) fn lower_tls_accept(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CONNFD),
         abi::load_u64("%v10", abi::stack_pointer(), STATE),
         abi::load_u64("%v11", "%v10", st::RECV_LEN),
-        abi::add_immediate(abi::ARG[1], "%v10", st::RECV),
-        abi::add_registers(abi::ARG[1], abi::ARG[1], "%v11"),
-        abi::move_immediate(abi::ARG[2], "Integer", &RECV_CAP.to_string()),
-        abi::subtract_registers(abi::ARG[2], abi::ARG[2], "%v11"),
-        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::add_immediate(abi::c_arg(1), "%v10", st::RECV),
+        abi::add_registers(abi::c_arg(1), abi::c_arg(1), "%v11"),
+        abi::move_immediate(abi::c_arg(2), "Integer", &RECV_CAP.to_string()),
+        abi::subtract_registers(abi::c_arg(2), abi::c_arg(2), "%v11"),
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
     platform.emit_libc_call("recv", symbol, imports, &mut ins, &mut rel)?;
     let hs_got = format!("{symbol}_hs_got");
@@ -764,7 +767,7 @@ pub(super) fn lower_tls_accept(
     // plan-73-D: recv <= 0 — an SO_RCVTIMEO expiry is WSAETIMEDOUT (10060), a
     // handshake TIMEOUT → ErrTimeout (via the flag); a peer close or other error
     // stays ErrTlsFailed.
-    platform.emit_errno(symbol, "%v9", imports, &mut ins, &mut rel)?;
+    platform.emit_errno(symbol, ("%v9").into(), imports, &mut ins, &mut rel)?;
     ins.extend([
         abi::compare_immediate("%v9", "10060"), // WSAETIMEDOUT
         abi::branch_ne(&tls_fail),
@@ -796,16 +799,16 @@ pub(super) fn lower_tls_accept(
         abi::load_u64("%v9", abi::stack_pointer(), FIRSTF),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&have_ctx),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
         abi::branch(&arg1_done),
         abi::label(&have_ctx),
         abi::load_u64("%v9", abi::stack_pointer(), STATE),
-        abi::add_immediate(abi::ARG[1], "%v9", st::CTXT),
+        abi::add_immediate(abi::c_arg(1), "%v9", st::CTXT),
         abi::label(&arg1_done),
         // arg2 = &indesc; arg3 = ASC flags
         abi::load_u64("%v9", abi::stack_pointer(), STATE),
-        abi::add_immediate(abi::ARG[2], "%v9", st::INDESC),
-        abi::move_immediate(abi::ARG[3], "Integer", ASC_REQ_FLAGS),
+        abi::add_immediate(abi::c_arg(2), "%v9", st::INDESC),
+        abi::move_immediate(abi::c_arg(3), "Integer", ASC_REQ_FLAGS),
     ]);
     // ASC(&cred, phContext, &indesc, flags, 0, &ctxt, &outdesc, &attrs, &expiry)
     sspi_call_ext(
@@ -915,8 +918,8 @@ pub(super) fn lower_tls_accept(
     ins.extend([
         abi::load_u64("%v18", abi::stack_pointer(), STATE),
         abi::add_immediate(abi::return_register(), "%v18", st::CTXT),
-        abi::move_immediate(abi::ARG[1], "Integer", SECPKG_ATTR_STREAM_SIZES),
-        abi::add_immediate(abi::ARG[2], "%v18", st::SC_CRED),
+        abi::move_immediate(abi::c_arg(1), "Integer", SECPKG_ATTR_STREAM_SIZES),
+        abi::add_immediate(abi::c_arg(2), "%v18", st::SC_CRED),
     ]);
     sspi_call(symbol, "QueryContextAttributesW", SECUR32, 3, imports, platform, &mut ins, &mut rel)?;
     ins.push(abi::branch_lt(&tls_fail));
@@ -930,20 +933,23 @@ pub(super) fn lower_tls_accept(
         abi::store_u32("%v9", "%v10", st::MAXMSG),
     ]);
 
-    // Build the TlsSocket record { fd, closed=0, state@16, 0@24 }.
+    // Build the TlsSocket record: canonical header { tag, fd, closed=0, STATE=0 }
+    // then the tail { SSPI block ptr @TLS_SCHANNEL_OFFSET_BLOCK } (plan-80).
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
+        abi::move_immediate("%v9", "Integer", RESOURCE_TAG_TLS_SCHANNEL),
+        abi::store_u64("%v9", abi::mfb_return(1), RESOURCE_OFFSET_TAG),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_STATE),
         abi::load_u64("%v9", abi::stack_pointer(), CONNFD),
-        abi::store_u64("%v9", abi::RET[1], TLS_OFFSET_FD),
-        abi::store_u64(abi::ZERO, abi::RET[1], TLS_OFFSET_CLOSED),
+        abi::store_u64("%v9", abi::mfb_return(1), TLS_OFFSET_FD),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_CLOSED),
         abi::load_u64("%v9", abi::stack_pointer(), STATE),
-        abi::store_u64("%v9", abi::RET[1], 16),
-        abi::store_u64(abi::ZERO, abi::RET[1], 24),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::store_u64("%v9", abi::mfb_return(1), TLS_SCHANNEL_OFFSET_BLOCK),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
@@ -1007,7 +1013,7 @@ pub(super) fn lower_tls_close_listener(
         abi::branch_ne(&already),
         abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_FD),
         abi::store_u64("%v9", abi::stack_pointer(), FD),
-        abi::load_u64("%v9", abi::return_register(), 16),
+        abi::load_u64("%v9", abi::return_register(), TLS_SCHANNEL_OFFSET_BLOCK),
         abi::store_u64("%v9", abi::stack_pointer(), WORK),
         // FreeCredentialsHandle(&WORK.CRED)
         abi::load_u64("%v9", abi::stack_pointer(), WORK),
@@ -1029,7 +1035,7 @@ pub(super) fn lower_tls_close_listener(
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), WORK),
         abi::load_u64(abi::return_register(), "%v9", stl::HPROV),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
     win_call(symbol, "CryptReleaseContext", 2, false, imports, platform, &mut ins, &mut rel)?;
     // Delete the persisted keyset container (best effort):
@@ -1037,10 +1043,10 @@ pub(super) fn lower_tls_close_listener(
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), WORK),
         abi::add_immediate(abi::return_register(), "%v9", stl::HPROV),
-        abi::add_immediate(abi::ARG[1], "%v9", stl::CONTNAME),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
-        abi::move_immediate(abi::ARG[3], "Integer", "24"),
-        abi::move_immediate(abi::ARG[4], "Integer", "16"), // CRYPT_DELETEKEYSET
+        abi::add_immediate(abi::c_arg(1), "%v9", stl::CONTNAME),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(3), "Integer", "24"),
+        abi::move_immediate(abi::c_arg(4), "Integer", "16"), // CRYPT_DELETEKEYSET
     ]);
     win_call(symbol, "CryptAcquireContextW", 5, false, imports, platform, &mut ins, &mut rel)?;
     // closesocket(fd)

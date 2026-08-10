@@ -1,0 +1,33 @@
+' bug-434: a collection is ALWAYS defaultable (its default is the empty
+' collection), regardless of whether its element type is defaultable. A union
+' element type does not block the collection's default, and that
+' non-defaultability must not cascade into a record embedding such a field.
+'
+' `Set OF Attribute` is deliberately absent: a Set element must be comparable
+' and a union is not, so that binding stays rejected on the *comparability*
+' axis (2-203-0061) — a separate rule this bug does not touch.
+
+ENUM AttrTypeFlag
+  Bold
+  Italic
+END ENUM
+
+TYPE AttrFlag
+  attr AS AttrTypeFlag
+END TYPE
+
+UNION Attribute
+  AttrFlag
+END UNION
+
+TYPE Doc
+  text AS String
+  attrs AS List OF Attribute
+END TYPE
+
+FUNC main AS Integer
+  MUT xs AS List OF Attribute          ' element is a union — still defaultable ([])
+  MUT mm AS Map OF String TO Attribute ' union value — empty map
+  MUT d AS Doc                         ' record embedding a List OF <union> field
+  RETURN 0
+END FUNC

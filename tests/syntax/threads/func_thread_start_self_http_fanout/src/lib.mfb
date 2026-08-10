@@ -1,0 +1,21 @@
+REM plan-81 worked example (the motivating shape): an HTTP fetch worker that a
+REM package starts N times in parallel through `self::`, without splitting the
+REM logic across two packages. `fetchStatus` is an exported ISOLATED FUNC of THIS
+REM package; `self::fetchStatus` names it as a thread entry from within the package.
+
+IMPORT thread
+IMPORT net
+IMPORT http
+IMPORT self
+
+EXPORT ISOLATED FUNC fetchStatus(w AS ThreadWorker OF Nothing TO Integer, url AS String) AS Integer
+  LET r AS http::Response = http::read(net::toUrl(url))
+  RETURN r.status
+END FUNC
+
+EXPORT FUNC fanout AS Integer
+  LET a AS Thread OF Nothing TO Integer = thread::start(self::fetchStatus, "http://a.example/")
+  LET b AS Thread OF Nothing TO Integer = thread::start(self::fetchStatus, "http://b.example/")
+  LET c AS Thread OF Nothing TO Integer = thread::start(self::fetchStatus, "http://c.example/")
+  RETURN thread::waitFor(a) + thread::waitFor(b) + thread::waitFor(c)
+END FUNC

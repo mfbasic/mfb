@@ -41,6 +41,302 @@ pub(super) fn collect_address_taken_locals(ops: &[NirOp], out: &mut HashSet<Stri
     Collector { out }.visit_ops(ops);
 }
 
+/// plan-86 G1: names of every local REASSIGNED anywhere in `ops` — rebound
+/// (`Bind`), assigned (`Assign`), or state-mutated (`StateAssign`). For the
+/// bounds-check elision, the induction var `i` and the list `L` must both be
+/// absent from this set over the loop body, so `i < len(L)` provably holds at
+/// every iteration (a reassigned `L` changes its length; a reassigned `i` breaks
+/// the `0..=len-k` range). Uses the exhaustive `NirVisitor` seam so a new
+/// mutation op cannot silently escape the check — a missed reassignment would be
+/// an UNSOUND unchecked access (silent OOB).
+pub(super) fn collect_reassigned_locals(ops: &[NirOp]) -> HashSet<String> {
+    use nir::visit::{walk_op, NirVisitor};
+    struct Collector {
+        out: HashSet<String>,
+    }
+    impl NirVisitor for Collector {
+        fn visit_op(&mut self, op: &NirOp) {
+            match op {
+                NirOp::Bind { name, .. } => {
+                    self.out.insert(name.clone());
+                }
+                NirOp::Assign { name, .. } => {
+                    self.out.insert(name.clone());
+                }
+                NirOp::StateAssign { resource, .. } => {
+                    self.out.insert(resource.clone());
+                }
+                _ => {}
+            }
+            walk_op(self, op);
+        }
+    }
+    let mut c = Collector {
+        out: HashSet::new(),
+    };
+    c.visit_ops(ops);
+    c.out
+}
+
+/// plan-86 K1: whether EVERY value-return in `f` returns a bare PARAMETER that is
+/// never mutated or address-taken in the body — so `f`'s return value is always a
+/// BORROW of one of the caller's argument blocks, NEVER a freshly allocated one
+/// (the pure passthrough / identity shape, e.g. `FUNC copyStrs(xs) RETURN xs`).
+///
+/// For such a function the callee-side return deep-copy is elided (it returns the
+/// parameter pointer directly), and every caller treats the call result as an
+/// aliasing source (`value_needs_owning_copy`): `register_pending_temp` does not
+/// free it, and `lower_value_owned` deep-copies it at any owning store. The net
+/// effect is that the one deep-copy MOVES from the callee to the caller's ownership
+/// boundary — a read-only-and-discarded result pays no copy at all, while a result
+/// stored into an owned binding is copied exactly once, so observable value
+/// semantics is byte-identical to the always-copy behavior it replaces.
+///
+/// Both the callee skip and the caller's aliasing classification key off THIS one
+/// predicate, so they can never disagree (a disagreement would leak the callee's
+/// copy or double-free the caller's argument). Conservative in the safe direction:
+/// requires at least one value-return, EVERY value-return to be a bare parameter,
+/// and no returned parameter to be reassigned (`Bind`/`Assign`/`StateAssign`) or
+/// address-taken anywhere in the body — any doubt keeps the copy. Uses the
+/// exhaustive `NirVisitor` seam so a new return/mutation route cannot silently slip
+/// the gate (a missed mutation would return a modified block as if it were the
+/// caller's untouched argument).
+pub(super) fn function_returns_param_borrow(
+    f: &NirFunction,
+    callback_referenced: &HashSet<String>,
+) -> bool {
+    use nir::visit::{walk_op, NirVisitor};
+    // A function used as a `FunctionRef` (callback) is invoked through an ABI that
+    // OWNS and frees its return value, so it must keep returning a fresh copy — never
+    // a parameter borrow (see `collect_function_ref_names`).
+    if callback_referenced.contains(&f.name) {
+        return false;
+    }
+    let params: HashSet<String> = f.params.iter().map(|p| p.name.clone()).collect();
+    if params.is_empty() {
+        return false;
+    }
+    struct Returns<'a> {
+        params: &'a HashSet<String>,
+        any: bool,
+        all_param: bool,
+        returned: HashSet<String>,
+    }
+    impl NirVisitor for Returns<'_> {
+        fn visit_op(&mut self, op: &NirOp) {
+            if let NirOp::Return { value: Some(v) } = op {
+                self.any = true;
+                match v {
+                    NirValue::Local(name) if self.params.contains(name) => {
+                        self.returned.insert(name.clone());
+                    }
+                    _ => self.all_param = false,
+                }
+            }
+            walk_op(self, op);
+        }
+    }
+    let mut r = Returns {
+        params: &params,
+        any: false,
+        all_param: true,
+        returned: HashSet::new(),
+    };
+    r.visit_ops(&f.body);
+    if !r.any || !r.all_param {
+        return false;
+    }
+    // A returned parameter that is reassigned or address-taken is no longer
+    // guaranteed to be the caller's untouched argument block, so the "borrow" could
+    // alias a modified/freed local — bail (keep the copy).
+    let reassigned = collect_reassigned_locals(&f.body);
+    let mut address_taken = HashSet::new();
+    collect_address_taken_locals(&f.body, &mut address_taken);
+    !r.returned
+        .iter()
+        .any(|p| reassigned.contains(p) || address_taken.contains(p))
+}
+
+/// plan-77 M6: names of every local used as a VALUE — read (`Local`) or
+/// address-taken (`LocalRef`) — anywhere in `ops`. A closure binding whose name
+/// is NOT in this set never flows anywhere except as a direct call target (an
+/// invoke lowers `Call { target: name }`, whose `target` is a String, not a
+/// `NirValue`, so it is not visited): it is not returned, passed as an argument,
+/// stored, captured, or aliased, so it is provably dead at scope end and safe to
+/// free. Reuses the exhaustive `NirVisitor` seam (a new value variant is a
+/// compile error in `walk_value`), so no escape route can be silently missed —
+/// which for a would-be-freed closure is the difference between a reclaim and a
+/// use-after-free. Conservative in the safe direction: any doubt keeps the name.
+pub(super) fn collect_value_used_locals(ops: &[NirOp], out: &mut HashSet<String>) {
+    use nir::visit::{walk_value, NirVisitor};
+    struct Collector<'a> {
+        out: &'a mut HashSet<String>,
+    }
+    impl NirVisitor for Collector<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            match value {
+                NirValue::Local(name) | NirValue::LocalRef { name, .. } => {
+                    self.out.insert(name.clone());
+                }
+                _ => {}
+            }
+            walk_value(self, value);
+        }
+    }
+    Collector { out }.visit_ops(ops);
+}
+
+/// plan-86 E: names of every binding `e = collections::get(L, i)` (or `getOr`)
+/// whose result is consumed READ-ONLY — `e` is used only (and at least once) as a
+/// `MATCH` scrutinee (`NirOp::Match { value: Local(e) }`), never stored/returned/
+/// mutated/address-taken — AND whose CONTAINER `L` is a plain Local that is
+/// immutable through the scope (bound at most once, never `Assign`ed/`StateAssign`ed,
+/// not address-taken). For such a binding, `get` may return an aliasing borrow into
+/// `L`'s inline element instead of a fresh `copy_flat_block` (the ~4M-copy/rep cost,
+/// `dispatch union`), and the binding registers no scope-drop free.
+///
+/// SOUNDNESS: a read-only borrow that outlives its container, or is freed, is a
+/// dangling read / double-free into the container's data region. So `L` must be
+/// immutable (a reassign frees `L`'s old block while `e` still points into it) and
+/// `e` must be read-only and never freed. The freeable-flat-non-String element gate
+/// is applied at codegen (a String `get` returns an OWNED fresh block, which keeps
+/// its copy + free); the copy-skip and the free-skip are gated on this same set.
+/// Conservative in the safe direction — any doubt drops the name (uses the
+/// exhaustive `NirVisitor` seam so a new escape route is a compile error).
+pub(super) fn collect_borrow_get_locals(
+    ops: &[NirOp],
+    address_taken: &HashSet<String>,
+) -> HashSet<String> {
+    use nir::visit::{walk_op, walk_value, NirVisitor};
+    use std::collections::HashMap;
+    struct Collector {
+        get_container: HashMap<String, String>, // e  -> L   (get-bindings)
+        copy_src: HashMap<String, String>,      // m  -> src (Bind { value: Local(src) })
+        bind_counts: HashMap<String, usize>,
+        assigned: HashSet<String>,
+        total_reads: HashMap<String, usize>,
+        scrutinee_reads: HashMap<String, usize>,
+        // Reads of a local as the value of a `UnionExtract` — the MATCH's own
+        // read-only variant bindings (`n = UnionExtract($matchN)`), part of
+        // consuming the scrutinee, not an escape.
+        union_extract_reads: HashMap<String, usize>,
+    }
+    impl NirVisitor for Collector {
+        fn visit_op(&mut self, op: &NirOp) {
+            match op {
+                NirOp::Bind { name, value, .. } => {
+                    *self.bind_counts.entry(name.clone()).or_insert(0) += 1;
+                    match value {
+                        Some(NirValue::Call { target, args, .. })
+                            if matches!(
+                                crate::builtins::native_builtin_target(target),
+                                Some("get") | Some("getOr")
+                            ) =>
+                        {
+                            if let Some(NirValue::Local(container)) = args.first() {
+                                self.get_container.insert(name.clone(), container.clone());
+                            }
+                        }
+                        Some(NirValue::Local(src)) => {
+                            self.copy_src.insert(name.clone(), src.clone());
+                        }
+                        _ => {}
+                    }
+                }
+                NirOp::Assign { name, .. } => {
+                    self.assigned.insert(name.clone());
+                }
+                NirOp::StateAssign { resource, .. } => {
+                    self.assigned.insert(resource.clone());
+                }
+                NirOp::Match {
+                    value: NirValue::Local(scrut),
+                    ..
+                } => {
+                    *self.scrutinee_reads.entry(scrut.clone()).or_insert(0) += 1;
+                }
+                _ => {}
+            }
+            walk_op(self, op);
+        }
+        fn visit_value(&mut self, value: &NirValue) {
+            match value {
+                NirValue::Local(name) => {
+                    *self.total_reads.entry(name.clone()).or_insert(0) += 1;
+                }
+                NirValue::UnionExtract { value: inner, .. } => {
+                    if let NirValue::Local(name) = inner.as_ref() {
+                        *self.union_extract_reads.entry(name.clone()).or_insert(0) += 1;
+                    }
+                }
+                _ => {}
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut c = Collector {
+        get_container: HashMap::new(),
+        copy_src: HashMap::new(),
+        bind_counts: HashMap::new(),
+        assigned: HashSet::new(),
+        total_reads: HashMap::new(),
+        scrutinee_reads: HashMap::new(),
+        union_extract_reads: HashMap::new(),
+    };
+    c.visit_ops(ops);
+    let Collector {
+        get_container,
+        copy_src,
+        bind_counts,
+        assigned,
+        total_reads,
+        scrutinee_reads,
+        union_extract_reads,
+    } = c;
+    let reads = |n: &str| total_reads.get(n).copied().unwrap_or(0);
+    let scrut = |n: &str| scrutinee_reads.get(n).copied().unwrap_or(0);
+    let extract = |n: &str| union_extract_reads.get(n).copied().unwrap_or(0);
+    // `m` is a MATCH-scrutinee temp: used only by the MATCH — as its scrutinee (≥1)
+    // and as the value of the case `UnionExtract`s (its read-only variant bindings),
+    // nothing else. The IR desugars `MATCH e` into `$matchN = e; MATCH $matchN`, so
+    // the scrutinee is this temp, not `e`.
+    let is_match_temp =
+        |m: &str| scrut(m) >= 1 && reads(m) == scrut(m) + extract(m) && !address_taken.contains(m);
+    // Count the match-temp copy-binds `m = Local(src)` per source `src`.
+    let mut match_temp_binds_of: HashMap<&str, usize> = HashMap::new();
+    for (m, src) in &copy_src {
+        if is_match_temp(m) {
+            *match_temp_binds_of.entry(src.as_str()).or_insert(0) += 1;
+        }
+    }
+    // Container `L` is immutable through the scope (bound ≤1, never reassigned, not
+    // address-taken) — a reassign frees `L`'s old block while a borrow points into it.
+    let l_immutable = |l: &str| {
+        bind_counts.get(l).copied().unwrap_or(0) <= 1
+            && !assigned.contains(l)
+            && !address_taken.contains(l)
+    };
+    let mut result: HashSet<String> = HashSet::new();
+    // A get-binding `e = get(L, i)` is a read-only borrow when EVERY read of `e` is
+    // borrow-transparent — a direct MATCH scrutinee, or the value of a match-temp
+    // copy-bind `$matchN = e` — and `L` is immutable and `e` not address-taken.
+    for (e, l) in &get_container {
+        let transparent = scrut(e) + match_temp_binds_of.get(e.as_str()).copied().unwrap_or(0);
+        if reads(e) >= 1 && reads(e) == transparent && !address_taken.contains(e) && l_immutable(l)
+        {
+            result.insert(e.clone());
+        }
+    }
+    // A match-temp `$matchN = Local(e)` that copies a get-borrow `e` also borrows
+    // (aliases `e`), so the container element flows into `MATCH` with zero copies.
+    for (m, src) in &copy_src {
+        if is_match_temp(m) && result.contains(src) {
+            result.insert(m.clone());
+        }
+    }
+    result
+}
+
 /// Collect every local *read* (`Local`) in `value`, via the shared NIR value
 /// seam (bug-328).
 fn collect_value_local_reads(value: &NirValue, out: &mut HashSet<String>) {
@@ -489,6 +785,7 @@ pub(super) fn lower_function(
     platform_imports: &HashMap<String, String>,
     globals: &HashMap<String, GlobalValue>,
     string_symbols: &HashMap<String, String>,
+    callback_referenced_functions: &HashSet<String>,
     type_model: TypeModel,
 ) -> Result<CodeFunction, String> {
     let params = function
@@ -501,9 +798,13 @@ pub(super) fn lower_function(
             // its `location` records the tail slot instead (never emitted as a
             // register — the prologue below loads it via `incoming_stack_arg_load`).
             let location = if index < abi::REGISTER_ARGUMENT_COUNT {
+                // Typed convention token — a parameter's register location stays
+                // Operand::Abi so it is realized by each backend's typed handler
+                // (never a Raw convention string). plan-85-D Phase 3.
                 abi::argument_register(index)?
             } else {
-                format!("stack{}", index - abi::REGISTER_ARGUMENT_COUNT)
+                // Stack-tail sentinel (bug-08); a Raw marker the prologue interprets.
+                Operand::from(format!("stack{}", index - abi::REGISTER_ARGUMENT_COUNT))
             };
             Ok(CodeParam {
                 name: param.name.clone(),
@@ -537,6 +838,11 @@ pub(super) fn lower_function(
         float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
+        value_used_locals: HashSet::new(),
+        borrow_get_locals: HashSet::new(),
+        borrow_get_result: false,
+        current_returns_param_borrow: false,
+        callback_referenced_functions: HashSet::new(),
         regalloc_kind: regalloc::active_kind(),
         regalloc_error: None,
         next_label: 0,
@@ -550,6 +856,7 @@ pub(super) fn lower_function(
         raw_result_capture: None,
         trap_discard_error_results: HashSet::new(),
         raw_result_discard_error: false,
+        suppress_resource_source_flag: false,
         emitting_error_route: false,
         building_error_block: false,
         current_file: function.file.clone(),
@@ -575,6 +882,9 @@ pub(super) fn lower_function(
         promotable_vector_locals: HashSet::new(),
         integer_lower_bounds: HashMap::new(),
         integer_strict_upper: std::collections::HashSet::new(),
+        for_bound_expr: HashMap::new(),
+        len_of_local: HashMap::new(),
+        provable_index_locals: HashMap::new(),
     };
     for (index, param) in params.iter().enumerate() {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
@@ -641,6 +951,10 @@ pub(super) fn lower_function(
     builder.prescan_string_self_appends(&function.body);
     // Locals whose address is taken anywhere — never loop-promoted (plan-03 D2).
     collect_address_taken_locals(&function.body, &mut builder.address_taken_locals);
+    collect_value_used_locals(&function.body, &mut builder.value_used_locals);
+    // plan-86 E: read-only `get`-borrow bindings (needs address_taken above).
+    builder.borrow_get_locals =
+        collect_borrow_get_locals(&function.body, &builder.address_taken_locals);
     // Small-vector locals that can live in registers for their whole lifetime with
     // no arena block (plan-01-vector).
     builder.promotable_vector_locals =
@@ -648,6 +962,14 @@ pub(super) fn lower_function(
     // plan-64-I: inline-conversion `CallResult` Result-locals whose trapped error
     // is provably unused, so the error path builds only a tag (no ErrorLoc/Error).
     builder.trap_discard_error_results = trap_discard_error_results(&function.body);
+    // plan-86 K1: a pure parameter-passthrough function returns its argument uncopied;
+    // the caller copies at its ownership boundary. Only the user-function path sets
+    // this — builtin/thread-copy wrappers default false (never param-borrow, and no
+    // caller looks them up in `functions`), keeping callee-skip and caller-classify
+    // consistent.
+    builder.callback_referenced_functions = callback_referenced_functions.clone();
+    builder.current_returns_param_borrow =
+        function_returns_param_borrow(function, callback_referenced_functions);
     builder.lower_ops(&function.body)?;
     if !builder.current_block_returns() {
         builder.emit_return_exit(None)?;
@@ -795,6 +1117,11 @@ pub(super) fn lower_builtin_function_wrapper(
         float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
+        value_used_locals: HashSet::new(),
+        borrow_get_locals: HashSet::new(),
+        borrow_get_result: false,
+        current_returns_param_borrow: false,
+        callback_referenced_functions: HashSet::new(),
         regalloc_kind: regalloc::active_kind(),
         regalloc_error: None,
         next_label: 0,
@@ -808,6 +1135,7 @@ pub(super) fn lower_builtin_function_wrapper(
         raw_result_capture: None,
         trap_discard_error_results: HashSet::new(),
         raw_result_discard_error: false,
+        suppress_resource_source_flag: false,
         emitting_error_route: false,
         building_error_block: false,
         current_file: String::new(),
@@ -826,6 +1154,9 @@ pub(super) fn lower_builtin_function_wrapper(
         promotable_vector_locals: HashSet::new(),
         integer_lower_bounds: HashMap::new(),
         integer_strict_upper: std::collections::HashSet::new(),
+        for_bound_expr: HashMap::new(),
+        len_of_local: HashMap::new(),
+        provable_index_locals: HashMap::new(),
     };
 
     let stack_offset = builder.allocate_stack_object("value", 8);
@@ -934,6 +1265,11 @@ pub(super) fn lower_thread_copy_function(
         float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
+        value_used_locals: HashSet::new(),
+        borrow_get_locals: HashSet::new(),
+        borrow_get_result: false,
+        current_returns_param_borrow: false,
+        callback_referenced_functions: HashSet::new(),
         regalloc_kind: regalloc::active_kind(),
         regalloc_error: None,
         next_label: 0,
@@ -947,6 +1283,7 @@ pub(super) fn lower_thread_copy_function(
         raw_result_capture: None,
         trap_discard_error_results: HashSet::new(),
         raw_result_discard_error: false,
+        suppress_resource_source_flag: false,
         emitting_error_route: false,
         building_error_block: false,
         current_file: String::new(),
@@ -965,6 +1302,9 @@ pub(super) fn lower_thread_copy_function(
         promotable_vector_locals: HashSet::new(),
         integer_lower_bounds: HashMap::new(),
         integer_strict_upper: std::collections::HashSet::new(),
+        for_bound_expr: HashMap::new(),
+        len_of_local: HashMap::new(),
+        provable_index_locals: HashMap::new(),
     };
 
     // Capture the incoming source pointer in a vreg (spilled across the copy's
@@ -999,4 +1339,101 @@ pub(super) fn lower_thread_copy_function(
         relocations: builder.relocations,
         stack_slots,
     })
+}
+
+#[cfg(test)]
+mod m6_escape_tests {
+    use super::collect_value_used_locals;
+    use crate::target::shared::nir::{NirOp, NirSourceLoc, NirValue};
+    use std::collections::HashSet;
+
+    fn closure() -> NirValue {
+        NirValue::Closure {
+            name: "lambda_impl".to_string(),
+            type_: "FUNC(Integer) AS Integer".to_string(),
+            captures: vec![],
+        }
+    }
+    fn used(ops: &[NirOp]) -> HashSet<String> {
+        let mut out = HashSet::new();
+        collect_value_used_locals(ops, &mut out);
+        out
+    }
+
+    // plan-77 M6: the escape analysis. A closure binding invoked ONLY as a call
+    // target is not "value-used" (non-escaping, safe to free); any other reference
+    // — argument, return, store, assign, LocalRef — marks it value-used (escaping,
+    // NOT freed). A missed escape here would be a use-after-free, so pin it.
+    #[test]
+    fn invoke_only_closure_is_not_value_used() {
+        let ops = vec![
+            NirOp::Bind {
+                mutable: false,
+                name: "f".to_string(),
+                type_: "FUNC(Integer) AS Integer".to_string(),
+                value: Some(closure()),
+            },
+            // `f(x)` lowers to Call { target: "f" } — the target is a String, not a
+            // NirValue, so "f" is not visited as a value.
+            NirOp::Eval {
+                value: NirValue::Call {
+                    target: "f".to_string(),
+                    args: vec![NirValue::Const {
+                        type_: "Integer".to_string(),
+                        value: "5".to_string(),
+                    }],
+                    loc: NirSourceLoc::default(),
+                },
+            },
+        ];
+        assert!(!used(&ops).contains("f"));
+    }
+
+    #[test]
+    fn returned_closure_is_value_used() {
+        let ops = vec![NirOp::Return {
+            value: Some(NirValue::Local("g".to_string())),
+        }];
+        assert!(used(&ops).contains("g"));
+    }
+
+    #[test]
+    fn passed_as_argument_closure_is_value_used() {
+        let ops = vec![NirOp::Eval {
+            value: NirValue::Call {
+                target: "collections.forEach".to_string(),
+                args: vec![
+                    NirValue::Local("list".to_string()),
+                    NirValue::Local("h".to_string()),
+                ],
+                loc: NirSourceLoc::default(),
+            },
+        }];
+        let u = used(&ops);
+        assert!(u.contains("h"));
+        assert!(u.contains("list"));
+    }
+
+    #[test]
+    fn address_taken_and_aliased_closures_are_value_used() {
+        let ops = vec![
+            // `LET k = f` aliases f — f escapes to k.
+            NirOp::Bind {
+                mutable: false,
+                name: "k".to_string(),
+                type_: "FUNC(Integer) AS Integer".to_string(),
+                value: Some(NirValue::Local("f".to_string())),
+            },
+            // A LocalRef of `m` (address taken) is also an escape.
+            NirOp::Eval {
+                value: NirValue::LocalRef {
+                    name: "m".to_string(),
+                    type_: "FUNC(Integer) AS Integer".to_string(),
+                },
+            },
+        ];
+        let u = used(&ops);
+        assert!(u.contains("f"));
+        assert!(u.contains("m"));
+    }
 }

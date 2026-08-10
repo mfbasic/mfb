@@ -97,6 +97,139 @@ impl CodeBuilder<'_> {
     /// the live count). The `append(name, name)` self-alias — where the grow would
     /// free the RHS out from under the copy — is excluded and takes the value
     /// path. Returns `true` when handled.
+    /// plan-86 C2: recognize `name = collections::add(name, item)` on a
+    /// uniquely-owned `MUT` `Set` local and insert `item` into the live buffer in
+    /// place, skipping `lower_set_add`'s `copy_collection_tight`. That whole-set
+    /// copy (and the bucket-index rebuild it forces on the next probe) is what
+    /// makes the interpreted set-algebra bodies
+    /// (`union`/`toSet`/`intersection`/`difference`/`symmetricDifference`, each a
+    /// `FOR EACH … result = add(result, x)` loop) O(n²); in place, each add is
+    /// amortized O(1) and the whole op is O(n). The set-add sibling of
+    /// [`Self::try_inplace_append_assign`]; soundness is identical (value semantics
+    /// give the named local no live alias — every bind/assign copies — and the
+    /// `add` is idempotent/order-stable). A live `FOR EACH` over `name` is excluded
+    /// (the grow path would free the iterated buffer, bug-142).
+    pub(super) fn try_inplace_set_add_assign(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+        stack_offset: usize,
+        by_ref: bool,
+    ) -> Result<bool, String> {
+        if by_ref {
+            return Ok(false);
+        }
+        let NirValue::Call { target, args, .. } = value else {
+            return Ok(false);
+        };
+        if crate::builtins::native_builtin_target(target) != Some("add") || args.len() != 2 {
+            return Ok(false);
+        }
+        let NirValue::Local(arg0) = &args[0] else {
+            return Ok(false);
+        };
+        if arg0 != name {
+            return Ok(false);
+        }
+        if self.for_each_iterable_locals.iter().any(|n| n == name) {
+            return Ok(false);
+        }
+        let Some(local) = self.locals.get(name) else {
+            return Ok(false);
+        };
+        let set_type = local.type_.clone();
+        let Some(element_type) = super::set_element_type(&set_type) else {
+            return Ok(false);
+        };
+        if super::CollectionTypeLayout::from_type(&set_type).is_none() {
+            return Ok(false);
+        }
+        match self.static_type_name(&args[1]) {
+            Some(item_type) if item_type == element_type => {}
+            _ => return Ok(false),
+        }
+        let item = self.lower_value(&args[1])?;
+        // Observation boundary: an in-place added `Float` must be finite (plan-17).
+        self.observe_float(&args[1], &item)?;
+        let item = self.materialize_value(item)?;
+        let item_slot = self.allocate_stack_object("inplace_set_add_item", 8);
+        self.store_value_at(&item, abi::stack_pointer(), item_slot);
+        // The per-element value is a 1-byte `Boolean` TRUE (a Set is a Map to true).
+        let true_slot = self.allocate_stack_object("inplace_set_add_true", 8);
+        let true_reg = self.allocate_register()?;
+        self.emit(abi::move_immediate(&true_reg, "Boolean", "true"));
+        self.emit(abi::store_u64(&true_reg, abi::stack_pointer(), true_slot));
+        self.lower_map_set_in_place(
+            stack_offset,
+            item_slot,
+            true_slot,
+            &set_type,
+            &element_type,
+            "Boolean",
+        )?;
+        if let Some(local) = self.locals.get_mut(name) {
+            local.constant = None;
+        }
+        Ok(true)
+    }
+
+    /// plan-86 D1: recognize `name = collections::removeKey(name, k)` on a
+    /// uniquely-owned MUT map local and delete the entry IN PLACE via
+    /// `lower_map_remove_key_in_place` (entry-table compaction, no alloc/copy),
+    /// instead of the out-of-place fresh-map rebuild. Value semantics keep the
+    /// named local's buffer un-aliased (copy-on-bind); the `by_ref` and
+    /// live-FOR-EACH guards match the set-add path (a compaction shift is observable
+    /// to a live iterator, bug-142). Also covers `Set` remove (same lowering).
+    pub(super) fn try_inplace_remove_key_assign(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+        stack_offset: usize,
+        by_ref: bool,
+    ) -> Result<bool, String> {
+        if by_ref {
+            return Ok(false);
+        }
+        let NirValue::Call { target, args, .. } = value else {
+            return Ok(false);
+        };
+        if crate::builtins::native_builtin_target(target) != Some("removeKey") || args.len() != 2 {
+            return Ok(false);
+        }
+        let NirValue::Local(arg0) = &args[0] else {
+            return Ok(false);
+        };
+        if arg0 != name {
+            return Ok(false);
+        }
+        if self.for_each_iterable_locals.iter().any(|n| n == name) {
+            return Ok(false);
+        }
+        let Some(local) = self.locals.get(name) else {
+            return Ok(false);
+        };
+        let map_type = local.type_.clone();
+        let Some((key_type, _value_type)) = super::map_type_parts(&map_type) else {
+            return Ok(false);
+        };
+        if super::CollectionTypeLayout::from_type(&map_type).is_none() {
+            return Ok(false);
+        }
+        match self.static_type_name(&args[1]) {
+            Some(kt) if kt == key_type => {}
+            _ => return Ok(false),
+        }
+        let key = self.lower_value(&args[1])?;
+        let key = self.materialize_value(key)?;
+        let key_slot = self.allocate_stack_object("inplace_remove_key", 8);
+        self.store_value_at(&key, abi::stack_pointer(), key_slot);
+        self.lower_map_remove_key_in_place(stack_offset, key_slot, &map_type, &key_type)?;
+        if let Some(local) = self.locals.get_mut(name) {
+            local.constant = None;
+        }
+        Ok(true)
+    }
+
     pub(super) fn try_inplace_bulk_append_assign(
         &mut self,
         name: &str,
@@ -523,25 +656,26 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&cap_keep));
         self.emit(abi::store_u64(&newcap, abi::stack_pointer(), newcap_slot));
         // alloc size = 8 (len word) + newcap_payload + 1 (NUL).
-        self.emit(abi::add_immediate(abi::return_register(), &newcap, 9));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
+        self.emit(abi::add_immediate(abi::c_arg(0), &newcap, 9));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             newbuf_slot,
         ));
         // newbuf[0] = newlen.
         self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
-        self.emit(abi::store_u64(&newlen, abi::RET[1], 0));
+        self.emit(abi::store_u64(&newlen, abi::mfb_return(1), 0));
         // Copy the current bytes (len) to newbuf+8.
         self.emit(abi::load_u64(&ptr, abi::stack_pointer(), name_slot));
         self.emit(abi::load_u64(&len, &ptr, 0)); // len
         self.emit(abi::add_immediate(&ptr, &ptr, 8)); // old data
-        self.emit(abi::add_immediate(&dst, abi::RET[1], 8)); // new data
+        self.emit(abi::add_immediate(&dst, abi::mfb_return(1), 8)); // new data
         self.emit_copy_bytes(&dst, &ptr, &len, "concat_self_old");
         // Copy the operand bytes (rlen) to newbuf+8+len. dst now points at +8+len.
         self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
@@ -556,24 +690,29 @@ impl CodeBuilder<'_> {
         // below) and its size is in oldsize_slot; the new buffer is already
         // spilled in newbuf_slot, so it survives this call. arena_free clobbers
         // all caller-saved registers. This free runs exactly once per regrow.
+        // plan-71-C Family-1a: ptr is arg 0 of arena-free → `%arg0`.
         self.emit(abi::load_u64(
-            abi::return_register(),
+            abi::c_arg(0),
             abi::stack_pointer(),
             name_slot,
         ));
         self.emit(abi::load_u64(
-            abi::ARG[1],
+            abi::c_arg(1),
             abi::stack_pointer(),
             oldsize_slot,
         ));
         self.emit_arena_free_call();
         // Install new buffer; spare = newcap_payload - newlen.
         self.emit(abi::load_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             newbuf_slot,
         ));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), name_slot));
+        self.emit(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            name_slot,
+        ));
         self.emit(abi::load_u64(&newcap, abi::stack_pointer(), newcap_slot));
         self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
         self.emit(abi::subtract_registers(&newcap, &newcap, &newlen));

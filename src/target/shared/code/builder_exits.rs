@@ -198,11 +198,36 @@ impl CodeBuilder<'_> {
         if self.value_needs_owning_copy(value) {
             let lowered = self.lower_value(value)?;
             if self.is_freeable_flat_value(&lowered.type_) {
+                // plan-86 K1: a pure parameter-passthrough function (`RETURN <param>`,
+                // `current_returns_param_borrow`) returns the argument pointer uncopied.
+                // The caller classifies our result as an aliasing source via the SAME
+                // predicate (`call_returns_param_borrow`) and deep-copies it only at an
+                // owning store, so copying here would be a redundant second copy. The
+                // skip fires ONLY when the returned local owns no block (no `OwnedValue`
+                // cleanup) — i.e. it is genuinely a borrow of the caller's argument, not
+                // an owned local whose block scope-drop would free out from under the
+                // returned pointer. That guard is both the soundness condition and a
+                // fail-safe: any predicate false-positive falls through to the copy (at
+                // worst a missed elision, never a use-after-free).
+                if self.current_returns_param_borrow {
+                    if let NirValue::Local(name) = value {
+                        let owns_block = self.locals.get(name).is_some_and(|local| {
+                            let stack_offset = local.stack_offset;
+                            self.active_cleanups.iter().any(|cleanup| {
+                                matches!(cleanup, ActiveCleanup::OwnedValue(c)
+                                    if c.stack_offset == stack_offset)
+                            })
+                        });
+                        if !owns_block {
+                            return Ok((lowered, true));
+                        }
+                    }
+                }
                 let copied = self.copy_flat_block(&lowered.type_, &lowered.location)?;
                 return Ok((
                     ValueResult {
                         type_: lowered.type_,
-                        location: copied,
+                        location: Operand::from(copied.render()),
                         text: lowered.text,
                     },
                     true,
@@ -306,7 +331,13 @@ impl CodeBuilder<'_> {
                     let location = if !already_standalone
                         && self.inline_collection_payload_size(&result.type_).is_some()
                     {
-                        self.materialize_inline_value_in_arena(&result.type_, &result.location)?
+                        Operand::from(
+                            self.materialize_inline_value_in_arena(
+                                &result.type_,
+                                &result.location,
+                            )?
+                            .render(),
+                        )
                     } else {
                         result.location.clone()
                     };

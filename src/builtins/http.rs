@@ -14,6 +14,14 @@ use super::descriptor::{
 
 const READ: &str = "http.read";
 const WRITE: &str = "http.write";
+// plan-76-D: the non-blocking client. Five functions drive an HTTP exchange
+// without blocking the calling thread, over a `Stream` resource union carrying a
+// plan-74 `PendingState`. `read`/`write` are re-implemented over them (Phase 4).
+const START_READ: &str = "http.startRead";
+const READY: &str = "http.ready";
+const PUMP: &str = "http.pump";
+const DONE: &str = "http.done";
+const FINISH: &str = "http.finish";
 // Server surface (plan-05 §F.5): lifecycle, routing, response constructors,
 // static-file helpers. The transport is the existing native `net`/`tls`
 // packages; every function below is source logic in `http_package.mfb`.
@@ -32,6 +40,11 @@ const RESPOND_PATH: &str = "http.respondPath";
 
 const INTERNAL_READ: &str = "__http_read";
 const INTERNAL_WRITE: &str = "__http_write";
+const INTERNAL_START_READ: &str = "__http_startRead";
+const INTERNAL_READY: &str = "__http_ready";
+const INTERNAL_PUMP: &str = "__http_pump";
+const INTERNAL_DONE: &str = "__http_done";
+const INTERNAL_FINISH: &str = "__http_finish";
 const INTERNAL_SERVER: &str = "__http_server";
 const INTERNAL_SERVER_SSL: &str = "__http_serverSSL";
 // `handleRequest` is overloaded by listener type (§F.5.1): the two transport
@@ -54,6 +67,15 @@ const INTERNAL_RESPOND_PATH: &str = "__http_respondPath";
 // accessors; there is no dedicated header function. The client parser and the
 // server response constructors build the same `Response` (§F.2.3).
 pub(crate) const RESPONSE_TYPE: &str = "Response";
+// plan-76-D: the non-blocking client's resource union + its plan-74 STATE record.
+// `STREAM_STATE` is the full stateful-resource type string (`{type} STATE {state}`,
+// bare ids) — the return of `startRead` and the parameter of `ready`/`pump`/`done`/
+// `finish`. `Stream` is a RESOURCE union over `net::Socket`/`net::TlsSocket`
+// (declared in `http_package.mfb`); plan-80 relocated the STATE slot so it works
+// over the TlsSocket variant.
+const STREAM_TYPE: &str = "Stream";
+const PENDING_STATE_TYPE: &str = "PendingState";
+const STREAM_STATE: &str = "Stream STATE PendingState";
 // The server value records (§F.2). All flat, copyable, no resource fields.
 pub(crate) const REQUEST_TYPE: &str = "Request";
 pub(crate) const REQUEST_PART_TYPE: &str = "RequestPart";
@@ -134,7 +156,11 @@ const fn fill(name: &'static str, ty: &'static str, expr: &'static str) -> Param
     }
 }
 
-const fn req_alias(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
+const fn req_alias(
+    name: &'static str,
+    aliases: &'static [&'static str],
+    ty: &'static str,
+) -> Parameter {
     Parameter {
         name,
         aliases,
@@ -148,6 +174,20 @@ const P_READ: &[Parameter] = &[
     fill("headers", HEADER_MAP, "{}"),
     fill("method", "String", "GET"),
 ];
+// startRead mirrors read's arg contract (url, headers = {}, method = "GET").
+const P_START_READ: &[Parameter] = &[
+    req("url", URL_TYPE),
+    fill("headers", HEADER_MAP, "{}"),
+    fill("method", "String", "GET"),
+];
+// ready/pump/done/finish each take the bound stream by reference (the caller
+// still owns it and drops it). The parameter type for CALL-SITE matching is the
+// BASE union `Stream` — a resource value presents its base type for arg checks;
+// the `STATE PendingState` suffix is carried on the internal `.mfb` parameter and
+// resolved by plan-74's verifier/codegen (the builtin `resolve_call` path does
+// exact string matching and does not subsume the STATE suffix). `RES`-ness is
+// inferred from `Stream` being a resource union.
+const P_STREAM: &[Parameter] = &[req("stream", STREAM_TYPE)];
 const P_WRITE: &[Parameter] = &[
     req("url", URL_TYPE),
     req("body", "String"),
@@ -166,8 +206,10 @@ const P_SERVER_SSL: &[Parameter] = &[
     fill("host", "String", "0.0.0.0"),
     fill("backlog", "Integer", "128"),
 ];
-const P_HANDLE_REQUEST: &[Parameter] =
-    &[req_alias("listener", &["server"], LISTENER_TYPE), req("routes", ROUTE_LIST)];
+const P_HANDLE_REQUEST: &[Parameter] = &[
+    req_alias("listener", &["server"], LISTENER_TYPE),
+    req("routes", ROUTE_LIST),
+];
 const P_ROUTE: &[Parameter] = &[req("pattern", "String"), req("handler", HANDLER_TYPE)];
 const P_BODY: &[Parameter] = &[req("body", "String")];
 const P_STATUS: &[Parameter] = &[req("code", "Integer"), req("body", "String")];
@@ -178,13 +220,61 @@ const P_WITH_HEADER: &[Parameter] = &[
 ];
 const P_TEXT: &[Parameter] = &[req("text", "String")];
 const P_RESPOND_FILE: &[Parameter] = &[req("file", FILE_TYPE), fill("contentType", "String", "")];
-const P_RESPOND_PATH: &[Parameter] =
-    &[req_alias("req", &["request"], REQUEST_TYPE), req("root", "String")];
+const P_RESPOND_PATH: &[Parameter] = &[
+    req_alias("req", &["request"], REQUEST_TYPE),
+    req("root", "String"),
+];
 
 const HTTP_FUNCTIONS: &[BuiltinFunction] = &[
-    hfn(READ, "read", &[ov(P_READ, RESPONSE_TYPE)], Implementation::Rewrite(INTERNAL_READ)),
-    hfn(WRITE, "write", &[ov(P_WRITE, RESPONSE_TYPE)], Implementation::Rewrite(INTERNAL_WRITE)),
-    hfn(SERVER, "server", &[ov(P_SERVER, LISTENER_TYPE)], Implementation::Rewrite(INTERNAL_SERVER)),
+    hfn(
+        READ,
+        "read",
+        &[ov(P_READ, RESPONSE_TYPE)],
+        Implementation::Rewrite(INTERNAL_READ),
+    ),
+    hfn(
+        WRITE,
+        "write",
+        &[ov(P_WRITE, RESPONSE_TYPE)],
+        Implementation::Rewrite(INTERNAL_WRITE),
+    ),
+    // plan-76-D: the five non-blocking client entry points.
+    hfn(
+        START_READ,
+        "startRead",
+        &[ov(P_START_READ, STREAM_STATE)],
+        Implementation::Rewrite(INTERNAL_START_READ),
+    ),
+    hfn(
+        READY,
+        "ready",
+        &[ov(P_STREAM, "Boolean")],
+        Implementation::Rewrite(INTERNAL_READY),
+    ),
+    hfn(
+        PUMP,
+        "pump",
+        &[ov(P_STREAM, "Nothing")],
+        Implementation::Rewrite(INTERNAL_PUMP),
+    ),
+    hfn(
+        DONE,
+        "done",
+        &[ov(P_STREAM, "Boolean")],
+        Implementation::Rewrite(INTERNAL_DONE),
+    ),
+    hfn(
+        FINISH,
+        "finish",
+        &[ov(P_STREAM, RESPONSE_TYPE)],
+        Implementation::Rewrite(INTERNAL_FINISH),
+    ),
+    hfn(
+        SERVER,
+        "server",
+        &[ov(P_SERVER, LISTENER_TYPE)],
+        Implementation::Rewrite(INTERNAL_SERVER),
+    ),
     hfn(
         SERVER_SSL,
         "serverSSL",
@@ -192,24 +282,54 @@ const HTTP_FUNCTIONS: &[BuiltinFunction] = &[
         Implementation::Rewrite(INTERNAL_SERVER_SSL),
     ),
     // Overloaded by listener type: the resolver picks the internal target.
-    hfn(HANDLE_REQUEST, "handleRequest", &[ov(P_HANDLE_REQUEST, "Nothing")], Implementation::Custom),
-    hfn(ROUTE, "route", &[ov(P_ROUTE, ROUTE_TYPE)], Implementation::Rewrite(INTERNAL_ROUTE)),
+    hfn(
+        HANDLE_REQUEST,
+        "handleRequest",
+        &[ov(P_HANDLE_REQUEST, "Nothing")],
+        Implementation::Custom,
+    ),
+    hfn(
+        ROUTE,
+        "route",
+        &[ov(P_ROUTE, ROUTE_TYPE)],
+        Implementation::Rewrite(INTERNAL_ROUTE),
+    ),
     hfn(
         RESPONSE_DEFAULT,
         "responseDefault",
         &[ov(&[], RESPONSE_TYPE)],
         Implementation::Rewrite(INTERNAL_RESPONSE_DEFAULT),
     ),
-    hfn(OK, "ok", &[ov(P_BODY, RESPONSE_TYPE)], Implementation::Rewrite(INTERNAL_OK)),
-    hfn(STATUS, "status", &[ov(P_STATUS, RESPONSE_TYPE)], Implementation::Rewrite(INTERNAL_STATUS)),
-    hfn(JSON, "json", &[ov(P_BODY, RESPONSE_TYPE)], Implementation::Rewrite(INTERNAL_JSON)),
+    hfn(
+        OK,
+        "ok",
+        &[ov(P_BODY, RESPONSE_TYPE)],
+        Implementation::Rewrite(INTERNAL_OK),
+    ),
+    hfn(
+        STATUS,
+        "status",
+        &[ov(P_STATUS, RESPONSE_TYPE)],
+        Implementation::Rewrite(INTERNAL_STATUS),
+    ),
+    hfn(
+        JSON,
+        "json",
+        &[ov(P_BODY, RESPONSE_TYPE)],
+        Implementation::Rewrite(INTERNAL_JSON),
+    ),
     hfn(
         WITH_HEADER,
         "withHeader",
         &[ov(P_WITH_HEADER, RESPONSE_TYPE)],
         Implementation::Rewrite(INTERNAL_WITH_HEADER),
     ),
-    hfn(BYTES, "bytes", &[ov(P_TEXT, BYTE_LIST)], Implementation::Rewrite(INTERNAL_BYTES)),
+    hfn(
+        BYTES,
+        "bytes",
+        &[ov(P_TEXT, BYTE_LIST)],
+        Implementation::Rewrite(INTERNAL_BYTES),
+    ),
     hfn(
         RESPOND_FILE,
         "respondFile",
@@ -225,10 +345,39 @@ const HTTP_FUNCTIONS: &[BuiltinFunction] = &[
 ];
 
 const HTTP_TYPES: &[BuiltinType] = &[
-    BuiltinType { name: RESPONSE_TYPE, kind: TypeKind::Record, fields: &[] },
-    BuiltinType { name: REQUEST_TYPE, kind: TypeKind::Record, fields: &[] },
-    BuiltinType { name: REQUEST_PART_TYPE, kind: TypeKind::Record, fields: &[] },
-    BuiltinType { name: ROUTE_TYPE, kind: TypeKind::Record, fields: &[] },
+    BuiltinType {
+        name: RESPONSE_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: REQUEST_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: REQUEST_PART_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: ROUTE_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    // plan-76-D: the non-blocking client's types (variants/fields live in the
+    // `.mfb`). `Stream` is a resource union (registered Opaque, like `json::Json`);
+    // `PendingState` is its plan-74 STATE record.
+    BuiltinType {
+        name: STREAM_TYPE,
+        kind: TypeKind::Opaque,
+        fields: &[],
+    },
+    BuiltinType {
+        name: PENDING_STATE_TYPE,
+        kind: TypeKind::Record,
+        fields: &[],
+    },
 ];
 
 /// The internal `__http_handleRequest{,SSL}` target: `handleRequest` is overloaded
@@ -294,6 +443,8 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     match name {
         READ => Some(&[&["url"], &["headers"], &["method"]]),
         WRITE => Some(&[&["url"], &["body"], &["headers"], &["method"]]),
+        START_READ => Some(&[&["url"], &["headers"], &["method"]]),
+        READY | PUMP | DONE | FINISH => Some(&[&["stream"]]),
         SERVER => Some(&[&["port"], &["host"], &["backlog"]]),
         SERVER_SSL => Some(&[
             &["port"],
@@ -315,6 +466,20 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     }
 }
 
+/// Whether `arg_types` is the single bound-stream argument that
+/// `ready`/`pump`/`done`/`finish` take. The parameter is the base union `Stream`,
+/// but a real argument is a `Stream` value carrying its `PendingState`
+/// (`Stream STATE PendingState`) — the only STATE a `Stream` ever has. Matching
+/// on the base name (STATE stripped) rather than an exact `Stream` string is what
+/// lets these resolve at a call site where the stream is spelled with its STATE
+/// (e.g. a `FOR EACH` element of a `List OF RES Stream STATE PendingState`, or a
+/// TRAP-desugared `$trap_res`); an exact-`Stream` match resolved those to
+/// `Unknown`, which then had no native storage class (bug-429).
+fn stream_arg(arg_types: &[String]) -> bool {
+    arg_types.len() == 1
+        && crate::builtins::resource::base_resource_name(&arg_types[0]) == STREAM_TYPE
+}
+
 /// The argument-validating return-type resolution, invoked through the descriptor
 /// resolver by `resolve_call`. `handleRequest` accepts either listener type; the
 /// server/client overloads validate their per-position argument types.
@@ -333,6 +498,21 @@ fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedC
         {
             Cow::Borrowed(RESPONSE_TYPE)
         }
+        // plan-76-D non-blocking client. startRead mirrors read's arg forms and
+        // returns the stateful `Stream` union; ready/done -> Boolean, pump ->
+        // Nothing, finish -> Response. Each of the latter four takes the bound
+        // stream (`Stream STATE PendingState`).
+        START_READ
+            if exact(arg_types, &[URL_TYPE])
+                || exact(arg_types, &[URL_TYPE, HEADER_MAP])
+                || exact(arg_types, &[URL_TYPE, HEADER_MAP, "String"]) =>
+        {
+            Cow::Borrowed(STREAM_STATE)
+        }
+        READY if stream_arg(arg_types) => Cow::Borrowed("Boolean"),
+        PUMP if stream_arg(arg_types) => Cow::Borrowed("Nothing"),
+        DONE if stream_arg(arg_types) => Cow::Borrowed("Boolean"),
+        FINISH if stream_arg(arg_types) => Cow::Borrowed(RESPONSE_TYPE),
         // server(port, host = "0.0.0.0", backlog = 128) -> net::Listener
         SERVER
             if exact(arg_types, &["Integer"])
@@ -382,6 +562,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         READ => Some("Url, Map OF String TO String, String"),
         WRITE => Some("Url, String, Map OF String TO String, String"),
+        START_READ => Some("Url, Map OF String TO String, String"),
+        READY | PUMP | DONE | FINISH => Some("Stream STATE PendingState"),
         // Bracketed/`or` forms are informational only — they are skipped for
         // literal coercion (the lowerer treats them as non-concrete).
         SERVER => Some("Integer[, String[, Integer]]"),
@@ -416,6 +598,7 @@ pub(crate) fn default_argument_padding(
     const RESPOND_FILE_DEFAULTS: &[(&str, &str)] = &[("String", "")];
     match name {
         READ => &READ_DEFAULTS[provided.saturating_sub(1).min(READ_DEFAULTS.len())..],
+        START_READ => &READ_DEFAULTS[provided.saturating_sub(1).min(READ_DEFAULTS.len())..],
         WRITE => &WRITE_DEFAULTS[provided.saturating_sub(2).min(WRITE_DEFAULTS.len())..],
         SERVER => &SERVER_DEFAULTS[provided.saturating_sub(1).min(SERVER_DEFAULTS.len())..],
         SERVER_SSL => {
@@ -641,7 +824,10 @@ mod tests {
         assert_eq!(f.ty, ParameterType::Named(HEADER_MAP));
         assert_eq!(
             f.default,
-            DefaultValue::Fill { type_name: HEADER_MAP, expr: "{}" }
+            DefaultValue::Fill {
+                type_name: HEADER_MAP,
+                expr: "{}"
+            }
         );
         assert!(f.aliases.is_empty());
 

@@ -1,0 +1,47 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 A3: native `collections::flatten`. Each inner list is stored inline as
+' a self-contained sub-block in the outer's data region, so the native lowering
+' bulk-appends directly from a pointer to it (no per-inner materialize/copy). This
+' fixture pins that the native path is order-identical to the interpreted `.mfb`
+' concat across empty/leading/trailing/interior-empty inners, for String
+' (variable-width) and Integer (fixed-width) elements, and does not leak/UAF.
+
+FUNC shows(s AS List OF String) AS String
+  MUT out AS String = ""
+  FOR i = 0 TO len(s) - 1
+    out = out & collections::get(s, i) & "|"
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC showi(s AS List OF Integer) AS String
+  MUT out AS String = ""
+  FOR i = 0 TO len(s) - 1
+    out = out & toString(collections::get(s, i)) & "|"
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main AS Integer
+  ' String: interior empty inner skipped; varied lengths preserved in order.
+  io::print("s1: " & shows(collections::flatten([["a", "bb"], ["ccc"], [], ["d", "e", "f"]])))
+  ' Leading empties, then a singleton.
+  io::print("s2: " & shows(collections::flatten([[], [], ["x"]])))
+  ' Empty outer and all-empty inners flatten to an empty list.
+  LET es AS List OF List OF String = []
+  io::print("empty outer=" & toString(len(collections::flatten(es))))
+  LET allEmpty AS List OF List OF String = [[], [], []]
+  io::print("all empty=" & toString(len(collections::flatten(allEmpty))))
+  ' Integer (fixed-width inner elements).
+  io::print("i1: " & showi(collections::flatten([[1, 2], [3], [], [4, 5, 6]])))
+  ' Repeated flattens: a UAF/leak would corrupt output or crash.
+  MUT acc AS Integer = 0
+  FOR r = 0 TO 999
+    LET f AS List OF String = collections::flatten([["p", "q"], [], ["r"]])
+    acc = acc + len(f)
+  NEXT
+  io::print("stress acc=" & toString(acc))
+  RETURN 0
+END FUNC

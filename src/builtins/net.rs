@@ -116,24 +116,49 @@ const P_CT_HPT: &[Parameter] = &[
     req("timeoutMs", &[], "Integer"),
 ];
 const P_CT_A: &[Parameter] = &[req("address", &[], ADDRESS_TYPE)];
-const P_CT_AT: &[Parameter] = &[req("address", &[], ADDRESS_TYPE), req("timeoutMs", &[], "Integer")];
+const P_CT_AT: &[Parameter] = &[
+    req("address", &[], ADDRESS_TYPE),
+    req("timeoutMs", &[], "Integer"),
+];
 const P_LISTEN: &[Parameter] = &[
     req("host", &[], "String"),
     req("port", &[], "Integer"),
     opt("backlog", "Integer"),
 ];
-const P_ACCEPT: &[Parameter] = &[req("listener", &[], LISTENER_TYPE), opt("timeoutMs", "Integer")];
+const P_ACCEPT: &[Parameter] = &[
+    req("listener", &[], LISTENER_TYPE),
+    opt("timeoutMs", "Integer"),
+];
 const P_POLL: &[Parameter] = &[req("sock", &[], SOCKET_TYPE), opt("timeoutMs", "Integer")];
-const P_READ: &[Parameter] = &[req("sock", &[], SOCKET_TYPE), req("maxBytes", &[], "Integer")];
-const P_WRITE: &[Parameter] = &[req("sock", &[], SOCKET_TYPE), req("bytes", &[], "List OF Byte")];
+// plan-76-A: the readiness-multiplex overload. `socks` is a `List OF RES Socket`
+// (the `RES` marker is mandatory for a resource element, §15.6); the returned
+// `Socket` is a BORROWED pointer to the first ready element — the list keeps
+// ownership and closes each socket exactly once on scope exit.
+const P_POLL_LIST: &[Parameter] = &[
+    req("socks", &[], "List OF RES Socket"),
+    opt("timeoutMs", "Integer"),
+];
+const P_READ: &[Parameter] = &[
+    req("sock", &[], SOCKET_TYPE),
+    req("maxBytes", &[], "Integer"),
+];
+const P_WRITE: &[Parameter] = &[
+    req("sock", &[], SOCKET_TYPE),
+    req("bytes", &[], "List OF Byte"),
+];
 const P_WRITE_TEXT: &[Parameter] = &[req("sock", &[], SOCKET_TYPE), req("value", &[], "String")];
 const P_CLOSE: &[Parameter] = &[req("resource", &["sock", "listener"], SOCKET_TYPE)];
 const P_LOCAL_ADDR: &[Parameter] = &[req("sock", &["listener"], SOCKET_TYPE)];
 const P_REMOTE_ADDR: &[Parameter] = &[req("sock", &[], SOCKET_TYPE)];
-const P_TIMEOUT_SET: &[Parameter] =
-    &[req("sock", &[], SOCKET_TYPE), req("timeoutMs", &[], "Integer")];
+const P_TIMEOUT_SET: &[Parameter] = &[
+    req("sock", &[], SOCKET_TYPE),
+    req("timeoutMs", &[], "Integer"),
+];
 const P_BIND_UDP: &[Parameter] = &[req("host", &[], "String"), req("port", &[], "Integer")];
-const P_RECV: &[Parameter] = &[req("sock", &[], UDP_SOCKET_TYPE), req("maxBytes", &[], "Integer")];
+const P_RECV: &[Parameter] = &[
+    req("sock", &[], UDP_SOCKET_TYPE),
+    req("maxBytes", &[], "Integer"),
+];
 const P_SEND: &[Parameter] = &[
     req("sock", &[], UDP_SOCKET_TYPE),
     req("address", &[], ADDRESS_TYPE),
@@ -159,26 +184,125 @@ const OV_CONNECT: &[BuiltinOverload] = &[
 ];
 
 const NET_FUNCTIONS: &[BuiltinFunction] = &[
-    nf(LOOKUP, "lookup", &[ov(P_LOOKUP, "List OF Address")], Implementation::Same),
+    nf(
+        LOOKUP,
+        "lookup",
+        &[ov(P_LOOKUP, "List OF Address")],
+        Implementation::Same,
+    ),
     nf(CONNECT_TCP, "connectTcp", OV_CONNECT, Implementation::Same),
-    nf(LISTEN_TCP, "listenTcp", &[ov(P_LISTEN, LISTENER_TYPE)], Implementation::Same),
-    nf(ACCEPT, "accept", &[ov(P_ACCEPT, SOCKET_TYPE)], Implementation::Same),
-    nf(POLL, "poll", &[ov(P_POLL, "Boolean")], Implementation::Same),
-    nf(READ, "read", &[ov(P_READ, "List OF Byte")], Implementation::Same),
-    nf(READ_TEXT, "readText", &[ov(P_READ, "String")], Implementation::Same),
-    nf(WRITE, "write", &[ov(P_WRITE, "Nothing")], Implementation::Same),
-    nf(WRITE_TEXT, "writeText", &[ov(P_WRITE_TEXT, "Nothing")], Implementation::Same),
-    nf(CLOSE, "close", &[ov(P_CLOSE, "Nothing")], Implementation::Same),
-    nf(LOCAL_ADDRESS, "localAddress", &[ov(P_LOCAL_ADDR, ADDRESS_TYPE)], Implementation::Same),
-    nf(REMOTE_ADDRESS, "remoteAddress", &[ov(P_REMOTE_ADDR, ADDRESS_TYPE)], Implementation::Same),
-    nf(SET_READ_TIMEOUT, "setReadTimeout", &[ov(P_TIMEOUT_SET, "Nothing")], Implementation::Same),
-    nf(SET_WRITE_TIMEOUT, "setWriteTimeout", &[ov(P_TIMEOUT_SET, "Nothing")], Implementation::Same),
-    nf(BIND_UDP, "bindUdp", &[ov(P_BIND_UDP, UDP_SOCKET_TYPE)], Implementation::Same),
-    nf(RECEIVE_FROM, "receiveFrom", &[ov(P_RECV, DATAGRAM_TYPE)], Implementation::Same),
-    nf(RECEIVE_TEXT_FROM, "receiveTextFrom", &[ov(P_RECV, DATAGRAM_TEXT_TYPE)], Implementation::Same),
-    nf(SEND_TO, "sendTo", &[ov(P_SEND, "Nothing")], Implementation::Same),
-    nf(SEND_TEXT_TO, "sendTextTo", &[ov(P_SEND_TEXT, "Nothing")], Implementation::Same),
-    nf(TO_URL, "toUrl", &[ov(P_TO_URL, URL_TYPE)], Implementation::Rewrite(INTERNAL_TO_URL)),
+    nf(
+        LISTEN_TCP,
+        "listenTcp",
+        &[ov(P_LISTEN, LISTENER_TYPE)],
+        Implementation::Same,
+    ),
+    nf(
+        ACCEPT,
+        "accept",
+        &[ov(P_ACCEPT, SOCKET_TYPE)],
+        Implementation::Same,
+    ),
+    nf(
+        POLL,
+        "poll",
+        // Two overloads: the scalar readiness query (`Socket → Boolean`) and the
+        // readiness multiplex (`List OF RES Socket → Socket`, borrowed). The return
+        // types disagree, so `DefaultResolver::return_type_name` yields `None` and
+        // `NetResolver`/`resolve_call` selects the type by argument shape (plan-76-A).
+        &[ov(P_POLL, "Boolean"), ov(P_POLL_LIST, SOCKET_TYPE)],
+        Implementation::Same,
+    ),
+    nf(
+        READ,
+        "read",
+        &[ov(P_READ, "List OF Byte")],
+        Implementation::Same,
+    ),
+    nf(
+        READ_TEXT,
+        "readText",
+        &[ov(P_READ, "String")],
+        Implementation::Same,
+    ),
+    nf(
+        WRITE,
+        "write",
+        &[ov(P_WRITE, "Nothing")],
+        Implementation::Same,
+    ),
+    nf(
+        WRITE_TEXT,
+        "writeText",
+        &[ov(P_WRITE_TEXT, "Nothing")],
+        Implementation::Same,
+    ),
+    nf(
+        CLOSE,
+        "close",
+        &[ov(P_CLOSE, "Nothing")],
+        Implementation::Same,
+    ),
+    nf(
+        LOCAL_ADDRESS,
+        "localAddress",
+        &[ov(P_LOCAL_ADDR, ADDRESS_TYPE)],
+        Implementation::Same,
+    ),
+    nf(
+        REMOTE_ADDRESS,
+        "remoteAddress",
+        &[ov(P_REMOTE_ADDR, ADDRESS_TYPE)],
+        Implementation::Same,
+    ),
+    nf(
+        SET_READ_TIMEOUT,
+        "setReadTimeout",
+        &[ov(P_TIMEOUT_SET, "Nothing")],
+        Implementation::Same,
+    ),
+    nf(
+        SET_WRITE_TIMEOUT,
+        "setWriteTimeout",
+        &[ov(P_TIMEOUT_SET, "Nothing")],
+        Implementation::Same,
+    ),
+    nf(
+        BIND_UDP,
+        "bindUdp",
+        &[ov(P_BIND_UDP, UDP_SOCKET_TYPE)],
+        Implementation::Same,
+    ),
+    nf(
+        RECEIVE_FROM,
+        "receiveFrom",
+        &[ov(P_RECV, DATAGRAM_TYPE)],
+        Implementation::Same,
+    ),
+    nf(
+        RECEIVE_TEXT_FROM,
+        "receiveTextFrom",
+        &[ov(P_RECV, DATAGRAM_TEXT_TYPE)],
+        Implementation::Same,
+    ),
+    nf(
+        SEND_TO,
+        "sendTo",
+        &[ov(P_SEND, "Nothing")],
+        Implementation::Same,
+    ),
+    nf(
+        SEND_TEXT_TO,
+        "sendTextTo",
+        &[ov(P_SEND_TEXT, "Nothing")],
+        Implementation::Same,
+    ),
+    nf(
+        TO_URL,
+        "toUrl",
+        &[ov(P_TO_URL, URL_TYPE)],
+        Implementation::Rewrite(INTERNAL_TO_URL),
+    ),
     nf(
         PERCENT_DECODE,
         "percentDecode",
@@ -286,6 +410,18 @@ pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
     }
 }
 
+/// plan-76-A: whether a `net` call returns a **borrowed** (non-owning) resource
+/// pointer — one that aliases an element of a resource collection argument, like
+/// `collections::get`. `net::poll(List OF RES Socket) AS Socket` returns a pointer
+/// to the first ready list element; the list retains ownership and closes it, so the
+/// caller's `RES` binding must register NO close obligation. Consulted by
+/// `value_aliases_live_resource` in the code layer. The scalar `net::poll(Socket)`
+/// overload returns `Boolean` and never binds a resource, so keying on the call name
+/// alone is safe (a non-resource bind never reaches the resource-cleanup decision).
+pub(crate) fn returns_borrowed_resource(name: &str) -> bool {
+    name == POLL
+}
+
 // `call_param_names` returns a `&'static` borrowed shape the owned
 // `DefaultResolver` (which yields `Vec`) cannot produce, so it stays a static
 // literal PINNED equal to `NET` by `parity_matches_descriptor`. `connectTcp`'s
@@ -296,7 +432,9 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         LOOKUP => Some(&[&["host"], &["port"]]),
         LISTEN_TCP => Some(&[&["host"], &["port"], &["backlog"]]),
         ACCEPT => Some(&[&["listener"], &["timeoutMs"]]),
-        POLL => Some(&[&["sock"], &["timeoutMs"]]),
+        // POLL is now overloaded (scalar `sock` vs list `socks`); its per-overload
+        // names live in `call_param_name_overloads` and `call_param_names` returns
+        // `None` (mirroring `connectTcp`).
         READ | READ_TEXT => Some(&[&["sock"], &["maxBytes"]]),
         WRITE => Some(&[&["sock"], &["bytes"]]),
         WRITE_TEXT => Some(&[&["sock"], &["value"]]),
@@ -329,6 +467,10 @@ pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static
             &["address"],
             &["address", "timeoutMs"],
         ]),
+        // plan-76-A: the two poll overloads name their receiver differently
+        // (`sock` scalar, `socks` list), so the descriptor renders per-overload
+        // names here and `call_param_names` yields `None`.
+        POLL => Some(&[&["sock", "timeoutMs"], &["socks", "timeoutMs"]]),
         _ => None,
     }
 }
@@ -358,12 +500,21 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         {
             Cow::Borrowed(SOCKET_TYPE)
         }
-        // The `poll(List OF Socket)` overload in the specification is omitted: the
-        // ownership model forbids resource handles as collection elements, so a
-        // `List OF Socket` value cannot be constructed and the overload is
-        // unreachable. Single-socket readiness polling is provided here.
+        // Scalar readiness query: `poll(Socket[, timeoutMs]) → Boolean`.
         POLL if exact(arg_types, &[SOCKET_TYPE]) || exact(arg_types, &[SOCKET_TYPE, "Integer"]) => {
             Cow::Borrowed("Boolean")
+        }
+        // plan-76-A: readiness multiplex `poll(List OF RES Socket[, timeoutMs]) →
+        // Socket`. Resources in collections landed (`List OF RES Socket` is
+        // constructible), so the spec-documented list overload is now reachable. The
+        // returned `Socket` is BORROWED (an alias of a list element, like
+        // `collections::get`); the list still owns and closes it — see the
+        // `net.pollList` remap in `builder_values.rs` and the borrow classification in
+        // `value_aliases_live_resource`.
+        POLL if exact(arg_types, &["List OF RES Socket"])
+            || exact(arg_types, &["List OF RES Socket", "Integer"]) =>
+        {
+            Cow::Borrowed(SOCKET_TYPE)
         }
         READ if exact(arg_types, &[SOCKET_TYPE, "Integer"]) => Cow::Borrowed("List OF Byte"),
         READ_TEXT if exact(arg_types, &[SOCKET_TYPE, "Integer"]) => Cow::Borrowed("String"),
@@ -416,7 +567,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         CONNECT_TCP => Some("String, Integer, Integer or Address, Integer"),
         LISTEN_TCP => Some("String, Integer, Integer"),
         ACCEPT => Some("Listener, Integer"),
-        POLL => Some("Socket, Integer"),
+        POLL => Some("Socket, Integer or List OF RES Socket, Integer"),
         READ => Some("Socket, Integer"),
         READ_TEXT => Some("Socket, Integer"),
         WRITE => Some("Socket, List OF Byte"),
@@ -558,7 +709,9 @@ mod tests {
         assert!(call_param_name_overloads(LOOKUP).is_none());
         assert!(call_param_names(LISTEN_TCP).is_some());
         assert!(call_param_names(ACCEPT).is_some());
-        assert!(call_param_names(POLL).is_some());
+        // POLL is overloaded (plan-76-A): names live in call_param_name_overloads.
+        assert!(call_param_names(POLL).is_none());
+        assert!(call_param_name_overloads(POLL).is_some());
         assert!(call_param_names(READ).is_some());
         assert!(call_param_names(WRITE).is_some());
         assert!(call_param_names(WRITE_TEXT).is_some());
@@ -768,7 +921,10 @@ mod tests {
     #[test]
     fn implementation_name_to_url_only() {
         assert_eq!(implementation_name(TO_URL), Some(INTERNAL_TO_URL));
-        assert_eq!(implementation_name(PERCENT_DECODE), Some(INTERNAL_PERCENT_DECODE));
+        assert_eq!(
+            implementation_name(PERCENT_DECODE),
+            Some(INTERNAL_PERCENT_DECODE)
+        );
         assert_eq!(implementation_name(PARSE_QUERY), Some(INTERNAL_PARSE_QUERY));
         assert_eq!(implementation_name(LOOKUP), None);
         assert_eq!(implementation_name("net.bogus"), None);
@@ -831,10 +987,18 @@ mod tests {
         // E0716: `nf` takes `&'static [BuiltinOverload]`, so build the slice as a
         // named const rather than a borrowed temporary.
         const OV: &[BuiltinOverload] = &[ov(P_LOOKUP, "List OF Address")];
-        let func = nf(LOOKUP, "lookup", OV, Implementation::Rewrite(INTERNAL_TO_URL));
+        let func = nf(
+            LOOKUP,
+            "lookup",
+            OV,
+            Implementation::Rewrite(INTERNAL_TO_URL),
+        );
         assert_eq!(func.name, LOOKUP);
         assert_eq!(func.doc_slug, "lookup");
-        assert_eq!(func.implementation, Implementation::Rewrite(INTERNAL_TO_URL));
+        assert_eq!(
+            func.implementation,
+            Implementation::Rewrite(INTERNAL_TO_URL)
+        );
         assert_eq!(func.lowering, Lowering::Helper);
         assert_eq!(func.overloads.len(), 1);
         assert!(!func.flags.internal_only);
@@ -844,7 +1008,10 @@ mod tests {
     #[test]
     fn expected_arguments_remaining_arms() {
         assert_eq!(expected_arguments(ACCEPT), Some("Listener, Integer"));
-        assert_eq!(expected_arguments(POLL), Some("Socket, Integer"));
+        assert_eq!(
+            expected_arguments(POLL),
+            Some("Socket, Integer or List OF RES Socket, Integer")
+        );
         assert_eq!(expected_arguments(READ), Some("Socket, Integer"));
         assert_eq!(expected_arguments(READ_TEXT), Some("Socket, Integer"));
         assert_eq!(expected_arguments(WRITE), Some("Socket, List OF Byte"));
@@ -866,11 +1033,13 @@ mod tests {
     #[test]
     fn argument_types_remaining_arms() {
         assert_eq!(argument_types(RECEIVE_FROM), Some("UdpSocket, Integer"));
-        assert_eq!(argument_types(RECEIVE_TEXT_FROM), Some("UdpSocket, Integer"));
+        assert_eq!(
+            argument_types(RECEIVE_TEXT_FROM),
+            Some("UdpSocket, Integer")
+        );
         assert_eq!(
             argument_types(SEND_TEXT_TO),
             Some("UdpSocket, Address, String")
         );
     }
-
 }

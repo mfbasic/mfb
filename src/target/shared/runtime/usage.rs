@@ -102,7 +102,16 @@ pub(crate) fn is_native_direct_call(name: &str) -> bool {
             | "strings.padRight"
             | "strings.graphemeAt"
             | "strings.graphemesCount"
+            | "strings.displayWidth"
             | "strings.trimChars"
+            // plan-89-A/B: native-direct `astrings` codegen
+            // (`builder_astrings.rs`). `fromString` is the public constructor;
+            // `readSpans`/`writeSpans` are the internal opaque-overlay bridge the
+            // source companion builds the Tier-C members over.
+            | "astrings.fromString"
+            | "astrings.readSpans"
+            | "astrings.writeSpans"
+            | "astrings.scalarLen"
     )
 }
 
@@ -159,7 +168,14 @@ fn push_op_helpers(
                             push_unique(helpers, helper);
                         }
                     }
-                    if let Some(closes) = resource_union_closes.get(type_) {
+                    // A transferred stateful resource union spells its type with
+                    // the `STATE T` suffix (`Stream STATE Cursor`), but the close
+                    // map is keyed on the bare union name (`Stream`). Strip the
+                    // suffix so the variant close helpers are declared — else the
+                    // validator marks them used (from the transfer copy) while they
+                    // stay undeclared (plan-75 gap 1).
+                    let base = crate::builtins::resource::base_resource_name(type_);
+                    if let Some(closes) = resource_union_closes.get(base) {
                         for close in closes {
                             if let Some(helper) = helper_for_call(close) {
                                 push_unique(helpers, helper);

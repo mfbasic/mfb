@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/syntax/lexical/bug12_backslash_before_newline_invalid
+   1 | FUNC main AS Integer
+   2 |   LET a = "abc\
+     |           ^^^^^
+tests/syntax/lexical/bug12_backslash_before_newline_invalid/src/main.mfb:2 error[1-101-0002 MFB_LEX_UNTERMINATED_STRING]: string literal is unterminated
+               String literal reached the end of the line before a closing quote.
+   1 | FUNC main AS Integer
+   2 |   LET a = "abc\
+   3 | def"
+     |    ^
+tests/syntax/lexical/bug12_backslash_before_newline_invalid/src/main.mfb:3 error[1-101-0002 MFB_LEX_UNTERMINATED_STRING]: string literal is unterminated
+               String literal reached the end of the line before a closing quote.
+[exit 1]

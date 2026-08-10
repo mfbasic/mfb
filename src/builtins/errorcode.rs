@@ -90,6 +90,7 @@ pub(crate) const ERRORCODE_CONSTANTS: &[(&str, &str, &str, &str)] = &[
     ("ErrWrongMode", "77050020", "Operation requires a presentation mode the program is not in: in an `--app` build, `term::*` and the console-reading `io::` calls (`io::input`/`io::readLine`/`io::readChar`) require `app::Mode.Console` (plan-62-E).", "_mfb_str_error_wrong_mode"),
     ("ErrResourceMoved", "77030009", "Resource handle was moved to another thread by `thread::transfer` and is no longer usable by the sender.", "_mfb_str_error_resource_moved"),
     ("ErrNativeBufferOverrun", "77030010", "Native `LINK` `OUT CBuffer` callee wrote past its declared `SIZE` (buffer overrun detected).", "_mfb_str_error_native_buffer_overrun"),
+    ("ErrSpawnFailed", "77080001", "Child process could not be spawned (fork/exec failed, or the program was not found).", "_mfb_str_error_spawn_failed"),
 ];
 
 // plan-72-J: `errorCode` exposes only `Integer` constants — no callables, builtin
@@ -298,7 +299,9 @@ mod tests {
     fn descriptor_is_registered_and_empty() {
         use crate::builtins::descriptor::{DefaultResolver, REGISTRY};
 
-        let module = REGISTRY.module("errorCode").expect("errorCode is registered");
+        let module = REGISTRY
+            .module("errorCode")
+            .expect("errorCode is registered");
         assert_eq!(module.name, "errorCode");
         assert!(module.functions.is_empty());
         assert!(module.types.is_empty());
@@ -306,10 +309,16 @@ mod tests {
         assert!(module.resolver.is_none());
 
         // No callable is owned: membership and every derivation is empty/None.
-        assert!(!DefaultResolver::contains(&ERRORCODE, "errorCode.ErrNotFound"));
+        assert!(!DefaultResolver::contains(
+            &ERRORCODE,
+            "errorCode.ErrNotFound"
+        ));
         assert!(REGISTRY.function("errorCode.ErrNotFound").is_none());
         assert!(REGISTRY.function("errorCode.anything").is_none());
-        assert_eq!(DefaultResolver::arity(&ERRORCODE, "errorCode.ErrNotFound"), None);
+        assert_eq!(
+            DefaultResolver::arity(&ERRORCODE, "errorCode.ErrNotFound"),
+            None
+        );
 
         // The registry stays well-formed with `errorCode` appended.
         assert_eq!(REGISTRY.duplicate_module_name(), None);

@@ -22,13 +22,13 @@ pub(crate) const RESULT_PROGRAM_EXIT_TAG: &str = "2";
 /// `RESULT_ERR_TAG` and the trap route rebuilds as before — never a stale slot.
 pub(crate) const RESULT_ERR_BLOCK_TAG: &str = "3";
 
-pub(crate) const RESULT_TAG_REGISTER: &str = abi::RET[0];
-pub(crate) const RESULT_VALUE_REGISTER: &str = abi::RET[1];
-pub(crate) const RESULT_ERROR_MESSAGE_REGISTER: &str = abi::RET[2];
+pub(crate) const RESULT_TAG_REGISTER: Operand = abi::mfb_return(0);
+pub(crate) const RESULT_VALUE_REGISTER: Operand = abi::mfb_return(1);
+pub(crate) const RESULT_ERROR_MESSAGE_REGISTER: Operand = abi::mfb_return(2);
 /// Fourth error-result register: pointer to the `ErrorLoc` recording where the
 /// error originated. Carried alongside code (x1) and message (x2) so propagation
 /// preserves the origin and trap materialization can build a 3-field `Error`.
-pub(crate) const RESULT_ERROR_SOURCE_REGISTER: &str = abi::RET[3];
+pub(crate) const RESULT_ERROR_SOURCE_REGISTER: Operand = abi::mfb_return(3);
 
 /// Byte size of an allocated `Error` record: code(+0), message(+8), source(+16).
 pub(crate) const ERROR_OBJECT_SIZE: usize = 24;
@@ -99,6 +99,16 @@ pub(crate) const TIMEOUT_UNBOUNDED_SENTINEL: &str = "9223372036854775808";
 // plan-73-C: `ErrReadTimeout` (77070005) and `ErrWriteTimeout` (77070006) are
 // RETIRED — every net read/write timeout now raises the single `ErrTimeout`
 // (77050008), per the language timeout convention.
+
+// -- Process (7708) ---------------------------------------------------------
+// plan-90-A: `process::spawn`/`shell` raise `ErrSpawnFailed` when the child
+// cannot be created or `execvp`'d (the child reports the failure to the parent
+// over a close-on-exec self-pipe). Operating on a dropped `Process` raises the
+// shared `ErrResourceClosed` (7703); an empty `args` list raises the shared
+// `ErrInvalidArgument` (7705).
+// plan-88: `ErrSpawnFailed` (77080001) lives in `ERRORCODE_CONSTANTS` (the single
+// metadata source) like every other runtime error; no `ERR_SPAWN_FAILED_*` codegen
+// consts — the process codegen sources code/message/symbol from the table.
 
 // ===========================================================================
 // Entry-point & cleanup-failure diagnostic strings
@@ -277,8 +287,7 @@ pub(crate) const TERM_CORNER_BR_CODEPOINTS: [u32; 7] =
 
 /// `term::fillRect` block/shade code points, indexed by `FillStyle` ordinal:
 /// `Filled` █, `Light` ░, `Medium` ▒, `Dark` ▓, `Checker` ▚, `CheckerAlt` ▞.
-pub(crate) const TERM_FILL_CODEPOINTS: [u32; 6] =
-    [0x2588, 0x2591, 0x2592, 0x2593, 0x259A, 0x259E];
+pub(crate) const TERM_FILL_CODEPOINTS: [u32; 6] = [0x2588, 0x2591, 0x2592, 0x2593, 0x259A, 0x259E];
 
 pub(crate) const TERM_STATE_ACTIVE_OFFSET: usize = 0;
 pub(crate) const TERM_STATE_FG_OFFSET: usize = 8;
@@ -286,6 +295,14 @@ pub(crate) const TERM_STATE_BG_OFFSET: usize = 16;
 pub(crate) const TERM_STATE_BOLD_OFFSET: usize = 24;
 pub(crate) const TERM_STATE_UNDERLINE_OFFSET: usize = 32;
 pub(crate) const TERM_STATE_CURSOR_VISIBLE_OFFSET: usize = 40;
+/// Cached "terminal was resized" flag (planning/term.md #11). Set to 1 whenever a
+/// genuine terminal/window size change is detected — the shared CLI reflow
+/// (`term_grid::emit_grid_resize`) and each app backend's resize hook — and
+/// cleared (read-and-cleared) by `term::didResize()`, so the flag latches until
+/// the program observes it. Offset 56 is the free slot between the grid pointer
+/// (48) and the raw-active flag (64). App backends that record resize on their own
+/// surface state mirror it here so the shared getter stays correct.
+pub(crate) const TERM_STATE_DID_RESIZE_OFFSET: usize = 56;
 /// Console single-key (raw/cbreak) mode: set to 1 by `term::on` once it has put
 /// stdin into `~ICANON`/`~ECHO`/`VMIN=1`/`VTIME=0` (bug-149); 0 while the tty is
 /// in its saved line discipline (never a tty, or `term::off` already restored
@@ -654,23 +671,42 @@ pub(crate) const FS_MODE_REGULAR: &str = "32768";
 // Resource / File record layout
 // ===========================================================================
 
-pub(crate) const FILE_OFFSET_FD: usize = 0;
-pub(crate) const FILE_OFFSET_CLOSED: usize = 8;
+// --- The one canonical resource-record header (plan-80) --------------------
+// Every built-in and package resource shares this header for offsets 0..32, so
+// the generic `STATE` payload (plan-74) has a slot free in *every* layout — not
+// just the File-layout ones. Before plan-80 the header diverged after offset 8
+// and `STATE` lived at 16, which the TLS/audio backends already used for
+// `SSL*`/dispatch-queue/`H_SAMPLE_RATE` — so union `STATE` over a `TlsSocket`
+// SIGSEGV'd (plan-76-D Corrections D4). The header is now:
+//   tag@0  handle@8  closed@16  STATE@24  |  type-specific@32+
+/// Resource type id (plan-80). `0x00` = uninitialized/invalid (never a live
+/// record); `< 0xFE` = a built-in resource keyed by `RESOURCE_TAG_*` below;
+/// `>= 0xFE` = an Imported (`0xFE`) / Native (`0xFF`) resource. Written at
+/// record construction so a record is self-describing.
+pub(crate) const RESOURCE_OFFSET_TAG: usize = 0;
+/// The polymorphic handle word: fd (File/Socket/…) / connection ptr (macOS
+/// Network.framework TLS) / `H_KIND` (audio) / `CPtr` (imported/native).
+pub(crate) const RESOURCE_OFFSET_HANDLE: usize = 8;
+
+pub(crate) const FILE_OFFSET_FD: usize = RESOURCE_OFFSET_HANDLE;
+pub(crate) const FILE_OFFSET_CLOSED: usize = 16;
 /// Offset of the optional `STATE` payload pointer in a resource record. A
 /// resource value is a pointer to its arena record, so every copy of the pointer shares the same
 /// record and therefore the same `STATE`. The slot is null until the owning
-/// `RES` binding default-initializes it.
-pub(crate) const FILE_OFFSET_STATE: usize = 16;
+/// `RES` binding default-initializes it. Equal to `RESOURCE_OFFSET_STATE` — the
+/// slot is free in *every* backend layout (plan-80), which is the plan-76-D D4 fix.
+pub(crate) const FILE_OFFSET_STATE: usize = RESOURCE_OFFSET_STATE;
 /// Opt-in per-`File` output buffer fields (plan-14-B), appended after the generic
-/// resource header. Only `File` handles use them; other resources (sockets, TLS,
-/// thread handles) carry the words inertly. `FILE_OFFSET_BUF_ENABLED` is 0 (off)
+/// resource header (which now ends at offset 32). Only `File` handles use them;
+/// other resources (sockets, TLS, thread handles) carry the words inertly.
+/// `FILE_OFFSET_BUF_ENABLED` is 0 (off)
 /// on every freshly opened handle — the open helpers zero these three words after
 /// the poisoned arena alloc, so a handle that never calls `fs::setBuffered(f, TRUE)`
 /// takes the unbuffered direct-write path (byte-identical to pre-plan-14). The
 /// thread-transfer copy also zeroes them so a moved handle starts unbuffered.
-pub(crate) const FILE_OFFSET_BUF_PTR: usize = 24;
-pub(crate) const FILE_OFFSET_BUF_FILLED: usize = 32;
-pub(crate) const FILE_OFFSET_BUF_ENABLED: usize = 40;
+pub(crate) const FILE_OFFSET_BUF_PTR: usize = 32;
+pub(crate) const FILE_OFFSET_BUF_FILLED: usize = 40;
+pub(crate) const FILE_OFFSET_BUF_ENABLED: usize = 48;
 /// Transparent per-`File` **read** buffer fields (plan-14-C), appended after the
 /// write-buffer fields. Always-on (a read buffer can never lose or reorder data):
 /// `fs::readLine` serves lines from `READ_PTR` and refills with one block `read()`,
@@ -683,36 +719,76 @@ pub(crate) const FILE_OFFSET_BUF_ENABLED: usize = 40;
 /// (seek back + invalidate) before touching the fd. Zeroed at every File alloc
 /// and in the thread-transfer copy, so a fresh/moved handle starts with an empty
 /// cache at the fd's current position.
-pub(crate) const FILE_OFFSET_READ_PTR: usize = 48;
-pub(crate) const FILE_OFFSET_READ_POS: usize = 56;
-pub(crate) const FILE_OFFSET_READ_FILL: usize = 64;
-pub(crate) const FILE_OFFSET_READ_AT_EOF: usize = 72;
-/// Size of a resource record: fd, closed flag, the `STATE` pointer, the per-`File`
-/// output-buffer fields (ptr/filled/enabled), and the read-buffer fields
-/// (ptr/pos/fill/at_eof). All resource kinds share the size so the generic
-/// thread-transfer copy stays uniform.
-pub(crate) const RESOURCE_RECORD_SIZE: &str = "80";
+pub(crate) const FILE_OFFSET_READ_PTR: usize = 56;
+pub(crate) const FILE_OFFSET_READ_POS: usize = 64;
+pub(crate) const FILE_OFFSET_READ_FILL: usize = 72;
+pub(crate) const FILE_OFFSET_READ_AT_EOF: usize = 80;
+/// Size of a resource record: the canonical header (tag/handle/closed/STATE) plus
+/// the widest type-specific tail (the File output-buffer fields ptr/filled/enabled
+/// and read-buffer fields ptr/pos/fill/at_eof end at offset 88). All resource
+/// kinds share the size so the generic thread-transfer copy and closed-default
+/// stay uniform. Grown 80 → 96 by plan-80 (header +8 for the `tag`, rounded up to
+/// a 16-byte multiple with one slot of headroom).
+pub(crate) const RESOURCE_RECORD_SIZE: &str = "96";
 /// `RESOURCE_RECORD_SIZE` as a `usize`, for compile-time layout checks (the
 /// string form above is what the arena-alloc immediate needs). Every per-backend
 /// resource record MUST fit inside this many zeroed bytes so the closed-default
 /// (`lower_default_value`) covers each real layout — see the asserts in the
 /// backend modules (`audio/mod.rs`, `tls/mod.rs`, `tls/macos.rs`).
-pub(crate) const RESOURCE_RECORD_SIZE_BYTES: usize = 80;
+pub(crate) const RESOURCE_RECORD_SIZE_BYTES: usize = 96;
 
-/// Canonical byte offset of the `closed` flag in every built-in resource record.
+/// Canonical byte offset of the `closed` flag in every built-in resource record
+/// (moved 8 → 16 by plan-80 to make room for the `tag`/`handle` header words).
 /// The closed-resource default (`lower_default_value`) sets exactly this byte;
 /// every resource op's closed-guard reads it. All per-resource closed-offset
 /// constants MUST equal this — enforced by the compile-time asserts here and in
 /// `audio/mod.rs`, `tls/mod.rs`, and `tls/macos.rs` (plan-38). This turns the
-/// de-facto offset-8 convention into a compiler-enforced invariant: a future
-/// resource whose closed flag drifts off offset 8 fails to compile.
-pub(crate) const RESOURCE_OFFSET_CLOSED: usize = 8;
+/// de-facto convention into a compiler-enforced invariant: a future
+/// resource whose closed flag drifts fails to compile.
+pub(crate) const RESOURCE_OFFSET_CLOSED: usize = 16;
 
+/// Canonical byte offset of the generic `STATE` payload pointer (plan-74),
+/// **free in every backend layout** (plan-80). This is the plan-76-D D4 fix: a
+/// `STATE`-carrying union over *any* resource variant — including `TlsSocket`,
+/// whose record used offset 16 for `SSL*` — writes STATE here without clobbering
+/// a live field. Each backend asserts its own STATE slot equals this.
+pub(crate) const RESOURCE_OFFSET_STATE: usize = 24;
+
+// The canonical header shape (plan-80): the File template must match it exactly.
+const _: () = assert!(RESOURCE_OFFSET_TAG == 0);
+const _: () = assert!(RESOURCE_OFFSET_HANDLE == 8);
+const _: () = assert!(RESOURCE_OFFSET_CLOSED == 16);
+const _: () = assert!(RESOURCE_OFFSET_STATE == 24);
+const _: () = assert!(FILE_OFFSET_FD == RESOURCE_OFFSET_HANDLE);
 const _: () = assert!(FILE_OFFSET_CLOSED == RESOURCE_OFFSET_CLOSED);
-// The closed flag lives inside the zeroed default record, and the record covers
-// the full File layout (read-buffer fields are the last words).
+const _: () = assert!(FILE_OFFSET_STATE == RESOURCE_OFFSET_STATE);
+// The header and the widest File tail live inside the zeroed default record.
+const _: () = assert!(RESOURCE_OFFSET_STATE + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 const _: () = assert!(RESOURCE_OFFSET_CLOSED + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 const _: () = assert!(FILE_OFFSET_READ_AT_EOF + 8 <= RESOURCE_RECORD_SIZE_BYTES);
+
+// Resource type tags written at `RESOURCE_OFFSET_TAG` at record construction
+// (plan-80). Values match the layout table in `planning/plan-80-*`. They make a
+// record self-describing; close dispatch itself stays compile-time-resolved by
+// the static resource type (a concrete resource's type is known at its close
+// site, and a resource union already dispatches on its own variant tag), so no
+// runtime read of this tag is required today. Both Imported and Native resources
+// are wrapped by the SAME native `return_resource` path in `link_thunk` (an
+// imported package obtains its handle via a native LINK call), so there is no
+// distinct imported construction site — both carry `RESOURCE_TAG_NATIVE`
+// (plan-80 Corrections; the plan table's separate `0xFE` never materializes as a
+// live record). Fed to `move_immediate` as decimal &str.
+pub(crate) const RESOURCE_TAG_FILE: &str = "1";
+pub(crate) const RESOURCE_TAG_SOCKET: &str = "2";
+pub(crate) const RESOURCE_TAG_UDP_SOCKET: &str = "3";
+pub(crate) const RESOURCE_TAG_LISTENER: &str = "4";
+pub(crate) const RESOURCE_TAG_TLS_OPENSSL: &str = "5";
+pub(crate) const RESOURCE_TAG_TLS_MACOS: &str = "6";
+pub(crate) const RESOURCE_TAG_TLS_SCHANNEL: &str = "7";
+pub(crate) const RESOURCE_TAG_TLS_LISTENER: &str = "8";
+pub(crate) const RESOURCE_TAG_AUDIO: &str = "9";
+pub(crate) const RESOURCE_TAG_PROCESS: &str = "10";
+pub(crate) const RESOURCE_TAG_NATIVE: &str = "255";
 
 /// The word at `RESOURCE_OFFSET_CLOSED` is a u64 flag set, not a boolean: bit 0
 /// is `closed`, bit 1 is `moved`, and 62 bits are spare. Storing `moved` here
@@ -853,7 +929,6 @@ pub(crate) const COLLECTION_TYPE_OBJECT: usize = 22;
 pub(crate) const UNICODE_STAGE1_SYMBOL: &str = "_mfb_unicode_stage1";
 pub(crate) const UNICODE_STAGE2_SYMBOL: &str = "_mfb_unicode_stage2";
 pub(crate) const UNICODE_PROPERTIES_SYMBOL: &str = "_mfb_unicode_properties";
-pub(crate) const UNICODE_SEQUENCES_SYMBOL: &str = "_mfb_unicode_sequences";
 pub(crate) const UNICODE_COMBINATIONS_SECOND_SYMBOL: &str = "_mfb_unicode_combinations_second";
 pub(crate) const UNICODE_COMBINATIONS_COMBINED_SYMBOL: &str = "_mfb_unicode_combinations_combined";
 pub(crate) const UNICODE_NFD_ENTRIES_SYMBOL: &str = "_mfb_unicode_nfd_entries";

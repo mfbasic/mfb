@@ -1,0 +1,75 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "process_signal",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "enum",
+    "line": 17,
+    "visibility": "export",
+    "name": "Stream",
+    "members": [
+    { "name": "StdOut" },
+    { "name": "StdErr" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 33,
+    "visibility": "export",
+    "name": "Signal",
+    "members": [
+    { "name": "None" },
+    { "name": "Kill" },
+    { "name": "Terminate" },
+    { "name": "Error" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 8, "mutable": false, "name": "p", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "sleep" }, { "kind": "const", "type": "String", "value": "30" }] }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "process.signal", "args": [{ "kind": "local", "name": "p" }, { "kind": "memberAccess", "type": "Signal", "target": { "kind": "local", "name": "Signal" }, "member": "Terminate" }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "process.waitFor", "args": [{ "kind": "local", "name": "p" }] }] }] } },
+    {
+      "op": "if",
+      "line": 11,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Signal", "target": "process.didSignal", "args": [{ "kind": "local", "name": "p" }] }, "right": { "kind": "memberAccess", "type": "Signal", "target": { "kind": "local", "name": "Signal" }, "member": "Terminate" } },
+      "then": [
+      { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "terminate" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "other" }] } }
+      ]
+    },
+    { "op": "bind", "line": 17, "mutable": false, "name": "q", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "true" }] }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "process.waitFor", "args": [{ "kind": "local", "name": "q" }] }] }] } },
+    {
+      "op": "if",
+      "line": 19,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Signal", "target": "process.didSignal", "args": [{ "kind": "local", "name": "q" }] }, "right": { "kind": "memberAccess", "type": "Signal", "target": { "kind": "local", "name": "Signal" }, "member": "None" } },
+      "then": [
+      { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "none" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "other" }] } }
+      ]
+    },
+    { "op": "return", "line": 24, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

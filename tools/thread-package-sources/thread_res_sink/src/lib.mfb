@@ -1,0 +1,26 @@
+IMPORT thread
+
+' Blocks forever on the data plane and never accepts on the resource plane, so a
+' parent's cap-1 inbound resource queue stays full after a single transfer. Used
+' to exercise the ErrTimeout transfer-failure path deterministically (bug-425):
+' every parent transfer with timeoutMs = 0 after the queue fills fails at once,
+' and the parent's TRAP handler must be able to close the un-moved resource.
+EXPORT ISOLATED FUNC blockNeverAccept(t AS ThreadWorker OF String RES File TO Integer, seed AS String) AS Integer
+  LET msg AS String = thread::receive(t)
+  RETURN len(msg)
+  TRAP(err)
+    RETURN 0
+  END TRAP
+END FUNC
+
+IMPORT fs
+
+' Waits for a data-plane "go", then accepts one resource. The accept drains the
+' inbound resource queue's pending-free list — where a failed parent transfer's
+' orphaned copy was recorded (bug-425 reclaim) — and returns the queued handle,
+' proving the drain of a resource-record copy is safe (no double-free/corruption).
+EXPORT ISOLATED FUNC acceptAfterSignal(t AS ThreadWorker OF String RES File TO Integer, seed AS String) AS Integer
+  LET go AS String = thread::receive(t)
+  RES f AS File = thread::accept(t, 1000)
+  RETURN len(fs::readAll(f))
+END FUNC

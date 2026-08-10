@@ -1,0 +1,8 @@
+{
+  "name": "self_fanout_workers",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "plan-81 IMPORT self: a package that spawns its own exported ISOLATED FUNC as a thread worker via self::, for the self-referencing fan-out runtime test.",
+  "sources": [{ "root": "src", "role": "package", "include": ["**/*.mfb"] }]
+}

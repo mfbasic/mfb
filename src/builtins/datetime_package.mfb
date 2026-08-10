@@ -728,7 +728,7 @@ FUNC __datetime_format(dt AS DateTime, pattern AS String) AS String
 END FUNC
 
 FUNC __datetime_toIso(dt AS DateTime) AS String
-  RETURN __datetime_format(dt, "yyyy-MM-dd'T'HH:mm:ss.fffZ")
+  RETURN __datetime_padN(dt.date.year, 4) & "-" & __datetime_pad2(dt.date.month) & "-" & __datetime_pad2(dt.date.day) & "T" & __datetime_pad2(dt.time.hour) & ":" & __datetime_pad2(dt.time.minute) & ":" & __datetime_pad2(dt.time.second) & "." & strings::left(__datetime_padN(dt.time.nanos, 9), 3) & __datetime_isoZone(dt.offset)
 END FUNC
 
 FUNC __datetime_formatDuration(d AS Duration) AS String
@@ -1113,4 +1113,14 @@ FUNC __datetime_addMonths(dt AS DateTime, months AS Integer) AS DateTime
     RETURN DateTime[Date[y, m, day], dt.time, dt.zone, dt.offset]
   END IF
   RETURN __datetime_civil(Date[y, m, day], dt.time, dt.zone)
+END FUNC
+
+' plan-77 D2: the `Z` token of the ISO pattern — "Z" for a zero UTC offset, else
+' the signed offset label. Matches __datetime_formatToken's `Z`/runLen=1 arm so
+' the hand-written __datetime_toIso stays byte-identical to the pattern formatter.
+FUNC __datetime_isoZone(offset AS Integer) AS String
+  IF offset = 0 THEN
+    RETURN "Z"
+  END IF
+  RETURN __datetime_offsetLabel(offset)
 END FUNC

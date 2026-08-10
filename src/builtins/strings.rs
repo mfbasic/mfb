@@ -32,6 +32,10 @@ const PAD_LEFT: &str = "strings.padLeft";
 const PAD_RIGHT: &str = "strings.padRight";
 const GRAPHEME_AT: &str = "strings.graphemeAt";
 const GRAPHEMES_COUNT: &str = "strings.graphemesCount";
+// plan-70-A: the terminal column width of a string — the sum of its grapheme
+// clusters' display widths (0 for zero-width, 2 for East Asian Wide/emoji, 1
+// otherwise). Additive; does not change any scalar/grapheme/byte semantics.
+const DISPLAY_WIDTH: &str = "strings.displayWidth";
 const TRIM_CHARS: &str = "strings.trimChars";
 // The raw UTF-8 bytes backing a String, one element per byte (the inverse of
 // `toString(List OF Byte)`). The foundation the `encoding` package's Unicode
@@ -247,14 +251,34 @@ const fn strings_fn(
 
 const STRINGS_FUNCTIONS: &[BuiltinFunction] = &[
     strings_fn(TRIM, "trim", OV_VALUE_STRING, Implementation::Same),
-    strings_fn(TRIM_START, "trimStart", OV_VALUE_STRING, Implementation::Same),
+    strings_fn(
+        TRIM_START,
+        "trimStart",
+        OV_VALUE_STRING,
+        Implementation::Same,
+    ),
     strings_fn(TRIM_END, "trimEnd", OV_VALUE_STRING, Implementation::Same),
     strings_fn(UPPER, "upper", OV_VALUE_STRING, Implementation::Same),
     strings_fn(LOWER, "lower", OV_VALUE_STRING, Implementation::Same),
     strings_fn(CASE_FOLD, "caseFold", OV_VALUE_STRING, Implementation::Same),
-    strings_fn(NORMALIZE_NFC, "normalizeNfc", OV_VALUE_STRING, Implementation::Same),
-    strings_fn(GRAPHEMES, "graphemes", OV_VALUE_LIST_STRING, Implementation::Same),
-    strings_fn(STARTS_WITH, "startsWith", OV_PREFIX_BOOL, Implementation::Same),
+    strings_fn(
+        NORMALIZE_NFC,
+        "normalizeNfc",
+        OV_VALUE_STRING,
+        Implementation::Same,
+    ),
+    strings_fn(
+        GRAPHEMES,
+        "graphemes",
+        OV_VALUE_LIST_STRING,
+        Implementation::Same,
+    ),
+    strings_fn(
+        STARTS_WITH,
+        "startsWith",
+        OV_PREFIX_BOOL,
+        Implementation::Same,
+    ),
     strings_fn(ENDS_WITH, "endsWith", OV_SUFFIX_BOOL, Implementation::Same),
     strings_fn(CONTAINS, "contains", OV_NEEDLE_BOOL, Implementation::Same),
     strings_fn_err(SPLIT, "split", &["ErrInvalidArgument"], OV_SPLIT, Implementation::Same),
@@ -278,13 +302,48 @@ const STRINGS_FUNCTIONS: &[BuiltinFunction] = &[
     strings_fn_err(MID, "mid", &["ErrIndexOutOfRange"], OV_MID, Implementation::Same),
     strings_fn(REPLACE, "replace", OV_REPLACE, Implementation::Same),
     // Scalar seam + classification predicates — source-companion rewrites.
-    strings_fn(TO_SCALARS, "toScalars", OV_VALUE_LIST_SCALAR, Implementation::Rewrite("__strings_toScalars")),
-    strings_fn(FROM_SCALARS, "fromScalars", OV_FROM_SCALARS, Implementation::Rewrite("__strings_fromScalars")),
-    strings_fn(IS_LETTER, "isLetter", OV_SCALAR_BOOL, Implementation::Rewrite("__strings_isLetter")),
-    strings_fn(IS_DIGIT, "isDigit", OV_SCALAR_BOOL, Implementation::Rewrite("__strings_isDigit")),
-    strings_fn(IS_WHITESPACE, "isWhitespace", OV_SCALAR_BOOL, Implementation::Rewrite("__strings_isWhitespace")),
-    strings_fn(IS_UPPER, "isUpper", OV_SCALAR_BOOL, Implementation::Rewrite("__strings_isUpper")),
-    strings_fn(IS_LOWER, "isLower", OV_SCALAR_BOOL, Implementation::Rewrite("__strings_isLower")),
+    strings_fn(
+        TO_SCALARS,
+        "toScalars",
+        OV_VALUE_LIST_SCALAR,
+        Implementation::Rewrite("__strings_toScalars"),
+    ),
+    strings_fn(
+        FROM_SCALARS,
+        "fromScalars",
+        OV_FROM_SCALARS,
+        Implementation::Rewrite("__strings_fromScalars"),
+    ),
+    strings_fn(
+        IS_LETTER,
+        "isLetter",
+        OV_SCALAR_BOOL,
+        Implementation::Rewrite("__strings_isLetter"),
+    ),
+    strings_fn(
+        IS_DIGIT,
+        "isDigit",
+        OV_SCALAR_BOOL,
+        Implementation::Rewrite("__strings_isDigit"),
+    ),
+    strings_fn(
+        IS_WHITESPACE,
+        "isWhitespace",
+        OV_SCALAR_BOOL,
+        Implementation::Rewrite("__strings_isWhitespace"),
+    ),
+    strings_fn(
+        IS_UPPER,
+        "isUpper",
+        OV_SCALAR_BOOL,
+        Implementation::Rewrite("__strings_isUpper"),
+    ),
+    strings_fn(
+        IS_LOWER,
+        "isLower",
+        OV_SCALAR_BOOL,
+        Implementation::Rewrite("__strings_isLower"),
+    ),
 ];
 
 /// The scalar-seam source predicate — the ONLY resolver hook `strings` needs. The
@@ -292,7 +351,11 @@ const STRINGS_FUNCTIONS: &[BuiltinFunction] = &[
 /// `uses_package` walk (import of `strings` AND a reference to a seam member).
 struct StringsResolver;
 impl BuiltinResolver for StringsResolver {
-    fn uses_source(&self, _module: &BuiltinModule, project: &crate::ast::AstProject) -> Option<bool> {
+    fn uses_source(
+        &self,
+        _module: &BuiltinModule,
+        project: &crate::ast::AstProject,
+    ) -> Option<bool> {
         Some(uses_package(project))
     }
 
@@ -300,16 +363,124 @@ impl BuiltinResolver for StringsResolver {
     /// `DefaultResolver` resolution). Exposed so plan-72-BB can drive `strings::`
     /// return types uniformly through the registry resolver for every
     /// resolver-backed package.
+    ///
+    /// plan-89-C: the Tier-A query members also accept an `AttributedString` at the
+    /// text position, returning exactly what the `String` overload returns
+    /// (computed on the visible text). Substituting `String` for a leading
+    /// `AttributedString` reuses the `String` resolution unchanged; codegen rewrites
+    /// the argument to `toString(a)` so the existing `String` lowering runs.
     fn resolve_return_type(
         &self,
         _module: &BuiltinModule,
         name: &str,
         arg_types: &[String],
     ) -> Option<String> {
+        if arg_types.first().map(String::as_str) == Some("AttributedString") {
+            if is_tier_a_query(name) {
+                // Tier-A: same result type as the String overload, on visible text.
+                let mut substituted = arg_types.to_vec();
+                substituted[0] = "String".to_string();
+                return resolve_call(name, &substituted)
+                    .map(|resolved| resolved.return_type.into_owned());
+            }
+            if is_tier_b_transform(name) {
+                // plan-89-D: a Tier-B transform of an AttributedString yields an
+                // AttributedString (the text transformed as the String overload
+                // does, with attribute spans remapped). Validate the trailing
+                // arguments against the String overload (they are unchanged), then
+                // return AttributedString.
+                let mut substituted = arg_types.to_vec();
+                substituted[0] = "String".to_string();
+                return resolve_call(name, &substituted).map(|_| "AttributedString".to_string());
+            }
+        }
         resolve_call(name, arg_types).map(|resolved| resolved.return_type.into_owned())
     }
 }
 static STRINGS_RESOLVER: StringsResolver = StringsResolver;
+
+/// The Tier-B `strings::` transform members (plan-89-D): they *modify* the text
+/// (re-express it — narrowed, extended, or rewritten), so an `AttributedString`
+/// argument yields an `AttributedString` whose text is transformed exactly as the
+/// `String` overload's and whose attribute spans are remapped by the same edit
+/// (case/normalize transform the text but drop attributes; D §3). The frozen
+/// partition is plan-89-C §4.1.
+pub(crate) fn is_tier_b_transform(name: &str) -> bool {
+    matches!(
+        name,
+        LEFT | RIGHT
+            | MID
+            | TRIM
+            | TRIM_START
+            | TRIM_END
+            | TRIM_CHARS
+            | STRIP_PREFIX
+            | STRIP_SUFFIX
+            | PAD_LEFT
+            | PAD_RIGHT
+            | REPEAT
+            | REPLACE
+            | UPPER
+            | LOWER
+            | CASE_FOLD
+            | NORMALIZE_NFC
+    )
+}
+
+/// The `astrings` source-companion implementation symbol for a Tier-B transform of
+/// an `AttributedString` (plan-89-D). Returns `None` for a non-Tier-B name. The IR
+/// lowering routes a `strings::<t>(AttributedString, …)` call to this `__astrings_*`
+/// body instead of the native `String` transform.
+pub(crate) fn tier_b_transform_impl(name: &str) -> Option<&'static str> {
+    let symbol = match name {
+        LEFT => "__astrings_left",
+        RIGHT => "__astrings_right",
+        MID => "__astrings_mid",
+        TRIM => "__astrings_trim",
+        TRIM_START => "__astrings_trimStart",
+        TRIM_END => "__astrings_trimEnd",
+        TRIM_CHARS => "__astrings_trimChars",
+        STRIP_PREFIX => "__astrings_stripPrefix",
+        STRIP_SUFFIX => "__astrings_stripSuffix",
+        PAD_LEFT => "__astrings_padLeft",
+        PAD_RIGHT => "__astrings_padRight",
+        REPEAT => "__astrings_repeat",
+        REPLACE => "__astrings_replace",
+        UPPER => "__astrings_upper",
+        LOWER => "__astrings_lower",
+        CASE_FOLD => "__astrings_caseFold",
+        NORMALIZE_NFC => "__astrings_normalizeNfc",
+        _ => return None,
+    };
+    Some(symbol)
+}
+
+/// The Tier-A `strings::` query members (plan-89-C): they *interrogate* the text
+/// (returning a measurement, a position, or a decomposition into a collection)
+/// rather than re-expressing it, so an `AttributedString` argument is answered on
+/// its visible text and the result type matches the `String` overload. The
+/// text-modifying members (Tier-B) return `AttributedString` and are handled in
+/// plan-89-D. The frozen partition is recorded in plan-89-C §4.1.
+pub(crate) fn is_tier_a_query(name: &str) -> bool {
+    matches!(
+        name,
+        BYTE_LEN
+            | CONTAINS
+            | COUNT
+            | DISPLAY_WIDTH
+            | ENDS_WITH
+            | ENDS_WITH_ANY
+            | FIND
+            | GRAPHEMES
+            | GRAPHEMES_COUNT
+            | SPLIT
+            | STARTS_WITH
+            | STARTS_WITH_ANY
+            | TO_BYTES
+            | TO_SCALARS
+            | GRAPHEME_AT
+    )
+}
 
 pub(crate) static STRINGS: BuiltinModule = BuiltinModule {
     name: "strings",
@@ -354,7 +525,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         REPEAT => Some(&[&["value"], &["times"]]),
         PAD_LEFT | PAD_RIGHT => Some(&[&["value"], &["width"], &["padChar"]]),
         GRAPHEME_AT => Some(&[&["value"], &["index"]]),
-        GRAPHEMES_COUNT => Some(&[&["value"]]),
+        GRAPHEMES_COUNT | DISPLAY_WIDTH => Some(&[&["value"]]),
         TRIM_CHARS => Some(&[&["value"], &["chars"]]),
         FIND => Some(&[&["value"], &["needle"], &["start"]]),
         MID => Some(&[&["value"], &["start"], &["count"]]),
@@ -386,7 +557,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         STRIP_PREFIX | STRIP_SUFFIX | COUNT | TRIM_CHARS => Some("String, String"),
         LEFT | RIGHT | REPEAT | GRAPHEME_AT => Some("String, Integer"),
         PAD_LEFT | PAD_RIGHT => Some("String, Integer[, String]"),
-        GRAPHEMES_COUNT => Some("String"),
+        GRAPHEMES_COUNT | DISPLAY_WIDTH => Some("String"),
         FIND => Some("String, String[, Integer]"),
         MID => Some("String, Integer, Integer"),
         REPLACE => Some("String, String, String"),
@@ -652,6 +823,7 @@ mod tests {
         PAD_RIGHT,
         GRAPHEME_AT,
         GRAPHEMES_COUNT,
+        DISPLAY_WIDTH,
         TRIM_CHARS,
         TO_BYTES,
         FIND,
@@ -1019,5 +1191,4 @@ LET p AS Thing = Thing[strings::toScalars(\"hi\")]\nEND FUNC\n";
 LET m AS Map OF String TO String = Map OF String TO String { \"k\" := strings::toScalars(\"hi\") }\nEND FUNC\n";
         assert!(uses_package(&project(vec![parse_file(map_src)])));
     }
-
 }

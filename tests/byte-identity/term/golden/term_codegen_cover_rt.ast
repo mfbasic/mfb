@@ -43,10 +43,16 @@
       { "kind": "binding", "mutable": false, "name": "size", "type": "TermSize", "value": { "kind": "call", "callee": "term.terminalSize", "arguments": [] }, "line": 44 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "size" }, "member": "columns" }] }] }, "line": 45 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "size" }, "member": "rows" }] }] }, "line": 46 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.clear", "arguments": [] }, "line": 49 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 50 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 53 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 55 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "string", "value": "日本語" }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "2" }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cafe" }, "right": { "kind": "string", "value": "́" } }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "4" }, { "kind": "string", "value": "👨‍👩‍👧‍👦" }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawGlyph", "arguments": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "6" }, { "kind": "number", "value": "26085" }] }, "line": 56 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "8" }, { "kind": "string", "value": "日本" }] }, "line": 57 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "8" }, { "kind": "string", "value": "X" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.clear", "arguments": [] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 65 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 67 }
       ]
     }
     ]

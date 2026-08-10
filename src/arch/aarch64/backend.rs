@@ -23,7 +23,7 @@ pub(crate) struct Aarch64Backend;
 pub(crate) static AARCH64_BACKEND: Aarch64Backend = Aarch64Backend;
 
 impl Backend for Aarch64Backend {
-    fn select(&self, neutral: &[MirInstruction]) -> Vec<CodeInstruction> {
+    fn select(&self, neutral: Vec<MirInstruction>) -> Vec<CodeInstruction> {
         select_aarch64(neutral)
     }
 
@@ -61,6 +61,6 @@ mod tests {
     fn backend_select_empty_is_empty() {
         // `select_aarch64` loops over the input, so an empty slice yields an
         // empty Vec (no panic) — exercises the `select` body.
-        assert!(AARCH64_BACKEND.select(&[]).is_empty());
+        assert!(AARCH64_BACKEND.select(vec![]).is_empty());
     }
 }

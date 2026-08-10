@@ -1,0 +1,11 @@
+' plan-90-A Phase 3: process::shell runs a command line through `/bin/sh -c`.
+' `sh -c "exit 7"` exits 7, so waitFor returns 7.
+IMPORT process
+IMPORT io
+
+FUNC main AS Integer
+  RES p = process::shell("exit 7")
+  LET code = process::waitFor(p)
+  io::print(toString(code))
+  RETURN 0
+END FUNC

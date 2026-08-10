@@ -1,0 +1,32 @@
+{
+  "project": "process_sendbytes",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "process", "line": 3 },
+    { "module": "io", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "p", "type": null, "value": { "kind": "call", "callee": "process.spawn", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "grep" }, { "kind": "string", "value": "-q" }, { "kind": "string", "value": "hello" }] }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "data", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "104" }, { "kind": "number", "value": "101" }, { "kind": "number", "value": "108" }, { "kind": "number", "value": "108" }, { "kind": "number", "value": "111" }, { "kind": "number", "value": "10" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.sendBytes", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "identifier", "value": "data" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.close", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "process.waitFor", "arguments": [{ "kind": "identifier", "value": "p" }] }] }] }, "line": 12 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 13 }
+      ]
+    }
+    ]
+  }
+  ]
+}

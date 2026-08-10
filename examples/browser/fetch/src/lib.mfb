@@ -63,7 +63,11 @@ FUNC resolveLocation(base AS net::Url, loc AS String) AS String
   LET target AS String = strings::trim(loc)
   IF strings::contains(target, "://") THEN RETURN target
   LET authority AS String = base.scheme & "://" & base.host & ":" & toString(base.port)
-  IF strings::startsWith(target, "/") THEN RETURN authority & target
+  IF strings::startsWith(target, "//") THEN 
+    RETURN base.scheme & ":" & target
+  ELSEIF strings::startsWith(target, "/") THEN 
+    RETURN authority & target
+  END IF
   MUT dir AS String = base.path
   LET slash AS Integer = lastSlash(dir)
   IF slash >= 0 THEN
@@ -74,11 +78,59 @@ FUNC resolveLocation(base AS net::Url, loc AS String) AS String
   RETURN authority & dir & target
 END FUNC
 
-' Fetch one external stylesheet and return its text.
-FUNC fetchCss(base AS net::Url, href AS String) AS String
-  LET url AS net::Url = net::toUrl(resolveLocation(base, href))
-  LET resp AS http::Response = http::read(url)
-  RETURN toString(resp.body)
+' Fetch several external stylesheets concurrently and return their texts.
+'
+' Blocking http::read would fetch them one after another. Instead each sheet is
+' started with http::startRead, which opens its connection and writes its
+' request up front and returns a drivable http::Stream without waiting — so all
+' the requests are in flight at once. The streams are collected into a
+' List OF RES http::Stream STATE PendingState (a resource per open connection),
+' then driven cooperatively: one pass over the list per round pumps only the
+' streams that have bytes ready, so a slow sheet never blocks a fast one, until
+' every stream is http::done. Finally each completed stream is parsed with
+' http::finish into its response body.
+'
+' A stylesheet whose URL is malformed, whose connection fails, or whose response
+' errors is simply skipped, matching a page that renders without it. The
+' returned list holds only the CSS bodies that were fetched successfully. The
+' whole streams list is owned by this function's scope, so every connection is
+' closed exactly once when it returns.
+FUNC fetchStyles(base AS net::Url, hrefs AS List OF String) AS List OF String
+  MUT streams AS List OF RES http::Stream STATE PendingState = []
+
+  ' Kick off every request. A sheet that cannot even connect is left out of the
+  ' drive set; the diverging TRAP handler means its handle is never added.
+  FOR EACH href IN hrefs
+    RES s AS http::Stream STATE PendingState = http::startRead(net::toUrl(resolveLocation(base, href))) TRAP(e)
+      CONTINUE FOR
+    END TRAP
+    streams = collections::append(streams, s)
+  NEXT
+
+  ' Drive all streams together until each has completed. Each round pumps only
+  ' the streams with data ready, so no single stream is blocked on waiting for
+  ' another; `pending` stays TRUE while any stream still needs more bytes.
+  MUT pending AS Boolean = TRUE
+  DO WHILE pending
+    pending = FALSE
+    FOR EACH s IN streams
+      IF http::done(s) = FALSE THEN
+        IF http::ready(s) THEN http::pump(s)
+        pending = TRUE
+      END IF
+    NEXT
+  LOOP
+
+  ' Parse each completed stream; drop any whose exchange failed.
+  MUT cssTexts AS List OF String = []
+  FOR EACH s IN streams
+    LET resp AS http::Response = http::finish(s) TRAP(e)
+      CONTINUE FOR
+    END TRAP
+    LET css AS String = toString(resp.body)
+    IF css <> "" THEN cssTexts = collections::append(cssTexts, css)
+  NEXT
+  RETURN cssTexts
 END FUNC
 
 ' Turn a final response into a LoadResult: parse HTML into a DOM, fetch its
@@ -94,18 +146,9 @@ FUNC pageResult(resp AS http::Response, u AS net::Url, secure AS Boolean) AS Loa
   END IF
   MUT document AS Node = dom::parse(body)
   LET links AS List OF String = dom::styleLinks(document)
-  MUT cssTexts AS List OF String = []
-  MUT loaded AS Integer = 1
+  LET cssTexts AS List OF String = fetchStyles(u, links)
+  LET loaded AS Integer = 1 + len(cssTexts)
   LET total AS Integer = 1 + len(links)
-  FOR EACH href IN links
-    LET css AS String = fetchCss(u, href) TRAP(e)
-      RECOVER ""
-    END TRAP
-    IF css <> "" THEN
-      cssTexts = collections::append(cssTexts, css)
-      loaded = loaded + 1
-    END IF
-  NEXT
   document = dom::attachCss(document, cssTexts)
   RETURN LoadResult[TRUE, document, dom::title(document), "", secure, loaded, total]
 END FUNC

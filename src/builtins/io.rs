@@ -1,4 +1,3 @@
-
 use super::descriptor::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, DefaultResolver, DefaultValue,
     Implementation, Lowering, Parameter, ParameterType, ReturnType,
@@ -75,6 +74,12 @@ const P_TIMEOUT: &[Parameter] = &[Parameter {
 }];
 
 const OV_WRITE: &[BuiltinOverload] = &[ov(P_VALUE, "Nothing")];
+// plan-89-A: `io::print`/`io::write` also accept an `AttributedString`, emitting
+// its visible text (attributes ignored — a text seam). The codegen rewrites the
+// argument to `toString(a)` (`builder_values.rs::lower_runtime_helper_call`), so
+// it reuses the String writer path. `printError`/`writeError` stay String-only.
+const P_VALUE_ATTR: &[Parameter] = &[Parameter::required("value", "AttributedString")];
+const OV_PRINT: &[BuiltinOverload] = &[ov(P_VALUE, "Nothing"), ov(P_VALUE_ATTR, "Nothing")];
 const OV_NIL_NOTHING: &[BuiltinOverload] = &[ov(&[], "Nothing")];
 const OV_NIL_BOOL: &[BuiltinOverload] = &[ov(&[], "Boolean")];
 const OV_NIL_STRING: &[BuiltinOverload] = &[ov(&[], "String")];
@@ -84,8 +89,8 @@ const OV_INPUT: &[BuiltinOverload] = &[ov(P_PROMPT, "String")];
 const OV_POLL: &[BuiltinOverload] = &[ov(P_TIMEOUT, "Boolean")];
 
 const IO_FUNCTIONS: &[BuiltinFunction] = &[
-    io_fn(PRINT, "print", OV_WRITE),
-    io_fn(WRITE, "write", OV_WRITE),
+    io_fn(PRINT, "print", OV_PRINT),
+    io_fn(WRITE, "write", OV_PRINT),
     io_fn(PRINT_ERROR, "printError", OV_WRITE),
     io_fn(WRITE_ERROR, "writeError", OV_WRITE),
     io_fn(FLUSH, "flush", OV_NIL_NOTHING),

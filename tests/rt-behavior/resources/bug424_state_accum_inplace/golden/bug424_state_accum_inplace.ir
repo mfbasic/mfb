@@ -1,0 +1,67 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug424_state_accum_inplace",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "public",
+    "name": "Accum",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "raw", "type": "List OF Byte" },
+    { "visibility": null, "line": 14, "name": "n", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "feed",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 17, "type": "File STATE Accum", "default": null },
+    { "name": "chunk", "line": 17, "type": "List OF Byte", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "stateAssign", "line": 18, "resource": "f", "value": { "kind": "with", "type": "Accum", "target": { "kind": "memberAccess", "type": "Accum", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "raw", "value": { "kind": "call", "type": "List OF Byte", "target": "collections.append", "args": [{ "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "memberAccess", "type": "Accum", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "raw" }, { "kind": "local", "name": "chunk" }] } }] } },
+    { "op": "stateAssign", "line": 19, "resource": "f", "value": { "kind": "with", "type": "Accum", "target": { "kind": "memberAccess", "type": "Accum", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Accum", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 22,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 23, "mutable": false, "name": "chunk", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "strings.toBytes", "args": [{ "kind": "const", "type": "String", "value": "abcd" }] } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "f", "type": "File STATE Accum", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/bug424_state_accum_inplace/project.json" }] } },
+    { "op": "bind", "line": 25, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 26,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "5" } },
+      "body": [
+      { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "feed", "args": [{ "kind": "local", "name": "f" }, { "kind": "local", "name": "chunk" }] } },
+      { "op": "assign", "line": 28, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "line": 32, "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "memberAccess", "type": "Accum", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "raw" }] } },
+    { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "len=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] } }, "right": { "kind": "const", "type": "String", "value": " n=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Accum", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "n" }] } }] } },
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Unknown", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "return", "line": 35, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

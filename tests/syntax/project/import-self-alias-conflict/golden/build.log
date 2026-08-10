@@ -1,0 +1,6 @@
+$ mfb build -ast -ir tests/syntax/project/import-self-alias-conflict
+   1 | IMPORT io AS self
+     | ^
+tests/syntax/project/import-self-alias-conflict/src/lib.mfb:1 error[2-201-0008 SYMBOL_DUPLICATE_IMPORT]: import is declared more than once
+               Import alias `self` conflicts with the reserved `self` specifier (the current package's own exported interface).
+[exit 1]

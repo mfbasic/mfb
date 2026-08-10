@@ -1,0 +1,53 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug197_assign_rhs_expected_type",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "make$AS$Integer",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 9, "value": { "kind": "const", "type": "Integer", "value": "42" } }
+    ]
+  },
+  {
+    "name": "make$AS$String",
+    "line": 12,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 13, "value": { "kind": "const", "type": "String", "value": "wrong" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 16,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 17, "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "assign", "line": 18, "name": "n", "value": { "kind": "call", "type": "Integer", "target": "make$AS$Integer", "args": [] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "n" }] }] } },
+    { "op": "return", "line": 20, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,73 @@
+# Collections codegen (List/Map/Set) invariants
+
+Invariants and hard-won lessons for the MFB compiler's native collection codegen — memory management, in-place mutation, presizing, optional-param lowering, HOF rewrite economics, and read-only borrows.
+
+## List memory management: headroom + amortized-O(1) append
+
+Collection mutation codegen is rewritten for amortized-O(1) append.
+
+- **In-place MUT append**: `try_inplace_append_assign` (builder_control.rs) detects `name = collections::append(name, item)` for a single element on a non-`by_ref` owned MUT list local and routes to `lower_list_append_in_place` (builder_collection_updates.rs): write into the spare slot + bump count/dataLength when there's room, else realloc with geometric headroom. Soundness rests on value semantics + copy-insertion (no live alias) and `FOR EACH` snapshotting count at loop entry (in-place writes only past that count). transform/filter use the same helper on their private accumulator.
+- **Headroom**: `emit_write_collection_header_full` sets capacity/dataCapacity > count/dataLength. Growth shape (`emit_geometric_step`): lookup 4→1024 then ×1.5; data 32→64KiB then ×1.5. Literals/splices stay tight.
+- **GOTCHA — data base uses capacity, never count**: with headroom the data region is at `header + capacity*ENTRY`. Always use `emit_collection_data_pointer`. Two hand-written runtime helpers (`_mfb_rt_fs_path_join`, `_mfb_rt_sort_string_list` in mod.rs) had count-based bases → read garbage from a grown list; fixed to load COLLECTION_OFFSET_CAPACITY. Any NEW hand-rolled collection reader must do the same. (Note: `_mfb_*` helper calls clobber all caller-saved registers x0-x17 — spill live scratch such as x14/x15 to stack slots.)
+- **Shrink-to-fit copies**: `copy_collection_tight` re-tightens every collection value copy (copy_flat_block routes collections to it) so headroom never leaks into a snapshot or across a thread boundary.
+- Removal stays eager-repack (no lazy holes) — meets the contract without liveBytes tracking.
+- Result: benchmark/append 44ms→5.3ms (4× faster than CPython, ~C -O2). Runtime proof: tests/collection-memory-grow-rt.
+
+## In-place map mutation: branch arg order, dead slack, BUCKETS_READY
+
+Facts for native map-mutation lowerings (`src/target/shared/code/map_mutate.rs`), from landing in-place `removeKey` (mapchurn churn 161→22 ms, ~7.3×):
+
+- **`emit_collection_payload_matches_value_branch(key_type, "", coll, key_off, key_len, query_key, ARG7, ARG8)`: ARG7 is the on-MATCH label, ARG8 is on-NO-MATCH.** Getting this backwards silently removes/keeps the WRONG entry (a swap made removeKey delete entry 0 regardless of the key — output looked plausible but was wrong). The authority is `lower_map_remove_key`'s scan: it passes `(…, scan_next, scan_keep)` where scan_next (skip/advance) is the removed-key MATCH path and scan_keep (retain) is NO-MATCH. Byte-identical parity vs the `.mfb` out-of-place path is the only real check.
+- **In-place map mutation leaves DEAD DATA SLACK, and that's the accepted pattern — NOT a leak.** `lower_map_set_in_place` already leaves "old value becomes dead slack, tightened on copy" when overwriting a value; an in-place removeKey that compacts only the ENTRY TABLE (shift `[i+1..count)` down one 40-byte slot, COUNT-=1) and leaves the removed key/value bytes as slack is consistent with it. The slack is reachable and reclaimed on the next TIGHT copy (`copy_collection_tight` on bind/return/param) — grow-realloc copies dataLength VERBATIM (keeps slack), tight copy drops it. So no data-tail shift / offset fixup is needed for correctness (though it would reclaim slack eagerly).
+- **The map hash index (open addressing, absolute entry indices, `mod.rs:2407-2703`) cannot be repaired incrementally after a delete** — no DELETED sentinel, probe halts on empty. Any in-place delete must set `BUCKETS_READY=0` (header +4) so the next probe rebuilds. A true O(1) tombstone delete would be a structural project (sentinel + probe + bucket_put + live-count + USED-skip in every `0..count` consumer), out of scope.
+- Header offsets: BUCKETS_READY +4 (u8), COUNT +8, DATA_LENGTH +24; entry stride 40 (`error_constants.rs:984-1019`). In-place assign hooks live in `builder_inplace_assign.rs`, wired into the `&&`-chain at `builder_control.rs` ~592; keep the `by_ref` + live-FOR-EACH guards (a compaction shift IS observable to a live iterator).
+- Entry-table-only compaction (vs a full data-tail rebuild) is what gave removeKey ~7.3× (churn 161→22ms).
+
+## Map copy-then-bulk-insert pays grows: presize instead
+
+`copy_collection_tight` (`builder_collection_layout.rs`) always sizes the copy **tight**: `capacity == count`, `dataCapacity == dataLength`, buckets sized for `count`. So a builtin that copies a map and then bulk-inserts NEW keys (the `merge` shape: `MUT result = a; FOR EACH e IN b: result = set(result, e.key, e.value)`) forces a geometric grow (entry+data realloc + bucket re-reserve) on the first inserted new key — even though the total size is known up front.
+
+Measured cost (`mapchurn iterate`, 1000-entry map + 10 new keys): the tight copy is ~2µs but the 10 inserts add ~5µs (~500ns each) — dominated by the grow/rehash, NOT the inserts themselves. `x = set(x, k, v)` on a from-scratch map (built by repeated `set`) IS cheap/in-place; the cost is specific to inserting into a **copy** of a populated map.
+
+A plain owning copy (`MUT r = a`) MUST stay tight (value semantics — the caller may never insert), so this can't be fixed in `copy_collection_tight`. The fix is builtin-specific: **presize**. Write a `copy_collection_with_capacity(a, extraEntries, extraData)` variant — alloc `HEADER + (count+extraEntries)*ENTRY + (dataLength+extraData) + buckets(count+extraEntries)`, copy a's entries+data verbatim, but store `COLLECTION_OFFSET_CAPACITY := count+extraEntries` and `COLLECTION_OFFSET_DATA_CAPACITY := dataLength+extraData` EXPLICITLY (the tight header write sets `capacity==count`; `emit_write_collection_header` is compile-time-count only). Then the bulk inserts hit no grow. Same principle as the list `sortBy` reserve (`reserve_integer_index_list`) and A1's index buffers.
+
+## Native collection lowering: optional params arrive pre-padded
+
+When adding a native codegen fast-path for a source-generic collection builtin (the `#collections_<name>$<types>` prefix gates in `builder_values.rs`), the NIR `Call.args` already has the **optional/default parameters filled in**, so gate on the FULL arity, not the source-visible one.
+
+Example: `collections::findLastIndex(xs, pred)` (2 source args) lowers to target `#collections_findLastIndex$String` with **3** args — `[xs, pred, endIndex]`, where the padded default `endIndex = -1` appears as `NirValue::Unary { op: "-", operand: Const Integer "1" }` (a unary negation of `1`, NOT a plain `Const "-1"`). Verify with `mfb build <proj> -ir` and grep the emitted `#collections_*` target.
+
+So a native gate written as `args.len() == 2` never fires — use `args.len() == 3` and have the lowering handle the default value generally (evaluate the padded arg, normalize negatives, bounds-check) rather than special-casing the default shape. This mirrors the Fill/`default_argument_padding` side. Also: in a predicate-scan lowering, test the callback's boolean (RESULT_VALUE_REGISTER) BEFORE calling `free_collection_loop_item` — its `bl _mfb_arena_free` clobbers that caller-saved register.
+
+## Native String-HOF rewrites are marginal/capped (except groupBy)
+
+The interpreted `.mfb` collection HOF bodies (`__collections_chunks`/`window`/`zip`/`groupBy` in `src/builtins/collections_package.mfb`) already build their results out of **native** primitives — `__collections_slice` (itself native, `lower_list_slice_range`), `collections::append` (native in-place), `collections::get`. So a native-codegen rewrite of one of these only removes the interpreted per-iteration dispatch overhead; the dominant cost — copying variable-length String bytes — is unchanged.
+
+Measured (aarch64, `--run 10`): native String `chunks` 13.4 → **12.98 ms**, native String `window` 88.66 → **84.53 ms** — correct, non-regressing, but **marginal (~3–5%) and NOT a full row clear** (Python's C-backed slicing shares string refs; mfb value-copies every byte, so `chunks` py=1.69 / `window` py=8.68 are unreachable). So these rows are **structurally capped**, like the transcendental band.
+
+Two hard lessons:
+1. **A per-element materialize+append+free rewrite REGRESSES** vs the `.mfb`'s per-chunk native `slice` — the first native `chunks` attempt was 2.3× SLOWER (30.5 ms) despite byte-identical output. Build tight inners with one `slice`-alloc per sub-list (`emit_string_list_slice_block`), not growable reserve+append per element.
+2. **Byte-identical output does NOT prove a native path is worthwhile — only the benchmark does.** Always re-measure with the same `--run 10` before claiming a win (cf. the sortBy gotcha where the `.mfb` fallback silently ran with correct output).
+
+**Big exception — groupBy.** The rule above holds only when the `.mfb` body is built on *efficient* native primitives. `__collections_groupBy` is NOT: it inserts into a `Map OF K TO List OF V` with `bucket = get(result,k); append; result = set(result,k,bucket)` per element — each get/set copies the WHOLE bucket (O(bucket)). Native groupBy (Integer key, String value) reusing the fixed-width inline hash table — buckets as top-level lists appended in place, no per-element map copy — took **groupby 162 → 0.366 ms (~445×), COMPLETE**. So before dismissing a HOF as "marginal", check whether its `.mfb` does a per-element whole-container copy (map set/get, whole-record STATE rebuild) — those are the big wins.
+
+Practical upshot: the constant-factor-only rewrites (chunks/window/zip) don't clear their rows; the band-clearers are groupBy-class O(bucket)→O(N) fixes and the E/F/G/H sub-plans (E borrow-element, F memchr, G bounds-check-elim, H vector-inline).
+
+## get read-only borrow: pending-temp trap + MATCH-desugar chain
+
+Making `collections::get` return an aliasing borrow (no copy) for a read-only MATCH scrutinee (dispatch union 160→43 ms, ~3.7×) surfaced two non-obvious traps:
+
+1. **`lower_value` registers EVERY freeable-flat call result as a pending temp** (`builder_values.rs:17` → `register_pending_temp:30`) — a statement-scope `arena_free`. `lower_value_owned` claims it (`claim_pending_temp:70`) to transfer ownership to the binding. If you make a `get` return an ALIAS (skip `materialize_owned_element`'s `copy_flat_block`) and bind it with plain `lower_value` (no claim), the alias stays registered → the statement-scope free `arena_free`s a pointer INTO the container's data region → garbage reads + free-list corruption that surfaces as a LATER "Allocation failed". **Fix: gate `register_pending_temp` to early-return while the borrow flag is set — the alias is not a fresh block.** (This cost the most debugging; the symptom looked like the alias pointer was wrong, but the alias was fine — it was being freed.)
+2. **`MATCH e` desugars to `$matchN = e; MATCH $matchN`, and the MATCH reads the scrutinee once as its `value` PLUS once per case via `UnionExtract`** (the variant bindings `n = UnionExtract($matchN)`). So a "used only as a MATCH scrutinee" classifier must (a) follow the copy chain `e → $matchN`, and (b) count `UnionExtract` reads as MATCH-internal, not as escapes. A naive `reads == scrutinee_reads` check sees `$matchN` read 4× (1 scrutinee + 3 UnionExtracts) and rejects it. BOTH `e` and `$matchN` must borrow, or the copy just moves from the `get` to the `$matchN` bind (net zero win).
+
+Soundness gates (a freed/dangling borrow is a UAF into the container): the container `L` must be immutable (bound ≤1, never `Assign`ed, not address-taken — a reassign frees `L`'s block while the borrow points in), and the element must be freeable-flat-**non-String** (a String `get` returns an OWNED fresh block — skipping its cleanup leaks; skipping its copy dangles). Gate the copy-skip AND the cleanup-skip (`owns_freeable_value` exclusion) on the SAME set. Verify with negatives (e RETURNED / container reassigned must fall back to copy) + a churn stress with interleaved allocations — matching output does NOT prove the borrow fired (the copy path is also correct); only the benchmark drop does.
+
+## Collection-binding validity = THREE orthogonal front-end gates (bug-434)
+
+Whether `MUT xs AS <collection>` (no initializer) compiles is decided by three INDEPENDENT checks, each with its own rule code — do not conflate them, and fixing one does not unlock the others:
+
+1. **Defaultability** (`src/ir/verify/resources.rs:is_defaultable`) → `2-203-0060 TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE`. Since bug-434 every `List`/`Set`/`Map` is defaultable **unconditionally** — the default is the empty collection, which materializes no element, so `T`/`K`/`V` defaultability is irrelevant. The three collection arms `return true` ahead of the FUNC/RES/STATE and union/enum arms. Only records recurse (field-by-field, cycle-guarded); a record reachable only through a collection field is defaultable because the collection arm terminates without recursing into the element. Codegen (`lower_default_value` → `lower_empty_collection`) already materialized the empty form this way, so bug-434 was a pure front-end predicate lift.
+2. **Resource ownership** → `2-203-0056 TYPE_COLLECTION_OWNERSHIP_VIOLATION`: an *ordinary* collection cannot store resource/thread ownership at all. So `Set OF File` / `List OF File` are rejected here regardless of defaultability — and even `MUT s AS Set OF File = []` fails on this axis, so any claim that "`= []` is already legal" for a resource-element collection is FALSE.
+3. **Element comparability** (`src/syntaxcheck/types.rs:is_comparable`) → `2-203-0061 TYPE_REQUIRES_COMPARABLE`: a `Set` element and a `Map` KEY must be comparable (a union/FUNC/resource is not); a `Map` VALUE has no such constraint.
+
+Upshot for future work: a plan/bug claiming "collection defaultability now makes `Set OF File` / `List OF RES X` valid" is wrong — those stay rejected on the ownership (and, for Set/key, comparability) axes. When a test asserted the *old* defaultability rejection of such a type, after a defaultability change repoint it to the axis that STILL rejects (ownership), don't assert acceptance. The `RES … STATE <collection>` and `FUNC … return STATE <collection>` checks (`ops.rs`, `calls.rs`) share the same `is_defaultable`, so STATE-of-a-collection fell out as valid for free.

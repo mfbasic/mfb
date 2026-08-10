@@ -1,0 +1,33 @@
+IMPORT vector
+IMPORT io
+
+' plan-86 H1: inline vector::normalize for Float vectors (2D/3D/4D). The inlined
+' `len = math::sqrt(Σf²); IF len=0 THEN FAIL error(77050002); RETURN N[f/len,…]`
+' must be BIT-IDENTICAL to the FUNC path. This pins the normal-path values (unit
+' vectors) across dimensions and magnitudes; the zero-length trap is covered by
+' tests/rt-error/vector/normalize_zero_rt.
+
+FUNC main() AS Integer
+  LET a AS vector::Float3 = vector::Float3[3.0, 4.0, 0.0]
+  LET na AS vector::Float3 = vector::normalize(a)
+  io::print("na=" & toString(na.x) & "," & toString(na.y) & "," & toString(na.z))
+  LET b AS vector::Float2 = vector::Float2[3.0, 4.0]
+  LET nb AS vector::Float2 = vector::normalize(b)
+  io::print("nb=" & toString(nb.x) & "," & toString(nb.y))
+  LET c AS vector::Float4 = vector::Float4[1.0, 2.0, 2.0, 4.0]
+  LET nc AS vector::Float4 = vector::normalize(c)
+  io::print("nc=" & toString(nc.x) & "," & toString(nc.y) & "," & toString(nc.z) & "," & toString(nc.w))
+  ' length(normalize(v)) is ~1 for any non-zero v (the inlined normalize feeds the
+  ' FUNC length here — its arg is a call, not re-eval-safe).
+  LET d AS vector::Float3 = vector::Float3[1.0, 2.0, 3.0]
+  io::print("ulen=" & toString(vector::length(vector::normalize(d))))
+  MUT acc AS Float = 0.0
+  FOR i = 1 TO 50
+    LET fk AS Float = toFloat(i)
+    LET v AS vector::Float3 = vector::Float3[fk + 1.0, fk * 0.5 + 2.0, 3.0 - fk * 0.25]
+    LET nv AS vector::Float3 = vector::normalize(v)
+    acc = acc + nv.x + nv.y * 2.0 + nv.z * 3.0
+  NEXT
+  io::print("acc=" & toString(acc))
+  RETURN 0
+END FUNC

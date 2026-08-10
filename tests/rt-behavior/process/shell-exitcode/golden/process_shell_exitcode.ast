@@ -1,0 +1,30 @@
+{
+  "project": "process_shell_exitcode",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "process", "line": 3 },
+    { "module": "io", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "p", "type": null, "value": { "kind": "call", "callee": "process.shell", "arguments": [{ "kind": "string", "value": "exit 7" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "code", "type": null, "value": { "kind": "call", "callee": "process.waitFor", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "code" }] }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -6,8 +6,9 @@ pub(super) use crate::arch::encode_operand::{field, immediate, shift};
 
 /// Decode a RISC-V integer register (lp64d ABI name) to its 0–31 number. The
 /// selected stream carries ABI names (`a0`, `t0`, `s11`, `sp`, `ra`, `zero`, …).
-pub(super) fn reg(name: String) -> Result<u8, String> {
-    Ok(match name.as_str() {
+pub(super) fn reg(name: impl AsRef<str>) -> Result<u8, String> {
+    let name = name.as_ref();
+    Ok(match name {
         "zero" => 0,
         "ra" => 1,
         "sp" => 2,
@@ -45,8 +46,9 @@ pub(super) fn reg(name: String) -> Result<u8, String> {
 }
 
 /// Decode a RISC-V FP register (lp64d ABI name) to its 0–31 number.
-pub(super) fn freg(name: String) -> Result<u8, String> {
-    Ok(match name.as_str() {
+pub(super) fn freg(name: impl AsRef<str>) -> Result<u8, String> {
+    let name = name.as_ref();
+    Ok(match name {
         "ft0" => 0,
         "ft1" => 1,
         "ft2" => 2,
@@ -87,7 +89,8 @@ pub(super) fn freg(name: String) -> Result<u8, String> {
 /// RVV register file (`v*`) is a distinct namespace from the GPR (`x*`/ABI) and
 /// FP (`f*`) files, so it has its own decoder; `v32` and non-`v` names are
 /// rejected.
-pub(super) fn vreg(name: String) -> Result<u8, String> {
+pub(super) fn vreg(name: impl AsRef<str>) -> Result<u8, String> {
+    let name = name.as_ref();
     name.strip_prefix('v')
         .and_then(|digits| digits.parse::<u8>().ok())
         .filter(|&num| num < 32)

@@ -10,7 +10,7 @@ impl CodeBuilder<'_> {
             let register = self.load_string_constant(&value)?;
             return Ok(Some(ValueResult {
                 type_: "String".to_string(),
-                location: register,
+                location: Operand::from(register.render()),
                 text: target.to_string(),
             }));
         }
@@ -37,6 +37,31 @@ impl CodeBuilder<'_> {
                     })
                     .collect::<Vec<_>>();
                 return Ok(Some(self.lower_list_literal("List OF Byte", &values)?));
+            }
+        }
+        if target == "strings.displayWidth" && args.len() == 1 {
+            if let Some(value) = self.static_string_value(&args[0]) {
+                // Fold via the same grapheme segmentation and the same utf8proc
+                // property table the runtime walk uses, so the folded and dynamic
+                // paths agree (plan-70-A): a cluster's width is its first
+                // non-zero-width scalar's width, all-zero-width → 0.
+                let width: i64 = crate::unicode::backend::graphemes(&value)
+                    .iter()
+                    .map(|cluster| {
+                        cluster
+                            .chars()
+                            .map(|c| {
+                                crate::unicode::runtime_tables::property_for_codepoint(c as u32)
+                                    .charwidth() as i64
+                            })
+                            .find(|w| *w != 0)
+                            .unwrap_or(0)
+                    })
+                    .sum();
+                return Ok(Some(self.lower_value(&NirValue::Const {
+                    type_: "Integer".to_string(),
+                    value: width.to_string(),
+                })?));
             }
         }
         let result = match target {
@@ -105,6 +130,9 @@ impl CodeBuilder<'_> {
             "strings.graphemesCount" if args.len() == 1 => {
                 self.lower_strings_graphemes_count(&args[0])?
             }
+            "strings.displayWidth" if args.len() == 1 => {
+                self.lower_strings_display_width(&args[0])?
+            }
             "strings.trimChars" if args.len() == 2 => {
                 self.lower_strings_trim_chars(&args[0], &args[1])?
             }
@@ -141,8 +169,8 @@ impl CodeBuilder<'_> {
     /// registers; does not touch x9-x19 except the passed scalar registers.
     pub(super) fn emit_chars_set_contains_branch(
         &mut self,
-        scalar_ptr: &str,
-        scalar_len: &str,
+        scalar_ptr: impl Into<Operand>,
+        scalar_len: impl Into<Operand>,
         chars_slot: usize,
         in_set: &str,
         not_in_set: &str,
@@ -161,14 +189,14 @@ impl CodeBuilder<'_> {
         let tmp_v = self.temporary_vreg();
         let cbyte_v = self.temporary_vreg();
         let rem_v = self.temporary_vreg();
-        let chars_ptr = chars_ptr_v.as_str();
-        let chars_len = chars_len_v.as_str();
-        let cursor = cursor_v.as_str();
-        let cand = cand_v.as_str();
-        let scalar_end = scalar_end_v.as_str();
-        let tmp = tmp_v.as_str();
-        let cbyte = cbyte_v.as_str();
-        let rem = rem_v.as_str();
+        let chars_ptr = &chars_ptr_v;
+        let chars_len = &chars_len_v;
+        let cursor = &cursor_v;
+        let cand = &cand_v;
+        let scalar_end = &scalar_end_v;
+        let tmp = &tmp_v;
+        let cbyte = &cbyte_v;
+        let rem = &rem_v;
         let cont_mask = self.temporary_vreg();
         let target_byte = self.temporary_vreg();
         // chars_ptr = chars data ptr, chars_len = chars len, cursor = index.
@@ -221,62 +249,69 @@ impl CodeBuilder<'_> {
 
     pub(super) fn emit_string_split_write_entry(
         &mut self,
-        entry: &str,
-        data: &str,
-        data_offset: &str,
-        segment_start: &str,
-        segment_end: &str,
-        source_data: &str,
+        entry: impl Into<Operand>,
+        data: impl Into<Operand>,
+        data_offset: impl Into<Operand>,
+        segment_start: impl Into<Operand>,
+        segment_end: impl Into<Operand>,
+        source_data: impl Into<Operand>,
     ) -> Result<(), String> {
+        let entry = entry.into();
+        let data_offset = data_offset.into();
+        let segment_start = segment_start.into();
+        let segment_end = segment_end.into();
         let tmp = self.temporary_vreg();
         let dst = self.temporary_vreg();
         let src = self.temporary_vreg();
         let byte = self.temporary_vreg();
-        let copy_segment_loop = self.label("strings_split_copy_segment_loop");
-        let copy_segment_done = self.label("strings_split_copy_segment_done");
         self.emit(abi::move_immediate(
             &tmp,
             "Byte",
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
-        self.emit(abi::store_u8(&tmp, entry, COLLECTION_ENTRY_OFFSET_FLAGS));
+        self.emit(abi::store_u8(
+            &tmp,
+            entry.clone(),
+            COLLECTION_ENTRY_OFFSET_FLAGS,
+        ));
         self.emit(abi::move_immediate(&tmp, "Integer", "0"));
         self.emit(abi::store_u64(
             &tmp,
-            entry,
+            entry.clone(),
             COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
         ));
         self.emit(abi::store_u64(
             &tmp,
-            entry,
+            entry.clone(),
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
         self.emit(abi::store_u64(
-            data_offset,
-            entry,
+            data_offset.clone(),
+            entry.clone(),
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
-        self.emit(abi::subtract_registers(&tmp, segment_end, segment_start));
+        self.emit(abi::subtract_registers(
+            &tmp,
+            segment_end.clone(),
+            segment_start.clone(),
+        ));
         self.emit(abi::store_u64(
             &tmp,
-            entry,
+            entry.clone(),
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        self.emit(abi::add_registers(&dst, data, data_offset));
-        self.emit(abi::add_registers(&src, source_data, segment_start));
-        self.emit(abi::label(&copy_segment_loop));
-        self.emit(abi::compare_immediate(&tmp, "0"));
-        self.emit(abi::branch_eq(&copy_segment_done));
-        self.emit(abi::load_u8(&byte, &src, 0));
-        self.emit(abi::store_u8(&byte, &dst, 0));
-        self.emit(abi::add_immediate(&src, &src, 1));
-        self.emit(abi::add_immediate(&dst, &dst, 1));
-        self.emit(abi::subtract_immediate(&tmp, &tmp, 1));
-        self.emit(abi::branch(&copy_segment_loop));
-        self.emit(abi::label(&copy_segment_done));
+        self.emit(abi::add_registers(&dst, data, data_offset.clone()));
+        self.emit(abi::add_registers(&src, source_data, segment_start.clone()));
+        // plan-86 F2: 8-byte word-copy (+ byte tail) of the segment (tmp bytes);
+        // `tmp` is recomputed just below, so its post-copy value does not matter.
+        self.emit_block_copy_advance(&dst, &src, &tmp, &byte, "strings_split_copy_segment");
         self.emit(abi::subtract_registers(&tmp, segment_end, segment_start));
-        self.emit(abi::add_registers(data_offset, data_offset, &tmp));
-        self.emit(abi::add_immediate(entry, entry, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_registers(data_offset.clone(), data_offset, &tmp));
+        self.emit(abi::add_immediate(
+            entry.clone(),
+            entry,
+            COLLECTION_ENTRY_SIZE,
+        ));
         Ok(())
     }
 
@@ -352,7 +387,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "Boolean".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: label.to_string(),
         })
     }
@@ -368,9 +403,9 @@ impl CodeBuilder<'_> {
     pub(super) fn emit_case_map_lookup(
         &mut self,
         map: UnicodeCaseMap,
-        codepoint: &str,
-        sequence_ptr: &str,
-        sequence_length: &str,
+        codepoint: impl Into<Operand>,
+        sequence_ptr: impl Into<Operand>,
+        sequence_length: impl Into<Operand>,
     ) {
         self.emit_unicode_u32_mapping_lookup(
             codepoint,

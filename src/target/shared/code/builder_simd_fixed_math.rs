@@ -106,7 +106,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "List OF Fixed".to_string(),
-            location: result_base,
+            location: Operand::from(result_base.render()),
             text,
         })
     }
@@ -121,14 +121,22 @@ impl CodeBuilder<'_> {
     /// result.
     fn emit_fixed_sqrt_vector(
         &mut self,
-        one: &str,
-        neg_mask: &str,
-        mask: &str,
-        sel: &str,
+        one: impl Into<Operand>,
+        neg_mask: impl Into<Operand>,
+        mask: impl Into<Operand>,
+        sel: impl Into<Operand>,
     ) -> Result<(), String> {
+        let one = one.into();
+        let neg_mask = neg_mask.into();
+        let mask = mask.into();
+        let sel = sel.into();
         // Negative-lane detection (raw < 0): arithmetic shift fills all-ones.
-        self.emit(abi::vector_sshr(mask, abi::VEC_SCRATCH[0], 63));
-        self.emit(abi::vector_orr(neg_mask, neg_mask, mask));
+        self.emit(abi::vector_sshr(mask.clone(), abi::VEC_SCRATCH[0], 63));
+        self.emit(abi::vector_orr(
+            neg_mask.clone(),
+            neg_mask.clone(),
+            mask.clone(),
+        ));
 
         // nhi=v1=src, nlo=v2=0, res=v3=0, rem=v4=0.
         self.emit(abi::vector_orr(
@@ -193,25 +201,29 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_add(
             abi::VEC_SCRATCH[7],
             abi::VEC_SCRATCH[7],
-            one,
+            one.clone(),
         ));
         // Per-lane: if rem >= trial { rem -= trial; res += 1 }.
         self.emit(abi::vector_cmge(
-            mask,
+            mask.clone(),
             abi::VEC_SCRATCH[4],
             abi::VEC_SCRATCH[7],
         ));
-        self.emit(abi::vector_and(sel, abi::VEC_SCRATCH[7], mask));
+        self.emit(abi::vector_and(
+            sel.clone(),
+            abi::VEC_SCRATCH[7],
+            mask.clone(),
+        ));
         self.emit(abi::vector_sub(
             abi::VEC_SCRATCH[4],
             abi::VEC_SCRATCH[4],
-            sel,
+            sel.clone(),
         ));
-        self.emit(abi::vector_and(sel, one, mask));
+        self.emit(abi::vector_and(sel.clone(), one.clone(), mask.clone()));
         self.emit(abi::vector_add(
             abi::VEC_SCRATCH[3],
             abi::VEC_SCRATCH[3],
-            sel,
+            sel.clone(),
         ));
         self.emit(abi::subtract_immediate(&digit, &digit, 1));
         self.emit(abi::branch(&loop_label));
@@ -219,15 +231,15 @@ impl CodeBuilder<'_> {
 
         // Round to nearest: if rem > res { res += 1 }.
         self.emit(abi::vector_cmgt(
-            mask,
+            mask.clone(),
             abi::VEC_SCRATCH[4],
             abi::VEC_SCRATCH[3],
         ));
-        self.emit(abi::vector_and(sel, one, mask));
+        self.emit(abi::vector_and(sel.clone(), one.clone(), mask.clone()));
         self.emit(abi::vector_add(
             abi::VEC_SCRATCH[3],
             abi::VEC_SCRATCH[3],
-            sel,
+            sel.clone(),
         ));
         Ok(())
     }
@@ -336,7 +348,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result_base, abi::stack_pointer(), base_slot));
         Ok(ValueResult {
             type_: "List OF Fixed".to_string(),
-            location: result_base,
+            location: Operand::from(result_base.render()),
             text,
         })
     }

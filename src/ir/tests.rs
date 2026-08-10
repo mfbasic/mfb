@@ -1832,7 +1832,11 @@ mod lower_tests {
             .iter()
             .find(|f| f.name == "make")
             .expect("make link function");
-        let sz = make.consts.iter().find(|(s, _)| s == "sz").expect("sz const");
+        let sz = make
+            .consts
+            .iter()
+            .find(|(s, _)| s == "sz")
+            .expect("sz const");
         assert_eq!(sz.1, 8, "SIZEOF of two CInt32 fields is 8 bytes");
     }
 
@@ -1869,7 +1873,11 @@ mod lower_tests {
             .iter()
             .find(|f| f.name == "make")
             .expect("make link function");
-        let bind = make.bind_in.iter().find(|b| b.slot == "cfg").expect("cfg bind");
+        let bind = make
+            .bind_in
+            .iter()
+            .find(|b| b.slot == "cfg")
+            .expect("cfg bind");
         let field = |name: &str| bind.fields.iter().find(|f| f.name == name).unwrap();
         assert_eq!(field("a").param.as_deref(), Some("seed"));
         assert_eq!(field("b").literal, Some(5));
@@ -2053,7 +2061,6 @@ mod lower_tests {
                 .any(|d| d.name == "Cache" && d.kind == IrDocKind::Resource));
         }
     }
-
 
     // ---- qualified builtin package call ----------------------------------
 
@@ -3514,10 +3521,10 @@ mod lower_tests {
              END FUNC\n\
              SUB main\nEND SUB\n",
         );
-        assert!(function(&ir, "parse").body.iter().any(|op| matches!(
-            op,
-            IrOp::For { .. }
-        )));
+        assert!(function(&ir, "parse")
+            .body
+            .iter()
+            .any(|op| matches!(op, IrOp::For { .. })));
     }
 
     #[test]
@@ -3909,10 +3916,10 @@ mod lower_construct_tests {
              END FUNC\n\
              SUB main\nEND SUB\n",
         );
-        assert!(function(&ir, "f").body.iter().any(|op| matches!(
-            op,
-            IrOp::Return { value: Some(_), .. }
-        )));
+        assert!(function(&ir, "f")
+            .body
+            .iter()
+            .any(|op| matches!(op, IrOp::Return { value: Some(_), .. })));
     }
 
     // A numeric literal bound with no expected type takes its type from the
@@ -5272,8 +5279,13 @@ END FUNC
             returns: "Integer".to_string(),
             accepts_args: false,
         });
-        let ir =
-            super::lower_project_with_external_functions(&concrete, entry, &ext_types, &ext_params, &[]);
+        let ir = super::lower_project_with_external_functions(
+            &concrete,
+            entry,
+            &ext_types,
+            &ext_params,
+            &[],
+        );
         assert_eq!(ir.entry.as_ref().unwrap().name, "main");
     }
 
@@ -6193,9 +6205,7 @@ END FUNC
                         else_body,
                         ..
                     } => count_ops(then_body) + count_ops(else_body),
-                    IrOp::Match { cases, .. } => {
-                        cases.iter().map(|c| count_ops(&c.body)).sum()
-                    }
+                    IrOp::Match { cases, .. } => cases.iter().map(|c| count_ops(&c.body)).sum(),
                     IrOp::While { body, .. }
                     | IrOp::For { body, .. }
                     | IrOp::DoUntil { body, .. }
@@ -6229,8 +6239,10 @@ END FUNC
 
         // Measure the per-`IF` op growth across two sizes; with the exponential
         // bug this difference is astronomically larger than any linear bound.
-        let small = count_ops(&function(&lower_src("trap_linear_small", &handler_source(5)), "main").body);
-        let large = count_ops(&function(&lower_src("trap_linear_large", &handler_source(15)), "main").body);
+        let small =
+            count_ops(&function(&lower_src("trap_linear_small", &handler_source(5)), "main").body);
+        let large =
+            count_ops(&function(&lower_src("trap_linear_large", &handler_source(15)), "main").body);
 
         // 10 extra `IF`s may add only a bounded, per-statement number of ops.
         // Post-fix each fall-through `IF` contributes a small constant (~4);
@@ -6334,8 +6346,10 @@ END FUNC
         );
         let body = &function(&ir, "main").body;
         // g is bound with an ISOLATED FUNC type.
-        let has_iso = body.iter().any(|op| matches!(op,
-            IrOp::Bind { type_, .. } if type_.starts_with("ISOLATED FUNC(")));
+        let has_iso = body.iter().any(|op| {
+            matches!(op,
+            IrOp::Bind { type_, .. } if type_.starts_with("ISOLATED FUNC("))
+        });
         assert!(has_iso, "expected an ISOLATED FUNC-typed local");
     }
 
@@ -6494,7 +6508,10 @@ END FUNC
                LET out AS List OF Integer = collections::transform(nums, LAMBDA(x) -> g(x))\n  \
                RETURN collections::get(out, 0)\nEND FUNC\n",
         );
-        assert!(ir.is_some(), "lambda calling a captured local did not lower");
+        assert!(
+            ir.is_some(),
+            "lambda calling a captured local did not lower"
+        );
         let ir = ir.unwrap();
         let j = json_of(&ir);
         assert!(j.contains("closure") || j.contains("capture"), "{j}");
@@ -6620,7 +6637,10 @@ END FUNC
                RETURN 0\nEND FUNC\n\
              FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
         );
-        assert!(ir.is_some(), "datetime::date named-first call did not lower");
+        assert!(
+            ir.is_some(),
+            "datetime::date named-first call did not lower"
+        );
     }
 
     // An overloaded-param-name builtin (`datetime::instant`) called with named
@@ -6637,7 +6657,10 @@ END FUNC
                RETURN 0\nEND FUNC\n\
              FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
         );
-        assert!(ir.is_some(), "datetime::instant overloaded named call did not lower");
+        assert!(
+            ir.is_some(),
+            "datetime::instant overloaded named call did not lower"
+        );
     }
 
     // A per-position builtin called with MORE positionals than it has parameters,
@@ -6654,6 +6677,9 @@ END FUNC
                RETURN 0\nEND FUNC\n\
              FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
         );
-        assert!(ir.is_some(), "datetime::date surplus-arity call did not lower");
+        assert!(
+            ir.is_some(),
+            "datetime::date surplus-arity call did not lower"
+        );
     }
 }

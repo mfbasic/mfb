@@ -158,12 +158,14 @@ impl CodeFunction {
         // `plan.validate()` and was caught only much later by the encoder ("branch
         // target label does not resolve"). Resolving it here fails at the layer
         // that owns the invariant, with the function named.
+        // Borrow each label name (a `Raw` string lends its `&str`); a `Raw` label
+        // never allocates for the set, and the membership test below borrows too.
         let defined_labels = self
             .instructions
             .iter()
             .filter(|instruction| instruction.op == CodeOp::Label)
-            .filter_map(|instruction| instruction.get("name"))
-            .collect::<std::collections::HashSet<_>>();
+            .filter_map(|instruction| instruction.operand("name").map(|n| n.rendered()))
+            .collect::<std::collections::HashSet<std::borrow::Cow<'_, str>>>();
         for instruction in &self.instructions {
             // Only label-targeting branches: `bl`/`blr` target a symbol (covered by
             // the relocation checks above) and `branch_self` takes no target.
@@ -185,8 +187,9 @@ impl CodeFunction {
             ) {
                 continue;
             }
-            if let Some(target) = instruction.get("target") {
-                if !defined_labels.contains(target) {
+            if let Some(target) = instruction.operand("target") {
+                let target = target.rendered();
+                if !defined_labels.contains(target.as_ref()) {
                     return Err(format!(
                         "native code function '{}' branches to label '{target}', which it \
                          does not define",
@@ -345,6 +348,44 @@ impl TypeModel {
                 ("filename".to_string(), "String".to_string()),
                 ("line".to_string(), "Integer".to_string()),
                 ("char".to_string(), "Integer".to_string()),
+            ],
+        );
+        // plan-89-A/B: `AttributedString` is an opaque built-in laid out internally
+        // as an ordinary 2-field record — a visible `text` String plus a `spans`
+        // attribute overlay. Modeling it as a record lets construction
+        // (`astrings::fromString`), value-semantic copy, scope-drop, and defaulting
+        // all reuse the generic record machinery. These fields are codegen-internal
+        // only — the frontend exposes NO user-visible fields (opacity).
+        //
+        // The overlay element `AttrSpan` (plan-89-B) is a codegen-internal flat
+        // record: an inclusive `[start,end]` scalar range, an insertion `seq` for
+        // the higher-start-wins tie-break, and a flat encoding of one attribute
+        // (`class` 0=flag/1=text/2=number, the enum-member ordinal, plus the String
+        // and Integer payloads). Registered UNCONDITIONALLY so `AttributedString`'s
+        // layout is fully resolvable even in a program that never imports `astrings`
+        // (a defaulted/parameter `AttributedString` still copies and drops). The
+        // companion declares a matching `AttrSpan` so the `.mfb` bridge can read and
+        // build spans; the two must stay field-identical.
+        record_fields.insert(
+            "AttrSpan".to_string(),
+            vec![
+                ("start".to_string(), "Integer".to_string()),
+                // `last` (not `end`): `end` is a reserved keyword and cannot follow
+                // `.` in the companion's member access. Field-identical to the
+                // companion's `AttrSpan`.
+                ("last".to_string(), "Integer".to_string()),
+                ("seq".to_string(), "Integer".to_string()),
+                ("class".to_string(), "Integer".to_string()),
+                ("member".to_string(), "Integer".to_string()),
+                ("text".to_string(), "String".to_string()),
+                ("number".to_string(), "Integer".to_string()),
+            ],
+        );
+        record_fields.insert(
+            "AttributedString".to_string(),
+            vec![
+                ("text".to_string(), "String".to_string()),
+                ("spans".to_string(), "List OF AttrSpan".to_string()),
             ],
         );
         // bug-374: record each user-declared resource's `CLOSE BY` op so

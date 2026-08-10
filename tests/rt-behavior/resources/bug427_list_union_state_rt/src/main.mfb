@@ -1,0 +1,43 @@
+IMPORT io
+IMPORT fs
+IMPORT collections
+
+' bug-427: a `List OF RES <ResourceUnion> STATE <S>` element could not be
+' spelled — the parser read the `RES <union>` element and left the trailing
+' `STATE <S>` dangling. Once it parses, the element must carry a uniform STATE
+' type across the union's variants that an extracted element can read.
+'
+' This fixture builds such a list, mutates each element's STATE, appends the
+' stateful resources, then extracts them two ways (`FOR EACH` and
+' `collections::get`) and reads `.state` back — proving the STATE survives the
+' round trip through the collection.
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+UNION Handle
+  File
+  Socket
+END UNION
+
+FUNC main AS Integer
+  MUT handles AS List OF RES Handle STATE Cursor = []
+
+  RES a AS Handle STATE Cursor = fs::createTempFile()
+  a.state.pos = 3
+  handles = collections::append(handles, a)
+
+  RES b AS Handle STATE Cursor = fs::createTempFile()
+  b.state.pos = 9
+  handles = collections::append(handles, b)
+
+  MUT total AS Integer = 0
+  FOR EACH h IN handles
+    total = total + h.state.pos
+  NEXT
+  io::print("total=" & toString(total))
+
+  RES first AS Handle STATE Cursor = collections::get(handles, 0)
+  io::print("first=" & toString(first.state.pos))
+  RETURN 0
+END FUNC

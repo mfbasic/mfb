@@ -23,7 +23,7 @@ fn emit_perf_arena_call(
         crate::target::shared::runtime::RuntimeHelper::Perf,
         call,
     );
-    push_symbol_address(from, name_symbol, abi::ARG[0], instructions, relocations);
+    push_symbol_address(from, name_symbol, abi::c_arg(0), instructions, relocations);
     instructions.push(abi::branch_link(&sym));
     relocations.push(internal_branch(from, &sym));
 }
@@ -88,14 +88,14 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
     ));
     let mut instructions = vec![
         abi::label("entry"),
-        abi::compare_immediate(abi::ARG[1], "0"),
+        abi::compare_immediate(abi::c_arg(1), "0"),
         abi::branch_eq("arena_alloc_invalid"),
-        abi::subtract_immediate(&align_low, abi::ARG[1], 1),
-        abi::and_registers(&align_pow2, abi::ARG[1], &align_low),
+        abi::subtract_immediate(&align_low, abi::c_arg(1), 1),
+        abi::and_registers(&align_pow2, abi::c_arg(1), &align_low),
         abi::compare_immediate(&align_pow2, "0"),
         abi::branch_ne("arena_alloc_invalid"),
         // eff align = max(align, 16)
-        abi::move_register(&eff_align, abi::ARG[1]),
+        abi::move_register(&eff_align, abi::c_arg(1)),
         abi::compare_immediate(&eff_align, &ARENA_MIN_CHUNK.to_string()),
         abi::branch_lo("arena_alloc_align_min"),
         abi::branch("arena_alloc_align_ready"),
@@ -103,7 +103,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::move_immediate(&eff_align, "Integer", &ARENA_MIN_CHUNK.to_string()),
         abi::label("arena_alloc_align_ready"),
         // normalized size = round_up(max(size, 1), 16)
-        abi::move_register(&size, abi::ARG[0]),
+        abi::move_register(&size, abi::c_arg(0)),
     ];
     // plan-67-F: open the `mfb_alloc` span now that size/eff_align are captured in
     // vregs (spilled across the perf `bl`); the body below re-derives ARG[0]/ARG[1].
@@ -157,7 +157,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::load_u64(&bin_next, &bin_head, 0),
         abi::store_u64(&bin_next, &bin_slot, ARENA_QUICK_BIN_BASE_OFFSET - 8),
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
-        abi::move_register(abi::RET[1], &bin_head),
+        abi::move_register(abi::mfb_return(1), &bin_head),
         abi::branch("arena_alloc_ret"),
         // Exact bin empty (allocator-01): bump-serve from the designated
         // victim (DV) — one active carve chunk held in the arena state.
@@ -178,7 +178,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::store_u64(&bin_next, ARENA_STATE_REGISTER, ARENA_CARVE_PTR_OFFSET),
         abi::store_u64(&bin_rem, ARENA_STATE_REGISTER, ARENA_CARVE_SIZE_OFFSET),
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
-        abi::move_register(abi::RET[1], &bin_head),
+        abi::move_register(abi::mfb_return(1), &bin_head),
         abi::branch("arena_alloc_ret"),
         // DV exhausted: retire its remnant (park ≤ QUICK_BIN_MAX in its exact
         // bin; a larger remnant joins the coalescing list) and acquire a new
@@ -202,8 +202,8 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::label("arena_alloc_dv_retire_list"),
         // Rare: a large remnant coalesces back into the list. `size` and
         // `eff_align` are loop-carried vregs, spilled across the call.
-        abi::move_register(abi::ARG[0], &bin_head),
-        abi::move_register(abi::ARG[1], &bin_rem),
+        abi::move_register(abi::c_arg(0), &bin_head),
+        abi::move_register(abi::c_arg(1), &bin_rem),
         abi::branch_link(ARENA_INSERT_FREE_SYMBOL),
         abi::label("arena_alloc_dv_cleared"),
         abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, ARENA_CARVE_SIZE_OFFSET),
@@ -238,7 +238,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::store_u64(&bin_next, ARENA_STATE_REGISTER, ARENA_CARVE_PTR_OFFSET),
         abi::store_u64(&bin_rem, ARENA_STATE_REGISTER, ARENA_CARVE_SIZE_OFFSET),
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
-        abi::move_register(abi::RET[1], &bin_head),
+        abi::move_register(abi::mfb_return(1), &bin_head),
         abi::branch("arena_alloc_ret"),
         // --- Segregated large-block bin pop (plan-25-A) ------------------------
         // A large request (size > QUICK_BIN_MAX, eff_align ≤ 16 — larger aligns
@@ -281,7 +281,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::load_u64(&lg_next, &lg_cur, 0),
         abi::store_u64(&lg_next, &lg_link, 0),
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
-        abi::move_register(abi::RET[1], &lg_cur),
+        abi::move_register(abi::mfb_return(1), &lg_cur),
         abi::branch("arena_alloc_ret"),
         // --- First-fit walk over the address-ordered free-list -----------------
         abi::label("arena_alloc_walk"),
@@ -400,7 +400,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::store_u64(&link, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
         abi::label("arena_alloc_done"),
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
-        abi::move_register(abi::RET[1], &aligned),
+        abi::move_register(abi::mfb_return(1), &aligned),
         abi::branch("arena_alloc_ret"),
     ]);
     // --- Grow: map a new block and carve the request from it ----------------
@@ -503,8 +503,8 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         // `ubase`/`usable` are live across the fill call, so the allocator spills
         // them (the call's clobber mask is every integer register).
         abi::add_immediate(&ubase, abi::return_register(), ARENA_BLOCK_HEADER_SIZE), // ubase
-        abi::move_register(abi::ARG[0], &ubase),
-        abi::move_register(abi::ARG[1], &usable),
+        abi::move_register(abi::c_arg(0), &ubase),
+        abi::move_register(abi::c_arg(1), &usable),
         abi::branch_link(ARENA_FILL_RANDOM_SYMBOL),
         // Serve the request directly from the fresh chunk (allocator-05): the
         // block was sized so `usable >= size + eff_align`, so instead of
@@ -549,7 +549,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
                 .expect("errorCode name")
                 .0,
         ),
-        abi::move_immediate(abi::RET[1], "Integer", "0"),
+        abi::move_immediate(abi::mfb_return(1), "Integer", "0"),
         abi::branch("arena_alloc_ret"),
         abi::label("arena_alloc_oom"),
         abi::move_immediate(
@@ -559,7 +559,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
                 .expect("errorCode name")
                 .0,
         ),
-        abi::move_immediate(abi::RET[1], "Integer", "0"),
+        abi::move_immediate(abi::mfb_return(1), "Integer", "0"),
         abi::label("arena_alloc_ret"),
     ]);
     // plan-67-F: close the `mfb_alloc` span at the single exit. The result (tag in
@@ -569,7 +569,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         let saved_tag = vregs.next();
         let saved_ptr = vregs.next();
         instructions.push(abi::move_register(&saved_tag, abi::return_register()));
-        instructions.push(abi::move_register(&saved_ptr, abi::RET[1]));
+        instructions.push(abi::move_register(&saved_ptr, abi::mfb_return(1)));
         emit_perf_arena_call(
             "perf.end",
             ARENA_ALLOC_SYMBOL,
@@ -578,7 +578,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
             &mut relocations,
         );
         instructions.push(abi::move_register(abi::return_register(), &saved_tag));
-        instructions.push(abi::move_register(abi::RET[1], &saved_ptr));
+        instructions.push(abi::move_register(abi::mfb_return(1), &saved_ptr));
     }
     instructions.push(abi::return_());
     Ok(finalize_vreg_helper(
@@ -608,8 +608,8 @@ pub(super) fn lower_simd_alloc_list() -> CodeFunction {
     let stride = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::move_register(&count, abi::ARG[0]),
-        abi::move_register(&type_code, abi::ARG[1]),
+        abi::move_register(&count, abi::c_arg(0)),
+        abi::move_register(&type_code, abi::c_arg(1)),
         // alloc size = COLLECTION_HEADER_SIZE + count*(stride + 8) (lookup + data).
         // Every list this helper builds has an 8-byte fixed-width element
         // (Integer/Float/Fixed/Money), so its stride is uniform — kind 2 drops
@@ -619,15 +619,15 @@ pub(super) fn lower_simd_alloc_list() -> CodeFunction {
             "Integer",
             &(list_entry_stride("Integer") + 8).to_string(),
         ),
-        abi::multiply_registers(abi::ARG[0], &count, &stride),
-        abi::add_immediate(abi::ARG[0], abi::ARG[0], COLLECTION_HEADER_SIZE),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::multiply_registers(abi::c_arg(0), &count, &stride),
+        abi::add_immediate(abi::c_arg(0), abi::c_arg(0), COLLECTION_HEADER_SIZE),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
         // x0 = result tag, x1 = pointer. Return x0 = base, x1 = status (0 = ok,
         // else the arena error tag) so the caller can raise the allocation error.
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq("simd_alloc_ok"),
-        abi::move_register(abi::RET[1], abi::return_register()),
+        abi::move_register(abi::mfb_return(1), abi::return_register()),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::branch("simd_alloc_ret"),
         abi::label("simd_alloc_ok"),
@@ -653,7 +653,7 @@ pub(super) fn lower_simd_alloc_list() -> CodeFunction {
         instructions.push(abi::move_immediate(&kind_zero, "Integer", "0"));
     }
     instructions.extend([
-        abi::move_register(&base, abi::RET[1]),
+        abi::move_register(&base, abi::mfb_return(1)),
         // Header: kind, keyType=0, valueType=typeCode, flagsVersion=1. The kind-0
         // build keeps the shared zero register for both stores, so its emitted
         // sequence is unchanged.
@@ -694,7 +694,7 @@ pub(super) fn lower_simd_alloc_list() -> CodeFunction {
     }
     instructions.extend([
         abi::move_register(abi::return_register(), &base),
-        abi::move_immediate(abi::RET[1], "Integer", "0"),
+        abi::move_immediate(abi::mfb_return(1), "Integer", "0"),
         abi::label("simd_alloc_ret"),
         abi::return_(),
     ]);
@@ -733,12 +733,12 @@ pub(super) fn lower_arena_insert_free() -> CodeFunction {
         abi::label("insert_find"),
         abi::compare_immediate(&cur, "0"),
         abi::branch_eq("insert_slot"),
-        abi::compare_registers(&cur, abi::ARG[0]),
+        abi::compare_registers(&cur, abi::c_arg(0)),
         abi::branch_hi("insert_slot"), // cur > ptr
         // Idempotency guard (allocator-03): the chunk is already a free node —
         // a double-free becomes a no-op instead of double-linking `ptr` and
         // coalescing against its own (about-to-be-rewritten) metadata.
-        abi::compare_registers(&cur, abi::ARG[0]),
+        abi::compare_registers(&cur, abi::c_arg(0)),
         abi::branch_eq("insert_already_free"),
         abi::move_register(&prev, &cur),
         abi::load_u64(&cur, &cur, 0),
@@ -750,10 +750,10 @@ pub(super) fn lower_arena_insert_free() -> CodeFunction {
         abi::branch_eq("insert_check_next"),
         abi::load_u64(&t1, &prev, 8),        // prev.size
         abi::add_registers(&t2, &prev, &t1), // prev_end
-        abi::compare_registers(&t2, abi::ARG[0]),
+        abi::compare_registers(&t2, abi::c_arg(0)),
         abi::branch_ne("insert_check_next"),
         // prev is address-adjacent: absorb the chunk into prev.
-        abi::add_registers(&t1, &t1, abi::ARG[1]),
+        abi::add_registers(&t1, &t1, abi::c_arg(1)),
         abi::store_u64(&t1, &prev, 8),
         abi::move_immediate(&merged, "Integer", "1"),
         abi::label("insert_check_next"),
@@ -775,34 +775,34 @@ pub(super) fn lower_arena_insert_free() -> CodeFunction {
         abi::store_u64(&t1, &prev, 0),
         abi::branch("insert_done"),
         abi::label("insert_next_unmerged"),
-        abi::add_registers(&t2, abi::ARG[0], abi::ARG[1]), // chunk_end
+        abi::add_registers(&t2, abi::c_arg(0), abi::c_arg(1)), // chunk_end
         abi::compare_registers(&t2, &cur),
         abi::branch_ne("insert_standalone"),
         // chunk is address-adjacent to cur: new node at ptr absorbs cur.
         abi::load_u64(&t1, &cur, 8), // cur.size
-        abi::add_registers(&t1, &t1, abi::ARG[1]),
-        abi::store_u64(&t1, abi::ARG[0], 8),
+        abi::add_registers(&t1, &t1, abi::c_arg(1)),
+        abi::store_u64(&t1, abi::c_arg(0), 8),
         abi::load_u64(&t1, &cur, 0), // cur.next
-        abi::store_u64(&t1, abi::ARG[0], 0),
+        abi::store_u64(&t1, abi::c_arg(0), 0),
         abi::branch("insert_link_prev"),
         abi::label("insert_standalone"),
-        abi::store_u64(&cur, abi::ARG[0], 0), // ptr.next = cur
-        abi::store_u64(abi::ARG[1], abi::ARG[0], 8), // ptr.size = size
+        abi::store_u64(&cur, abi::c_arg(0), 0), // ptr.next = cur
+        abi::store_u64(abi::c_arg(1), abi::c_arg(0), 8), // ptr.size = size
         abi::branch("insert_link_prev"),
         abi::label("insert_finish_no_next"),
         abi::compare_immediate(&merged, "0"),
         abi::branch_ne("insert_done"), // merged into prev, nothing to link
-        abi::store_u64(abi::ZERO, abi::ARG[0], 0), // ptr.next = 0
-        abi::store_u64(abi::ARG[1], abi::ARG[0], 8), // ptr.size = size
+        abi::store_u64(abi::ZERO, abi::c_arg(0), 0), // ptr.next = 0
+        abi::store_u64(abi::c_arg(1), abi::c_arg(0), 8), // ptr.size = size
         abi::branch("insert_link_prev"),
         abi::label("insert_link_prev"),
         abi::compare_immediate(&prev, "0"),
         abi::branch_eq("insert_set_head"),
-        abi::store_u64(abi::ARG[0], &prev, 0), // prev.next = ptr
+        abi::store_u64(abi::c_arg(0), &prev, 0), // prev.next = ptr
         abi::branch("insert_done"),
         abi::label("insert_set_head"),
         abi::store_u64(
-            abi::ARG[0],
+            abi::c_arg(0),
             ARENA_STATE_REGISTER,
             ARENA_FREE_LIST_HEAD_OFFSET,
         ),
@@ -1058,15 +1058,15 @@ pub(super) fn lower_arena_free(platform: &dyn CodegenPlatform) -> CodeFunction {
     let mut relocations = vec![internal_branch(ARENA_FREE_SYMBOL, ARENA_FILL_RANDOM_SYMBOL)];
     let mut instructions = vec![
         abi::label("entry"),
-        abi::move_register(&ptr, abi::ARG[0]),
+        abi::move_register(&ptr, abi::c_arg(0)),
         // normalize size = round_up(max(size, 1), 16) — x1 is the size arg.
-        abi::compare_immediate(abi::ARG[1], "0"),
+        abi::compare_immediate(abi::c_arg(1), "0"),
         abi::branch_ne("arena_free_size_nonzero"),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::label("arena_free_size_nonzero"),
-        abi::add_immediate(abi::ARG[1], abi::ARG[1], (ARENA_MIN_CHUNK - 1) as usize),
+        abi::add_immediate(abi::c_arg(1), abi::c_arg(1), (ARENA_MIN_CHUNK - 1) as usize),
         abi::move_immediate(&mask, "Integer", &not_15),
-        abi::and_registers(&size, abi::ARG[1], &mask),
+        abi::and_registers(&size, abi::c_arg(1), &mask),
     ];
     // plan-67-F: open the `mfb_free` span now that ptr/size are captured in vregs
     // (spilled across the perf `bl`); the body below re-derives ARG[0]/ARG[1].
@@ -1130,8 +1130,8 @@ pub(super) fn lower_arena_free(platform: &dyn CodegenPlatform) -> CodeFunction {
         abi::label("arena_free_scrub"),
         abi::compare_immediate(&size, &ARENA_MIN_CHUNK.to_string()),
         abi::branch_eq("arena_free_done"),
-        abi::add_immediate(abi::ARG[0], &ptr, ARENA_MIN_CHUNK as usize),
-        abi::subtract_immediate(abi::ARG[1], &size, ARENA_MIN_CHUNK as usize),
+        abi::add_immediate(abi::c_arg(0), &ptr, ARENA_MIN_CHUNK as usize),
+        abi::subtract_immediate(abi::c_arg(1), &size, ARENA_MIN_CHUNK as usize),
         abi::branch_link(ARENA_FILL_RANDOM_SYMBOL),
         abi::label("arena_free_done"),
     ]);
@@ -1175,7 +1175,7 @@ pub(super) fn lower_arena_destroy(platform: &dyn CodegenPlatform) -> Result<Code
         abi::compare_immediate(&head, "0"),
         abi::branch_eq("arena_destroy_done"),
         abi::load_u64(&next, &head, 0),
-        abi::load_u64(abi::SYSARG[1], &head, 8),
+        abi::load_u64(abi::c_arg(1), &head, 8),
         abi::move_register(abi::return_register(), &head),
     ];
     platform.emit_arena_unmap(&mut instructions)?;

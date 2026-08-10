@@ -133,75 +133,320 @@ const I: &str = "Integer";
 const DT_COMPONENTS: &[BuiltinOverload] = &[
     ov(&[req("seconds", I)], "Duration"),
     ov(&[req("seconds", I), req("nanos", I)], "Duration"),
-    ov(&[req("mins", I), req("seconds", I), req("nanos", I)], "Duration"),
-    ov(&[req("hours", I), req("mins", I), req("seconds", I), req("nanos", I)], "Duration"),
-    ov(&[req("days", I), req("hours", I), req("mins", I), req("seconds", I), req("nanos", I)], "Duration"),
+    ov(
+        &[req("mins", I), req("seconds", I), req("nanos", I)],
+        "Duration",
+    ),
+    ov(
+        &[
+            req("hours", I),
+            req("mins", I),
+            req("seconds", I),
+            req("nanos", I),
+        ],
+        "Duration",
+    ),
+    ov(
+        &[
+            req("days", I),
+            req("hours", I),
+            req("mins", I),
+            req("seconds", I),
+            req("nanos", I),
+        ],
+        "Duration",
+    ),
 ];
 const INSTANT_OVERLOADS: &[BuiltinOverload] = &[
     ov(&[req("seconds", I)], "Instant"),
     ov(&[req("seconds", I), req("nanos", I)], "Instant"),
-    ov(&[req("mins", I), req("seconds", I), req("nanos", I)], "Instant"),
-    ov(&[req("hours", I), req("mins", I), req("seconds", I), req("nanos", I)], "Instant"),
-    ov(&[req("days", I), req("hours", I), req("mins", I), req("seconds", I), req("nanos", I)], "Instant"),
+    ov(
+        &[req("mins", I), req("seconds", I), req("nanos", I)],
+        "Instant",
+    ),
+    ov(
+        &[
+            req("hours", I),
+            req("mins", I),
+            req("seconds", I),
+            req("nanos", I),
+        ],
+        "Instant",
+    ),
+    ov(
+        &[
+            req("days", I),
+            req("hours", I),
+            req("mins", I),
+            req("seconds", I),
+            req("nanos", I),
+        ],
+        "Instant",
+    ),
 ];
 
 const DATETIME_FUNCTIONS: &[BuiltinFunction] = &[
     df(NOW, "now", &[ov(&[], "Instant")]),
     df(MONOTONIC, "monotonic", &[ov(&[], "Duration")]),
     df(INSTANT, "instant", INSTANT_OVERLOADS),
-    df(DATE, "date", &[ov(&[req("year", I), req("month", I), req("day", I)], "Date")]),
-    df(TIME, "time", &[ov(&[req("hour", I), req("minute", I), opt("second", I, "0"), opt("nanos", I, "0")], "Time")]),
+    df(
+        DATE,
+        "date",
+        &[ov(
+            &[req("year", I), req("month", I), req("day", I)],
+            "Date",
+        )],
+    ),
+    df(
+        TIME,
+        "time",
+        &[ov(
+            &[
+                req("hour", I),
+                req("minute", I),
+                opt("second", I, "0"),
+                opt("nanos", I, "0"),
+            ],
+            "Time",
+        )],
+    ),
     df(DURATION, "duration", DT_COMPONENTS),
     df(UTC, "utc", &[ov(&[], "Zone")]),
     df(LOCAL, "local", &[ov(&[], "Zone")]),
-    df(FIXED_OFFSET, "fixedOffset", &[ov(&[req("offsetSeconds", I)], "Zone"), ov(&[req("hours", I), req("mins", I)], "Zone")]),
-    df(OFFSET_AT, "offsetAt", &[ov(&[req("zone", "Zone"), req("at", "Instant")], I)]),
-    df(IN_ZONE, "inZone", &[ov(&[req("at", "Instant"), req("zone", "Zone")], "DateTime")]),
+    df(
+        FIXED_OFFSET,
+        "fixedOffset",
+        &[
+            ov(&[req("offsetSeconds", I)], "Zone"),
+            ov(&[req("hours", I), req("mins", I)], "Zone"),
+        ],
+    ),
+    df(
+        OFFSET_AT,
+        "offsetAt",
+        &[ov(&[req("zone", "Zone"), req("at", "Instant")], I)],
+    ),
+    df(
+        IN_ZONE,
+        "inZone",
+        &[ov(&[req("at", "Instant"), req("zone", "Zone")], "DateTime")],
+    ),
     df(TO_UTC, "toUtc", &[ov(&[req("at", "Instant")], "DateTime")]),
-    df(TO_LOCAL, "toLocal", &[ov(&[req("at", "Instant")], "DateTime")]),
-    df(RESOLVE, "resolve", &[ov(&[req("dt", "DateTime")], "Instant")]),
-    df(CIVIL, "civil", &[ov(&[req("date", "Date"), req("time", "Time"), req("zone", "Zone")], "DateTime")]),
-    df(WITH_ZONE, "withZone", &[ov(&[req("dt", "DateTime"), req("zone", "Zone")], "DateTime")]),
-    df(ADD, "add", &[ov(&[req("at", "Instant"), req("by", "Duration")], "Instant")]),
-    df(SUBTRACT, "subtract", &[ov(&[req("at", "Instant"), req("by", "Duration")], "Instant")]),
-    df(BETWEEN, "between", &[ov(&[req("start", "Instant"), req("finish", "Instant")], "Duration")]),
-    df(ADD_DAYS, "addDays", &[ov(&[req("dt", "DateTime"), req("days", I)], "DateTime")]),
-    df(ADD_MONTHS, "addMonths", &[ov(&[req("dt", "DateTime"), req("months", I)], "DateTime")]),
-    df(COMPARE, "compare", &[ov(&[req("a", "Instant"), req("b", "Instant")], I)]),
-    df(IS_BEFORE, "isBefore", &[ov(&[req("a", "Instant"), req("b", "Instant")], "Boolean")]),
-    df(IS_AFTER, "isAfter", &[ov(&[req("a", "Instant"), req("b", "Instant")], "Boolean")]),
-    df(EQUALS, "equals", &[ov(&[req("a", "Instant"), req("b", "Instant")], "Boolean")]),
+    df(
+        TO_LOCAL,
+        "toLocal",
+        &[ov(&[req("at", "Instant")], "DateTime")],
+    ),
+    df(
+        RESOLVE,
+        "resolve",
+        &[ov(&[req("dt", "DateTime")], "Instant")],
+    ),
+    df(
+        CIVIL,
+        "civil",
+        &[ov(
+            &[
+                req("date", "Date"),
+                req("time", "Time"),
+                req("zone", "Zone"),
+            ],
+            "DateTime",
+        )],
+    ),
+    df(
+        WITH_ZONE,
+        "withZone",
+        &[ov(
+            &[req("dt", "DateTime"), req("zone", "Zone")],
+            "DateTime",
+        )],
+    ),
+    df(
+        ADD,
+        "add",
+        &[ov(
+            &[req("at", "Instant"), req("by", "Duration")],
+            "Instant",
+        )],
+    ),
+    df(
+        SUBTRACT,
+        "subtract",
+        &[ov(
+            &[req("at", "Instant"), req("by", "Duration")],
+            "Instant",
+        )],
+    ),
+    df(
+        BETWEEN,
+        "between",
+        &[ov(
+            &[req("start", "Instant"), req("finish", "Instant")],
+            "Duration",
+        )],
+    ),
+    df(
+        ADD_DAYS,
+        "addDays",
+        &[ov(&[req("dt", "DateTime"), req("days", I)], "DateTime")],
+    ),
+    df(
+        ADD_MONTHS,
+        "addMonths",
+        &[ov(&[req("dt", "DateTime"), req("months", I)], "DateTime")],
+    ),
+    df(
+        COMPARE,
+        "compare",
+        &[ov(&[req("a", "Instant"), req("b", "Instant")], I)],
+    ),
+    df(
+        IS_BEFORE,
+        "isBefore",
+        &[ov(&[req("a", "Instant"), req("b", "Instant")], "Boolean")],
+    ),
+    df(
+        IS_AFTER,
+        "isAfter",
+        &[ov(&[req("a", "Instant"), req("b", "Instant")], "Boolean")],
+    ),
+    df(
+        EQUALS,
+        "equals",
+        &[ov(&[req("a", "Instant"), req("b", "Instant")], "Boolean")],
+    ),
     df(NEGATE, "negate", &[ov(&[req("d", "Duration")], "Duration")]),
-    df(PLUS, "plus", &[ov(&[req("a", "Duration"), req("b", "Duration")], "Duration")]),
-    df(MINUS, "minus", &[ov(&[req("a", "Duration"), req("b", "Duration")], "Duration")]),
-    df(WEEKDAY, "weekday", &[ov(&[req("dt", "DateTime")], "Weekday")]),
+    df(
+        PLUS,
+        "plus",
+        &[ov(
+            &[req("a", "Duration"), req("b", "Duration")],
+            "Duration",
+        )],
+    ),
+    df(
+        MINUS,
+        "minus",
+        &[ov(
+            &[req("a", "Duration"), req("b", "Duration")],
+            "Duration",
+        )],
+    ),
+    df(
+        WEEKDAY,
+        "weekday",
+        &[ov(&[req("dt", "DateTime")], "Weekday")],
+    ),
     df(DAY_OF_YEAR, "dayOfYear", &[ov(&[req("dt", "DateTime")], I)]),
-    df(IS_LEAP_YEAR, "isLeapYear", &[ov(&[req("year", I)], "Boolean")]),
-    df(DAYS_IN_MONTH, "daysInMonth", &[ov(&[req("year", I), req("month", I)], I)]),
-    df(START_OF_DAY, "startOfDay", &[ov(&[req("dt", "DateTime")], "DateTime")]),
+    df(
+        IS_LEAP_YEAR,
+        "isLeapYear",
+        &[ov(&[req("year", I)], "Boolean")],
+    ),
+    df(
+        DAYS_IN_MONTH,
+        "daysInMonth",
+        &[ov(&[req("year", I), req("month", I)], I)],
+    ),
+    df(
+        START_OF_DAY,
+        "startOfDay",
+        &[ov(&[req("dt", "DateTime")], "DateTime")],
+    ),
     df(TO_MILLIS, "toMillis", &[ov(&[req("at", "Instant")], I)]),
     df(TO_NANOS, "toNanos", &[ov(&[req("at", "Instant")], I)]),
-    df(FROM_MILLIS, "fromMillis", &[ov(&[req("millis", I)], "Instant")]),
-    df(FORMAT, "format", &[ov(&[req("dt", "DateTime"), req("pattern", "String")], "String")]),
-    df(PARSE, "parse", &[ov(&[req("value", "String"), req("pattern", "String"), optn("zone", "Zone")], "DateTime")]),
+    df(
+        FROM_MILLIS,
+        "fromMillis",
+        &[ov(&[req("millis", I)], "Instant")],
+    ),
+    df(
+        FORMAT,
+        "format",
+        &[ov(
+            &[req("dt", "DateTime"), req("pattern", "String")],
+            "String",
+        )],
+    ),
+    df(
+        PARSE,
+        "parse",
+        &[ov(
+            &[
+                req("value", "String"),
+                req("pattern", "String"),
+                optn("zone", "Zone"),
+            ],
+            "DateTime",
+        )],
+    ),
     df(TO_ISO, "toIso", &[ov(&[req("dt", "DateTime")], "String")]),
-    df(PARSE_ISO, "parseIso", &[ov(&[req("value", "String")], "DateTime")]),
-    df(FORMAT_DURATION, "formatDuration", &[ov(&[req("d", "Duration")], "String")]),
+    df(
+        PARSE_ISO,
+        "parseIso",
+        &[ov(&[req("value", "String")], "DateTime")],
+    ),
+    df(
+        FORMAT_DURATION,
+        "formatDuration",
+        &[ov(&[req("d", "Duration")], "String")],
+    ),
     df(NOW_NANOS, "nowNanos", &[ov(&[], I)]),
     df(MONOTONIC_NANOS, "monotonicNanos", &[ov(&[], I)]),
-    df(LOCAL_OFFSET, "localOffset", &[ov(&[req("epochSeconds", I)], I)]),
+    df(
+        LOCAL_OFFSET,
+        "localOffset",
+        &[ov(&[req("epochSeconds", I)], I)],
+    ),
 ];
 
 const DATETIME_TYPES: &[BuiltinType] = &[
-    BuiltinType { name: "Instant", kind: TypeKind::Record, fields: &[] },
-    BuiltinType { name: "Duration", kind: TypeKind::Record, fields: &[] },
-    BuiltinType { name: "Date", kind: TypeKind::Record, fields: &[] },
-    BuiltinType { name: "Time", kind: TypeKind::Record, fields: &[] },
-    BuiltinType { name: "Zone", kind: TypeKind::Record, fields: &[] },
-    BuiltinType { name: "DateTime", kind: TypeKind::Record, fields: &[] },
-    BuiltinType { name: "ZoneKind", kind: TypeKind::Enum, fields: &[] },
-    BuiltinType { name: "Weekday", kind: TypeKind::Enum, fields: &[] },
-    BuiltinType { name: "Month", kind: TypeKind::Enum, fields: &[] },
+    BuiltinType {
+        name: "Instant",
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: "Duration",
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: "Date",
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: "Time",
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: "Zone",
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: "DateTime",
+        kind: TypeKind::Record,
+        fields: &[],
+    },
+    BuiltinType {
+        name: "ZoneKind",
+        kind: TypeKind::Enum,
+        fields: &[],
+    },
+    BuiltinType {
+        name: "Weekday",
+        kind: TypeKind::Enum,
+        fields: &[],
+    },
+    BuiltinType {
+        name: "Month",
+        kind: TypeKind::Enum,
+        fields: &[],
+    },
 ];
 
 /// Argument-dependent resolution for datetime: `resolve_call` argument validation
@@ -900,7 +1145,10 @@ mod tests {
         // Component builders accept 1..=5 (fixedOffset 1..=2) Integer args.
         assert_eq!(resolved(INSTANT, &["Integer"]), Some("Instant".into()));
         assert_eq!(
-            resolved(INSTANT, &["Integer", "Integer", "Integer", "Integer", "Integer"]),
+            resolved(
+                INSTANT,
+                &["Integer", "Integer", "Integer", "Integer", "Integer"]
+            ),
             Some("Instant".into())
         );
         assert_eq!(
@@ -921,8 +1169,14 @@ mod tests {
             resolved(TIME, &["Integer", "Integer", "Integer", "Integer"]),
             Some("Time".into())
         );
-        assert_eq!(resolved(OFFSET_AT, &["Zone", "Instant"]), Some("Integer".into()));
-        assert_eq!(resolved(IN_ZONE, &["Instant", "Zone"]), Some("DateTime".into()));
+        assert_eq!(
+            resolved(OFFSET_AT, &["Zone", "Instant"]),
+            Some("Integer".into())
+        );
+        assert_eq!(
+            resolved(IN_ZONE, &["Instant", "Zone"]),
+            Some("DateTime".into())
+        );
         assert_eq!(resolved(TO_UTC, &["Instant"]), Some("DateTime".into()));
         assert_eq!(resolved(TO_LOCAL, &["Instant"]), Some("DateTime".into()));
         assert_eq!(resolved(RESOLVE, &["DateTime"]), Some("Instant".into()));
@@ -934,7 +1188,10 @@ mod tests {
             resolved(WITH_ZONE, &["DateTime", "Zone"]),
             Some("DateTime".into())
         );
-        assert_eq!(resolved(ADD, &["Instant", "Duration"]), Some("Instant".into()));
+        assert_eq!(
+            resolved(ADD, &["Instant", "Duration"]),
+            Some("Instant".into())
+        );
         assert_eq!(
             resolved(SUBTRACT, &["Instant", "Duration"]),
             Some("Instant".into())
@@ -983,7 +1240,10 @@ mod tests {
             resolved(DAYS_IN_MONTH, &["Integer", "Integer"]),
             Some("Integer".into())
         );
-        assert_eq!(resolved(START_OF_DAY, &["DateTime"]), Some("DateTime".into()));
+        assert_eq!(
+            resolved(START_OF_DAY, &["DateTime"]),
+            Some("DateTime".into())
+        );
         assert_eq!(resolved(TO_MILLIS, &["Instant"]), Some("Integer".into()));
         assert_eq!(resolved(TO_NANOS, &["Instant"]), Some("Integer".into()));
         assert_eq!(resolved(FROM_MILLIS, &["Integer"]), Some("Instant".into()));
@@ -1001,7 +1261,10 @@ mod tests {
         );
         assert_eq!(resolved(TO_ISO, &["DateTime"]), Some("String".into()));
         assert_eq!(resolved(PARSE_ISO, &["String"]), Some("DateTime".into()));
-        assert_eq!(resolved(FORMAT_DURATION, &["Duration"]), Some("String".into()));
+        assert_eq!(
+            resolved(FORMAT_DURATION, &["Duration"]),
+            Some("String".into())
+        );
         assert_eq!(resolved(LOCAL_OFFSET, &["Integer"]), Some("Integer".into()));
         // Mismatched arity / types / unknown name -> None.
         assert_eq!(resolved(DATE, &["Integer", "Integer"]), None);
@@ -1032,12 +1295,19 @@ mod tests {
         assert_eq!(argument_types(NEGATE), Some(&["Duration"][..]));
         assert_eq!(argument_types(FORMAT_DURATION), Some(&["Duration"][..]));
         for n in [PLUS, MINUS] {
-            assert_eq!(argument_types(n), Some(&["Duration", "Duration"][..]), "{n}");
+            assert_eq!(
+                argument_types(n),
+                Some(&["Duration", "Duration"][..]),
+                "{n}"
+            );
         }
         for n in [IS_LEAP_YEAR, FROM_MILLIS, LOCAL_OFFSET] {
             assert_eq!(argument_types(n), Some(&["Integer"][..]), "{n}");
         }
-        assert_eq!(argument_types(DAYS_IN_MONTH), Some(&["Integer", "Integer"][..]));
+        assert_eq!(
+            argument_types(DAYS_IN_MONTH),
+            Some(&["Integer", "Integer"][..])
+        );
     }
 
     #[test]
@@ -1050,5 +1320,4 @@ mod tests {
         // OS-seam intrinsic -> runtime helper, so None.
         assert_eq!(implementation_name(LOCAL_OFFSET, 1), None);
     }
-
 }

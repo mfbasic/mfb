@@ -1,0 +1,67 @@
+' plan-76-B: tls::poll readiness over a live TLS connection to 8.8.8.8:443
+' (Google Public DNS — stable anycast, HTTPS, cert SANs the bare IP; validated
+' against dns.google via serverName). Output is reduced to stable booleans so the
+' golden does not depend on the remote response bytes. Runs on any backend whose
+' host executes it (macOS locally; openssl on Linux; schannel on Windows).
+IMPORT io
+IMPORT strings
+IMPORT tls
+IMPORT errorCode
+
+' poll(conn, -1) is a genuine negative timeout → ErrInvalidArgument.
+FUNC pollNeg(RES conn AS TlsSocket) AS Boolean
+  LET r AS Boolean = tls::poll(conn, -1)
+  RETURN FALSE
+  TRAP(e)
+    RETURN e.code = errorCode::ErrInvalidArgument
+  END TRAP
+END FUNC
+
+' Drive one request/response with a poll-gated read loop; returns TRUE iff a
+' valid HTTP reply was received (EOF ends the loop).
+FUNC fetch AS Boolean
+  RES conn = tls::connect("8.8.8.8", 443, 30000, "dns.google")
+  LET crlfBytes AS List OF Byte = [toByte(13), toByte(10)]
+  LET crlf AS String = toString(crlfBytes)
+  tls::writeText(conn, "GET / HTTP/1.1" & crlf & "Host: dns.google" & crlf & "Connection: close" & crlf & crlf)
+  MUT raw AS String = ""
+  MUT eof AS Boolean = FALSE
+  WHILE eof = FALSE
+    IF tls::poll(conn) THEN
+      LET chunk AS String = tls::readText(conn, 4096) TRAP(e)
+        eof = TRUE
+        RECOVER ""
+      END TRAP
+      IF eof = FALSE THEN
+        raw = raw & chunk
+      END IF
+    END IF
+  END WHILE
+  tls::close(conn)
+  RETURN strings::startsWith(raw, "HTTP/")
+END FUNC
+
+FUNC main AS Integer
+  RES conn = tls::connect("8.8.8.8", 443, 30000, "dns.google")
+  ' Nothing sent yet: an immediate readiness check is FALSE.
+  io::print("before=" & toString(tls::poll(conn, 0)))
+  ' A genuine negative timeout is rejected.
+  io::print("negInvalid=" & toString(pollNeg(conn)))
+  LET crlfBytes AS List OF Byte = [toByte(13), toByte(10)]
+  LET crlf AS String = toString(crlfBytes)
+  tls::writeText(conn, "HEAD / HTTP/1.0" & crlf & "Host: dns.google" & crlf & crlf)
+  ' Omitted timeout blocks until the reply is readable.
+  io::print("ready=" & toString(tls::poll(conn)))
+  LET reply AS String = tls::readText(conn, 4096)
+  io::print("httpResponse=" & toString(strings::startsWith(reply, "HTTP/")))
+  tls::close(conn)
+  ' Poll-gated read loop across a few connections: no leak / no data loss.
+  MUT allOk AS Boolean = TRUE
+  FOR i = 1 TO 5
+    IF fetch() = FALSE THEN
+      allOk = FALSE
+    END IF
+  NEXT
+  io::print("loop=" & toString(allOk))
+  RETURN 0
+END FUNC

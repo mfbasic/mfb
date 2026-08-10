@@ -32,8 +32,8 @@ pub(super) fn emit_executable_path_into(
             ctx.instructions.extend([
                 abi::move_immediate(&size_word, "Integer", &EXE_PATH_BUF.to_string()),
                 abi::store_u32(&size_word, abi::stack_pointer(), EXE_PATH_BUF),
-                abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
-                abi::add_immediate(abi::ARG[1], abi::stack_pointer(), EXE_PATH_BUF),
+                abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 0),
+                abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), EXE_PATH_BUF),
             ]);
             platform.emit_libc_call(
                 "_NSGetExecutablePath",
@@ -63,9 +63,9 @@ pub(super) fn emit_executable_path_into(
             }
             let count = vregs.next();
             ctx.instructions.extend([
-                abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
-                abi::add_immediate(abi::ARG[1], abi::stack_pointer(), 16),
-                abi::move_immediate(abi::ARG[2], "Integer", &EXE_PATH_BUF.to_string()),
+                abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 0),
+                abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), 16),
+                abi::move_immediate(abi::c_arg(2), "Integer", &EXE_PATH_BUF.to_string()),
             ]);
             platform.emit_libc_call(
                 "readlink",
@@ -75,7 +75,8 @@ pub(super) fn emit_executable_path_into(
                 ctx.relocations,
             )?;
             ctx.instructions.extend([
-                abi::move_register(&count, abi::return_register()),
+                // plan-85: readlink's byte count is a C result (`rax`, `%retC`).
+                abi::move_register(&count, abi::c_return(0)),
                 abi::compare_immediate(&count, "0"),
                 abi::branch_gt(&ok),
                 abi::branch(fail),
@@ -223,7 +224,7 @@ pub(super) fn lower_resource_path(
     let arg_data = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::move_register(&arg_ptr, abi::ARG[0]),
+        abi::move_register(&arg_ptr, abi::c_arg(0)),
         abi::load_u64(&arg_len, &arg_ptr, 0),
         abi::add_immediate(&arg_data, &arg_ptr, 8),
     ];
@@ -380,7 +381,7 @@ pub(super) fn lower_resource_path(
         abi::add_immediate(&total_len, &total_len, extra),
         // Arena block: 8-byte length header + bytes + NUL.
         abi::add_immediate(abi::return_register(), &total_len, 9),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(symbol, &mut relocations);
@@ -394,7 +395,7 @@ pub(super) fn lower_resource_path(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&block, abi::RET[1]),
+        abi::move_register(&block, abi::mfb_return(1)),
         abi::store_u64(&total_len, &block, 0),
         abi::add_immediate(&dst, &block, 8),
     ]);

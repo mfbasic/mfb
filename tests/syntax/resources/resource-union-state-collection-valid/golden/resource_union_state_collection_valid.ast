@@ -1,0 +1,76 @@
+{
+  "project": "resource_union_state_collection_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "net", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "PendingState",
+      "line": 9,
+      "fields": [
+      { "visibility": null, "name": "bytes", "type": "Integer", "line": 10 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Stream",
+      "line": 13,
+      "includes": [],
+      "variants": [
+      { "name": "File", "line": 14 },
+      { "name": "Socket", "line": 15 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "countList",
+      "line": 18,
+      "params": [
+      { "name": "streams", "type": "List OF RES Stream STATE PendingState", "default": null, "line": 18 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "streams" }] }, "line": 19 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "countMap",
+      "line": 22,
+      "params": [
+      { "name": "byId", "type": "Map OF String TO RES Stream STATE PendingState", "default": null, "line": 22 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "byId" }] }, "line": 23 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 26,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "streams", "type": "List OF RES Stream STATE PendingState", "value": { "kind": "list", "values": [] }, "line": 27 },
+      { "kind": "return", "value": { "kind": "call", "callee": "countList", "arguments": [{ "kind": "identifier", "value": "streams" }] }, "line": 28 }
+      ]
+    }
+    ]
+  }
+  ]
+}

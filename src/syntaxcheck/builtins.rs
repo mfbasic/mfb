@@ -1,6 +1,65 @@
 use super::helpers::*;
 use super::*;
 
+/// Whether an argument is a non-negative integer literal that fits in a `Byte`
+/// (0..=255) — the same rule `expression_compatible` applies to let a `Number`
+/// literal satisfy a `Byte` parameter. Only a `Number` literal qualifies; a
+/// computed `Integer` expression does not (matching the term-builtin and
+/// plain-FUNC call paths, which coerce literals but not values).
+fn expr_is_byte_literal(expression: &Expression) -> bool {
+    matches!(expression, Expression::Number(text)
+        if text.parse::<u16>().is_ok_and(|n| n <= u8::MAX as u16))
+}
+
+/// Resolve a table-driven builtin call, retrying with `Integer`-literal
+/// arguments coerced to `Byte` when the exact-typed resolution fails.
+///
+/// The table arm otherwise resolves by exact argument-type match, which rejects
+/// an integer literal passed to a `Byte` parameter — e.g.
+/// `astrings::foreground(255, 0, 0)`. `term` avoids this with its own
+/// per-position `expression_compatible` checker; this gives the table packages
+/// the same literal→`Byte` coercion generically. Only positions whose argument
+/// is a `Byte`-fitting `Number` literal are eligible to flip, and each subset is
+/// tried, so a literal that is validly either `Integer` or `Byte` resolves
+/// against whichever the overload expects. `astrings` is currently the only
+/// table package with a scalar `Byte` parameter, so no other package's
+/// resolution is affected.
+fn resolve_table_call_with_byte_literals(
+    callee: &str,
+    arg_types: &[String],
+    arguments: &[Expression],
+) -> Option<String> {
+    if let Some(return_type) = builtins::resolve_call_return_type(callee, arg_types) {
+        return Some(return_type);
+    }
+    let eligible: Vec<usize> = arg_types
+        .iter()
+        .enumerate()
+        .filter(|(index, type_name)| {
+            type_name.as_str() == "Integer"
+                && arguments.get(*index).is_some_and(expr_is_byte_literal)
+        })
+        .map(|(index, _)| index)
+        .collect();
+    // Bound the subset search: a `Byte`-parameter overload never has many
+    // positions, and this only runs on the error path.
+    if eligible.is_empty() || eligible.len() > 6 {
+        return None;
+    }
+    for mask in 1u32..(1u32 << eligible.len()) {
+        let mut trial: Vec<String> = arg_types.to_vec();
+        for (bit, &index) in eligible.iter().enumerate() {
+            if mask & (1 << bit) != 0 {
+                trial[index] = "Byte".to_string();
+            }
+        }
+        if let Some(return_type) = builtins::resolve_call_return_type(callee, &trial) {
+            return Some(return_type);
+        }
+    }
+    None
+}
+
 /// How a package's arguments are inferred.
 ///
 /// This is the only semantic axis that differed between the eighteen
@@ -36,40 +95,111 @@ struct BuiltinArgMode {
 }
 
 const BUILTIN_ARG_MODES: &[BuiltinArgMode] = &[
-    BuiltinArgMode { name: "encoding", args: ArgMode::Read },
-    BuiltinArgMode { name: "crypto", args: ArgMode::Read },
-    BuiltinArgMode { name: "strings", args: ArgMode::Read },
-    BuiltinArgMode { name: "math", args: ArgMode::Read },
-    BuiltinArgMode { name: "bits", args: ArgMode::Read },
+    BuiltinArgMode {
+        name: "encoding",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        // plan-89: every `astrings::` member reads its arguments (value-semantic;
+        // it never takes ownership of or mutates a caller's binding).
+        name: "astrings",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "crypto",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "strings",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "math",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "bits",
+        args: ArgMode::Read,
+    },
     BuiltinArgMode {
         name: "fs",
-        args: ArgMode::Consuming { consumes: builtins::fs::consumes_argument, default: ExprMode::Use },
+        args: ArgMode::Consuming {
+            consumes: builtins::fs::consumes_argument,
+            default: ExprMode::Use,
+        },
     },
-    BuiltinArgMode { name: "os", args: ArgMode::Use },
+    BuiltinArgMode {
+        name: "os",
+        args: ArgMode::Use,
+    },
     BuiltinArgMode {
         name: "net",
-        args: ArgMode::Consuming { consumes: builtins::net::consumes_argument, default: ExprMode::Use },
+        args: ArgMode::Consuming {
+            consumes: builtins::net::consumes_argument,
+            default: ExprMode::Use,
+        },
     },
     BuiltinArgMode {
         name: "tls",
-        args: ArgMode::Consuming { consumes: builtins::tls::consumes_argument, default: ExprMode::Use },
+        args: ArgMode::Consuming {
+            consumes: builtins::tls::consumes_argument,
+            default: ExprMode::Use,
+        },
     },
     BuiltinArgMode {
         name: "audio",
-        args: ArgMode::Consuming { consumes: builtins::audio::consumes_argument, default: ExprMode::Use },
+        args: ArgMode::Consuming {
+            consumes: builtins::audio::consumes_argument,
+            default: ExprMode::Use,
+        },
     },
-    BuiltinArgMode { name: "io", args: ArgMode::Read },
-    BuiltinArgMode { name: "json", args: ArgMode::Read },
-    BuiltinArgMode { name: "csv", args: ArgMode::Read },
-    BuiltinArgMode { name: "regex", args: ArgMode::Read },
-    BuiltinArgMode { name: "datetime", args: ArgMode::Read },
-    BuiltinArgMode { name: "money", args: ArgMode::Read },
-    BuiltinArgMode { name: "app", args: ArgMode::Read },
+    BuiltinArgMode {
+        // plan-90: a resource-owning package, but no call *consumes* its
+        // `Process` — `close` closes only the child's stdin and the child is
+        // reaped by scope-drop (`__drop`), so the handle is used (borrowed), never
+        // moved. Spawn's `args`/`cwd`/`env` are ordinary read/used values.
+        name: "process",
+        args: ArgMode::Use,
+    },
+    BuiltinArgMode {
+        name: "io",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "json",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "csv",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "regex",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "datetime",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "money",
+        args: ArgMode::Read,
+    },
+    BuiltinArgMode {
+        name: "app",
+        args: ArgMode::Read,
+    },
     BuiltinArgMode {
         name: "http",
-        args: ArgMode::Consuming { consumes: builtins::http::consumes_argument, default: ExprMode::Read },
+        args: ArgMode::Consuming {
+            consumes: builtins::http::consumes_argument,
+            default: ExprMode::Read,
+        },
     },
-    BuiltinArgMode { name: "vector", args: ArgMode::Use },
+    BuiltinArgMode {
+        name: "vector",
+        args: ArgMode::Use,
+    },
 ];
 
 /// The argument-inference mode for a table-checked builtin package, or `None`
@@ -236,7 +366,9 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        let Some(return_type) = builtins::resolve_call_return_type(callee, &arg_types) else {
+        let Some(return_type) =
+            resolve_table_call_with_byte_literals(callee, &arg_types, &arguments)
+        else {
             let expected = builtins::expected_arguments(callee)
                 .unwrap_or_else(|| "supported overload".to_string());
             self.report(
@@ -290,11 +422,46 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        let param_types = builtins::term::param_types(callee).unwrap_or(&[]);
         let arg_types = arguments
             .iter()
             .map(|argument| self.infer_expression(file, argument, locals, line, ExprMode::Read))
             .collect::<Vec<_>>();
+
+        // `term::drawText` additionally accepts an `AttributedString` at the text
+        // position; the source-companion overload honours its bold/underline
+        // attributes (the native `String` overload stays for a `String` argument).
+        // Its other positions are unchanged, so only the third expected type flips.
+        // The overload's body lives in a bridge source injected only when the
+        // project imports `astrings` (`term::bridge_uses_package`); require that
+        // import here so the call cannot route to an uninjected `#term_drawTextAttr`
+        // (`AttributedString` is always in scope, so a value can reach this call
+        // without `IMPORT astrings`).
+        let third_is_attributed = callee == builtins::term::DRAW_TEXT
+            && arg_types.len() == 3
+            && self.type_name(&arg_types[2]) == "AttributedString";
+        if third_is_attributed {
+            let astrings_imported = self.ast.files.iter().any(|file| {
+                file.imports
+                    .iter()
+                    .any(|import| import.package_name() == "astrings")
+            });
+            if !astrings_imported {
+                self.report(
+                    "TYPE_CALL_ARGUMENT_MISMATCH",
+                    &format!(
+                        "Call to `{display_callee}` with an `AttributedString` requires `IMPORT astrings`."
+                    ),
+                    file,
+                    line,
+                );
+                return self.term_return_type(callee);
+            }
+        }
+        let param_types: &[&str] = if third_is_attributed {
+            &["Integer", "Integer", "AttributedString"]
+        } else {
+            builtins::term::param_types(callee).unwrap_or(&[])
+        };
 
         let mut mismatch = false;
         for ((expected_name, actual), argument) in param_types
@@ -309,8 +476,8 @@ impl<'a> SyntaxChecker<'a> {
         }
 
         if mismatch {
-            let expected = builtins::expected_arguments(callee)
-                .unwrap_or_else(|| "no arguments".to_string());
+            let expected =
+                builtins::expected_arguments(callee).unwrap_or_else(|| "no arguments".to_string());
             let actual = arg_types
                 .iter()
                 .map(|type_| self.type_name(type_))
@@ -1046,6 +1213,79 @@ mod builtins_tests {
     // dispatch paths — the registry (`builtin_package_name` → a `BUILTIN_ARG_MODES`
     // package) or one of the four bespoke pre-checks. This asserts the paths
     // partition the callee namespace, so dispatch order is free.
+    // The table arm resolves by exact argument-type match, which rejects an
+    // integer literal passed to a `Byte` parameter. `resolve_table_call_with_byte_literals`
+    // gives the table packages the literal→`Byte` coercion `term` and plain FUNC
+    // calls already have — currently exercised only by `astrings::foreground` /
+    // `background` (the sole table functions with a scalar `Byte` parameter).
+    #[test]
+    fn byte_literal_coercion_resolves_astrings_color_constructors() {
+        use super::*;
+
+        let three_integers = vec!["Integer".to_string(); 3];
+        let in_range = vec![
+            Expression::Number("255".to_string()),
+            Expression::Number("0".to_string()),
+            Expression::Number("128".to_string()),
+        ];
+        // Exact match fails (params are Byte), coercion of the ≤255 literals wins.
+        assert_eq!(
+            resolve_table_call_with_byte_literals(
+                "astrings.foreground",
+                &three_integers,
+                &in_range
+            ),
+            Some("Attribute".to_string())
+        );
+        assert_eq!(
+            resolve_table_call_with_byte_literals(
+                "astrings.background",
+                &three_integers,
+                &in_range
+            ),
+            Some("Attribute".to_string())
+        );
+
+        // A >255 literal does not fit a Byte, stays Integer, and stays rejected.
+        let out_of_range = vec![
+            Expression::Number("300".to_string()),
+            Expression::Number("0".to_string()),
+            Expression::Number("0".to_string()),
+        ];
+        assert_eq!(
+            resolve_table_call_with_byte_literals(
+                "astrings.foreground",
+                &three_integers,
+                &out_of_range
+            ),
+            None
+        );
+
+        // A genuinely-Integer parameter (`fontSize`) still resolves — the literal
+        // is not force-flipped to Byte when the Integer overload already matches.
+        let one_integer = vec!["Integer".to_string()];
+        let fourteen = vec![Expression::Number("14".to_string())];
+        assert_eq!(
+            resolve_table_call_with_byte_literals("astrings.fontSize", &one_integer, &fourteen),
+            Some("Attribute".to_string())
+        );
+
+        // A non-literal Integer expression is not coerced (matches term/FUNC).
+        let identifier = vec![
+            Expression::Identifier("r".to_string()),
+            Expression::Number("0".to_string()),
+            Expression::Number("0".to_string()),
+        ];
+        assert_eq!(
+            resolve_table_call_with_byte_literals(
+                "astrings.foreground",
+                &three_integers,
+                &identifier
+            ),
+            None
+        );
+    }
+
     #[test]
     fn builtin_packages_claim_disjoint_callees() {
         use super::*;
@@ -1068,9 +1308,7 @@ mod builtins_tests {
             // package (the four bespoke packages own registry functions too but
             // are handled before the table, so they are excluded here).
             if let Some(package) = builtins::builtin_package_name(callee) {
-                if let Some(entry) =
-                    BUILTIN_ARG_MODES.iter().find(|entry| entry.name == package)
-                {
+                if let Some(entry) = BUILTIN_ARG_MODES.iter().find(|entry| entry.name == package) {
                     owners.push(entry.name);
                 }
             }
@@ -1539,6 +1777,46 @@ mod builtins_tests {
         // thread.start whose first arg is not an exported ISOLATED FUNC.
         assert!(rejects_with(
             "IMPORT thread\nFUNC main AS Integer\n  LET t = thread::start(main, \"x\", 1, 1)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn thread_start_self_entry_accepted() {
+        // plan-81: `thread::start(self::worker, …)` accepts a same-package
+        // EXPORT ISOLATED FUNC purely because its self-import signature carries
+        // `imported_package_export == true` — the checker itself has no `self`
+        // awareness.
+        assert!(accepts(concat!(
+            "IMPORT thread\n",
+            "IMPORT self\n",
+            "EXPORT ISOLATED FUNC echoText(worker AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n",
+            "  RETURN len(seed)\n",
+            "END FUNC\n",
+            "EXPORT FUNC spawn AS Integer\n",
+            "  LET t AS Thread OF String TO Integer = thread::start(self::echoText, \"hi\")\n",
+            "  RETURN thread::waitFor(t)\n",
+            "END FUNC\n",
+        )));
+    }
+
+    #[test]
+    fn thread_start_self_non_exported_rejected() {
+        // plan-81: `self::` sees only EXPORT symbols, so a PUBLIC (non-exported)
+        // ISOLATED FUNC is invisible through `self` and rejected as a thread entry,
+        // exactly as an external importer would see it.
+        assert!(rejects_with(
+            concat!(
+                "IMPORT thread\n",
+                "IMPORT self\n",
+                "ISOLATED FUNC hidden(worker AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n",
+                "  RETURN len(seed)\n",
+                "END FUNC\n",
+                "EXPORT FUNC spawn AS Integer\n",
+                "  LET t AS Thread OF String TO Integer = thread::start(self::hidden, \"hi\")\n",
+                "  RETURN thread::waitFor(t)\n",
+                "END FUNC\n",
+            ),
             "TYPE_CALL_ARGUMENT_MISMATCH"
         ));
     }

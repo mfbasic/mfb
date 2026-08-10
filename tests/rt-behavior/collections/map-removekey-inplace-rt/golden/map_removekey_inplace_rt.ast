@@ -1,0 +1,140 @@
+{
+  "project": "map_removekey_inplace_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "showMap",
+      "line": 12,
+      "params": [
+      { "name": "m", "type": "Map OF String TO Integer", "default": null, "line": 12 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "out", "type": "String", "value": { "kind": "string", "value": "" }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "ks", "type": "List OF String", "value": { "kind": "call", "callee": "collections.keys", "arguments": [{ "kind": "identifier", "value": "m" }] }, "line": 14 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "ks" }] }, "right": { "kind": "number", "value": "1" } },
+        "step": null,
+        "line": 15,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "k", "type": "String", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "ks" }, { "kind": "identifier", "value": "i" }] }, "line": 16 },
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "identifier", "value": "k" } }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "identifier", "value": "k" }] }] } }, "right": { "kind": "string", "value": " " } }, "line": 17 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "out" }, "line": 19 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 22,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "m", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [] }, "line": 23 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "number", "value": "5" },
+        "step": null,
+        "line": 24,
+        "body": [
+        { "kind": "assignment", "name": "m", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] }, { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "10" } }] }, "line": 25 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "init: " }, "right": { "kind": "call", "callee": "showMap", "arguments": [{ "kind": "identifier", "value": "m" }] } }] }, "line": 27 },
+      { "kind": "assignment", "name": "m", "value": { "kind": "call", "callee": "collections.removeKey", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "string", "value": "2" }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rm2: " }, "right": { "kind": "call", "callee": "showMap", "arguments": [{ "kind": "identifier", "value": "m" }] } }] }, "line": 29 },
+      { "kind": "assignment", "name": "m", "value": { "kind": "call", "callee": "collections.removeKey", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "string", "value": "0" }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rm0: " }, "right": { "kind": "call", "callee": "showMap", "arguments": [{ "kind": "identifier", "value": "m" }] } }] }, "line": 31 },
+      { "kind": "assignment", "name": "m", "value": { "kind": "call", "callee": "collections.removeKey", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "string", "value": "5" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rm5: " }, "right": { "kind": "call", "callee": "showMap", "arguments": [{ "kind": "identifier", "value": "m" }] } }] }, "line": 33 },
+      { "kind": "assignment", "name": "m", "value": { "kind": "call", "callee": "collections.removeKey", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "string", "value": "99" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rm99: " }, "right": { "kind": "call", "callee": "showMap", "arguments": [{ "kind": "identifier", "value": "m" }] } }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "has1: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.hasKey", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "string", "value": "1" }] }] } }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "has2: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.hasKey", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "string", "value": "2" }] }] } }] }, "line": 37 },
+      { "kind": "assignment", "name": "m", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "string", "value": "2" }, { "kind": "number", "value": "222" }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "readd2: " }, "right": { "kind": "call", "callee": "showMap", "arguments": [{ "kind": "identifier", "value": "m" }] } }, "right": { "kind": "string", "value": " get2=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "string", "value": "2" }] }] } }] }, "line": 39 },
+      { "kind": "binding", "mutable": true, "name": "mi", "type": "Map OF Integer TO Integer", "value": { "kind": "map", "keyType": "Integer", "valueType": "Integer", "entries": [] }, "line": 41 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "number", "value": "4" },
+        "step": null,
+        "line": 42,
+        "body": [
+        { "kind": "assignment", "name": "mi", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "identifier", "value": "mi" }, { "kind": "identifier", "value": "i" }, { "kind": "identifier", "value": "i" }] }, "line": 43 }
+        ]
+      },
+      { "kind": "assignment", "name": "mi", "value": { "kind": "call", "callee": "collections.removeKey", "arguments": [{ "kind": "identifier", "value": "mi" }, { "kind": "number", "value": "2" }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int_rm2: keys=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "collections.keys", "arguments": [{ "kind": "identifier", "value": "mi" }] }] }] } }, "right": { "kind": "string", "value": " has2=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.hasKey", "arguments": [{ "kind": "identifier", "value": "mi" }, { "kind": "number", "value": "2" }] }] } }, "right": { "kind": "string", "value": " has3=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.hasKey", "arguments": [{ "kind": "identifier", "value": "mi" }, { "kind": "number", "value": "3" }] }] } }] }, "line": 46 },
+      { "kind": "binding", "mutable": true, "name": "c", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [] }, "line": 49 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "number", "value": "99" },
+        "step": null,
+        "line": 50,
+        "body": [
+        { "kind": "assignment", "name": "c", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] }, { "kind": "identifier", "value": "i" }] }, "line": 51 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "removed", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 53 },
+      {
+        "kind": "for",
+        "name": "stp",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "number", "value": "199" },
+        "step": null,
+        "line": 54,
+        "body": [
+        { "kind": "assignment", "name": "c", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "100" }, "right": { "kind": "identifier", "value": "stp" } }] }, { "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "100" }, "right": { "kind": "identifier", "value": "stp" } }] }, "line": 55 },
+        {
+          "kind": "if",
+          "condition": { "kind": "call", "callee": "collections.hasKey", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "stp" }] }] },
+          "line": 56,
+          "then": [
+          { "kind": "assignment", "name": "c", "value": { "kind": "call", "callee": "collections.removeKey", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "stp" }] }] }, "line": 57 },
+          { "kind": "assignment", "name": "removed", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "removed" }, "right": { "kind": "number", "value": "1" } }, "line": 58 }
+          ],
+          "else": [
+          ]
+        }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "sumv", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 61 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "call", "callee": "collections.values", "arguments": [{ "kind": "identifier", "value": "c" }] },
+        "line": 62,
+        "body": [
+        { "kind": "assignment", "name": "sumv", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "sumv" }, "right": { "kind": "identifier", "value": "v" } }, "line": 63 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "churn: size=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "c" }] }] } }, "right": { "kind": "string", "value": " sum=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "sumv" }] } }, "right": { "kind": "string", "value": " removed=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "removed" }] } }] }, "line": 65 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 66 }
+      ]
+    }
+    ]
+  }
+  ]
+}

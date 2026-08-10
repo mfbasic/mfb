@@ -35,7 +35,7 @@ pub(crate) struct X86_64Backend;
 pub(crate) static X86_64_BACKEND: X86_64Backend = X86_64Backend;
 
 impl Backend for X86_64Backend {
-    fn select(&self, neutral: &[MirInstruction]) -> Vec<CodeInstruction> {
+    fn select(&self, neutral: Vec<MirInstruction>) -> Vec<CodeInstruction> {
         select_x86(neutral, X86Abi::SysV)
     }
 
@@ -63,7 +63,7 @@ pub(crate) struct Win64Backend;
 pub(crate) static WIN64_BACKEND: Win64Backend = Win64Backend;
 
 impl Backend for Win64Backend {
-    fn select(&self, neutral: &[MirInstruction]) -> Vec<CodeInstruction> {
+    fn select(&self, neutral: Vec<MirInstruction>) -> Vec<CodeInstruction> {
         select_x86(neutral, X86Abi::Win64)
     }
 
@@ -96,7 +96,7 @@ mod tests {
         let backend = X86_64Backend;
         // select() lowers neutral MIR to x86 CodeInstructions.
         let mir = lower_to_mir(&[CodeInstruction::new("ret")]);
-        let out = backend.select(&mir);
+        let out = backend.select(mir);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].op.mnemonic(), "ret");
         // The register model is the SysV x86-64 model (arena_base = r15).
@@ -113,7 +113,7 @@ mod tests {
         let backend = Win64Backend;
         // Same ISA selection as SysV.
         let mir = lower_to_mir(&[CodeInstruction::new("ret")]);
-        let out = backend.select(&mir);
+        let out = backend.select(mir);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].op.mnemonic(), "ret");
         // The 32-byte shadow space is wired through both frame seams (plan-47-B §4.3).

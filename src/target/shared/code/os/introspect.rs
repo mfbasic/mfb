@@ -18,7 +18,7 @@ pub(super) fn lower_const_string(symbol: &str, value: &str) -> HelperResult {
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_immediate(abi::return_register(), "Integer", &(len + 9).to_string()),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = Vec::new();
@@ -27,7 +27,7 @@ pub(super) fn lower_const_string(symbol: &str, value: &str) -> HelperResult {
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&block, abi::RET[1]),
+        abi::move_register(&block, abi::mfb_return(1)),
         abi::move_immediate(&byte, "Integer", &len.to_string()),
         abi::store_u64(&byte, &block, 0),
     ]);
@@ -73,7 +73,9 @@ pub(super) fn lower_pid(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::move_register(RESULT_VALUE_REGISTER, abi::return_register()),
+        // plan-85: getpid's return is a C result (`rax`, `%retC`); read from the
+        // C-return register (byte-identical `x0` on AArch64/RISC-V).
+        abi::move_register(RESULT_VALUE_REGISTER, abi::c_return(0)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::return_(),
     ]);
@@ -99,7 +101,7 @@ pub(super) fn lower_cpu_count(
         let count = vregs.next();
         let mut instructions = vec![
             abi::label("entry"),
-            abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0), // &SYSTEM_INFO
+            abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 0), // &SYSTEM_INFO
         ];
         let mut relocations = Vec::new();
         platform.emit_libc_call(
@@ -127,14 +129,16 @@ pub(super) fn lower_cpu_count(
         PlatformFamily::MacOS => "58",
         PlatformFamily::Linux => "84",
         // Windows is handled above (GetSystemInfo); never reaches this sysconf id.
-        PlatformFamily::Windows => unreachable!("plan-66-B routes Windows cpuCount to GetSystemInfo"),
+        PlatformFamily::Windows => {
+            unreachable!("plan-66-B routes Windows cpuCount to GetSystemInfo")
+        }
     };
     let positive = format!("{symbol}_positive");
     let mut vregs = Vregs::new();
     let count = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::move_immediate(abi::ARG[0], "Integer", sc_nprocessors_onln),
+        abi::move_immediate(abi::c_arg(0), "Integer", sc_nprocessors_onln),
     ];
     let mut relocations = Vec::new();
     platform.emit_libc_call(
@@ -145,7 +149,9 @@ pub(super) fn lower_cpu_count(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::move_register(&count, abi::return_register()),
+        // plan-85: sysconf's return is a C result (`rax`, `%retC`); read from the
+        // C-return register (byte-identical `x0` on AArch64/RISC-V).
+        abi::move_register(&count, abi::c_return(0)),
         // sysconf returns -1 (or 0) on failure or an indeterminate answer: clamp
         // to a minimum of 1 so callers always get a usable count.
         abi::compare_immediate(&count, "1"),
@@ -181,7 +187,13 @@ pub(super) fn lower_os_wide_string_windows(
     let value = vregs.next();
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    platform.emit_os_wide_string(which, symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_os_wide_string(
+        which,
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_register(&value, abi::return_register()),
         abi::compare_immediate(&value, "0"),
@@ -225,8 +237,8 @@ pub(super) fn lower_host_name(
     let buf = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
-        abi::move_immediate(abi::ARG[1], "Integer", &BUF.to_string()),
+        abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 0),
+        abi::move_immediate(abi::c_arg(1), "Integer", &BUF.to_string()),
     ];
     let mut relocations = Vec::new();
     platform.emit_libc_call(
@@ -237,7 +249,8 @@ pub(super) fn lower_host_name(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
+        // plan-85: gethostname's return is a C result (`rax`, `%retC`).
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_eq(&ok),
         abi::branch(&fail),
         abi::label(&ok),
@@ -430,7 +443,7 @@ pub(super) fn lower_args(symbol: &str) -> HelperResult {
         abi::multiply_registers(&scratch, &count, &scratch),
         abi::add_registers(&scratch, &scratch, &data_bytes),
         abi::add_immediate(abi::return_register(), &scratch, COLLECTION_HEADER_SIZE),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     alloc_reloc(symbol, &mut relocations);
@@ -438,7 +451,7 @@ pub(super) fn lower_args(symbol: &str) -> HelperResult {
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&collection, abi::RET[1]),
+        abi::move_register(&collection, abi::mfb_return(1)),
         abi::move_immediate(&scratch, "Byte", &COLLECTION_KIND_LIST.to_string()),
         abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_KIND),
         abi::move_immediate(&scratch, "Byte", &COLLECTION_TYPE_NONE.to_string()),

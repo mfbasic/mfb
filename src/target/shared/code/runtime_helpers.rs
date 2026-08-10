@@ -133,9 +133,9 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
         // lock, dwMilliseconds=INFINITE, Flags=0). Returns BOOL; POSIX wants 0.
         "pthread_cond_wait" => {
             ctx.instructions.extend([
-                abi::move_immediate(abi::ARG[2], "Integer", "0"),
-                abi::subtract_immediate(abi::ARG[2], abi::ARG[2], 1), // INFINITE = (DWORD)-1
-                abi::move_immediate(abi::ARG[3], "Integer", "0"),     // Flags (exclusive)
+                abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+                abi::subtract_immediate(abi::c_arg(2), abi::c_arg(2), 1), // INFINITE = (DWORD)-1
+                abi::move_immediate(abi::c_arg(3), "Integer", "0"),       // Flags (exclusive)
             ]);
             call(ctx, from, "SleepConditionVariableSRW")?;
             ctx.instructions
@@ -152,8 +152,8 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
             let timed = format!("{from}_ctw_timeout_{n}");
             let done = format!("{from}_ctw_done_{n}");
             ctx.instructions.extend([
-                abi::move_immediate(abi::ARG[2], "Integer", "20"), // poll every 20ms
-                abi::move_immediate(abi::ARG[3], "Integer", "0"),
+                abi::move_immediate(abi::c_arg(2), "Integer", "20"), // poll every 20ms
+                abi::move_immediate(abi::c_arg(3), "Integer", "0"),
             ]);
             call(ctx, from, "SleepConditionVariableSRW")?;
             ctx.instructions.extend([
@@ -165,6 +165,25 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
                 abi::move_immediate(abi::return_register(), "Integer", "110"), // ETIMEDOUT
                 abi::label(&done),
             ]);
+        }
+        // nanosleep(&req, &rem): Win32 has no nanosleep. `req` (c_arg(0)) is a
+        // RELATIVE timespec {tv_sec, tv_nsec} (plan-91-A's parent sleep helper);
+        // convert it to whole milliseconds and call Sleep(dwMilliseconds). Sleep
+        // is uninterruptible, so report POSIX success (0) — the shared EINTR-retry
+        // loop then exits after this single Sleep.
+        "nanosleep" => {
+            ctx.instructions.extend([
+                abi::load_u64(abi::c_arg(1), abi::c_arg(0), 0), // tv_sec
+                abi::load_u64(abi::c_arg(2), abi::c_arg(0), 8), // tv_nsec
+                abi::move_immediate(abi::c_arg(3), "Integer", "1000"),
+                abi::multiply_registers(abi::c_arg(1), abi::c_arg(1), abi::c_arg(3)), // sec*1000
+                abi::move_immediate(abi::c_arg(3), "Integer", "1000000"),
+                abi::unsigned_divide_registers(abi::c_arg(2), abi::c_arg(2), abi::c_arg(3)), // nsec/1e6
+                abi::add_registers(abi::c_arg(0), abi::c_arg(1), abi::c_arg(2)), // total ms → dwMilliseconds
+            ]);
+            call(ctx, from, "Sleep")?;
+            ctx.instructions
+                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
         }
         // pthread_detach(handle=x0): release our reference; the thread runs on.
         "pthread_detach" => {
@@ -191,21 +210,21 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
         "clock_gettime" => {
             ctx.instructions.extend([
                 abi::subtract_stack(0x30),
-                abi::store_u64(abi::ARG[1], abi::stack_pointer(), 0x28), // save &ts
-                abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0x20), // &ft
+                abi::store_u64(abi::c_arg(1), abi::stack_pointer(), 0x28), // save &ts
+                abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 0x20), // &ft
             ]);
             call(ctx, from, "GetSystemTimePreciseAsFileTime")?;
             ctx.instructions.extend([
-                abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x20), // ft
-                abi::move_immediate(abi::ARG[1], "Integer", "10000000"),
-                abi::unsigned_divide_registers(abi::ARG[2], abi::ARG[0], abi::ARG[1]), // sec
-                abi::multiply_registers(abi::ARG[3], abi::ARG[2], abi::ARG[1]),        // sec*1e7
-                abi::subtract_registers(abi::ARG[3], abi::ARG[0], abi::ARG[3]),        // ft % 1e7
-                abi::move_immediate(abi::ARG[1], "Integer", "100"),
-                abi::multiply_registers(abi::ARG[3], abi::ARG[3], abi::ARG[1]), // nsec
-                abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x28),         // &ts
-                abi::store_u64(abi::ARG[2], abi::ARG[0], 0),                    // tv_sec
-                abi::store_u64(abi::ARG[3], abi::ARG[0], 8),                    // tv_nsec
+                abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 0x20), // ft
+                abi::move_immediate(abi::c_arg(1), "Integer", "10000000"),
+                abi::unsigned_divide_registers(abi::c_arg(2), abi::c_arg(0), abi::c_arg(1)), // sec
+                abi::multiply_registers(abi::c_arg(3), abi::c_arg(2), abi::c_arg(1)), // sec*1e7
+                abi::subtract_registers(abi::c_arg(3), abi::c_arg(0), abi::c_arg(3)), // ft % 1e7
+                abi::move_immediate(abi::c_arg(1), "Integer", "100"),
+                abi::multiply_registers(abi::c_arg(3), abi::c_arg(3), abi::c_arg(1)), // nsec
+                abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 0x28),             // &ts
+                abi::store_u64(abi::c_arg(2), abi::c_arg(0), 0),                      // tv_sec
+                abi::store_u64(abi::c_arg(3), abi::c_arg(0), 8),                      // tv_nsec
                 abi::move_immediate(abi::return_register(), "Integer", "0"),
                 abi::add_stack(0x30),
             ]);
@@ -239,8 +258,12 @@ pub(super) fn emit_thread_queue_alloc(
     let init_done = format!("{symbol}_queue_{cb_queue_offset}_init_done");
 
     ctx.instructions.extend([
-        abi::move_immediate(abi::ARG[0], "Integer", &THREAD_QUEUE_BLOCK_SIZE.to_string()),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(
+            abi::c_arg(0),
+            "Integer",
+            &THREAD_QUEUE_BLOCK_SIZE.to_string(),
+        ),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     ctx.relocations
@@ -253,15 +276,15 @@ pub(super) fn emit_thread_queue_alloc(
     ctx.instructions.extend([
         abi::branch(done_label),
         abi::label(&alloc_queue_ok),
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), queue_stack_offset),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), queue_stack_offset),
         abi::load_u64("%v9", abi::stack_pointer(), cb_stack_offset),
-        abi::store_u64(abi::RET[1], "%v9", cb_queue_offset),
+        abi::store_u64(abi::mfb_return(1), "%v9", cb_queue_offset),
         abi::load_u64("%v10", abi::stack_pointer(), limit_stack_offset),
-        abi::store_u64("%v10", abi::RET[1], THREAD_QUEUE_CAPACITY_OFFSET),
-        abi::store_u64(abi::ZERO, abi::RET[1], THREAD_QUEUE_COUNT_OFFSET),
-        abi::store_u64(abi::ZERO, abi::RET[1], THREAD_QUEUE_HEAD_OFFSET),
-        abi::store_u64(abi::ZERO, abi::RET[1], THREAD_QUEUE_TAIL_OFFSET),
-        abi::store_u64(abi::ZERO, abi::RET[1], THREAD_QUEUE_CLOSED_OFFSET),
+        abi::store_u64("%v10", abi::mfb_return(1), THREAD_QUEUE_CAPACITY_OFFSET),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), THREAD_QUEUE_COUNT_OFFSET),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), THREAD_QUEUE_HEAD_OFFSET),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), THREAD_QUEUE_TAIL_OFFSET),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), THREAD_QUEUE_CLOSED_OFFSET),
         abi::move_immediate("%v11", "Integer", "8"),
         // size = capacity * 8. The limit is upper-bounded in lower_thread_start_helper
         // so this cannot wrap in practice, but trap the high half anyway (defense in
@@ -270,8 +293,8 @@ pub(super) fn emit_thread_queue_alloc(
         abi::unsigned_multiply_high_registers("%v12", "%v10", "%v11"),
         abi::compare_immediate("%v12", "0"),
         abi::branch_ne(&size_overflow),
-        abi::multiply_registers(abi::ARG[0], "%v10", "%v11"),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::multiply_registers(abi::c_arg(0), "%v10", "%v11"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     ctx.relocations
@@ -290,11 +313,11 @@ pub(super) fn emit_thread_queue_alloc(
         abi::branch(done_label),
         abi::label(&alloc_values_ok),
         abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
-        abi::store_u64(abi::RET[1], "%v9", THREAD_QUEUE_VALUES_OFFSET),
+        abi::store_u64(abi::mfb_return(1), "%v9", THREAD_QUEUE_VALUES_OFFSET),
         // Empty pending-free list (bug-147.5b).
         abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
-        abi::move_register(abi::ARG[0], "%v9"),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::move_register(abi::c_arg(0), "%v9"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -307,11 +330,11 @@ pub(super) fn emit_thread_queue_alloc(
         "pthread_mutex_init",
     )?;
     ctx.instructions.extend([
-        abi::compare_immediate(abi::RET[0], "0"),
+        abi::compare_immediate(abi::mfb_return(0), "0"),
         abi::branch_ne(&init_error),
         abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
-        abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -324,11 +347,11 @@ pub(super) fn emit_thread_queue_alloc(
         "pthread_cond_init",
     )?;
     ctx.instructions.extend([
-        abi::compare_immediate(abi::RET[0], "0"),
+        abi::compare_immediate(abi::mfb_return(0), "0"),
         abi::branch_ne(&init_error),
         abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
-        abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_FULL_OFFSET),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_FULL_OFFSET),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -341,7 +364,7 @@ pub(super) fn emit_thread_queue_alloc(
         "pthread_cond_init",
     )?;
     ctx.instructions.extend([
-        abi::compare_immediate(abi::RET[0], "0"),
+        abi::compare_immediate(abi::mfb_return(0), "0"),
         abi::branch_ne(&init_error),
         abi::branch(&init_done),
         abi::label(&init_error),
@@ -392,6 +415,10 @@ pub(super) fn lower_thread_helper(
         ),
         "thread.poll" => {
             simple_thread_handle_helper(symbol, ThreadSimpleOp::Poll, platform_imports, platform)
+        }
+        "thread.sleep" => lower_thread_sleep_helper(symbol, platform_imports, platform),
+        "thread.sleepWorker" => {
+            lower_thread_sleep_worker_helper(symbol, platform_imports, platform)
         }
         "thread.read" => thread_queue_read_helper(
             symbol,
@@ -474,15 +501,15 @@ fn lower_thread_stdin_subscription_helper(symbol: &str, subscribe: bool) -> Help
     let do_call = format!("{symbol}_call");
     let mut instructions = vec![
         abi::label("entry"),
-        abi::move_register("%v9", abi::ARG[0]),
-        abi::compare_immediate(abi::ARG[0], "0"),
+        abi::move_register("%v9", abi::c_arg(0)),
+        abi::compare_immediate(abi::c_arg(0), "0"),
         abi::branch_ne(&worker),
         // Self form: subscribe the calling thread's own arena.
-        abi::move_register(abi::ARG[0], ARENA_STATE_REGISTER),
+        abi::move_register(abi::c_arg(0), ARENA_STATE_REGISTER),
         abi::branch(&do_call),
         abi::label(&worker),
         // Worker form: the parent `Thread` handle carries the worker's arena state.
-        abi::load_u64(abi::ARG[0], "%v9", THREAD_OFFSET_ARENA_STATE),
+        abi::load_u64(abi::c_arg(0), "%v9", THREAD_OFFSET_ARENA_STATE),
         abi::label(&do_call),
         abi::branch_link(target),
     ];
@@ -494,6 +521,109 @@ fn lower_thread_stdin_subscription_helper(symbol: &str, subscribe: bool) -> Help
     ));
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 0);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+/// plan-91-A: parent-side `thread::sleep(t, ms)`. Blocks the CALLING thread for
+/// `ms` milliseconds via libc `nanosleep` (Win32 `Sleep`) and returns `Nothing`.
+/// This is a plain, uninterruptible wall-clock sleep — it reads nothing from the
+/// handle's queues and does not observe cancellation (that is the worker-side
+/// overload, plan-91-B). For parity with `thread::poll` on a parent handle it
+/// still returns `ErrResourceClosed` on an already-closed `Thread`, and
+/// `ErrInvalidArgument` on a negative `ms`; `ms == 0` is an immediate no-op.
+fn lower_thread_sleep_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    const FRAME_SIZE: usize = 48;
+    // Two relative `timespec { tv_sec; tv_nsec }` (16 bytes each): `req` is the
+    // requested remaining sleep, `rem` the kernel's leftover on an EINTR wake.
+    const REQ_OFFSET: usize = 8;
+    const REM_OFFSET: usize = 24;
+
+    let ok = format!("{symbol}_ok");
+    let err_arg = format!("{symbol}_invalid");
+    let err_closed = format!("{symbol}_closed");
+    let retry = format!("{symbol}_retry");
+
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    instructions.extend([
+        // Parent handle-state parity with `poll`: an already-closed handle is
+        // `ErrResourceClosed` before any sleep. A plain aligned-word read of the
+        // state suffices — the sleep needs nothing else from the handle.
+        abi::load_u64("%v9", abi::c_arg(0), THREAD_OFFSET_STATE),
+        abi::compare_immediate("%v9", THREAD_STATE_CLOSED),
+        abi::branch_eq(&err_closed),
+        // ms validation: < 0 rejects, == 0 is an immediate no-op Ok.
+        abi::compare_immediate(abi::c_arg(1), "0"),
+        abi::branch_lt(&err_arg),
+        abi::branch_eq(&ok),
+        // ms -> relative {tv_sec, tv_nsec}: sec = ms/1000, nsec = (ms%1000)*1e6.
+        // Same split as `emit_thread_deadline`, but RELATIVE (no clock_gettime add).
+        abi::move_register("%v9", abi::c_arg(1)),
+        abi::move_immediate("%v10", "Integer", "1000"),
+        abi::signed_divide_registers("%v11", "%v9", "%v10"),
+        abi::multiply_subtract_registers("%v12", "%v11", "%v10", "%v9"),
+        abi::move_immediate("%v13", "Integer", "1000000"),
+        abi::multiply_registers("%v12", "%v12", "%v13"),
+        abi::store_u64("%v11", abi::stack_pointer(), REQ_OFFSET),
+        abi::store_u64("%v12", abi::stack_pointer(), REQ_OFFSET + 8),
+        abi::label(&retry),
+        abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), REQ_OFFSET), // &req
+        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), REM_OFFSET), // &rem
+    ]);
+    emit_thread_external_call(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "nanosleep",
+    )?;
+    instructions.extend([
+        // 0 = the full sleep elapsed. Non-zero = EINTR (a signal cut it short);
+        // the kernel wrote the leftover into `rem`, so copy rem->req and re-enter
+        // so a signal cannot truncate the sleep. nsec/sec are always in range, so
+        // EINVAL is impossible — any non-zero return is an interrupt.
+        abi::compare_immediate(abi::mfb_return(0), "0"),
+        abi::branch_eq(&ok),
+        abi::load_u64("%v9", abi::stack_pointer(), REM_OFFSET),
+        abi::store_u64("%v9", abi::stack_pointer(), REQ_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), REM_OFFSET + 8),
+        abi::store_u64("%v9", abi::stack_pointer(), REQ_OFFSET + 8),
+        abi::branch(&retry),
+        // Nothing return: only the OK tag (no result value), like the stdin wrapper.
+        abi::label(&ok),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::return_(),
+        abi::label(&err_arg),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::return_(),
+        abi::label(&err_closed),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
     Ok((frame, instructions, relocations, stack_slots))
 }
 
@@ -540,25 +670,25 @@ fn lower_thread_start_helper(
     let mut relocations = Vec::new();
 
     instructions.extend([
-        abi::store_u64(abi::ARG[0], abi::stack_pointer(), ENTRY_OFFSET),
-        abi::store_u64(abi::ARG[1], abi::stack_pointer(), DATA_OFFSET),
-        abi::store_u64(abi::ARG[2], abi::stack_pointer(), IN_LIMIT_OFFSET),
-        abi::store_u64(abi::ARG[3], abi::stack_pointer(), OUT_LIMIT_OFFSET),
-        abi::compare_immediate(abi::ARG[2], "1"),
+        abi::store_u64(abi::c_arg(0), abi::stack_pointer(), ENTRY_OFFSET),
+        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), DATA_OFFSET),
+        abi::store_u64(abi::c_arg(2), abi::stack_pointer(), IN_LIMIT_OFFSET),
+        abi::store_u64(abi::c_arg(3), abi::stack_pointer(), OUT_LIMIT_OFFSET),
+        abi::compare_immediate(abi::c_arg(2), "1"),
         abi::branch_lt(&invalid_limit),
-        abi::compare_immediate(abi::ARG[3], "1"),
+        abi::compare_immediate(abi::c_arg(3), "1"),
         abi::branch_lt(&invalid_limit),
         // Upper-bound the queue limit so the later `capacity * 8` value-array size
         // (emit_thread_queue_alloc) cannot wrap 64 bits and under-allocate. The cap
         // is the largest capacity whose `*8` still fits (u64::MAX / 8); an
         // out-of-range limit is rejected as an invalid argument (bug-60).
         abi::move_immediate("%v12", "Integer", &MAX_QUEUE_LIMIT.to_string()),
-        abi::compare_registers(abi::ARG[2], "%v12"),
+        abi::compare_registers(abi::c_arg(2), "%v12"),
         abi::branch_hi(&invalid_limit),
-        abi::compare_registers(abi::ARG[3], "%v12"),
+        abi::compare_registers(abi::c_arg(3), "%v12"),
         abi::branch_hi(&invalid_limit),
-        abi::move_immediate(abi::ARG[0], "Integer", &THREAD_BLOCK_SIZE.to_string()),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(0), "Integer", &THREAD_BLOCK_SIZE.to_string()),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -570,8 +700,8 @@ fn lower_thread_start_helper(
     instructions.extend([
         abi::branch(&parent_done),
         abi::label(&alloc_block_ok),
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), CB_OFFSET),
-        abi::move_register("%v9", abi::RET[1]),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), CB_OFFSET),
+        abi::move_register("%v9", abi::mfb_return(1)),
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_STATE),
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_CANCELLED),
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_RESULT_TAG),
@@ -594,8 +724,8 @@ fn lower_thread_start_helper(
             "%v9",
             THREAD_OFFSET_PARENT_ARENA_STATE,
         ),
-        abi::move_immediate(abi::ARG[0], "Integer", &worker_arena_size.to_string()),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(0), "Integer", &worker_arena_size.to_string()),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -615,21 +745,21 @@ fn lower_thread_start_helper(
     instructions.extend([
         abi::branch(&parent_done),
         abi::label(&alloc_worker_arena_ok),
-        abi::move_register("%v11", abi::RET[1]),
-        abi::add_immediate("%v12", abi::RET[1], worker_arena_size),
+        abi::move_register("%v11", abi::mfb_return(1)),
+        abi::add_immediate("%v12", abi::mfb_return(1), worker_arena_size),
         abi::label(&child_zero_loop),
         abi::store_u64(abi::ZERO, "%v11", 0),
         abi::add_immediate("%v11", "%v11", 8),
         abi::compare_registers("%v11", "%v12"),
         abi::branch_lo(&child_zero_loop),
         abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-        abi::store_u64(abi::RET[1], "%v9", THREAD_OFFSET_ARENA_STATE),
+        abi::store_u64(abi::mfb_return(1), "%v9", THREAD_OFFSET_ARENA_STATE),
         // Inherit the parent's Money rounding mode (plan-29-D): the child arena was
         // just zeroed (= Commercial), so copy the spawning thread's mode field
         // (`x19` is the parent arena here) into the child, which then diverges
         // independently — consistent with per-thread RNG/state isolation.
         abi::load_u64("%v11", abi::ARENA, ARENA_ROUNDING_MODE_OFFSET),
-        abi::store_u64("%v11", abi::RET[1], ARENA_ROUNDING_MODE_OFFSET),
+        abi::store_u64("%v11", abi::mfb_return(1), ARENA_ROUNDING_MODE_OFFSET),
     ]);
 
     if uses_rng {
@@ -640,7 +770,7 @@ fn lower_thread_start_helper(
         instructions.push(abi::branch_link(RNG_NEXT_SYMBOL));
         relocations.push(internal_branch(symbol, RNG_NEXT_SYMBOL));
         instructions.extend([
-            abi::move_register(abi::ARG[1], abi::return_register()),
+            abi::move_register(abi::c_arg(1), abi::return_register()),
             abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
             abi::load_u64(abi::return_register(), "%v9", THREAD_OFFSET_ARENA_STATE),
         ]);
@@ -658,10 +788,10 @@ fn lower_thread_start_helper(
     instructions.push(abi::branch_link(ARENA_FILL_NEXT_SYMBOL));
     relocations.push(internal_branch(symbol, ARENA_FILL_NEXT_SYMBOL));
     instructions.extend([
-        abi::move_register(abi::ARG[1], abi::return_register()),
+        abi::move_register(abi::c_arg(1), abi::return_register()),
         abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
         abi::load_u64(abi::return_register(), "%v9", THREAD_OFFSET_ARENA_STATE),
-        abi::exclusive_or_registers(abi::ARG[1], abi::ARG[1], abi::return_register()),
+        abi::exclusive_or_registers(abi::c_arg(1), abi::c_arg(1), abi::return_register()),
     ]);
     instructions.push(abi::branch_link(ARENA_FILL_SEED_SYMBOL));
     relocations.push(internal_branch(symbol, ARENA_FILL_SEED_SYMBOL));
@@ -738,10 +868,14 @@ fn lower_thread_start_helper(
         // to the function frame, so reading it after subtract_stack would be off by
         // 0x40. ARG[3] (r9) is not touched by the trampoline-address load below, so
         // it survives to the CreateThread call.
-        instructions.push(abi::load_u64(abi::ARG[3], abi::stack_pointer(), CB_OFFSET));
+        instructions.push(abi::load_u64(
+            abi::c_arg(3),
+            abi::stack_pointer(),
+            CB_OFFSET,
+        ));
         instructions.push(abi::subtract_stack(0x40));
         instructions.push(abi::load_page_address(
-            abi::ARG[2],
+            abi::c_arg(2),
             THREAD_TRAMPOLINE_SYMBOL,
         ));
         relocations.push(CodeRelocation {
@@ -752,8 +886,8 @@ fn lower_thread_start_helper(
             library: None,
         });
         instructions.push(abi::add_page_offset(
-            abi::ARG[2],
-            abi::ARG[2],
+            abi::c_arg(2),
+            abi::c_arg(2),
             THREAD_TRAMPOLINE_SYMBOL,
         ));
         relocations.push(CodeRelocation {
@@ -765,8 +899,8 @@ fn lower_thread_start_helper(
         });
         instructions.extend([
             // ARG[3] (cb) was loaded before subtract_stack and is still live.
-            abi::move_immediate(abi::ARG[0], "Integer", "0"), // lpThreadAttributes
-            abi::move_immediate(abi::ARG[1], "Integer", &(8 * 1024 * 1024).to_string()),
+            abi::move_immediate(abi::c_arg(0), "Integer", "0"), // lpThreadAttributes
+            abi::move_immediate(abi::c_arg(1), "Integer", &(8 * 1024 * 1024).to_string()),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // dwCreationFlags = 0
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28), // lpThreadId = NULL
             abi::branch_link("CreateThread"),
@@ -775,8 +909,8 @@ fn lower_thread_start_helper(
         instructions.extend([
             abi::add_stack(0x40),
             abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-            abi::store_u64(abi::RET[0], "%v9", THREAD_OFFSET_OS_HANDLE), // cb.os_handle = HANDLE
-            abi::compare_immediate(abi::RET[0], "0"),
+            abi::store_u64(abi::mfb_return(0), "%v9", THREAD_OFFSET_OS_HANDLE), // cb.os_handle = HANDLE
+            abi::compare_immediate(abi::mfb_return(0), "0"),
             abi::branch_eq(&spawn_error), // NULL = failure
             abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -805,15 +939,15 @@ fn lower_thread_start_helper(
         // pthread_attr_destroy is a no-op for a stacksize-only attr on musl,
         // glibc, and macOS, so it is not called.
         instructions.push(abi::add_immediate(
-            abi::ARG[0],
+            abi::c_arg(0),
             abi::stack_pointer(),
             ATTR_OFFSET,
         ));
         instructions.push(abi::branch_link(attr_init_symbol));
         relocations.push(external_branch(symbol, attr_init_symbol, platform_imports)?);
         instructions.extend([
-            abi::add_immediate(abi::ARG[0], abi::stack_pointer(), ATTR_OFFSET),
-            abi::move_immediate(abi::ARG[1], "Integer", &(8 * 1024 * 1024).to_string()),
+            abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), ATTR_OFFSET),
+            abi::move_immediate(abi::c_arg(1), "Integer", &(8 * 1024 * 1024).to_string()),
         ]);
         instructions.push(abi::branch_link(attr_setstacksize_symbol));
         relocations.push(external_branch(
@@ -823,11 +957,11 @@ fn lower_thread_start_helper(
         )?);
         instructions.extend([
             abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-            abi::add_immediate(abi::ARG[0], "%v9", THREAD_OFFSET_OS_HANDLE),
-            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), ATTR_OFFSET),
+            abi::add_immediate(abi::c_arg(0), "%v9", THREAD_OFFSET_OS_HANDLE),
+            abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), ATTR_OFFSET),
         ]);
         instructions.push(abi::load_page_address(
-            abi::ARG[2],
+            abi::c_arg(2),
             THREAD_TRAMPOLINE_SYMBOL,
         ));
         relocations.push(CodeRelocation {
@@ -838,8 +972,8 @@ fn lower_thread_start_helper(
             library: None,
         });
         instructions.push(abi::add_page_offset(
-            abi::ARG[2],
-            abi::ARG[2],
+            abi::c_arg(2),
+            abi::c_arg(2),
             THREAD_TRAMPOLINE_SYMBOL,
         ));
         relocations.push(CodeRelocation {
@@ -850,7 +984,7 @@ fn lower_thread_start_helper(
             library: None,
         });
         instructions.extend([
-            abi::move_register(abi::ARG[3], "%v9"),
+            abi::move_register(abi::c_arg(3), "%v9"),
             abi::branch_link(pthread_create_symbol),
         ]);
         relocations.push(external_branch(
@@ -859,7 +993,7 @@ fn lower_thread_start_helper(
             platform_imports,
         )?);
         instructions.extend([
-            abi::compare_immediate(abi::RET[0], "0"),
+            abi::compare_immediate(abi::mfb_return(0), "0"),
             abi::branch_ne(&spawn_error),
             abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
             abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
@@ -951,7 +1085,7 @@ pub(crate) fn lower_thread_trampoline(
         abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), ARENA_OFFSET),
         abi::store_u64(abi::CURRENT_THREAD, abi::stack_pointer(), X20_OFFSET),
         abi::store_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), CLOSURE_OFFSET),
-        abi::move_register(abi::CURRENT_THREAD, abi::ARG[0]),
+        abi::move_register(abi::CURRENT_THREAD, abi::c_arg(0)),
         abi::store_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
         abi::load_u64(
             ARENA_STATE_REGISTER,
@@ -1006,8 +1140,8 @@ pub(crate) fn lower_thread_trampoline(
         abi::load_u64(abi::SCRATCH[4], abi::CURRENT_THREAD, THREAD_OFFSET_ENTRY),
         abi::load_u64(CLOSURE_ENV_REGISTER, abi::SCRATCH[4], CLOSURE_OFFSET_ENV),
         abi::load_u64(abi::SCRATCH[4], abi::SCRATCH[4], CLOSURE_OFFSET_CODE),
-        abi::load_u64(abi::ARG[1], abi::CURRENT_THREAD, THREAD_OFFSET_DATA),
-        abi::move_register(abi::ARG[0], abi::CURRENT_THREAD),
+        abi::load_u64(abi::c_arg(1), abi::CURRENT_THREAD, THREAD_OFFSET_DATA),
+        abi::move_register(abi::c_arg(0), abi::CURRENT_THREAD),
         abi::branch_link_register(abi::SCRATCH[4]),
         abi::label(&worker_result),
         abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
@@ -1029,7 +1163,7 @@ pub(crate) fn lower_thread_trampoline(
     // `x19` still holds the worker arena here; the result registers are already
     // parked on the stack, and `unsubscribe` preserves the callee-saved arena base.
     if uses_stdin {
-        instructions.push(abi::move_register(abi::ARG[0], ARENA_STATE_REGISTER));
+        instructions.push(abi::move_register(abi::c_arg(0), ARENA_STATE_REGISTER));
         instructions.push(abi::branch_link(STDIN_UNSUBSCRIBE_SYMBOL));
         relocations.push(internal_branch(
             THREAD_TRAMPOLINE_SYMBOL,
@@ -1043,7 +1177,7 @@ pub(crate) fn lower_thread_trampoline(
             abi::CURRENT_THREAD,
             THREAD_OFFSET_INBOUND_QUEUE,
         ),
-        abi::move_register(abi::ARG[0], abi::SCRATCH[4]),
+        abi::move_register(abi::c_arg(0), abi::SCRATCH[4]),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -1064,7 +1198,11 @@ pub(crate) fn lower_thread_trampoline(
         ),
         abi::move_immediate(abi::SCRATCH[5], "Integer", "1"),
         abi::store_u64(abi::SCRATCH[5], abi::SCRATCH[4], THREAD_QUEUE_CLOSED_OFFSET),
-        abi::add_immediate(abi::ARG[0], abi::SCRATCH[4], THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::add_immediate(
+            abi::c_arg(0),
+            abi::SCRATCH[4],
+            THREAD_QUEUE_NOT_EMPTY_OFFSET,
+        ),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -1083,7 +1221,7 @@ pub(crate) fn lower_thread_trampoline(
             abi::CURRENT_THREAD,
             THREAD_OFFSET_INBOUND_QUEUE,
         ),
-        abi::add_immediate(abi::ARG[0], abi::SCRATCH[4], THREAD_QUEUE_NOT_FULL_OFFSET),
+        abi::add_immediate(abi::c_arg(0), abi::SCRATCH[4], THREAD_QUEUE_NOT_FULL_OFFSET),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -1098,7 +1236,7 @@ pub(crate) fn lower_thread_trampoline(
     instructions.extend([
         abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
         abi::load_u64(
-            abi::ARG[0],
+            abi::c_arg(0),
             abi::CURRENT_THREAD,
             THREAD_OFFSET_INBOUND_QUEUE,
         ),
@@ -1123,7 +1261,7 @@ pub(crate) fn lower_thread_trampoline(
         instructions.extend([
             abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
             abi::load_u64(abi::SCRATCH[4], abi::CURRENT_THREAD, resource_queue_offset),
-            abi::move_register(abi::ARG[0], abi::SCRATCH[4]),
+            abi::move_register(abi::c_arg(0), abi::SCRATCH[4]),
         ]);
         emit_thread_external_call(
             &mut EmitCtx {
@@ -1140,7 +1278,11 @@ pub(crate) fn lower_thread_trampoline(
             abi::load_u64(abi::SCRATCH[4], abi::CURRENT_THREAD, resource_queue_offset),
             abi::move_immediate(abi::SCRATCH[5], "Integer", "1"),
             abi::store_u64(abi::SCRATCH[5], abi::SCRATCH[4], THREAD_QUEUE_CLOSED_OFFSET),
-            abi::add_immediate(abi::ARG[0], abi::SCRATCH[4], THREAD_QUEUE_NOT_EMPTY_OFFSET),
+            abi::add_immediate(
+                abi::c_arg(0),
+                abi::SCRATCH[4],
+                THREAD_QUEUE_NOT_EMPTY_OFFSET,
+            ),
         ]);
         emit_thread_external_call(
             &mut EmitCtx {
@@ -1155,7 +1297,7 @@ pub(crate) fn lower_thread_trampoline(
         instructions.extend([
             abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
             abi::load_u64(abi::SCRATCH[4], abi::CURRENT_THREAD, resource_queue_offset),
-            abi::add_immediate(abi::ARG[0], abi::SCRATCH[4], THREAD_QUEUE_NOT_FULL_OFFSET),
+            abi::add_immediate(abi::c_arg(0), abi::SCRATCH[4], THREAD_QUEUE_NOT_FULL_OFFSET),
         ]);
         emit_thread_external_call(
             &mut EmitCtx {
@@ -1169,7 +1311,7 @@ pub(crate) fn lower_thread_trampoline(
         )?;
         instructions.extend([
             abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
-            abi::load_u64(abi::ARG[0], abi::CURRENT_THREAD, resource_queue_offset),
+            abi::load_u64(abi::c_arg(0), abi::CURRENT_THREAD, resource_queue_offset),
         ]);
         emit_thread_external_call(
             &mut EmitCtx {
@@ -1189,7 +1331,7 @@ pub(crate) fn lower_thread_trampoline(
             abi::CURRENT_THREAD,
             THREAD_OFFSET_OUTBOUND_QUEUE,
         ),
-        abi::move_register(abi::ARG[0], abi::SCRATCH[4]),
+        abi::move_register(abi::c_arg(0), abi::SCRATCH[4]),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -1238,7 +1380,11 @@ pub(crate) fn lower_thread_trampoline(
             abi::CURRENT_THREAD,
             THREAD_OFFSET_OUTBOUND_QUEUE,
         ),
-        abi::add_immediate(abi::ARG[0], abi::SCRATCH[4], THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::add_immediate(
+            abi::c_arg(0),
+            abi::SCRATCH[4],
+            THREAD_QUEUE_NOT_EMPTY_OFFSET,
+        ),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -1257,7 +1403,7 @@ pub(crate) fn lower_thread_trampoline(
             abi::CURRENT_THREAD,
             THREAD_OFFSET_OUTBOUND_QUEUE,
         ),
-        abi::add_immediate(abi::ARG[0], abi::SCRATCH[4], THREAD_QUEUE_NOT_FULL_OFFSET),
+        abi::add_immediate(abi::c_arg(0), abi::SCRATCH[4], THREAD_QUEUE_NOT_FULL_OFFSET),
     ]);
     emit_thread_external_call(
         &mut EmitCtx {
@@ -1273,7 +1419,7 @@ pub(crate) fn lower_thread_trampoline(
         abi::label(&result_closed),
         abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
         abi::load_u64(
-            abi::ARG[0],
+            abi::c_arg(0),
             abi::CURRENT_THREAD,
             THREAD_OFFSET_OUTBOUND_QUEUE,
         ),
@@ -1289,7 +1435,7 @@ pub(crate) fn lower_thread_trampoline(
         "pthread_mutex_unlock",
     )?;
     instructions.extend([
-        abi::move_immediate(abi::RET[0], "Integer", "0"),
+        abi::move_immediate(abi::mfb_return(0), "Integer", "0"),
         abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), ARENA_OFFSET),
         abi::load_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), CLOSURE_OFFSET),
         abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), X20_OFFSET),
@@ -1312,7 +1458,7 @@ pub(crate) fn lower_thread_trampoline(
         params: vec![CodeParam {
             name: "controlBlock".to_string(),
             type_: "ThreadControlBlock".to_string(),
-            location: abi::ARG[0].to_string(),
+            location: abi::c_arg(0),
         }],
         returns: "Nothing".to_string(),
         frame: CodeFrame {

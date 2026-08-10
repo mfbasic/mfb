@@ -1,0 +1,16 @@
+' plan-76-B: tls::poll rejects incorrect usage at the checker level.
+IMPORT tls
+
+FUNC main AS Integer
+  RES server = tls::listen("127.0.0.1", 8443, "cert.pem", "key.pem")
+  RES conn = tls::connect("example.com", 443)
+  ' Wrong receiver: a TlsListener is not a TlsSocket.
+  LET wrongReceiver = tls::poll(server)
+  ' Wrong argument type entirely.
+  LET wrongType = tls::poll("nope")
+  ' Wrong timeout type: timeoutMs must be Integer.
+  LET badTimeout = tls::poll(conn, "soon")
+  ' Too many arguments (poll takes at most 2).
+  LET tooMany = tls::poll(conn, 100, 200)
+  RETURN 0
+END FUNC

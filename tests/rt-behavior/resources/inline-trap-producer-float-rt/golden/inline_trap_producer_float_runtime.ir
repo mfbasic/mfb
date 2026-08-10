@@ -1,0 +1,66 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "inline_trap_producer_float_runtime",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 18, "mutable": true, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "type": "List OF RES File", "values": [] } },
+    { "op": "bind", "line": 19, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 20,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
+      "body": [
+      { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res0", "type": "Result OF File", "value": { "kind": "callResult", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/inline-trap-producer-float-rt/src/main.mfb" }] } },
+      { "op": "bind", "line": 21, "mutable": true, "name": "$trap_val1", "type": "File", "value": null },
+      {
+        "op": "if",
+        "line": 21,
+        "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+        "then": [
+        { "op": "assign", "line": 21, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "File", "value": { "kind": "local", "name": "$trap_res0" } } }
+        ],
+        "else": [
+        { "op": "continueLoop", "line": 22, "loop": "while" }
+        ]
+      },
+      { "op": "bind", "line": 21, "mutable": false, "name": "f", "type": "File", "value": { "kind": "local", "name": "$trap_val1" } },
+      { "op": "assign", "line": 24, "name": "handles", "value": { "kind": "call", "type": "List OF RES File", "target": "collections.append", "args": [{ "kind": "local", "name": "handles" }, { "kind": "local", "name": "f" }] } },
+      { "op": "assign", "line": 25, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "opened=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "handles" }] }] } }] } },
+    { "op": "bind", "line": 28, "mutable": true, "name": "read", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "forEach",
+      "line": 29,
+      "name": "h",
+      "type": "File",
+      "iterable": { "kind": "local", "name": "handles" },
+      "body": [
+      { "op": "bind", "line": 30, "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "local", "name": "h" }] } },
+      { "op": "assign", "line": 31, "name": "read", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "read" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "read=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "read" }] } }] } },
+    { "op": "return", "line": 34, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -78,14 +78,14 @@ pub(super) fn lower_io_poll_input_helper(
     ]);
 
     instructions.push(abi::load_u64(
-        abi::ARG[2],
+        abi::c_arg(2),
         abi::stack_pointer(),
         TIMEOUT_OFFSET,
     ));
 
     instructions.extend([
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     platform.emit_poll_input(
         symbol,
@@ -209,9 +209,9 @@ fn emit_stdin_byte_read(
             // emit_read_file reads it from. Using return_register() worked only by
             // accident on aarch64 (x0 == ARG[0]); on Win64 return_register() is rax,
             // not ARG[0]=rcx, so emit_read_file read garbage as the fd (plan-66-J-4).
-            abi::move_immediate(abi::ARG[0], "Integer", "0"),
-            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), byte_offset),
-            abi::move_immediate(abi::ARG[2], "Integer", "1"),
+            abi::move_immediate(abi::c_arg(0), "Integer", "0"),
+            abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), byte_offset),
+            abi::move_immediate(abi::c_arg(2), "Integer", "1"),
         ]);
         platform.emit_read_file(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
         ctx.instructions
@@ -712,7 +712,7 @@ pub(super) fn lower_io_read_char_helper(
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), LEN_OFFSET),
         abi::add_immediate(abi::return_register(), "%v10", 9),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -721,10 +721,10 @@ pub(super) fn lower_io_read_char_helper(
         abi::branch_eq(&alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), RESULT_OFFSET),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RESULT_OFFSET),
         abi::load_u64("%v10", abi::stack_pointer(), LEN_OFFSET),
-        abi::store_u64("%v10", abi::RET[1], 0),
-        abi::add_immediate("%v11", abi::RET[1], 8),
+        abi::store_u64("%v10", abi::mfb_return(1), 0),
+        abi::add_immediate("%v11", abi::mfb_return(1), 8),
         abi::add_immediate("%v12", abi::stack_pointer(), BYTES_OFFSET),
         abi::label(&copy_loop),
         abi::compare_immediate("%v10", "0"),
@@ -932,7 +932,7 @@ pub(super) fn lower_io_read_line_helper(
     }
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "32"),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -941,7 +941,7 @@ pub(super) fn lower_io_read_line_helper(
         abi::branch_eq(&alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), BUFFER_OFFSET),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUFFER_OFFSET),
         abi::move_immediate("%v10", "Integer", "32"),
         abi::store_u64("%v10", abi::stack_pointer(), CAPACITY_OFFSET),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), LENGTH_OFFSET),
@@ -1023,7 +1023,7 @@ pub(super) fn lower_io_read_line_helper(
         abi::label(&format!("{symbol}_grow_size_ok")),
         abi::store_u64("%v14", abi::stack_pointer(), CAPACITY_OFFSET),
         abi::move_register(abi::return_register(), "%v14"),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -1040,7 +1040,7 @@ pub(super) fn lower_io_read_line_helper(
         // across the call — otherwise the copy loop runs off the new buffer.
         abi::load_u64("%v10", abi::stack_pointer(), LENGTH_OFFSET),
         abi::load_u64("%v12", abi::stack_pointer(), BUFFER_OFFSET),
-        abi::move_register("%v14", abi::RET[1]),
+        abi::move_register("%v14", abi::mfb_return(1)),
         abi::move_immediate("%v15", "Integer", "0"),
         abi::label(&grow_copy_loop),
         abi::compare_registers("%v15", "%v10"),
@@ -1052,12 +1052,12 @@ pub(super) fn lower_io_read_line_helper(
         abi::add_immediate("%v15", "%v15", 1),
         abi::branch(&grow_copy_loop),
         abi::label(&grow_copy_done),
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), BUFFER_OFFSET),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUFFER_OFFSET),
         // The old buffer's bytes are now copied into the new one and dead — return
         // it to the free-list. arena_free clobbers x0/x1/x9–x16; grow_ok reloads
         // everything it needs from the stack, so nothing live is lost.
-        abi::load_u64(abi::ARG[0], abi::stack_pointer(), OLD_BUFFER_OFFSET),
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), OLD_CAPACITY_OFFSET),
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), OLD_BUFFER_OFFSET),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), OLD_CAPACITY_OFFSET),
         abi::branch_link(ARENA_FREE_SYMBOL),
         abi::label(&grow_ok),
         abi::load_u64("%v10", abi::stack_pointer(), LENGTH_OFFSET),
@@ -1100,7 +1100,7 @@ pub(super) fn lower_io_read_line_helper(
         abi::label(&format!("{symbol}_result_alloc")),
         abi::load_u64("%v10", abi::stack_pointer(), LENGTH_OFFSET),
         abi::add_immediate(abi::return_register(), "%v10", 9),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -1109,10 +1109,10 @@ pub(super) fn lower_io_read_line_helper(
         abi::branch_eq(&result_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&result_alloc_ok),
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), RESULT_OFFSET),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RESULT_OFFSET),
         abi::load_u64("%v10", abi::stack_pointer(), LENGTH_OFFSET),
-        abi::store_u64("%v10", abi::RET[1], 0),
-        abi::add_immediate("%v11", abi::RET[1], 8),
+        abi::store_u64("%v10", abi::mfb_return(1), 0),
+        abi::add_immediate("%v11", abi::mfb_return(1), 8),
         abi::load_u64("%v12", abi::stack_pointer(), BUFFER_OFFSET),
         abi::label(&result_copy_loop),
         abi::compare_immediate("%v10", "0"),
@@ -1132,8 +1132,8 @@ pub(super) fn lower_io_read_line_helper(
         // that scope-drop (user values only) never reclaims (bug-95).
         // `arena_free` clobbers x0/x1/x9–x16; the result pointer/tag are reloaded
         // from the stack immediately afterward, so nothing live is lost.
-        abi::load_u64(abi::ARG[0], abi::stack_pointer(), BUFFER_OFFSET),
-        abi::load_u64(abi::ARG[1], abi::stack_pointer(), CAPACITY_OFFSET),
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), BUFFER_OFFSET),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), CAPACITY_OFFSET),
         abi::branch_link(ARENA_FREE_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));

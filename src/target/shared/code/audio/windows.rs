@@ -96,13 +96,13 @@ const W_OUT2: usize = 88; // COM out-ptr scratch (flags)
 const W_WFX: usize = 120; // WAVEFORMATEX (18 bytes, +pad) -> 120..138
 const W_MIX_CH: usize = 144; // SHARED-mix: device mix channel count
 const W_MIX_BPF: usize = 152; // SHARED-mix: device mix bytes-per-frame (frame stride)
-// bug-416 (2): capture carry-over. WASAPI requires a whole IAudioCaptureClient
-// packet be released (`ReleaseBuffer(numFrames)` == the `GetBuffer` count or 0) —
-// a partial consume is illegal. When a `read` whose length isn't packet-aligned
-// consumes only part of the final packet, the unconsumed tail is stashed here (in
-// the DEVICE mix format, `W_MIX_BPF` stride) and drained by the next `read` so no
-// captured frame is dropped. `W_CARRY_PTR` sizes to `W_BUFFER * W_MIX_BPF` bytes
-// (input streams only); `W_CARRY_HEAD` is the frame cursor into the stash.
+                              // bug-416 (2): capture carry-over. WASAPI requires a whole IAudioCaptureClient
+                              // packet be released (`ReleaseBuffer(numFrames)` == the `GetBuffer` count or 0) —
+                              // a partial consume is illegal. When a `read` whose length isn't packet-aligned
+                              // consumes only part of the final packet, the unconsumed tail is stashed here (in
+                              // the DEVICE mix format, `W_MIX_BPF` stride) and drained by the next `read` so no
+                              // captured frame is dropped. `W_CARRY_PTR` sizes to `W_BUFFER * W_MIX_BPF` bytes
+                              // (input streams only); `W_CARRY_HEAD` is the frame cursor into the stash.
 const W_CARRY_PTR: usize = 160; // arena carry buffer (input only), or null
 const W_CARRY_FRAMES: usize = 168; // total frames stashed
 const W_CARRY_HEAD: usize = 176; // frames already drained (cursor)
@@ -164,15 +164,31 @@ fn guid_object(name: &str, size: usize, bytes: &str) -> CodeDataObject {
 pub(super) fn data_objects() -> Vec<CodeDataObject> {
     vec![
         // CLSID_MMDeviceEnumerator {BCDE0395-E52F-467C-8E3D-C4579291692E}
-        guid_object("CLSID_MMDeviceEnumerator", 16, "9503debc2fe57c468e3dc4579291692e"),
+        guid_object(
+            "CLSID_MMDeviceEnumerator",
+            16,
+            "9503debc2fe57c468e3dc4579291692e",
+        ),
         // IID_IMMDeviceEnumerator {A95664D2-9614-4F35-A746-DE8DB63617E6}
-        guid_object("IID_IMMDeviceEnumerator", 16, "d26456a91496354fa746de8db63617e6"),
+        guid_object(
+            "IID_IMMDeviceEnumerator",
+            16,
+            "d26456a91496354fa746de8db63617e6",
+        ),
         // IID_IAudioClient {1CB9AD4C-DBFA-4C32-B178-C2F568A703B2}
         guid_object("IID_IAudioClient", 16, "4cadb91cfadb324cb178c2f568a703b2"),
         // IID_IAudioRenderClient {F294ACFC-3146-4483-A7BF-ADDCA7C260E2}
-        guid_object("IID_IAudioRenderClient", 16, "fcac94f246318344a7bfaddca7c260e2"),
+        guid_object(
+            "IID_IAudioRenderClient",
+            16,
+            "fcac94f246318344a7bfaddca7c260e2",
+        ),
         // IID_IAudioCaptureClient {C8ADBD64-E71E-48A0-A4DE-185C395CD317}
-        guid_object("IID_IAudioCaptureClient", 16, "64bdadc81ee7a048a4de185c395cd317"),
+        guid_object(
+            "IID_IAudioCaptureClient",
+            16,
+            "64bdadc81ee7a048a4de185c395cd317",
+        ),
         // PKEY_Device_FriendlyName: fmtid {A45C254E-DF1C-4EFD-8020-67D146A850E0}, pid 14
         guid_object(
             "PKEY_Device_FriendlyName",
@@ -182,7 +198,13 @@ pub(super) fn data_objects() -> Vec<CodeDataObject> {
     ]
 }
 
-fn guid_addr(from: &str, dst: &str, name: &str, ins: &mut Vec<CodeInstruction>, rel: &mut Vec<CodeRelocation>) {
+fn guid_addr(
+    from: &str,
+    dst: impl Into<Operand>,
+    name: &str,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) {
     emit_data_address(from, dst, &guid_symbol(name), ins, rel);
 }
 
@@ -202,7 +224,10 @@ fn ole_call(
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
     emit_external_int_call(platform, symbol, from, n_args, imports, ins, rel)?;
-    ins.push(abi::sign_extend_word(abi::return_register(), abi::return_register()));
+    ins.push(abi::sign_extend_word(
+        abi::return_register(),
+        abi::return_register(),
+    ));
     Ok(())
 }
 
@@ -215,7 +240,7 @@ fn com_call(slot: usize, n_args: usize, ins: &mut Vec<CodeInstruction>) {
     // Args 5.. (index 4..) go on the stack above the 32-byte shadow. Four
     // register args on Win64: `this` + three method args.
     for n in 4..n_args {
-        ins.push(abi::outgoing_stack_arg_store(abi::ARG[n], n - 4));
+        ins.push(abi::outgoing_stack_arg_store(abi::c_arg(n), n - 4));
     }
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), OBJ_OFF), // this -> arg0

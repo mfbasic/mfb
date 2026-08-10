@@ -1,0 +1,62 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_transfer_union_state_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 6,
+    "visibility": "public",
+    "name": "Cursor",
+    "fields": [
+    { "visibility": null, "line": 7, "name": "pos", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "union",
+    "line": 10,
+    "visibility": "public",
+    "name": "Stream",
+    "includes": [],
+    "variants": [
+    {
+      "name": "File",
+      "line": 11,
+      "fields": [
+      ]
+    },
+    {
+      "name": "Socket",
+      "line": 12,
+      "fields": [
+      ]
+    }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 19,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 20, "mutable": false, "name": "t", "type": "Thread OF RES Stream STATE Cursor TO Integer", "value": { "kind": "call", "type": "Thread OF RES Stream STATE Cursor TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "union_xfer_workers.takeUnionCursor", "type": "ISOLATED FUNC(ThreadWorker OF RES Stream STATE Cursor TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "seed" }] } },
+    { "op": "bind", "line": 21, "mutable": false, "name": "s", "type": "Stream STATE Cursor", "value": { "kind": "unionWrap", "union": "Stream", "member": "File", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } } },
+    { "op": "stateAssign", "line": 22, "resource": "s", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "s" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "99" } }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "thread.transferResource", "args": [{ "kind": "local", "name": "t" }, { "kind": "local", "name": "s" }] } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "got", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "got" }] }] } },
+    { "op": "return", "line": 26, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

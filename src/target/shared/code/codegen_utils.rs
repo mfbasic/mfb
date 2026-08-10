@@ -36,14 +36,14 @@ pub(super) fn lower_sort_string_list_helper() -> CodeFunction {
 
     let mut instructions = vec![
         abi::label("entry"),
-        abi::load_u64("%v10", abi::ARG[0], COLLECTION_OFFSET_COUNT),
+        abi::load_u64("%v10", abi::c_arg(0), COLLECTION_OFFSET_COUNT),
         abi::compare_immediate("%v10", "1"),
         abi::branch_le(&done),
-        abi::add_immediate("%v9", abi::ARG[0], COLLECTION_HEADER_SIZE),
+        abi::add_immediate("%v9", abi::c_arg(0), COLLECTION_HEADER_SIZE),
         abi::move_immediate("%v1", "Integer", &entry_size),
         // data region base = entries base + capacity * entry size (the data
         // region sits past the full lookup capacity for a grown list; §4.2).
-        abi::load_u64("%v8", abi::ARG[0], COLLECTION_OFFSET_CAPACITY),
+        abi::load_u64("%v8", abi::c_arg(0), COLLECTION_OFFSET_CAPACITY),
         abi::multiply_registers("%v11", "%v8", "%v1"),
         abi::add_registers("%v11", "%v9", "%v11"),
         abi::move_immediate("%v12", "Integer", "0"),
@@ -157,7 +157,7 @@ pub(super) fn emit_call_validate_utf8(
         library: None,
     });
     instructions.extend([
-        abi::compare_immediate(abi::RET[0], "0"),
+        abi::compare_immediate(abi::mfb_return(0), "0"),
         abi::branch_ne(error_label),
     ]);
 }
@@ -175,17 +175,17 @@ pub(super) fn lower_validate_utf8_helper() -> CodeFunction {
     let mut instructions = vec![abi::label("entry")];
     emit_validate_utf8(
         symbol,
-        abi::ARG[0],
-        abi::ARG[1],
+        abi::c_arg(0),
+        abi::c_arg(1),
         &invalid,
         &mut instructions,
         &mut vregs,
     );
     instructions.extend([
-        abi::move_immediate(abi::RET[0], "Integer", "0"),
+        abi::move_immediate(abi::mfb_return(0), "Integer", "0"),
         abi::return_(),
         abi::label(&invalid),
-        abi::move_immediate(abi::RET[0], "Integer", "1"),
+        abi::move_immediate(abi::mfb_return(0), "Integer", "1"),
         abi::return_(),
     ]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -207,8 +207,9 @@ pub(super) fn lower_validate_utf8_helper() -> CodeFunction {
 /// and `len` are read into it before any other def, so they may name `x0`/`x1`.
 fn emit_validate_utf8(
     symbol: &str,
-    ptr: &str,
-    len: &str,
+    // plan-85-B: accept a typed `Operand` (`abi::c_arg(0/1)`) or a legacy `&str`.
+    ptr: impl Into<Operand>,
+    len: impl Into<Operand>,
     error_label: &str,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
@@ -685,17 +686,23 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
         // and the owned-value zero-inits landed save_size bytes away from the
         // slots the scope-drops actually read.
         let stack_relative = instruction.fields.iter().any(|(name, value)| {
-            matches!(*name, "base" | "src")
-                && (abi::is_stack_pointer(value)
-                    || value == crate::arch::x86_64::regmodel::STACK_POINTER)
+            // Check the field name before rendering so a non-`base`/`src` operand
+            // (the common case) never allocates. `rendered()` borrows the `Raw`/
+            // `Phys` register spelling — no `String` clone.
+            if !matches!(*name, "base" | "src") {
+                return false;
+            }
+            let value = value.rendered();
+            abi::is_stack_pointer(&value)
+                || value.as_ref() == crate::arch::x86_64::regmodel::STACK_POINTER
         });
         if !stack_relative {
             continue;
         }
         for (name, value) in &mut instruction.fields {
             if matches!(*name, "offset" | "imm") {
-                if let Ok(offset) = value.parse::<usize>() {
-                    *value = (offset + offset_delta).to_string();
+                if let Ok(offset) = value.rendered().parse::<usize>() {
+                    *value = Operand::imm((offset + offset_delta) as i64);
                 }
             }
         }
@@ -744,9 +751,12 @@ fn assert_stack_accesses_fit_frame(instructions: &[CodeInstruction], total_stack
             continue;
         }
         let stack_relative = instruction.fields.iter().any(|(name, value)| {
-            matches!(*name, "base" | "src")
-                && (abi::is_stack_pointer(value)
-                    || value == crate::arch::x86_64::regmodel::STACK_POINTER)
+            if !matches!(*name, "base" | "src") {
+                return false;
+            }
+            let value = value.rendered();
+            abi::is_stack_pointer(&value)
+                || value.as_ref() == crate::arch::x86_64::regmodel::STACK_POINTER
         });
         if !stack_relative {
             continue;
@@ -755,7 +765,7 @@ fn assert_stack_accesses_fit_frame(instructions: &[CodeInstruction], total_stack
             if !matches!(*name, "offset" | "imm") {
                 continue;
             }
-            let Ok(offset) = value.parse::<usize>() else {
+            let Ok(offset) = value.rendered().parse::<usize>() else {
                 continue;
             };
             // A load/store consumes 8 bytes at `offset`; an address computation
@@ -775,12 +785,15 @@ fn assert_stack_accesses_fit_frame(instructions: &[CodeInstruction], total_stack
 }
 
 /// Read the `base`/`offset` of a stack-argument sentinel load/store (bug-08).
-fn base_of(instruction: &CodeInstruction) -> Option<&str> {
+/// Borrows the base operand's spelling (`rendered()` lends the `Raw` sentinel
+/// string with no allocation); the callers only compare it against the two
+/// sentinel constants.
+fn base_of(instruction: &CodeInstruction) -> Option<std::borrow::Cow<'_, str>> {
     instruction
         .fields
         .iter()
         .find(|(name, _)| *name == "base")
-        .map(|(_, value)| value.as_str())
+        .map(|(_, value)| value.rendered())
 }
 
 fn offset_of(instruction: &CodeInstruction) -> usize {
@@ -788,7 +801,7 @@ fn offset_of(instruction: &CodeInstruction) -> usize {
         .fields
         .iter()
         .find(|(name, _)| *name == "offset")
-        .and_then(|(_, value)| value.parse::<usize>().ok())
+        .and_then(|(_, value)| value.rendered().parse::<usize>().ok())
         .unwrap_or(0)
 }
 
@@ -798,7 +811,7 @@ fn offset_of(instruction: &CodeInstruction) -> usize {
 fn max_outgoing_arg_offset(instructions: &[CodeInstruction]) -> Option<usize> {
     instructions
         .iter()
-        .filter(|instruction| base_of(instruction) == Some(abi::OUTGOING_ARGS_BASE))
+        .filter(|instruction| base_of(instruction).as_deref() == Some(abi::OUTGOING_ARGS_BASE))
         .map(offset_of)
         .max()
 }
@@ -807,7 +820,7 @@ fn max_outgoing_arg_offset(instructions: &[CodeInstruction]) -> Option<usize> {
 fn has_incoming_stack_args(instructions: &[CodeInstruction]) -> bool {
     instructions
         .iter()
-        .any(|instruction| base_of(instruction) == Some(abi::INCOMING_ARGS_BASE))
+        .any(|instruction| base_of(instruction).as_deref() == Some(abi::INCOMING_ARGS_BASE))
 }
 
 /// Rewrite the stack-argument sentinel bases (`incoming_args`/`outgoing_args`)
@@ -827,15 +840,23 @@ fn resolve_stack_arg_sentinels(
             Some(base) => base,
             None => continue,
         };
-        let incoming = if base == abi::INCOMING_ARGS_BASE {
+        let incoming = if base.as_ref() == abi::INCOMING_ARGS_BASE {
             true
-        } else if base == abi::OUTGOING_ARGS_BASE {
+        } else if base.as_ref() == abi::OUTGOING_ARGS_BASE {
             false
         } else {
             continue;
         };
         let resolved_offset = if incoming {
-            frame_size + entry_padding + offset_of(instruction)
+            // The caller places outgoing arg 0 above the Win64 shadow space
+            // (`outgoing_args_base_offset()`), so the callee must read its incoming
+            // args from the same shadow-space-adjusted position — otherwise a >8-arg
+            // Win64 call reads garbage out of the shadow region (the offset defaults
+            // to 0, so SysV/AAPCS64 frames are byte-identical).
+            frame_size
+                + entry_padding
+                + super::mir::active_backend().outgoing_args_base_offset()
+                + offset_of(instruction)
         } else {
             // Outgoing arg 0 sits above the Win64 shadow space (plan-47-B §4.3);
             // `outgoing_args_base_offset()` defaults to 0, so SysV/AAPCS64 place it
@@ -844,8 +865,8 @@ fn resolve_stack_arg_sentinels(
         };
         for (name, value) in &mut instruction.fields {
             match *name {
-                "base" => *value = abi::stack_pointer().to_string(),
-                "offset" => *value = resolved_offset.to_string(),
+                "base" => *value = Operand::from(abi::stack_pointer()),
+                "offset" => *value = Operand::imm(resolved_offset as i64),
                 _ => {}
             }
         }
@@ -889,6 +910,7 @@ mod tests {
                 .filter(|ins| ins.op == CodeOp::Label)
                 .filter_map(|ins| ins.fields.iter().find(|(n, _)| *n == "name"))
                 .filter(|(_, v)| {
+                    let v = v.render();
                     v.ends_with("_utf8_two")
                         || v.ends_with("_utf8_three")
                         || v.ends_with("_utf8_four")

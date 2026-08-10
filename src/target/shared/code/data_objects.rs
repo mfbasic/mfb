@@ -7,12 +7,14 @@ use super::*;
 pub(super) fn push_symbol_address(
     from: &str,
     symbol: &str,
-    dst: &str,
+    // plan-85-B: accept a typed `Operand` (`abi::c_arg(0)`) or a legacy `&str`.
+    dst: impl Into<Operand>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    instructions.push(abi::load_page_address(dst, symbol));
-    instructions.push(abi::add_page_offset(dst, dst, symbol));
+    let dst = dst.into();
+    instructions.push(abi::load_page_address(&dst, symbol));
+    instructions.push(abi::add_page_offset(&dst, &dst, symbol));
     relocations.extend([
         CodeRelocation {
             from: from.to_string(),
@@ -182,9 +184,7 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     // `_mfb_str_error_wrong_mode` data object so the gate's relocation resolves
     // (the bug-256 class). Over-approximated to any `app::`-using app build; an
     // unreferenced pooled string is harmless dead data.
-    if module.build_mode.is_app()
-        && module_uses_any_call(module, &["app.getMode", "app.setMode"])
-    {
+    if module.build_mode.is_app() && module_uses_any_call(module, &["app.getMode", "app.setMode"]) {
         push_string_value(&mut values, err_msg("ErrWrongMode"));
     }
     if module_uses_any_call(
@@ -367,6 +367,8 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "tls.readText",
             "tls.write",
             "tls.writeText",
+            "tls.poll",
+            "tls.pollList",
             "tls.close",
             "tls.closeListener",
         ],
@@ -415,6 +417,52 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         ] {
             push_string_value(&mut values, value);
         }
+    }
+    // plan-90: `process::spawn`/`shell` raise ErrSpawnFailed; lifecycle ops raise
+    // ErrResourceClosed on a dropped handle; spawn raises ErrInvalidArgument on an
+    // empty argv and ErrAllocation on OOM; the send/poll timeout overloads raise
+    // ErrTimeout. `__drop` is emitted by scope-drop, so a program that only spawns
+    // still needs the close-path strings. The whole surface is listed so an I/O-
+    // or signal-only reference still pulls the shared close/timeout strings.
+    let process_calls = [
+        "process.spawn",
+        "process.spawnEnv",
+        "process.shell",
+        "process.pid",
+        "process.isRunning",
+        "process.waitFor",
+        "process.close",
+        "process.send",
+        "process.sendTimeout",
+        "process.sendBytes",
+        "process.sendBytesTimeout",
+        "process.receive",
+        "process.receiveFrom",
+        "process.receiveBytes",
+        "process.receiveBytesFrom",
+        "process.poll",
+        "process.pollFrom",
+        "process.signal",
+        "process.didSignal",
+        "process.detach",
+        "process.__drop",
+    ];
+    if module_uses_any_call(module, &process_calls) {
+        for value in [
+            ERR_SPAWN_FAILED_MESSAGE,
+            ERR_RESOURCE_CLOSED_MESSAGE,
+            ERR_INVALID_ARGUMENT_MESSAGE,
+            ERR_ALLOCATION_MESSAGE,
+            ERR_TIMEOUT_MESSAGE,
+        ] {
+            push_string_value(&mut values, value.to_string());
+        }
+    }
+    // `process::receive`/`receiveFrom` validate the line as UTF-8 and raise
+    // ErrEncoding on a malformed byte sequence, so the receive path needs the
+    // encoding string even when the program never calls `toString`.
+    if module_uses_any_call(module, &["process.receive", "process.receiveFrom"]) {
+        push_string_value(&mut values, ERR_ENCODING_MESSAGE.to_string());
     }
     if module_uses_migrated(module, "find")
         || module_uses_migrated(module, "mid")
@@ -561,112 +609,144 @@ pub(super) fn unicode_string_call_is_static(
             | "strings.caseFold"
             | "strings.normalizeNfc"
             | "strings.graphemes"
+            | "strings.displayWidth"
     ) && args.len() == 1
         && static_string_value_with_constants(&args[0], constants, types, fields).is_some()
 }
 
-pub(super) fn unicode_runtime_data_objects() -> Vec<CodeDataObject> {
+/// The unicode runtime tables to emit. `referenced` is the set of
+/// `_mfb_unicode_*` data symbols that some generated function actually relocates
+/// against — the ground truth for which tables are live (plan-77 U5). Only those
+/// tables are emitted, so e.g. a `strings::graphemes`-only program drops the six
+/// case-mapping tables and the NFD/composition tables it never touches. `None`
+/// emits every table (the coarse fallback for the — practically unreachable —
+/// case where the NIR heuristic reports unicode use but no relocation names a
+/// specific table, preserving the pre-split all-or-nothing behaviour rather than
+/// risking an undefined symbol).
+pub(super) fn unicode_runtime_data_objects(
+    referenced: Option<&std::collections::HashSet<&str>>,
+) -> Vec<CodeDataObject> {
     let tables = crate::unicode::runtime_tables::tables();
-    vec![
-        raw_data_object(
+    let keep = |symbol: &str| referenced.is_none_or(|set| set.contains(symbol));
+    let mut objects = Vec::new();
+    if keep(UNICODE_STAGE1_SYMBOL) {
+        objects.push(raw_data_object(
             UNICODE_STAGE1_SYMBOL,
             "u16 utf8proc stage1 property index table",
             tables.stage1.len() * 2,
             crate::unicode::runtime_tables::stage1_hex(),
             2,
-        ),
-        raw_data_object(
+        ));
+    }
+    if keep(UNICODE_STAGE2_SYMBOL) {
+        objects.push(raw_data_object(
             UNICODE_STAGE2_SYMBOL,
             "u16 utf8proc stage2 property index table",
             tables.stage2.len() * 2,
             crate::unicode::runtime_tables::stage2_hex(),
             2,
-        ),
-        raw_data_object(
+        ));
+    }
+    if keep(UNICODE_PROPERTIES_SYMBOL) {
+        objects.push(raw_data_object(
             UNICODE_PROPERTIES_SYMBOL,
-            "mfb.unicode.property.v1 records, 24 bytes each",
-            tables.properties.len() * 24,
+            "mfb.unicode.property.v1 records, 12 bytes each",
+            tables.properties.len() * 12,
             crate::unicode::runtime_tables::properties_hex(),
             2,
-        ),
-        raw_data_object(
-            UNICODE_SEQUENCES_SYMBOL,
-            "u16 utf8proc sequence table",
-            tables.sequences.len() * 2,
-            crate::unicode::runtime_tables::sequences_hex(),
-            2,
-        ),
-        raw_data_object(
+        ));
+    }
+    if keep(UNICODE_COMBINATIONS_SECOND_SYMBOL) {
+        objects.push(raw_data_object(
             UNICODE_COMBINATIONS_SECOND_SYMBOL,
             "u32 utf8proc composition second codepoint table",
             tables.combinations_second.len() * 4,
             crate::unicode::runtime_tables::combinations_second_hex(),
             4,
-        ),
-        raw_data_object(
+        ));
+    }
+    if keep(UNICODE_COMBINATIONS_COMBINED_SYMBOL) {
+        objects.push(raw_data_object(
             UNICODE_COMBINATIONS_COMBINED_SYMBOL,
             "u32 utf8proc composition combined codepoint table",
             tables.combinations_combined.len() * 4,
             crate::unicode::runtime_tables::combinations_combined_hex(),
             4,
-        ),
-        raw_data_object(
+        ));
+    }
+    if keep(UNICODE_NFD_ENTRIES_SYMBOL) {
+        objects.push(raw_data_object(
             UNICODE_NFD_ENTRIES_SYMBOL,
             "mfb.unicode.nfd_entry.v1 records, 16 bytes each",
             tables.nfd_entries.len() * 16,
             crate::unicode::runtime_tables::nfd_entries_hex(),
             4,
-        ),
-        raw_data_object(
+        ));
+    }
+    if keep(UNICODE_NFD_SEQUENCES_SYMBOL) {
+        objects.push(raw_data_object(
             UNICODE_NFD_SEQUENCES_SYMBOL,
             "u32 flattened Unicode NFD sequence table",
             tables.nfd_sequences.len() * 4,
             crate::unicode::runtime_tables::nfd_sequences_hex(),
             4,
-        ),
-        raw_data_object(
+        ));
+    }
+    if keep(UNICODE_UPPERCASE_ENTRIES_SYMBOL) {
+        objects.push(raw_data_object(
             UNICODE_UPPERCASE_ENTRIES_SYMBOL,
             "mfb.unicode.mapping_entry.v1 uppercase records, 16 bytes each",
             tables.uppercase_entries.len() * 16,
             crate::unicode::runtime_tables::uppercase_entries_hex(),
             4,
-        ),
-        raw_data_object(
+        ));
+    }
+    if keep(UNICODE_UPPERCASE_SEQUENCES_SYMBOL) {
+        objects.push(raw_data_object(
             UNICODE_UPPERCASE_SEQUENCES_SYMBOL,
             "u32 flattened Unicode uppercase sequence table",
             tables.uppercase_sequences.len() * 4,
             crate::unicode::runtime_tables::uppercase_sequences_hex(),
             4,
-        ),
-        raw_data_object(
+        ));
+    }
+    if keep(UNICODE_LOWERCASE_ENTRIES_SYMBOL) {
+        objects.push(raw_data_object(
             UNICODE_LOWERCASE_ENTRIES_SYMBOL,
             "mfb.unicode.mapping_entry.v1 lowercase records, 16 bytes each",
             tables.lowercase_entries.len() * 16,
             crate::unicode::runtime_tables::lowercase_entries_hex(),
             4,
-        ),
-        raw_data_object(
+        ));
+    }
+    if keep(UNICODE_LOWERCASE_SEQUENCES_SYMBOL) {
+        objects.push(raw_data_object(
             UNICODE_LOWERCASE_SEQUENCES_SYMBOL,
             "u32 flattened Unicode lowercase sequence table",
             tables.lowercase_sequences.len() * 4,
             crate::unicode::runtime_tables::lowercase_sequences_hex(),
             4,
-        ),
-        raw_data_object(
+        ));
+    }
+    if keep(UNICODE_CASEFOLD_ENTRIES_SYMBOL) {
+        objects.push(raw_data_object(
             UNICODE_CASEFOLD_ENTRIES_SYMBOL,
             "mfb.unicode.mapping_entry.v1 casefold records, 16 bytes each",
             tables.casefold_entries.len() * 16,
             crate::unicode::runtime_tables::casefold_entries_hex(),
             4,
-        ),
-        raw_data_object(
+        ));
+    }
+    if keep(UNICODE_CASEFOLD_SEQUENCES_SYMBOL) {
+        objects.push(raw_data_object(
             UNICODE_CASEFOLD_SEQUENCES_SYMBOL,
             "u32 flattened Unicode casefold sequence table",
             tables.casefold_sequences.len() * 4,
             crate::unicode::runtime_tables::casefold_sequences_hex(),
             4,
-        ),
-    ]
+        ));
+    }
+    objects
 }
 
 fn raw_data_object(
@@ -1239,6 +1319,36 @@ pub(super) fn builtin_function_refs(module: &NirModule) -> Vec<(String, String, 
     refs
 }
 
+/// plan-86 K1: names of every top-level function referenced as a `FunctionRef`
+/// (used as a callback / function value) ANYWHERE in the module. Such a function
+/// is invoked through the generic callback ABI, which takes OWNERSHIP of the
+/// callback's return value — e.g. `collections::groupBy` stores each per-element
+/// result into a bucket and frees the callee's returned block after use. A
+/// parameter-passthrough callback that returned a borrow of its argument would
+/// hand that ABI a non-owned pointer to a per-iteration temporary, causing a
+/// double-free / UAF (observed: grouped String values came back empty). So a
+/// function used as a `FunctionRef` MUST keep returning a fresh owned copy;
+/// `function_returns_param_borrow` excludes every name in this set.
+pub(super) fn collect_function_ref_names(module: &NirModule) -> HashSet<String> {
+    use nir::visit::{walk_value, NirVisitor};
+    struct Collector<'a> {
+        out: &'a mut HashSet<String>,
+    }
+    impl NirVisitor for Collector<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::FunctionRef { name, .. } = value {
+                self.out.insert(name.clone());
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut out = HashSet::new();
+    for function in &module.functions {
+        Collector { out: &mut out }.visit_ops(&function.body);
+    }
+    out
+}
+
 fn collect_builtin_function_refs_in_ops(
     ops: &[NirOp],
     refs: &mut Vec<(String, String, String)>,
@@ -1269,7 +1379,7 @@ fn collect_builtin_function_refs_in_ops(
 mod tests {
     use super::*;
     use crate::target::shared::nir::{NirSourceLoc, NirValue};
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     fn const_of(type_: &str) -> NirValue {
         NirValue::Const {
@@ -1361,5 +1471,58 @@ mod tests {
                 "`{target}` must resolve — it is a documented builtin call"
             );
         }
+    }
+
+    /// plan-77 U5: `unicode_runtime_data_objects` emits exactly the tables whose
+    /// symbols are referenced. A `strings::graphemes`-only program (which reaches
+    /// only the base trie) must NOT carry the six case-mapping tables nor the
+    /// NFD/composition tables; a case-mapping-only program must NOT carry the base
+    /// trie. `None` still emits every table (the coarse fallback).
+    #[test]
+    fn unicode_runtime_data_objects_emit_only_referenced_tables() {
+        let all = unicode_runtime_data_objects(None);
+        assert_eq!(all.len(), 13, "None must emit every unicode table");
+
+        let base: HashSet<&str> = [
+            UNICODE_STAGE1_SYMBOL,
+            UNICODE_STAGE2_SYMBOL,
+            UNICODE_PROPERTIES_SYMBOL,
+        ]
+        .into_iter()
+        .collect();
+        let graphemes_only = unicode_runtime_data_objects(Some(&base));
+        let emitted: HashSet<&str> = graphemes_only.iter().map(|o| o.symbol.as_str()).collect();
+        assert_eq!(
+            emitted, base,
+            "graphemes-only must emit exactly the base trie"
+        );
+        for dead in [
+            UNICODE_CASEFOLD_ENTRIES_SYMBOL,
+            UNICODE_CASEFOLD_SEQUENCES_SYMBOL,
+            UNICODE_UPPERCASE_ENTRIES_SYMBOL,
+            UNICODE_UPPERCASE_SEQUENCES_SYMBOL,
+            UNICODE_LOWERCASE_ENTRIES_SYMBOL,
+            UNICODE_LOWERCASE_SEQUENCES_SYMBOL,
+            UNICODE_NFD_ENTRIES_SYMBOL,
+            UNICODE_COMBINATIONS_SECOND_SYMBOL,
+        ] {
+            assert!(
+                !emitted.contains(dead),
+                "graphemes-only leaked `{dead}` it never reads"
+            );
+        }
+
+        let casefold: HashSet<&str> = [
+            UNICODE_CASEFOLD_ENTRIES_SYMBOL,
+            UNICODE_CASEFOLD_SEQUENCES_SYMBOL,
+        ]
+        .into_iter()
+        .collect();
+        let casefold_only = unicode_runtime_data_objects(Some(&casefold));
+        let emitted: HashSet<&str> = casefold_only.iter().map(|o| o.symbol.as_str()).collect();
+        assert_eq!(
+            emitted, casefold,
+            "casefold-only must emit exactly its two tables (no base trie)"
+        );
     }
 }

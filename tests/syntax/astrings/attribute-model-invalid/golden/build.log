@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/astrings/attribute-model-invalid
+   7 | FUNC main AS Integer
+   8 |   LET a AS AttributedString = astrings::fromString("hi")
+   9 |   LET spans = astrings::readSpans(a)
+     | ^
+tests/syntax/astrings/attribute-model-invalid/src/main.mfb:9 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `astrings` does not export `astrings.readSpans`.
+[exit 1]

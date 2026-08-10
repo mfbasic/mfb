@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/types/mut-default-collection-of-nondefaultable-valid
+Wrote AST to tests/syntax/types/mut-default-collection-of-nondefaultable-valid/mut_default_collection_of_nondefaultable_valid.ast
+Wrote IR to tests/syntax/types/mut-default-collection-of-nondefaultable-valid/mut_default_collection_of_nondefaultable_valid.ir
+[exit 0]

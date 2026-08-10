@@ -1,0 +1,8 @@
+IMPORT strings
+
+FUNC main AS Integer
+  LET missing AS Integer = strings::displayWidth()
+  LET wrongType AS Integer = strings::displayWidth(12)
+  LET tooMany AS Integer = strings::displayWidth("a", "b")
+  RETURN 0
+END FUNC

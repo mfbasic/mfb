@@ -1,0 +1,22 @@
+IMPORT thread
+IMPORT self
+
+' PUBLIC (not EXPORT): invisible through self, so it is not a valid entry.
+ISOLATED FUNC hiddenWorker(worker AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  RETURN len(seed)
+END FUNC
+
+' EXPORT but not ISOLATED: visible through self but rejected as an entry.
+EXPORT FUNC plainWorker(worker AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  RETURN len(seed)
+END FUNC
+
+EXPORT FUNC spawnHidden AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(self::hiddenWorker, "hi")
+  RETURN thread::waitFor(t)
+END FUNC
+
+EXPORT FUNC spawnPlain AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(self::plainWorker, "hi")
+  RETURN thread::waitFor(t)
+END FUNC

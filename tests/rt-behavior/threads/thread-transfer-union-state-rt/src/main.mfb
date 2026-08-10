@@ -1,0 +1,27 @@
+IMPORT io
+IMPORT thread
+IMPORT fs
+IMPORT union_xfer_workers
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+UNION Stream
+  File
+  Socket
+END UNION
+
+' plan-75: the resource plane moves a resource *union* together with its uniform
+' STATE across the thread boundary. The worker reads the transferred `pos` (99)
+' off the accepted `RES Stream STATE Cursor` and returns it — the variant record
+' (with its STATE) is deep-copied into the receiver arena, never aliased.
+FUNC main AS Integer
+  LET t AS Thread OF RES Stream STATE Cursor TO Integer = thread::start(union_xfer_workers::takeUnionCursor, "seed")
+  RES s AS Stream STATE Cursor = fs::createTempFile()
+  s.state.pos = 99
+  thread::transfer(t, s)
+  LET got AS Integer = thread::waitFor(t)
+  io::print(toString(got))
+  RETURN 0
+END FUNC

@@ -1,0 +1,51 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "process_detach",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "enum",
+    "line": 17,
+    "visibility": "export",
+    "name": "Stream",
+    "members": [
+    { "name": "StdOut" },
+    { "name": "StdErr" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 33,
+    "visibility": "export",
+    "name": "Signal",
+    "members": [
+    { "name": "None" },
+    { "name": "Kill" },
+    { "name": "Terminate" },
+    { "name": "Error" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 9, "mutable": false, "name": "p", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "sleep" }, { "kind": "const", "type": "String", "value": "30" }] }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "process.detach", "args": [{ "kind": "local", "name": "p" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "detached" }] } },
+    { "op": "return", "line": 13, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

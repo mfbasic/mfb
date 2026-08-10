@@ -124,10 +124,39 @@ impl CodeBuilder<'_> {
             self.emit(abi::branch_eq(&done));
         }
 
+        self.emit_union_tag_dispatch_drop(
+            &union_ptr,
+            &cleanup.variants,
+            cleanup.state_type.as_deref(),
+            &done,
+        )?;
+        self.emit(abi::label(&done));
+        Ok(())
+    }
+
+    /// Emit the tag-dispatch-close + STATE-free core of a resource-union drop,
+    /// given a register `union_ptr` holding the union block pointer
+    /// (`{tag @0, record-ptr @8}`) that the caller has already null/identity
+    /// checked. Reads the tag, calls the active variant's registered close op on
+    /// its record pointer, then frees that record's uniform STATE block
+    /// (plan-74); on a matched-and-closed variant control branches to
+    /// `done_label`.
+    ///
+    /// Shared by the single-binding drop (`emit_resource_union_cleanup_call`) and
+    /// the owned-list drain (`emit_owned_list_drain`, bug-429) so a
+    /// `List OF RES <Union> STATE <S>` closes each floated element exactly as a
+    /// lone `RES u AS Union` binding does — the two call sites cannot drift.
+    pub(super) fn emit_union_tag_dispatch_drop(
+        &mut self,
+        union_ptr: &VirtualRegister,
+        variants: &[(usize, String)],
+        state_type: Option<&str>,
+        done_label: &str,
+    ) -> Result<(), String> {
         let union_slot = self.allocate_stack_object("resource_union_drop_ptr", 8);
-        self.emit(abi::store_u64(&union_ptr, abi::stack_pointer(), union_slot));
+        self.emit(abi::store_u64(union_ptr, abi::stack_pointer(), union_slot));
         let tag_register = self.allocate_register()?;
-        self.emit(abi::load_u64(&tag_register, &union_ptr, 0));
+        self.emit(abi::load_u64(&tag_register, union_ptr, 0));
         let tag_slot = self.allocate_stack_object("resource_union_drop_tag", 8);
         self.emit(abi::store_u64(
             &tag_register,
@@ -135,7 +164,7 @@ impl CodeBuilder<'_> {
             tag_slot,
         ));
         let payload_slot = self.allocate_stack_object("resource_union_drop_payload", 8);
-        for (tag, symbol) in cleanup.variants.clone() {
+        for (tag, symbol) in variants {
             let next = self.label("resource_union_drop_next");
             let tag_reg = self.allocate_register()?;
             self.emit(abi::load_u64(&tag_reg, abi::stack_pointer(), tag_slot));
@@ -158,7 +187,7 @@ impl CodeBuilder<'_> {
                 },
             );
             self.emit_raw_call(
-                &symbol,
+                symbol,
                 std::slice::from_ref(&arg),
                 "resource_union_drop_arg",
             )?;
@@ -173,13 +202,12 @@ impl CodeBuilder<'_> {
             // pointer `emit_free_resource_state_block` expects; it null-checks the
             // STATE pointer and zeroes it, so a re-drop is a no-op (no double-free).
             // Ordered after the close, mirroring the concrete resource path.
-            if let Some(state_type) = cleanup.state_type.clone() {
-                self.emit_free_resource_state_block(payload_slot, &state_type)?;
+            if let Some(state_type) = state_type {
+                self.emit_free_resource_state_block(payload_slot, state_type)?;
             }
-            self.emit(abi::branch(&done));
+            self.emit(abi::branch(done_label));
             self.emit(abi::label(&next));
         }
-        self.emit(abi::label(&done));
         Ok(())
     }
 
@@ -405,8 +433,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&block, &ptr, offset));
         self.emit(abi::compare_immediate(&block, "0"));
         self.emit(abi::branch_eq(&skip));
-        self.emit(abi::move_register(abi::return_register(), &block));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", size));
+        // plan-71-C Family-1a: block ptr is arg 0 of arena-free → `%arg0`.
+        self.emit(abi::move_register(abi::c_arg(0), &block));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", size));
         self.emit_arena_free_call();
         // Reload: the call above destroyed every caller-saved register.
         let ptr_after = self.allocate_register()?;
@@ -422,7 +451,7 @@ impl CodeBuilder<'_> {
 
     /// `arena_free` the `STATE` payload and null its pointer word. Unlike the two
     /// buffers this block has no fixed size — a `STATE` record inlines its `String`
-    /// fields — so it is sized from the type at `FILE_OFFSET_STATE`.
+    /// fields — so it is sized from the type at `RESOURCE_OFFSET_STATE`.
     pub(super) fn emit_free_resource_state_block(
         &mut self,
         resource_slot: usize,
@@ -434,7 +463,7 @@ impl CodeBuilder<'_> {
         let ptr = self.allocate_register()?;
         self.emit(abi::load_u64(&ptr, abi::stack_pointer(), resource_slot));
         let block = self.allocate_register()?;
-        self.emit(abi::load_u64(&block, &ptr, FILE_OFFSET_STATE));
+        self.emit(abi::load_u64(&block, &ptr, RESOURCE_OFFSET_STATE));
         self.emit(abi::store_u64(&block, abi::stack_pointer(), state_slot));
         self.emit(abi::compare_immediate(&block, "0"));
         self.emit(abi::branch_eq(&skip));
@@ -444,7 +473,11 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             state_slot,
         ));
-        self.emit(abi::load_u64(abi::ARG[1], abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            size_slot,
+        ));
         self.emit_arena_free_call();
         let ptr_after = self.allocate_register()?;
         self.emit(abi::load_u64(
@@ -452,7 +485,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             resource_slot,
         ));
-        self.emit(abi::store_u64(abi::ZERO, &ptr_after, FILE_OFFSET_STATE));
+        self.emit(abi::store_u64(abi::ZERO, &ptr_after, RESOURCE_OFFSET_STATE));
         self.emit(abi::label(&skip));
         Ok(())
     }
@@ -503,14 +536,30 @@ impl CodeBuilder<'_> {
         self.emit_thread_cleanup_call(&cleanup)
     }
 
-    /// The close op symbol for a resource collection's element/value type, or an
-    /// error if `type_` is not a collection whose element is a single resource.
-    pub(super) fn collection_resource_close_symbol(&self, type_: &str) -> Result<String, String> {
+    /// The drop descriptor for a resource collection's element/value type: a
+    /// single close-op symbol for a concrete resource element, or a
+    /// tag-dispatch table + uniform STATE type for a resource-union element
+    /// (bug-429). Errors only if `type_` is not a collection, or its element is
+    /// neither a known concrete resource nor a resource union.
+    pub(super) fn collection_resource_drop(&self, type_: &str) -> Result<OwnedListDrop, String> {
         let element = list_element_type(type_)
             .or_else(|| map_type_parts(type_).map(|(_, value)| value))
             .ok_or_else(|| format!("owned-list owner '{type_}' is not a collection"))?;
-        self.resource_cleanup_symbol(&element).ok_or_else(|| {
+        // A resource-union element has no single close op; each floated node is
+        // dropped by dispatching on its active variant's tag, exactly as a lone
+        // `RES u AS Union STATE S` binding is (plan-74). Check the union path
+        // first — a union's variants are individually closable, so the concrete
+        // fallback below would otherwise never see them.
+        if let Some(variants) = self.resource_union_cleanup(&element) {
+            return Ok(OwnedListDrop::Union {
+                variants,
+                state_type: crate::builtins::resource::state_type_name(&element)
+                    .map(str::to_string),
+            });
+        }
+        let symbol = self.resource_cleanup_symbol(&element).ok_or_else(|| {
             format!("owned-list element type '{element}' has no registered close op")
-        })
+        })?;
+        Ok(OwnedListDrop::Concrete(symbol))
     }
 }

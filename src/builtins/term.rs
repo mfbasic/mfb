@@ -54,6 +54,7 @@ pub(crate) const GET_BACKGROUND: &str = "term.getBackground";
 pub(crate) const GET_BOLD: &str = "term.getBold";
 pub(crate) const GET_UNDERLINE: &str = "term.getUnderline";
 pub(crate) const TERMINAL_SIZE: &str = "term.terminalSize";
+pub(crate) const DID_RESIZE: &str = "term.didResize";
 
 // plan-72-X W: `TERM` is the descriptor authority for `term::`. Every call's
 // return type is a function of the NAME alone (`resolve_call` ignores its argument
@@ -204,6 +205,7 @@ const TERM_FUNCTIONS: &[BuiltinFunction] = &[
     term_fn(GET_BOLD, "getBold", OV_BOOL_EMPTY),
     term_fn(GET_UNDERLINE, "getUnderline", OV_BOOL_EMPTY),
     term_fn(TERMINAL_SIZE, "terminalSize", OV_SIZE_EMPTY),
+    term_fn(DID_RESIZE, "didResize", OV_BOOL_EMPTY),
 ];
 
 /// Return-type resolution for the term calls, delegating to the hand-authored
@@ -249,7 +251,7 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         ON | OFF | IS_ON | SHOW_CURSOR | HIDE_CURSOR | CLEAR | SYNC | GET_FOREGROUND
-        | GET_BACKGROUND | GET_BOLD | GET_UNDERLINE | TERMINAL_SIZE => Some(&[]),
+        | GET_BACKGROUND | GET_BOLD | GET_UNDERLINE | TERMINAL_SIZE | DID_RESIZE => Some(&[]),
         SET_FOREGROUND | SET_BACKGROUND => Some(&[&["r"], &["g"], &["b"]]),
         SET_BOLD | SET_UNDERLINE => Some(&[&["enabled"]]),
         MOVE_TO => Some(&[&["row"], &["column"]]),
@@ -268,7 +270,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 pub(crate) fn param_types(name: &str) -> Option<&'static [&'static str]> {
     match name {
         ON | OFF | IS_ON | SHOW_CURSOR | HIDE_CURSOR | CLEAR | SYNC | GET_FOREGROUND
-        | GET_BACKGROUND | GET_BOLD | GET_UNDERLINE | TERMINAL_SIZE => Some(&[]),
+        | GET_BACKGROUND | GET_BOLD | GET_UNDERLINE | TERMINAL_SIZE | DID_RESIZE => Some(&[]),
         SET_FOREGROUND | SET_BACKGROUND => Some(&["Byte", "Byte", "Byte"]),
         SET_BOLD | SET_UNDERLINE => Some(&["Boolean"]),
         MOVE_TO => Some(&["Integer", "Integer"]),
@@ -318,6 +320,47 @@ super::package_source_glue!(
     include_str!("term_package.mfb")
 );
 
+// The `term`↔`astrings` bridge source (`term_astrings_bridge.mfb`) carries the
+// `term::drawText(x, y, AttributedString)` overload body `__term_drawTextAttr`
+// (routed to `#term_drawTextAttr` in `ir::lower`). It is a SEPARATE source from
+// `term_package.mfb` and gated on importing BOTH `term` and `astrings`, so a plain
+// `IMPORT term` program never drags in the `astrings`/`strings` companions the
+// bridge needs. The bridge itself imports term/astrings/strings, so it is injected
+// before all three (their `uses_package` then sees the dependency).
+pub(crate) fn bridge_source_file() -> Result<crate::ast::AstFile, ()> {
+    crate::ast::parse_source_internal(
+        std::path::Path::new("<builtin-term-astrings-bridge>"),
+        "builtins/term_astrings_bridge.mfb",
+        include_str!("term_astrings_bridge.mfb"),
+    )
+}
+
+/// The bridge is used when a program imports both `term` and `astrings` — the pair
+/// any `term::drawText(AttributedString)` call must have in scope. Over-injection
+/// (a program that imports both but never draws attributed text) is harmless: it
+/// adds only the two small resolver helpers plus `__term_drawTextAttr`.
+pub(crate) fn bridge_uses_package(ast: &crate::ast::AstProject) -> bool {
+    let imports = |name: &str| {
+        ast.files.iter().any(|file| {
+            file.imports
+                .iter()
+                .any(|import| import.package_name() == name)
+        })
+    };
+    imports("term") && imports("astrings")
+}
+
+pub(crate) fn bridge_augmented_project(
+    ast: &crate::ast::AstProject,
+) -> Result<crate::ast::AstProject, ()> {
+    if !bridge_uses_package(ast) {
+        return Ok(ast.clone());
+    }
+    let mut augmented = ast.clone();
+    augmented.files.push(bridge_source_file()?);
+    Ok(augmented)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,6 +389,7 @@ mod tests {
         GET_BOLD,
         GET_UNDERLINE,
         TERMINAL_SIZE,
+        DID_RESIZE,
     ];
 
     const NO_ARG: &[&str] = &[
@@ -361,6 +405,7 @@ mod tests {
         GET_BOLD,
         GET_UNDERLINE,
         TERMINAL_SIZE,
+        DID_RESIZE,
     ];
 
     #[test]
@@ -421,7 +466,15 @@ mod tests {
         }
         assert_eq!(
             call_param_names(DRAW_BOX),
-            Some(&[&["line"][..], &["x1"][..], &["y1"][..], &["x2"][..], &["y2"][..]][..])
+            Some(
+                &[
+                    &["line"][..],
+                    &["x1"][..],
+                    &["y1"][..],
+                    &["x2"][..],
+                    &["y2"][..]
+                ][..]
+            )
         );
         assert_eq!(
             param_types(DRAW_BOX),
@@ -429,7 +482,15 @@ mod tests {
         );
         assert_eq!(
             call_param_names(FILL_RECT),
-            Some(&[&["fill"][..], &["x1"][..], &["y1"][..], &["x2"][..], &["y2"][..]][..])
+            Some(
+                &[
+                    &["fill"][..],
+                    &["x1"][..],
+                    &["y1"][..],
+                    &["x2"][..],
+                    &["y2"][..]
+                ][..]
+            )
         );
         assert_eq!(
             param_types(FILL_RECT),
@@ -476,7 +537,7 @@ mod tests {
         ] {
             assert_eq!(call_return_type_name(name), Some("Nothing"), "{name}");
         }
-        for name in [IS_ON, GET_BOLD, GET_UNDERLINE] {
+        for name in [IS_ON, GET_BOLD, GET_UNDERLINE, DID_RESIZE] {
             assert_eq!(call_return_type_name(name), Some("Boolean"), "{name}");
         }
         for name in [GET_FOREGROUND, GET_BACKGROUND] {

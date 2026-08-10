@@ -6,6 +6,7 @@ Draw a string at a position without moving the cursor
 
 ```
 term::drawText(x AS Integer, y AS Integer, text AS String) AS Nothing
+term::drawText(x AS Integer, y AS Integer, text AS AttributedString) AS Nothing
 ```
 
 ## Package
@@ -43,13 +44,25 @@ nothing — so a stray control character can never corrupt the presented frame; 
 The call is gated: while TUI mode is off it does nothing and reports no error.
 [[src/target/shared/code/term.rs:emit_gate_inactive]]
 
+An overload accepts an `astrings::AttributedString` in the `text` position. It
+stamps the same visible text as the `String` overload but honours the per-scalar
+styling the value carries: the two attributes the terminal surface can represent —
+**bold** and **underline** — are applied per run, and every other attribute
+(italic, strikethrough, overline, font, font size) is silently ignored. The text
+is drawn in maximal runs of a single (bold, underline) state, so each run renders
+with those attributes and grapheme-cluster and wide-glyph handling is identical to
+the `String` overload. The surface's current bold/underline are restored
+afterwards, so like the `String` overload the call leaves the pen it found. Using
+this overload requires `IMPORT astrings` (the only way to build an
+`AttributedString`). [[src/builtins/term_astrings_bridge.mfb:__term_drawTextAttr]]
+
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `x` | `Integer` | Zero-based start column. Negative columns are skipped; the run clips at the right edge. [[src/builtins/term.rs:call_param_names]] |
 | `y` | `Integer` | Zero-based row. Outside `0 .. rows-1` the call draws nothing. [[src/builtins/term.rs:call_param_names]] |
-| `text` | `String` | The text to stamp, one cell per Unicode scalar. Control characters are skipped. [[src/builtins/term.rs:call_param_names]] |
+| `text` | `String` \| `AttributedString` | The text to stamp, one cell per Unicode scalar. Control characters are skipped. An `AttributedString` additionally applies its per-scalar bold/underline (other attributes ignored). [[src/builtins/term.rs:call_param_names]] |
 
 ## Return value
 
@@ -73,6 +86,23 @@ SUB main()
   term::drawText(2, 0, "My Application")
   LET size AS TermSize = term::terminalSize()
   term::drawText(0, size.rows - 1, "Press q to quit")
+  term::sync()
+  term::off()
+END SUB
+```
+
+Draw styled text, applying its bold/underline attributes:
+
+```
+IMPORT term
+IMPORT astrings
+
+SUB main()
+  term::on()
+  MUT label AS AttributedString = astrings::fromString("Save  Quit")
+  label = astrings::addAttribute(label, 0, 3, astrings::bold())
+  label = astrings::addAttribute(label, 6, 9, astrings::underline())
+  term::drawText(2, 0, label)
   term::sync()
   term::off()
 END SUB

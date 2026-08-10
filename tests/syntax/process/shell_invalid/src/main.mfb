@@ -1,0 +1,13 @@
+' plan-90-A Phase 2: `process::shell(cmd AS String) AS Process` rejects wrong
+' arity and argument types. `Process` is a resource, so each call is bound `RES`.
+IMPORT process
+
+FUNC main AS Integer
+  ' No arguments: below the minimum arity.
+  RES a = process::shell()
+  ' Wrong argument type: an Integer is not a String.
+  RES b = process::shell(42)
+  ' Too many arguments.
+  RES c = process::shell("echo hi", "extra")
+  RETURN 0
+END FUNC

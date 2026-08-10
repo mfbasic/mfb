@@ -113,7 +113,7 @@ impl CodeBuilder<'_> {
             &scratch9,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -124,14 +124,19 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), count_slot));
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch9, &scratch16, 0));
-        self.emit_write_list_header_from_registers(&layout, abi::RET[1], &scratch11, &scratch9);
+        self.emit_write_list_header_from_registers(
+            &layout,
+            abi::mfb_return(1),
+            &scratch11,
+            &scratch9,
+        );
 
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&write_empty));
@@ -139,16 +144,16 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch9, &scratch16, 0));
         self.emit(abi::add_immediate(&scratch14, &scratch16, 8));
         self.emit(abi::load_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::add_immediate(
             &scratch20,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit_collection_data_pointer_for(&scratch21, abi::RET[1], "String");
+        self.emit_collection_data_pointer_for(&scratch21, abi::mfb_return(1), "String");
         self.emit(abi::move_immediate(&scratch22, "Integer", "0"));
         self.emit(abi::move_immediate(&scratch24, "Integer", "0"));
         self.emit_utf8_decode_next(&scratch14, &scratch10, &scratch11);
@@ -254,7 +259,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "List OF String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "strings.graphemes".to_string(),
         })
     }
@@ -314,7 +319,7 @@ impl CodeBuilder<'_> {
             COLLECTION_HEADER_SIZE,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -326,11 +331,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         // x1 holds the new collection pointer.
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
-        self.emit(abi::move_register(&scratch20, abi::RET[1]));
+        self.emit(abi::move_register(&scratch20, abi::mfb_return(1)));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), count_slot));
         // Header: count == capacity == dataLength == dataCapacity == count.
         self.emit_write_list_header_from_registers(&layout, &scratch20, &scratch9, &scratch9);
@@ -426,7 +431,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "List OF Byte".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "strings.toBytes".to_string(),
         })
     }
@@ -436,22 +441,23 @@ impl CodeBuilder<'_> {
     /// with a ±32 adjustment is bit-identical to the full Unicode lookup for
     /// codepoints < 0x80. Upper lowers-to-upper (a-z → -32); Lower and CaseFold
     /// both upper-to-lower (A-Z → +32; ASCII fold == lower).
-    fn emit_ascii_case_transform(&mut self, map: UnicodeCaseMap, reg: &str) {
+    fn emit_ascii_case_transform(&mut self, map: UnicodeCaseMap, reg: impl Into<Operand>) {
+        let reg = reg.into();
         let skip = self.label("strings_case_map_ascii_skip");
         match map {
             UnicodeCaseMap::Upper => {
-                self.emit(abi::compare_immediate(reg, "97")); // 'a'
+                self.emit(abi::compare_immediate(reg.clone(), "97")); // 'a'
                 self.emit(abi::branch_lt(&skip));
-                self.emit(abi::compare_immediate(reg, "122")); // 'z'
+                self.emit(abi::compare_immediate(reg.clone(), "122")); // 'z'
                 self.emit(abi::branch_gt(&skip));
-                self.emit(abi::subtract_immediate(reg, reg, 32));
+                self.emit(abi::subtract_immediate(reg.clone(), reg, 32));
             }
             UnicodeCaseMap::Lower | UnicodeCaseMap::CaseFold => {
-                self.emit(abi::compare_immediate(reg, "65")); // 'A'
+                self.emit(abi::compare_immediate(reg.clone(), "65")); // 'A'
                 self.emit(abi::branch_lt(&skip));
-                self.emit(abi::compare_immediate(reg, "90")); // 'Z'
+                self.emit(abi::compare_immediate(reg.clone(), "90")); // 'Z'
                 self.emit(abi::branch_gt(&skip));
-                self.emit(abi::add_immediate(reg, reg, 32));
+                self.emit(abi::add_immediate(reg.clone(), reg, 32));
             }
         }
         self.emit(abi::label(&skip));
@@ -497,6 +503,7 @@ impl CodeBuilder<'_> {
         let write_next = self.label("strings_case_map_write_next");
         let write_done = self.label("strings_case_map_write_done");
         let ascii_scan = self.label("strings_case_map_ascii_scan");
+        let ascii_scan_byte = self.label("strings_case_map_ascii_scan_byte");
         let ascii_transform = self.label("strings_case_map_ascii_transform");
         let ascii_size_overflow = self.label("strings_case_map_ascii_size_overflow");
         let ascii_alloc_ok = self.label("strings_case_map_ascii_alloc_ok");
@@ -516,8 +523,28 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch21, &scratch20, 0));
         self.emit(abi::add_immediate(&scratch22, &scratch20, 8));
+        // plan-86 F3: SWAR quick-check — test 8 bytes at a time for a high bit
+        // (0x8080808080808080 = 9259542123273814144); any set high bit means some
+        // byte >= 0x80 → the Unicode slow path. Byte-exact-equivalent to the per-byte
+        // `compare 128`, ~8× fewer iterations. A <8-byte tail falls to the byte loop.
         self.emit(abi::move_immediate(&scratch23, "Integer", "0"));
+        self.emit(abi::move_immediate(
+            &scratch24,
+            "Integer",
+            "9259542123273814144",
+        ));
         self.emit(abi::label(&ascii_scan));
+        self.emit(abi::subtract_registers(&scratch27, &scratch21, &scratch23));
+        self.emit(abi::compare_immediate(&scratch27, "8"));
+        self.emit(abi::branch_lo(&ascii_scan_byte));
+        self.emit(abi::add_registers(&scratch14, &scratch22, &scratch23));
+        self.emit(abi::load_u64(&scratch10, &scratch14, 0));
+        self.emit(abi::and_registers(&scratch10, &scratch10, &scratch24));
+        self.emit(abi::compare_immediate(&scratch10, "0"));
+        self.emit(abi::branch_ne(&case_slow));
+        self.emit(abi::add_immediate(&scratch23, &scratch23, 8));
+        self.emit(abi::branch(&ascii_scan));
+        self.emit(abi::label(&ascii_scan_byte));
         self.emit(abi::compare_registers(&scratch23, &scratch21));
         self.emit(abi::branch_ge(&ascii_transform));
         self.emit(abi::add_registers(&scratch14, &scratch22, &scratch23));
@@ -525,7 +552,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&scratch10, "128"));
         self.emit(abi::branch_ge(&case_slow));
         self.emit(abi::add_immediate(&scratch23, &scratch23, 1));
-        self.emit(abi::branch(&ascii_scan));
+        self.emit(abi::branch(&ascii_scan_byte));
 
         // Pure ASCII: allocate byte_len + 9 (8-byte header + trailing NUL),
         // matching the slow path's layout, then transform-copy in one pass.
@@ -536,20 +563,24 @@ impl CodeBuilder<'_> {
             9,
             &ascii_size_overflow,
         );
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&ascii_alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&ascii_size_overflow));
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&ascii_alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            result_slot,
+        ));
         // ARENA_ALLOC clobbers caller-saved registers; reload source ptr/len.
         self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch21, &scratch20, 0));
         self.emit(abi::add_immediate(&scratch22, &scratch20, 8));
-        self.emit(abi::store_u64(&scratch21, abi::RET[1], 0));
-        self.emit(abi::add_immediate(&scratch28, abi::RET[1], 8));
+        self.emit(abi::store_u64(&scratch21, abi::mfb_return(1), 0));
+        self.emit(abi::add_immediate(&scratch28, abi::mfb_return(1), 8));
         self.emit(abi::move_immediate(&scratch23, "Integer", "0"));
         self.emit(abi::label(&ascii_transform_loop));
         self.emit(abi::compare_registers(&scratch23, &scratch21));
@@ -625,7 +656,7 @@ impl CodeBuilder<'_> {
         // pathological byte length cannot wrap the allocation size.
         let size_overflow = self.label("strings_case_map_size_overflow");
         self.emit_checked_size_add_immediate(abi::return_register(), &scratch24, 9, &size_overflow);
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -633,12 +664,12 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::load_u64(&scratch24, abi::stack_pointer(), length_slot));
-        self.emit(abi::store_u64(&scratch24, abi::RET[1], 0));
+        self.emit(abi::store_u64(&scratch24, abi::mfb_return(1), 0));
 
         self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch21, &scratch20, 0));
@@ -697,7 +728,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: map.name().to_string(),
         })
     }
@@ -805,7 +836,7 @@ impl CodeBuilder<'_> {
             9,
             &ascii_size_overflow,
         );
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&ascii_alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -813,7 +844,7 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&ascii_alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -822,8 +853,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch21, &scratch20, 0));
         self.emit(abi::add_immediate(&scratch22, &scratch20, 8));
-        self.emit(abi::store_u64(&scratch21, abi::RET[1], 0));
-        self.emit(abi::add_immediate(&scratch28, abi::RET[1], 8));
+        self.emit(abi::store_u64(&scratch21, abi::mfb_return(1), 0));
+        self.emit(abi::add_immediate(&scratch28, abi::mfb_return(1), 8));
         self.emit(abi::move_immediate(&scratch23, "Integer", "0"));
         self.emit(abi::label(&ascii_copy_loop));
         self.emit(abi::compare_registers(&scratch23, &scratch21));
@@ -888,7 +919,7 @@ impl CodeBuilder<'_> {
             &scratch13,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&temp_alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -898,7 +929,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&size_overflow));
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&temp_alloc_ok));
-        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), temp_slot));
+        self.emit(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            temp_slot,
+        ));
 
         self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch21, &scratch20, 0));
@@ -1122,7 +1157,7 @@ impl CodeBuilder<'_> {
         // matching every sibling string builder (case-map, graphemes, ...).
         let size_overflow = self.label("strings_nfc_size_overflow");
         self.emit_checked_size_add_immediate(abi::return_register(), &scratch24, 9, &size_overflow);
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&result_alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -1130,7 +1165,7 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&result_alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -1139,8 +1174,8 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             output_len_slot,
         ));
-        self.emit(abi::store_u64(&scratch24, abi::RET[1], 0));
-        self.emit(abi::add_immediate(&scratch28, abi::RET[1], 8));
+        self.emit(abi::store_u64(&scratch24, abi::mfb_return(1), 0));
+        self.emit(abi::add_immediate(&scratch28, abi::mfb_return(1), 8));
         self.emit(abi::move_immediate(&scratch23, "Integer", "0"));
         self.emit(abi::label(&encode_loop));
         self.emit(abi::load_u64(
@@ -1177,7 +1212,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "strings.normalizeNfc".to_string(),
         })
     }
@@ -1280,7 +1315,7 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "strings.trim".to_string(),
         })
     }
@@ -1295,7 +1330,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&register, &value.location, 0));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: register,
+            location: Operand::from(register.render()),
             text: format!("strings.byteLen({})", value.text),
         })
     }
@@ -1420,10 +1455,6 @@ impl CodeBuilder<'_> {
         let overflow = self.label("strings_join_overflow");
         let copy_loop = self.label("strings_join_copy_loop");
         let copy_no_delim = self.label("strings_join_copy_no_delim");
-        let delim_loop = self.label("strings_join_delim_loop");
-        let delim_done = self.label("strings_join_delim_done");
-        let value_loop = self.label("strings_join_value_loop");
-        let value_done = self.label("strings_join_value_done");
         let copy_done = self.label("strings_join_copy_done");
 
         // Copy-loop scratch as vregs, so the allocator colors them per-ISA. They
@@ -1432,9 +1463,9 @@ impl CodeBuilder<'_> {
         let cursor_v = self.temporary_vreg();
         let remaining_v = self.temporary_vreg();
         let byte_v = self.temporary_vreg();
-        let cursor = cursor_v.as_str();
-        let remaining = remaining_v.as_str();
-        let byte = byte_v.as_str();
+        let cursor = &cursor_v;
+        let remaining = &remaining_v;
+        let byte = &byte_v;
 
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), parts_slot));
         self.emit(abi::load_u64(
@@ -1486,7 +1517,7 @@ impl CodeBuilder<'_> {
 
         // allocate output_len + 9 (block header), trapping the header add's wrap.
         self.emit_checked_size_add_immediate(abi::return_register(), &scratch11, 9, &overflow);
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -1500,7 +1531,7 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -1509,7 +1540,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             output_len_slot,
         ));
-        self.emit(abi::store_u64(&scratch11, abi::RET[1], 0));
+        self.emit(abi::store_u64(&scratch11, abi::mfb_return(1), 0));
 
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), parts_slot));
         self.emit(abi::load_u64(
@@ -1527,7 +1558,7 @@ impl CodeBuilder<'_> {
         // Carry the result pointer in a vreg, not physical x1 (a reload with no
         // call context maps unreliably on x86; the concat/split pattern).
         let out_ptr_v = self.temporary_vreg();
-        let out_ptr = out_ptr_v.as_str();
+        let out_ptr = &out_ptr_v;
         self.emit(abi::load_u64(out_ptr, abi::stack_pointer(), result_slot));
         self.emit(abi::add_immediate(&scratch13, out_ptr, 8));
         self.emit_collection_data_pointer_for(&scratch14, &scratch16, "String");
@@ -1544,16 +1575,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&copy_no_delim));
         self.emit(abi::move_register(cursor, &scratch11));
         self.emit(abi::move_register(remaining, &scratch10));
-        self.emit(abi::label(&delim_loop));
-        self.emit(abi::compare_immediate(remaining, "0"));
-        self.emit(abi::branch_eq(&delim_done));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::store_u8(byte, &scratch13, 0));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::add_immediate(&scratch13, &scratch13, 1));
-        self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::branch(&delim_loop));
-        self.emit(abi::label(&delim_done));
+        // plan-86 F2: 8-byte word-copy (+ byte tail) of the delimiter into scratch13.
+        self.emit_block_copy_advance(&scratch13, cursor, remaining, byte, "strings_join_delim");
         self.emit(abi::label(&copy_no_delim));
         self.emit(abi::load_u64(
             cursor,
@@ -1566,16 +1589,8 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         self.emit(abi::add_registers(cursor, &scratch14, cursor));
-        self.emit(abi::label(&value_loop));
-        self.emit(abi::compare_immediate(remaining, "0"));
-        self.emit(abi::branch_eq(&value_done));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::store_u8(byte, &scratch13, 0));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::add_immediate(&scratch13, &scratch13, 1));
-        self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::branch(&value_loop));
-        self.emit(abi::label(&value_done));
+        // plan-86 F2: 8-byte word-copy (+ byte tail) of the value into scratch13.
+        self.emit_block_copy_advance(&scratch13, cursor, remaining, byte, "strings_join_value");
         self.emit(abi::add_immediate(
             &scratch15,
             &scratch15,
@@ -1590,7 +1605,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "strings.join".to_string(),
         })
     }
@@ -1649,11 +1664,11 @@ impl CodeBuilder<'_> {
         let delim_ptr_v = self.temporary_vreg();
         let sbyte_v = self.temporary_vreg();
         let dbyte_v = self.temporary_vreg();
-        let scan_i = scan_i_v.as_str();
-        let scan_ptr = scan_ptr_v.as_str();
-        let delim_ptr = delim_ptr_v.as_str();
-        let sbyte = sbyte_v.as_str();
-        let dbyte = dbyte_v.as_str();
+        let scan_i = &scan_i_v;
+        let scan_ptr = &scan_ptr_v;
+        let delim_ptr = &delim_ptr_v;
+        let sbyte = &sbyte_v;
+        let dbyte = &dbyte_v;
 
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(
@@ -1746,7 +1761,7 @@ impl CodeBuilder<'_> {
             &scratch12,
             &size_overflow,
         );
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -1754,7 +1769,7 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -1764,7 +1779,12 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             data_len_slot,
         ));
-        self.emit_write_list_header_from_registers(&layout, abi::RET[1], &scratch11, &scratch12);
+        self.emit_write_list_header_from_registers(
+            &layout,
+            abi::mfb_return(1),
+            &scratch11,
+            &scratch12,
+        );
 
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(
@@ -1779,7 +1799,7 @@ impl CodeBuilder<'_> {
         // Carry the list pointer in a vreg, not physical x1 (a reload with no
         // call context maps unreliably on x86; the concat/repeat pattern).
         let list_ptr_v = self.temporary_vreg();
-        let list_ptr = list_ptr_v.as_str();
+        let list_ptr = &list_ptr_v;
         self.emit(abi::load_u64(list_ptr, abi::stack_pointer(), result_slot));
         self.emit(abi::add_immediate(
             &scratch20,
@@ -1834,7 +1854,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "List OF String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "strings.split".to_string(),
         })
     }
@@ -2036,7 +2056,7 @@ impl CodeBuilder<'_> {
         };
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: label.to_string(),
         })
     }
@@ -2120,7 +2140,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&after));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "strings.count".to_string(),
         })
     }
@@ -2252,7 +2272,7 @@ impl CodeBuilder<'_> {
         };
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: label.to_string(),
         })
     }
@@ -2299,15 +2319,15 @@ impl CodeBuilder<'_> {
         let inner_src_v = self.temporary_vreg();
         let inner_cnt_v = self.temporary_vreg();
         let byte_v = self.temporary_vreg();
-        let val_ptr = val_ptr_v.as_str();
-        let times_rem = times_rem_v.as_str();
-        let len = len_v.as_str();
-        let total = total_v.as_str();
-        let dst = dst_v.as_str();
-        let src_base = src_base_v.as_str();
-        let inner_src = inner_src_v.as_str();
-        let inner_cnt = inner_cnt_v.as_str();
-        let byte = byte_v.as_str();
+        let val_ptr = &val_ptr_v;
+        let times_rem = &times_rem_v;
+        let len = &len_v;
+        let total = &total_v;
+        let dst = &dst_v;
+        let src_base = &src_base_v;
+        let inner_src = &inner_src_v;
+        let inner_cnt = &inner_cnt_v;
+        let byte = &byte_v;
 
         self.emit(abi::load_u64(val_ptr, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(times_rem, abi::stack_pointer(), times_slot));
@@ -2323,14 +2343,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(total, abi::stack_pointer(), total_slot));
         // allocate total + 9.
         self.emit_checked_size_add_immediate(abi::return_register(), total, 9, &invalid);
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         // Capture the allocation result while x1 is unambiguously the call result.
         let result_ptr = self.allocate_register()?;
-        self.emit(abi::move_register(&result_ptr, abi::RET[1]));
+        self.emit(abi::move_register(&result_ptr, abi::mfb_return(1)));
         self.emit(abi::store_u64(
             &result_ptr,
             abi::stack_pointer(),
@@ -2375,7 +2395,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&after));
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "strings.repeat".to_string(),
         })
     }
@@ -2425,7 +2445,7 @@ impl CodeBuilder<'_> {
             ));
             self.emit(abi::move_immediate(&scratch12, "Integer", "1"));
             let space = self.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
-            self.spill_to_slot("strings_pad_char", &space)
+            self.spill_to_slot("strings_pad_char", &space.render())
         };
         // Number of pad chars to prepend/append.
         let pad_count_slot = self.allocate_stack_object("strings_pad_count", 8);
@@ -2547,30 +2567,30 @@ impl CodeBuilder<'_> {
 
         // allocate total + 9.
         self.emit_checked_size_add_immediate(abi::return_register(), &scratch11, 9, &invalid);
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), total_slot));
-        self.emit(abi::store_u64(&scratch11, abi::RET[1], 0));
+        self.emit(abi::store_u64(&scratch11, abi::mfb_return(1), 0));
 
         // Write the output. Carry the result pointer in a vreg rather than
         // holding the arena_alloc result register across the copy (the
         // concat/split pattern). Copy-loop scratch is minted as vregs too.
         let out_ptr_v = self.temporary_vreg();
-        let out_ptr = out_ptr_v.as_str();
+        let out_ptr = &out_ptr_v;
         let pad_src_v = self.temporary_vreg();
         let pad_cnt_v = self.temporary_vreg();
         let byte_v = self.temporary_vreg();
-        let pad_src = pad_src_v.as_str();
-        let pad_cnt = pad_cnt_v.as_str();
-        let byte = byte_v.as_str();
+        let pad_src = &pad_src_v;
+        let pad_cnt = &pad_cnt_v;
+        let byte = &byte_v;
         self.emit(abi::load_u64(out_ptr, abi::stack_pointer(), result_slot));
         self.emit(abi::add_immediate(&scratch13, out_ptr, 8));
 
@@ -2653,7 +2673,7 @@ impl CodeBuilder<'_> {
         };
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: label.to_string(),
         })
     }
@@ -2671,8 +2691,110 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, &scratch16, COLLECTION_OFFSET_COUNT));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "strings.graphemesCount".to_string(),
+        })
+    }
+
+    /// displayWidth: the terminal column width of `value` — the sum over its
+    /// extended grapheme clusters of each cluster's display width. A cluster's
+    /// width is the width of its **first non-zero-width scalar** (a cluster whose
+    /// scalars are all zero-width contributes 0), matching wcswidth / notcurses
+    /// EGC width. Single-pass walk with the same UAX #29 break machinery as
+    /// `lower_strings_graphemes`, accumulating width instead of a count. plan-70-A.
+    pub(super) fn lower_strings_display_width(
+        &mut self,
+        value: &NirValue,
+    ) -> Result<ValueResult, String> {
+        let ptr = self.temporary_vreg();
+        let len = self.temporary_vreg();
+        let data = self.temporary_vreg();
+        let pos = self.temporary_vreg();
+        let total = self.temporary_vreg();
+        let cluster_w = self.temporary_vreg();
+        let cp = self.temporary_vreg();
+        let adv = self.temporary_vreg();
+        let prop = self.temporary_vreg();
+        let bc_prev = self.temporary_vreg();
+        let icb_prev = self.temporary_vreg();
+        let bc_cur = self.temporary_vreg();
+        let icb_cur = self.temporary_vreg();
+        let cw = self.temporary_vreg();
+        let addr = self.temporary_vreg();
+        let (ptr, len, data, pos, total, cluster_w) = (&ptr, &len, &data, &pos, &total, &cluster_w);
+        let (cp, adv, prop, bc_prev, icb_prev, bc_cur, icb_cur, cw, addr) = (
+            &cp, &adv, &prop, &bc_prev, &icb_prev, &bc_cur, &icb_cur, &cw, &addr,
+        );
+        let value = self.lower_value(value)?;
+        self.require_string("strings.displayWidth value", &value)?;
+        let value_slot = self.spill_to_slot("strings_display_width_value", &value.location);
+
+        let empty = self.label("strings_display_width_empty");
+        let walk = self.label("strings_display_width_loop");
+        let is_break = self.label("strings_display_width_break");
+        let no_break = self.label("strings_display_width_no_break");
+        let after = self.label("strings_display_width_after");
+        let skip_set = self.label("strings_display_width_skip_set");
+        let loop_done = self.label("strings_display_width_loop_done");
+        let done = self.label("strings_display_width_done");
+
+        self.emit(abi::load_u64(ptr, abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64(len, ptr, 0));
+        self.emit(abi::compare_immediate(len, "0"));
+        self.emit(abi::branch_eq(&empty));
+        self.emit(abi::add_immediate(data, ptr, 8));
+        self.emit(abi::move_immediate(total, "Integer", "0"));
+        // Seed: decode the first scalar, prime the grapheme state, and set the
+        // first cluster's width from it (cluster_w starts 0, so this is the
+        // first-non-zero-width rule for scalar 0).
+        self.emit_utf8_decode_next(data, cp, adv);
+        self.emit_unicode_property_lookup(cp, prop);
+        self.emit_unicode_property_boundclass(prop, bc_prev);
+        self.emit_unicode_property_indic_conjunct_break(prop, icb_prev);
+        self.emit_unicode_property_charwidth(prop, cw);
+        self.emit(abi::move_register(cluster_w, cw));
+        self.emit(abi::move_register(pos, adv));
+        self.emit(abi::label(&walk));
+        self.emit(abi::compare_registers(pos, len));
+        self.emit(abi::branch_ge(&loop_done));
+        self.emit(abi::add_registers(addr, data, pos));
+        self.emit_utf8_decode_next(addr, cp, adv);
+        self.emit_unicode_property_lookup(cp, prop);
+        self.emit_unicode_property_boundclass(prop, bc_cur);
+        self.emit_unicode_property_indic_conjunct_break(prop, icb_cur);
+        self.emit_unicode_property_charwidth(prop, cw);
+        self.emit_grapheme_break_branch(bc_prev, icb_prev, bc_cur, icb_cur, &is_break, &no_break);
+        // A boundary ends the current cluster: flush its width and start fresh so
+        // the current scalar seeds the new cluster below.
+        self.emit(abi::label(&is_break));
+        self.emit(abi::add_registers(total, total, cluster_w));
+        self.emit(abi::move_immediate(cluster_w, "Integer", "0"));
+        self.emit(abi::branch(&after));
+        self.emit(abi::label(&no_break));
+        self.emit(abi::label(&after));
+        // First-non-zero-width rule: if this cluster has no width yet, take this
+        // scalar's. cw==0 for a combining mark, so a zero-width scalar never
+        // overrides a base already seen.
+        self.emit(abi::compare_immediate(cluster_w, "0"));
+        self.emit(abi::branch_ne(&skip_set));
+        self.emit(abi::move_register(cluster_w, cw));
+        self.emit(abi::label(&skip_set));
+        self.emit_grapheme_state_update(bc_prev, icb_prev, bc_cur, icb_cur);
+        self.emit(abi::add_registers(pos, pos, adv));
+        self.emit(abi::branch(&walk));
+        self.emit(abi::label(&loop_done));
+        self.emit(abi::add_registers(total, total, cluster_w));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&empty));
+        self.emit(abi::move_immediate(total, "Integer", "0"));
+        self.emit(abi::label(&done));
+
+        let result = self.allocate_register()?;
+        self.emit(abi::move_register(&result, total));
+        Ok(ValueResult {
+            type_: "Integer".to_string(),
+            location: Operand::from(result.render()),
+            text: "strings.displayWidth".to_string(),
         })
     }
 
@@ -2755,7 +2877,7 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&scratch15, &scratch14)?;
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "strings.graphemeAt".to_string(),
         })
     }
@@ -2902,7 +3024,7 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "strings.trimChars".to_string(),
         })
     }

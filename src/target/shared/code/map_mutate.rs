@@ -41,14 +41,9 @@ impl CodeBuilder<'_> {
         let layout = CollectionTypeLayout::from_type(map_type)
             .ok_or_else(|| format!("native code collection type '{map_type}' is not supported"))?;
         for register in [
-            scratch20.as_str(),
-            scratch21.as_str(),
-            scratch22.as_str(),
-            scratch23.as_str(),
-            scratch24.as_str(),
-            scratch25.as_str(),
+            scratch20, scratch21, scratch22, scratch23, scratch24, scratch25,
         ] {
-            self.mark_register_used(register);
+            self.mark_register_used(&register.render());
         }
         let key_align = self.collection_payload_alignment(key_type);
         let value_align = self.collection_payload_alignment(value_type);
@@ -355,7 +350,7 @@ impl CodeBuilder<'_> {
         );
         // Reserve the map hash bucket region (x14 = capacity, unchanged on vgrow).
         self.emit_reserve_map_buckets(true, &scratch14, abi::return_register(), &scratch16);
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&valloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -363,7 +358,7 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&valloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             new_buf_slot,
         ));
@@ -666,7 +661,7 @@ impl CodeBuilder<'_> {
         );
         // Reserve the map hash bucket region (x14 = new capacity).
         self.emit_reserve_map_buckets(true, &scratch14, abi::return_register(), &scratch16);
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -674,7 +669,7 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             new_buf_slot,
         ));
@@ -891,13 +886,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&skip_put));
-        self.emit(abi::load_u64(abi::ARG[0], abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(
-            abi::ARG[1],
-            abi::ARG[0],
+            abi::c_arg(1),
+            abi::c_arg(0),
             COLLECTION_OFFSET_COUNT,
         ));
-        self.emit(abi::subtract_immediate(abi::ARG[1], abi::ARG[1], 1)); // new entry index
+        self.emit(abi::subtract_immediate(abi::c_arg(1), abi::c_arg(1), 1)); // new entry index
         self.emit(abi::branch_link(MAP_BUCKET_PUT_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -913,7 +908,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), map_slot));
         Ok(ValueResult {
             type_: map_type.to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: format!("map set in place {map_type}"),
         })
     }
@@ -946,14 +941,9 @@ impl CodeBuilder<'_> {
         let value_payload_align = collection_payload_alignment_for_code(layout.value_type_code);
         let map_max_align = key_payload_align.max(value_payload_align);
         for register in [
-            scratch20.as_str(),
-            scratch21.as_str(),
-            scratch22.as_str(),
-            scratch23.as_str(),
-            scratch24.as_str(),
-            scratch25.as_str(),
+            scratch20, scratch21, scratch22, scratch23, scratch24, scratch25,
         ] {
-            self.mark_register_used(register);
+            self.mark_register_used(&register.render());
         }
         let result_slot = self.allocate_stack_object("map_concat_result", 8);
         let alloc_ok = self.label("map_concat_alloc_ok");
@@ -1014,7 +1004,7 @@ impl CodeBuilder<'_> {
         );
         // Reserve the map hash bucket region (x12 = total count = capacity).
         self.emit_reserve_map_buckets(true, &scratch12, abi::return_register(), &scratch15);
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
@@ -1022,7 +1012,7 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -1221,7 +1211,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: map_type.to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: format!("map concat {map_type}"),
         })
     }
@@ -1254,14 +1244,9 @@ impl CodeBuilder<'_> {
         let key_payload_align = collection_payload_alignment_for_code(layout.key_type_code);
         let value_payload_align = collection_payload_alignment_for_code(layout.value_type_code);
         for register in [
-            scratch20.as_str(),
-            scratch21.as_str(),
-            scratch22.as_str(),
-            scratch23.as_str(),
-            scratch24.as_str(),
-            scratch25.as_str(),
+            scratch20, scratch21, scratch22, scratch23, scratch24, scratch25,
         ] {
-            self.mark_register_used(register);
+            self.mark_register_used(&register.render());
         }
         let result_slot = self.allocate_stack_object("map_remove_result", 8);
         let count_slot = self.allocate_stack_object("map_remove_count", 8);
@@ -1362,13 +1347,13 @@ impl CodeBuilder<'_> {
         ));
         // Reserve the map hash bucket region (x14 = remaining count = capacity).
         self.emit_reserve_map_buckets(true, &scratch14, abi::return_register(), &scratch16);
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -1446,22 +1431,158 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: map_type.to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: format!("removeKey({map_type}, {key_type})"),
+        })
+    }
+
+    /// plan-86 D1: in-place `removeKey` on a uniquely-owned MUT map local
+    /// (`name = collections::removeKey(name, k)`). Deletes the matching entry by
+    /// compacting the ENTRY TABLE in place — shift entries `[i+1..count)` down one
+    /// 40-byte slot, decrement COUNT, reset BUCKETS_READY=0 — with NO `arena_alloc`,
+    /// NO second copy pass, and NO fresh-map overhead (vs `lower_map_remove_key`).
+    /// The removed entry's key/value bytes are left as DATA slack (shifted entries
+    /// keep their absolute KEY/VALUE_OFFSETs, so the data region is not moved and no
+    /// offset fixup is needed — the same dead-slack model `set` uses when it
+    /// overwrites a value). Insertion order is preserved (a shift, not a swap). The
+    /// bucket index cannot be repaired incrementally (open addressing over absolute
+    /// entry indices, no DELETED sentinel), so it is invalidated and rebuilt lazily
+    /// on the next probe — unavoidable given the index (plan-86-D1 scout).
+    pub(super) fn lower_map_remove_key_in_place(
+        &mut self,
+        map_slot: usize,
+        key_slot: usize,
+        map_type: &str,
+        key_type: &str,
+    ) -> Result<ValueResult, String> {
+        let s8 = self.temporary_vreg();
+        let s9 = self.temporary_vreg();
+        let s10 = self.temporary_vreg();
+        let s11 = self.temporary_vreg();
+        let s12 = self.temporary_vreg();
+        let s13 = self.temporary_vreg();
+        let s16 = self.temporary_vreg();
+        let found_slot = self.allocate_stack_object("mrk_found_idx", 8);
+        let flag_slot = self.allocate_stack_object("mrk_found_flag", 8);
+        let scan_loop = self.label("mrk_scan_loop");
+        let scan_match = self.label("mrk_scan_match");
+        let scan_next = self.label("mrk_scan_next");
+        let scan_done = self.label("mrk_scan_done");
+        let shift_loop = self.label("mrk_shift_loop");
+        let shift_done = self.label("mrk_shift_done");
+        let done = self.label("mrk_done");
+
+        // found_flag = 0
+        self.emit(abi::move_immediate(&s8, "Integer", "0"));
+        self.emit(abi::store_u64(&s8, abi::stack_pointer(), flag_slot));
+        // scan entries 0..count for the matching key.
+        self.emit(abi::load_u64(&s8, abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64(&s9, abi::stack_pointer(), key_slot));
+        self.emit(abi::load_u64(&s10, &s8, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate(&s11, "Integer", "0"));
+        self.emit(abi::add_immediate(&s12, &s8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::label(&scan_loop));
+        self.emit(abi::compare_registers(&s11, &s10));
+        self.emit(abi::branch_ge(&scan_done));
+        self.emit(abi::load_u64(
+            &s13,
+            &s12,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            &s16,
+            &s12,
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        // arg7 = on-MATCH, arg8 = on-NO-MATCH (per `lower_map_remove_key`).
+        self.emit_collection_payload_matches_value_branch(
+            key_type,
+            "",
+            &s8,
+            &s13,
+            &s16,
+            &s9,
+            &scan_match,
+            &scan_next,
+        )?;
+        self.emit(abi::label(&scan_match));
+        self.emit(abi::store_u64(&s11, abi::stack_pointer(), found_slot));
+        self.emit(abi::move_immediate(&s13, "Integer", "1"));
+        self.emit(abi::store_u64(&s13, abi::stack_pointer(), flag_slot));
+        self.emit(abi::branch(&scan_done)); // keys are unique — first match wins
+        self.emit(abi::label(&scan_next));
+        self.emit(abi::add_immediate(&s11, &s11, 1));
+        self.emit(abi::add_immediate(&s12, &s12, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::branch(&scan_loop));
+        self.emit(abi::label(&scan_done));
+        // If not found, the map is unchanged.
+        self.emit(abi::load_u64(&s8, abi::stack_pointer(), flag_slot));
+        self.emit(abi::compare_immediate(&s8, "0"));
+        self.emit(abi::branch_eq(&done));
+        // Shift entries [found+1 .. count) down one 40-byte slot.
+        // dst = map + HEADER + found*40 ; src = dst + 40 ; words = (count-1-found)*5.
+        self.emit(abi::load_u64(&s8, abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64(&s10, &s8, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(&s11, abi::stack_pointer(), found_slot));
+        // s12 = dst = map + HEADER + found*40
+        self.emit(abi::move_immediate(
+            &s13,
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers(&s16, &s11, &s13));
+        self.emit(abi::add_immediate(&s12, &s8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers(&s12, &s12, &s16));
+        // s16 = words = (count - 1 - found) * 5
+        self.emit(abi::subtract_registers(&s16, &s10, &s11));
+        self.emit(abi::subtract_immediate(&s16, &s16, 1));
+        self.emit(abi::move_immediate(&s13, "Integer", "5"));
+        self.emit(abi::multiply_registers(&s16, &s16, &s13));
+        // forward word-copy dst[k] = src[k] where src = dst + 40 (dst < src → safe).
+        self.emit(abi::move_immediate(&s11, "Integer", "0")); // k
+        self.emit(abi::label(&shift_loop));
+        self.emit(abi::compare_registers(&s11, &s16));
+        self.emit(abi::branch_ge(&shift_done));
+        self.emit(abi::shift_left_immediate(&s13, &s11, 3)); // k*8
+        self.emit(abi::add_registers(&s9, &s12, &s13)); // &dst[k]
+        self.emit(abi::load_u64(&s10, &s9, COLLECTION_ENTRY_SIZE)); // src[k] = dst[k]+40
+        self.emit(abi::store_u64(&s10, &s9, 0));
+        self.emit(abi::add_immediate(&s11, &s11, 1));
+        self.emit(abi::branch(&shift_loop));
+        self.emit(abi::label(&shift_done));
+        // count -= 1; BUCKETS_READY = 0.
+        self.emit(abi::load_u64(&s8, abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64(&s10, &s8, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::subtract_immediate(&s10, &s10, 1));
+        self.emit(abi::store_u64(&s10, &s8, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate(&s13, "Byte", "0"));
+        self.emit(abi::store_u8(&s13, &s8, COLLECTION_OFFSET_BUCKETS_READY));
+        self.emit(abi::label(&done));
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), map_slot));
+        Ok(ValueResult {
+            type_: map_type.to_string(),
+            location: Operand::from(result.render()),
+            text: format!("removeKey_in_place({map_type}, {key_type})"),
         })
     }
 
     #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_copy_one_map_entry(
         &mut self,
-        source_entry: &str,
-        source_data: &str,
-        dest_entry: &str,
-        dest_data: &str,
-        dest_data_offset: &str,
+        source_entry: impl Into<Operand>,
+        source_data: impl Into<Operand>,
+        dest_entry: impl Into<Operand>,
+        dest_data: impl Into<Operand>,
+        dest_data_offset: impl Into<Operand>,
         key_align: usize,
         value_align: usize,
     ) {
+        let source_entry = source_entry.into();
+        let source_data = source_data.into();
+        let dest_entry = dest_entry.into();
+        let dest_data = dest_data.into();
+        let dest_data_offset = dest_data_offset.into();
         let scratch22 = self.temporary_vreg();
         let scratch23 = self.temporary_vreg();
         let scratch24 = self.temporary_vreg();
@@ -1473,35 +1594,43 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch22,
-            dest_entry,
+            dest_entry.clone(),
             COLLECTION_ENTRY_OFFSET_FLAGS,
         ));
         // Align the destination cursor to the key payload alignment before
         // recording its offset, matching the packing used when the map was
         // first built. Idempotent when the cursor is already aligned.
-        self.emit_align_offset_register(dest_data_offset, key_align, &scratch22);
+        self.emit_align_offset_register(dest_data_offset.clone(), key_align, &scratch22);
         self.emit(abi::load_u64(
             &scratch22,
-            source_entry,
+            source_entry.clone(),
             COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
         ));
         self.emit(abi::load_u64(
             &scratch23,
-            source_entry,
+            source_entry.clone(),
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
         self.emit(abi::store_u64(
-            dest_data_offset,
-            dest_entry,
+            dest_data_offset.clone(),
+            dest_entry.clone(),
             COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
         ));
         self.emit(abi::store_u64(
             &scratch23,
-            dest_entry,
+            dest_entry.clone(),
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
-        self.emit(abi::add_registers(&scratch24, source_data, &scratch22));
-        self.emit(abi::add_registers(&scratch25, dest_data, dest_data_offset));
+        self.emit(abi::add_registers(
+            &scratch24,
+            source_data.clone(),
+            &scratch22,
+        ));
+        self.emit(abi::add_registers(
+            &scratch25,
+            dest_data.clone(),
+            dest_data_offset.clone(),
+        ));
         self.emit_block_copy_advance(
             &scratch25,
             &scratch24,
@@ -1511,21 +1640,21 @@ impl CodeBuilder<'_> {
         );
         self.emit(abi::load_u64(
             &scratch23,
-            dest_entry,
+            dest_entry.clone(),
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
         self.emit(abi::add_registers(
-            dest_data_offset,
-            dest_data_offset,
+            dest_data_offset.clone(),
+            dest_data_offset.clone(),
             &scratch23,
         ));
 
         // Align the destination cursor to the value payload alignment before
         // recording its offset.
-        self.emit_align_offset_register(dest_data_offset, value_align, &scratch22);
+        self.emit_align_offset_register(dest_data_offset.clone(), value_align, &scratch22);
         self.emit(abi::load_u64(
             &scratch22,
-            source_entry,
+            source_entry.clone(),
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         self.emit(abi::load_u64(
@@ -1534,17 +1663,21 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         self.emit(abi::store_u64(
-            dest_data_offset,
-            dest_entry,
+            dest_data_offset.clone(),
+            dest_entry.clone(),
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         self.emit(abi::store_u64(
             &scratch23,
-            dest_entry,
+            dest_entry.clone(),
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         self.emit(abi::add_registers(&scratch24, source_data, &scratch22));
-        self.emit(abi::add_registers(&scratch25, dest_data, dest_data_offset));
+        self.emit(abi::add_registers(
+            &scratch25,
+            dest_data,
+            dest_data_offset.clone(),
+        ));
         self.emit_block_copy_advance(
             &scratch25,
             &scratch24,
@@ -1554,16 +1687,16 @@ impl CodeBuilder<'_> {
         );
         self.emit(abi::load_u64(
             &scratch23,
-            dest_entry,
+            dest_entry.clone(),
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         self.emit(abi::add_registers(
-            dest_data_offset,
+            dest_data_offset.clone(),
             dest_data_offset,
             &scratch23,
         ));
         self.emit(abi::add_immediate(
-            dest_entry,
+            dest_entry.clone(),
             dest_entry,
             COLLECTION_ENTRY_SIZE,
         ));

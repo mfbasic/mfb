@@ -16,8 +16,9 @@ The compiler rejects:
   accepted).
 - `SUB` thread entry points (the entry must be `FunctionKind::Func`).
 - Non-isolated functions (the signature must be `isolated`).
-- Current-package functions (the signature must be an `imported_package_export`).
-- Functions that are not exported from an imported package.
+- Bare current-package function references (the signature must be an
+  `imported_package_export`).
+- Functions that are not exported through an import.
 - Functions whose first parameter is not `ThreadWorker OF Msg TO Out`.
 - Functions whose return type does not match `Out`.
 
@@ -28,6 +29,17 @@ and isolated; failure reports `TYPE_CALL_ARGUMENT_MISMATCH` with the message
 `thread.start entry point must be an exported ISOLATED FUNC from an imported
 package.`. The parameter-shape and return-type checks are the ordinary
 function-reference signature match. [[src/syntaxcheck/builtins.rs:check_thread_builtin_call]] [[src/builtins/thread.rs:resolve_call]]
+
+The `imported_package_export` requirement is not weakened by the reserved
+`IMPORT self` specifier. In a `kind: "package"` project, `IMPORT self` registers
+the current package's own `EXPORT` declarations as imported-package signatures
+(`imported_package_export == true`), keyed under the `self`/alias binding, so a
+`self::worker` entry satisfies the *same* checker with no `self`-specific branch:
+the checker never learns about `self`. A bare, unqualified current-package
+reference still carries `imported_package_export == false` and is still rejected;
+only the `self::`-qualified path to an `EXPORT ISOLATED FUNC` newly resolves.
+`self` sees only `EXPORT` symbols, exactly as an external importer does.
+[[src/syntaxcheck/mod.rs:collect_self_exports]] [[src/resolver/packages.rs:resolve_imported_package]]
 
 ## Thread type grammar (parsing)
 

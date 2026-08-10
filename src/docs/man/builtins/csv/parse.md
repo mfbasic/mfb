@@ -6,6 +6,7 @@ Parse UTF-8 CSV text into a grid of String cells.
 
 ```
 csv::parse(value AS String) AS List OF List OF String
+csv::parse(value AS String, delimiter AS String, quote AS String) AS List OF List OF String
 ```
 
 ## Package
@@ -31,14 +32,18 @@ accumulated in a scalar buffer and re-encoded to a String with
 `encoding::utf32Decode`. Every structural CSV character (comma, quote, CR, LF) is
 ASCII, so the resulting grid is byte-identical to a grapheme-based scan. [[src/builtins/csv_package.mfb:__csv_parse]]
 
-The dialect is RFC-4180-aligned. The field delimiter is always a comma (scalar
-`44`). A record separator is a line feed (LF, `10`) or a carriage-return/line-feed
-pair (CRLF, `13` then `10`); a bare CR not followed by LF is ordinary data inside
-the current field. A field may be wrapped in double quotes (`34`): the opening
-quote must be the first character of the field, inside a quoted field a literal
-double quote is written by doubling it (`""`), and commas, CR, and LF are ordinary
-data. The closing quote must be immediately followed by a comma, a record
-separator, or the end of input. Whitespace is significant and never trimmed. [[src/builtins/csv_package.mfb:__csv_separatorLength]]
+The dialect is RFC-4180-aligned. The field delimiter defaults to a comma (scalar
+`44`) but can be overridden with the optional `delimiter` argument; the quote
+character defaults to the double quote (`34`) but can be overridden with the
+optional `quote` argument. Each must be a non-empty single character, and only its
+first Unicode scalar is used. A record separator is a line feed (LF, `10`) or a
+carriage-return/line-feed pair (CRLF, `13` then `10`) regardless of dialect; a
+bare CR not followed by LF is ordinary data inside the current field. A field may
+be wrapped in the quote character: the opening quote must be the first character
+of the field, inside a quoted field a literal quote is written by doubling it, and
+delimiters, CR, and LF are ordinary data. The closing quote must be immediately
+followed by the delimiter, a record separator, or the end of input. Whitespace is
+significant and never trimmed. [[src/builtins/csv_package.mfb:__csv_separatorLength]]
 
 Cells are plain Strings with no type inference and no null: `42`, `true`, and an
 empty field parse to the Strings `"42"`, `"true"`, and `""`. Callers that want
@@ -57,6 +62,8 @@ mutate `value` and has no side effects. [[src/builtins/csv.rs:call_param_names]]
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `value` | `String` | The UTF-8 CSV text to parse. May also be passed by the name `text`. It is never modified. [[src/builtins/csv.rs:call_param_names]] |
+| `delimiter` | `String` | Optional. The single character that separates fields. Defaults to `,`. [[src/builtins/csv.rs:default_argument_padding]] |
+| `quote` | `String` | Optional. The single character that wraps a field and, doubled, escapes itself. Defaults to `"`. [[src/builtins/csv.rs:default_argument_padding]] |
 
 ## Return value
 
@@ -68,7 +75,7 @@ mutate `value` and has no side effects. [[src/builtins/csv.rs:call_param_names]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | A quoted field is opened but never closed before the end of input, or the closing quote of a quoted field is followed by a grapheme that is neither a comma, a record separator, nor the end of input. [[src/builtins/csv_package.mfb:__csv_parse]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | A quoted field is opened but never closed before the end of input; the closing quote of a quoted field is followed by a grapheme that is neither the delimiter, a record separator, nor the end of input; or a supplied `delimiter`/`quote` is the empty String. [[src/builtins/csv_package.mfb:__csv_parse]] [[src/builtins/csv_package.mfb:__csv_firstCode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

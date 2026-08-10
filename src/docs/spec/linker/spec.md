@@ -1,7 +1,7 @@
 # MFBASIC Native Linking
 
 This document specifies how MFBASIC native executables are linked. It is the
-implementation contract for the target backends and the two in-tree linkers, not
+implementation contract for the target backends and the three in-tree linkers, not
 a developer-facing guide. It complements the sibling specs:
 
 - `mfb spec architecture` — the command pipeline, packages, and binary
@@ -18,10 +18,11 @@ imports into an in-memory native image, then the target-specific linker encodes
 the final executable container (Mach-O or ELF) and writes it to disk itself.
 
 The macOS backend targets aarch64 only; the Linux backend targets aarch64,
-x86_64, and riscv64. The macOS backend emits one Mach-O executable; the Linux
-backend emits ELF executables (the glibc and musl flavors where both are
-supported for console builds, or one for app-mode builds).
-[[src/os/macos/link/macho.rs:encode_unsigned_mach_o]]
+x86_64, and riscv64; the Windows backend targets x86_64 only. The macOS backend
+emits one Mach-O executable; the Linux backend emits ELF executables (the glibc
+and musl flavors where both are supported for console builds, or one for app-mode
+builds); the Windows backend emits one PE32+ `.exe`.
+[[src/os/macos/link/macho.rs:encode_unsigned_mach_o]] [[src/os/windows/link/pe.rs:write_image]]
 
 ## Reading order
 
@@ -40,10 +41,11 @@ The topics below follow the native linking pipeline.
   the encoded image.
 - `static-and-dynamic-output` contrasts an import-free image with the
   dynamic-loading metadata an image with imports requires.
-- `macos-aarch64`, `linux-aarch64`, `linux-x86_64`, and `linux-riscv64` specify
-  the concrete backends — Mach-O with ad-hoc code signing for macOS, and ELF with
-  its glibc/musl flavors and symbol versioning for Linux (aarch64, x86-64, and
-  riscv64). Each covers its app-mode output.
+- `macos-aarch64`, `linux-aarch64`, `linux-x86_64`, `linux-riscv64`, and
+  `windows-x86_64` specify the concrete backends — Mach-O with ad-hoc code signing
+  for macOS, ELF with its glibc/musl flavors and symbol versioning for Linux
+  (aarch64, x86-64, and riscv64), and a fixed-base PE32+ for Windows. Each covers
+  its app-mode output.
 - `package-linking` describes how installed `.mfp` package exports reach the
   executable (merged into IR, not linked as external symbols).
 - `failure-rules` lists the conditions under which the linker must fail rather

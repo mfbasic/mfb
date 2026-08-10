@@ -55,6 +55,11 @@ const CFG_DESC_SYMBOL: &str = "_mfb_tls_cfg_block_desc";
 pub(crate) const STATE_INVOKE: &str = "_mfb_tls_nw_state_invoke";
 pub(crate) const SEND_INVOKE: &str = "_mfb_tls_nw_send_invoke";
 pub(crate) const RECV_INVOKE: &str = "_mfb_tls_nw_recv_invoke";
+// plan-76-B Phase 4: the poll readiness receive's completion block. Identical to
+// RECV_INVOKE but writes the dedicated CTX_PCONTENT/CTX_PERROR slots and signals
+// CTX_PSEM, so an outstanding poll receive never collides with the read/write
+// CTX_SEM/CTX_CONTENT the per-op `emit_fresh_sem` recycles.
+pub(crate) const RECV_POLL_INVOKE: &str = "_mfb_tls_nw_recv_poll_invoke";
 // Configure-TLS block invoke: overrides the SNI / certificate-validation
 // server name when `serverName` is supplied. The server path reuses the same
 // trampoline shape to install the local identity: it captures
@@ -71,22 +76,26 @@ const NW_STATE_READY: &str = "3";
 const NW_LISTENER_READY: &str = "2";
 const NW_LISTENER_FAILED: &str = "3";
 
-// The handle record: nw_connection, closed flag, dispatch queue, ctx pointer.
-// The `closed` flag sits at the canonical resource closed-flag offset 8
-// (plan-38 F7) so the backend-independent closed-default (which zeroes the
-// record and sets offset 8) marks this record closed too. Before plan-38 the
-// closed flag was at offset 0 and offset 8 held `REC_CONN`; a closed-default
-// record then read as *open* and `close` dereferenced offset 8 (=1) as the
-// connection pointer → `nw_connection_cancel((void*)0x1)` SIGSEGV on the drop
-// path. Swapping the two offsets fixes it and satisfies the shared assert. All
-// record accesses go through these named constants, so the swap is transparent.
-const REC_CONN: usize = 0;
-const REC_CLOSED: usize = 8;
-const REC_QUEUE: usize = 16;
-const REC_CTX: usize = 24;
-const REC_SIZE: &str = "32";
+// The handle record shares the canonical plan-80 header: tag@0, handle
+// (nw_connection)@8, closed@16, STATE@24 — then the macOS tail { ctx@32,
+// dispatch-queue@40 }. The `closed` flag sits at the canonical resource
+// closed-flag offset (plan-38 F7) so the backend-independent closed-default
+// (which zeroes the record and sets the closed byte) marks this record closed
+// too. STATE@24 is the generic union payload slot (plan-74/80), null until the
+// bind lazy-inits it. All record accesses go through these named constants, so
+// the re-slot is transparent.
+const REC_TAG: usize = RESOURCE_OFFSET_TAG;
+const REC_CONN: usize = RESOURCE_OFFSET_HANDLE;
+const REC_CLOSED: usize = RESOURCE_OFFSET_CLOSED;
+const REC_STATE: usize = RESOURCE_OFFSET_STATE;
+const REC_CTX: usize = 32;
+const REC_QUEUE: usize = 40;
+const REC_SIZE: &str = RESOURCE_RECORD_SIZE;
 
 const _: () = assert!(REC_CLOSED == RESOURCE_OFFSET_CLOSED);
+const _: () = assert!(REC_STATE == RESOURCE_OFFSET_STATE);
+const _: () = assert!(REC_CONN == RESOURCE_OFFSET_HANDLE);
+const _: () = assert!(REC_QUEUE + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 
 // The shared block context (arena): semaphore, the captured signal fn, and
 // the slots each block writes before signaling.
@@ -99,7 +108,25 @@ pub(crate) const CTX_STATE: usize = 16;
 pub(crate) const CTX_CONTENT: usize = 24;
 pub(crate) const CTX_ERROR: usize = 32;
 pub(crate) const CTX_RETAIN: usize = 40; // dispatch_retain, used by the receive block
-const CTX_SIZE: &str = "48";
+                                         // plan-76-B Phase 4 (outstanding-receive model for tls::poll): a DEDICATED
+                                         // semaphore + content/error slots for the poll readiness receive, isolated from
+                                         // the per-op CTX_SEM/CTX_CONTENT that read/write recycle via `emit_fresh_sem`. The
+                                         // isolation is what keeps `tls::write`/`tls::close` byte-identical — an outstanding
+                                         // poll receive never touches CTX_SEM, so their fresh-sem invariant (bug-52/55) is
+                                         // unaffected. `CTX_PSEM` is created once at connection-ctx setup and reused (at most
+                                         // one poll receive is ever outstanding). `CTX_PEND_*` is the stashed decrypted
+                                         // plaintext (a plain arena buffer, so no NW object lifetime is held across a
+                                         // poll→read boundary); `CTX_ARMED` is 1 while a poll receive is in flight. These
+                                         // slots live only in the CONNECTION ctx (a separate allocation from the listener
+                                         // LCTX, whose ring starts at offset 48), so they do not collide with LCTX.
+pub(crate) const CTX_PSEM: usize = 48;
+pub(crate) const CTX_PCONTENT: usize = 56;
+pub(crate) const CTX_PERROR: usize = 64;
+pub(crate) const CTX_PEND_BUF: usize = 72; // stashed plaintext arena buffer (0 = none)
+pub(crate) const CTX_PEND_LEN: usize = 80; // total bytes in CTX_PEND_BUF
+pub(crate) const CTX_PEND_OFF: usize = 88; // consume cursor into CTX_PEND_BUF
+pub(crate) const CTX_ARMED: usize = 96; // 1 while a poll receive is outstanding
+const CTX_SIZE: &str = "112";
 
 // The listener context extends the shared ctx prefix (the listener's
 // state-changed handler is the plain STATE_INVOKE trampoline over the same
@@ -513,8 +540,8 @@ fn emit_wait(
     ctx.instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), ctx_off),
         abi::load_u64(abi::return_register(), "%v9", CTX_SEM),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::bitwise_not(abi::ARG[1], abi::ARG[1]),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::bitwise_not(abi::c_arg(1), abi::c_arg(1)),
         abi::load_u64("%v10", abi::stack_pointer(), fnptr_off),
         abi::branch_link_register("%v10"),
     ]);
@@ -560,7 +587,7 @@ fn emit_dlopen_at(
         ctx.relocations,
     );
     ctx.instructions
-        .push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
+        .push(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
     platform.emit_libc_call(
         "dlopen",
         symbol,
@@ -582,7 +609,8 @@ mod server;
 mod tests;
 
 pub(super) use client::{
-    lower_tls_close_macos, lower_tls_connect_macos, lower_tls_read_macos, lower_tls_write_macos,
+    lower_tls_close_macos, lower_tls_connect_macos, lower_tls_poll_macos, lower_tls_read_macos,
+    lower_tls_write_macos,
 };
 pub(super) use server::{
     lower_tls_accept_macos, lower_tls_close_listener_macos, lower_tls_listen_macos,

@@ -24,6 +24,7 @@ use std::sync::OnceLock;
 use crate::target::shared::regmodel::{RegClass, RegisterModel};
 
 use super::types::CodeInstruction;
+use super::Operand;
 use analysis::ClassModel;
 
 /// The sentinel prefix an integer virtual register carries in an instruction
@@ -191,6 +192,18 @@ pub(crate) fn find_physical_operand(instructions: &[CodeInstruction]) -> Option<
             if matches!(*name, "target" | "name") {
                 continue;
             }
+            // A virtual-register sentinel (`%vN`/`%fN`) can never name a physical
+            // register, so match it directly and skip — the pre-allocation stream
+            // this scans is dominated by vregs, and `rendered()` would otherwise
+            // format each one to a `%`-string only to discard it at the
+            // `starts_with('%')` check below (byte-identical: a vreg renders to
+            // `%…` and would take that same skip).
+            if matches!(value, Operand::VReg { .. }) {
+                continue;
+            }
+            // plan-78-B: render the typed operand to its string for the
+            // physical-name sniff (unchanged classification). `Raw`/`Phys` borrow.
+            let value = value.rendered();
             if value.starts_with('%') || value == "sp" {
                 continue;
             }
@@ -202,8 +215,8 @@ pub(crate) fn find_physical_operand(instructions: &[CodeInstruction]) -> Option<
                 .and_then(|rest| rest.parse::<u32>().ok())
                 .is_some_and(|n| n <= 31);
             if extra_view
-                || analysis::int_physical_index(value).is_some()
-                || analysis::fp_physical_index(value).is_some()
+                || analysis::int_physical_index(&value).is_some()
+                || analysis::fp_physical_index(&value).is_some()
             {
                 return Some(format!(
                     "instruction {index} `{}` field `{name}` names physical register `{value}`",
@@ -230,6 +243,34 @@ pub(crate) fn allocate(
     spill_base_offset: usize,
     reserved: &[&str],
 ) -> AllocOutcome {
+    // plan-78 Phase 1: env-gated size probe. When `MFB_BENCH_LOWERING` is set,
+    // report the pre-allocation instruction count and the distinct virtual-
+    // register count (int + fp) of each sizable function, so B/C can quote
+    // "N instructions / M vregs colored" against a real baseline. Gated on both
+    // the env var and a size threshold, it prints nothing on a normal build and
+    // only surfaces the large generated bodies (e.g. the inlined regex engine)
+    // rather than every tiny helper. It reads only, never mutates the stream, so
+    // it cannot affect emitted bytes.
+    if std::env::var_os("MFB_BENCH_LOWERING").is_some() && instructions.len() >= 100_000 {
+        let mut int_vregs = std::collections::HashSet::new();
+        let mut fp_vregs = std::collections::HashSet::new();
+        for instruction in instructions.iter() {
+            for (_name, value) in &instruction.fields {
+                let value = value.rendered();
+                if let Some(id) = parse_vreg(&value) {
+                    int_vregs.insert(id);
+                } else if let Some(id) = parse_fp_vreg(&value) {
+                    fp_vregs.insert(id);
+                }
+            }
+        }
+        eprintln!(
+            "MFB_BENCH_LOWERING: function instructions={} int_vregs={} fp_vregs={}",
+            instructions.len(),
+            int_vregs.len(),
+            fp_vregs.len()
+        );
+    }
     match kind {
         RegallocKind::BumpAndReset => {
             let allocation = BumpAndReset.assign(&AllocInput { eager });
@@ -264,12 +305,14 @@ pub(crate) fn allocate(
             // `xmm8`–`xmm14` as surviving a call SysV says destroys them
             // (bug-350).
             let int_model = ClassModel {
+                class: RegClass::Int,
                 parse_vreg,
                 physical_index: int_physical_index,
                 is_fp: false,
                 caller_saved: analysis::caller_saved_mask(model, RegClass::Int, int_physical_index),
             };
             let fp_model = ClassModel {
+                class: RegClass::Fp,
                 parse_vreg: parse_fp_vreg,
                 physical_index: analysis::fp_physical_index,
                 is_fp: true,
@@ -283,7 +326,7 @@ pub(crate) fn allocate(
             // spill; AArch64 8 — a no-op, byte-identical).
             let slot_bytes = model.spill_slot_bytes();
             let int = linear_scan::run(
-                instructions,
+                std::mem::take(instructions),
                 model,
                 RegClass::Int,
                 &int_model,
@@ -305,7 +348,7 @@ pub(crate) fn allocate(
             *instructions = int.instructions;
             let fp_base = spill_base_offset + int.spill_slot_count * slot_bytes;
             let fp = linear_scan::run(
-                instructions,
+                std::mem::take(instructions),
                 model,
                 RegClass::Fp,
                 &fp_model,
@@ -327,13 +370,10 @@ pub(crate) fn allocate(
             debug_assert!(
                 !instructions
                     .iter()
-                    .any(
-                        |instruction| instruction
-                            .fields
-                            .iter()
-                            .any(|(_, value)| parse_vreg(value).is_some()
-                                || parse_fp_vreg(value).is_some())
-                    ),
+                    .any(|instruction| instruction.fields.iter().any(|(_, value)| {
+                        let value = value.rendered();
+                        parse_vreg(&value).is_some() || parse_fp_vreg(&value).is_some()
+                    })),
                 "regalloc left an uncolored vreg/fp-vreg sentinel in an operand field \
                  (a register-valued field not covered by DEF_FIELDS/USE_FIELDS?)"
             );
@@ -365,11 +405,14 @@ fn rewrite(
 ) {
     for instruction in instructions.iter_mut() {
         for (_name, value) in instruction.fields.iter_mut() {
-            if let Some(index) = parse(value) {
+            if let Some(index) = parse(&value.rendered()) {
                 let assigned = physical.get(index as usize).unwrap_or_else(|| {
                     panic!("register allocator: virtual register {index} has no assignment")
                 });
-                *value = assigned.clone();
+                // plan-78-B: the physical name is stored as `Raw` (byte-identical
+                // render). plan-78-C makes the vreg→physical rewrite write a typed
+                // `Operand::Phys` here.
+                *value = Operand::from(assigned.as_str());
             }
         }
     }

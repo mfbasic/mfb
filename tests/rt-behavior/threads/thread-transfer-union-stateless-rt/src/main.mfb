@@ -1,0 +1,22 @@
+IMPORT io
+IMPORT thread
+IMPORT fs
+IMPORT union_xfer_stateless_workers
+
+UNION Stream
+  File
+  Socket
+END UNION
+
+' plan-75: a *stateless* resource union was equally broken — its variant record
+' pointer aliased the sender's arena. The worker matches the arrived variant and
+' returns 1 (File); the value survives the transfer's deep copy independently of
+' the sender thread's freed arena.
+FUNC main AS Integer
+  LET t AS Thread OF RES Stream TO Integer = thread::start(union_xfer_stateless_workers::takeUnionVariant, "seed")
+  RES s AS Stream = fs::createTempFile()
+  thread::transfer(t, s)
+  LET got AS Integer = thread::waitFor(t)
+  io::print(toString(got))
+  RETURN 0
+END FUNC

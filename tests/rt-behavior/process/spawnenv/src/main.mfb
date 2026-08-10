@@ -1,0 +1,17 @@
+' plan-90-A Phase 3: process::spawn sets the child's working directory and
+' environment. The child's stdout is piped (unread until sub-plan B), so each
+' case is checked via the child's EXIT CODE.
+IMPORT process
+IMPORT io
+
+FUNC main AS Integer
+  ' cwd + merged env: pwd is / (no symlink) AND $FOO is bar -> sh exits 0.
+  RES a = process::spawn(["/bin/sh", "-c", "[ x$FOO = xbar ] && [ $(pwd) = / ]"], "/", Map OF String TO String { "FOO" := "bar" }, FALSE)
+  io::print(toString(process::waitFor(a)))
+
+  ' envReplace=TRUE clears the inherited environment, so $HOME is empty -> the
+  ' `[ -z ]` test exits 0. FOO is still set from the map.
+  RES b = process::spawn(["/bin/sh", "-c", "[ -z $HOME ] && [ x$FOO = xbar ]"], "", Map OF String TO String { "FOO" := "bar" }, TRUE)
+  io::print(toString(process::waitFor(b)))
+  RETURN 0
+END FUNC

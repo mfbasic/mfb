@@ -1,0 +1,54 @@
+REM plan-89-B Phases 1–2: the Attribute model + constructors (build each, MATCH on
+REM the union to read the member/value), storage via addAttribute, and read-time
+REM resolution via getAttributes — higher-start-wins per enum member, cross-member
+REM coexistence, and flags OR.
+
+IMPORT astrings
+IMPORT io
+
+FUNC describe(attrs AS List OF Attribute) AS String
+  MUT out AS String = ""
+  FOR EACH a IN attrs
+    MATCH a
+      CASE AttrFlag(f)
+        MATCH f.kind
+          CASE AttrTypeFlag.Bold
+            out = out & "Bold "
+          CASE AttrTypeFlag.Italic
+            out = out & "Italic "
+          CASE AttrTypeFlag.Underline
+            out = out & "Underline "
+          CASE AttrTypeFlag.Strike
+            out = out & "Strike "
+          CASE AttrTypeFlag.Overline
+            out = out & "Overline "
+        END MATCH
+      CASE AttrText(t)
+        out = out & "Font:" & t.value & " "
+      CASE AttrNumber(n)
+        out = out & "Size:" & toString(n.value) & " "
+    END MATCH
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main AS Integer
+  ' Each constructor builds the expected Attribute member/value.
+  io::print("ctors=" & describe([astrings::bold(), astrings::italic(), astrings::underline(), astrings::strike(), astrings::overline(), astrings::font("Serif"), astrings::fontSize(14)]))
+
+  ' Higher-start-wins: FontSize 10 @[10,20] vs FontSize 20 @[15,25] -> 20 at 15.
+  MUT b AS AttributedString = astrings::fromString("hello world, styled text here!")
+  b = astrings::addAttribute(b, 10, 20, astrings::fontSize(10))
+  b = astrings::addAttribute(b, 15, 25, astrings::fontSize(20))
+  io::print("size@12=" & describe(astrings::getAttributes(b, 12)))
+  io::print("size@15=" & describe(astrings::getAttributes(b, 15)))
+
+  ' Different members coexist; flags OR.
+  MUT c AS AttributedString = astrings::fromString("hello world, styled text here!")
+  c = astrings::addAttribute(c, 0, 10, astrings::bold())
+  c = astrings::addAttribute(c, 5, 15, astrings::italic())
+  c = astrings::addAttribute(c, 0, 29, astrings::font("Serif"))
+  io::print("coexist@7=" & describe(astrings::getAttributes(c, 7)))
+  io::print("coexist@0=" & describe(astrings::getAttributes(c, 0)))
+  RETURN 0
+END FUNC

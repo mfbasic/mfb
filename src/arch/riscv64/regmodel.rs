@@ -225,7 +225,7 @@ mod tests {
         assert_eq!(m.math_pool_base(), None);
         let sp = m.emit_spill(RegClass::Int, "s1", 16);
         assert_eq!(sp.op.mnemonic(), "str_u64");
-        assert_eq!(sp.get("base"), Some("sp"));
+        assert_eq!(sp.get("base").as_deref(), Some("sp"));
         assert_eq!(m.emit_spill(RegClass::Fp, "fs0", 16).op.mnemonic(), "str_d");
         assert_eq!(
             m.emit_reload(RegClass::Int, "s1", 16).op.mnemonic(),

@@ -27,10 +27,10 @@
 
 use crate::arch::ops::CodeOp;
 use crate::target::shared::code::mir::{
-    fused_setter_codeop, rename_field_values, MirInstruction, MirOp, ARENA_BASE, FUSED_COND_FIELD,
-    FUSED_SHARE_FIELD,
+    fused_setter_codeop, rename_operand_field_values, MirInstruction, MirOp, ARENA_BASE,
+    FUSED_COND_FIELD, FUSED_SHARE_FIELD,
 };
-use crate::target::shared::code::CodeInstruction;
+use crate::target::shared::code::{CodeInstruction, Operand};
 
 use super::regmodel::ARENA_BASE_REGISTER;
 
@@ -62,11 +62,11 @@ const ZERO: &str = "zero";
 const GP: &str = "gp";
 
 /// The value of a named field (empty string if absent).
-fn field_value(fields: &[(&'static str, String)], name: &str) -> String {
+fn field_value(fields: &[(&'static str, Operand)], name: &str) -> String {
     fields
         .iter()
         .find(|(k, _)| *k == name)
-        .map(|(_, v)| v.clone())
+        .map(|(_, v)| v.render())
         .unwrap_or_default()
 }
 
@@ -84,7 +84,7 @@ fn ci(mnemonic: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
 /// branch is `b<riscv_cond> rs1, rs2, target`. `lhs`/`rhs` are the compare's two
 /// operands (`lhs CMP rhs`); some relations swap them (RISC-V has only `lt`/`ge`,
 /// signed and unsigned, so `>`/`<=` swap operands).
-fn int_branch<'a>(cond: &str, lhs: &'a str, rhs: &'a str) -> (&'a str, &'a str, &'static str) {
+fn int_branch<'a, T: ?Sized>(cond: &str, lhs: &'a T, rhs: &'a T) -> (&'a T, &'a T, &'static str) {
     match cond {
         "b.eq" => (lhs, rhs, "eq"),
         "b.ne" => (lhs, rhs, "ne"),
@@ -108,13 +108,16 @@ fn int_branch<'a>(cond: &str, lhs: &'a str, rhs: &'a str) -> (&'a str, &'a str, 
 /// `>`/`>=`/`<`(`b.mi`/`b.lo`)/`<=`(`b.ls`)/`=` are ordered-only; `<>`(`b.ne`),
 /// `b.lt`/`b.le`/`b.hi` and the finiteness checks `b.vs`/`b.vc` include the
 /// unordered (NaN) case.
-fn float_branch(cond: &str, lhs: &str, rhs: &str, target: &str) -> Vec<CodeInstruction> {
-    // `feq/flt/fle.d dst, a, b` then branch `dst <bcond> zero`.
-    let cmp = |dst: &str, cmp: &str, a: &str, b: &str| {
-        ci(
-            "rv.fcmp",
-            &[("dst", dst), ("lhs", a), ("rhs", b), ("cmp", cmp)],
-        )
+fn float_branch(cond: &str, lhs: &Operand, rhs: &Operand, target: &str) -> Vec<CodeInstruction> {
+    // `feq/flt/fle.d dst, a, b` then branch `dst <bcond> zero`. `a`/`b` are the
+    // compare operands (possibly typed `Operand::Abi` tokens), preserved through the
+    // instruction so nothing renders a convention token to a `Raw` string (plan-85-D).
+    let cmp = |dst: &str, cmp: &str, a: &Operand, b: &Operand| {
+        CodeInstruction::new("rv.fcmp")
+            .field("dst", dst)
+            .field("lhs", a)
+            .field("rhs", b)
+            .field("cmp", cmp)
     };
     let br = |a: &str, bcond: &str| {
         ci(
@@ -157,16 +160,16 @@ fn float_branch(cond: &str, lhs: &str, rhs: &str, target: &str) -> Vec<CodeInstr
 }
 
 /// The `cond` value carried by an integer compare-branch, plus the branch target.
-fn cond_and_target(fields: &[(&'static str, String)]) -> (String, String) {
+fn cond_and_target(fields: &[(&'static str, Operand)]) -> (String, String) {
     let split = fields
         .iter()
         .position(|(key, _)| *key == FUSED_COND_FIELD)
         .expect("fused MIR op carries a cond field");
-    let cond = fields[split].1.clone();
+    let cond = fields[split].1.render();
     let target = fields[split + 1..]
         .iter()
         .find(|(key, _)| *key == "target")
-        .map(|(_, v)| v.clone())
+        .map(|(_, v)| v.render())
         .expect("fused compare-branch carries a target");
     (cond, target)
 }
@@ -175,7 +178,7 @@ fn cond_and_target(fields: &[(&'static str, String)]) -> (String, String) {
 /// compare-and-branch is self-contained (no shared flags), so a shared branch
 /// simply re-emits the whole compare — but the operands are the same, so it is
 /// correct and cheap.
-fn is_shared(fields: &[(&'static str, String)]) -> bool {
+fn is_shared(fields: &[(&'static str, Operand)]) -> bool {
     fields.iter().any(|(key, _)| *key == FUSED_SHARE_FIELD)
 }
 
@@ -185,68 +188,75 @@ fn is_shared(fields: &[(&'static str, String)]) -> bool {
 fn expand_fused(
     op: MirOp,
     setter_op: CodeOp,
-    fields: &[(&'static str, String)],
+    fields: &[(&'static str, Operand)],
 ) -> Vec<CodeInstruction> {
     let get = |name: &str| -> String {
         fields
             .iter()
             .find(|(key, _)| *key == name)
-            .map(|(_, v)| v.clone())
+            .map(|(_, v)| v.render())
             .unwrap_or_default()
+    };
+    // Register-operand lookup that PRESERVES the typed `Operand` (plan-85-D): a
+    // compare/overflow operand that is a convention token (`Operand::Abi`) must not
+    // be rendered to a `Raw` string here, or it would reach the realization seam as a
+    // string and force the string-token realizer to exist. Physical temps and
+    // immediates still flow as strings via `get`.
+    let get_op = |name: &str| -> Operand {
+        fields
+            .iter()
+            .find(|(key, _)| *key == name)
+            .map(|(_, v)| v.clone())
+            .unwrap_or_else(|| Operand::from(""))
     };
     let (cond, target) = cond_and_target(fields);
     match setter_op {
         // Integer register-register compare-and-branch.
         CodeOp::Cmp => {
-            let lhs = get("lhs");
-            let rhs = get("rhs");
+            let lhs = get_op("lhs");
+            let rhs = get_op("rhs");
             let (a, b, rvcond) = int_branch(&cond, &lhs, &rhs);
-            vec![ci(
-                "rv.br",
-                &[
-                    ("lhs", a),
-                    ("rhs", b),
-                    ("cond", rvcond),
-                    ("target", &target),
-                ],
-            )]
+            vec![CodeInstruction::new("rv.br")
+                .field("lhs", a)
+                .field("rhs", b)
+                .field("cond", rvcond)
+                .field("target", &target)]
         }
         // Integer register-immediate compare-and-branch. RISC-V branches take
         // registers only, so a non-zero immediate is materialized into `t0`.
         CodeOp::CmpImm => {
-            let lhs = get("lhs");
+            let lhs = get_op("lhs");
             let imm = get("rhs");
             let mut out = Vec::new();
-            let imm_reg: &str = if imm == "0" {
-                ZERO
+            let imm_reg: Operand = if imm == "0" {
+                Operand::from(ZERO)
             } else {
                 out.push(ci("mov_imm", &[("dst", T0), ("value", &imm)]));
-                T0
+                Operand::from(T0)
             };
-            let (a, b, rvcond) = int_branch(&cond, &lhs, imm_reg);
-            out.push(ci(
-                "rv.br",
-                &[
-                    ("lhs", a),
-                    ("rhs", b),
-                    ("cond", rvcond),
-                    ("target", &target),
-                ],
-            ));
+            let (a, b, rvcond) = int_branch(&cond, &lhs, &imm_reg);
+            out.push(
+                CodeInstruction::new("rv.br")
+                    .field("lhs", a)
+                    .field("rhs", b)
+                    .field("cond", rvcond)
+                    .field("target", &target),
+            );
             out
         }
         // Float register-register compare-and-branch.
         CodeOp::FCmpD => {
-            let lhs = get("lhs");
-            let rhs = get("rhs");
+            let lhs = get_op("lhs");
+            let rhs = get_op("rhs");
             float_branch(&cond, &lhs, &rhs, &target)
         }
         // Float compare against +0.0: materialize +0.0 into `ft1` (`fmv.d.x`),
         // then the same compare-and-branch against it.
         CodeOp::FCmpZeroD => {
-            let src = get("src");
+            let src = get_op("src");
+            let ft1 = Operand::from(FT1);
             let mut out = vec![ci("fmov_d_from_x", &[("dst", FT1), ("src", ZERO)])];
-            out.extend(float_branch(&cond, &src, FT1, &target));
+            out.extend(float_branch(&cond, &src, &ft1, &target));
             out
         }
         // Overflow-checked add: `dst = lhs + rhs`, branch on signed overflow.
@@ -254,21 +264,32 @@ fn expand_fused(
         //   sum = lhs + rhs
         //   ovf = (~(lhs ^ rhs) & (sum ^ lhs)) < 0
         CodeOp::Adds => {
-            let dst = get("dst");
-            let lhs = get("lhs");
-            let rhs = get("rhs");
+            let dst = get_op("dst");
+            let lhs = get_op("lhs");
+            let rhs = get_op("rhs");
             let branch_cond = overflow_branch_cond(&cond);
             // The result must be written into `dst` BEFORE the branch: the fused
             // `adds; b.vc` writes the destination and *then* branches, and the
             // branch jumps away on the no-overflow path — so a `mov dst, t0` after
             // it would be skipped, leaving `dst` undefined.
             vec![
-                ci("add", &[("dst", T0), ("lhs", &lhs), ("rhs", &rhs)]),
-                ci("eor", &[("dst", T1), ("lhs", &lhs), ("rhs", &rhs)]),
-                ci("eor", &[("dst", T2), ("lhs", T0), ("rhs", &lhs)]),
+                CodeInstruction::new("add")
+                    .field("dst", T0)
+                    .field("lhs", &lhs)
+                    .field("rhs", &rhs),
+                CodeInstruction::new("eor")
+                    .field("dst", T1)
+                    .field("lhs", &lhs)
+                    .field("rhs", &rhs),
+                CodeInstruction::new("eor")
+                    .field("dst", T2)
+                    .field("lhs", T0)
+                    .field("rhs", &lhs),
                 ci("mvn", &[("dst", T1), ("src", T1)]),
                 ci("and", &[("dst", T1), ("lhs", T1), ("rhs", T2)]),
-                ci("mov", &[("dst", &dst), ("src", T0)]),
+                CodeInstruction::new("mov")
+                    .field("dst", &dst)
+                    .field("src", T0),
                 ci(
                     "rv.br",
                     &[
@@ -284,17 +305,28 @@ fn expand_fused(
         //   diff = lhs - rhs
         //   ovf = ((lhs ^ rhs) & (lhs ^ diff)) < 0
         CodeOp::Subs => {
-            let dst = get("dst");
-            let lhs = get("lhs");
-            let rhs = get("rhs");
+            let dst = get_op("dst");
+            let lhs = get_op("lhs");
+            let rhs = get_op("rhs");
             let branch_cond = overflow_branch_cond(&cond);
             // Write `dst` before the branch (see the `Adds` case above).
             vec![
-                ci("sub", &[("dst", T0), ("lhs", &lhs), ("rhs", &rhs)]),
-                ci("eor", &[("dst", T1), ("lhs", &lhs), ("rhs", &rhs)]),
-                ci("eor", &[("dst", T2), ("lhs", &lhs), ("rhs", T0)]),
+                CodeInstruction::new("sub")
+                    .field("dst", T0)
+                    .field("lhs", &lhs)
+                    .field("rhs", &rhs),
+                CodeInstruction::new("eor")
+                    .field("dst", T1)
+                    .field("lhs", &lhs)
+                    .field("rhs", &rhs),
+                CodeInstruction::new("eor")
+                    .field("dst", T2)
+                    .field("lhs", &lhs)
+                    .field("rhs", T0),
                 ci("and", &[("dst", T1), ("lhs", T1), ("rhs", T2)]),
-                ci("mov", &[("dst", &dst), ("src", T0)]),
+                CodeInstruction::new("mov")
+                    .field("dst", &dst)
+                    .field("src", T0),
                 ci(
                     "rv.br",
                     &[
@@ -383,20 +415,20 @@ fn load_flag_rhs(dst: &str) -> Vec<CodeInstruction> {
 }
 
 /// Select neutral MIR into RV64GC machine ops (plan-99).
-pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruction> {
+pub(crate) fn select_riscv64(instructions: Vec<MirInstruction>) -> Vec<CodeInstruction> {
     let mut out = Vec::with_capacity(instructions.len());
     // Assign a memory slot to every distinct `v128` value the function uses, so
     // the SIMD ops can be scalarized onto the slot region (plan-99 §6).
-    let v128_slots = super::v128::build_slot_map(instructions);
+    let v128_slots = super::v128::build_slot_map(&instructions);
     // plan-32-C: physical vector-register assignment for the native-RVV arm of the
     // dual-path v128 lowering. `None` (register pressure past the v1..=v30 pool)
     // means this function emits the scalar arm only. `v128_seq` gives each v128
     // site a unique pair of arm labels.
-    let v128_vregs = super::v128::build_vreg_map(instructions);
+    let v128_vregs = super::v128::build_vreg_map(&instructions);
     let mut v128_seq = 0usize;
     // plan-32-D: the currently-accumulating maximal run of consecutive
     // RVV-lowerable v128 ops (flushed as one dual-path dispatch).
-    let mut v128_run: Vec<(CodeOp, Vec<(&'static str, String)>)> = Vec::new();
+    let mut v128_run: Vec<(CodeOp, Vec<(&'static str, Operand)>)> = Vec::new();
     // Slots are recycled across non-overlapping live ranges, so the region size
     // is the peak concurrent slot count (highest index + 1), not the number of
     // distinct values.
@@ -591,11 +623,20 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                 .find(|(k, _)| *k == "symbol")
                 .map(|(_, v)| v.clone())
                 .expect("addr_of carries a symbol");
-            out.push(ci("adrp", &[("dst", &dst), ("symbol", &symbol)]));
-            out.push(ci(
-                "add_pageoff",
-                &[("dst", &dst), ("src", &dst), ("symbol", &symbol)],
-            ));
+            // Preserve the typed `dst` operand (a convention token stays
+            // `Operand::Abi`, realized positionally by `remap_riscv_abi`, never a Raw
+            // string — plan-85-D); only `symbol` is a name, so render it.
+            out.push(
+                CodeInstruction::new("adrp")
+                    .field("dst", &dst)
+                    .field("symbol", symbol.render()),
+            );
+            out.push(
+                CodeInstruction::new("add_pageoff")
+                    .field("dst", &dst)
+                    .field("src", &dst)
+                    .field("symbol", symbol.render()),
+            );
             continue;
         }
         if let Some(setter_op) = fused_setter_codeop(instruction.op) {
@@ -620,13 +661,17 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
         }
         // Non-fused MIR ops map 1:1 to a CodeOp via `to_code` (applying the
         // neutral→concrete renames, e.g. `call`→`bl`, `mulhi_u`→`umulh`); the
-        // rv64 encoder realizes each CodeOp as RISC-V bytes.
+        // rv64 encoder realizes each CodeOp as RISC-V bytes. MOVE the field bag
+        // instead of `code_fields_from_mir`'s `to_vec` clone (plan-84 Phase 2).
+        let source = instruction.source;
+        let op = instruction
+            .op
+            .to_code()
+            .expect("non-fused MIR op maps to a single CodeOp");
         out.push(CodeInstruction {
-            op: instruction
-                .op
-                .to_code()
-                .expect("non-fused MIR op maps to a single CodeOp"),
-            fields: instruction.fields.clone(),
+            source,
+            op,
+            fields: instruction.fields,
         });
     }
     // plan-32-D: flush a v128 run that ends the function (no trailing non-v128 op).
@@ -642,9 +687,19 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
     }
     // Realize the neutral arena base as the pinned `s11`.
     for instruction in &mut out {
-        rename_field_values(&mut instruction.fields, ARENA_BASE, ARENA_BASE_REGISTER);
+        rename_operand_field_values(&mut instruction.fields, ARENA_BASE, ARENA_BASE_REGISTER);
     }
     remap_riscv_abi(&mut out);
+    // plan-71-B Phase 1: the Category-2 self-move probe, after `remap_riscv_abi`
+    // has realized the ABI role tokens to their lp64d homes (`%argK`/`%retK` →
+    // the same `aN`). A same-index staging move would read as a `mov aN,aN`
+    // no-op here. Report those under `MFB_BUG387_SELFMOVE`; unset, this reads
+    // nothing and every emitted byte is unchanged (the scan never mutates `out`).
+    if std::env::var_os("MFB_BUG387_SELFMOVE").is_some() {
+        for line in crate::target::shared::code::bug387_selfmove_lines(&out, "riscv64") {
+            eprintln!("{line}");
+        }
+    }
     out
 }
 
@@ -708,14 +763,21 @@ fn map_fp_register(n: usize) -> String {
 fn remap_riscv_abi(instructions: &mut [CodeInstruction]) {
     for instruction in instructions.iter_mut() {
         for (_, value) in instruction.fields.iter_mut() {
+            // A convention-explicit ABI token (plan-85-A) realizes positionally to
+            // `x{index}` first (args and results coincide on the positional ABIs),
+            // then the `remap_register` below maps that `xN`→`aN` exactly as it
+            // does the legacy tokens — byte-identical.
+            if let Operand::Abi { index, .. } = value {
+                *value = Operand::from(crate::target::shared::abi::realize_abi_positional(*index));
+            }
             // plan-34-B Phase-3b seam: realize a role token to its AArch64
             // spelling first (`%arg3` → `x3`), then the positional remap maps that
             // to the RISC-V home (`x3` → `a3`) exactly as today — byte-identical.
-            if let Some(reg) = crate::target::shared::abi::realize_abi_token(value) {
-                *value = reg.to_string();
+            if let Some(reg) = crate::target::shared::abi::realize_abi_token(&value.render()) {
+                *value = Operand::from(reg);
             }
-            if let Some(mapped) = remap_register(value) {
-                *value = mapped;
+            if let Some(mapped) = remap_register(&value.render()) {
+                *value = Operand::from(mapped);
             }
         }
     }
@@ -777,12 +839,12 @@ mod tests {
     }
 
     fn sel(instructions: &[CodeInstruction]) -> Vec<CodeInstruction> {
-        select_riscv64(&lower_to_mir(instructions))
+        select_riscv64(lower_to_mir(instructions))
     }
 
     fn values(out: &[CodeInstruction]) -> Vec<String> {
         out.iter()
-            .flat_map(|inst| inst.fields.iter().map(|(_, v)| v.clone()))
+            .flat_map(|inst| inst.fields.iter().map(|(_, v)| v.render()))
             .collect()
     }
 
@@ -800,6 +862,34 @@ mod tests {
         assert!(vals.contains(&"a7".to_string()));
         assert!(vals.contains(&"sp".to_string()));
         assert!(vals.contains(&"zero".to_string()));
+    }
+
+    #[test]
+    fn explicit_abi_tokens_realize_to_positional_a_registers() {
+        use crate::target::shared::abi;
+        // plan-85-A: a typed `Operand::Abi` realizes positionally (`x{index}`) then
+        // remaps `xN`→`aN`, byte-identically to the legacy tokens — every
+        // convention/role collapses. %retC1 → a1, %argSys3 → a3, %retSys → a0.
+        let out = sel(&[
+            CodeInstruction::new("mov")
+                .field("dst", abi::mfb_return(0))
+                .field("src", abi::mfb_arg(2)),
+            CodeInstruction::new("mov")
+                .field("dst", abi::c_return(1))
+                .field("src", abi::sys_arg(3)),
+            CodeInstruction::new("mov")
+                .field("dst", abi::sys_return())
+                .field("src", abi::c_arg(7)),
+        ]);
+        let vals = values(&out);
+        assert!(
+            vals.contains(&"a0".to_string()),
+            "%retMFB0/%retSys → a0: {vals:?}"
+        );
+        assert!(vals.contains(&"a2".to_string()), "%argMFB2 → a2: {vals:?}");
+        assert!(vals.contains(&"a1".to_string()), "%retC1 → a1: {vals:?}");
+        assert!(vals.contains(&"a3".to_string()), "%argSys3 → a3: {vals:?}");
+        assert!(vals.contains(&"a7".to_string()), "%argC7 → a7: {vals:?}");
     }
 
     #[test]
@@ -822,8 +912,8 @@ mod tests {
         ]);
         assert!(out.iter().any(|i| i.op == CodeOp::RvBr));
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("cond"), Some("lt"));
-        assert_eq!(br.get("target"), Some("L"));
+        assert_eq!(br.get("cond").as_deref(), Some("lt"));
+        assert_eq!(br.get("target").as_deref(), Some("L"));
     }
 
     #[test]
@@ -835,7 +925,7 @@ mod tests {
             build("ret", &[]),
         ]);
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("cond"), Some("lt"));
+        assert_eq!(br.get("cond").as_deref(), Some("lt"));
         // Operands swapped: lhs is the original rhs.
         assert_eq!(br.get("lhs"), br.get("lhs")); // (mapped, both scratch)
     }
@@ -850,7 +940,7 @@ mod tests {
         // A non-zero immediate is materialized into t0.
         assert!(out
             .iter()
-            .any(|i| i.op == CodeOp::MovImm && i.get("dst") == Some("t0")));
+            .any(|i| i.op == CodeOp::MovImm && i.get("dst").as_deref() == Some("t0")));
         assert!(out.iter().any(|i| i.op == CodeOp::RvBr));
     }
 
@@ -863,7 +953,7 @@ mod tests {
         ]);
         assert!(!out.iter().any(|i| i.op == CodeOp::MovImm));
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("rhs"), Some("zero"));
+        assert_eq!(br.get("rhs").as_deref(), Some("zero"));
     }
 
     #[test]
@@ -893,7 +983,7 @@ mod tests {
         assert!(out.iter().any(|i| i.op == CodeOp::Eor));
         assert!(out.iter().any(|i| i.op == CodeOp::Mvn));
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("cond"), Some("ge")); // b.vc = no overflow = word >= 0
+        assert_eq!(br.get("cond").as_deref(), Some("ge")); // b.vc = no overflow = word >= 0
     }
 
     #[test]
@@ -937,8 +1027,8 @@ mod tests {
 
     // ---------- branch-condition mapping helpers ----------
 
-    fn fl(pairs: &[(&'static str, &str)]) -> Vec<(&'static str, String)> {
-        pairs.iter().map(|(k, v)| (*k, v.to_string())).collect()
+    fn fl(pairs: &[(&'static str, &str)]) -> Vec<(&'static str, Operand)> {
+        pairs.iter().map(|(k, v)| (*k, Operand::from(*v))).collect()
     }
 
     #[test]
@@ -968,30 +1058,30 @@ mod tests {
     fn float_branch_condition_table() {
         // Ordered-only relations emit one compare then branch-on-true.
         for cond in ["b.gt", "b.ge", "b.mi", "b.lo", "b.ls", "b.eq"] {
-            let out = float_branch(cond, "fa0", "fa1", "L");
+            let out = float_branch(cond, &Operand::from("fa0"), &Operand::from("fa1"), "L");
             assert_eq!(out.len(), 2, "{cond}");
             assert_eq!(out[0].op.mnemonic(), "rv.fcmp");
-            assert_eq!(out[1].get("cond"), Some("ne"));
+            assert_eq!(out[1].get("cond").as_deref(), Some("ne"));
         }
         // Unordered-including relations branch when the ordered complement is false.
         for cond in ["b.ne", "b.hi", "b.lt", "b.le"] {
-            let out = float_branch(cond, "fa0", "fa1", "L");
+            let out = float_branch(cond, &Operand::from("fa0"), &Operand::from("fa1"), "L");
             assert_eq!(out.len(), 2, "{cond}");
-            assert_eq!(out[1].get("cond"), Some("eq"));
+            assert_eq!(out[1].get("cond").as_deref(), Some("eq"));
         }
         // Finiteness checks compare each operand with itself (NaN detection).
-        let vs = float_branch("b.vs", "fa0", "fa1", "L");
+        let vs = float_branch("b.vs", &Operand::from("fa0"), &Operand::from("fa1"), "L");
         assert_eq!(vs.len(), 4);
-        assert_eq!(vs[3].get("cond"), Some("eq"));
-        let vc = float_branch("b.vc", "fa0", "fa1", "L");
+        assert_eq!(vs[3].get("cond").as_deref(), Some("eq"));
+        let vc = float_branch("b.vc", &Operand::from("fa0"), &Operand::from("fa1"), "L");
         assert_eq!(vc.len(), 4);
-        assert_eq!(vc[3].get("cond"), Some("ne"));
+        assert_eq!(vc[3].get("cond").as_deref(), Some("ne"));
     }
 
     #[test]
     #[should_panic(expected = "unmapped float compare-branch")]
     fn float_branch_unknown_condition_panics() {
-        float_branch("b.zz", "fa0", "fa1", "L");
+        float_branch("b.zz", &Operand::from("fa0"), &Operand::from("fa1"), "L");
     }
 
     // ---------- fused-op expansion ----------
@@ -1005,7 +1095,7 @@ mod tests {
         );
         // First materialize +0.0 into ft1, then a float compare-and-branch.
         assert_eq!(out[0].op.mnemonic(), "fmov_d_from_x");
-        assert_eq!(out[0].get("dst"), Some("ft1"));
+        assert_eq!(out[0].get("dst").as_deref(), Some("ft1"));
         assert!(out.iter().any(|i| i.op.mnemonic() == "rv.fcmp"));
     }
 
@@ -1026,9 +1116,9 @@ mod tests {
         // dst is written before the branch (see the Adds/Subs comments).
         assert!(out
             .iter()
-            .any(|i| i.op.mnemonic() == "mov" && i.get("dst") == Some("x9")));
+            .any(|i| i.op.mnemonic() == "mov" && i.get("dst").as_deref() == Some("x9")));
         let br = out.iter().find(|i| i.op.mnemonic() == "rv.br").unwrap();
-        assert_eq!(br.get("cond"), Some("lt")); // b.vs = overflow = word < 0
+        assert_eq!(br.get("cond").as_deref(), Some("lt")); // b.vs = overflow = word < 0
     }
 
     #[test]
@@ -1080,23 +1170,23 @@ mod tests {
         // lhs saved into the flag register gp.
         assert!(out
             .iter()
-            .any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
+            .any(|i| i.op == CodeOp::Mov && i.get("dst").as_deref() == Some("gp")));
         // rhs value spilled to and reloaded from the snapshot word: the address is
         // built off the arena base (s11) into t0, then the value is stored/loaded
         // through it.
         assert!(out
             .iter()
-            .any(|i| i.op.mnemonic() == "add" && i.get("lhs") == Some("s11")));
+            .any(|i| i.op.mnemonic() == "add" && i.get("lhs").as_deref() == Some("s11")));
         assert!(out
             .iter()
-            .any(|i| i.op.mnemonic() == "str_u64" && i.get("base") == Some("t0")));
+            .any(|i| i.op.mnemonic() == "str_u64" && i.get("base").as_deref() == Some("t0")));
         assert!(out
             .iter()
-            .any(|i| i.op.mnemonic() == "ldr_u64" && i.get("dst") == Some("t0")));
+            .any(|i| i.op.mnemonic() == "ldr_u64" && i.get("dst").as_deref() == Some("t0")));
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("lhs"), Some("gp"));
-        assert_eq!(br.get("rhs"), Some("t0")); // reloaded rhs value
-        assert_eq!(br.get("cond"), Some("lt"));
+        assert_eq!(br.get("lhs").as_deref(), Some("gp"));
+        assert_eq!(br.get("rhs").as_deref(), Some("t0")); // reloaded rhs value
+        assert_eq!(br.get("cond").as_deref(), Some("lt"));
     }
 
     #[test]
@@ -1108,8 +1198,8 @@ mod tests {
             build("ret", &[]),
         ]);
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("lhs"), Some("gp"));
-        assert_eq!(br.get("rhs"), Some("zero"));
+        assert_eq!(br.get("lhs").as_deref(), Some("gp"));
+        assert_eq!(br.get("rhs").as_deref(), Some("zero"));
         assert!(!out.iter().any(|i| i.op == CodeOp::MovImm));
     }
 
@@ -1124,7 +1214,7 @@ mod tests {
         // The immediate is re-materialized into t0 at the branch.
         assert!(out
             .iter()
-            .any(|i| i.op == CodeOp::MovImm && i.get("dst") == Some("t0")));
+            .any(|i| i.op == CodeOp::MovImm && i.get("dst").as_deref() == Some("t0")));
         assert!(out.iter().any(|i| i.op == CodeOp::RvBr));
     }
 
@@ -1141,7 +1231,7 @@ mod tests {
         ]);
         assert!(out
             .iter()
-            .any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
+            .any(|i| i.op == CodeOp::Mov && i.get("dst").as_deref() == Some("gp")));
     }
 
     /// bug-381: the compare snapshots BOTH operands by value (lhs → gp, rhs → the
@@ -1169,9 +1259,9 @@ mod tests {
         // The branch reads gp and the reloaded snapshot (t0), not x10 (whose home
         // the carry_out redefined), so it is correct.
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("lhs"), Some("gp"));
-        assert_eq!(br.get("rhs"), Some("t0"));
-        assert_eq!(br.get("cond"), Some("lt"));
+        assert_eq!(br.get("lhs").as_deref(), Some("gp"));
+        assert_eq!(br.get("rhs").as_deref(), Some("t0"));
+        assert_eq!(br.get("cond").as_deref(), Some("lt"));
     }
 
     #[test]
@@ -1191,9 +1281,9 @@ mod tests {
             build("ret", &[]),
         ]);
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("lhs"), Some("gp"));
-        assert_eq!(br.get("rhs"), Some("t0"));
-        assert_eq!(br.get("cond"), Some("lt"));
+        assert_eq!(br.get("lhs").as_deref(), Some("gp"));
+        assert_eq!(br.get("rhs").as_deref(), Some("t0"));
+        assert_eq!(br.get("cond").as_deref(), Some("lt"));
     }
 
     /// bug-381, the observed failure shape: under register pressure the allocator
@@ -1213,9 +1303,9 @@ mod tests {
             build("ret", &[]),
         ]);
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
-        assert_eq!(br.get("lhs"), Some("gp"));
-        assert_eq!(br.get("rhs"), Some("t0"));
-        assert_eq!(br.get("cond"), Some("ltu")); // b.lo → unsigned lhs < rhs
+        assert_eq!(br.get("lhs").as_deref(), Some("gp"));
+        assert_eq!(br.get("rhs").as_deref(), Some("t0"));
+        assert_eq!(br.get("cond").as_deref(), Some("ltu")); // b.lo → unsigned lhs < rhs
     }
 
     /// bug-284 C3 / bug-381: a call still invalidates the pending compare. The

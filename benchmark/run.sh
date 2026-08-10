@@ -42,14 +42,15 @@ echo "==> building mfb benchmark"
 mfb_out="$here/mfb/build/benchmark.out"
 
 echo "==> building c benchmark (-O0 and -O2)"
-c_srcs=("$here/c/main.c" "$here/c/list.c" "$here/c/mapbench.c" "$here/c/mathbench.c" \
+c_srcs=("$here/c/main.c" "$here/c/listmatrix.c" "$here/c/mapbench.c" "$here/c/mapmatrix.c" "$here/c/mathbench.c" \
         "$here/c/vectorbench.c" "$here/c/bitsbench.c" "$here/c/stringbench.c" \
         "$here/c/parsebench.c" "$here/c/parson.c" "$here/c/libcsv.c" \
         "$here/c/mathpipe.c" "$here/c/churnbench.c" "$here/c/strbuildbench.c" \
         "$here/c/regexbench.c" "$here/c/arenabench.c" "$here/c/scalarbench.c" \
         "$here/c/encodingbench.c" "$here/c/datetimebench.c" \
         "$here/c/dispatchbench.c" "$here/c/cryptobench.c" \
-        "$here/c/serializebench.c" "$here/c/setopsbench.c")
+        "$here/c/serializebench.c" "$here/c/setopsbench.c" "$here/c/setmatrix.c" \
+        "$here/c/widthbench.c" "$here/c/pipelinebench.c" "$here/c/convertbench.c")
 cc -O0 -o "$here/c/bench-O0.out" "${c_srcs[@]}" -lm -lpthread
 cc -O2 -o "$here/c/bench-O2.out" "${c_srcs[@]}" -lm -lpthread
 

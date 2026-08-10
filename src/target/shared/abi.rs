@@ -1,4 +1,4 @@
-use crate::target::shared::code::CodeInstruction;
+use crate::target::shared::code::{AbiConvention, AbiRole, CodeInstruction, Operand};
 
 // There is deliberately no per-helper clobber list here: every internal
 // `bl _mfb_*` runtime call destroys the entire caller-saved integer file
@@ -9,9 +9,9 @@ use crate::target::shared::code::CodeInstruction;
 // specs' unread `abi.clobbers` field, deleted with it by bug-329 (bug-120
 // records why a per-call reader must never trust such a list).
 
-pub(crate) fn argument_register(index: usize) -> Result<String, String> {
-    if index < ARG.len() {
-        Ok(ARG[index].to_string())
+pub(crate) fn argument_register(index: usize) -> Result<Operand, String> {
+    if index < REGISTER_ARGUMENT_COUNT {
+        Ok(mfb_arg(index))
     } else {
         Err(format!(
             "aarch64 code plan cannot pass argument {index}; stack arguments are not implemented"
@@ -42,14 +42,16 @@ pub(crate) const OUTGOING_ARGS_BASE: &str = "outgoing_args";
 /// Load the `k`-th incoming stack argument (0-based beyond the 8 register
 /// arguments) into `dst`. Resolved to a concrete `sp`-relative load in
 /// `finalize_frame` (bug-08).
-pub(crate) fn incoming_stack_arg_load(dst: &str, k: usize) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn incoming_stack_arg_load(dst: impl Into<Operand>, k: usize) -> CodeInstruction {
     load_u64(dst, INCOMING_ARGS_BASE, k * 8)
 }
 
 /// Store `src` as the `k`-th outgoing stack argument (0-based beyond the 8
 /// register arguments) into the caller's reserved outgoing area. Resolved to a
 /// concrete `sp`-relative store in `finalize_frame` (bug-08).
-pub(crate) fn outgoing_stack_arg_store(src: &str, k: usize) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn outgoing_stack_arg_store(src: impl Into<Operand>, k: usize) -> CodeInstruction {
     store_u64(src, OUTGOING_ARGS_BASE, k * 8)
 }
 
@@ -90,8 +92,72 @@ pub(crate) fn fp_temporary_register(allocation: usize) -> Result<String, String>
     }
 }
 
-pub(crate) fn return_register() -> &'static str {
-    RET[0]
+pub(crate) fn return_register() -> Operand {
+    mfb_return(0)
+}
+
+// --- plan-85-A: convention-explicit ABI token accessors ---
+//
+// The six-token vocabulary that supersedes the two overloaded `%arg`/`%ret` role
+// tokens. Each returns a typed [`Operand::Abi`] (a `Copy` payload — no
+// `Box<str>`), realized per backend by a direct table lookup to its **final
+// aligned** physical register (plan-85-A §2): on SysV `%argMFB`/`%retMFB`/`%argC`
+// all collapse to the aligned bank `[rdi,rsi,rdx,rcx]` and `%retC` keeps `rax`,
+// so a dual-role MFB value sits in the argument register with no staging hop.
+//
+// These are the constructors the emission-site conversion (plan-85-B/C) calls;
+// they are a dormant primitive in plan-85-A (nothing emits them yet), exercised
+// by the `abi::tests` round-trip below. The `#[allow(dead_code)]` mirrors
+// `Operand::vreg`'s (plan-82): the primitive lands before its production writers.
+
+/// MFB internal-convention argument register `index` (0..8).
+pub(crate) const fn mfb_arg(index: usize) -> Operand {
+    Operand::abi(AbiConvention::Mfb, AbiRole::Arg, index as u8)
+}
+
+/// MFB internal-convention result register `index` (0..4).
+pub(crate) const fn mfb_return(index: usize) -> Operand {
+    Operand::abi(AbiConvention::Mfb, AbiRole::Ret, index as u8)
+}
+
+/// Platform C-ABI argument register `index` (0..8).
+pub(crate) const fn c_arg(index: usize) -> Operand {
+    Operand::abi(AbiConvention::C, AbiRole::Arg, index as u8)
+}
+
+/// Platform C-ABI result register `index` (0..2; `rax`/`rdx` on x86).
+pub(crate) const fn c_return(index: usize) -> Operand {
+    Operand::abi(AbiConvention::C, AbiRole::Ret, index as u8)
+}
+
+/// Syscall-convention argument register `index` (0..6).
+pub(crate) const fn sys_arg(index: usize) -> Operand {
+    Operand::abi(AbiConvention::Sys, AbiRole::Arg, index as u8)
+}
+
+/// Syscall-convention result register (`rax` on x86).
+#[allow(dead_code)] // no emitter stages a syscall result explicitly today (they reuse mfb_return(0))
+pub(crate) const fn sys_return() -> Operand {
+    Operand::abi(AbiConvention::Sys, AbiRole::Ret, 0)
+}
+
+/// The AArch64 `xN` bank an explicit ABI token realizes to (plan-85-A §2). On
+/// AArch64 args and results coincide (the k-th argument and k-th result are both
+/// `xN`), so **every** convention and role collapses to `x{index}` — the property
+/// that makes the six-token vocabulary byte-identical on AArch64/RISC-V. The
+/// `retC`/`argSys`/`retSys` indices all fall inside `x0..x7`.
+const ABI_POSITIONAL_XREGS: [&str; 8] = ["x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"];
+
+/// Realize an explicit ABI token to its AArch64 `xN` spelling (plan-85-A §2).
+/// Convention and role are irrelevant on AArch64 — the bank is positional — so
+/// only `index` is taken. RISC-V selection calls this too and then remaps
+/// `xN`→`aN` through its existing positional `remap_register`, exactly as the
+/// legacy tokens flowed. Panics on an out-of-range index (a construction bug).
+pub(crate) fn realize_abi_positional(index: u8) -> &'static str {
+    ABI_POSITIONAL_XREGS
+        .get(index as usize)
+        .copied()
+        .unwrap_or_else(|| panic!("ABI token index {index} out of AArch64 positional range"))
 }
 
 /// The zero register as a register operand — the constant 0 readable as a source,
@@ -116,54 +182,34 @@ pub(crate) const LR: &str = "lr";
 /// `r15`). Never `"x19"`. (plan-34-A)
 pub(crate) const ARENA: &str = crate::target::shared::code::mir::ARENA_BASE;
 
-// --- plan-34-B Phase 3b: role-named call-boundary tokens ---
+// --- neutral `%`-sentinel call-boundary tokens ---
 //
 // These `%`-sentinel tokens name a call boundary by ROLE, not by an AArch64
 // register number, so the three genuinely-distinct SysV banks (call args, syscall
-// args, results) are no longer collapsed into one `x0..x7` namespace that the x86
-// backend has to reconstruct via `remap_x86_abi`'s CFG dataflow. The `%` prefix
+// args, results) are not collapsed into one `x0..x7` namespace. The `%` prefix
 // cannot collide with a physical register, immediate, symbol, label, or type name
-// (the same guarantee `regalloc`'s vreg sentinel relies on). During Phase 3b a
-// seam translates each back to its AArch64 spelling (`ARG[n]`/`RET[n]`/`SYSARG[n]`
-// → `x{n}`, `SYSNR` → `x8`, `SYSRET` → `x0`, `CLOSURE_ENV` → `x28`) before
-// instruction selection, so the three backends see today's input unchanged and
-// the migration is byte-identical; Phase 4 deletes the seam and teaches each
-// backend to realize the tokens directly (AArch64/riscv positional, x86 by table
-// lookup — no inference).
+// (the same guarantee `regalloc`'s vreg sentinel relies on). The arg/result banks
+// are now the typed `Operand::Abi` six-token vocabulary (plan-85); the remaining
+// `%`-string tokens below are the ones with no convention accessor (the
+// syscall-number register, the scratch/local pools, and the pinned
+// arena/closure/thread registers). Each backend realizes them during selection:
+// AArch64 positional (`SYSNR` → `x8`, `CLOSURE_ENV` → `x28`), riscv64 remaps the
+// `xN`, x86-64 by direct table lookup — no CFG inference (`remap_x86_abi` deleted).
 
-/// A call's Nth outgoing argument (0..8; 8 in registers per
-/// [`REGISTER_ARGUMENT_COUNT`], the rest in a stack tail — bug-08). Never
-/// allocator-colored.
-pub(crate) const ARG: [&str; 8] = [
-    "%arg0", "%arg1", "%arg2", "%arg3", "%arg4", "%arg5", "%arg6", "%arg7",
-];
-
-/// A call's Nth result. `RET[0..4]` are the fallible-call ABI's tag / value /
-/// error-message / error-source (`spec: memory/02_fallible-call-abi.md`); an
-/// infallible call uses `RET[0]` only.
-pub(crate) const RET: [&str; 4] = ["%ret0", "%ret1", "%ret2", "%ret3"];
+// plan-85-B/D: the single-role arg/result/syscall-arg string arrays (`ARG`/`RET`/
+// `SYSARG`) are gone — every emission site now names a typed `Operand::Abi` via the
+// convention-explicit accessors (`mfb_arg`/`mfb_return`/`c_arg`/`c_return`/`sys_arg`;
+// `return_register`/`argument_register`/`string_{length,data}_register` are typed
+// aliases). The tokens no longer flow as `Raw` strings at emission, so there is no
+// string to realize except where a codegen pass renders one (the fused
+// compare-branch expansion), which the string realizers still cover.
 
 /// The syscall-number register — AArch64/Linux `x8`, AArch64/macOS `x16`, riscv64
 /// `a7`, x86-64 `rax`. Four realizations of one role, which is exactly why it
-/// cannot be spelled as a register number.
+/// cannot be spelled as a register number. Kept as a neutral `%`-token (there is
+/// no convention accessor for the syscall *number* — the six-token vocabulary
+/// covers arg/result only).
 pub(crate) const SYSNR: &str = "%sysnr";
-
-/// A syscall's Nth argument. Distinct from [`ARG`]: x86-64 passes syscall arg 3 in
-/// `r10`, not `rcx`, because the `syscall` instruction clobbers `rcx`.
-pub(crate) const SYSARG: [&str; 6] = [
-    "%sysarg0", "%sysarg1", "%sysarg2", "%sysarg3", "%sysarg4", "%sysarg5",
-];
-
-/// A syscall's result (AArch64 `x0`, riscv64 `a0`, x86-64 `rax`).
-///
-/// Never emitted, and not expected to be: emitters stage a syscall result
-/// through `RET[0]`, which realizes to the same register. It is kept because
-/// [`realize_abi_token`] spells every token in this family literally, so
-/// deleting the one unread member would leave the `"%sysret"` arm there as a
-/// magic string with no name anywhere (bug-326-A2 — a deliberate keep, not an
-/// oversight and not a promise about a later phase).
-#[allow(dead_code)]
-pub(crate) const SYSRET: &str = "%sysret";
 
 /// The Darwin syscall-number register — macOS/AArch64 delivers the number in
 /// `x16` (IP1), not Linux's `x8`, and the Phase-3b seam is ISA-wide (one
@@ -316,24 +362,21 @@ pub(crate) fn fp_argument_register(index: usize) -> Result<&'static str, String>
     })
 }
 
-/// Translate a call-boundary role token to its AArch64 register spelling — the
+/// Translate a neutral call-boundary token to its AArch64 register spelling — the
 /// seam **all three** backends apply during selection before their per-ISA remap
 /// (AArch64 uses `xN` directly; riscv64 then remaps `xN` to its own file; x86-64
-/// then runs `remap_x86_abi`'s CFG role-inference to reach its SysV home). This is
-/// the plan-34-B Phase 3b state: Phase 4's x86 direct-lookup (`map_x86_operand`)
-/// was reverted because the entry stub and runtime-helper bodies stage arguments
-/// with result-accessors that only the inference disambiguates on x86 (bug-85). A
-/// non-token value passes through unchanged.
+/// realizes it directly too, no CFG inference — `remap_x86_abi` was deleted in
+/// plan-85-D). This covers only the neutral tokens with **no** convention spelling —
+/// the syscall-number register (`%sysnr`/`%sysnr_darwin`), the machine-floor scratch
+/// pools (`%scratchN`/`%fscratchN`/`%vscratchN`), the callee-saved persistent
+/// locals (`%localN`), and the pinned `%closure_env`/`%thread`/`%mathpool`. The
+/// convention-explicit six-token vocabulary is a typed `Operand::Abi` realized
+/// directly by each backend's `Operand::Abi` handler and never reaches this string
+/// seam: plan-85-D made every emission, every parameter/result `location`, and the
+/// fused compare-branch expansion carry the typed operand. A non-token value passes
+/// through unchanged.
 pub(crate) fn realize_abi_token(value: &str) -> Option<&'static str> {
     Some(match value {
-        "%arg0" | "%ret0" | "%sysarg0" | "%sysret" => "x0",
-        "%arg1" | "%ret1" | "%sysarg1" => "x1",
-        "%arg2" | "%ret2" | "%sysarg2" => "x2",
-        "%arg3" | "%ret3" | "%sysarg3" => "x3",
-        "%arg4" | "%sysarg4" => "x4",
-        "%arg5" | "%sysarg5" => "x5",
-        "%arg6" => "x6",
-        "%arg7" => "x7",
         "%sysnr" => "x8",
         "%sysnr_darwin" => "x16",
         "%closure_env" => "x28",
@@ -413,16 +456,15 @@ pub(crate) fn syscall_register() -> &'static str {
     SYSNR
 }
 
-/// The print/write helpers' length argument — argument role 2, spelled as its
-/// token (plan-34-D). Realized `x2` at the Phase-3b seam, exactly the register
-/// the helpers have always read.
-pub(crate) fn string_length_register() -> &'static str {
-    ARG[2]
+/// The print/write helpers' length argument — MFB argument role 2 (plan-34-D),
+/// realized `x2`/`rdx`/… exactly the register the helpers have always read.
+pub(crate) fn string_length_register() -> Operand {
+    mfb_arg(2)
 }
 
-/// The print/write helpers' data-pointer argument — argument role 1 (plan-34-D).
-pub(crate) fn string_data_register() -> &'static str {
-    ARG[1]
+/// The print/write helpers' data-pointer argument — MFB argument role 1 (plan-34-D).
+pub(crate) fn string_data_register() -> Operand {
+    mfb_arg(1)
 }
 
 pub(crate) fn is_callee_saved(register: &str) -> bool {
@@ -436,107 +478,171 @@ pub(crate) fn is_stack_pointer(register: &str) -> bool {
     register == stack_pointer()
 }
 
+#[track_caller]
 pub(crate) fn label(name: &str) -> CodeInstruction {
     CodeInstruction::new("label").field("name", name)
 }
 
-pub(crate) fn move_register(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn move_register(dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
     CodeInstruction::new("mov")
         .field("dst", dst)
         .field("src", src)
 }
 
-pub(crate) fn move_immediate(dst: &str, type_: &str, value: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn move_immediate(dst: impl Into<Operand>, type_: &str, value: &str) -> CodeInstruction {
     CodeInstruction::new("mov_imm")
         .field("dst", dst)
         .field("type", type_)
         .field("value", value)
 }
 
-pub(crate) fn add_immediate(dst: &str, src: &str, imm: usize) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn add_immediate(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+    imm: usize,
+) -> CodeInstruction {
     CodeInstruction::new("add_imm")
         .field("dst", dst)
         .field("src", src)
         .field("imm", &imm.to_string())
 }
 
-pub(crate) fn subtract_immediate(dst: &str, src: &str, imm: usize) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn subtract_immediate(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+    imm: usize,
+) -> CodeInstruction {
     CodeInstruction::new("sub_imm")
         .field("dst", dst)
         .field("src", src)
         .field("imm", &imm.to_string())
 }
 
-pub(crate) fn add_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn add_registers(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("add")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-pub(crate) fn add_registers_set_flags(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn add_registers_set_flags(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("adds")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-pub(crate) fn subtract_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn subtract_registers(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("sub")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-pub(crate) fn subtract_registers_set_flags(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn subtract_registers_set_flags(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("subs")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-pub(crate) fn and_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn and_registers(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("and")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-pub(crate) fn or_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn or_registers(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("orr")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-pub(crate) fn exclusive_or_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn exclusive_or_registers(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("eor")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-pub(crate) fn bitwise_not(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn bitwise_not(dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
     CodeInstruction::new("mvn")
         .field("dst", dst)
         .field("src", src)
 }
 
-pub(crate) fn multiply_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn multiply_registers(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("mul")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-pub(crate) fn signed_multiply_high_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn signed_multiply_high_registers(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("smulh")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-pub(crate) fn unsigned_multiply_high_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn unsigned_multiply_high_registers(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("umulh")
         .field("dst", dst)
         .field("lhs", lhs)
@@ -548,12 +654,13 @@ pub(crate) fn unsigned_multiply_high_registers(dst: &str, lhs: &str, rhs: &str) 
 /// The carry is a register, not the flags, so a multi-limb add survives register
 /// allocation. Pass `xzr` for `carry_in` on the first limb and for `carry_out`
 /// on the last limb.
+#[track_caller]
 pub(crate) fn add_carry(
-    dst: &str,
-    carry_out: &str,
-    lhs: &str,
-    rhs: &str,
-    carry_in: &str,
+    dst: impl Into<Operand>,
+    carry_out: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+    carry_in: impl Into<Operand>,
 ) -> CodeInstruction {
     CodeInstruction::new("add_carry")
         .field("dst", dst)
@@ -564,7 +671,12 @@ pub(crate) fn add_carry(
 }
 
 /// `rorv dst, src, amount` — rotate `src` right by the low 6 bits of `amount`.
-pub(crate) fn rotate_right_registers(dst: &str, src: &str, amount: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn rotate_right_registers(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+    amount: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("rorv")
         .field("dst", dst)
         .field("lhs", src)
@@ -573,7 +685,12 @@ pub(crate) fn rotate_right_registers(dst: &str, src: &str, amount: &str) -> Code
 
 /// `rorv Wd, Wn, Wm` — 32-bit rotate right by the low 5 bits of `amount`; the
 /// 32-bit result is zero-extended into the upper half of the destination.
-pub(crate) fn rotate_right_word_registers(dst: &str, src: &str, amount: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn rotate_right_word_registers(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+    amount: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("rorv_w")
         .field("dst", dst)
         .field("lhs", src)
@@ -581,7 +698,12 @@ pub(crate) fn rotate_right_word_registers(dst: &str, src: &str, amount: &str) ->
 }
 
 /// `lslv dst, src, amount` — logical shift `src` left by the low 6 bits of `amount`.
-pub(crate) fn shift_left_variable(dst: &str, src: &str, amount: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn shift_left_variable(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+    amount: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("lslv")
         .field("dst", dst)
         .field("lhs", src)
@@ -589,7 +711,12 @@ pub(crate) fn shift_left_variable(dst: &str, src: &str, amount: &str) -> CodeIns
 }
 
 /// `lsrv dst, src, amount` — logical shift `src` right by the low 6 bits of `amount`.
-pub(crate) fn shift_right_variable(dst: &str, src: &str, amount: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn shift_right_variable(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+    amount: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("lsrv")
         .field("dst", dst)
         .field("lhs", src)
@@ -598,10 +725,11 @@ pub(crate) fn shift_right_variable(dst: &str, src: &str, amount: &str) -> CodeIn
 
 /// `asrv dst, src, amount` — arithmetic (sign-filling) shift `src` right by the
 /// low 6 bits of `amount`.
+#[track_caller]
 pub(crate) fn arithmetic_shift_right_variable(
-    dst: &str,
-    src: &str,
-    amount: &str,
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+    amount: impl Into<Operand>,
 ) -> CodeInstruction {
     CodeInstruction::new("asrv")
         .field("dst", dst)
@@ -610,14 +738,19 @@ pub(crate) fn arithmetic_shift_right_variable(
 }
 
 /// `clz dst, src` — count the leading zero bits of the 64-bit `src`.
-pub(crate) fn count_leading_zeros(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn count_leading_zeros(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("clz")
         .field("dst", dst)
         .field("src", src)
 }
 
 /// `rbit dst, src` — reverse the bit order of the 64-bit `src`.
-pub(crate) fn reverse_bits(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn reverse_bits(dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
     CodeInstruction::new("rbit")
         .field("dst", dst)
         .field("src", src)
@@ -625,14 +758,19 @@ pub(crate) fn reverse_bits(dst: &str, src: &str) -> CodeInstruction {
 
 /// `rev Wd, Wn` — reverse the four bytes of the low 32 bits of `src`; the result
 /// is zero-extended into the upper half of the destination.
-pub(crate) fn reverse_bytes_word(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn reverse_bytes_word(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("rev_w")
         .field("dst", dst)
         .field("src", src)
 }
 
 /// `rev Xd, Xn` — reverse all eight bytes of the 64-bit `src`.
-pub(crate) fn reverse_bytes(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn reverse_bytes(dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
     CodeInstruction::new("rev_x")
         .field("dst", dst)
         .field("src", src)
@@ -641,31 +779,46 @@ pub(crate) fn reverse_bytes(dst: &str, src: &str) -> CodeInstruction {
 /// `sxtw Xd, Wn` — sign-extend the low 32 bits of `src` into the 64-bit `dst`.
 /// Narrows a C `int` return (AAPCS64 leaves x-bits[63:32] unspecified) so a
 /// subsequent 64-bit `cmp`/`b.lt` sign-check is correct (bug-04).
-pub(crate) fn sign_extend_word(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn sign_extend_word(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("sxtw")
         .field("dst", dst)
         .field("src", src)
 }
 
-pub(crate) fn signed_divide_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn signed_divide_registers(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("sdiv")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-pub(crate) fn unsigned_divide_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn unsigned_divide_registers(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("udiv")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn multiply_subtract_registers(
-    dst: &str,
-    lhs: &str,
-    rhs: &str,
-    minuend: &str,
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+    minuend: impl Into<Operand>,
 ) -> CodeInstruction {
     CodeInstruction::new("msub")
         .field("dst", dst)
@@ -674,89 +827,125 @@ pub(crate) fn multiply_subtract_registers(
         .field("minuend", minuend)
 }
 
-pub(crate) fn shift_left_immediate(dst: &str, src: &str, shift: u8) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn shift_left_immediate(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+    shift: u8,
+) -> CodeInstruction {
     CodeInstruction::new("lsl_imm")
         .field("dst", dst)
         .field("src", src)
         .field("shift", &shift.to_string())
 }
 
-pub(crate) fn shift_right_immediate(dst: &str, src: &str, shift: u8) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn shift_right_immediate(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+    shift: u8,
+) -> CodeInstruction {
     CodeInstruction::new("lsr_imm")
         .field("dst", dst)
         .field("src", src)
         .field("shift", &shift.to_string())
 }
 
-pub(crate) fn arithmetic_shift_right_immediate(dst: &str, src: &str, shift: u8) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn arithmetic_shift_right_immediate(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+    shift: u8,
+) -> CodeInstruction {
     CodeInstruction::new("asr_imm")
         .field("dst", dst)
         .field("src", src)
         .field("shift", &shift.to_string())
 }
 
+#[track_caller]
 pub(crate) fn subtract_stack(imm: usize) -> CodeInstruction {
     CodeInstruction::new("sub_sp").field("imm", &imm.to_string())
 }
 
+#[track_caller]
 pub(crate) fn add_stack(imm: usize) -> CodeInstruction {
     CodeInstruction::new("add_sp").field("imm", &imm.to_string())
 }
 
-pub(crate) fn compare_immediate(lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn compare_immediate(
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("cmp_imm")
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-pub(crate) fn compare_registers(lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn compare_registers(
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("cmp")
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
+#[track_caller]
 pub(crate) fn branch_eq(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.eq").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_ne(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.ne").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_ge(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.ge").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_lt(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.lt").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_gt(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.gt").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_le(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.le").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_vc(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.vc").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_vs(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.vs").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_hi(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.hi").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_lo(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.lo").field("target", target)
 }
 
 /// `b.mi` — branch if N set. After `fcmp` this is the IEEE float `<` (an
 /// unordered NaN clears N, so it falls through to the `false` side; plan-17).
+#[track_caller]
 pub(crate) fn branch_mi(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.mi").field("target", target)
 }
@@ -764,70 +953,107 @@ pub(crate) fn branch_mi(target: &str) -> CodeInstruction {
 /// `b.ls` — branch if C clear or Z set. After `fcmp` this is the IEEE float
 /// `<=` (an unordered NaN has C set and Z clear, so it falls through to the
 /// `false` side; plan-17).
+#[track_caller]
 pub(crate) fn branch_ls(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.ls").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch(target: &str) -> CodeInstruction {
     CodeInstruction::new("b").field("target", target)
 }
 
+#[track_caller]
 pub(crate) fn branch_link(target: &str) -> CodeInstruction {
     CodeInstruction::new("bl").field("target", target)
 }
 
-pub(crate) fn branch_link_register(register: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn branch_link_register(register: impl Into<Operand>) -> CodeInstruction {
     CodeInstruction::new("blr").field("register", register)
 }
 
+#[track_caller]
 pub(crate) fn branch_self() -> CodeInstruction {
     CodeInstruction::new("branch_self")
 }
 
+#[track_caller]
 pub(crate) fn syscall() -> CodeInstruction {
     CodeInstruction::new("svc")
 }
 
+#[track_caller]
 pub(crate) fn return_() -> CodeInstruction {
     CodeInstruction::new("ret")
 }
 
-pub(crate) fn load_u64(dst: &str, base: &str, offset: usize) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn load_u64(
+    dst: impl Into<Operand>,
+    base: impl Into<Operand>,
+    offset: usize,
+) -> CodeInstruction {
     CodeInstruction::new("ldr_u64")
         .field("dst", dst)
         .field("base", base)
         .field("offset", &offset.to_string())
 }
 
-pub(crate) fn load_u32(dst: &str, base: &str, offset: usize) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn load_u32(
+    dst: impl Into<Operand>,
+    base: impl Into<Operand>,
+    offset: usize,
+) -> CodeInstruction {
     CodeInstruction::new("ldr_u32")
         .field("dst", dst)
         .field("base", base)
         .field("offset", &offset.to_string())
 }
 
-pub(crate) fn load_u16(dst: &str, base: &str, offset: usize) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn load_u16(
+    dst: impl Into<Operand>,
+    base: impl Into<Operand>,
+    offset: usize,
+) -> CodeInstruction {
     CodeInstruction::new("ldr_u16")
         .field("dst", dst)
         .field("base", base)
         .field("offset", &offset.to_string())
 }
 
-pub(crate) fn load_u8(dst: &str, base: &str, offset: usize) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn load_u8(
+    dst: impl Into<Operand>,
+    base: impl Into<Operand>,
+    offset: usize,
+) -> CodeInstruction {
     CodeInstruction::new("ldr_u8")
         .field("dst", dst)
         .field("base", base)
         .field("offset", &offset.to_string())
 }
 
-pub(crate) fn store_u64(src: &str, base: &str, offset: usize) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn store_u64(
+    src: impl Into<Operand>,
+    base: impl Into<Operand>,
+    offset: usize,
+) -> CodeInstruction {
     CodeInstruction::new("str_u64")
         .field("src", src)
         .field("base", base)
         .field("offset", &offset.to_string())
 }
 
-pub(crate) fn store_u32(src: &str, base: &str, offset: usize) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn store_u32(
+    src: impl Into<Operand>,
+    base: impl Into<Operand>,
+    offset: usize,
+) -> CodeInstruction {
     CodeInstruction::new("str_u32")
         .field("src", src)
         .field("base", base)
@@ -837,14 +1063,24 @@ pub(crate) fn store_u32(src: &str, base: &str, offset: usize) -> CodeInstruction
 /// 16-bit store (plan-50-D). Needed by struct-field marshaling for a
 /// `CInt16`/`CUInt16` member; `ldr_u16` has always been encodable, this is its
 /// missing counterpart.
-pub(crate) fn store_u16(src: &str, base: &str, offset: usize) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn store_u16(
+    src: impl Into<Operand>,
+    base: impl Into<Operand>,
+    offset: usize,
+) -> CodeInstruction {
     CodeInstruction::new("str_u16")
         .field("src", src)
         .field("base", base)
         .field("offset", &offset.to_string())
 }
 
-pub(crate) fn store_u8(src: &str, base: &str, offset: usize) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn store_u8(
+    src: impl Into<Operand>,
+    base: impl Into<Operand>,
+    offset: usize,
+) -> CodeInstruction {
     CodeInstruction::new("str_u8")
         .field("src", src)
         .field("base", base)
@@ -852,7 +1088,12 @@ pub(crate) fn store_u8(src: &str, base: &str, offset: usize) -> CodeInstruction 
 }
 
 /// `ldr d<dst>, [<base>, #offset]` — load a 64-bit FP scalar (spill reload).
-pub(crate) fn load_double(dst: &str, base: &str, offset: usize) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn load_double(
+    dst: impl Into<Operand>,
+    base: impl Into<Operand>,
+    offset: usize,
+) -> CodeInstruction {
     CodeInstruction::new("ldr_d")
         .field("dst", dst)
         .field("base", base)
@@ -860,67 +1101,110 @@ pub(crate) fn load_double(dst: &str, base: &str, offset: usize) -> CodeInstructi
 }
 
 /// `str d<src>, [<base>, #offset]` — store a 64-bit FP scalar (spill).
-pub(crate) fn store_double(src: &str, base: &str, offset: usize) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn store_double(
+    src: impl Into<Operand>,
+    base: impl Into<Operand>,
+    offset: usize,
+) -> CodeInstruction {
     CodeInstruction::new("str_d")
         .field("src", src)
         .field("base", base)
         .field("offset", &offset.to_string())
 }
 
-pub(crate) fn load_page_address(dst: &str, symbol: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn load_page_address(dst: impl Into<Operand>, symbol: &str) -> CodeInstruction {
     CodeInstruction::new("adrp")
         .field("dst", dst)
         .field("symbol", symbol)
 }
 
-pub(crate) fn add_page_offset(dst: &str, src: &str, symbol: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn add_page_offset(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+    symbol: &str,
+) -> CodeInstruction {
     CodeInstruction::new("add_pageoff")
         .field("dst", dst)
         .field("src", src)
         .field("symbol", symbol)
 }
 
-pub(crate) fn float_move_x_from_d(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_move_x_from_d(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("fmov_x_from_d")
         .field("dst", dst)
         .field("src", src)
 }
 
-pub(crate) fn float_move_d_from_x(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_move_d_from_x(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("fmov_d_from_x")
         .field("dst", dst)
         .field("src", src)
 }
 
 /// `fmov Dd, Dn` — copy one scalar `d`-register into another.
-pub(crate) fn float_move_d_from_d(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_move_d_from_d(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("fmov_d_from_d")
         .field("dst", dst)
         .field("src", src)
 }
 
-pub(crate) fn float_add_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_add_d(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("fadd_d")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-pub(crate) fn float_subtract_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_subtract_d(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("fsub_d")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-pub(crate) fn float_multiply_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_multiply_d(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("fmul_d")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-pub(crate) fn float_divide_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_divide_d(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("fdiv_d")
         .field("dst", dst)
         .field("lhs", lhs)
@@ -929,7 +1213,12 @@ pub(crate) fn float_divide_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction
 
 /// `fminnm Dd, Dn, Dm` — scalar double minimum with IEEE number semantics (a
 /// finite operand wins over a NaN). Selected for `math::min(Float)` (plan-02 §4).
-pub(crate) fn float_min_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_min_d(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("fminnm_d")
         .field("dst", dst)
         .field("lhs", lhs)
@@ -938,20 +1227,27 @@ pub(crate) fn float_min_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
 
 /// `fmaxnm Dd, Dn, Dm` — scalar double maximum, IEEE number semantics.
 /// Selected for `math::max(Float)` (plan-02 §4).
-pub(crate) fn float_max_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_max_d(
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("fmaxnm_d")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-pub(crate) fn float_negate_d(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_negate_d(dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
     CodeInstruction::new("fneg_d")
         .field("dst", dst)
         .field("src", src)
 }
 
-pub(crate) fn float_sqrt_d(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_sqrt_d(dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
     CodeInstruction::new("fsqrt_d")
         .field("dst", dst)
         .field("src", src)
@@ -959,47 +1255,70 @@ pub(crate) fn float_sqrt_d(dst: &str, src: &str) -> CodeInstruction {
 
 /// `fabs Dd, Dn` — scalar double absolute value (clears the sign bit), so the
 /// FP-domain finiteness check can fold ±Inf onto a single `fcmp` against +Inf.
-pub(crate) fn float_abs_d(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_abs_d(dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
     CodeInstruction::new("fabs_d")
         .field("dst", dst)
         .field("src", src)
 }
 
-pub(crate) fn float_compare_d(lhs: &str, rhs: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_compare_d(lhs: impl Into<Operand>, rhs: impl Into<Operand>) -> CodeInstruction {
     CodeInstruction::new("fcmp_d")
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-pub(crate) fn float_compare_zero_d(src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_compare_zero_d(src: impl Into<Operand>) -> CodeInstruction {
     CodeInstruction::new("fcmp_zero_d").field("src", src)
 }
 
-pub(crate) fn signed_convert_to_float_d(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn signed_convert_to_float_d(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("scvtf_d_from_x")
         .field("dst", dst)
         .field("src", src)
 }
 
-pub(crate) fn float_convert_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_convert_to_signed_x(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("fcvtzs_x_from_d")
         .field("dst", dst)
         .field("src", src)
 }
 
-pub(crate) fn float_floor_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_floor_to_signed_x(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("fcvtms_x_from_d")
         .field("dst", dst)
         .field("src", src)
 }
 
-pub(crate) fn float_ceil_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_ceil_to_signed_x(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("fcvtps_x_from_d")
         .field("dst", dst)
         .field("src", src)
 }
 
-pub(crate) fn float_round_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn float_round_to_signed_x(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("fcvtas_x_from_d")
         .field("dst", dst)
         .field("src", src)
@@ -1013,7 +1332,12 @@ pub(crate) fn float_round_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
 // `x*` names.
 
 /// `ldr q<dst>, [<base>, #offset]` — load 128 bits (two i64/f64 lanes).
-pub(crate) fn vector_load(dst: &str, base: &str, offset: usize) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn vector_load(
+    dst: impl Into<Operand>,
+    base: impl Into<Operand>,
+    offset: usize,
+) -> CodeInstruction {
     CodeInstruction::new("ldr_q")
         .field("dst", dst)
         .field("base", base)
@@ -1021,25 +1345,40 @@ pub(crate) fn vector_load(dst: &str, base: &str, offset: usize) -> CodeInstructi
 }
 
 /// `str q<src>, [<base>, #offset]` — store 128 bits (two i64/f64 lanes).
-pub(crate) fn vector_store(src: &str, base: &str, offset: usize) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn vector_store(
+    src: impl Into<Operand>,
+    base: impl Into<Operand>,
+    offset: usize,
+) -> CodeInstruction {
     CodeInstruction::new("str_q")
         .field("src", src)
         .field("base", base)
         .field("offset", &offset.to_string())
 }
 
-fn vector_three(op: &str, dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+fn vector_three(
+    op: &str,
+    dst: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new(op)
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
 }
 
-fn vector_two(op: &str, dst: &str, src: &str) -> CodeInstruction {
+fn vector_two(op: &str, dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
     CodeInstruction::new(op).field("dst", dst).field("src", src)
 }
 
-fn vector_shift(op: &str, dst: &str, src: &str, shift: u8) -> CodeInstruction {
+fn vector_shift(
+    op: &str,
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+    shift: u8,
+) -> CodeInstruction {
     CodeInstruction::new(op)
         .field("dst", dst)
         .field("src", src)
@@ -1048,7 +1387,11 @@ fn vector_shift(op: &str, dst: &str, src: &str, shift: u8) -> CodeInstruction {
 
 macro_rules! vector_three_same {
     ($name:ident, $op:literal) => {
-        pub(crate) fn $name(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+        pub(crate) fn $name(
+            dst: impl Into<Operand>,
+            lhs: impl Into<Operand>,
+            rhs: impl Into<Operand>,
+        ) -> CodeInstruction {
             vector_three($op, dst, lhs, rhs)
         }
     };
@@ -1056,7 +1399,7 @@ macro_rules! vector_three_same {
 
 macro_rules! vector_two_misc {
     ($name:ident, $op:literal) => {
-        pub(crate) fn $name(dst: &str, src: &str) -> CodeInstruction {
+        pub(crate) fn $name(dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
             vector_two($op, dst, src)
         }
     };
@@ -1064,7 +1407,11 @@ macro_rules! vector_two_misc {
 
 macro_rules! vector_shift_imm {
     ($name:ident, $op:literal) => {
-        pub(crate) fn $name(dst: &str, src: &str, shift: u8) -> CodeInstruction {
+        pub(crate) fn $name(
+            dst: impl Into<Operand>,
+            src: impl Into<Operand>,
+            shift: u8,
+        ) -> CodeInstruction {
             vector_shift($op, dst, src, shift)
         }
     };
@@ -1113,14 +1460,23 @@ vector_shift_imm!(vector_sshr, "sshr_v");
 vector_shift_imm!(vector_ushr, "ushr_v");
 
 /// `dup v<dst>.2d, x<src>` — broadcast a 64-bit GPR into both lanes.
-pub(crate) fn vector_dup_from_x(dst: &str, src: &str) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn vector_dup_from_x(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new("dup_v_from_x")
         .field("dst", dst)
         .field("src", src)
 }
 
 /// `umov x<dst>, v<src>.d[index]` — extract lane `index` (0 or 1) into a GPR.
-pub(crate) fn vector_extract_to_x(dst: &str, src: &str, index: u8) -> CodeInstruction {
+#[track_caller]
+pub(crate) fn vector_extract_to_x(
+    dst: impl Into<Operand>,
+    src: impl Into<Operand>,
+    index: u8,
+) -> CodeInstruction {
     CodeInstruction::new("umov_x_from_v")
         .field("dst", dst)
         .field("src", src)
@@ -1136,7 +1492,13 @@ pub(crate) fn vector_extract_to_x(dst: &str, src: &str, index: u8) -> CodeInstru
 ///   `fnmadd_d` = `-(lhs*rhs) - addend` — encodable and byte-tested, but no
 ///     builder: the multiply-accumulate recognizer never emits it, because a
 ///     `-(a*b) - c` source is a three-node shape it does not match (bug-326-A2).
-fn float_fma_op(mnemonic: &str, dst: &str, addend: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+fn float_fma_op(
+    mnemonic: &str,
+    dst: impl Into<Operand>,
+    addend: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
+) -> CodeInstruction {
     CodeInstruction::new(mnemonic)
         .field("dst", dst)
         .field("addend", addend)
@@ -1145,31 +1507,34 @@ fn float_fma_op(mnemonic: &str, dst: &str, addend: &str, lhs: &str, rhs: &str) -
 }
 
 /// `dst = addend + lhs*rhs`, rounded once.
+#[track_caller]
 pub(crate) fn float_multiply_add_d(
-    dst: &str,
-    addend: &str,
-    lhs: &str,
-    rhs: &str,
+    dst: impl Into<Operand>,
+    addend: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
 ) -> CodeInstruction {
     float_fma_op("fmadd_d", dst, addend, lhs, rhs)
 }
 
 /// `dst = lhs*rhs - addend`, rounded once.
+#[track_caller]
 pub(crate) fn float_multiply_sub_d(
-    dst: &str,
-    addend: &str,
-    lhs: &str,
-    rhs: &str,
+    dst: impl Into<Operand>,
+    addend: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
 ) -> CodeInstruction {
     float_fma_op("fmsub_d", dst, addend, lhs, rhs)
 }
 
 /// `dst = addend - lhs*rhs`, rounded once.
+#[track_caller]
 pub(crate) fn float_negate_multiply_sub_d(
-    dst: &str,
-    addend: &str,
-    lhs: &str,
-    rhs: &str,
+    dst: impl Into<Operand>,
+    addend: impl Into<Operand>,
+    lhs: impl Into<Operand>,
+    rhs: impl Into<Operand>,
 ) -> CodeInstruction {
     float_fma_op("fnmsub_d", dst, addend, lhs, rhs)
 }
@@ -1183,35 +1548,74 @@ pub(crate) fn float_negate_multiply_sub_d(
 mod tests {
     use super::*;
 
-    fn get<'a>(inst: &'a CodeInstruction, key: &str) -> Option<&'a str> {
+    fn get(inst: &CodeInstruction, key: &str) -> Option<String> {
         inst.fields
             .iter()
             .find(|(k, _)| *k == key)
-            .map(|(_, v)| v.as_str())
+            .map(|(_, v)| v.render())
+    }
+
+    #[test]
+    fn convention_explicit_abi_accessors() {
+        // plan-85-A: each accessor yields the expected typed `Operand::Abi`
+        // variant and renders to its convention-explicit token spelling.
+        assert_eq!(mfb_arg(0).render(), "%argMFB0");
+        assert_eq!(mfb_arg(7).render(), "%argMFB7");
+        assert_eq!(mfb_return(0).render(), "%retMFB0");
+        assert_eq!(mfb_return(3).render(), "%retMFB3");
+        assert_eq!(c_arg(2).render(), "%argC2");
+        assert_eq!(c_return(0).render(), "%retC0");
+        assert_eq!(c_return(1).render(), "%retC1");
+        assert_eq!(sys_arg(3).render(), "%argSys3");
+        assert_eq!(sys_return().render(), "%retSys");
+        assert_eq!(
+            mfb_arg(1),
+            Operand::abi(AbiConvention::Mfb, AbiRole::Arg, 1)
+        );
+        assert_eq!(c_return(1), Operand::abi(AbiConvention::C, AbiRole::Ret, 1));
+    }
+
+    #[test]
+    fn abi_positional_realization_collapses_every_convention() {
+        // plan-85-A §2: on the positional ABIs (AArch64 `xN`, RISC-V remaps to
+        // `aN`) every convention and role collapses to `x{index}`. Assert that
+        // realize_abi_positional matches x{index} across the whole index range and
+        // is convention/role-agnostic.
+        for index in 0u8..8 {
+            assert_eq!(realize_abi_positional(index), format!("x{index}"));
+        }
+        // The retC / argSys / retSys indices all fall inside x0..x7 and realize the
+        // same way (positional), which is why AArch64/RISC-V are byte-identical.
+        assert_eq!(realize_abi_positional(0), "x0"); // %retSys / %retC0 / %retMFB0
+        assert_eq!(realize_abi_positional(1), "x1"); // %retC1
+        assert_eq!(realize_abi_positional(5), "x5"); // %argSys5
     }
 
     #[test]
     fn register_role_helpers() {
-        // plan-34-B Phase 3b: arguments are named by the role token, realized to
-        // the AArch64 register by the selection seam.
-        assert_eq!(argument_register(0).unwrap(), "%arg0");
-        assert_eq!(argument_register(7).unwrap(), "%arg7");
-        assert_eq!(realize_abi_token("%arg0"), Some("x0"));
-        assert_eq!(realize_abi_token("%arg7"), Some("x7"));
+        // plan-85-B/D: arguments are named by the convention-EXPLICIT token
+        // (`%argMFB`, the aligned MFB call bank), a typed `Operand::Abi` realized to
+        // the AArch64 register positionally by each backend's `Operand::Abi` handler
+        // (`realize_abi_positional`) — it never reaches the string `realize_abi_token`
+        // seam, which now covers only the neutral no-convention tokens.
+        assert_eq!(argument_register(0).unwrap().render(), "%argMFB0");
+        assert_eq!(argument_register(7).unwrap().render(), "%argMFB7");
+        assert_eq!(realize_abi_positional(0), "x0");
+        assert_eq!(realize_abi_positional(7), "x7");
         assert!(argument_register(8).is_err());
         // bug-08: arguments beyond the register window go through the stack-tail
         // sentinels, resolved to concrete `sp`-relative accesses in the frame.
         assert_eq!(REGISTER_ARGUMENT_COUNT, 8);
         let incoming = incoming_stack_arg_load("x9", 2);
         assert_eq!(incoming.op.mnemonic(), "ldr_u64");
-        assert_eq!(get(&incoming, "base"), Some(INCOMING_ARGS_BASE));
-        assert_eq!(get(&incoming, "offset"), Some("16"));
-        assert_eq!(get(&incoming, "dst"), Some("x9"));
+        assert_eq!(get(&incoming, "base").as_deref(), Some(INCOMING_ARGS_BASE));
+        assert_eq!(get(&incoming, "offset").as_deref(), Some("16"));
+        assert_eq!(get(&incoming, "dst").as_deref(), Some("x9"));
         let outgoing = outgoing_stack_arg_store("x9", 0);
         assert_eq!(outgoing.op.mnemonic(), "str_u64");
-        assert_eq!(get(&outgoing, "base"), Some(OUTGOING_ARGS_BASE));
-        assert_eq!(get(&outgoing, "offset"), Some("0"));
-        assert_eq!(get(&outgoing, "src"), Some("x9"));
+        assert_eq!(get(&outgoing, "base").as_deref(), Some(OUTGOING_ARGS_BASE));
+        assert_eq!(get(&outgoing, "offset").as_deref(), Some("0"));
+        assert_eq!(get(&outgoing, "src").as_deref(), Some("x9"));
         // Temporary allocations cover the caller-saved run and the callee-saved
         // remap, skipping the pinned x19/x20/x28 (bug-176 A).
         assert_eq!(temporary_register(8).unwrap(), "x8");
@@ -1228,9 +1632,10 @@ mod tests {
         assert_eq!(fp_temporary_register(0).unwrap(), "d0");
         assert_eq!(fp_temporary_register(7).unwrap(), "d7");
         assert!(fp_temporary_register(8).is_err());
-        // Named ABI registers.
-        assert_eq!(return_register(), "%ret0");
-        assert_eq!(realize_abi_token("%ret0"), Some("x0"));
+        // Named ABI registers. The MFB result is a typed convention token realized
+        // positionally by each backend's `Operand::Abi` handler (not the string seam).
+        assert_eq!(return_register().render(), "%retMFB0");
+        assert_eq!(realize_abi_positional(0), "x0");
         assert_eq!(link_register(), "lr");
         assert_eq!(stack_pointer(), "sp");
         assert_eq!(syscall_register(), "%sysnr");
@@ -1242,10 +1647,10 @@ mod tests {
             let expected = format!("d{i}");
             assert_eq!(realize_abi_token(token), Some(expected.as_str()));
         }
-        assert_eq!(string_length_register(), "%arg2");
-        assert_eq!(realize_abi_token(string_length_register()), Some("x2"));
-        assert_eq!(string_data_register(), "%arg1");
-        assert_eq!(realize_abi_token(string_data_register()), Some("x1"));
+        assert_eq!(string_length_register().render(), "%argMFB2");
+        assert_eq!(realize_abi_positional(2), "x2");
+        assert_eq!(string_data_register().render(), "%argMFB1");
+        assert_eq!(realize_abi_positional(1), "x1");
         assert!(is_callee_saved("x19"));
         assert!(is_callee_saved("x28"));
         assert!(!is_callee_saved("x0"));
@@ -1257,7 +1662,7 @@ mod tests {
     fn instruction_constructors_carry_op_and_fields() {
         // Each constructor names its op and lays out the expected fields.
         assert_eq!(label("L").op.mnemonic(), "label");
-        assert_eq!(get(&label("L"), "name"), Some("L"));
+        assert_eq!(get(&label("L"), "name").as_deref(), Some("L"));
 
         let cases: Vec<(CodeInstruction, &str)> = vec![
             (move_register("x0", "x1"), "mov"),
@@ -1362,9 +1767,9 @@ mod tests {
         assert_eq!(vector_ushr("v0", "v1", 3).op.mnemonic(), "ushr_v");
         let dup = vector_dup_from_x("v0", "x1");
         assert_eq!(dup.op.mnemonic(), "dup_v_from_x");
-        assert_eq!(get(&dup, "src"), Some("x1"));
+        assert_eq!(get(&dup, "src").as_deref(), Some("x1"));
         let ext = vector_extract_to_x("x0", "v1", 1);
         assert_eq!(ext.op.mnemonic(), "umov_x_from_v");
-        assert_eq!(get(&ext, "index"), Some("1"));
+        assert_eq!(get(&ext, "index").as_deref(), Some("1"));
     }
 }

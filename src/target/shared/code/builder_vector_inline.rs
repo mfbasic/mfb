@@ -105,7 +105,23 @@ fn vector_op_inlinable(op: &str, argc: usize, type_name: &str, element: &str) ->
     match (op, argc) {
         ("scale", 2) | ("dot", 2) => true,
         ("cross", 2) => type_name.ends_with('3'),
-        ("lerp_unclamped", 3) | ("lerp", 3) | ("length", 1) | ("distance", 2) => element == "Float",
+        // plan-86 H2: length/distance inline for every numeric element — the sum of
+        // squares is `bin(*/+)` (works for Integer/Fixed with their overflow checks),
+        // and the sqrt is the same deterministic helper the FUNC body calls (Float/
+        // Fixed → `math.sqrt` → `emit_fixed_sqrt`; Integer → `#vector_isqrtRound`), so
+        // the inlined result is bit-identical while the operand N×8 block-materialize
+        // is skipped. `lerp`/`lerp_unclamped` STAY Float-only: their Fixed/Integer
+        // FUNC bodies do `toFixed`/`toFloat`/`round` conversions a pure arithmetic
+        // tree would not reproduce.
+        ("lerp_unclamped", 3) | ("lerp", 3) => element == "Float",
+        ("length", 1) | ("distance", 2) => matches!(element, "Float" | "Fixed" | "Integer"),
+        // plan-86 H1: normalize inlines for Float ONLY. The Float body is
+        // `len = sqrt(Σf²); IF len=0 THEN FAIL error(77050002); RETURN N[f/len,…]`
+        // — a guarded per-lane divide that `inline_vector_normalize` reproduces.
+        // Fixed/Integer normalize use the rounding integer sqrt + `toFixed`/`round`
+        // conversions (a pure divide tree would not reproduce them), so they keep
+        // their FUNC path.
+        ("normalize", 1) => element == "Float",
         _ => false,
     }
 }
@@ -141,12 +157,12 @@ fn is_reevaluation_safe(value: &NirValue) -> bool {
 impl CodeBuilder<'_> {
     /// Whether `value` is a register-native vector carried by a side-table marker.
     pub(super) fn is_vector_native(value: &ValueResult) -> bool {
-        value.location.starts_with(VECTOR_NATIVE_MARKER)
+        value.location.render().starts_with(VECTOR_NATIVE_MARKER)
     }
 
     /// The per-lane scalar `Float` values of a register-native vector, if it is one.
     pub(super) fn vector_native_lanes(&self, value: &ValueResult) -> Option<Vec<ValueResult>> {
-        self.vector_natives.get(&value.location).cloned()
+        self.vector_natives.get(&value.location.render()).cloned()
     }
 
     /// Register `lanes` as an in-flight register-native `type_` vector and return a
@@ -161,7 +177,7 @@ impl CodeBuilder<'_> {
         self.vector_natives.insert(marker.clone(), lanes);
         ValueResult {
             type_: type_.to_string(),
-            location: marker,
+            location: Operand::from(marker),
             text: format!("vecnative {type_}"),
         }
     }
@@ -198,7 +214,7 @@ impl CodeBuilder<'_> {
         let register = self.emit_build_inlined_record(&value.type_, &slots)?;
         let block = ValueResult {
             type_: value.type_,
-            location: register,
+            location: Operand::from(register.render()),
             text: value.text,
         };
         // The materialized block is a fresh, freeable-flat arena block — register
@@ -239,6 +255,117 @@ impl CodeBuilder<'_> {
 
     /// Try to inline a `vector::` op call. Returns `Ok(Some(result))` when the op
     /// was inlined, `Ok(None)` to fall back to the ordinary FUNC-call lowering.
+    /// plan-86 H2: the sqrt call `length`/`distance` inlines for an element type.
+    /// Float/Fixed use `math::sqrt` (Fixed lowers to the deterministic
+    /// `emit_fixed_sqrt`); Integer uses the package's rounding integer sqrt
+    /// `#vector_isqrtRound` — the exact helper the Integer FUNC body calls, so the
+    /// inlined result is bit-identical.
+    fn vector_sqrt_of(element: &str, sum: NirValue, loc: NirSourceLoc) -> NirValue {
+        let target = if element == "Integer" {
+            "#vector_isqrtRound"
+        } else {
+            "math.sqrt"
+        };
+        NirValue::Call {
+            target: target.to_string(),
+            args: vec![sum],
+            loc,
+        }
+    }
+
+    /// plan-86 H1: inline `vector::normalize` for a Float vector. Reproduces the
+    /// FUNC body `len = math::sqrt(Σf²); IF len = 0.0 THEN FAIL error(77050002);
+    /// RETURN Float_N[f/len, …]` — `len` is computed ONCE (bound to a synthetic
+    /// Float local so the per-lane divides reuse it, exactly as the FUNC's `LET
+    /// len`), guarded against zero with the same error code/message the FUNC emits,
+    /// then each lane divides. Bit-identical to the FUNC on non-zero inputs; a
+    /// zero-length vector still traps `7-705-0002` with the same message (the
+    /// source location moves to the call site, which is not observable — the error
+    /// output carries only code + message, per `rt-error/vector/normalize_zero_rt`).
+    fn inline_vector_normalize(
+        &mut self,
+        v: &NirValue,
+        type_name: &str,
+        fields: &[&str],
+        loc: NirSourceLoc,
+    ) -> Result<ValueResult, String> {
+        let bin = |op: &str, left: NirValue, right: NirValue| NirValue::Binary {
+            op: op.to_string(),
+            left: Box::new(left),
+            right: Box::new(right),
+            loc,
+        };
+        // sum = f0*f0 + f1*f1 + … (left-associative, matching the FUNC).
+        let square = |f: &str| bin("*", Self::vector_field(v, f), Self::vector_field(v, f));
+        let mut sum = square(fields[0]);
+        for f in &fields[1..] {
+            sum = bin("+", sum, square(f));
+        }
+        // len = math::sqrt(sum), observed finite exactly as the FUNC's `LET len`.
+        let len_node = NirValue::Call {
+            target: "math.sqrt".to_string(),
+            args: vec![sum],
+            loc,
+        };
+        let len = self.lower_value(&len_node)?;
+        self.observe_float(&len_node, &len)?;
+        let len = self.materialize_value(len)?;
+        let len_slot = self.allocate_stack_object("vecnorm_len", 8);
+        self.store_value_at(&len, abi::stack_pointer(), len_slot);
+        // Bind `len` as a synthetic Float local so the divide tree can read it back
+        // (a re-evaluation-safe named binding); restore any shadowed local after.
+        let len_name = "$vecnorm_len".to_string();
+        let previous = self.locals.insert(
+            len_name.clone(),
+            LocalValue {
+                type_: "Float".to_string(),
+                stack_offset: len_slot,
+                constant: None,
+                by_ref: false,
+            },
+        );
+        // IF len = 0.0 THEN FAIL error(77050002, "…zero-length…").
+        let is_zero = self.lower_value(&bin(
+            "=",
+            NirValue::Local(len_name.clone()),
+            NirValue::Const {
+                type_: "Float".to_string(),
+                value: "0.0".to_string(),
+            },
+        ))?;
+        let ok_label = self.label("vecnorm_ok");
+        self.emit(abi::compare_immediate(&is_zero.location, "0"));
+        // is_zero == 0 (false → len ≠ 0) takes the normal path; otherwise fall
+        // through into the terminal error return (branches to the function exit).
+        self.emit(abi::branch_eq(&ok_label));
+        self.emit_error_code_return("77050002", "vector::normalize of a zero-length vector")?;
+        self.emit(abi::label(&ok_label));
+        // RETURN Float_N[f0/len, f1/len, …].
+        let lanes = fields
+            .iter()
+            .map(|f| {
+                bin(
+                    "/",
+                    Self::vector_field(v, f),
+                    NirValue::Local(len_name.clone()),
+                )
+            })
+            .collect();
+        let result = self.lower_value(&NirValue::Constructor {
+            type_: type_name.to_string(),
+            args: lanes,
+        });
+        match previous {
+            Some(prev) => {
+                self.locals.insert(len_name, prev);
+            }
+            None => {
+                self.locals.remove(&len_name);
+            }
+        }
+        result
+    }
+
     pub(super) fn try_inline_vector_op(
         &mut self,
         target: &str,
@@ -375,12 +502,7 @@ impl CodeBuilder<'_> {
                 for f in &fields[1..] {
                     sum = bin("+", sum, square(f));
                 }
-                let sqrt = NirValue::Call {
-                    target: "math.sqrt".to_string(),
-                    args: vec![sum],
-                    loc,
-                };
-                self.lower_value(&sqrt)?
+                self.lower_value(&Self::vector_sqrt_of(element, sum, loc))?
             }
             // distance: math::sqrt((a.f0-b.f0)^2 + ...). The FUNC binds each
             // difference to a LET; inlining re-evaluates the (deterministic)
@@ -397,13 +519,12 @@ impl CodeBuilder<'_> {
                 for f in &fields[1..] {
                     sum = bin("+", sum, sq_diff(f));
                 }
-                let sqrt = NirValue::Call {
-                    target: "math.sqrt".to_string(),
-                    args: vec![sum],
-                    loc,
-                };
-                self.lower_value(&sqrt)?
+                self.lower_value(&Self::vector_sqrt_of(element, sum, loc))?
             }
+            // normalize (Float): len = sqrt(Σf²); IF len=0 THEN FAIL; N[f/len,…].
+            // Needs a guarded compare + FAIL between computing `len` and the divides,
+            // so it cannot be a pure expression tree — factored into a helper.
+            ("normalize", 1) => self.inline_vector_normalize(&args[0], type_name, fields, loc)?,
             _ => return Ok(None),
         };
         // The synthetic node above registered a statement-scope pending temp for a

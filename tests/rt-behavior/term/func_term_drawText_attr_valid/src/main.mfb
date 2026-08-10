@@ -1,0 +1,21 @@
+' The AttributedString overload of drawText applies the per-scalar bold/underline
+' attributes an AttributedString carries, drawing maximal same-style runs via the
+' native String drawText and ignoring attributes the terminal cannot represent
+' (italic/font here). Requires IMPORT astrings. Non-tty harness (24x80).
+IMPORT term
+IMPORT astrings
+
+FUNC main AS Integer
+  term::on()
+  MUT a AS AttributedString = astrings::fromString("Hi Bold Und")
+  a = astrings::addAttribute(a, 3, 6, astrings::bold())        ' "Bold"
+  a = astrings::addAttribute(a, 8, 10, astrings::underline())  ' "Und"
+  a = astrings::addAttribute(a, 0, 1, astrings::italic())      ' ignored
+  a = astrings::addAttribute(a, 0, 10, astrings::font("Serif")) ' ignored
+  term::drawText(2, 1, a)
+  ' The String overload is unaffected and still lowers natively.
+  term::drawText(2, 3, "plain")
+  term::sync()
+  term::off()
+  RETURN 0
+END FUNC

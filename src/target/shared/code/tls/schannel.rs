@@ -7,10 +7,11 @@
 //! after the handshake with `CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL)`
 //! against `serverName` — the check the plan flags as easy to omit and never notice.
 //!
-//! The 32-byte `tls::` resource cannot hold Schannel state, so slot 16 points at an
-//! arena STATE block (see `st::*`): the credential/context handles, the negotiated
-//! stream sizes, the ciphertext receive buffer, and any leftover decrypted plaintext
-//! a short read left behind.
+//! The `tls::` resource record cannot hold Schannel state inline, so
+//! `TLS_SCHANNEL_OFFSET_BLOCK` (in the plan-80 record tail) points at an arena
+//! STATE block (see `st::*`): the credential/context handles, the negotiated
+//! stream sizes, the ciphertext receive buffer, and any leftover decrypted
+//! plaintext a short read left behind.
 
 use std::collections::HashMap;
 
@@ -18,7 +19,10 @@ use super::super::emit_alloc;
 use super::super::native_helpers::{emit_build_byte_list, emit_fail};
 use super::super::net::emit_string_result_build;
 use super::super::*;
-use super::{TLS_LISTENER_OFFSET_CLOSED, TLS_OFFSET_CLOSED, TLS_OFFSET_FD, TLS_RECORD_SIZE};
+use super::{
+    TLS_LISTENER_OFFSET_CLOSED, TLS_OFFSET_CLOSED, TLS_OFFSET_FD, TLS_OFFSET_STATE,
+    TLS_RECORD_SIZE, TLS_SCHANNEL_OFFSET_BLOCK,
+};
 use crate::target::shared::abi;
 
 const SECUR32: &str = "secur32.dll";
@@ -54,9 +58,9 @@ mod st {
     pub const HEADER: usize = 32; // stream header size (u32)
     pub const TRAILER: usize = 36; // stream trailer size (u32)
     pub const MAXMSG: usize = 40; // stream max message (u32)
-    // 44: server-side marker (u32). Set to 1 by `lower_tls_accept`; 0 on the
-    // client path (the whole header 0..RECV is zeroed there). Read by
-    // `lower_tls_close` to skip freeing the listener-owned credential.
+                                  // 44: server-side marker (u32). Set to 1 by `lower_tls_accept`; 0 on the
+                                  // client path (the whole header 0..RECV is zeroed there). Read by
+                                  // `lower_tls_close` to skip freeing the listener-owned credential.
     pub const SERVER: usize = 44;
     pub const RECV_LEN: usize = 48; // bytes currently in RECV (ciphertext)
     pub const LEFT_OFF: usize = 56; // read cursor into LEFT plaintext buffer
@@ -130,7 +134,7 @@ pub(crate) fn data_objects() -> Vec<CodeDataObject> {
 
 fn wide_addr(
     from: &str,
-    dst: &str,
+    dst: impl Into<Operand>,
     id: &str,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
@@ -158,7 +162,7 @@ fn sspi_call(
         ins.push(abi::subtract_stack(frame));
         for i in 0..stack {
             ins.push(abi::store_u64(
-                abi::ARG[4 + i],
+                abi::c_arg(4 + i),
                 abi::stack_pointer(),
                 0x20 + i * 8,
             ));

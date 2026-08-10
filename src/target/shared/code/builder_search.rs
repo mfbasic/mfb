@@ -1,6 +1,74 @@
 use super::*;
 
 impl CodeBuilder<'_> {
+    /// plan-77 U4: fast-forward a scalar-walk loop over runs of ASCII bytes.
+    /// While at least 8 more scalars are needed to reach `target`, at least 8
+    /// bytes remain, and the next 8 bytes are all ASCII (`b & 0x80 == 0`, so each
+    /// is its own 1-byte scalar and a boundary), advance `cursor`/`remaining` by 8
+    /// and `scalar_index` by 8 in one step instead of the per-byte continuation
+    /// walk. All-ASCII is the only case handled (its correctness is trivial: every
+    /// byte is a scalar start); any non-ASCII byte falls through to the caller's
+    /// existing byte-accurate loop, so multibyte input is unaffected. The `< 8`
+    /// guard means the walk never overshoots `target`. Emitted just before the
+    /// per-scalar loop it accelerates; the three scratch registers must be free.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_ascii_scalar_fastforward(
+        &mut self,
+        cursor: impl Into<Operand>,
+        remaining: impl Into<Operand>,
+        scalar_index: impl Into<Operand>,
+        target: impl Into<Operand>,
+        diff: impl Into<Operand>,
+        word: impl Into<Operand>,
+        ascii_mask: impl Into<Operand>,
+    ) {
+        let cursor = cursor.into();
+        let remaining = remaining.into();
+        let scalar_index = scalar_index.into();
+        let diff = diff.into();
+        let word = word.into();
+        let ascii_mask = ascii_mask.into();
+        let block = self.label("ascii_ff_block");
+        let done = self.label("ascii_ff_done");
+        // 0x8080808080808080 — the high bit of every byte.
+        self.emit(abi::move_immediate(
+            ascii_mask.clone(),
+            "Integer",
+            "9259542123273814144",
+        ));
+        self.emit(abi::label(&block));
+        self.emit(abi::subtract_registers(
+            diff.clone(),
+            target,
+            scalar_index.clone(),
+        ));
+        self.emit(abi::compare_immediate(diff.clone(), "8"));
+        self.emit(abi::branch_lo(&done));
+        self.emit(abi::compare_immediate(remaining.clone(), "8"));
+        self.emit(abi::branch_lo(&done));
+        self.emit(abi::load_u64(word.clone(), cursor.clone(), 0));
+        self.emit(abi::and_registers(
+            word.clone(),
+            word.clone(),
+            ascii_mask.clone(),
+        ));
+        self.emit(abi::compare_immediate(word.clone(), "0"));
+        self.emit(abi::branch_ne(&done));
+        self.emit(abi::add_immediate(cursor.clone(), cursor.clone(), 8));
+        self.emit(abi::subtract_immediate(
+            remaining.clone(),
+            remaining.clone(),
+            8,
+        ));
+        self.emit(abi::add_immediate(
+            scalar_index.clone(),
+            scalar_index.clone(),
+            8,
+        ));
+        self.emit(abi::branch(&block));
+        self.emit(abi::label(&done));
+    }
+
     pub(super) fn lower_find(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
@@ -118,21 +186,21 @@ impl CodeBuilder<'_> {
         }
 
         let result_slot = self.allocate_stack_object("find_result", 8);
-        let haystack_ptr = scratch8.as_str();
-        let needle_ptr = scratch9.as_str();
-        let haystack_len = scratch10.as_str();
-        let needle_len = scratch11.as_str();
-        let start = scratch12.as_str();
-        let scalar_index = scratch13.as_str();
-        let cursor = scratch14.as_str();
-        let remaining = scratch15.as_str();
-        let byte = scratch16.as_str();
-        let mask = scratch17.as_str();
-        let candidate = scratch20.as_str();
-        let compare_remaining = scratch21.as_str();
-        let needle_cursor = scratch22.as_str();
-        let haystack_byte = scratch23.as_str();
-        let needle_byte = scratch24.as_str();
+        let haystack_ptr = &scratch8;
+        let needle_ptr = &scratch9;
+        let haystack_len = &scratch10;
+        let needle_len = &scratch11;
+        let start = &scratch12;
+        let scalar_index = &scratch13;
+        let cursor = &scratch14;
+        let remaining = &scratch15;
+        let byte = &scratch16;
+        let mask = &scratch17;
+        let candidate = &scratch20;
+        let compare_remaining = &scratch21;
+        let needle_cursor = &scratch22;
+        let haystack_byte = &scratch23;
+        let needle_byte = &scratch24;
 
         let locate_start = self.label("find_locate_start");
         let locate_continue = self.label("find_locate_continue");
@@ -177,6 +245,19 @@ impl CodeBuilder<'_> {
         // lead byte but before skipping its continuations, so when character
         // `start-1` was multibyte the cursor stopped on a continuation byte and
         // every returned index was inflated by one (bug-133). Mirrors `lower_mid`.
+        // plan-77 U4: skip whole 8-byte ASCII runs before the per-scalar walk.
+        let ff_diff = self.temporary_vreg();
+        let ff_word = self.temporary_vreg();
+        let ff_mask = self.temporary_vreg();
+        self.emit_ascii_scalar_fastforward(
+            cursor,
+            remaining,
+            scalar_index,
+            start,
+            &ff_diff,
+            &ff_word,
+            &ff_mask,
+        );
         self.emit(abi::label(&locate_start));
         self.emit(abi::compare_registers(scalar_index, start));
         self.emit(abi::branch_eq(&start_ready));
@@ -253,7 +334,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "find(String, String)".to_string(),
         })
     }
@@ -383,7 +464,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: format!("find({list_type}, {element_type})"),
         })
     }
@@ -564,7 +645,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "Integer".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: format!("find({list_type}, {list_type}) over {element_type}"),
         })
     }
@@ -672,22 +753,22 @@ impl CodeBuilder<'_> {
         let result_slot = self.allocate_stack_object("mid_result", 8);
         let start_ptr_slot = self.allocate_stack_object("mid_start_ptr", 8);
         let byte_len_slot = self.allocate_stack_object("mid_byte_len", 8);
-        let value_ptr = scratch8.as_str();
-        let string_len = scratch9.as_str();
-        let cursor = scratch10.as_str();
-        let remaining = scratch11.as_str();
-        let scalar_index = scratch12.as_str();
-        let start_index = scratch13.as_str();
-        let count_value = scratch14.as_str();
-        let end_index = scratch15.as_str();
-        let byte = scratch16.as_str();
-        let mask = scratch17.as_str();
-        let start_ptr = scratch20.as_str();
-        let end_ptr = scratch21.as_str();
-        let copy_src = scratch22.as_str();
-        let copy_dst = scratch23.as_str();
-        let copy_remaining = scratch24.as_str();
-        let byte_len = scratch25.as_str();
+        let value_ptr = &scratch8;
+        let string_len = &scratch9;
+        let cursor = &scratch10;
+        let remaining = &scratch11;
+        let scalar_index = &scratch12;
+        let start_index = &scratch13;
+        let count_value = &scratch14;
+        let end_index = &scratch15;
+        let byte = &scratch16;
+        let mask = &scratch17;
+        let start_ptr = &scratch20;
+        let end_ptr = &scratch21;
+        let copy_src = &scratch22;
+        let copy_dst = &scratch23;
+        let copy_remaining = &scratch24;
+        let byte_len = &scratch25;
 
         let locate_start = self.label("mid_locate_start");
         let locate_start_continue = self.label("mid_locate_start_continue");
@@ -698,8 +779,6 @@ impl CodeBuilder<'_> {
         let locate_end_advanced = self.label("mid_locate_end_advanced");
         let end_ready = self.label("mid_end_ready");
         let alloc_ok = self.label("mid_alloc_ok");
-        let copy_loop = self.label("mid_copy_loop");
-        let copy_done = self.label("mid_copy_done");
         let invalid_range = self.label("mid_invalid_range");
 
         self.emit(abi::load_u64(value_ptr, abi::stack_pointer(), value_slot));
@@ -724,6 +803,19 @@ impl CodeBuilder<'_> {
             super::private::unicode::UTF8_CONTINUATION_MASK,
         ));
 
+        // plan-77 U4: skip whole 8-byte ASCII runs before the per-scalar walk.
+        let ff_diff = self.temporary_vreg();
+        let ff_word = self.temporary_vreg();
+        let ff_mask = self.temporary_vreg();
+        self.emit_ascii_scalar_fastforward(
+            cursor,
+            remaining,
+            scalar_index,
+            start_index,
+            &ff_diff,
+            &ff_word,
+            &ff_mask,
+        );
         self.emit(abi::label(&locate_start));
         self.emit(abi::compare_registers(scalar_index, start_index));
         self.emit(abi::branch_eq(&start_ready));
@@ -746,6 +838,19 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&start_ready));
         self.emit(abi::move_register(start_ptr, cursor));
         self.emit(abi::move_register(end_ptr, cursor));
+        // plan-77 U4: skip whole 8-byte ASCII runs before the per-scalar walk.
+        let ff_diff_end = self.temporary_vreg();
+        let ff_word_end = self.temporary_vreg();
+        let ff_mask_end = self.temporary_vreg();
+        self.emit_ascii_scalar_fastforward(
+            cursor,
+            remaining,
+            scalar_index,
+            end_index,
+            &ff_diff_end,
+            &ff_word_end,
+            &ff_mask_end,
+        );
         self.emit(abi::label(&locate_end));
         self.emit(abi::compare_registers(scalar_index, end_index));
         self.emit(abi::branch_eq(&end_ready));
@@ -778,37 +883,30 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             byte_len_slot,
         ));
-        self.emit(abi::add_immediate(abi::return_register(), byte_len, 9));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        // plan-71-C Family-1a: alloc size is arg 0 of the arena-alloc call → `%arg0`.
+        self.emit(abi::add_immediate(abi::c_arg(0), byte_len, 9));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
         self.emit(abi::load_u64(byte_len, abi::stack_pointer(), byte_len_slot));
-        self.emit(abi::store_u64(byte_len, abi::RET[1], 0));
+        self.emit(abi::store_u64(byte_len, abi::mfb_return(1), 0));
         self.emit(abi::load_u64(
             start_ptr,
             abi::stack_pointer(),
             start_ptr_slot,
         ));
         self.emit(abi::move_register(copy_src, start_ptr));
-        self.emit(abi::add_immediate(copy_dst, abi::RET[1], 8));
+        self.emit(abi::add_immediate(copy_dst, abi::mfb_return(1), 8));
         self.emit(abi::move_register(copy_remaining, byte_len));
-        self.emit(abi::label(&copy_loop));
-        self.emit(abi::compare_immediate(copy_remaining, "0"));
-        self.emit(abi::branch_eq(&copy_done));
-        self.emit(abi::load_u8(byte, copy_src, 0));
-        self.emit(abi::store_u8(byte, copy_dst, 0));
-        self.emit(abi::add_immediate(copy_src, copy_src, 1));
-        self.emit(abi::add_immediate(copy_dst, copy_dst, 1));
-        self.emit(abi::subtract_immediate(copy_remaining, copy_remaining, 1));
-        self.emit(abi::branch(&copy_loop));
-        self.emit(abi::label(&copy_done));
+        // plan-86 F2: 8-byte word-copy (+ byte tail); advances copy_dst/copy_src.
+        self.emit_block_copy_advance(copy_dst, copy_src, copy_remaining, byte, "mid_copy");
         self.emit(abi::move_immediate(byte, "Integer", "0"));
         self.emit(abi::store_u8(byte, copy_dst, 0));
         let result = self.allocate_register()?;
@@ -822,7 +920,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: "mid(String, Integer, Integer)".to_string(),
         })
     }
@@ -1020,13 +1118,13 @@ impl CodeBuilder<'_> {
             abi::return_register(),
             &scratch16,
         ));
-        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -1038,7 +1136,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_KIND,
         ));
         self.emit(abi::move_immediate(
@@ -1048,7 +1146,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_KEY_TYPE,
         ));
         self.emit(abi::move_immediate(
@@ -1058,24 +1156,24 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_VALUE_TYPE,
         ));
         self.emit(abi::move_immediate(&scratch13, "Byte", "1"));
         self.emit(abi::store_u8(
             &scratch13,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_FLAGS_VERSION,
         ));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), count_slot));
         self.emit(abi::store_u64(
             &scratch10,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_COUNT,
         ));
         self.emit(abi::store_u64(
             &scratch10,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_CAPACITY,
         ));
         self.emit(abi::load_u64(
@@ -1085,12 +1183,12 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(
             &scratch16,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
         self.emit(abi::store_u64(
             &scratch16,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_OFFSET_DATA_CAPACITY,
         ));
 
@@ -1098,7 +1196,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), start_slot));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), count_slot));
         self.emit(abi::load_u64(
-            abi::RET[1],
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
@@ -1116,7 +1214,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(&scratch16, &scratch16, &scratch15));
         self.emit(abi::add_immediate(
             &scratch17,
-            abi::RET[1],
+            abi::mfb_return(1),
             COLLECTION_HEADER_SIZE,
         ));
         self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type);
@@ -1203,7 +1301,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: list_type.to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: format!("mid({list_type}, Integer, Integer) over {element_type}"),
         })
     }

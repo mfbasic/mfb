@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT net
+
+' bug-98: a package-qualified builtin type must belong to the NAMED package.
+' `Url` is a `net` type; `io::Url` names it under the wrong package and must be
+' rejected (qualified_builtin_type returns None for a cross pairing). Pre-fix the
+' package half was not enforced, so `io::Url` mis-resolved to net's Url.
+FUNC main AS Integer
+  LET x AS io::Url = net::parseUrl("http://example.com")
+  RETURN 0
+END FUNC

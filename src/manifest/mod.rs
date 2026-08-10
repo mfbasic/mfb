@@ -129,14 +129,7 @@ pub(crate) fn validate_project_manifest(
     // stack-overflow abort. Ordinary malformed input keeps tinyjson's positional
     // error below.
     if let Err(message) = crate::json::check_json_depth(&contents) {
-        rules::show_diagnostic(
-            "PROJECT_JSON_PARSE_FAILED",
-            &message,
-            project_path,
-            1,
-            1,
-            1,
-        );
+        rules::show_diagnostic("PROJECT_JSON_PARSE_FAILED", &message, project_path, 1, 1, 1);
         return Err(());
     }
 

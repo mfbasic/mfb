@@ -1,0 +1,43 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 A2: native `collections::window` for a `List OF String`
+' (`#collections_window$String`, constant size/stride). Each overlapping window
+' `source[i .. i+size]` is built as one TIGHT `List OF String` via the shared
+' `emit_string_list_slice_block` helper and inlined into a growable outer, then
+' freed. Output must be byte-identical to the interpreted `.mfb` window across
+' overlapping (stride 1), strided, whole-list, oversize, empty and empty-string
+' inputs and must not leak/UAF across churn.
+
+FUNC showW(cs AS List OF List OF String) AS String
+  MUT out AS String = ""
+  FOR i = 0 TO len(cs) - 1
+    LET inner AS List OF String = collections::get(cs, i)
+    out = out & "["
+    FOR j = 0 TO len(inner) - 1
+      out = out & collections::get(inner, j) & ","
+    NEXT
+    out = out & "]"
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main AS Integer
+  LET xs AS List OF String = ["a", "bb", "ccc", "dddd", "e", "ff"]
+  io::print("w2: " & showW(collections::window(xs, 2)))
+  io::print("w3: " & showW(collections::window(xs, 3)))
+  io::print("w2s2: " & showW(collections::window(xs, 2, 2)))
+  io::print("w4s3: " & showW(collections::window(xs, 4, 3)))
+  io::print("w6: " & showW(collections::window(xs, 6)))
+  io::print("w7: " & toString(len(collections::window(xs, 7))))
+  LET es AS List OF String = []
+  io::print("empty: " & toString(len(collections::window(es, 2))))
+  io::print("one: " & showW(collections::window(["z"], 1)))
+  io::print("estr: " & showW(collections::window(["", "x", ""], 2)))
+  MUT acc AS Integer = 0
+  FOR r = 0 TO 999
+    acc = acc + len(collections::window(xs, 2))
+  NEXT
+  io::print("stress: " & toString(acc))
+  RETURN 0
+END FUNC

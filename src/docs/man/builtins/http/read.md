@@ -32,7 +32,7 @@ to `url.host` on `url.port` — plaintext through the `net` package for an `http
 URL, TLS through the `tls` package for an `https://` URL — writes the request,
 reads the response to end of stream, closes the connection, and returns. The
 connection is never reused; every call sends `Connection: close`.
-[[src/builtins/http_package.mfb:__http_exchangeTcp]] [[src/builtins/http_package.mfb:__http_buildRequest]]
+[[src/builtins/http_package.mfb:__http_readNet]] [[src/builtins/http_package.mfb:__http_buildRequest]]
 
 The `method` argument defaults to `GET` and may be any body-less verb (`HEAD`,
 `DELETE`, `OPTIONS`, and so on). It is uppercased before it is sent, so `"get"`
@@ -108,7 +108,7 @@ shorter overloads default `headers` to an empty map and `method` to `GET`.
 Connect, DNS, read, write, timeout, and TLS failures are not raised by `read`
 itself: they propagate unchanged from the underlying `net` and `tls` calls (for
 example `ErrAddressNotFound`, `ErrNetworkFailed`, `ErrTimeout`, or
-`ErrTlsFailed`). [[src/builtins/http_package.mfb:__http_exchangeTls]]
+`ErrTlsFailed`). [[src/builtins/http_package.mfb:__http_readTls]]
 
 ## Examples
 

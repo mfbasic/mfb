@@ -420,11 +420,19 @@ mod tests {
         }
         // Trapped-handler blocks of the value-bearing arms were instrumented.
         for line in [71, 81, 91, 101, 111] {
-            assert!(got.contains(&line), "missing trap-handler slot {line}: {got:?}");
+            assert!(
+                got.contains(&line),
+                "missing trap-handler slot {line}: {got:?}"
+            );
         }
         // Every top-level statement got its own slot.
-        for line in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160] {
-            assert!(got.contains(&line), "missing statement slot {line}: {got:?}");
+        for line in [
+            10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160,
+        ] {
+            assert!(
+                got.contains(&line),
+                "missing statement slot {line}: {got:?}"
+            );
         }
     }
 

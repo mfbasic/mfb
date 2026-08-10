@@ -8,16 +8,27 @@
 //! register-name decoders, which do, stay per-ISA), so they live here once with a
 //! single, unprefixed diagnostic convention.
 
+use std::borrow::Cow;
+
 use crate::target::shared::code::CodeInstruction;
 
 /// The value of `instruction`'s field named `name`, or an error naming the
 /// missing field and the instruction's mnemonic.
-pub(crate) fn field(instruction: &CodeInstruction, name: &str) -> Result<String, String> {
+///
+/// Returns a borrowed [`Cow`] (`plan-82-D`): a `Raw`/`Phys` operand — the common
+/// case reaching the encoder — lends its `&str` with **no allocation**, instead of
+/// the per-operand `render()` `String` this used to build on the hot sizing/emit
+/// path. The register/immediate decoders take `impl AsRef<str>`, so every existing
+/// `reg(field(inst, "dst")?)?` call site is unchanged.
+pub(crate) fn field<'a>(
+    instruction: &'a CodeInstruction,
+    name: &str,
+) -> Result<Cow<'a, str>, String> {
     instruction
         .fields
         .iter()
         .find(|(field, _)| *field == name)
-        .map(|(_, value)| value.clone())
+        .map(|(_, value)| value.rendered())
         .ok_or_else(|| {
             format!(
                 "instruction '{}' missing field '{name}'",
@@ -28,8 +39,9 @@ pub(crate) fn field(instruction: &CodeInstruction, name: &str) -> Result<String,
 
 /// Parse an immediate operand: the booleans `true`/`false` decode to `1`/`0`,
 /// everything else parses as an unsigned 64-bit integer.
-pub(crate) fn immediate(value: String) -> Result<u64, String> {
-    match value.as_str() {
+pub(crate) fn immediate(value: impl AsRef<str>) -> Result<u64, String> {
+    let value = value.as_ref();
+    match value {
         "true" => Ok(1),
         "false" => Ok(0),
         _ => value
@@ -40,7 +52,8 @@ pub(crate) fn immediate(value: String) -> Result<u64, String> {
 
 /// Parse a shift amount, rejecting a value that does not fit a 64-bit shift
 /// (`0..=63`).
-pub(crate) fn shift(value: String) -> Result<u8, String> {
+pub(crate) fn shift(value: impl AsRef<str>) -> Result<u8, String> {
+    let value = value.as_ref();
     let value = value
         .parse::<u8>()
         .map_err(|_| format!("invalid shift immediate '{value}'"))?;

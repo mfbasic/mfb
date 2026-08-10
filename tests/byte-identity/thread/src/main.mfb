@@ -25,6 +25,10 @@ FUNC main() AS Integer
   IF thread::poll(t1, 0) THEN
     total = total + 1
   END IF
+
+  ' sleep parent overload (plan-91-A) — a plain wall-clock delay on the handle
+  thread::sleep(t1, 0)
+
   thread::cancel(t1)
 
   ' send parent overloads (2)

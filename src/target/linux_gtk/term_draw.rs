@@ -50,6 +50,179 @@ fn emit_utf8_decode_at(asm: &mut Asm, glyph: &str, ptr: &str, len: &str, index: 
     asm.push(abi::label("u8_pack_done"));
 }
 
+/// plan-70-E: `out` = display width (1 or 2) of the grapheme whose UTF-8 bytes are
+/// packed little-endian in `packed` (the char-cell form) with byte length `len`.
+/// First decodes the Unicode scalar from those bytes, then looks up A's charwidth via
+/// the two-stage property trie (`(flags@16 >> 4) & 3`, width 0 folded to 1). Uses
+/// `s1`/`s2`/`s3` as scratch and does not clobber `packed`/`len`; `tag` makes the
+/// internal labels unique. The `_mfb_unicode_*` relocations these `local_address`
+/// loads emit make the shared build embed the ~1.5 MB property table — call ONLY when
+/// the app uses `term::` (the writer gates on `uses_term`).
+fn emit_gtk_charwidth(
+    asm: &mut Asm,
+    packed: &str,
+    len: &str,
+    out: &str,
+    s1: &str,
+    s2: &str,
+    s3: &str,
+    tag: &str,
+) {
+    use crate::target::shared::code::{
+        UNICODE_PROPERTIES_SYMBOL, UNICODE_STAGE1_SYMBOL, UNICODE_STAGE2_SYMBOL,
+    };
+    let n2 = format!("{tag}_n2");
+    let n3 = format!("{tag}_n3");
+    let n4 = format!("{tag}_n4");
+    let sdone = format!("{tag}_sdone");
+    let lookup = format!("{tag}_lk");
+    let done = format!("{tag}_done");
+    // --- decode the scalar from the packed UTF-8 bytes into `out` ---
+    // b0=packed&0xFF, b1=(packed>>8)&0x3F, b2=(packed>>16)&0x3F, b3=(packed>>24)&0x3F.
+    asm.push(abi::compare_immediate(len, "1"));
+    asm.push(abi::branch_ne(&n2));
+    asm.push(abi::move_immediate(s1, "Integer", "127"));
+    asm.push(abi::and_registers(out, packed, s1)); // ASCII
+    asm.push(abi::branch(&sdone));
+    asm.push(abi::label(&n2));
+    asm.push(abi::compare_immediate(len, "2"));
+    asm.push(abi::branch_ne(&n3));
+    asm.push(abi::move_immediate(s1, "Integer", "31"));
+    asm.push(abi::and_registers(out, packed, s1)); // b0 & 0x1F
+    asm.push(abi::shift_left_immediate(out, out, 6));
+    asm.push(abi::shift_right_immediate(s2, packed, 8));
+    asm.push(abi::move_immediate(s1, "Integer", "63"));
+    asm.push(abi::and_registers(s2, s2, s1)); // b1 & 0x3F
+    asm.push(abi::or_registers(out, out, s2));
+    asm.push(abi::branch(&sdone));
+    asm.push(abi::label(&n3));
+    asm.push(abi::compare_immediate(len, "3"));
+    asm.push(abi::branch_ne(&n4));
+    asm.push(abi::move_immediate(s1, "Integer", "15"));
+    asm.push(abi::and_registers(out, packed, s1)); // b0 & 0x0F
+    asm.push(abi::shift_left_immediate(out, out, 12));
+    asm.push(abi::move_immediate(s1, "Integer", "63"));
+    asm.push(abi::shift_right_immediate(s2, packed, 8));
+    asm.push(abi::and_registers(s2, s2, s1));
+    asm.push(abi::shift_left_immediate(s2, s2, 6));
+    asm.push(abi::or_registers(out, out, s2));
+    asm.push(abi::shift_right_immediate(s2, packed, 16));
+    asm.push(abi::and_registers(s2, s2, s1));
+    asm.push(abi::or_registers(out, out, s2));
+    asm.push(abi::branch(&sdone));
+    asm.push(abi::label(&n4));
+    // len 4 (or any other): b0 & 0x07.
+    asm.push(abi::move_immediate(s1, "Integer", "7"));
+    asm.push(abi::and_registers(out, packed, s1));
+    asm.push(abi::shift_left_immediate(out, out, 18));
+    asm.push(abi::move_immediate(s1, "Integer", "63"));
+    asm.push(abi::shift_right_immediate(s2, packed, 8));
+    asm.push(abi::and_registers(s2, s2, s1));
+    asm.push(abi::shift_left_immediate(s2, s2, 12));
+    asm.push(abi::or_registers(out, out, s2));
+    asm.push(abi::shift_right_immediate(s2, packed, 16));
+    asm.push(abi::and_registers(s2, s2, s1));
+    asm.push(abi::shift_left_immediate(s2, s2, 6));
+    asm.push(abi::or_registers(out, out, s2));
+    asm.push(abi::shift_right_immediate(s2, packed, 24));
+    asm.push(abi::and_registers(s2, s2, s1));
+    asm.push(abi::or_registers(out, out, s2));
+    asm.push(abi::label(&sdone));
+    // --- two-stage trie lookup: `out` (scalar) -> width ---
+    asm.push(abi::move_immediate(s1, "Integer", "1114112")); // 0x110000
+    asm.push(abi::compare_registers(out, s1));
+    asm.push(abi::branch_lt(&lookup));
+    asm.push(abi::move_immediate(out, "Integer", "1"));
+    asm.push(abi::branch(&done));
+    asm.push(abi::label(&lookup));
+    asm.push(abi::shift_right_immediate(s1, out, 8));
+    asm.push(abi::shift_left_immediate(s1, s1, 1));
+    asm.local_address(s2, UNICODE_STAGE1_SYMBOL);
+    asm.push(abi::add_registers(s2, s2, s1));
+    asm.push(abi::load_u16(s1, s2, 0));
+    asm.push(abi::move_immediate(s3, "Integer", "255"));
+    asm.push(abi::and_registers(s3, out, s3));
+    asm.push(abi::add_registers(s1, s1, s3));
+    asm.push(abi::shift_left_immediate(s1, s1, 1));
+    asm.local_address(s2, UNICODE_STAGE2_SYMBOL);
+    asm.push(abi::add_registers(s2, s2, s1));
+    asm.push(abi::load_u16(s1, s2, 0));
+    // Property record: 6 live u16 fields = 12 bytes, flags @ offset 6 (plan-77 U1
+    // repacked it from 24 bytes / flags @ 16). Must match the shared reader's
+    // UNICODE_PROPERTY_OFFSET_FLAGS in target/shared/code/private/unicode.rs.
+    asm.push(abi::move_immediate(s3, "Integer", "12")); // property record size
+    asm.push(abi::multiply_registers(s1, s1, s3));
+    asm.local_address(s2, UNICODE_PROPERTIES_SYMBOL);
+    asm.push(abi::add_registers(s2, s2, s1));
+    asm.push(abi::load_u16(out, s2, 6)); // flags @ 6
+    asm.push(abi::shift_right_immediate(out, out, 4));
+    asm.push(abi::move_immediate(s3, "Integer", "3"));
+    asm.push(abi::and_registers(out, out, s3)); // (flags>>4)&3 -> raw width 0/1/2
+    asm.push(abi::label(&done));
+    // NOTE: width 0 (a combining mark / zero-width scalar) is returned raw; the
+    // writer folds it into the previous cell's EGC pool (plan-70-E Phase 3), or, if
+    // there is no base to attach to, treats it as a lone width-1 cell.
+}
+
+/// plan-70-E Phase 3: fold a combining mark (UTF-8 bytes packed LE in `mark`, length
+/// `marklen`) into the previous base cell's EGC pool slot. `charoff` is the base
+/// cell's byte offset into the CHAR array (`idx*4`); the parallel pool slot is at
+/// `idx*32 == charoff*8`. The slot is length-prefixed: `pool[0]` = total byte length,
+/// `pool[1..]` = the cluster's UTF-8 bytes. On the first mark the base's own bytes seed
+/// the slot and its CHAR word becomes `GTK_POOL_TAG`; a cluster that would exceed the
+/// slot drops the tail (rare, long ZWJ). Uses caller-saved x11-x17; preserves
+/// `mark`/`marklen`/`charoff` and the callee-saved loop registers.
+fn emit_gtk_pool_append(asm: &mut Asm, charoff: &str, mark: &str, marklen: &str, tag: &str) {
+    let pooled = format!("{tag}_pooled");
+    let bl = format!("{tag}_bl");
+    let write = format!("{tag}_write");
+    let skip = format!("{tag}_skip");
+    // pool slot addr (x11) = ST_TERM_POOL + charoff*8; base char addr (x12).
+    asm.state_array("x11", ST_TERM_POOL);
+    asm.push(abi::shift_left_immediate("x17", charoff, 3));
+    asm.push(abi::add_registers("x11", "x11", "x17"));
+    asm.state_array("x12", ST_TERM_CHARS);
+    asm.push(abi::add_registers("x12", "x12", charoff));
+    asm.push(abi::load_u32("x13", "x12", 0)); // base word (packed bytes OR POOL_TAG)
+    asm.push(abi::move_immediate("x14", "Integer", GTK_POOL_TAG));
+    asm.push(abi::compare_registers("x13", "x14"));
+    asm.push(abi::branch_eq(&pooled));
+    // First mark: seed the slot with the base's UTF-8 bytes. blen from the lead byte.
+    asm.push(abi::move_immediate("x14", "Integer", "255"));
+    asm.push(abi::and_registers("x15", "x13", "x14")); // lead byte
+    asm.push(abi::move_immediate("x17", "Integer", "1"));
+    asm.push(abi::compare_immediate("x15", "192"));
+    asm.push(abi::branch_lt(&bl));
+    asm.push(abi::move_immediate("x17", "Integer", "2"));
+    asm.push(abi::compare_immediate("x15", "224"));
+    asm.push(abi::branch_lt(&bl));
+    asm.push(abi::move_immediate("x17", "Integer", "3"));
+    asm.push(abi::compare_immediate("x15", "240"));
+    asm.push(abi::branch_lt(&bl));
+    asm.push(abi::move_immediate("x17", "Integer", "4"));
+    asm.push(abi::label(&bl));
+    // base bytes at pool[1..] — via an address register (offset 1 is an unaligned u32).
+    asm.push(abi::add_immediate("x15", "x11", 1));
+    asm.push(abi::store_u32("x13", "x15", 0));
+    asm.push(abi::store_u8("x17", "x11", 0)); // pool[0] = blen
+    asm.push(abi::move_immediate("x14", "Integer", GTK_POOL_TAG));
+    asm.push(abi::store_u32("x14", "x12", 0)); // CHAR = POOL_TAG
+    asm.push(abi::branch(&write));
+    asm.push(abi::label(&pooled));
+    asm.push(abi::load_u8("x17", "x11", 0)); // current length
+    asm.push(abi::label(&write));
+    // Guard the 4-byte store against the 32-byte slot end (curlen <= 27 leaves room).
+    asm.push(abi::compare_immediate("x17", "27"));
+    asm.push(abi::branch_gt(&skip));
+    // write pos = pool + 1 + curlen; store the mark's ≤4 bytes; pool[0] += marklen.
+    asm.push(abi::add_immediate("x13", "x11", 1));
+    asm.push(abi::add_registers("x13", "x13", "x17"));
+    asm.push(abi::store_u32(mark, "x13", 0));
+    asm.push(abi::add_registers("x14", "x17", marklen));
+    asm.push(abi::store_u8("x14", "x11", 0));
+    asm.push(abi::label(&skip));
+}
+
 /// Emit `cairo_set_source_rgb(cr, r/255, g/255, b/255)` from a packed RGB value in
 /// `packed` (low 24 bits). Clobbers x0/x9-x13 and d0-d3.
 fn emit_cairo_color(asm: &mut Asm, cr: &str, packed: &str) {
@@ -78,9 +251,11 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(TERM_DRAW_SYMBOL);
     // lr@0, x19(cr)@8, x20(row)@16, x21(col)@24, x22(lastBold)@32, x23(charsBase)@40,
     // x24(fgBase)@48, x25(bgBase)@56, x26(cols)@64, x27(rows)@72, fg@80, bg@88,
-    // charbuf@96 (5B: up to 4 UTF-8 bytes + NUL).
-    let frame = 112;
+    // charbuf@96 (5B: up to 4 UTF-8 bytes + NUL). plan-70-E: pango layout@104,
+    // desc@112 — created once, reused per cell (Pango draws with font fallback).
+    let frame = 128;
     let (off_fg, off_bg, off_buf) = (80usize, 88usize, 96usize);
+    let (off_layout, off_desc) = (104usize, 112usize);
     let saved = [
         ("x19", 8),
         ("x20", 16),
@@ -113,8 +288,17 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.call_external("cairo_set_source_rgb");
     asm.push(abi::move_register("x0", "x19"));
     asm.call_external("cairo_paint");
-    // Normal-weight monospace at TERM_FONT_SIZE; lastBold tracks the selected weight.
-    emit_term_select_font(&mut asm, "x19", false);
+    // plan-70-E: one Pango layout + monospace font description for the whole frame,
+    // reused per cell (set_text + show_layout). Pango cascades fonts, so CJK/emoji
+    // render instead of tofu. desc weight starts normal; lastBold tracks it.
+    asm.local_address("x0", STR_MONO_DESC.0);
+    asm.call_external("pango_font_description_from_string");
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), off_desc));
+    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("pango_cairo_create_layout");
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), off_layout));
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), off_desc));
+    asm.call_external("pango_layout_set_font_description");
     asm.push(abi::move_immediate("x22", "Integer", "0"));
     // Render the draw-owned SNAPSHOT arrays (plan-35-E): a present copies the live
     // worker arrays here on the main loop before queue_draw, so this callback never
@@ -186,19 +370,31 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.push(abi::branch_eq("d_next"));
     asm.push(abi::compare_immediate("x13", "32"));
     asm.push(abi::branch_eq("d_next"));
-    // Re-select font weight if bold changed.
+    // plan-70-E: a WIDE_TRAIL sentinel draws nothing — the wide primary's Pango glyph
+    // already spans this column (its background was filled above). Skip it.
+    asm.push(abi::move_immediate("x9", "Integer", GTK_WIDE_TRAIL));
+    asm.push(abi::compare_registers("x13", "x9"));
+    asm.push(abi::branch_eq("d_next"));
+    // plan-70-E: re-weight the Pango font description if bold changed (700 bold /
+    // 400 normal), then reapply it to the layout.
     asm.push(abi::load_u64("x14", abi::stack_pointer(), off_fg));
     asm.push(abi::move_immediate("x9", "Integer", &BOLD_FLAG.to_string()));
     asm.push(abi::and_registers("x9", "x14", "x9")); // 0 or BOLD_FLAG
     asm.push(abi::compare_registers("x9", "x22"));
     asm.push(abi::branch_eq("d_bold_ok"));
     asm.push(abi::move_register("x22", "x9"));
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_desc));
     asm.push(abi::compare_immediate("x9", "0"));
     asm.push(abi::branch_eq("d_sel_normal"));
-    emit_term_select_font(&mut asm, "x19", true);
-    asm.push(abi::branch("d_bold_ok"));
+    asm.push(abi::move_immediate("x1", "Integer", "700")); // PANGO_WEIGHT_BOLD
+    asm.push(abi::branch("d_sel_apply"));
     asm.push(abi::label("d_sel_normal"));
-    emit_term_select_font(&mut asm, "x19", false);
+    asm.push(abi::move_immediate("x1", "Integer", "400")); // PANGO_WEIGHT_NORMAL
+    asm.push(abi::label("d_sel_apply"));
+    asm.call_external("pango_font_description_set_weight");
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_layout));
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), off_desc));
+    asm.call_external("pango_layout_set_font_description");
     asm.push(abi::label("d_bold_ok"));
     // Foreground color: explicit or white.
     asm.push(abi::load_u64("x14", abi::stack_pointer(), off_fg));
@@ -216,19 +412,42 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.push(abi::signed_convert_to_float_d("d2", "x9"));
     asm.call_external("cairo_set_source_rgb");
     asm.push(abi::label("d_fg_done"));
-    // move_to(col*cellW, (row+1)*cellH - 4); show_text(charbuf). Load cellH BEFORE
-    // forming row+1 in x9 — load_state clobbers x9 as its address scratch.
+    // plan-70-E: pango_layout_set_text; move_to(col*cellW, row*cellH) — Pango draws
+    // the layout from the current point as its TOP-LEFT (not a baseline) — then
+    // pango_cairo_show_layout in the fg colour set above. A pooled cluster
+    // (char == POOL_TAG) feeds the length-prefixed EGC slot (Pango composes the
+    // combining marks); a lone scalar feeds the NUL-terminated 4-byte charbuf.
+    asm.push(abi::load_u32("x13", abi::stack_pointer(), off_buf));
+    asm.push(abi::move_immediate("x9", "Integer", GTK_POOL_TAG));
+    asm.push(abi::compare_registers("x13", "x9"));
+    asm.push(abi::branch_ne("d_inline_text"));
+    asm.push(abi::move_immediate(
+        "x11",
+        "Integer",
+        &TERM_MAX_COLS.to_string(),
+    ));
+    asm.push(abi::multiply_registers("x12", "x20", "x11"));
+    asm.push(abi::add_registers("x12", "x12", "x21"));
+    asm.push(abi::shift_left_immediate("x12", "x12", 5)); // idx*32 (pool stride)
+    asm.state_array("x9", ST_TERM_SNAP_POOL);
+    asm.push(abi::add_registers("x9", "x9", "x12")); // pool slot
+    asm.push(abi::load_u8("x2", "x9", 0)); // length prefix
+    asm.push(abi::add_immediate("x1", "x9", 1)); // cluster bytes
+    asm.push(abi::branch("d_set_text"));
+    asm.push(abi::label("d_inline_text"));
+    asm.push(abi::add_immediate("x1", abi::stack_pointer(), off_buf));
+    asm.push(abi::move_immediate("x2", "Integer", "0"));
+    asm.push(abi::bitwise_not("x2", "x2")); // length -1 => NUL-terminated (no neg immediate)
+    asm.push(abi::label("d_set_text"));
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_layout));
+    asm.call_external("pango_layout_set_text");
     asm.push(abi::move_register("x0", "x19"));
-    emit_cell_dim_to_d(&mut asm, "d0", "x21", ST_TERM_CELL_W);
-    asm.load_state("x10", ST_TERM_CELL_H);
-    asm.push(abi::add_immediate("x9", "x20", 1));
-    asm.push(abi::multiply_registers("x9", "x9", "x10"));
-    asm.push(abi::subtract_immediate("x9", "x9", 4));
-    asm.push(abi::signed_convert_to_float_d("d1", "x9"));
+    emit_cell_dim_to_d(&mut asm, "d0", "x21", ST_TERM_CELL_W); // x = col*cellW
+    emit_cell_dim_to_d(&mut asm, "d1", "x20", ST_TERM_CELL_H); // y = row*cellH (top)
     asm.call_external("cairo_move_to");
     asm.push(abi::move_register("x0", "x19"));
-    asm.push(abi::add_immediate("x1", abi::stack_pointer(), off_buf));
-    asm.call_external("cairo_show_text");
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), off_layout));
+    asm.call_external("pango_cairo_show_layout");
     // Underline: a 2px rect at the cell bottom in the (already-set) fg color.
     asm.push(abi::load_u64("x14", abi::stack_pointer(), off_fg));
     asm.push(abi::move_immediate(
@@ -263,6 +482,11 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.load_state("x21", ST_TERM_COL);
     emit_term_cell_rect(&mut asm, "x19", "x21", "x20");
     asm.push(abi::label("d_no_cursor"));
+    // plan-70-E: release the per-frame Pango layout + font description.
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_layout));
+    asm.call_external("g_object_unref");
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_desc));
+    asm.call_external("pango_font_description_free");
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     for (reg, off) in saved {
         asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
@@ -270,23 +494,6 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
     asm.finish(TERM_DRAW_SYMBOL, "Nothing")
-}
-
-/// cairo_select_font_face(cr, "monospace", NORMAL, weight) + set_font_size.
-fn emit_term_select_font(asm: &mut Asm, cr: &str, bold: bool) {
-    asm.push(abi::move_register("x0", cr));
-    asm.local_address("x1", STR_MONOSPACE.0);
-    asm.push(abi::move_immediate("x2", "Integer", "0")); // CAIRO_FONT_SLANT_NORMAL
-    asm.push(abi::move_immediate(
-        "x3",
-        "Integer",
-        if bold { "1" } else { "0" },
-    ));
-    asm.call_external("cairo_select_font_face");
-    asm.push(abi::move_register("x0", cr));
-    asm.push(abi::move_immediate("x9", "Integer", TERM_FONT_SIZE));
-    asm.push(abi::signed_convert_to_float_d("d0", "x9"));
-    asm.call_external("cairo_set_font_size");
 }
 
 /// `dst (d-reg) = index * cellSize` as a double, where the cell size (px) is read
@@ -354,7 +561,14 @@ pub(super) fn emit_term_scroll_helper() -> Result<CodeFunction, String> {
     asm.push(abi::multiply_registers("x19", "x19", "x9")); // cells = (rows-1)*MAX_COLS
                                                            // memmove each array up one (fixed-stride) row: 4B per cell for all three
                                                            // (chars became u32 in bug-203, matching fg/bg).
-    for (base, shift) in [(ST_TERM_CHARS, 2u8), (ST_TERM_FG, 2), (ST_TERM_BG, 2)] {
+                                                           // plan-70-E Phase 3: the EGC pool (GTK_POOL_BYTES=32=1<<5 per cell) shifts with
+                                                           // the char/fg/bg arrays so a scrolled pooled cluster keeps its slot.
+    for (base, shift) in [
+        (ST_TERM_CHARS, 2u8),
+        (ST_TERM_FG, 2),
+        (ST_TERM_BG, 2),
+        (ST_TERM_POOL, 5),
+    ] {
         asm.state_array("x0", base); // dst = row 0
         asm.state_array("x1", base + TERM_MAX_COLS * (1 << shift)); // src = row 1
         asm.push(abi::shift_left_immediate("x2", "x19", shift)); // cells * elemSize
@@ -363,16 +577,17 @@ pub(super) fn emit_term_scroll_helper() -> Result<CodeFunction, String> {
     // Blank the last active row (offset = cells*4): all three arrays to 0. chars
     // clears to 0 rather than ' ' — `memset` writes whole bytes, so ' ' over u32
     // cells would pack FOUR spaces per cell; the draw skips 0 (bug-203).
-    for base in [ST_TERM_CHARS, ST_TERM_FG, ST_TERM_BG] {
+    for (base, shift, rowbytes) in [
+        (ST_TERM_CHARS, 2u8, TERM_MAX_COLS * 4),
+        (ST_TERM_FG, 2, TERM_MAX_COLS * 4),
+        (ST_TERM_BG, 2, TERM_MAX_COLS * 4),
+        (ST_TERM_POOL, 5, TERM_MAX_COLS * GTK_POOL_BYTES),
+    ] {
         asm.state_array("x0", base);
-        asm.push(abi::shift_left_immediate("x9", "x19", 2)); // cells*4
+        asm.push(abi::shift_left_immediate("x9", "x19", shift)); // cells*elemSize
         asm.push(abi::add_registers("x0", "x0", "x9"));
         asm.push(abi::move_immediate("x1", "Integer", "0"));
-        asm.push(abi::move_immediate(
-            "x2",
-            "Integer",
-            &(TERM_MAX_COLS * 4).to_string(),
-        ));
+        asm.push(abi::move_immediate("x2", "Integer", &rowbytes.to_string()));
         asm.call_external("memset");
     }
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
@@ -390,10 +605,13 @@ pub(super) fn emit_term_scroll_helper() -> Result<CodeFunction, String> {
 pub(super) fn emit_term_init_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(TERM_INIT_SYMBOL);
     // lr@0, x19(cr)@8, x20(surf)@16, extents buffer@24 (48B, fits both font_extents
-    // and the larger text_extents). cr/surf are callee-saved so they survive the
-    // cairo calls.
-    let frame = 80;
+    // and the larger text_extents; plan-70-E also holds Pango's 16B PangoRectangle).
+    // cr/surf are callee-saved so they survive the cairo calls. plan-70-E:
+    // layout@72, desc@80 hold the throwaway Pango layout + font description used to
+    // measure the cell from the same font that draws it.
+    let frame = 96;
     let fe = 24usize;
+    let (off_layout, off_desc) = (72usize, 80usize);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(
@@ -412,30 +630,38 @@ pub(super) fn emit_term_init_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_register("x0", "x20"));
     asm.call_external("cairo_create");
     asm.push(abi::move_register("x19", "x0")); // cr
-                                               // select monospace at TERM_FONT_SIZE.
-    emit_term_select_font(&mut asm, "x19", false);
-    // cell_h = ceil(font_extents.height @ +16). font_extents_t: ascent,descent,
-    // height,max_x_advance,max_y_advance.
+                                               // plan-70-E: measure the cell from the SAME Pango monospace font that draws it
+                                               // (so the grid geometry matches the rendered glyphs). desc = "monospace 16";
+                                               // layout of "M"; its logical PangoRectangle gives {width, height} in pixels.
+    asm.local_address("x0", STR_MONO_DESC.0);
+    asm.call_external("pango_font_description_from_string");
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), off_desc));
     asm.push(abi::move_register("x0", "x19"));
-    asm.push(abi::add_immediate("x1", abi::stack_pointer(), fe));
-    asm.call_external("cairo_font_extents");
-    asm.push(abi::load_u64("x9", abi::stack_pointer(), fe + 16));
-    asm.push(abi::float_move_d_from_x("d0", "x9"));
-    asm.push(abi::float_ceil_to_signed_x("x10", "d0"));
-    emit_clamp_low(&mut asm, "x10", 1, "ch");
-    asm.store_state("x10", ST_TERM_CELL_H);
-    // cell_w = ceil(text_extents("M").x_advance @ +32). Using a real glyph's advance
-    // (not font_extents.max_x_advance, which is the widest glyph in the whole font).
-    // text_extents_t: x_bearing,y_bearing,width,height,x_advance,y_advance.
-    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("pango_cairo_create_layout");
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), off_layout));
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), off_desc));
+    asm.call_external("pango_layout_set_font_description");
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_layout));
     asm.local_address("x1", STR_M.0);
+    asm.push(abi::move_immediate("x2", "Integer", "1")); // "M" is 1 byte
+    asm.call_external("pango_layout_set_text");
+    // pango_layout_get_pixel_extents(layout, ink=NULL, logical=&rect@fe). The
+    // PangoRectangle is {x@0, y@4, width@8, height@12} (i32 each).
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_layout));
+    asm.push(abi::move_immediate("x1", "Integer", "0"));
     asm.push(abi::add_immediate("x2", abi::stack_pointer(), fe));
-    asm.call_external("cairo_text_extents");
-    asm.push(abi::load_u64("x9", abi::stack_pointer(), fe + 32));
-    asm.push(abi::float_move_d_from_x("d0", "x9"));
-    asm.push(abi::float_ceil_to_signed_x("x10", "d0"));
+    asm.call_external("pango_layout_get_pixel_extents");
+    asm.push(abi::load_u32("x10", abi::stack_pointer(), fe + 8)); // logical.width
     emit_clamp_low(&mut asm, "x10", 1, "cw");
     asm.store_state("x10", ST_TERM_CELL_W);
+    asm.push(abi::load_u32("x10", abi::stack_pointer(), fe + 12)); // logical.height
+    emit_clamp_low(&mut asm, "x10", 1, "ch");
+    asm.store_state("x10", ST_TERM_CELL_H);
+    // Pango cleanup before the cairo teardown (the layout holds a ref on cr).
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_layout));
+    asm.call_external("g_object_unref");
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), off_desc));
+    asm.call_external("pango_font_description_free");
     // cleanup
     asm.push(abi::move_register("x0", "x19"));
     asm.call_external("cairo_destroy");
@@ -571,6 +797,16 @@ fn emit_term_snapshot_copy(asm: &mut Asm) {
         ));
         asm.call_external("memcpy");
     }
+    // plan-70-E Phase 3: the EGC pool (GTK_POOL_BYTES/cell) rides the same snapshot so
+    // the draw callback rebuilds pooled clusters from a consistent frame.
+    asm.state_array("x0", ST_TERM_SNAP_POOL);
+    asm.state_array("x1", ST_TERM_POOL);
+    asm.push(abi::move_immediate(
+        "x2",
+        "Integer",
+        &(TERM_MAX_COLS * TERM_MAX_ROWS * GTK_POOL_BYTES).to_string(),
+    ));
+    asm.call_external("memcpy");
 }
 
 /// Main-thread idle: PRESENT the term:: surface (plan-35-E). Marshal a consistent
@@ -624,12 +860,26 @@ pub(super) fn emit_term_resize_helper() -> Result<CodeFunction, String> {
     asm.load_state("x10", ST_TERM_CELL_W);
     asm.push(abi::unsigned_divide_registers("x11", "x11", "x10"));
     emit_clamp_range(&mut asm, "x11", 1, TERM_MAX_COLS, "rz_cols");
-    asm.store_state("x11", ST_TERM_COLS);
     // rows = clamp(height / cell_h, 1, MAX_ROWS).
     asm.load_state("x10", ST_TERM_CELL_H);
     asm.push(abi::unsigned_divide_registers("x12", "x12", "x10"));
     emit_clamp_range(&mut asm, "x12", 1, TERM_MAX_ROWS, "rz_rows");
+    // planning/term.md #11: latch the resize flag only on a GENUINE extent change
+    // (the "resize" signal also fires at initial allocation, where the freshly
+    // clamped cols/rows equal the activate-computed values → no spurious flag).
+    // Capture the old extent in x13/x14 before overwriting, compare, set 1 on diff.
+    asm.load_state("x13", ST_TERM_COLS); // old cols
+    asm.load_state("x14", ST_TERM_ROWS); // old rows
+    asm.store_state("x11", ST_TERM_COLS);
     asm.store_state("x12", ST_TERM_ROWS);
+    asm.push(abi::compare_registers("x13", "x11"));
+    asm.push(abi::branch_ne("rz_changed"));
+    asm.push(abi::compare_registers("x14", "x12"));
+    asm.push(abi::branch_eq("rz_nochange"));
+    asm.push(abi::label("rz_changed"));
+    asm.push(abi::move_immediate("x13", "Integer", "1"));
+    asm.store_state("x13", ST_TERM_DID_RESIZE);
+    asm.push(abi::label("rz_nochange"));
     // Force a full redraw at the new extent.
     asm.load_state("x0", ST_TERM_AREA);
     asm.call_external("gtk_widget_queue_draw");
@@ -654,17 +904,22 @@ pub(super) fn emit_term_resize_helper() -> Result<CodeFunction, String> {
 /// fixed-size static buffers (no reallocation, no dangling pointer, no memory
 /// unsafety). Do not reintroduce a per-write redraw or a lock the worker holds across
 /// the draw callback (either the mandatory-present contract breaks or the UI stalls).
-pub(super) fn emit_term_write_helper() -> Result<CodeFunction, String> {
+pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(TERM_WRITE_SYMBOL);
     // lr@0, x20(newline)@8, x21(i)@16, x22(len)@24, x23(ptr)@32, x24(charsBase)@40,
     // x25(row)@48, x26(col)@56, x27(fgBase)@64, x28(bgBase)@72, fgval@80, bgval@88,
-    // x19(code-point byte length)@96.
+    // x19(code-point byte length)@96. plan-70-E: glyph@104, width@112 spill the
+    // decoded glyph + display width across the wide-at-edge scroll.
     //
     // The length must be callee-saved: `tw_clamp` can call TERM_SCROLL_SYMBOL
     // between the decode and the `i += len` advance, so a caller-saved scratch
     // would not survive it (bug-203).
-    let frame = 112;
+    let frame = 128;
     let (off_fgval, off_bgval) = (80usize, 88usize);
+    let (off_glyph, off_width) = (104usize, 112usize);
+    // plan-70-E Phase 3: byte offset (idx*4) of the last base cell written, or -1 —
+    // a following combining mark (width 0) folds into its pool slot.
+    let off_lastbase = 120usize;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(
@@ -717,6 +972,10 @@ pub(super) fn emit_term_write_helper() -> Result<CodeFunction, String> {
     asm.load_state("x11", ST_TERM_CUR_BG);
     asm.push(abi::store_u64("x11", abi::stack_pointer(), off_bgval));
     asm.push(abi::move_immediate("x21", "Integer", "0")); // i
+                                                          // plan-70-E Phase 3: last base cell = none (-1) — a combining mark folds into it.
+    asm.push(abi::move_immediate("x9", "Integer", "0"));
+    asm.push(abi::bitwise_not("x9", "x9")); // -1
+    asm.push(abi::store_u64("x9", abi::stack_pointer(), off_lastbase));
 
     asm.push(abi::label("tw_loop"));
     asm.push(abi::compare_registers("x21", "x22"));
@@ -735,7 +994,49 @@ pub(super) fn emit_term_write_helper() -> Result<CodeFunction, String> {
     // byte; those fall through as length 1, so malformed input still advances
     // and renders per-byte rather than hanging or over-reading.
     emit_utf8_decode_at(&mut asm, "x10", "x9", "x19", "x21", "x22");
-    // idx = row*MAX_COLS + col; chars[idx]=glyph; fg[idx]=fgval; bg[idx]=bgval.
+    // plan-70-E: display width (0/1/2 -> 1/1/2) of this scalar, in x15. Gated on
+    // uses_term so a non-term GTK app never references the property table.
+    if uses_term {
+        emit_gtk_charwidth(&mut asm, "x10", "x19", "x15", "x16", "x17", "x14", "tw_cw");
+        // plan-70-E Phase 3: width 0 = combining mark. Fold it into the previous base
+        // cell's EGC pool (so Pango composes the cluster), advancing i but not the
+        // column. With no base to attach to, fall through as a lone width-1 cell.
+        asm.push(abi::compare_immediate("x15", "0"));
+        asm.push(abi::branch_ne("tw_not_combine"));
+        asm.push(abi::load_u64("x16", abi::stack_pointer(), off_lastbase));
+        asm.push(abi::compare_immediate("x16", "0"));
+        asm.push(abi::branch_lt("tw_lone_combine")); // -1 => no base
+        emit_gtk_pool_append(&mut asm, "x16", "x10", "x19", "tw_pa");
+        asm.push(abi::branch("tw_next")); // fold complete; advance i, keep the column
+        asm.push(abi::label("tw_lone_combine"));
+        asm.push(abi::move_immediate("x15", "Integer", "1"));
+        asm.push(abi::label("tw_not_combine"));
+    } else {
+        asm.push(abi::move_immediate("x15", "Integer", "1"));
+    }
+    // Wide-at-edge: a width-2 glyph that would straddle the right edge wraps to the
+    // next row first (spill glyph+width across the scroll, then reload).
+    asm.push(abi::compare_immediate("x15", "2"));
+    asm.push(abi::branch_ne("tw_edge_ok"));
+    asm.push(abi::add_immediate("x9", "x26", 1));
+    asm.load_state("x11", ST_TERM_COLS);
+    asm.push(abi::compare_registers("x9", "x11"));
+    asm.push(abi::branch_lt("tw_edge_ok"));
+    asm.push(abi::store_u64("x10", abi::stack_pointer(), off_glyph));
+    asm.push(abi::store_u64("x15", abi::stack_pointer(), off_width));
+    asm.push(abi::move_immediate("x26", "Integer", "0"));
+    asm.push(abi::add_immediate("x25", "x25", 1));
+    asm.load_state("x9", ST_TERM_ROWS);
+    asm.push(abi::compare_registers("x25", "x9"));
+    asm.push(abi::branch_lt("tw_edge_noscroll"));
+    asm.call_internal(TERM_SCROLL_SYMBOL);
+    asm.load_state("x25", ST_TERM_ROWS);
+    asm.push(abi::subtract_immediate("x25", "x25", 1));
+    asm.push(abi::label("tw_edge_noscroll"));
+    asm.push(abi::load_u64("x10", abi::stack_pointer(), off_glyph));
+    asm.push(abi::load_u64("x15", abi::stack_pointer(), off_width));
+    asm.push(abi::label("tw_edge_ok"));
+    // idx = row*MAX_COLS + col; chars[idx]=glyph; fg[idx]=fgval|(width<<27); bg=bgval.
     asm.push(abi::move_immediate(
         "x11",
         "Integer",
@@ -747,13 +1048,32 @@ pub(super) fn emit_term_write_helper() -> Result<CodeFunction, String> {
     asm.push(abi::add_registers("x9", "x24", "x13"));
     asm.push(abi::store_u32("x10", "x9", 0));
     asm.push(abi::load_u64("x9", abi::stack_pointer(), off_fgval));
+    asm.push(abi::shift_left_immediate("x11", "x15", WIDTH_SHIFT as u8)); // width<<27
+    asm.push(abi::or_registers("x9", "x9", "x11"));
     asm.push(abi::add_registers("x14", "x27", "x13"));
     asm.push(abi::store_u32("x9", "x14", 0));
     asm.push(abi::load_u64("x9", abi::stack_pointer(), off_bgval));
     asm.push(abi::add_registers("x14", "x28", "x13"));
     asm.push(abi::store_u32("x9", "x14", 0));
-    // col++; wrap to next row at the active cols.
-    asm.push(abi::add_immediate("x26", "x26", 1));
+    // plan-70-E Phase 3: this cell is now the base a following combining mark folds
+    // into (x13 = idx*4, the CHAR/pool byte offset).
+    asm.push(abi::store_u64("x13", abi::stack_pointer(), off_lastbase));
+    // Wide (width 2): the next cell is a WIDE_TRAIL sentinel (col+1 is on the grid
+    // after the wide-at-edge wrap above). char[idx+1]=0xFFFFFFFF, fg/bg copied, width 0.
+    asm.push(abi::compare_immediate("x15", "2"));
+    asm.push(abi::branch_ne("tw_no_trail"));
+    asm.push(abi::add_registers("x9", "x24", "x13"));
+    asm.push(abi::move_immediate("x11", "Integer", GTK_WIDE_TRAIL));
+    asm.push(abi::store_u32("x11", "x9", 4));
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), off_fgval));
+    asm.push(abi::add_registers("x14", "x27", "x13"));
+    asm.push(abi::store_u32("x9", "x14", 4));
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), off_bgval));
+    asm.push(abi::add_registers("x14", "x28", "x13"));
+    asm.push(abi::store_u32("x9", "x14", 4));
+    asm.push(abi::label("tw_no_trail"));
+    // col += width; wrap to next row at the active cols.
+    asm.push(abi::add_registers("x26", "x26", "x15"));
     asm.load_state("x9", ST_TERM_COLS);
     asm.push(abi::compare_registers("x26", "x9"));
     asm.push(abi::branch_lt("tw_next"));

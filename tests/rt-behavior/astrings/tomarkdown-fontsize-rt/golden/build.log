@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/rt-behavior/astrings/tomarkdown-fontsize-rt
+Wrote AST to tests/rt-behavior/astrings/tomarkdown-fontsize-rt/tomarkdown_fontsize_rt.ast
+Wrote IR to tests/rt-behavior/astrings/tomarkdown-fontsize-rt/tomarkdown_fontsize_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/astrings/tomarkdown-fontsize-rt
+Wrote executable to tests/rt-behavior/astrings/tomarkdown-fontsize-rt/build/tomarkdown_fontsize_rt.out
+[exit 0]
+$ tests/rt-behavior/astrings/tomarkdown-fontsize-rt/build/tomarkdown_fontsize_rt.out
+fontsize=[::Serif::ab::;12::cde::-::fg]
+both=[::Mono;10::hi]
+unchanged=[::;9::abc]
+reset=[::;8::ab::;-::cd]
+escfont=[::a\:b\;c::z]
+[exit 0]

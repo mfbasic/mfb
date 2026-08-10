@@ -91,7 +91,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     fn emit_errno(
     &self,
     _from: &str,
-    _dst: &str,
+    _dst: Operand,
     _platform_imports: &HashMap<String, String>,
     _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
     _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
@@ -244,11 +244,11 @@ impl CodegenPlatform for TlsReadTestPlatform {
 fn blr_between(ins: &[CodeInstruction], start: &str, end: &str) -> usize {
     let s = ins
         .iter()
-        .position(|i| i.op == CodeOp::Label && i.get("name") == Some(start))
+        .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(start))
         .unwrap_or_else(|| panic!("missing label {start}"));
     let e = ins[s + 1..]
         .iter()
-        .position(|i| i.op == CodeOp::Label && i.get("name") == Some(end))
+        .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(end))
         .map(|p| p + s + 1)
         .unwrap_or_else(|| panic!("missing label {end}"));
     ins[s + 1..e]
@@ -297,22 +297,22 @@ fn readbytes_has_no_encoding_error_exit() {
     // readBytes has no UTF-8 validation, so it never emits an encoding_error
     // label — confirming the bug-52 fix is scoped to the text path only.
     assert!(
-        !ins.iter()
-            .any(|i| i.op == CodeOp::Label && i.get("name") == Some("t_readbytes_encoding_error")),
+        !ins.iter().any(|i| i.op == CodeOp::Label
+            && i.get("name").as_deref() == Some("t_readbytes_encoding_error")),
         "tls::read (bytes) must not have an encoding_error exit"
     );
 }
 
 fn has_label(ins: &[CodeInstruction], name: &str) -> bool {
     ins.iter()
-        .any(|i| i.op == CodeOp::Label && i.get("name") == Some(name))
+        .any(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(name))
 }
 
 /// The instructions from label `start` up to (not including) label `end`.
 fn window<'a>(ins: &'a [CodeInstruction], start: &str, end: &str) -> &'a [CodeInstruction] {
     let at = |name: &str| {
         ins.iter()
-            .position(|i| i.op == CodeOp::Label && i.get("name") == Some(name))
+            .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(name))
             .unwrap_or_else(|| panic!("missing label {name}"))
     };
     let (from, to) = (at(start), at(end));
@@ -329,7 +329,8 @@ fn window<'a>(ins: &'a [CodeInstruction], start: &str, end: &str) -> &'a [CodeIn
 /// drain loop, so only a windowed check proves the *error exits* release.
 fn resolves_in(win: &[CodeInstruction], name: &str) -> bool {
     let want = sym_data_symbol(name);
-    win.iter().any(|i| i.get("symbol") == Some(&want))
+    win.iter()
+        .any(|i| i.get("symbol").as_deref() == Some(&want))
 }
 
 // bug-317 T1: `accept` owns a +1 on the popped connection (the
@@ -483,9 +484,9 @@ fn accept_stores_zero_queue_slot() {
     // loaded queue exists by checking the record store uses the zero register.
     let stores_zero_queue = ins.iter().any(|i| {
         i.op == CodeOp::StrU64
-            && i.get("src") == Some(abi::ZERO)
-            && i.get("base") == Some(abi::RET[1])
-            && i.get("offset") == Some(&REC_QUEUE.to_string())
+            && i.get("src").as_deref() == Some(abi::ZERO)
+            && i.get("base").as_deref() == Some(abi::mfb_return(1).render().as_str())
+            && i.get("offset").as_deref() == Some(&REC_QUEUE.to_string())
     });
     assert!(
         stores_zero_queue,
@@ -504,16 +505,16 @@ fn accept_stores_zero_queue_slot() {
 fn has_cancel_drain(win: &[CodeInstruction], drain_label: &str, cancelled_state: &str) -> bool {
     let has_drain_label = win
         .iter()
-        .any(|i| i.op == CodeOp::Label && i.get("name") == Some(drain_label));
-    let reads_state = win
-        .iter()
-        .any(|i| i.op == CodeOp::LdrU32 && i.get("offset") == Some(&CTX_STATE.to_string()));
+        .any(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(drain_label));
+    let reads_state = win.iter().any(|i| {
+        i.op == CodeOp::LdrU32 && i.get("offset").as_deref() == Some(&CTX_STATE.to_string())
+    });
     let checks_cancelled = win
         .iter()
-        .any(|i| i.op == CodeOp::CmpImm && i.get("rhs") == Some(cancelled_state));
+        .any(|i| i.op == CodeOp::CmpImm && i.get("rhs").as_deref() == Some(cancelled_state));
     let loops_back = win
         .iter()
-        .any(|i| i.op == CodeOp::BranchNe && i.get("target") == Some(drain_label));
+        .any(|i| i.op == CodeOp::BranchNe && i.get("target").as_deref() == Some(drain_label));
     has_drain_label && reads_state && checks_cancelled && loops_back
 }
 
@@ -532,7 +533,11 @@ fn accept_failure_exits_drain_to_cancelled() {
         lower_tls_accept_macos("t_a", &imports, &TlsReadTestPlatform).expect("lower");
     for (exit, end, drain) in [
         ("t_a_conn_fail", "t_a_hs_timeout", "t_a_conn_fail_drain"),
-        ("t_a_hs_timeout", "t_a_accept_timeout", "t_a_hs_timeout_drain"),
+        (
+            "t_a_hs_timeout",
+            "t_a_accept_timeout",
+            "t_a_hs_timeout_drain",
+        ),
     ] {
         let win = window(&ins, exit, end);
         assert!(

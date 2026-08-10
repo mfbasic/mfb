@@ -13,39 +13,57 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_entry_scan_setup(
         &mut self,
-        collection: &str,
-        count: &str,
-        index: &str,
-        entry: &str,
-        offset: &str,
-        length: &str,
+        collection: impl Into<Operand>,
+        count: impl Into<Operand>,
+        index: impl Into<Operand>,
+        entry: impl Into<Operand>,
+        offset: impl Into<Operand>,
+        length: impl Into<Operand>,
         entry_offset_field: usize,
         entry_length_field: usize,
         loop_label: &str,
         not_found: &str,
     ) {
-        self.emit(abi::load_u64(count, collection, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::move_immediate(index, "Integer", "0"));
-        self.emit(abi::add_immediate(entry, collection, COLLECTION_HEADER_SIZE));
+        let collection = collection.into();
+        let count = count.into();
+        let index = index.into();
+        let entry = entry.into();
+        self.emit(abi::load_u64(
+            count.clone(),
+            collection.clone(),
+            COLLECTION_OFFSET_COUNT,
+        ));
+        self.emit(abi::move_immediate(index.clone(), "Integer", "0"));
+        self.emit(abi::add_immediate(
+            entry.clone(),
+            collection.clone(),
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::label(loop_label));
-        self.emit(abi::compare_registers(index, count));
+        self.emit(abi::compare_registers(index.clone(), count.clone()));
         self.emit(abi::branch_ge(not_found));
-        self.emit(abi::load_u64(offset, entry, entry_offset_field));
-        self.emit(abi::load_u64(length, entry, entry_length_field));
+        self.emit(abi::load_u64(offset, entry.clone(), entry_offset_field));
+        self.emit(abi::load_u64(length, entry.clone(), entry_length_field));
     }
 
     /// Close the [`Self::emit_entry_scan_setup`] loop: bump `entry` by one entry
     /// stride and `index` by one, then branch back. Emit-only, byte-identical.
     pub(super) fn emit_entry_scan_advance(
         &mut self,
-        entry: &str,
-        index: &str,
+        entry: impl Into<Operand>,
+        index: impl Into<Operand>,
         next_label: &str,
         loop_label: &str,
     ) {
+        let entry = entry.into();
+        let index = index.into();
         self.emit(abi::label(next_label));
-        self.emit(abi::add_immediate(entry, entry, COLLECTION_ENTRY_SIZE));
-        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(
+            entry.clone(),
+            entry.clone(),
+            COLLECTION_ENTRY_SIZE,
+        ));
+        self.emit(abi::add_immediate(index.clone(), index.clone(), 1));
         self.emit(abi::branch(loop_label));
     }
 
@@ -55,8 +73,16 @@ impl CodeBuilder<'_> {
         key_slot: usize,
         collection_type: &str,
         element_type: &str,
+        unchecked: bool,
     ) -> Result<ValueResult, String> {
-        self.lower_list_get_common(collection_slot, key_slot, None, collection_type, element_type)
+        self.lower_list_get_common(
+            collection_slot,
+            key_slot,
+            None,
+            collection_type,
+            element_type,
+            unchecked,
+        )
     }
 
     /// Shared body of list `get`/`getOr`: bounds-check the index and load the
@@ -71,6 +97,7 @@ impl CodeBuilder<'_> {
         default_slot: Option<usize>,
         collection_type: &str,
         element_type: &str,
+        unchecked: bool,
     ) -> Result<ValueResult, String> {
         self.reset_temporary_registers();
         let collection = self.allocate_register()?;
@@ -94,11 +121,16 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         self.emit(abi::load_u64(&index, abi::stack_pointer(), key_slot));
-        self.emit(abi::compare_immediate(&index, "0"));
-        self.emit(abi::branch_lt(&miss));
-        self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::compare_registers(&index, &count));
-        self.emit(abi::branch_ge(&miss));
+        // plan-86 G1: skip the `0 <= index < count` bounds check when the caller has
+        // PROVEN the index in range (induction var over `len(L)-k`, L unmodified).
+        // `count` is still loaded below by `emit_element_value_offset` as needed.
+        if !unchecked {
+            self.emit(abi::compare_immediate(&index, "0"));
+            self.emit(abi::branch_lt(&miss));
+            self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::compare_registers(&index, &count));
+            self.emit(abi::branch_ge(&miss));
+        }
         self.emit_element_value_offset(
             &value_offset,
             &value_length,
@@ -144,7 +176,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: element_type.to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text,
         })
     }
@@ -172,24 +204,24 @@ impl CodeBuilder<'_> {
         match key_type {
             "String" => {
                 self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), key_slot));
-                self.emit(abi::load_u64(abi::ARG[2], &scratch9, 0));
-                self.emit(abi::add_immediate(abi::ARG[1], &scratch9, 8));
+                self.emit(abi::load_u64(abi::c_arg(2), &scratch9, 0));
+                self.emit(abi::add_immediate(abi::c_arg(1), &scratch9, 8));
             }
             "Boolean" | "Byte" => {
                 self.emit(abi::add_immediate(
-                    abi::ARG[1],
+                    abi::c_arg(1),
                     abi::stack_pointer(),
                     key_slot,
                 ));
-                self.emit(abi::move_immediate(abi::ARG[2], "Integer", "1"));
+                self.emit(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
             }
             "Integer" | "Float" | "Fixed" => {
                 self.emit(abi::add_immediate(
-                    abi::ARG[1],
+                    abi::c_arg(1),
                     abi::stack_pointer(),
                     key_slot,
                 ));
-                self.emit(abi::move_immediate(abi::ARG[2], "Integer", "8"));
+                self.emit(abi::move_immediate(abi::c_arg(2), "Integer", "8"));
             }
             other => {
                 return Err(format!(
@@ -228,8 +260,8 @@ impl CodeBuilder<'_> {
         self.emit_map_query_key(key_type, key_slot)?;
         let key_ptr = self.temporary_vreg();
         let key_len = self.temporary_vreg();
-        self.emit(abi::move_register(&key_ptr, abi::ARG[1]));
-        self.emit(abi::move_register(&key_len, abi::ARG[2]));
+        self.emit(abi::move_register(&key_ptr, abi::c_arg(1)));
+        self.emit(abi::move_register(&key_len, abi::c_arg(2)));
 
         let map = self.temporary_vreg();
         self.emit(abi::load_u64(&map, abi::stack_pointer(), collection_slot));
@@ -370,12 +402,12 @@ impl CodeBuilder<'_> {
         // Fallback: full probe via `_mfb_rt_map_probe` (also lazily builds buckets).
         self.emit(abi::label(&fallback));
         self.emit(abi::load_u64(
-            abi::ARG[0],
+            abi::c_arg(0),
             abi::stack_pointer(),
             collection_slot,
         ));
-        self.emit(abi::move_register(abi::ARG[1], &key_ptr));
-        self.emit(abi::move_register(abi::ARG[2], &key_len));
+        self.emit(abi::move_register(abi::c_arg(1), &key_ptr));
+        self.emit(abi::move_register(abi::c_arg(2), &key_len));
         self.emit(abi::branch_link(MAP_PROBE_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -385,13 +417,17 @@ impl CodeBuilder<'_> {
             library: None,
         });
         // x0 = entry index, or -1 (signed negative) when absent.
-        self.emit(abi::compare_immediate(abi::RET[0], "0"));
+        self.emit(abi::compare_immediate(abi::mfb_return(0), "0"));
         self.emit(abi::branch_lt(not_found_label));
         let fb_scratch = self.temporary_vreg();
         let fb_map = self.temporary_vreg();
         let fb_entry = self.temporary_vreg();
         self.emit(abi::move_immediate(&fb_scratch, "Integer", &entry_size));
-        self.emit(abi::multiply_registers(&fb_entry, abi::RET[0], &fb_scratch));
+        self.emit(abi::multiply_registers(
+            &fb_entry,
+            abi::mfb_return(0),
+            &fb_scratch,
+        ));
         self.emit(abi::load_u64(
             &fb_map,
             abi::stack_pointer(),
@@ -451,7 +487,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done));
             return Ok(ValueResult {
                 type_: value_type.to_string(),
-                location: result,
+                location: Operand::from(result.render()),
                 text: format!("get({collection_type}, {key_type}) [hash]"),
             });
         }
@@ -523,7 +559,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: value_type.to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: format!("get({collection_type}, {key_type})"),
         })
     }
@@ -542,6 +578,8 @@ impl CodeBuilder<'_> {
             Some(default_slot),
             collection_type,
             element_type,
+            // getOr returns a default on OOB (no trap), so the elision does not apply.
+            false,
         )
     }
 
@@ -603,7 +641,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done));
             return Ok(ValueResult {
                 type_: value_type.to_string(),
-                location: result,
+                location: Operand::from(result.render()),
                 text: format!("getOr({collection_type}, {key_type}, {value_type}) [hash]"),
             });
         }
@@ -690,7 +728,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: value_type.to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text: format!("getOr({collection_type}, {key_type}, {value_type})"),
         })
     }

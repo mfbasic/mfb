@@ -40,12 +40,12 @@ fn bump_rewrite_substitutes_eager_physicals() {
         0,
         &[],
     );
-    assert_eq!(instructions[0].get("dst"), Some("x8"));
-    assert_eq!(instructions[0].get("lhs"), Some("x10"));
-    assert_eq!(instructions[0].get("rhs"), Some("x9"));
-    assert_eq!(instructions[1].get("dst"), Some("x10"));
-    assert_eq!(instructions[1].get("base"), Some("sp"));
-    assert_eq!(instructions[1].get("offset"), Some("16"));
+    assert_eq!(instructions[0].get("dst").as_deref(), Some("x8"));
+    assert_eq!(instructions[0].get("lhs").as_deref(), Some("x10"));
+    assert_eq!(instructions[0].get("rhs").as_deref(), Some("x9"));
+    assert_eq!(instructions[1].get("dst").as_deref(), Some("x10"));
+    assert_eq!(instructions[1].get("base").as_deref(), Some("sp"));
+    assert_eq!(instructions[1].get("offset").as_deref(), Some("16"));
     assert!(outcome.spill_slots.is_empty());
     assert!(outcome.extra_callee_saved.is_empty());
 }
@@ -89,8 +89,9 @@ fn linear_scan_keeps_value_across_call_in_callee_saved() {
     // No sentinel survives anywhere in the rewritten stream.
     for instruction in &instructions {
         for (_field, value) in &instruction.fields {
+            let value = value.render();
             assert!(
-                parse_vreg(value).is_none(),
+                parse_vreg(&value).is_none(),
                 "virtual register {value} survived coloring"
             );
         }
@@ -128,8 +129,9 @@ fn linear_scan_spills_integer_across_arena_alloc() {
     // No sentinel survives anywhere in the rewritten stream.
     for instruction in &instructions {
         for (_field, value) in &instruction.fields {
+            let value = value.render();
             assert!(
-                parse_vreg(value).is_none(),
+                parse_vreg(&value).is_none(),
                 "virtual register {value} survived coloring"
             );
         }
@@ -312,7 +314,10 @@ fn linear_scan_colors_short_range_in_register() {
     // v0 colored to some allocatable physical; both operands match.
     let colored = instructions[1].get("dst").unwrap().to_string();
     assert!(colored.starts_with('x'));
-    assert_eq!(instructions[2].get("lhs"), Some(colored.as_str()));
+    assert_eq!(
+        instructions[2].get("lhs").as_deref(),
+        Some(colored.as_str())
+    );
 }
 
 /// plan-34-D hazard regression: an `abi::FP_SCRATCH` token occupies its
@@ -361,7 +366,10 @@ fn linear_scan_avoids_live_fp_scratch_token_realization() {
     );
     assert_ne!(colored, "d0", "%f0 is live across %fscratch0 (realizes d0)");
     // The token itself is never rewritten by coloring.
-    assert_eq!(instructions[2].get("dst"), Some(abi::FP_SCRATCH[0]));
+    assert_eq!(
+        instructions[2].get("dst").as_deref(),
+        Some(abi::FP_SCRATCH[0])
+    );
     // And the analysis sees the token at its realization's index.
     assert_eq!(analysis::fp_physical_index(abi::FP_SCRATCH[0]), Some(0));
     assert_eq!(analysis::fp_physical_index("%fscratch7"), Some(7));
@@ -398,12 +406,12 @@ fn find_physical_operand_catches_every_class_and_passes_tokens() {
             .field("offset", "16"),
         CodeInstruction::new("mov")
             .field("dst", abi::VEC_SCRATCH[3])
-            .field("src", abi::ARG[0]),
+            .field("src", abi::c_arg(0)),
         CodeInstruction::new("mov")
             .field("dst", abi::MATH_POOL)
             .field("src", abi::CURRENT_THREAD),
         CodeInstruction::new("ldr_u64")
-            .field("dst", abi::RET[0])
+            .field("dst", abi::mfb_return(0))
             .field("base", "incoming_args")
             .field("offset", "0"),
         CodeInstruction::new("mov_imm")
@@ -564,11 +572,70 @@ fn x86_fp_values_live_across_a_call_avoid_the_volatile_high_xmm() {
     let volatile_high: Vec<String> = (8..=14).map(|n| format!("xmm{n}")).collect();
     for (index, instruction) in instructions.iter().enumerate() {
         for (field, value) in &instruction.fields {
+            let value = value.render();
             assert!(
-                !volatile_high.contains(value),
+                !volatile_high.contains(&value),
                 "instruction {index} field `{field}` colored a call-spanning value \
                  onto `{value}`, which a SysV `call` destroys",
             );
         }
     }
+}
+
+/// plan-82-B: a colored virtual register is rewritten to a typed
+/// `Operand::Phys { class, index, name }` — carrying the class index the encoder
+/// reads directly (plan-82-D) and the `&'static str` physical name (no heap box)
+/// — NOT a `Raw` string. `Phys.index` equals `int_physical_index(name)` and
+/// `rendered()` equals the physical-name string the pre-typing rewrite wrote, so
+/// every downstream reader and dump stays byte-identical (proven end-to-end by
+/// artifact-gate).
+#[test]
+fn linear_scan_writes_typed_phys_operands() {
+    let mut instructions = vec![
+        CodeInstruction::new("label").field("name", "entry"),
+        CodeInstruction::new("mov_imm")
+            .field("dst", &vreg_name(0))
+            .field("type", "Integer")
+            .field("value", "7"),
+        CodeInstruction::new("add")
+            .field("dst", "x0")
+            .field("lhs", &vreg_name(0))
+            .field("rhs", &vreg_name(0)),
+        CodeInstruction::new("ret"),
+    ];
+    allocate(
+        RegallocKind::LinearScan,
+        &mut instructions,
+        &[String::new()],
+        &[],
+        &Aarch64RegisterModel,
+        0,
+        &[],
+    );
+    // v0's def is now a typed Phys of the Int class.
+    let dst = instructions[1].operand("dst").expect("dst operand");
+    match dst {
+        Operand::Phys { class, index, name } => {
+            assert_eq!(*class, RegClass::Int);
+            assert!(name.starts_with('x'), "physical name should be x*: {name}");
+            assert_eq!(
+                analysis::int_physical_index(name),
+                Some(*index),
+                "Phys.index must equal int_physical_index(name)"
+            );
+            assert_eq!(
+                dst.rendered(),
+                *name,
+                "rendered() must equal the static physical name"
+            );
+        }
+        other => panic!("expected Operand::Phys, got {other:?}"),
+    }
+    // The use sites carry the same typed physical.
+    assert_eq!(instructions[2].operand("lhs"), Some(dst));
+    // A hardcoded physical (x0) stays a Raw operand — not touched by coloring.
+    assert!(matches!(
+        instructions[2].operand("dst"),
+        Some(Operand::Raw(_))
+    ));
 }

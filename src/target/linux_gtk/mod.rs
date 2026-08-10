@@ -34,7 +34,7 @@ use std::collections::HashMap;
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
     self, AppEntrySpec, AppHookBody, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction,
-    CodeRelocation, PresentationMode, RelocIntent,
+    CodeRelocation, Operand, PresentationMode, RelocIntent,
 };
 
 // --- Emitted symbols -------------------------------------------------------
@@ -122,7 +122,13 @@ const ST_TERM_CELL_H: usize = ST_TERM_CELL_W + 8; // cell height in px
                                                   // A blank cell is 0, not ' ': the blanking `memset`s write whole bytes, and
                                                   // a memset of ' ' over u32 cells would pack FOUR spaces per cell. The draw
                                                   // treats 0 and ' ' alike (both render nothing).
-const ST_TERM_CHARS: usize = ST_TERM_CELL_H + 8;
+/// planning/term.md #11: cached "window was resized" flag. Set to 1 by
+/// `_mfb_gtkapp_term_resize` on a genuine cols/rows change and read-and-cleared by
+/// `term::didResize()`. Lives in the address-based GTK global (not the arena
+/// term-state) so the main-loop resize callback and the worker-side getter both
+/// reach it without the pinned arena register.
+const ST_TERM_DID_RESIZE: usize = ST_TERM_CELL_H + 8;
+const ST_TERM_CHARS: usize = ST_TERM_DID_RESIZE + 8;
 const ST_TERM_FG: usize = ST_TERM_CHARS + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 const ST_TERM_BG: usize = ST_TERM_FG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 // Draw-owned snapshot (front) copy of the three grid arrays (plan-35-E). The worker
@@ -135,11 +141,20 @@ const ST_TERM_BG: usize = ST_TERM_FG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 const ST_TERM_SNAP_CHARS: usize = ST_TERM_BG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 const ST_TERM_SNAP_FG: usize = ST_TERM_SNAP_CHARS + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 const ST_TERM_SNAP_BG: usize = ST_TERM_SNAP_FG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
+// plan-70-E Phase 3: the EGC pool — a per-cell fixed slot of GTK_POOL_BYTES holding a
+// multi-scalar grapheme cluster's UTF-8 bytes (NUL-terminated). A pooled cell's CHAR
+// word is the GTK_POOL_TAG sentinel; the renderer rebuilds the cluster from the slot.
+// Snapshot copy + scroll shift it in lockstep with the char/fg/bg arrays, just like
+// the macOS TermView pool (per-cell slot, lifecycle-free).
+const GTK_POOL_BYTES: usize = 32;
+const GTK_POOL_TAG: &str = "4294967294"; // 0xFFFFFFFE (distinct from 0/32/WIDE_TRAIL)
+const ST_TERM_POOL: usize = ST_TERM_SNAP_BG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
+const ST_TERM_SNAP_POOL: usize = ST_TERM_POOL + TERM_MAX_COLS * TERM_MAX_ROWS * GTK_POOL_BYTES;
 /// plan-62-D: 1 while a `g_application_hold` is in effect (windowless `None` mode),
 /// 0 while a window owns the app's aliveness (`Console`). The reconcile keeps
 /// exactly one aliveness source by toggling this: hold+set on entering `None`,
 /// release+clear on entering `Console` (Open Decision 1).
-const ST_HELD: usize = ST_TERM_SNAP_BG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
+const ST_HELD: usize = ST_TERM_SNAP_POOL + TERM_MAX_COLS * TERM_MAX_ROWS * GTK_POOL_BYTES;
 const STATE_SIZE: usize = ST_HELD + 8;
 
 // fg/bg cell encoding: low 24 bits = packed RGB (r|g<<8|b<<16, the console
@@ -149,6 +164,14 @@ const STATE_SIZE: usize = ST_HELD + 8;
 const COLOR_SET: usize = 1 << 24;
 const BOLD_FLAG: usize = 1 << 25;
 const UNDERLINE_FLAG: usize = 1 << 26;
+// plan-70-E: the display width (0/1/2) of the cell's grapheme rides in the fg word's
+// free bits 27-28, so the snapshot memcpy + resize/scroll array shifts carry it for
+// free (no separate width array). A wide (width-2) glyph reserves the next cell as a
+// WIDE_TRAIL sentinel in the CHAR array — 0xFFFFFFFF is not valid UTF-8 (0xFF is not a
+// lead byte), so the renderer's blank check distinguishes it, and it never collides
+// with a real packed-UTF-8 cell.
+const WIDTH_SHIFT: usize = 27;
+const GTK_WIDE_TRAIL: &str = "4294967295"; // 0xFFFFFFFF
 const TERM_DEFAULT_FG: &str = "16777215"; // 0xFFFFFF white (matches console default)
 
 // Backing-store bounds for the grid (a fixed stride keeps storage static). The
@@ -156,7 +179,6 @@ const TERM_DEFAULT_FG: &str = "16777215"; // 0xFFFFFF white (matches console def
 // exceed these.
 const TERM_MAX_COLS: usize = 160;
 const TERM_MAX_ROWS: usize = 48;
-const TERM_FONT_SIZE: &str = "16";
 // Window content area used to size the grid (matches the default window size, like
 // macOS sizing from the TermView frame).
 const TERM_AREA_W: usize = 900;
@@ -229,7 +251,9 @@ const STR_EXIT_PREFIX: (&str, &str) =
 /// `app/mod.rs` STR_STDERR_PREFIX), visually distinguishing stderr (plan-05 §5.4).
 const STR_STDERR_PREFIX: (&str, &str) = ("_mfb_gtkapp_str_stderr_prefix", "[stderr] ");
 /// Cairo font family for the term:: grid.
-const STR_MONOSPACE: (&str, &str) = ("_mfb_gtkapp_str_monospace", "monospace");
+/// plan-70-E: the Pango font-description string ("family size"), parsed once by
+/// `pango_font_description_from_string` into the layout's cached description.
+const STR_MONO_DESC: (&str, &str) = ("_mfb_gtkapp_str_mono_desc", "monospace 16");
 /// Representative glyph used to measure the monospace cell width.
 const STR_M: (&str, &str) = ("_mfb_gtkapp_str_m", "M");
 
@@ -259,6 +283,10 @@ const GOBJECT: &str = "libgobject-2.0.so.0";
 const GLIB: &str = "libglib-2.0.so.0";
 const GIO: &str = "libgio-2.0.so.0";
 const CAIRO: &str = "libcairo.so.2";
+// plan-70-E: the TUI grid draws through Pango (font cascade for CJK/emoji),
+// replacing the Cairo toy font API which has no fallback.
+const PANGO: &str = "libpango-1.0.so.0";
+const PANGOCAIRO: &str = "libpangocairo-1.0.so.0";
 
 /// The C-library sonames an app-mode build binds to (plan-56-A §4.1), resolved
 /// by the calling backend's `Platform` so `linux_gtk` needs to know neither the
@@ -352,16 +380,17 @@ impl Asm {
     }
 
     /// Materialize an internal data/text symbol's address into `dst` (adrp/add).
-    fn local_address(&mut self, dst: &str, symbol: &str) {
+    fn local_address(&mut self, dst: impl Into<Operand>, symbol: &str) {
+        let dst = dst.into();
         self.push(
             CodeInstruction::new("adrp")
-                .field("dst", dst)
+                .field("dst", &dst)
                 .field("symbol", symbol),
         );
         self.push(
             CodeInstruction::new("add_pageoff")
-                .field("dst", dst)
-                .field("src", dst)
+                .field("dst", &dst)
+                .field("src", &dst)
                 .field("symbol", symbol),
         );
         for kind in [RelocIntent::DataAddrHi, RelocIntent::DataAddrLo] {
@@ -448,7 +477,7 @@ pub(crate) fn emit_app_program_entry(
         emit_term_show_idle_helper()?,
         emit_term_hide_idle_helper()?,
         emit_term_redraw_idle_helper()?,
-        emit_term_write_helper()?,
+        emit_term_write_helper(spec.uses_term)?,
         emit_term_scroll_helper()?,
         emit_term_init_helper()?,
         emit_term_resize_helper()?,
@@ -486,7 +515,7 @@ pub(crate) fn emit_app_program_entry_x86(
         emit_term_show_idle_helper()?,
         emit_term_hide_idle_helper()?,
         emit_term_redraw_idle_helper()?,
-        emit_term_write_helper()?,
+        emit_term_write_helper(spec.uses_term)?,
         emit_term_scroll_helper()?,
         emit_term_init_helper()?,
         emit_term_resize_helper()?,
@@ -573,8 +602,9 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
     let mut order: Vec<String> = Vec::new();
     for instruction in instructions.iter() {
         for (_, value) in &instruction.fields {
-            if is_scratch(value) && !order.contains(value) {
-                order.push(value.clone());
+            let rendered = value.render();
+            if is_scratch(&rendered) && !order.contains(&rendered) {
+                order.push(rendered);
             }
         }
     }
@@ -585,8 +615,8 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
         .collect();
     for instruction in instructions.iter_mut() {
         for (_, value) in instruction.fields.iter_mut() {
-            if let Some(vreg) = rename.get(value) {
-                *value = vreg.clone();
+            if let Some(vreg) = rename.get(&value.render()) {
+                *value = Operand::from(vreg.as_str());
             }
         }
     }
@@ -636,9 +666,9 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
     // Select to x86 ops (role remap + scratch map for anything left physical),
     // then color the vregs. The later plan-assembly MIR routing round-trips the
     // already-selected stream as an identity pass.
-    let neutral = mir::lower_to_mir(instructions);
+    let neutral = mir::lower_to_mir_owned(std::mem::take(instructions));
     let backend = mir::active_backend();
-    *instructions = backend.select(&neutral);
+    *instructions = backend.select(neutral);
     let spill_base = inner_frame + X86_WRAP_BYTES;
     let outcome = regalloc::allocate(
         regalloc::RegallocKind::LinearScan,
@@ -658,8 +688,8 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
         for instruction in instructions.iter_mut() {
             if matches!(instruction.op, CodeOp::SubSp | CodeOp::AddSp) {
                 for (key, value) in instruction.fields.iter_mut() {
-                    if *key == "imm" && *value == sentinel {
-                        *value = bumped.clone();
+                    if *key == "imm" && *value == sentinel.as_str() {
+                        *value = Operand::from(bumped.as_str());
                     }
                 }
             }
@@ -776,13 +806,20 @@ pub(crate) fn app_mode_imports(
         (CAIRO, "cairo_paint"),
         (CAIRO, "cairo_rectangle"),
         (CAIRO, "cairo_fill"),
-        (CAIRO, "cairo_select_font_face"),
-        (CAIRO, "cairo_set_font_size"),
         (CAIRO, "cairo_move_to"),
-        (CAIRO, "cairo_show_text"),
-        // Font-metric measurement at init (sizes the grid from cell extents).
-        (CAIRO, "cairo_font_extents"),
-        (CAIRO, "cairo_text_extents"),
+        // plan-70-E: Pango draws each cell's grapheme with font fallback (CJK/emoji)
+        // that the Cairo toy API lacks; the layout is created once per draw/measure
+        // and reused per cell (set_text + show_layout). This replaced the Cairo toy
+        // font API (select_font_face / show_text / font_extents / text_extents).
+        (PANGOCAIRO, "pango_cairo_create_layout"),
+        (PANGOCAIRO, "pango_cairo_show_layout"),
+        (PANGO, "pango_layout_set_text"),
+        (PANGO, "pango_layout_set_font_description"),
+        (PANGO, "pango_layout_get_pixel_extents"),
+        (PANGO, "pango_font_description_from_string"),
+        (PANGO, "pango_font_description_set_weight"),
+        (PANGO, "pango_font_description_free"),
+        (GOBJECT, "g_object_unref"),
         (CAIRO, "cairo_image_surface_create"),
         (CAIRO, "cairo_create"),
         (CAIRO, "cairo_destroy"),
@@ -852,7 +889,7 @@ pub(crate) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         STR_RESIZE,
         STR_EXIT_PREFIX,
         STR_STDERR_PREFIX,
-        STR_MONOSPACE,
+        STR_MONO_DESC,
         STR_M,
         STR_ENV_A11Y,
         STR_ENV_IM,

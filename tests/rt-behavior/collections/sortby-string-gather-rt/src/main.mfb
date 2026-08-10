@@ -1,0 +1,58 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 A1: native `collections::sortBy` for a String (variable-width) item
+' list. The 8-byte merge cannot move String payloads, so the lowering sorts an
+' Integer index permutation with the identical stable word-merge and gathers the
+' Strings once at the end (source[idx] materialized, appended, freed). This
+' fixture pins that the native gather path is order-identical to the interpreted
+' `.mfb` merge (stable on equal keys), handles the edge cases, and does not leak
+' or use-after-free across repeated calls.
+
+FUNC lenKey(s AS String) AS Integer
+  RETURN len(s)
+END FUNC
+
+' A key that FAILS on a sentinel element, to exercise keyFn-failure routing
+' through the re-lowered `transform` under an inline TRAP.
+FUNC failKey(s AS String) AS Integer
+  IF s = "boom" THEN FAIL error(7, "keyFn hit boom")
+  RETURN len(s)
+END FUNC
+
+FUNC main AS Integer
+  ' Stability: equal keys (same length) keep their original relative order.
+  LET xs AS List OF String = ["bbb", "a", "ccc", "dd", "ee", "f", "ggg"]
+  LET sorted AS List OF String = collections::sortBy(xs, lenKey)
+  MUT out AS String = ""
+  FOR i = 0 TO len(sorted) - 1
+    out = out & collections::get(sorted, i) & " "
+  NEXT
+  io::print("sorted: " & out)
+
+  ' Edge cases: empty and single-element return early / trivially.
+  LET es AS List OF String = []
+  io::print("empty len=" & toString(len(collections::sortBy(es, lenKey))))
+  LET one AS List OF String = ["only"]
+  io::print("one=" & collections::get(collections::sortBy(one, lenKey), 0))
+
+  ' Source is not mutated by sortBy (value semantics).
+  io::print("src0=" & collections::get(xs, 0) & " srclen=" & toString(len(xs)))
+
+  ' Repeated sorts: a UAF/leak would corrupt output or crash. Sum len(first).
+  MUT acc AS Integer = 0
+  FOR r = 0 TO 999
+    LET s2 AS List OF String = collections::sortBy(xs, lenKey)
+    acc = acc + len(collections::get(s2, 0))
+  NEXT
+  io::print("repeat acc=" & toString(acc))
+
+  ' keyFn failure under inline TRAP routes the raw error out.
+  LET withBoom AS List OF String = ["aa", "boom", "c"]
+  LET recovered AS List OF String = collections::sortBy(withBoom, failKey) TRAP(err)
+    io::print("trap caught: " & err.message)
+    RECOVER es
+  END TRAP
+  io::print("after trap len=" & toString(len(recovered)))
+  RETURN 0
+END FUNC

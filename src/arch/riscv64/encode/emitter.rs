@@ -259,8 +259,8 @@ impl Encoder {
             "str_u8" => self.emit_store(0b000, r("src")?, r("base")?, imm("offset")?),  // sb
             "ldr_d" => self.emit_load_fp(0b011, f("dst")?, r("base")?, imm("offset")?),
             "str_d" => self.emit_store_fp(0b011, f("src")?, r("base")?, imm("offset")?),
-            "b" => self.emit_jal_label(ZERO, field(instruction, "target")?),
-            "bl" => self.emit_call(field(instruction, "target")?),
+            "b" => self.emit_jal_label(ZERO, field(instruction, "target")?.into_owned()),
+            "bl" => self.emit_call(field(instruction, "target")?.into_owned()),
             "blr" => {
                 // jalr ra, 0(rs).
                 let rs = r("register")?;
@@ -271,8 +271,8 @@ impl Encoder {
             "ret" => self.emit_word(i_type(0, RA as u32, 0, ZERO as u32, JALR)),
             "rv.vop" => self.emit_rv_vop(instruction),
             "rv.br" => self.emit_rv_br(instruction),
-            "adrp" => self.emit_auipc_ref(r("dst")?, field(instruction, "symbol")?),
-            "add_pageoff" => self.emit_pageoff(r("dst")?, field(instruction, "symbol")?),
+            "adrp" => self.emit_auipc_ref(r("dst")?, field(instruction, "symbol")?.into_owned()),
+            "add_pageoff" => self.emit_pageoff(r("dst")?, field(instruction, "symbol")?.into_owned()),
             // --- FP scalar (Phase 2) ---
             "fadd_d" => self.emit_fp_r(0b0000001, f("dst")?, f("lhs")?, f("rhs")?, 0b000),
             "fsub_d" => self.emit_fp_r(0b0000101, f("dst")?, f("lhs")?, f("rhs")?, 0b000),
@@ -324,7 +324,7 @@ impl Encoder {
             "fcvtas_x_from_d" => self.emit_fcvt_l_d(r("dst")?, f("src")?, 0b100), // RMM (nearest ties away)
             "rv.fcmp" => {
                 let (rd, lhs, rhs) = (r("dst")?, f("lhs")?, f("rhs")?);
-                let funct3 = match field(instruction, "cmp")?.as_str() {
+                let funct3 = match field(instruction, "cmp")?.as_ref() {
                     "eq" => 0b010, // feq.d
                     "lt" => 0b001, // flt.d
                     "le" => 0b000, // fle.d
@@ -624,7 +624,7 @@ impl Encoder {
             Ok((immediate(field(inst, name)?)? & 0x1f) as u32)
         };
         let vop = field(inst, "vop")?;
-        let word = match vop.as_str() {
+        let word = match vop.as_ref() {
             // --- configuration: SEW=64, LMUL=1, ta, ma ---
             // vsetivli rd, uimm, vtypei — bits[31:30]=11, then the 10-bit vtype.
             "vsetivli" => {
@@ -681,17 +681,57 @@ impl Encoder {
             // vrsub.vx vd, vs2, rs1 = rs1 - vs2; NegV uses rs1=zero (0 - vs2).
             "vrsub.vx" => v_type(0b000011, 1, vr("lhs")?, xr("gpr")?, OPIVX, vr("dst")?, OP_V),
             // --- vector-immediate shifts / slide (vd, vs2=lhs, imm5) ---
-            "vsll.vi" => v_type(0b100101, 1, vr("lhs")?, im5("imm")?, OPIVI, vr("dst")?, OP_V),
-            "vsra.vi" => v_type(0b101001, 1, vr("lhs")?, im5("imm")?, OPIVI, vr("dst")?, OP_V),
-            "vsrl.vi" => v_type(0b101000, 1, vr("lhs")?, im5("imm")?, OPIVI, vr("dst")?, OP_V),
-            "vslidedown.vi" => v_type(0b001111, 1, vr("lhs")?, im5("imm")?, OPIVI, vr("dst")?, OP_V),
+            "vsll.vi" => v_type(
+                0b100101,
+                1,
+                vr("lhs")?,
+                im5("imm")?,
+                OPIVI,
+                vr("dst")?,
+                OP_V,
+            ),
+            "vsra.vi" => v_type(
+                0b101001,
+                1,
+                vr("lhs")?,
+                im5("imm")?,
+                OPIVI,
+                vr("dst")?,
+                OP_V,
+            ),
+            "vsrl.vi" => v_type(
+                0b101000,
+                1,
+                vr("lhs")?,
+                im5("imm")?,
+                OPIVI,
+                vr("dst")?,
+                OP_V,
+            ),
+            "vslidedown.vi" => v_type(
+                0b001111,
+                1,
+                vr("lhs")?,
+                im5("imm")?,
+                OPIVI,
+                vr("dst")?,
+                OP_V,
+            ),
             // --- splat / lane-mask materialization ---
             // vmv.v.i vd, imm  (vs2 must be v0 in the encoding, i.e. 0).
             "vmv.v.i" => v_type(0b010111, 1, 0, im5("imm")?, OPIVI, vr("dst")?, OP_V),
             // vmv.v.x vd, rs1  (broadcast a GPR).
             "vmv.v.x" => v_type(0b010111, 1, 0, xr("gpr")?, OPIVX, vr("dst")?, OP_V),
             // vmerge.vim vd, vs2, imm, v0  (masked: vm=0, selects imm where v0[i]).
-            "vmerge.vim" => v_type(0b010111, 0, vr("src")?, im5("imm")?, OPIVI, vr("dst")?, OP_V),
+            "vmerge.vim" => v_type(
+                0b010111,
+                0,
+                vr("src")?,
+                im5("imm")?,
+                OPIVI,
+                vr("dst")?,
+                OP_V,
+            ),
             // --- element extract / insert (lane 0 ↔ GPR) ---
             // vmv.x.s rd, vs2  (rd is a GPR in the vd field).
             "vmv.x.s" => v_type(0b010000, 1, vr("src")?, 0b00000, OPMVV, xr("dst")?, OP_V),
@@ -700,9 +740,7 @@ impl Encoder {
             // --- unit-stride 128-bit (2×e64) load / store ---
             "vle64.v" => v_type(0, 1, 0, xr("base")?, VWIDTH_E64, vr("dst")?, LOAD_FP),
             "vse64.v" => v_type(0, 1, 0, xr("base")?, VWIDTH_E64, vr("src")?, STORE_FP),
-            other => {
-                return Err(format!("rv64 encoder does not support vector op '{other}'"))
-            }
+            other => return Err(format!("rv64 encoder does not support vector op '{other}'")),
         };
         self.emit_word(word)
     }
@@ -714,10 +752,10 @@ impl Encoder {
         let rs1 = reg(field(instruction, "lhs")?)?;
         let rs2 = reg(field(instruction, "rhs")?)?;
         let cond = field(instruction, "cond")?;
-        let target = field(instruction, "target")?;
+        let target = field(instruction, "target")?.into_owned();
         // Inverted-condition funct3 (so the short branch skips the jal when the
         // real condition is false).
-        let inv_funct3 = match cond.as_str() {
+        let inv_funct3 = match cond.as_ref() {
             "eq" => 0b001,  // bne
             "ne" => 0b000,  // beq
             "lt" => 0b101,  // bge
@@ -870,7 +908,7 @@ impl crate::arch::encode_plan::InstructionEncoder for Encoder {
     }
 
     fn label_name(instruction: &CodeInstruction) -> Result<String, String> {
-        super::operand::field(instruction, "name")
+        super::operand::field(instruction, "name").map(|c| c.into_owned())
     }
 
     fn emit_one(&mut self, instruction: &CodeInstruction) -> Result<(), String> {

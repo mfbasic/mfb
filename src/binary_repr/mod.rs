@@ -120,6 +120,11 @@ pub(crate) const TYPE_MONEY: u32 = 9;
 // no second renumber, no second golden regeneration. Reserved ids stay unmapped
 // (no name→id entry, no `primitive_type_name` arm); decoding one is an error.
 pub(crate) const TYPE_SCALAR: u32 = 10;
+// `AttributedString` (plan-89-A): an opaque, value-semantic built-in wrapping a
+// visible `String` plus an attribute overlay. It is a primitive-like hardcoded
+// type (modeled on `Error`), so it claims the first reserved primitive-band id
+// (11) as a purely additive edit — no table-id renumber (see `TYPE_SCALAR`).
+pub(crate) const TYPE_ATTRIBUTED_STRING: u32 = 11;
 // `term::` builtin record types live in the high reserved id range alongside the
 // handle types (File/Socket/Listener), not the low primitive range: ids at/above
 // `FIRST_TABLE_TYPE_ID` (20) would collide with per-package user/table type ids,
@@ -573,7 +578,10 @@ pub fn read_package_type_export_hashes(
         ) {
             continue;
         }
-        hashes.insert(string_at(strings, export.name)?.to_string(), export.sig_hash);
+        hashes.insert(
+            string_at(strings, export.name)?.to_string(),
+            export.sig_hash,
+        );
     }
     Ok(hashes)
 }
@@ -604,6 +612,9 @@ fn read_package_type_exports_resolved(
         ));
     }
     let packages_dir = path.parent();
+    // Each owning dependency's fully-resolved export list, read at most once and
+    // reused for both the foreign-marker fill and the transitive closure below.
+    let mut owner_pool: HashMap<String, Vec<BinaryReprTypeExport>> = HashMap::new();
     for export in &mut exports {
         let Some(owner) = export.foreign_owner.clone() else {
             continue;
@@ -625,18 +636,100 @@ fn read_package_type_exports_resolved(
             // name still resolves, but its fields cannot be filled in here.
             continue;
         }
-        let owner_exports = read_package_type_exports_resolved(&owner_path, depth + 1)?;
-        if let Some(def) = owner_exports
-            .into_iter()
+        if !owner_pool.contains_key(&owner) {
+            let owner_exports = read_package_type_exports_resolved(&owner_path, depth + 1)?;
+            owner_pool.insert(owner.clone(), owner_exports);
+        }
+        if let Some(def) = owner_pool[&owner]
+            .iter()
             .find(|candidate| candidate.name == export.name)
         {
             export.kind = def.kind;
-            export.fields = def.fields;
-            export.variants = def.variants;
-            export.members = def.members;
+            export.fields = def.fields.clone();
+            export.variants = def.variants.clone();
+            export.members = def.members.clone();
         }
     }
+    // bug-435: the fill above resolves each re-exported type's own
+    // fields/variants, but the *other* user types those fields/variants
+    // reference (a record field's type, a union variant field's type) are not
+    // themselves named in this package's ABI, so they were dropped — leaving the
+    // package non-self-contained and any importer rejecting it with
+    // `PACKAGE_INVALID: references unknown type`. Walk the transitive closure:
+    // every `Type::User` reachable from a re-exported type is resolved from the
+    // same owner's export list (already fully resolved above) and appended. The
+    // owner's resolved list is itself closed, so a type it re-exports from a
+    // deeper dependency is present there too. Cycle-guarded by `seen` (a
+    // self-referential `List OF Node` terminates).
+    let mut seen: HashSet<String> = exports.iter().map(|e| e.name.clone()).collect();
+    let mut queue: Vec<(String, String)> = Vec::new();
+    for export in &exports {
+        if let Some(owner) = &export.foreign_owner {
+            enqueue_referenced_types(export, owner, &mut queue);
+        }
+    }
+    while let Some((name, owner)) = queue.pop() {
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        let Some(owner_exports) = owner_pool.get(&owner) else {
+            continue;
+        };
+        let Some(def) = owner_exports
+            .iter()
+            .find(|candidate| candidate.name == name)
+        else {
+            continue;
+        };
+        let def = def.clone();
+        enqueue_referenced_types(&def, &owner, &mut queue);
+        exports.push(def);
+    }
     Ok(exports)
+}
+
+/// bug-435: collect the user-type names referenced by a re-exported type's own
+/// fields and its union variants' fields, pairing each with the owner it must be
+/// resolved from. A field's `type_` is a rendered type string (`Meta`,
+/// `List OF Node`, `Map OF String TO Meta`, …); every user type in it is an
+/// identifier, so pulling the identifier tokens over-approximates the referenced
+/// names — the caller keeps only those that resolve to an actual export in the
+/// owner's list, which naturally discards built-in tokens (`List`, `String`, …).
+fn enqueue_referenced_types(
+    export: &BinaryReprTypeExport,
+    owner: &str,
+    queue: &mut Vec<(String, String)>,
+) {
+    for field in &export.fields {
+        push_type_identifiers(&field.type_, owner, queue);
+    }
+    for variant in &export.variants {
+        // A union variant *is* a record type the owner exports standalone (e.g.
+        // `EXPORT TYPE Box` backing `UNION Node { Box }`). Native codegen lays the
+        // union's block out by inlining each variant's record, so it needs that
+        // record registered in `record_fields`, not only the variant's field list
+        // — pull the variant record itself into the closure, not just its fields.
+        queue.push((variant.name.clone(), owner.to_string()));
+        for field in &variant.fields {
+            push_type_identifiers(&field.type_, owner, queue);
+        }
+    }
+}
+
+/// Push each maximal identifier substring of a rendered type string onto the
+/// resolution queue, tagged with the owner package to resolve it from.
+fn push_type_identifiers(type_str: &str, owner: &str, queue: &mut Vec<(String, String)>) {
+    let mut current = String::new();
+    for ch in type_str.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            current.push(ch);
+        } else if !current.is_empty() {
+            queue.push((std::mem::take(&mut current), owner.to_string()));
+        }
+    }
+    if !current.is_empty() {
+        queue.push((current, owner.to_string()));
+    }
 }
 
 /// Decode an imported package's `RESOURCE_TABLE` so the importer can register

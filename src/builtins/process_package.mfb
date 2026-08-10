@@ -1,0 +1,38 @@
+' Source companion for the built-in `process` package (plan-90).
+'
+' The opaque `Process` resource handle is native-declared in the `.rs` front end
+' (`src/builtins/process.rs`); this file carries only the value enums the package
+' exposes: `Stream` (plan-90-B, which child stream a read reads from) and `Signal`
+' (plan-90-C). Every callable stays native — there are zero source-EXPORT public
+' functions here (the established built-in-package idiom).
+
+DOC
+  ENUM Stream
+  DESC Selects which of a spawned child's output streams a `process::receive`,
+  DESC `process::receiveBytes`, or `process::poll` reads from. The default
+  DESC overload (no `from` argument) reads standard output.
+  PROP StdOut The child's standard output.
+  PROP StdErr The child's standard error.
+END DOC
+EXPORT ENUM Stream
+  StdOut          ' the child's standard output (the default)
+  StdErr          ' the child's standard error
+END ENUM
+
+DOC
+  ENUM Signal
+  DESC A cross-platform signal bucket. `process::signal` delivers one to a child
+  DESC (`Kill`→SIGKILL, `Terminate`→SIGTERM, `Error`→SIGABRT, `None`→no-op);
+  DESC `process::didSignal` reports which bucket a terminated child died on
+  DESC (`None` if it exited normally or has not terminated).
+  PROP None No signal (a no-op to send; "exited normally / still running" to read).
+  PROP Kill Forced, uncatchable termination (SIGKILL).
+  PROP Terminate A polite "please stop" (SIGTERM and the other catchable stops).
+  PROP Error An abnormal-fault termination (SIGABRT/SIGSEGV/SIGFPE/…).
+END DOC
+EXPORT ENUM Signal
+  None            ' no signal (send: no-op; observe: normal exit / still running)
+  Kill            ' SIGKILL
+  Terminate       ' SIGTERM (and other catchable stop signals)
+  Error           ' SIGABRT/SIGSEGV/SIGFPE/… (abnormal fault)
+END ENUM

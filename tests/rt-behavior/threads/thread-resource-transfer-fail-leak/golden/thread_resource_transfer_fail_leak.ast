@@ -1,0 +1,58 @@
+{
+  "project": "thread_resource_transfer_fail_leak",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "thread", "line": 2 },
+    { "module": "fs", "line": 3 },
+    { "module": "thread_res_sink", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 20,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String RES File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_res_sink.blockNeverAccept" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "fill", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/threads/thread-resource-transfer-fail-leak/data/input.txt" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "fill" }, { "kind": "number", "value": "1000" }] }, "line": 23 },
+      { "kind": "binding", "mutable": true, "name": "closed", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 25 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 26 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "300" } },
+        "line": 27,
+        "body": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/threads/thread-resource-transfer-fail-leak/data/input.txt" }] }, "line": 28 },
+        { "kind": "expression", "expression": {
+          "kind": "trapped",
+          "binding": "err",
+          "line": 29,
+          "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "f" }, { "kind": "number", "value": "0" }] },
+          "handler": [
+          { "kind": "binding", "mutable": false, "name": "bytes", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "fs.readAll", "arguments": [{ "kind": "identifier", "value": "f" }] }] }, "line": 30 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 31 },
+          { "kind": "assignment", "name": "closed", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "closed" }, "right": { "kind": "number", "value": "1" } }, "line": 32 },
+          { "kind": "recover", "value": null, "line": 33 }
+          ]
+        }, "line": 29 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 35 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "done" }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "closed" }] }] }, "line": 38 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 39 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -16,9 +16,10 @@
 //! (the tmpfs/NFS harness in `bugs/completed-bugs/bug-44-c-int-return-width-fsync-close.md`),
 //! which the macOS dev host cannot stage. This test therefore locks the codegen
 //! structure across all four backends instead: every checked `fsync`/`close`
-//! call is immediately followed by a `sxtw`, and never directly by a
-//! compare/branch. It fails the moment the seam normalization is dropped from
-//! any backend.
+//! call reaches a `sxtw` seam — the very next op on aarch64/riscv64, or just
+//! past a `mov rdi, rax` register move on x86-64 (whose C return lands in `rax`,
+//! not the `rdi` working register) — and never a bare compare/branch. It fails
+//! the moment the seam normalization is dropped from any backend.
 
 mod common;
 use common::build_ncode;
@@ -80,18 +81,30 @@ fn assert_helper_normalized(target: &str, func: &Value) {
         let Some(kind) = is_sync_or_close_call(op) else {
             continue;
         };
-        let next = ins.get(i + 1).map(op_name).unwrap_or("");
+        // The narrowing `sxtw` immediately follows the call on aarch64/riscv64,
+        // where the C `int` return already lands in the working register. On
+        // x86-64 the return is in `rax` while the helper works in `rdi`, so a
+        // `mov rdi, rax` register-move seam sits between the call and the `sxtw`
+        // (plan-85 reads fs C-returns from `%retC`/rax). Skip those pure register
+        // moves before inspecting the seam so the check is backend-agnostic.
+        let mut j = i + 1;
+        while ins.get(j).map(op_name) == Some("mov") {
+            j += 1;
+        }
+        let seam = ins.get(j).map(op_name).unwrap_or("");
 
-        // Regression guard: a checked site must never feed the compare/branch
-        // straight from the raw C `int` — the `sxtw` seam must intervene.
+        // Regression guard: past any register-move shuffle, a checked site must
+        // reach the `sxtw` seam, never a bare compare/branch fed by the
+        // un-narrowed C `int` — bug-44 (the C int return is compared at 64 bits
+        // with the upper word unnormalized).
         assert!(
-            !is_compare_or_branch(next),
-            "{target}/{symbol}: `{kind}` result flows into `{next}` without a \
+            !is_compare_or_branch(seam),
+            "{target}/{symbol}: `{kind}` result flows into `{seam}` without a \
              sign-extend seam — bug-44 regression (the C int return is compared \
              at 64 bits with the upper word unnormalized)",
         );
 
-        if next == "sxtw" {
+        if seam == "sxtw" {
             match kind {
                 "fsync" => narrowed_fsync += 1,
                 "close" => narrowed_close += 1,

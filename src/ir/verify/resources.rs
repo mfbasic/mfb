@@ -299,15 +299,30 @@ impl TypeEnv {
         if is_comparable_defaultable_primitive(type_) {
             return true;
         }
-        if let Some(element) = type_.strip_prefix("List OF ") {
-            return self.is_defaultable(element, seen);
+        // `AttributedString` (plan-89-A) is defaultable (its default is empty
+        // text + empty overlay) but NOT comparable, so it is a defaultable-only
+        // delta here rather than in `is_comparable_defaultable_primitive`.
+        if type_ == "AttributedString" {
+            return true;
         }
-        if let Some(element) = type_.strip_prefix("Set OF ") {
-            // `Set OF T` defaults to the empty set iff `T` is defaultable (plan-63).
-            return self.is_defaultable(element, seen);
+        // bug-434: a collection is ALWAYS defaultable — its default is the empty
+        // collection, which materializes NO element, so the element type's own
+        // defaultability is irrelevant. Recursing into the element (as this did
+        // before) wrongly rejected `List/Set/Map OF <union|enum|FUNC|RES>` and
+        // cascaded that rejection into any record embedding such a field. Codegen
+        // (`lower_default_value` → `lower_empty_collection`) already materializes
+        // the empty form without recursing into the element, so this only lifts a
+        // front-end block. Comparability of a `Set`/`Map`-key element is a
+        // SEPARATE check and is unaffected. Kept ahead of the FUNC/RES/STATE and
+        // union/enum arms so the collection short-circuit wins.
+        if type_.starts_with("List OF ") {
+            return true;
         }
-        if let Some((k, v)) = parse_map(type_) {
-            return self.is_defaultable(k, seen) && self.is_defaultable(v, seen);
+        if type_.starts_with("Set OF ") {
+            return true;
+        }
+        if parse_map(type_).is_some() {
+            return true;
         }
         if type_.starts_with("FUNC")
             || type_.starts_with("Result")

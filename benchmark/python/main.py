@@ -23,16 +23,20 @@ import dispatchbench
 import encodingbench
 import io
 import json
-import list as listbench
+import listmatrix
 import mapbench
+import mapmatrix
 import math
+import convertbench
 import mathbench
 import mathpipe
 import os
+import pipelinebench
 import re
 import regexbench
 import scalarbench
 import serializebench
+import setmatrix
 import setopsbench
 import stringbench
 import strbuildbench
@@ -41,6 +45,7 @@ import tempfile
 import threading
 import time
 import vectorbench
+import widthbench
 from math import (acos, asin, atan, atan2, cos, exp, log, log10, pow as mpow,
                   sin, sqrt, tan)
 
@@ -76,6 +81,7 @@ def record(group, name, times):
 
 def print_results():
     print("# Lang: Python")
+    print("# runs: %d" % RUN)
     print("# columns: median, average, min, max (milliseconds)")
     last = None
     for r in RESULTS:
@@ -783,8 +789,9 @@ def main():
     # math coverage rows (float/int/simd)
     mathbench.run_all(RUN, now_ns, record)
 
-    # list group + liststr rows
-    listbench.run_all(RUN, now_ns, record)
+    # list matrix — Fixed/Dynamic element (peers mfb list.mfb plain groups;
+    # replaces the old list + liststr groups)
+    listmatrix.run_all(RUN, now_ns, record)
 
     # listchurn group (append/prepend/nested)
     churnbench.run_listchurn(RUN, now_ns, record)
@@ -792,11 +799,17 @@ def main():
     # map group (set/lookup/int_ops/str_ops)
     mapbench.run_all(RUN, now_ns, record)
 
+    # map matrix — Fixed/Dynamic value + key-hash pair (peers mfb mapmatrix.mfb)
+    mapmatrix.run_all(RUN, now_ns, record)
+
     # mapchurn group (grow/churn/iterate)
     churnbench.run_mapchurn(RUN, now_ns, record)
 
     # set group (Set OF T build/contains + full set-algebra surface)
     setopsbench.run_all(RUN, now_ns, record)
+
+    # set matrix — Fixed/Dynamic element (peers mfb setops.mfb plain groups)
+    setmatrix.run_all(RUN, now_ns, record)
 
     # string group (concat/case/search/slice/unicode)
     stringbench.run_all(RUN, now_ns, record)
@@ -850,6 +863,15 @@ def main():
 
     # scalarbench group (roundtrip/classify/transform/listchurn)
     scalarbench.run_all(RUN, now_ns, record)
+
+    # width group (plan-87 strings::displayWidth — ascii/mixed/churn)
+    widthbench.run_all(RUN, now_ns, record)
+
+    # pipeline group (plan-87 chained HOF — int/groupagg/str)
+    pipelinebench.run_all(RUN, now_ns, record)
+
+    # convert group (plan-87 number conversion — int/float)
+    convertbench.run_all(RUN, now_ns, record)
 
     test_primes()
 

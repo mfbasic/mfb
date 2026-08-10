@@ -1,0 +1,15 @@
+' plan-76-C: the tls::poll list overload rejects incorrect usage.
+IMPORT tls
+IMPORT collections
+
+FUNC main AS Integer
+  ' Resource element without RES — rejected at the declaration (§15.6).
+  MUT bare AS List OF TlsSocket = []
+  RES pickBare AS TlsSocket = tls::poll(bare)
+  ' Neither TlsSocket nor List OF RES TlsSocket.
+  LET pickStr = tls::poll("nope")
+  ' Wrong timeout type on the list overload.
+  MUT socks AS List OF RES TlsSocket = []
+  RES pickBad AS TlsSocket = tls::poll(socks, "later")
+  RETURN 0
+END FUNC

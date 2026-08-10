@@ -28,7 +28,6 @@ const FUNCTIONS: &[&str] = &[
     "sortBy",
     "take",
     "drop",
-    "reduceRight",
     "any",
     "all",
     "findIndex",
@@ -76,6 +75,7 @@ const NATIVE_MEMBERS: &[&str] = &[
     "transform",
     "filter",
     "reduce",
+    "reduceRight",
     "sum",
     "find",
     "mid",
@@ -98,11 +98,7 @@ const NATIVE_MEMBERS: &[&str] = &[
 // cannot express, and no delegating wrapper reads them (resolution is
 // resolver-owned; `expected_arguments` keeps its hand-authored "or"-phrased
 // strings). The `.mfb` source companion is modelled as `WhenImported`.
-const fn req(
-    name: &'static str,
-    aliases: &'static [&'static str],
-    ty: &'static str,
-) -> Parameter {
+const fn req(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
     Parameter {
         name,
         aliases,
@@ -114,11 +110,7 @@ const fn req(
 /// An optional trailing parameter (only `find`'s `start`). The `Fill` is inert:
 /// collections has no default-argument padding, so nothing reads it — it exists
 /// solely so `DefaultResolver::arity` derives `find`'s `(2, 3)` range.
-const fn opt(
-    name: &'static str,
-    aliases: &'static [&'static str],
-    ty: &'static str,
-) -> Parameter {
+const fn opt(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
     Parameter {
         name,
         aliases,
@@ -221,6 +213,11 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
         req("predicate", &[], "FUNC(T) AS Boolean"),
     ])]),
     native("collections.reduce", "reduce", &[], &[custom(&[
+        req("value", &["collection"], "List OF T"),
+        req("initial", &["seed"], "U"),
+        req("f", &["combine"], "FUNC(U, T) AS U"),
+    ])]),
+    native("collections.reduceRight", "reduceRight", &[], &[custom(&[
         req("value", &["collection"], "List OF T"),
         req("initial", &["seed"], "U"),
         req("f", &["combine"], "FUNC(U, T) AS U"),
@@ -387,6 +384,7 @@ fn dispatch_resolve<'a>(
         "transform" => resolve_transform(arg_types),
         "filter" => resolve_filter(arg_types),
         "reduce" => resolve_reduce(arg_types),
+        "reduceRight" => resolve_reduce(arg_types),
         "sum" => resolve_sum(arg_types),
         "find" => resolve_find_list(arg_types),
         "mid" => resolve_mid_list(arg_types),
@@ -491,16 +489,18 @@ fn resolve_get_or<'a>(arg_types: &'a [String]) -> Option<super::general::Resolve
         return None;
     }
     if let Some(element) = super::general::list_element(&arg_types[0]) {
-        return (arg_types[1] == "Integer" && arg_types[2] == element).then_some(
-            super::general::ResolvedCall {
-                return_type: Cow::Borrowed(element),
-            },
-        );
+        return (arg_types[1] == "Integer"
+            && super::general::element_accepts_item(element, &arg_types[2]))
+        .then_some(super::general::ResolvedCall {
+            return_type: Cow::Borrowed(element),
+        });
     }
     let (key, value) = super::general::map_parts(&arg_types[0])?;
-    (arg_types[1] == key && arg_types[2] == value).then_some(super::general::ResolvedCall {
-        return_type: Cow::Borrowed(value),
-    })
+    (arg_types[1] == key && super::general::element_accepts_item(value, &arg_types[2])).then_some(
+        super::general::ResolvedCall {
+            return_type: Cow::Borrowed(value),
+        },
+    )
 }
 
 fn resolve_set<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
@@ -508,16 +508,18 @@ fn resolve_set<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCa
         return None;
     }
     if let Some(element) = super::general::list_element(&arg_types[0]) {
-        return (arg_types[1] == "Integer" && arg_types[2] == element).then_some(
-            super::general::ResolvedCall {
-                return_type: Cow::Borrowed(&arg_types[0]),
-            },
-        );
+        return (arg_types[1] == "Integer"
+            && super::general::element_accepts_item(element, &arg_types[2]))
+        .then_some(super::general::ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        });
     }
     let (key, value) = super::general::map_parts(&arg_types[0])?;
-    (arg_types[1] == key && arg_types[2] == value).then_some(super::general::ResolvedCall {
-        return_type: Cow::Borrowed(&arg_types[0]),
-    })
+    (arg_types[1] == key && super::general::element_accepts_item(value, &arg_types[2])).then_some(
+        super::general::ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        },
+    )
 }
 
 fn resolve_append<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
@@ -525,11 +527,10 @@ fn resolve_append<'a>(arg_types: &'a [String]) -> Option<super::general::Resolve
         return None;
     }
     let element = super::general::list_element(&arg_types[0])?;
-    (arg_types[1] == element || arg_types[1] == arg_types[0]).then_some(
-        super::general::ResolvedCall {
+    (super::general::element_accepts_item(element, &arg_types[1]) || arg_types[1] == arg_types[0])
+        .then_some(super::general::ResolvedCall {
             return_type: Cow::Borrowed(&arg_types[0]),
-        },
-    )
+        })
 }
 
 fn resolve_prepend<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
@@ -537,9 +538,11 @@ fn resolve_prepend<'a>(arg_types: &'a [String]) -> Option<super::general::Resolv
         return None;
     }
     let element = super::general::list_element(&arg_types[0])?;
-    (arg_types[1] == element).then_some(super::general::ResolvedCall {
-        return_type: Cow::Borrowed(&arg_types[0]),
-    })
+    super::general::element_accepts_item(element, &arg_types[1]).then_some(
+        super::general::ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        },
+    )
 }
 
 fn resolve_insert<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
@@ -547,9 +550,10 @@ fn resolve_insert<'a>(arg_types: &'a [String]) -> Option<super::general::Resolve
         return None;
     }
     let element = super::general::list_element(&arg_types[0])?;
-    (arg_types[1] == "Integer" && arg_types[2] == element).then_some(super::general::ResolvedCall {
-        return_type: Cow::Borrowed(&arg_types[0]),
-    })
+    (arg_types[1] == "Integer" && super::general::element_accepts_item(element, &arg_types[2]))
+        .then_some(super::general::ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        })
 }
 
 fn resolve_remove_at<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
@@ -719,6 +723,11 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
             &["initial", "seed"],
             &["f", "combine"],
         ]),
+        "reduceRight" => Some(&[
+            &["value", "collection"],
+            &["initial", "seed"],
+            &["f", "combine"],
+        ]),
         "sum" => Some(&[&["value", "collection"]]),
         "find" => Some(&[&["value", "list"], &["item", "needle"], &["start"]]),
         "mid" => Some(&[&["value", "list"], &["start"], &["count"]]),
@@ -753,6 +762,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         "transform" => Some("List OF T, FUNC(T) AS U"),
         "filter" => Some("List OF T, FUNC(T) AS Boolean"),
         "reduce" => Some("List OF T, U, FUNC(U, T) AS U"),
+        "reduceRight" => Some("List OF T, U, FUNC(U, T) AS U"),
         "sum" => Some("List OF Integer, List OF Float, or List OF Fixed"),
         "find" => Some("List OF T, T[, Integer]"),
         "mid" => Some("List OF T, Integer, Integer"),
@@ -1309,6 +1319,70 @@ mod tests {
     }
 
     #[test]
+    fn resolve_collection_element_is_state_agnostic() {
+        // bug-427: a `List OF RES <union> STATE S` element keeps its STATE clause
+        // in the list type string (so an extracted element can read `.state`),
+        // but the two resolver callers normalize the *item* argument differently:
+        // syntaxcheck passes the item WITH its STATE clause, while `ir::verify`
+        // strips the STATE off resource arguments. Both must resolve, so element
+        // insertion compares element and item by their bare resource type.
+        let list = "List OF RES File STATE Cursor";
+
+        // Item carrying its STATE (syntaxcheck's shape) resolves.
+        assert_eq!(
+            rc(resolve_append(&strings(&[list, "File STATE Cursor"]))),
+            Some(list.to_string())
+        );
+        // Item stripped to the bare handle (`ir::verify`'s shape) also resolves.
+        assert_eq!(
+            rc(resolve_append(&strings(&[list, "File"]))),
+            Some(list.to_string())
+        );
+        // A genuinely different resource is still rejected.
+        assert_eq!(rc(resolve_append(&strings(&[list, "Socket"]))), None);
+
+        // `get` returns the element type WITH its STATE clause, so an extracted
+        // element's `.state` types against the union's uniform STATE.
+        assert_eq!(
+            rc(resolve_get(&strings(&[list, "Integer"]))),
+            Some("File STATE Cursor".to_string())
+        );
+
+        // prepend / insert / set share the same STATE-agnostic item compare.
+        assert_eq!(
+            rc(resolve_prepend(&strings(&[list, "File"]))),
+            Some(list.to_string())
+        );
+        assert_eq!(
+            rc(resolve_insert(&strings(&[
+                list,
+                "Integer",
+                "File STATE Cursor"
+            ]))),
+            Some(list.to_string())
+        );
+        assert_eq!(
+            rc(resolve_set(&strings(&[list, "Integer", "File"]))),
+            Some(list.to_string())
+        );
+
+        // Map values carry the same treatment.
+        let map = "Map OF String TO RES File STATE Cursor";
+        assert_eq!(
+            rc(resolve_set(&strings(&[map, "String", "File"]))),
+            Some(map.to_string())
+        );
+        assert_eq!(
+            rc(resolve_get_or(&strings(&[
+                map,
+                "String",
+                "File STATE Cursor"
+            ]))),
+            Some("File STATE Cursor".to_string())
+        );
+    }
+
+    #[test]
     fn resolve_remove_at_and_key() {
         assert_eq!(
             rc(resolve_remove_at(&strings(&["List OF Integer", "Integer"]))),
@@ -1607,7 +1681,10 @@ mod tests {
             None
         );
         assert_eq!(
-            rc(resolve_set_remove(&strings(&["List OF Integer", "Integer"]))),
+            rc(resolve_set_remove(&strings(&[
+                "List OF Integer",
+                "Integer"
+            ]))),
             None
         );
         assert_eq!(rc(resolve_set_remove(&strings(&["Set OF Integer"]))), None);
@@ -1641,5 +1718,4 @@ mod tests {
             Some("List OF Integer".to_string())
         );
     }
-
 }

@@ -228,7 +228,7 @@ static void test_crypto_sha256(void) {
 static void test_crypto_sha512(void) {
   uint8_t buf[1024], out[64];
   make_buf(buf, 1024);
-  int reps = 2; /* TODO(plan-64-A): raise to 64 */
+  int reps = 64;
   long long *t = alloc_times();
   long checksum = 0;
   for (int r = 0; r < RUN; r++) {
@@ -249,7 +249,7 @@ static void test_crypto_hmac(void) {
   uint8_t buf[1024], key[32], out[32];
   make_buf(buf, 1024);
   make_buf(key, 32);
-  int reps = 8; /* TODO(plan-64-A): raise to 64 */
+  int reps = 64;
   long long *t = alloc_times();
   long checksum = 0;
   for (int r = 0; r < RUN; r++) {
@@ -271,7 +271,7 @@ static void test_crypto_pbkdf2(void) {
   uint8_t pw[16], salt[16], dk[32];
   make_buf(pw, 16);
   make_buf(salt, 16);
-  int iters = 64; /* TODO(plan-64-A): raise to 4096 */
+  int iters = 4096;
   long long *t = alloc_times();
   long checksum = 0;
   for (int r = 0; r < RUN; r++) {
@@ -315,7 +315,7 @@ static void test_crypto_cte(void) {
 /* Hash-churn: hash many fresh 40-byte messages. Arena-gated in mfb (plan-64-A);
  * the C mirror keeps the same tiny count so the table lines up. */
 static void test_crypto_churn(void) {
-  int msgs = 16; /* TODO(plan-64-A): raise to 4096 */
+  int msgs = 4096;
   uint8_t out[32];
   long long *t = alloc_times();
   long checksum = 0;

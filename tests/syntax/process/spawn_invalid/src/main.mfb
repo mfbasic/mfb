@@ -1,0 +1,17 @@
+' plan-90-A Phase 2: `process::spawn` rejects wrong arity and argument types.
+' spawn has two overloads: (List OF String) and
+' (List OF String, String, Map OF String TO String, Boolean).
+' A `Process` is a resource, so each call is bound with `RES`.
+IMPORT process
+
+FUNC main AS Integer
+  ' No arguments: below the minimum arity.
+  RES a = process::spawn()
+  ' Wrong argument type: a String is not a List OF String.
+  RES b = process::spawn("echo hi")
+  ' Partial full-form: arity 2 matches no overload.
+  RES c = process::spawn(["echo"], "/tmp")
+  ' Full form with a wrong final type: envReplace must be Boolean.
+  RES d = process::spawn(["echo"], "/tmp", Map OF String TO String { "K" := "V" }, 1)
+  RETURN 0
+END FUNC

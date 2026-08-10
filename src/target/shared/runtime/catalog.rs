@@ -74,6 +74,7 @@ static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     TERM_GET_BOLD_SPEC,
     TERM_GET_UNDERLINE_SPEC,
     TERM_TERMINAL_SIZE_SPEC,
+    TERM_DID_RESIZE_SPEC,
     FS_FILE_EXISTS_SPEC,
     FS_DIRECTORY_EXISTS_SPEC,
     FS_EXISTS_SPEC,
@@ -125,6 +126,31 @@ static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     OS_HOST_NAME_SPEC,
     OS_USER_NAME_SPEC,
     OS_CPU_COUNT_SPEC,
+    // plan-90 process package. `spawnEnv` is code-layer-only (synthesized by the
+    // `builder_values` spawn overload split); `__drop` is the resource-cleanup op
+    // (routed by `helper_for_call`, like audio's close ops); the rest are
+    // source-level calls.
+    PROCESS_SPAWN_SPEC,
+    PROCESS_SPAWN_ENV_SPEC,
+    PROCESS_SHELL_SPEC,
+    PROCESS_PID_SPEC,
+    PROCESS_IS_RUNNING_SPEC,
+    PROCESS_WAIT_FOR_SPEC,
+    PROCESS_CLOSE_SPEC,
+    PROCESS_SEND_SPEC,
+    PROCESS_SEND_BYTES_SPEC,
+    PROCESS_SEND_TIMEOUT_SPEC,
+    PROCESS_SEND_BYTES_TIMEOUT_SPEC,
+    PROCESS_RECEIVE_SPEC,
+    PROCESS_RECEIVE_FROM_SPEC,
+    PROCESS_RECEIVE_BYTES_SPEC,
+    PROCESS_RECEIVE_BYTES_FROM_SPEC,
+    PROCESS_POLL_SPEC,
+    PROCESS_POLL_FROM_SPEC,
+    PROCESS_SIGNAL_SPEC,
+    PROCESS_DID_SIGNAL_SPEC,
+    PROCESS_DETACH_SPEC,
+    PROCESS_DROP_SPEC,
     // plan-67-B: internal perf-tracking helpers. Catalogued (so `spec_for_symbol`
     // resolves the injected `_mfb_rt_perf_*` calls during emission/object
     // planning) but never routed by `helper_for_call` — they are code-layer-only
@@ -143,9 +169,11 @@ static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     THREAD_DROP_SPEC,
     THREAD_SEND_SPEC,
     THREAD_POLL_SPEC,
+    THREAD_SLEEP_SPEC,
     THREAD_READ_SPEC,
     THREAD_RECEIVE_SPEC,
     THREAD_EMIT_SPEC,
+    THREAD_SLEEP_WORKER_SPEC,
     THREAD_TRANSFER_SPEC,
     THREAD_ACCEPT_SPEC,
     THREAD_EMIT_RESOURCE_SPEC,
@@ -159,6 +187,7 @@ static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     NET_LISTEN_TCP_SPEC,
     NET_ACCEPT_SPEC,
     NET_POLL_SPEC,
+    NET_POLL_LIST_SPEC,
     NET_READ_SPEC,
     NET_READ_TEXT_SPEC,
     NET_WRITE_SPEC,
@@ -180,6 +209,8 @@ static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     TLS_READ_TEXT_SPEC,
     TLS_WRITE_SPEC,
     TLS_WRITE_TEXT_SPEC,
+    TLS_POLL_SPEC,
+    TLS_POLL_LIST_SPEC,
     TLS_CLOSE_SPEC,
     TLS_CLOSE_LISTENER_SPEC,
 ];
@@ -227,7 +258,27 @@ mod tests {
             "thread.drop",
             "thread.read",
             "thread.emit",
+            // plan-91-B: worker-side sleep is synthesized from `thread.sleep` in
+            // the code layer (builder_values), so it never exists at NIR level.
+            "thread.sleepWorker",
             "net.connectTcpAddr",
+            // plan-90-A: `process.spawn(args, cwd, env, envReplace)` is rewritten to
+            // `process.spawnEnv` in the code layer (`builder_values`), so it never
+            // exists at the NIR level and `helper_for_call` must not classify it.
+            // (`process.__drop` IS routed — like audio's close ops — via
+            // `is_process_runtime_call`, so it is deliberately NOT listed here.)
+            "process.spawnEnv",
+            "process.sendTimeout",
+            "process.sendBytesTimeout",
+            "process.pollFrom",
+            "process.receiveFrom",
+            "process.receiveBytesFrom",
+            // plan-76-A: `net.poll(List OF RES Socket)` is rewritten to `net.pollList`
+            // in the code layer (`builder_values`), so it never exists at the NIR
+            // level and `helper_for_call` must not classify it.
+            "net.pollList",
+            // plan-76-C: same for `tls.poll(List OF RES TlsSocket)` → `tls.pollList`.
+            "tls.pollList",
             // plan-67-B: perf helpers are injected by the code layer (program
             // entry/exit + arena-region wrapping), never present at the NIR level,
             // so `helper_for_call` must NOT classify them.
@@ -293,6 +344,7 @@ mod tests {
             RuntimeHelper::Io,
             RuntimeHelper::Net,
             RuntimeHelper::Os,
+            RuntimeHelper::Process,
             // plan-67-B: catalogued (four `perf.*` specs) though code-layer-only.
             RuntimeHelper::Perf,
             RuntimeHelper::Term,
@@ -305,6 +357,6 @@ mod tests {
                 helper.name()
             );
         }
-        assert_eq!(families.len(), 12, "unexpected extra catalogued family");
+        assert_eq!(families.len(), 13, "unexpected extra catalogued family");
     }
 }

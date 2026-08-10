@@ -178,7 +178,12 @@ const P_PBKDF2: &[Parameter] = &[
     req("iterations", "Integer"),
     req("length", "Integer"),
 ];
-const P_SEAL: &[Parameter] = &[req("key", BYTES), req("nonce", BYTES), req("plaintext", BYTES), AAD];
+const P_SEAL: &[Parameter] = &[
+    req("key", BYTES),
+    req("nonce", BYTES),
+    req("plaintext", BYTES),
+    AAD,
+];
 const P_OPEN: &[Parameter] = &[
     req("key", BYTES),
     req("nonce", BYTES),
@@ -189,7 +194,11 @@ const P_OPEN: &[Parameter] = &[
 const P_COUNT: &[Parameter] = &[req("count", "Integer")];
 const P_MINMAX: &[Parameter] = &[req("min", "Integer"), req("max", "Integer")];
 const P_SIGN: &[Parameter] = &[req("privateKey", BYTES), req("message", BYTES)];
-const P_VERIFY: &[Parameter] = &[req("publicKey", BYTES), req("message", BYTES), req("signature", BYTES)];
+const P_VERIFY: &[Parameter] = &[
+    req("publicKey", BYTES),
+    req("message", BYTES),
+    req("signature", BYTES),
+];
 const P_AB: &[Parameter] = &[req("a", BYTES), req("b", BYTES)];
 
 const CRYPTO_FUNCTIONS: &[BuiltinFunction] = &[
@@ -205,12 +214,24 @@ const CRYPTO_FUNCTIONS: &[BuiltinFunction] = &[
     cf(PBKDF2_SHA512, "pbkdf2Sha512", &[ov(P_PBKDF2, BYTES)]),
     cf(AES256_GCM_SEAL, "aes256GcmSeal", &[ov(P_SEAL, SEALED_TYPE)]),
     cf(AES256_GCM_OPEN, "aes256GcmOpen", &[ov(P_OPEN, BYTES)]),
-    cf(CHACHA20_POLY1305_SEAL, "chacha20Poly1305Seal", &[ov(P_SEAL, SEALED_TYPE)]),
-    cf(CHACHA20_POLY1305_OPEN, "chacha20Poly1305Open", &[ov(P_OPEN, BYTES)]),
+    cf(
+        CHACHA20_POLY1305_SEAL,
+        "chacha20Poly1305Seal",
+        &[ov(P_SEAL, SEALED_TYPE)],
+    ),
+    cf(
+        CHACHA20_POLY1305_OPEN,
+        "chacha20Poly1305Open",
+        &[ov(P_OPEN, BYTES)],
+    ),
     cf(RANDOM_BYTES, "randomBytes", &[ov(P_COUNT, BYTES)]),
     cf(RANDOM_INT, "randomInt", &[ov(P_MINMAX, "Integer")]),
     cf(UUID4, "uuid4", &[ov(&[], "String")]),
-    cf(GENERATE_ED25519, "generateEd25519", &[ov(&[], KEYPAIR_TYPE)]),
+    cf(
+        GENERATE_ED25519,
+        "generateEd25519",
+        &[ov(&[], KEYPAIR_TYPE)],
+    ),
     cf(GENERATE_P256, "generateP256", &[ov(&[], KEYPAIR_TYPE)]),
     cf(GENERATE_P384, "generateP384", &[ov(&[], KEYPAIR_TYPE)]),
     cf(GENERATE_P521, "generateP521", &[ov(&[], KEYPAIR_TYPE)]),
@@ -225,7 +246,11 @@ const CRYPTO_FUNCTIONS: &[BuiltinFunction] = &[
     cf(P384_VERIFY, "p384Verify", &[ov(P_VERIFY, "Boolean")]),
     cf(P521_SIGN, "p521Sign", &[ov(P_SIGN, BYTES)]),
     cf(P521_VERIFY, "p521Verify", &[ov(P_VERIFY, "Boolean")]),
-    cf(CONSTANT_TIME_EQUAL, "constantTimeEqual", &[ov(P_AB, "Boolean")]),
+    cf(
+        CONSTANT_TIME_EQUAL,
+        "constantTimeEqual",
+        &[ov(P_AB, "Boolean")],
+    ),
 ];
 
 const CRYPTO_TYPES: &[BuiltinType] = &[
@@ -843,7 +868,10 @@ mod tests {
 
         // Random.
         assert_eq!(rt(RANDOM_BYTES, &["Integer"]), Some(BYTES.to_string()));
-        assert_eq!(rt(RANDOM_INT, &["Integer", "Integer"]), Some("Integer".to_string()));
+        assert_eq!(
+            rt(RANDOM_INT, &["Integer", "Integer"]),
+            Some("Integer".to_string())
+        );
 
         // Nullary source glue.
         assert_eq!(rt(UUID4, &[]), Some("String".to_string()));
@@ -884,5 +912,4 @@ mod tests {
             Some("__crypto_constantTimeEqual".to_string())
         );
     }
-
 }

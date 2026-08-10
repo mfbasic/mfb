@@ -1,0 +1,25 @@
+' plan-90-C Phase 1: signal + didSignal. A sleeper killed with Terminate exits
+' via signal (waitFor == -1) and reports didSignal == Terminate; a normal exit
+' reports didSignal == None.
+IMPORT process
+IMPORT io
+
+FUNC main AS Integer
+  RES p = process::spawn(["sleep", "30"])
+  process::signal(p, Signal.Terminate)
+  io::print(toString(process::waitFor(p)))
+  IF process::didSignal(p) = Signal.Terminate THEN
+    io::print("terminate")
+  ELSE
+    io::print("other")
+  END IF
+
+  RES q = process::spawn(["true"])
+  io::print(toString(process::waitFor(q)))
+  IF process::didSignal(q) = Signal.None THEN
+    io::print("none")
+  ELSE
+    io::print("other")
+  END IF
+  RETURN 0
+END FUNC

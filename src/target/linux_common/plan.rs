@@ -420,6 +420,10 @@ impl LinuxPlan<'_> {
                 stdin_broadcast_imports(&mut imports);
                 imports
             }
+            // plan-91-A: the parent sleep helper calls only libc `nanosleep`; the
+            // pthread set is pulled by `thread.start` (needed to obtain the handle).
+            // Gating nanosleep to this call keeps non-sleep programs byte-identical.
+            "thread.sleep" => vec![self.libc_import("nanosleep", required_by)],
             "thread.start"
             | "thread.isRunning"
             | "thread.waitFor"
@@ -430,6 +434,7 @@ impl LinuxPlan<'_> {
             | "thread.read"
             | "thread.receive"
             | "thread.emit"
+            | "thread.sleepWorker"
             | "thread.isCancelled"
             | "thread.transferResource"
             | "thread.acceptResource"
@@ -466,6 +471,25 @@ impl LinuxPlan<'_> {
                     .into_iter()
                     .map(|symbol| self.libc_import(symbol, required_by))
                     .collect()
+            }
+            call if crate::builtins::process::is_process_runtime_call(call) => {
+                // plan-90: fork/exec/pipe/wait + the errno accessor. Over-importing
+                // is harmless (the merged table dedups). `_exit` is spelled without
+                // the leading underscore macOS uses.
+                // The process helpers call libc `write` directly (the exec-failure
+                // self-pipe report), so `write` is NOT filtered here the way the
+                // raw-syscall net write path filters it.
+                let mut imports = [
+                    "pipe", "fork", "dup2", "execvp", "close", "waitpid", "kill", "read", "write",
+                    "fcntl", "poll", "signal", "_exit", "chdir", "setenv", "unsetenv",
+                ]
+                .iter()
+                .map(|base| self.libc_import(base, required_by))
+                .collect::<Vec<_>>();
+                imports.push(self.libc_import("__errno_location", required_by));
+                // `environ` (a data global) is read by spawnEnv's envReplace clear.
+                imports.push(self.libc_import("environ", required_by));
+                imports
             }
             call if crate::builtins::net::is_net_call(call) => {
                 // bug-300 E10: where `emit_write` is a raw syscall the net write
@@ -544,6 +568,11 @@ impl LinuxPlan<'_> {
                     for base in ["accept", "poll"] {
                         imports.push(self.libc_import(base, required_by));
                     }
+                }
+                if call == "tls.poll" {
+                    // plan-76-B: SSL_pending fast-path (dlsym, above) + poll(fd) for
+                    // the raw-readable fallback and its EINTR retry.
+                    imports.push(self.libc_import("poll", required_by));
                 }
                 imports
             }

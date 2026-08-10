@@ -1,7 +1,7 @@
 use crate::ast::{
     AstFile, AstProject, ConstructorArg, DocBlock, DocHeaderKind, Expression, Function,
     FunctionKind, Item, MatchPattern, ResourceDecl, Statement, TopLevelBinding, TypeDecl,
-    TypeDeclKind, TypeField, Visibility,
+    TypeDeclKind, TypeField, Visibility, SELF_IMPORT,
 };
 use crate::binary_repr;
 use crate::builtins;
@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use tinyjson::JsonValue;
 
 const BUILTIN_TYPES: &[&str] = &[
+    "AttributedString",
     "Boolean",
     "Byte",
     "Error",
@@ -39,6 +40,7 @@ const BUILTIN_TYPES: &[&str] = &[
     builtins::audio::AUDIO_INPUT_TYPE,
     builtins::audio::AUDIO_OUTPUT_TYPE,
     builtins::audio::AUDIO_DEVICE_TYPE,
+    builtins::process::PROCESS_TYPE,
 ];
 
 pub fn resolve_project(
@@ -70,13 +72,22 @@ pub fn resolve_project_with(
     validate_docs: bool,
 ) -> Result<(), ()> {
     let augmented = builtins::json::augmented_project(ast)?;
+    // The `term`↔`astrings` drawText bridge, injected only when a program imports
+    // BOTH packages; it imports term/astrings/strings, so it precedes all three so
+    // their `uses_package` sees the dependency (mirrors `http` before `net`).
+    let augmented = builtins::term::bridge_augmented_project(&augmented)?;
+    // `astrings_package.mfb` imports only `collections` (native members) and
+    // `astrings` itself (the internal overlay bridge), so it has no companion
+    // ordering dependency.
+    let augmented = builtins::astrings::augmented_project(&augmented)?;
     let augmented = builtins::app::augmented_project(&augmented)?;
     let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
     let augmented = builtins::datetime::augmented_project(&augmented)?;
     let augmented = builtins::money::augmented_project(&augmented)?;
-    // `term_package.mfb` declares only the `LineStyle` enum and imports nothing,
-    // so it has no source ordering dependency.
+    // `term_package.mfb` declares only the `LineStyle`/`FillStyle` enums and imports
+    // nothing, so it has no source ordering dependency (the attribute bridge is a
+    // separate gated source, injected above).
     let augmented = builtins::term::augmented_project(&augmented)?;
     // `vector` imports only the intrinsic `math` package, so it has no source
     // ordering dependency (plan-06-vector.md §5).
@@ -87,6 +98,7 @@ pub fn resolve_project_with(
     let augmented = builtins::http::augmented_project(&augmented)?;
     let augmented = builtins::net::augmented_project(&augmented)?;
     let augmented = builtins::audio::augmented_project(&augmented)?;
+    let augmented = builtins::process::augmented_project(&augmented)?;
     // `crypto` is injected before `encoding`: `crypto_package.mfb` imports
     // `encoding`, so the encoding source companion must be added only after
     // crypto's source is present for `encoding::uses_package` to see the
@@ -168,6 +180,11 @@ struct Resolver<'a> {
     /// (plan-link-update.md §5b).
     link_functions: HashMap<String, HashMap<String, LinkFnSig>>,
     active_template_params: HashSet<String>,
+    /// Whether this project is `kind: "package"`. Gates the reserved `IMPORT self`
+    /// specifier: only a package has an exported interface to import, so
+    /// `IMPORT self` in an executable is `IMPORT_SELF_IN_EXECUTABLE`
+    /// (plan-81-import-self.md §4.3).
+    is_package: bool,
     had_error: bool,
 }
 
@@ -213,6 +230,15 @@ impl<'a> Resolver<'a> {
                 .collect(),
             link_functions: HashMap::new(),
             active_template_params: HashSet::new(),
+            // Non-panicking kind read: `manifest::project_kind` asserts a
+            // validated `kind`, but `Resolver::new` also runs from paths with an
+            // empty/partial manifest (doc validation, unit tests). Absent kind →
+            // treat as non-package, so `IMPORT self` there is rejected, not a panic.
+            is_package: manifest
+                .get("kind")
+                .and_then(|value| value.get::<String>())
+                .map(|kind| kind == "package")
+                .unwrap_or(false),
             had_error: false,
         };
         resolver.collect_top_level_symbols(ast);

@@ -1,0 +1,14 @@
+' plan-90-A Phase 2: `process::close(p AS Process) AS Nothing` rejects wrong
+' arity and a non-`Process` receiver. `close` returns Nothing, so it is called
+' as a statement.
+IMPORT process
+
+FUNC main AS Integer
+  ' No arguments: below the minimum arity.
+  process::close()
+  ' Wrong receiver type: an Integer is not a Process.
+  process::close(5)
+  ' Too many arguments.
+  process::close(5, 6)
+  RETURN 0
+END FUNC

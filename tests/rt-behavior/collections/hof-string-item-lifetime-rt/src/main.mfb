@@ -12,9 +12,9 @@
 ' RESULT_VALUE_REGISTER -- arena_free is a call, and a call clobbers every
 ' caller-saved register.
 '
-' `reduce` is deliberately NOT freed: its reducer may return the item itself as the
-' new accumulator (pickLast below), so freeing would be a use-after-free. That case
-' is exercised here to keep it that way.
+' `reduce` reclaims its superseded item/accumulator now (plan-86-B) but only when
+' the reducer did not carry the block forward: pickLast below returns the item as
+' the accumulator, so the guarded free must keep it (reduce-alias still = fghi).
 IMPORT io
 IMPORT collections
 IMPORT strings

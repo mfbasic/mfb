@@ -236,7 +236,7 @@
       ]
     },
     { "op": "eval", "line": 136, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.reduce", "args": [{ "kind": "local", "name": "ints" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "functionRef", "name": "$lambda12", "type": "FUNC(Integer, Integer) AS Integer" }] }] }] } },
-    { "op": "eval", "line": 137, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "#collections_reduceRight$Integer$Integer", "args": [{ "kind": "local", "name": "ints" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "functionRef", "name": "$lambda13", "type": "FUNC(Integer, Integer) AS Integer" }] }] }] } },
+    { "op": "eval", "line": 137, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.reduceRight", "args": [{ "kind": "local", "name": "ints" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "functionRef", "name": "$lambda13", "type": "FUNC(Integer, Integer) AS Integer" }] }] }] } },
     {
       "op": "forEach",
       "line": 140,
@@ -827,33 +827,6 @@
     },
     { "op": "bind", "line": 355, "mutable": false, "name": "result", "type": "Partition$Integer", "value": { "kind": "constructor", "type": "Partition$Integer", "args": [{ "kind": "local", "name": "matched" }, { "kind": "local", "name": "unmatched" }] } },
     { "op": "return", "line": 356, "value": { "kind": "local", "name": "result" } }
-    ]
-  },
-  {
-    "name": "#collections_reduceRight$Integer$Integer",
-    "line": 160,
-    "visibility": "public",
-    "kind": "func",
-    "params": [
-    { "name": "value", "line": 160, "type": "List OF Integer", "default": null },
-    { "name": "initial", "line": 160, "type": "Integer", "default": null },
-    { "name": "f", "line": 160, "type": "FUNC(Integer, Integer) AS Integer", "default": null }
-    ],
-    "returns": "Integer",
-    "body": [
-    { "op": "bind", "line": 161, "mutable": true, "name": "acc", "type": "Integer", "value": { "kind": "local", "name": "initial" } },
-    { "op": "bind", "line": 162, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-    {
-      "op": "while",
-      "line": 163,
-      "loop": "while",
-      "condition": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
-      "body": [
-      { "op": "assign", "line": 164, "name": "acc", "value": { "kind": "call", "type": "Integer", "target": "f", "args": [{ "kind": "local", "name": "acc" }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] } },
-      { "op": "assign", "line": 165, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
-      ]
-    },
-    { "op": "return", "line": 167, "value": { "kind": "local", "name": "acc" } }
     ]
   },
   {

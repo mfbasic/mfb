@@ -67,11 +67,12 @@ pub(in crate::target::shared::code) fn write_uses_raw_syscall(
 /// established errno scratch and is dead on the negative-return path.
 pub(in crate::target::shared::code) fn emit_eintr_retry_or_error(
     ctx: &mut EmitCtx,
-    ret: &str,
+    ret: impl Into<Operand>,
     raw_return: bool,
     retry_label: &str,
     error_label: &str,
 ) -> Result<(), String> {
+    let ret = ret.into();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
@@ -86,8 +87,8 @@ pub(in crate::target::shared::code) fn emit_eintr_retry_or_error(
         // Raw-`svc` return is `-errno`: EINTR iff `ret == -EINTR`, i.e.
         // `ret + EINTR == 0`.
         ctx.instructions.extend([
-            abi::add_immediate(ret, ret, eintr),
-            abi::compare_immediate(ret, "0"),
+            abi::add_immediate(&ret, &ret, eintr),
+            abi::compare_immediate(&ret, "0"),
             abi::branch_eq(retry_label),
             abi::branch(error_label),
         ]);
@@ -95,13 +96,13 @@ pub(in crate::target::shared::code) fn emit_eintr_retry_or_error(
         // `emit_errno` loads the current `errno` into `ret` (reused).
         platform.emit_errno(
             symbol,
-            ret,
+            (ret.clone()).into(),
             platform_imports,
             ctx.instructions,
             ctx.relocations,
         )?;
         ctx.instructions.extend([
-            abi::compare_immediate(ret, EINTR_ERRNO),
+            abi::compare_immediate(&ret, EINTR_ERRNO),
             abi::branch_eq(retry_label),
             abi::branch(error_label),
         ]);
@@ -121,20 +122,21 @@ pub(in crate::target::shared::code) fn emit_eintr_retry_or_error(
 /// pass `false` for every `read` loop (reads always go through libc).
 pub(in crate::target::shared::code) fn emit_transfer_loop_tail(
     ctx: &mut EmitCtx,
-    ret: &str,
+    ret: impl Into<Operand>,
     raw_return: bool,
     cursor: &str,
     remaining: &str,
     loop_label: &str,
     error_label: &str,
 ) -> Result<(), String> {
+    let ret = ret.into();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
 
     let advance = format!("{loop_label}_advance");
     ctx.instructions.extend([
-        abi::compare_immediate(ret, "0"),
+        abi::compare_immediate(&ret, "0"),
         abi::branch_gt(&advance),
         abi::branch_eq(error_label),
     ]);
@@ -146,15 +148,15 @@ pub(in crate::target::shared::code) fn emit_transfer_loop_tail(
             instructions: ctx.instructions,
             relocations: ctx.relocations,
         },
-        ret,
+        &ret,
         raw_return,
         loop_label,
         error_label,
     )?;
     ctx.instructions.extend([
         abi::label(&advance),
-        abi::add_registers(cursor, cursor, ret),
-        abi::subtract_registers(remaining, remaining, ret),
+        abi::add_registers(cursor, cursor, &ret),
+        abi::subtract_registers(remaining, remaining, &ret),
         abi::branch(loop_label),
     ]);
     Ok(())
@@ -392,7 +394,7 @@ pub(in crate::target::shared::code) fn lower_fs_set_buffered_helper(symbol: &str
     // x0 = File*, x1 = enabled (Boolean).
     let mut instructions = vec![
         abi::label("entry"),
-        abi::compare_immediate(abi::RET[1], "0"),
+        abi::compare_immediate(abi::mfb_return(1), "0"),
         abi::branch_ne(&enable),
         // Disable: drain first (best-effort — setBuffered returns Nothing), then
         // clear the flag. File* is already in x0 for the drain; park it for the store.
@@ -492,12 +494,12 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
-        abi::move_register(&mode, abi::RET[1]),
+        abi::move_register(&mode, abi::mfb_return(1)),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
         abi::add_immediate(abi::return_register(), &len0, 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
@@ -516,7 +518,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_ok),
-        abi::move_register(&c_path, abi::RET[1]),
+        abi::move_register(&c_path, abi::mfb_return(1)),
         abi::load_u64(&len, &path, 0),
         abi::add_immediate(&src, &path, 8),
         abi::move_register(&dst, &c_path),
@@ -596,12 +598,12 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
             // The syscall number is arg 0 of `syscall()`, so it goes in ARG[0]
             // (never the return register — %ret0 is call-clobbered and a def there
             // with no use before the call would be dropped on aarch64).
-            abi::move_immediate(abi::ARG[0], "Integer", "437"),
-            abi::move_immediate(abi::ARG[1], "Integer", "0"),
-            abi::subtract_immediate(abi::ARG[1], abi::ARG[1], 100), // AT_FDCWD
-            abi::move_register(abi::ARG[2], &c_path),
-            abi::add_immediate(abi::ARG[3], abi::stack_pointer(), 0), // &how
-            abi::move_immediate(abi::ARG[4], "Integer", "24"),
+            abi::move_immediate(abi::c_arg(0), "Integer", "437"),
+            abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+            abi::subtract_immediate(abi::c_arg(1), abi::c_arg(1), 100), // AT_FDCWD
+            abi::move_register(abi::c_arg(2), &c_path),
+            abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), 0), // &how
+            abi::move_immediate(abi::c_arg(4), "Integer", "24"),
         ]);
         platform.emit_variadic_call(
             "syscall",
@@ -612,7 +614,9 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
         )?;
         instructions.extend([
             // C `int` fd — sign-extend before the signed compare (bug-04/bug-170).
-            abi::sign_extend_word(abi::return_register(), abi::return_register()),
+            // plan-85: the `syscall()`/openat2 return is a C result (`rax`, `%retC`);
+            // read the source from the C-return register (byte-identical `x0` on ARM).
+            abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_ge(&open_ok),
         ]);
@@ -620,7 +624,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
         // open below; any other errno is a real failure mapped as usual.
         platform.emit_errno(
             symbol,
-            &openat2_errno,
+            (&openat2_errno).into(),
             platform_imports,
             &mut instructions,
             &mut relocations,
@@ -632,10 +636,10 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
     }
     instructions.extend([
         abi::move_register(abi::return_register(), &c_path),
-        abi::move_register(abi::ARG[1], &flag_val),
+        abi::move_register(abi::c_arg(1), &flag_val),
         // Create newly-opened files owner-only (0o600 = 384), not world-readable
         // 0o666; matches createTempFile/atomicWrite (audit-2 OS-01 / bug-184).
-        abi::move_immediate(abi::ARG[2], "Integer", "384"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "384"),
     ]);
     platform.emit_open_file(
         symbol,
@@ -645,7 +649,9 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
     )?;
     instructions.extend([
         // C `int` open fd — sign-extend before the signed compare (bug-04/bug-170).
-        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        // plan-85: `open` return is a C result (`rax`, `%retC`) — read the source
+        // from the C-return register (byte-identical `x0` on AArch64/RISC-V).
+        abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge(&open_ok),
         abi::branch(&open_error),
@@ -659,8 +665,8 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
         // traversed at ANY component. `fd`/`c_path` are spilled vregs, so they
         // survive the arena_alloc inside the verify hook.
         instructions.extend([
-            abi::move_register(abi::ARG[0], &fd),
-            abi::move_register(abi::ARG[1], &c_path),
+            abi::move_register(abi::c_arg(0), &fd),
+            abi::move_register(abi::c_arg(1), &c_path),
         ]);
         platform.emit_verify_nofollow(
             symbol,
@@ -685,7 +691,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
     }
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", RESOURCE_RECORD_SIZE),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -707,20 +713,27 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
     instructions.extend([
         abi::branch(&done),
         abi::label(&file_alloc_ok),
-        abi::store_u64(&fd, abi::RET[1], FILE_OFFSET_FD),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_CLOSED),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_STATE),
+        // Canonical plan-80 header: tag@0 (x0 is dead after the alloc-ok compare).
+        abi::move_immediate(abi::return_register(), "Integer", RESOURCE_TAG_FILE),
+        abi::store_u64(
+            abi::return_register(),
+            abi::mfb_return(1),
+            RESOURCE_OFFSET_TAG,
+        ),
+        abi::store_u64(&fd, abi::mfb_return(1), FILE_OFFSET_FD),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_CLOSED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_STATE),
         // Opt-in per-File output buffer (plan-14-B): a fresh handle is unbuffered.
         // Arena memory is poisoned, so zero the buffer fields explicitly.
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_PTR),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_FILLED),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_ENABLED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_PTR),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_FILLED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_ENABLED),
         // Transparent read buffer (plan-14-C): empty cache at the fd's position.
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_PTR),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_POS),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_FILL),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_AT_EOF),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_PTR),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_POS),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_FILL),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_AT_EOF),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&invalid),
@@ -730,7 +743,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
     let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
-        &errno_reg,
+        (&errno_reg).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -855,15 +868,15 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&root, abi::return_register()),
-        abi::move_register(&rel, abi::RET[1]),
-        abi::move_register(&mode, abi::RET[2]),
+        abi::move_register(&rel, abi::mfb_return(1)),
+        abi::move_register(&mode, abi::mfb_return(2)),
         // root must be non-empty.
         abi::load_u64(&len0, &root, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
         // Allocate + copy root into a C string.
         abi::add_immediate(abi::return_register(), &len0, 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ];
     alloc_call(&mut instructions, &mut relocations);
     instructions.extend([
@@ -874,7 +887,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     instructions.extend([
         abi::branch(&done),
         abi::label(&root_alloc_ok),
-        abi::move_register(&root_cstr, abi::RET[1]),
+        abi::move_register(&root_cstr, abi::mfb_return(1)),
         abi::load_u64(&len, &root, 0),
         abi::add_immediate(&src, &root, 8),
         abi::move_register(&dst, &root_cstr),
@@ -898,7 +911,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
             "Integer",
             &PATH_MAX_PLUS_NUL.to_string(),
         ),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     alloc_call(&mut instructions, &mut relocations);
     instructions.extend([
@@ -909,11 +922,11 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     instructions.extend([
         abi::branch(&done),
         abi::label(&buffer_alloc_ok),
-        abi::move_register(&c_path, abi::RET[1]),
+        abi::move_register(&c_path, abi::mfb_return(1)),
         // realpath(root_cstr, c_path): canonicalize the trusted root (resolving its
         // own symlinks). NULL return => the root does not resolve.
         abi::move_register(abi::return_register(), &root_cstr),
-        abi::move_register(abi::ARG[1], &c_path),
+        abi::move_register(abi::c_arg(1), &c_path),
     ]);
     platform.emit_realpath(
         symbol,
@@ -1061,12 +1074,12 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
             abi::store_u64(&how_scratch, abi::stack_pointer(), 8),
             abi::move_immediate(&how_scratch, "Integer", "4"), // RESOLVE_NO_SYMLINKS
             abi::store_u64(&how_scratch, abi::stack_pointer(), 16),
-            abi::move_immediate(abi::ARG[0], "Integer", "437"), // SYS_openat2
-            abi::move_immediate(abi::ARG[1], "Integer", "0"),
-            abi::subtract_immediate(abi::ARG[1], abi::ARG[1], 100), // AT_FDCWD
-            abi::move_register(abi::ARG[2], &c_path),
-            abi::add_immediate(abi::ARG[3], abi::stack_pointer(), 0),
-            abi::move_immediate(abi::ARG[4], "Integer", "24"),
+            abi::move_immediate(abi::c_arg(0), "Integer", "437"), // SYS_openat2
+            abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+            abi::subtract_immediate(abi::c_arg(1), abi::c_arg(1), 100), // AT_FDCWD
+            abi::move_register(abi::c_arg(2), &c_path),
+            abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), 0),
+            abi::move_immediate(abi::c_arg(4), "Integer", "24"),
         ]);
         platform.emit_variadic_call(
             "syscall",
@@ -1076,13 +1089,16 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
             &mut relocations,
         )?;
         instructions.extend([
-            abi::sign_extend_word(abi::return_register(), abi::return_register()),
+            // plan-85: the `syscall()`/openat2 return is a C-call result (`rax`,
+            // `%retC`); read it from the C-return register and land it in the aligned
+            // MFB result register. Byte-identical on AArch64/RISC-V (both are `x0`).
+            abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_ge(&open_ok),
         ]);
         platform.emit_errno(
             symbol,
-            &openat2_errno,
+            (&openat2_errno).into(),
             platform_imports,
             &mut instructions,
             &mut relocations,
@@ -1094,8 +1110,8 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     }
     instructions.extend([
         abi::move_register(abi::return_register(), &c_path),
-        abi::move_register(abi::ARG[1], &flag_val),
-        abi::move_immediate(abi::ARG[2], "Integer", "384"),
+        abi::move_register(abi::c_arg(1), &flag_val),
+        abi::move_immediate(abi::c_arg(2), "Integer", "384"),
     ]);
     platform.emit_open_file(
         symbol,
@@ -1104,7 +1120,9 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        // plan-85: the `open` return is a C-call result (`rax`, `%retC`); read it
+        // from the C-return register into the aligned MFB result register.
+        abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge(&open_ok),
         abi::branch(&open_error),
@@ -1117,8 +1135,8 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
         // path and refuse (ErrAccessDenied) on escape. `fd`/`root_cstr` are spilled
         // vregs and survive the arena_alloc inside the verify hook.
         instructions.extend([
-            abi::move_register(abi::ARG[0], &fd),
-            abi::move_register(abi::ARG[1], &root_cstr),
+            abi::move_register(abi::c_arg(0), &fd),
+            abi::move_register(abi::c_arg(1), &root_cstr),
         ]);
         platform.emit_verify_within(
             symbol,
@@ -1142,7 +1160,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     }
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", RESOURCE_RECORD_SIZE),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     alloc_call(&mut instructions, &mut relocations);
     instructions.extend([
@@ -1160,17 +1178,24 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     instructions.extend([
         abi::branch(&done),
         abi::label(&file_alloc_ok),
-        abi::store_u64(&fd, abi::RET[1], FILE_OFFSET_FD),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_CLOSED),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_STATE),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_PTR),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_FILLED),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_BUF_ENABLED),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_PTR),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_POS),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_FILL),
-        abi::store_u64(abi::ZERO, abi::RET[1], FILE_OFFSET_READ_AT_EOF),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::RET[1]),
+        // Canonical plan-80 header: tag@0 (x0 is dead after the alloc-ok compare).
+        abi::move_immediate(abi::return_register(), "Integer", RESOURCE_TAG_FILE),
+        abi::store_u64(
+            abi::return_register(),
+            abi::mfb_return(1),
+            RESOURCE_OFFSET_TAG,
+        ),
+        abi::store_u64(&fd, abi::mfb_return(1), FILE_OFFSET_FD),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_CLOSED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_STATE),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_PTR),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_FILLED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_ENABLED),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_PTR),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_POS),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_FILL),
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_AT_EOF),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&invalid),
@@ -1184,7 +1209,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
-        &errno_reg,
+        (&errno_reg).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -1266,7 +1291,9 @@ pub(in crate::target::shared::code) fn lower_fs_close_helper(
         // a re-close is refused by the `already_closed` guard.
         abi::move_immediate(&flag, "Integer", "1"),
         abi::store_u64(&flag, &file, FILE_OFFSET_CLOSED),
-        abi::compare_immediate(abi::return_register(), "0"),
+        // plan-85: the `close` return is a C result (`rax`, `%retC`), not the aligned
+        // MFB result register (which still holds the fd argument here).
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_lt(&close_error),
     ]);
     if flush_on_close {
@@ -1335,7 +1362,7 @@ pub(in crate::target::shared::code) fn lower_fs_write_all_helper(
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
-        abi::move_register(&data, abi::RET[1]),
+        abi::move_register(&data, abi::mfb_return(1)),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
         abi::compare_immediate(&closed_flag, "0"),
         abi::branch_ne(&closed),
@@ -1388,8 +1415,8 @@ pub(in crate::target::shared::code) fn lower_fs_write_all_helper(
         abi::compare_immediate(&remaining, "0"),
         abi::branch_eq(&done_write),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_register(abi::ARG[1], &cursor),
-        abi::move_register(abi::ARG[2], &remaining),
+        abi::move_register(abi::c_arg(1), &cursor),
+        abi::move_register(abi::c_arg(2), &remaining),
     ]);
     platform.emit_write(
         symbol,
@@ -1481,8 +1508,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_helper(
     instructions.extend([
         abi::load_u64(&fd, &file, FILE_OFFSET_FD),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "1"),
     ]);
     platform.emit_seek_file(
         symbol,
@@ -1495,8 +1522,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_helper(
         abi::branch_lt(&seek_error),
         abi::move_register(&start, abi::return_register()),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::move_immediate(abi::ARG[2], "Integer", "2"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "2"),
     ]);
     platform.emit_seek_file(
         symbol,
@@ -1509,8 +1536,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_helper(
         abi::branch_lt(&seek_error),
         abi::move_register(&end, abi::return_register()),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_register(abi::ARG[1], &start),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_register(abi::c_arg(1), &start),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
     platform.emit_seek_file(
         symbol,
@@ -1525,7 +1552,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_helper(
         abi::branch_lt(&seek_error),
         abi::subtract_registers(&length, &end, &start),
         abi::add_immediate(abi::return_register(), &length, 9),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -1534,7 +1561,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_helper(
         abi::branch_eq(&alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&string, abi::RET[1]),
+        abi::move_register(&string, abi::mfb_return(1)),
         abi::store_u64(&length, &string, 0),
         abi::move_register(&remaining, &length),
         abi::add_immediate(&cursor, &string, 8),
@@ -1542,8 +1569,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_helper(
         abi::compare_immediate(&remaining, "0"),
         abi::branch_eq(&read_done),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_register(abi::ARG[1], &cursor),
-        abi::move_register(abi::ARG[2], &remaining),
+        abi::move_register(abi::c_arg(1), &cursor),
+        abi::move_register(abi::c_arg(2), &remaining),
     ]);
     platform.emit_read_file(
         symbol,
@@ -1569,8 +1596,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_helper(
     instructions.extend([
         abi::label(&read_done),
         abi::store_u8(abi::ZERO, &cursor, 0),
-        abi::load_u64(abi::ARG[1], &string, 0),
-        abi::add_immediate(abi::ARG[0], &string, 8),
+        abi::load_u64(abi::c_arg(1), &string, 0),
+        abi::add_immediate(abi::c_arg(0), &string, 8),
     ]);
     let encoding_error = format!("{symbol}_encoding_error");
     emit_call_validate_utf8(symbol, &encoding_error, &mut instructions, &mut relocations);
@@ -1627,7 +1654,7 @@ pub(in crate::target::shared::code) fn lower_fs_write_all_bytes_helper(
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
-        abi::move_register(&bytes, abi::RET[1]),
+        abi::move_register(&bytes, abi::mfb_return(1)),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
         abi::compare_immediate(&closed_flag, "0"),
         abi::branch_ne(&closed),
@@ -1685,8 +1712,8 @@ pub(in crate::target::shared::code) fn lower_fs_write_all_bytes_helper(
         abi::compare_immediate(&remaining, "0"),
         abi::branch_eq(&done_write),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_register(abi::ARG[1], &cursor),
-        abi::move_register(abi::ARG[2], &remaining),
+        abi::move_register(abi::c_arg(1), &cursor),
+        abi::move_register(abi::c_arg(2), &remaining),
     ]);
     platform.emit_write(
         symbol,
@@ -1784,8 +1811,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_bytes_helper(
     instructions.extend([
         abi::load_u64(&fd, &file, FILE_OFFSET_FD),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "1"),
     ]);
     platform.emit_seek_file(
         symbol,
@@ -1798,8 +1825,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_bytes_helper(
         abi::branch_lt(&seek_error),
         abi::move_register(&start, abi::return_register()),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::move_immediate(abi::ARG[2], "Integer", "2"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "2"),
     ]);
     platform.emit_seek_file(
         symbol,
@@ -1812,8 +1839,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_bytes_helper(
         abi::branch_lt(&seek_error),
         abi::move_register(&end, abi::return_register()),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_register(abi::ARG[1], &start),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_register(abi::c_arg(1), &start),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
     platform.emit_seek_file(
         symbol,
@@ -1831,7 +1858,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_bytes_helper(
         abi::multiply_registers(&scratch, &length, &scratch),
         abi::add_immediate(&scratch, &scratch, COLLECTION_HEADER_SIZE),
         abi::add_registers(abi::return_register(), &scratch, &length),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -1840,7 +1867,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_bytes_helper(
         abi::branch_eq(&alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register(&collection, abi::RET[1]),
+        abi::move_register(&collection, abi::mfb_return(1)),
         abi::move_immediate(&scratch, "Byte", &byte_list_block_kind().to_string()),
         abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_KIND),
         abi::move_immediate(&scratch, "Byte", &COLLECTION_TYPE_NONE.to_string()),
@@ -1891,8 +1918,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_bytes_helper(
         abi::compare_immediate(&remaining, "0"),
         abi::branch_eq(&read_done),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_register(abi::ARG[1], &cursor),
-        abi::move_register(abi::ARG[2], &remaining),
+        abi::move_register(abi::c_arg(1), &cursor),
+        abi::move_register(abi::c_arg(2), &remaining),
     ]);
     platform.emit_read_file(
         symbol,
@@ -1975,8 +2002,8 @@ pub(in crate::target::shared::code) fn lower_fs_eof_helper(
         abi::compare_registers(&read_pos, &read_fill),
         abi::branch_lt(&not_eof),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "1"),
     ];
     let mut relocations = Vec::new();
     platform.emit_seek_file(
@@ -1990,8 +2017,8 @@ pub(in crate::target::shared::code) fn lower_fs_eof_helper(
         abi::branch_lt(&seek_error),
         abi::move_register(&start, abi::return_register()),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::move_immediate(abi::ARG[2], "Integer", "2"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "2"),
     ]);
     platform.emit_seek_file(
         symbol,
@@ -2004,8 +2031,8 @@ pub(in crate::target::shared::code) fn lower_fs_eof_helper(
         abi::branch_lt(&seek_error),
         abi::move_register(&end, abi::return_register()),
         abi::move_register(abi::return_register(), &fd),
-        abi::move_register(abi::ARG[1], &start),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_register(abi::c_arg(1), &start),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
     platform.emit_seek_file(
         symbol,
@@ -2082,7 +2109,7 @@ fn emit_append_to_line_accumulator(
         abi::label(&cap_ok),
         abi::move_register("%v52", temp), // stash old block
         abi::move_register(abi::return_register(), "%v51"),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -2091,7 +2118,7 @@ fn emit_append_to_line_accumulator(
         abi::branch_ne(alloc_error),
         // copy the existing line_len bytes from old(+8) to new(+8)
         abi::add_immediate("%v53", "%v52", 8),
-        abi::add_immediate("%v54", abi::RET[1], 8),
+        abi::add_immediate("%v54", abi::mfb_return(1), 8),
         abi::move_register("%v55", line_len),
         abi::label(&grow_copy),
         abi::compare_immediate("%v55", "0"),
@@ -2103,7 +2130,7 @@ fn emit_append_to_line_accumulator(
         abi::subtract_immediate("%v55", "%v55", 1),
         abi::branch(&grow_copy),
         abi::label(&grow_copy_done),
-        abi::move_register(temp, abi::RET[1]),
+        abi::move_register(temp, abi::mfb_return(1)),
         abi::move_register(temp_cap, "%v51"),
         abi::label(&fits),
         // dst = temp + 8 + line_len; copy `count` bytes from src.
@@ -2153,8 +2180,8 @@ fn emit_reconcile_read_buffer(
         // lseek(fd, -(unconsumed), SEEK_CUR) to rewind the read-ahead.
         abi::load_u64("%v62", file, FILE_OFFSET_FD),
         abi::move_register(abi::return_register(), "%v62"),
-        abi::subtract_registers(abi::ARG[1], abi::ZERO, "%v61"), // -unconsumed
-        abi::move_immediate(abi::ARG[2], "Integer", "1"),        // SEEK_CUR
+        abi::subtract_registers(abi::c_arg(1), abi::ZERO, "%v61"), // -unconsumed
+        abi::move_immediate(abi::c_arg(2), "Integer", "1"),        // SEEK_CUR
     ]);
     platform.emit_seek_file(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
     ctx.instructions.extend([
@@ -2237,27 +2264,27 @@ pub(in crate::target::shared::code) fn lower_fs_read_line_helper(
         abi::compare_immediate(&read_ptr, "0"),
         abi::branch_ne(&have_read_buf),
         abi::move_immediate(abi::return_register(), "Integer", &cap),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_error),
-        abi::store_u64(abi::RET[1], &file, FILE_OFFSET_READ_PTR),
-        abi::move_register(&read_ptr, abi::RET[1]),
+        abi::store_u64(abi::mfb_return(1), &file, FILE_OFFSET_READ_PTR),
+        abi::move_register(&read_ptr, abi::mfb_return(1)),
         // READ_POS/READ_FILL/READ_AT_EOF are already 0 from the open-time zeroing.
         abi::label(&have_read_buf),
         // Allocate a small growing line accumulator (line bytes at temp+8).
         abi::move_immediate(abi::return_register(), "Integer", "32"),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_error),
-        abi::move_register(&temp, abi::RET[1]),
+        abi::move_register(&temp, abi::mfb_return(1)),
         abi::move_immediate(&temp_cap, "Integer", "32"),
         abi::move_immediate(&line_len, "Integer", "0"),
         abi::label(&line_loop),
@@ -2326,8 +2353,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_line_helper(
         abi::branch_ne(&refill_at_eof),
         // read(fd, READ_PTR, CAP) one block.
         abi::move_register(abi::return_register(), &fd),
-        abi::move_register(abi::ARG[1], &read_ptr),
-        abi::move_immediate(abi::ARG[2], "Integer", &cap),
+        abi::move_register(abi::c_arg(1), &read_ptr),
+        abi::move_immediate(abi::c_arg(2), "Integer", &cap),
     ]);
     platform.emit_read_file(
         symbol,
@@ -2381,7 +2408,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_line_helper(
         abi::subtract_immediate(&line_len, &line_len, 1),
         abi::label(&build_result),
         abi::add_immediate(abi::return_register(), &line_len, 9),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
@@ -2393,7 +2420,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_line_helper(
         abi::branch_eq(&result_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&result_alloc_ok),
-        abi::move_register(&result, abi::RET[1]),
+        abi::move_register(&result, abi::mfb_return(1)),
         abi::store_u64(&line_len, &result, 0),
         abi::add_immediate(&dst, &result, 8),
         abi::add_immediate(&src, &temp, 8),
@@ -2409,8 +2436,8 @@ pub(in crate::target::shared::code) fn lower_fs_read_line_helper(
         abi::branch(&copy_loop),
         abi::label(&copy_done),
         abi::store_u8(abi::ZERO, &dst, 0),
-        abi::load_u64(abi::ARG[1], &result, 0),
-        abi::add_immediate(abi::ARG[0], &result, 8),
+        abi::load_u64(abi::c_arg(1), &result, 0),
+        abi::add_immediate(abi::c_arg(0), &result, 8),
     ]);
     let encoding_error = format!("{symbol}_encoding_error");
     emit_call_validate_utf8(symbol, &encoding_error, &mut instructions, &mut relocations);

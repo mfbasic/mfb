@@ -1,0 +1,31 @@
+{
+  "project": "process_spawnenv",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "process", "line": 4 },
+    { "module": "io", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": null, "value": { "kind": "call", "callee": "process.spawn", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "/bin/sh" }, { "kind": "string", "value": "-c" }, { "kind": "string", "value": "[ x$FOO = xbar ] && [ $(pwd) = / ]" }] }, { "kind": "string", "value": "/" }, { "kind": "map", "keyType": "String", "valueType": "String", "entries": [{ "key": { "kind": "string", "value": "FOO" }, "value": { "kind": "string", "value": "bar" } }] }, { "kind": "boolean", "value": false }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "process.waitFor", "arguments": [{ "kind": "identifier", "value": "a" }] }] }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "b", "type": null, "value": { "kind": "call", "callee": "process.spawn", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "/bin/sh" }, { "kind": "string", "value": "-c" }, { "kind": "string", "value": "[ -z $HOME ] && [ x$FOO = xbar ]" }] }, { "kind": "string", "value": "" }, { "kind": "map", "keyType": "String", "valueType": "String", "entries": [{ "key": { "kind": "string", "value": "FOO" }, "value": { "kind": "string", "value": "bar" } }] }, { "kind": "boolean", "value": true }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "process.waitFor", "arguments": [{ "kind": "identifier", "value": "b" }] }] }] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
+      ]
+    }
+    ]
+  }
+  ]
+}

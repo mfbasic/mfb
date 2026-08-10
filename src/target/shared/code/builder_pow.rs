@@ -166,25 +166,31 @@ impl CodeBuilder<'_> {
     }
 
     /// Emit scalar `pow(x, y)`; returns a register with the result bit pattern.
-    pub(super) fn emit_pow_scalar(&mut self, x_loc: &str, y_loc: &str) -> Result<String, String> {
+    pub(super) fn emit_pow_scalar(
+        &mut self,
+        x_loc: impl Into<Operand>,
+        y_loc: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
         // The sixteen high value homes are FP vregs minted per invocation (the
-        // low five stay on the physical `d3`-`d7` input/scratch bank).
-        let th_v = self.temporary_fp_vreg();
-        let tl_v = self.temporary_fp_vreg();
-        let rr_v = self.temporary_fp_vreg();
-        let uu_v = self.temporary_fp_vreg();
-        let vv_v = self.temporary_fp_vreg();
-        let ww_v = self.temporary_fp_vreg();
-        let ph_v = self.temporary_fp_vreg();
-        let pl_v = self.temporary_fp_vreg();
-        let zh_v = self.temporary_fp_vreg();
-        let zl_v = self.temporary_fp_vreg();
-        let t1_v = self.temporary_fp_vreg();
-        let t2_v = self.temporary_fp_vreg();
-        let s2_v = self.temporary_fp_vreg();
-        let tmp_v = self.temporary_fp_vreg();
-        let cs_v = self.temporary_fp_vreg();
-        let zz_v = self.temporary_fp_vreg();
+        // low five stay on the physical `d3`-`d7` input/scratch bank). They are
+        // held as the rendered `%fN` spelling so the mixed physical/virtual
+        // `PowHomes` `&str` fields carry both kinds uniformly (plan-82).
+        let th_v = self.temporary_fp_vreg().render();
+        let tl_v = self.temporary_fp_vreg().render();
+        let rr_v = self.temporary_fp_vreg().render();
+        let uu_v = self.temporary_fp_vreg().render();
+        let vv_v = self.temporary_fp_vreg().render();
+        let ww_v = self.temporary_fp_vreg().render();
+        let ph_v = self.temporary_fp_vreg().render();
+        let pl_v = self.temporary_fp_vreg().render();
+        let zh_v = self.temporary_fp_vreg().render();
+        let zl_v = self.temporary_fp_vreg().render();
+        let t1_v = self.temporary_fp_vreg().render();
+        let t2_v = self.temporary_fp_vreg().render();
+        let s2_v = self.temporary_fp_vreg().render();
+        let tmp_v = self.temporary_fp_vreg().render();
+        let cs_v = self.temporary_fp_vreg().render();
+        let zz_v = self.temporary_fp_vreg().render();
         let s = PowHomes {
             x: abi::FP_SCRATCH[3],
             y: abi::FP_SCRATCH[4],
@@ -214,12 +220,12 @@ impl CodeBuilder<'_> {
         self.reset_temporary_registers();
 
         let result = self.allocate_register()?;
-        let xs_o = self.allocate_register()?;
-        let xm_o = self.allocate_register()?;
-        let xt_o = self.allocate_register()?;
-        let xu_o = self.allocate_register()?;
-        let smask_o = self.allocate_register()?;
-        let nexp_o = self.allocate_register()?;
+        let xs_o = self.allocate_register()?.render();
+        let xm_o = self.allocate_register()?.render();
+        let xt_o = self.allocate_register()?.render();
+        let xu_o = self.allocate_register()?.render();
+        let smask_o = self.allocate_register()?.render();
+        let nexp_o = self.allocate_register()?.render();
         let (xs, xm, xt, xu, smask, nexp) = (
             xs_o.as_str(),
             xm_o.as_str(),
@@ -490,7 +496,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: "List OF Float".to_string(),
-            location: result,
+            location: Operand::from(result.render()),
             text,
         })
     }

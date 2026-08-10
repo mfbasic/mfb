@@ -1,0 +1,38 @@
+REM plan-89-E Phase 2: toMarkdown font/size forward state switches. Font-only
+REM (`::name::`), size-only (`::;n::`), both (`::name;n::`), reset-to-default at
+REM span end (`::-::`), unchanged-across-runs (no marker), and a font name needing
+REM escape.
+
+IMPORT astrings
+IMPORT io
+
+FUNC main AS Integer
+  ' font Serif [0,4], size 12 [2,6] over "abcdefg":
+  '   ::Serif:: (font set) ab, ::;12:: (size set) cde, ::-:: (font reset) fg
+  MUT fs AS AttributedString = astrings::fromString("abcdefg")
+  fs = astrings::addAttribute(fs, 0, 4, astrings::font("Serif"))
+  fs = astrings::addAttribute(fs, 2, 6, astrings::fontSize(12))
+  io::print("fontsize=[" & astrings::toMarkdown(fs) & "]")
+
+  ' both slots set at once over the whole string: ::Mono;10::
+  MUT bo AS AttributedString = astrings::fromString("hi")
+  bo = astrings::addAttribute(bo, 0, 1, astrings::font("Mono"))
+  bo = astrings::addAttribute(bo, 0, 1, astrings::fontSize(10))
+  io::print("both=[" & astrings::toMarkdown(bo) & "]")
+
+  ' unchanged across the whole run: one marker, no repeats
+  MUT un AS AttributedString = astrings::fromString("abc")
+  un = astrings::addAttribute(un, 0, 2, astrings::fontSize(9))
+  io::print("unchanged=[" & astrings::toMarkdown(un) & "]")
+
+  ' size reset at span end: size 8 [0,1] over "abcd" -> ::;8::ab::;-::cd
+  MUT rz AS AttributedString = astrings::fromString("abcd")
+  rz = astrings::addAttribute(rz, 0, 1, astrings::fontSize(8))
+  io::print("reset=[" & astrings::toMarkdown(rz) & "]")
+
+  ' font name needing escape (contains ':' and ';')
+  MUT fe AS AttributedString = astrings::fromString("z")
+  fe = astrings::addAttribute(fe, 0, 0, astrings::font("a:b;c"))
+  io::print("escfont=[" & astrings::toMarkdown(fe) & "]")
+  RETURN 0
+END FUNC

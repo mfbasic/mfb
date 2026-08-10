@@ -1,0 +1,43 @@
+' plan-77 M6: a non-escaping closure (bound to a local and only invoked, never
+' returned/stored/passed) is freed at scope end; an escaping closure is not.
+IMPORT io
+IMPORT collections
+
+' The closure is RETURNED, so it must survive `make`'s scope (no use-after-free).
+FUNC make(base AS Integer) AS FUNC(Integer) AS Integer
+  LET f AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> x + base
+  RETURN f
+END FUNC
+
+FUNC main() AS Integer
+  ' Non-escaping, scalar capture (the capture stays by-value, not freed).
+  LET base AS Integer = 100
+  LET add AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> x + base
+  io::print("nonesc scalar: " & toString(add(5)))
+
+  ' Non-escaping, String capture (object + env + the String capture are freed).
+  LET prefix AS String = "hi-"
+  LET tag AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> x + len(prefix)
+  io::print("nonesc string cap: " & toString(tag(10)))
+
+  ' Escaping via return: invoked after make's scope exits.
+  LET g AS FUNC(Integer) AS Integer = make(7)
+  io::print("escaping return: " & toString(g(3)))
+
+  ' Escaping via a list: invoked from storage.
+  LET fs AS List OF FUNC(Integer) AS Integer = [LAMBDA(x AS Integer) -> x * 2, LAMBDA(x AS Integer) -> x * 3]
+  LET picked AS FUNC(Integer) AS Integer = collections::get(fs, 1)
+  io::print("escaping list: " & toString(picked(4)))
+
+  ' Stress: 1000 non-escaping String-capturing closures, each freed per iteration.
+  MUT sum AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 1000
+    LET s AS String = "x"
+    LET h AS FUNC(Integer) AS Integer = LAMBDA(v AS Integer) -> v + len(s)
+    sum = sum + h(i)
+    i = i + 1
+  END WHILE
+  io::print("stress sum: " & toString(sum))
+  RETURN 0
+END FUNC

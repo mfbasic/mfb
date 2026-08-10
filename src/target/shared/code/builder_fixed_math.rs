@@ -37,28 +37,38 @@ impl CodeBuilder<'_> {
     pub(super) fn emit_fixed_rounding_to_integer(
         &mut self,
         function: &str,
-        src: &str,
-        dst: &str,
+        src: impl Into<Operand>,
+        dst: impl Into<Operand>,
     ) -> Result<(), String> {
+        let src = src.into();
+        let dst = dst.into();
         match function {
             "floor" => {
                 // Arithmetic shift right rounds toward negative infinity.
-                self.emit(abi::arithmetic_shift_right_immediate(dst, src, 32));
+                self.emit(abi::arithmetic_shift_right_immediate(
+                    dst.clone(),
+                    src.clone(),
+                    32,
+                ));
             }
             "ceil" => {
                 let frac = self.allocate_register()?;
                 let mask = self.allocate_register()?;
                 let done = self.label("fixed_ceil_done");
-                self.emit(abi::arithmetic_shift_right_immediate(dst, src, 32));
+                self.emit(abi::arithmetic_shift_right_immediate(
+                    dst.clone(),
+                    src.clone(),
+                    32,
+                ));
                 self.emit(abi::move_immediate(
                     &mask,
                     "Integer",
                     &FIXED_FRACTION_MASK.to_string(),
                 ));
-                self.emit(abi::and_registers(&frac, src, &mask));
+                self.emit(abi::and_registers(&frac, src.clone(), &mask));
                 self.emit(abi::compare_immediate(&frac, "0"));
                 self.emit(abi::branch_eq(&done));
-                self.emit(abi::add_immediate(dst, dst, 1));
+                self.emit(abi::add_immediate(dst.clone(), dst.clone(), 1));
                 self.emit(abi::label(&done));
             }
             "round" => {
@@ -69,18 +79,22 @@ impl CodeBuilder<'_> {
                 let negative = self.label("fixed_round_negative");
                 let compare = self.label("fixed_round_compare");
                 let done = self.label("fixed_round_done");
-                self.emit(abi::arithmetic_shift_right_immediate(&whole, src, 32));
+                self.emit(abi::arithmetic_shift_right_immediate(
+                    &whole,
+                    src.clone(),
+                    32,
+                ));
                 self.emit(abi::move_immediate(
                     &mask,
                     "Integer",
                     &FIXED_FRACTION_MASK.to_string(),
                 ));
-                self.emit(abi::and_registers(&frac, src, &mask));
+                self.emit(abi::and_registers(&frac, src.clone(), &mask));
                 // Ties round away from zero: for negative inputs the fractional
                 // part must strictly exceed 0.5 to round toward zero, so use a
                 // threshold of 0.5 (>=) for non-negative and 0.5+1 (>=) for
                 // negative values.
-                self.emit(abi::compare_immediate(src, "0"));
+                self.emit(abi::compare_immediate(src.clone(), "0"));
                 self.emit(abi::branch_lt(&negative));
                 self.emit(abi::move_immediate(
                     &threshold,
@@ -95,10 +109,10 @@ impl CodeBuilder<'_> {
                     &(FIXED_HALF + 1).to_string(),
                 ));
                 self.emit(abi::label(&compare));
-                self.emit(abi::move_register(dst, &whole));
+                self.emit(abi::move_register(dst.clone(), &whole));
                 self.emit(abi::compare_registers(&frac, &threshold));
                 self.emit(abi::branch_lo(&done));
-                self.emit(abi::add_immediate(dst, dst, 1));
+                self.emit(abi::add_immediate(dst.clone(), dst.clone(), 1));
                 self.emit(abi::label(&done));
             }
             other => {
@@ -118,7 +132,10 @@ impl CodeBuilder<'_> {
     /// `src_raw << 32` to the top of the 128-bit window). The result is at most
     /// 48 bits, so every loop quantity except the radicand shift stays within
     /// 64 bits. The caller guarantees `src >= 0`.
-    pub(super) fn emit_fixed_sqrt(&mut self, src: &str) -> Result<String, String> {
+    pub(super) fn emit_fixed_sqrt(
+        &mut self,
+        src: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
         // The algorithm needs a handful of working registers. Spill the input
         // to the stack and reset the temporary register file so the surrounding
         // expression's prior allocations do not exhaust the pool, mirroring the
@@ -128,7 +145,7 @@ impl CodeBuilder<'_> {
         self.reset_temporary_registers();
         let input = self.allocate_register()?;
         self.emit(abi::load_u64(&input, abi::stack_pointer(), slot));
-        let src = input.as_str();
+        let src = &input;
         let dst = self.allocate_register()?;
         let nhi = self.allocate_register()?;
         let nlo = self.allocate_register()?;
@@ -184,7 +201,7 @@ impl CodeBuilder<'_> {
     }
 
     /// Move a signed 64-bit constant into `reg`.
-    fn emit_const_i64(&mut self, reg: &str, value: i64) {
+    fn emit_const_i64(&mut self, reg: impl Into<Operand>, value: i64) {
         self.emit(abi::move_immediate(
             reg,
             "Integer",
@@ -196,7 +213,11 @@ impl CodeBuilder<'_> {
     /// Intended for internal use where the result is known to stay in range, so
     /// no overflow trap is emitted. Nets a single new register (the result); the
     /// working temporaries are released before returning.
-    fn emit_fixed_mul(&mut self, a: &str, b: &str) -> Result<String, String> {
+    fn emit_fixed_mul(
+        &mut self,
+        a: impl Into<Operand>,
+        b: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
         let result = self.allocate_register()?;
         let saved = self.next_register;
         let s0 = self.allocate_register()?;
@@ -210,18 +231,34 @@ impl CodeBuilder<'_> {
     /// the two caller-provided scratch registers `s0`/`s1`. Allocation-free, so
     /// it is safe to call inside register-tight runtime loops. `dst` may alias
     /// `a` or `b`; the inputs are fully consumed before `dst` is written.
-    fn emit_fixed_mul_inplace(&mut self, dst: &str, a: &str, b: &str, s0: &str, s1: &str) {
-        self.emit(abi::multiply_registers(s0, a, b)); // low 64 bits
-        self.emit(abi::signed_multiply_high_registers(s1, a, b)); // high 64 bits
-                                                                  // Combined middle word = (s1 << 32) | (s0 >>u 32) = bits[95:32].
-        self.emit(abi::shift_left_immediate(s1, s1, 32));
-        self.emit(abi::shift_right_immediate(dst, s0, 32));
-        self.emit(abi::or_registers(dst, dst, s1));
+    fn emit_fixed_mul_inplace(
+        &mut self,
+        dst: impl Into<Operand>,
+        a: impl Into<Operand>,
+        b: impl Into<Operand>,
+        s0: impl Into<Operand>,
+        s1: impl Into<Operand>,
+    ) {
+        let dst = dst.into();
+        let a = a.into();
+        let b = b.into();
+        let s0 = s0.into();
+        let s1 = s1.into();
+        self.emit(abi::multiply_registers(s0.clone(), a.clone(), b.clone())); // low 64 bits
+        self.emit(abi::signed_multiply_high_registers(
+            s1.clone(),
+            a.clone(),
+            b.clone(),
+        )); // high 64 bits
+            // Combined middle word = (s1 << 32) | (s0 >>u 32) = bits[95:32].
+        self.emit(abi::shift_left_immediate(s1.clone(), s1.clone(), 32));
+        self.emit(abi::shift_right_immediate(dst.clone(), s0.clone(), 32));
+        self.emit(abi::or_registers(dst.clone(), dst.clone(), s1.clone()));
         // Round half up using bit 31 of the low word (the top discarded bit).
-        self.emit(abi::shift_right_immediate(s0, s0, 31));
-        self.emit(abi::shift_left_immediate(s0, s0, 63));
-        self.emit(abi::shift_right_immediate(s0, s0, 63));
-        self.emit(abi::add_registers(dst, dst, s0));
+        self.emit(abi::shift_right_immediate(s0.clone(), s0.clone(), 31));
+        self.emit(abi::shift_left_immediate(s0.clone(), s0.clone(), 63));
+        self.emit(abi::shift_right_immediate(s0.clone(), s0.clone(), 63));
+        self.emit(abi::add_registers(dst.clone(), dst.clone(), s0.clone()));
     }
 
     /// One CORDIC micro-rotation loop, shared by the vectoring and rotation modes
@@ -231,38 +268,55 @@ impl CodeBuilder<'_> {
     /// `driver >= 0` arm and vice versa. `a`/`b` are the two coordinate registers
     /// (`vx`/`vy` for vectoring, `cos`/`sin` for rotation) and `z` is the angle
     /// accumulator/residual.
-    fn emit_cordic(&mut self, mode: CordicMode, a: &str, b: &str, z: &str) -> Result<(), String> {
+    fn emit_cordic(
+        &mut self,
+        mode: CordicMode,
+        a: impl Into<Operand>,
+        b: impl Into<Operand>,
+        z: impl Into<Operand>,
+    ) -> Result<(), String> {
+        let a = a.into();
+        let b = b.into();
+        let z = z.into();
         let sx = self.allocate_register()?;
         let sy = self.allocate_register()?;
         let konst = self.allocate_register()?;
-        let (prefix, driver) = match mode {
-            CordicMode::Vectoring => ("cordic_vec", b),
-            CordicMode::Rotation => ("cordic_rot", z),
+        let (prefix, driver): (&str, &Operand) = match mode {
+            CordicMode::Vectoring => ("cordic_vec", &b),
+            CordicMode::Rotation => ("cordic_rot", &z),
         };
         for i in 0..CORDIC_ITERATIONS {
             let negative = self.label(&format!("{prefix}_neg"));
             let done = self.label(&format!("{prefix}_done"));
             if i == 0 {
-                self.emit(abi::move_register(&sx, a));
-                self.emit(abi::move_register(&sy, b));
+                self.emit(abi::move_register(&sx, a.clone()));
+                self.emit(abi::move_register(&sy, b.clone()));
             } else {
-                self.emit(abi::arithmetic_shift_right_immediate(&sx, a, i as u8));
-                self.emit(abi::arithmetic_shift_right_immediate(&sy, b, i as u8));
+                self.emit(abi::arithmetic_shift_right_immediate(
+                    &sx,
+                    a.clone(),
+                    i as u8,
+                ));
+                self.emit(abi::arithmetic_shift_right_immediate(
+                    &sy,
+                    b.clone(),
+                    i as u8,
+                ));
             }
             self.emit_const_i64(&konst, cordic_atan_raw(i));
-            self.emit(abi::compare_immediate(driver, "0"));
+            self.emit(abi::compare_immediate(driver.clone(), "0"));
             self.emit(abi::branch_lt(&negative));
             // driver >= 0 arm.
             match mode {
                 CordicMode::Vectoring => {
-                    self.emit(abi::add_registers(a, a, &sy));
-                    self.emit(abi::subtract_registers(b, b, &sx));
-                    self.emit(abi::add_registers(z, z, &konst));
+                    self.emit(abi::add_registers(a.clone(), a.clone(), &sy));
+                    self.emit(abi::subtract_registers(b.clone(), b.clone(), &sx));
+                    self.emit(abi::add_registers(z.clone(), z.clone(), &konst));
                 }
                 CordicMode::Rotation => {
-                    self.emit(abi::subtract_registers(a, a, &sy));
-                    self.emit(abi::add_registers(b, b, &sx));
-                    self.emit(abi::subtract_registers(z, z, &konst));
+                    self.emit(abi::subtract_registers(a.clone(), a.clone(), &sy));
+                    self.emit(abi::add_registers(b.clone(), b.clone(), &sx));
+                    self.emit(abi::subtract_registers(z.clone(), z.clone(), &konst));
                 }
             }
             self.emit(abi::branch(&done));
@@ -270,14 +324,14 @@ impl CodeBuilder<'_> {
             // driver < 0 arm (mirror of the arm above).
             match mode {
                 CordicMode::Vectoring => {
-                    self.emit(abi::subtract_registers(a, a, &sy));
-                    self.emit(abi::add_registers(b, b, &sx));
-                    self.emit(abi::subtract_registers(z, z, &konst));
+                    self.emit(abi::subtract_registers(a.clone(), a.clone(), &sy));
+                    self.emit(abi::add_registers(b.clone(), b.clone(), &sx));
+                    self.emit(abi::subtract_registers(z.clone(), z.clone(), &konst));
                 }
                 CordicMode::Rotation => {
-                    self.emit(abi::add_registers(a, a, &sy));
-                    self.emit(abi::subtract_registers(b, b, &sx));
-                    self.emit(abi::add_registers(z, z, &konst));
+                    self.emit(abi::add_registers(a.clone(), a.clone(), &sy));
+                    self.emit(abi::subtract_registers(b.clone(), b.clone(), &sx));
+                    self.emit(abi::add_registers(z.clone(), z.clone(), &konst));
                 }
             }
             self.emit(abi::label(&done));
@@ -286,7 +340,11 @@ impl CodeBuilder<'_> {
     }
 
     /// Deterministic Q32.32 `atan2(y, x)` returning the angle in radians.
-    pub(super) fn emit_fixed_atan2(&mut self, y_src: &str, x_src: &str) -> Result<String, String> {
+    pub(super) fn emit_fixed_atan2(
+        &mut self,
+        y_src: impl Into<Operand>,
+        x_src: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
         let y_slot = self.allocate_stack_object("fixed_atan2_y", 8);
         let x_slot = self.allocate_stack_object("fixed_atan2_x", 8);
         self.emit(abi::store_u64(y_src, abi::stack_pointer(), y_slot));
@@ -395,7 +453,10 @@ impl CodeBuilder<'_> {
 
     /// Deterministic Q32.32 `sin` and `cos` of `src`. Returns `(sin, cos)`
     /// registers. Reduces the angle to `[-pi/4, pi/4]` and tracks the quadrant.
-    fn emit_fixed_sincos(&mut self, src: &str) -> Result<(String, String), String> {
+    fn emit_fixed_sincos(
+        &mut self,
+        src: impl Into<Operand>,
+    ) -> Result<(VirtualRegister, VirtualRegister), String> {
         let slot = self.allocate_stack_object("fixed_sincos_input", 8);
         self.emit(abi::store_u64(src, abi::stack_pointer(), slot));
         self.reset_temporary_registers();
@@ -468,16 +529,19 @@ impl CodeBuilder<'_> {
     /// Lower `sin`/`cos` for a `Fixed` argument.
     pub(super) fn emit_fixed_sin_cos(
         &mut self,
-        src: &str,
+        src: impl Into<Operand>,
         want_cos: bool,
-    ) -> Result<String, String> {
+    ) -> Result<VirtualRegister, String> {
         let (sin_out, cos_out) = self.emit_fixed_sincos(src)?;
         Ok(if want_cos { cos_out } else { sin_out })
     }
 
     /// Lower `tan` for a `Fixed` argument as `sin / cos`. Undefined points
     /// (`cos == 0`) fail with `ErrInvalidArgument`.
-    pub(super) fn emit_fixed_tan(&mut self, src: &str) -> Result<String, String> {
+    pub(super) fn emit_fixed_tan(
+        &mut self,
+        src: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
         let (sin_out, cos_out) = self.emit_fixed_sincos(src)?;
         // Spill across the division helper, which resets the register file.
         let sin_slot = self.allocate_stack_object("fixed_tan_sin", 8);
@@ -499,7 +563,11 @@ impl CodeBuilder<'_> {
     /// Lower `asin`/`acos` for a `Fixed` argument. Inputs outside `[-1, 1]` fail
     /// with `ErrInvalidArgument`. Uses `asin(x) = atan2(x, sqrt(1 - x^2))` and
     /// `acos(x) = atan2(sqrt(1 - x^2), x)`.
-    pub(super) fn emit_fixed_asin(&mut self, src: &str, is_acos: bool) -> Result<String, String> {
+    pub(super) fn emit_fixed_asin(
+        &mut self,
+        src: impl Into<Operand>,
+        is_acos: bool,
+    ) -> Result<VirtualRegister, String> {
         let x_slot = self.allocate_stack_object("fixed_asin_x", 8);
         self.emit(abi::store_u64(src, abi::stack_pointer(), x_slot));
         self.reset_temporary_registers();
@@ -544,7 +612,10 @@ impl CodeBuilder<'_> {
     /// Lower `exp` for a `Fixed` argument. Computes `2^n * exp(r)` with
     /// `n = round(x / ln2)` and `r = x - n*ln2`, evaluating `exp(r)` by a Taylor
     /// series. Overflow beyond `Fixed` range fails with `ErrOverflow`.
-    pub(super) fn emit_fixed_exp(&mut self, src: &str) -> Result<String, String> {
+    pub(super) fn emit_fixed_exp(
+        &mut self,
+        src: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
         let x_slot = self.allocate_stack_object("fixed_exp_x", 8);
         self.emit(abi::store_u64(src, abi::stack_pointer(), x_slot));
         self.reset_temporary_registers();
@@ -596,7 +667,13 @@ impl CodeBuilder<'_> {
     /// Multiply `value` (a `Fixed`) by `2^n` in place where `n` is a runtime
     /// signed integer, trapping with `ErrOverflow` if the result leaves `Fixed`
     /// range. Used to recombine the exponent in `exp`/`pow`.
-    fn emit_fixed_scale_by_power_of_two(&mut self, value: &str, n: &str) -> Result<(), String> {
+    fn emit_fixed_scale_by_power_of_two(
+        &mut self,
+        value: impl Into<Operand>,
+        n: impl Into<Operand>,
+    ) -> Result<(), String> {
+        let value = value.into();
+        let n = n.into();
         let count = self.allocate_register()?;
         let limit = self.allocate_register()?;
         let negative = self.label("fixed_scale_negative");
@@ -605,10 +682,10 @@ impl CodeBuilder<'_> {
         let down_loop = self.label("fixed_scale_down");
         let down_done = self.label("fixed_scale_down_done");
         let no_overflow = self.label("fixed_scale_no_overflow");
-        self.emit(abi::compare_immediate(n, "0"));
+        self.emit(abi::compare_immediate(n.clone(), "0"));
         self.emit(abi::branch_lt(&negative));
         // n >= 0: double `count` times, checking for overflow before each shift.
-        self.emit(abi::move_register(&count, n));
+        self.emit(abi::move_register(&count, n.clone()));
         // limit = i64::MAX / 2; if value > limit a doubling would overflow.
         self.emit(abi::move_immediate(
             &limit,
@@ -618,11 +695,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&up_loop));
         self.emit(abi::compare_immediate(&count, "0"));
         self.emit(abi::branch_eq(&up_done));
-        self.emit(abi::compare_registers(value, &limit));
+        self.emit(abi::compare_registers(value.clone(), &limit));
         self.emit(abi::branch_le(&no_overflow));
         self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&no_overflow));
-        self.emit(abi::shift_left_immediate(value, value, 1));
+        self.emit(abi::shift_left_immediate(value.clone(), value.clone(), 1));
         self.emit(abi::subtract_immediate(&count, &count, 1));
         self.emit(abi::branch(&up_loop));
         self.emit(abi::label(&up_done));
@@ -630,11 +707,15 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&finish));
         // n < 0: halve `-n` times (arithmetic shift; value is non-negative).
         self.emit(abi::label(&negative));
-        self.emit(abi::subtract_registers(&count, abi::ZERO, n));
+        self.emit(abi::subtract_registers(&count, abi::ZERO, n.clone()));
         self.emit(abi::label(&down_loop));
         self.emit(abi::compare_immediate(&count, "0"));
         self.emit(abi::branch_eq(&down_done));
-        self.emit(abi::arithmetic_shift_right_immediate(value, value, 1));
+        self.emit(abi::arithmetic_shift_right_immediate(
+            value.clone(),
+            value.clone(),
+            1,
+        ));
         self.emit(abi::subtract_immediate(&count, &count, 1));
         self.emit(abi::branch(&down_loop));
         self.emit(abi::label(&down_done));
@@ -645,7 +726,11 @@ impl CodeBuilder<'_> {
     /// Lower `log`/`log10` for a `Fixed` argument. Non-positive inputs fail with
     /// `ErrInvalidArgument`. Computes `ln(x) = e*ln2 + ln(m)` after normalising
     /// `x = m * 2^e` with `m in [1, 2)`, then scales for base-10.
-    pub(super) fn emit_fixed_log(&mut self, src: &str, base10: bool) -> Result<String, String> {
+    pub(super) fn emit_fixed_log(
+        &mut self,
+        src: impl Into<Operand>,
+        base10: bool,
+    ) -> Result<VirtualRegister, String> {
         let x_slot = self.allocate_stack_object("fixed_log_x", 8);
         self.emit(abi::store_u64(src, abi::stack_pointer(), x_slot));
         self.reset_temporary_registers();
@@ -777,9 +862,9 @@ impl CodeBuilder<'_> {
     /// `emit_fixed_pow` multiplies in place. No zero-diff extraction spans both.
     pub(super) fn emit_fixed_pow_general(
         &mut self,
-        base: &str,
-        exponent: &str,
-    ) -> Result<String, String> {
+        base: impl Into<Operand>,
+        exponent: impl Into<Operand>,
+    ) -> Result<VirtualRegister, String> {
         let base_slot = self.allocate_stack_object("fixed_pow_base", 8);
         let exp_slot = self.allocate_stack_object("fixed_pow_exp", 8);
         self.emit(abi::store_u64(base, abi::stack_pointer(), base_slot));

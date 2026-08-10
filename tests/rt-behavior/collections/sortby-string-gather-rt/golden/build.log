@@ -1,0 +1,16 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/sortby-string-gather-rt
+Wrote AST to tests/rt-behavior/collections/sortby-string-gather-rt/sortby_string_gather_rt.ast
+Wrote IR to tests/rt-behavior/collections/sortby-string-gather-rt/sortby_string_gather_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/sortby-string-gather-rt
+Wrote executable to tests/rt-behavior/collections/sortby-string-gather-rt/build/sortby_string_gather_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/sortby-string-gather-rt/build/sortby_string_gather_rt.out
+sorted: a f dd ee bbb ccc ggg 
+empty len=0
+one=only
+src0=bbb srclen=7
+repeat acc=1000
+trap caught: keyFn hit boom
+after trap len=0
+[exit 0]

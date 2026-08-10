@@ -311,7 +311,11 @@ pub(crate) trait BuiltinResolver: Sync {
 
     /// Custom source-companion use predicate for [`InjectionRule::WhenUsed`].
     /// Default: none, so `WhenImported` semantics apply.
-    fn uses_source(&self, _module: &BuiltinModule, _project: &crate::ast::AstProject) -> Option<bool> {
+    fn uses_source(
+        &self,
+        _module: &BuiltinModule,
+        _project: &crate::ast::AstProject,
+    ) -> Option<bool> {
         None
     }
 }
@@ -388,7 +392,10 @@ impl DefaultResolver {
     /// per-position spellings; a function whose overloads disagree on positions
     /// returns `None` (its names live in `param_name_overloads`), matching the way
     /// legacy `call_param_names` returns `None` for such a call (`audio.openInput`).
-    pub(crate) fn param_names(module: &BuiltinModule, name: &str) -> Option<Vec<Vec<&'static str>>> {
+    pub(crate) fn param_names(
+        module: &BuiltinModule,
+        name: &str,
+    ) -> Option<Vec<Vec<&'static str>>> {
         let function = module.function(name)?;
         if function.overloads.len() != 1 {
             return None;
@@ -436,7 +443,13 @@ impl DefaultResolver {
         if overload.params.is_empty() {
             return None;
         }
-        Some(overload.params.iter().map(|param| param.ty.name()).collect())
+        Some(
+            overload
+                .params
+                .iter()
+                .map(|param| param.ty.name())
+                .collect(),
+        )
     }
 
     /// The fixed return type shared by every overload — legacy
@@ -629,6 +642,7 @@ impl BuiltinRegistry {
 /// `term` (W), `testing` (X).
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
+    &crate::builtins::astrings::ASTRINGS,
     &crate::builtins::bits::BITS,
     &crate::builtins::collections::COLLECTIONS,
     &crate::builtins::csv::CSV,
@@ -651,6 +665,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::money::MONEY,
     &crate::builtins::net::NET,
     &crate::builtins::os::OS,
+    &crate::builtins::process::PROCESS,
     &crate::builtins::thread::THREAD,
     &crate::builtins::tls::TLS,
     &crate::builtins::vector::VECTOR,
@@ -1064,7 +1079,10 @@ mod tests {
             DefaultResolver::param_names(&TEST_MODULE, "t.emit"),
             Some(vec![vec!["value", "val"], vec!["opts"]])
         );
-        assert_eq!(DefaultResolver::param_names(&TEST_MODULE, "t.missing"), None);
+        assert_eq!(
+            DefaultResolver::param_names(&TEST_MODULE, "t.missing"),
+            None
+        );
     }
 
     #[test]
@@ -1079,7 +1097,10 @@ mod tests {
         );
         // Zero-argument call: nothing to type -> None (shared convention).
         assert_eq!(DefaultResolver::argument_types(&TEST_MODULE, "t.now"), None);
-        assert_eq!(DefaultResolver::argument_types(&TEST_MODULE, "t.missing"), None);
+        assert_eq!(
+            DefaultResolver::argument_types(&TEST_MODULE, "t.missing"),
+            None
+        );
     }
 
     #[test]
@@ -1093,8 +1114,14 @@ mod tests {
             Some("String")
         );
         // Argument-dependent return: no fixed answer, resolver-owned.
-        assert_eq!(DefaultResolver::return_type_name(&TEST_MODULE, "t.pick"), None);
-        assert_eq!(DefaultResolver::return_type_name(&TEST_MODULE, "t.missing"), None);
+        assert_eq!(
+            DefaultResolver::return_type_name(&TEST_MODULE, "t.pick"),
+            None
+        );
+        assert_eq!(
+            DefaultResolver::return_type_name(&TEST_MODULE, "t.missing"),
+            None
+        );
     }
 
     #[test]
@@ -1112,21 +1139,33 @@ mod tests {
             DefaultResolver::expected_arguments(&TEST_MODULE, "t.now").as_deref(),
             Some("()")
         );
-        assert_eq!(DefaultResolver::expected_arguments(&TEST_MODULE, "t.missing"), None);
+        assert_eq!(
+            DefaultResolver::expected_arguments(&TEST_MODULE, "t.missing"),
+            None
+        );
     }
 
     #[test]
     fn implementation_name_rewrite_and_same() {
         // No rewrite → None (public name is the implementation).
-        assert_eq!(DefaultResolver::implementation_name(&TEST_MODULE, "t.add"), None);
+        assert_eq!(
+            DefaultResolver::implementation_name(&TEST_MODULE, "t.add"),
+            None
+        );
         // Fixed rewrite.
         assert_eq!(
             DefaultResolver::implementation_name(&TEST_MODULE, "t.emit"),
             Some("__t_emit")
         );
         // Custom (argument-dependent) → None, resolver-owned.
-        assert_eq!(DefaultResolver::implementation_name(&TEST_MODULE, "t.pick"), None);
-        assert_eq!(DefaultResolver::implementation_name(&TEST_MODULE, "t.missing"), None);
+        assert_eq!(
+            DefaultResolver::implementation_name(&TEST_MODULE, "t.pick"),
+            None
+        );
+        assert_eq!(
+            DefaultResolver::implementation_name(&TEST_MODULE, "t.missing"),
+            None
+        );
     }
 
     #[test]
@@ -1174,8 +1213,14 @@ mod tests {
             DefaultResolver::resolve_call(&TEST_MODULE, "t.add", &types(&["Integer"])),
             None
         );
-        assert_eq!(DefaultResolver::resolve_call(&TEST_MODULE, "t.now", &types(&["Integer"])), None);
-        assert_eq!(DefaultResolver::resolve_call(&TEST_MODULE, "t.missing", &[]), None);
+        assert_eq!(
+            DefaultResolver::resolve_call(&TEST_MODULE, "t.now", &types(&["Integer"])),
+            None
+        );
+        assert_eq!(
+            DefaultResolver::resolve_call(&TEST_MODULE, "t.missing", &[]),
+            None
+        );
         // A `Custom`-return call is resolver-owned, not answered here.
         assert_eq!(
             DefaultResolver::resolve_call(&TEST_MODULE, "t.pick", &types(&["Integer"])),
@@ -1189,10 +1234,22 @@ mod tests {
         assert!(!DefaultResolver::contains(&TEST_MODULE, "t.nope"));
         assert_eq!(DefaultResolver::arity(&TEST_MODULE, "t.nope"), None);
         assert_eq!(DefaultResolver::param_names(&TEST_MODULE, "t.nope"), None);
-        assert_eq!(DefaultResolver::argument_types(&TEST_MODULE, "t.nope"), None);
-        assert_eq!(DefaultResolver::return_type_name(&TEST_MODULE, "t.nope"), None);
-        assert_eq!(DefaultResolver::expected_arguments(&TEST_MODULE, "t.nope"), None);
-        assert_eq!(DefaultResolver::implementation_name(&TEST_MODULE, "t.nope"), None);
+        assert_eq!(
+            DefaultResolver::argument_types(&TEST_MODULE, "t.nope"),
+            None
+        );
+        assert_eq!(
+            DefaultResolver::return_type_name(&TEST_MODULE, "t.nope"),
+            None
+        );
+        assert_eq!(
+            DefaultResolver::expected_arguments(&TEST_MODULE, "t.nope"),
+            None
+        );
+        assert_eq!(
+            DefaultResolver::implementation_name(&TEST_MODULE, "t.nope"),
+            None
+        );
         assert!(DefaultResolver::default_padding(&TEST_MODULE, "t.nope", 0).is_empty());
     }
 
@@ -1218,11 +1275,15 @@ mod tests {
 
     #[test]
     fn registry_function_lookup_by_qualified_name() {
-        let (module, function) = TEST_REGISTRY.function("t.emit").expect("t.emit is registered");
+        let (module, function) = TEST_REGISTRY
+            .function("t.emit")
+            .expect("t.emit is registered");
         assert_eq!(module.name, "t");
         assert_eq!(function.name, "t.emit");
         // A function owned by the second module resolves to it.
-        let (module, function) = TEST_REGISTRY.function("u.add").expect("u.add is registered");
+        let (module, function) = TEST_REGISTRY
+            .function("u.add")
+            .expect("u.add is registered");
         assert_eq!(module.name, "u");
         assert_eq!(function.name, "u.add");
     }
@@ -1241,8 +1302,7 @@ mod tests {
         assert_eq!(TEST_REGISTRY.duplicate_function_name(), None);
 
         // A registry that lists a module name twice is flagged.
-        static DUP_MODULES: BuiltinRegistry =
-            BuiltinRegistry::new(&[&TEST_MODULE, &TEST_MODULE]);
+        static DUP_MODULES: BuiltinRegistry = BuiltinRegistry::new(&[&TEST_MODULE, &TEST_MODULE]);
         assert_eq!(DUP_MODULES.duplicate_module_name(), Some("t"));
 
         // Two distinct modules sharing a fully qualified function name are
@@ -1267,7 +1327,7 @@ mod tests {
         // Migrated packages are registered and resolvable by module name and by
         // qualified function name. As of plan-72-Y/Z/AA (thread, tls, vector) the
         // LAST three packages are migrated, so the registry is now COMPLETE — every
-        // one of the 26 builtin packages is present. (This test tracked a
+        // builtin package is present (28 as of plan-90-A). (This test tracked a
         // still-unmigrated example — `math` until plan-72-P, `regex` until -T,
         // `tls` until -Z — but none remains, so it now asserts completeness.)
         assert!(REGISTRY.module("app").is_some());
@@ -1281,8 +1341,14 @@ mod tests {
         assert!(REGISTRY.function("tls.connect").is_some());
         assert!(REGISTRY.module("vector").is_some());
         assert!(REGISTRY.function("vector.length").is_some());
-        // The registry is exhaustive: all 26 builtin packages are registered.
-        assert_eq!(REGISTRY.modules().len(), 26);
+        // plan-89-A: the `astrings` package (opaque AttributedString + fromString).
+        assert!(REGISTRY.module("astrings").is_some());
+        assert!(REGISTRY.function("astrings.fromString").is_some());
+        // plan-90-A: the `process` package (opaque Process resource). Its callable
+        // surface lands in Phase 2/sub-plans, so only the module is asserted here.
+        assert!(REGISTRY.module("process").is_some());
+        // The registry is exhaustive: all 28 builtin packages are registered.
+        assert_eq!(REGISTRY.modules().len(), 28);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);
@@ -1313,7 +1379,10 @@ mod tests {
         for module in TEST_REGISTRY.modules() {
             for function in module.functions {
                 assert!(!function.doc_slug.is_empty(), "{}", function.name);
-                assert!(matches!(function.lowering, Lowering::Helper | Lowering::Inline));
+                assert!(matches!(
+                    function.lowering,
+                    Lowering::Helper | Lowering::Inline
+                ));
                 assert!(!function.flags.internal_only);
                 assert!(!function.flags.return_type_overloaded);
                 assert!(!function.overloads.is_empty(), "{}", function.name);
@@ -1332,8 +1401,14 @@ mod tests {
             .expect("TPoint present");
         assert_eq!(point.kind, TypeKind::Record);
         assert_eq!(point.fields, &[("x", "Integer"), ("y", "Integer")]);
-        assert!(TEST_MODULE.types.iter().any(|ty| ty.kind == TypeKind::Primitive));
-        assert!(TEST_MODULE.types.iter().any(|ty| ty.kind == TypeKind::Opaque));
+        assert!(TEST_MODULE
+            .types
+            .iter()
+            .any(|ty| ty.kind == TypeKind::Primitive));
+        assert!(TEST_MODULE
+            .types
+            .iter()
+            .any(|ty| ty.kind == TypeKind::Opaque));
         assert!(TEST_MODULE.types.iter().any(|ty| ty.kind == TypeKind::Enum));
 
         // The source rule and loader are reachable and the loader parses.
@@ -1526,11 +1601,11 @@ mod tests {
             name: String::new(),
             files: Vec::new(),
         };
-        assert_eq!(S_MODULE.source.expect("s has source").rule, InjectionRule::WhenUsed);
         assert_eq!(
-            S_RESOLVER.uses_source(&S_MODULE, &project),
-            Some(true)
+            S_MODULE.source.expect("s has source").rule,
+            InjectionRule::WhenUsed
         );
+        assert_eq!(S_RESOLVER.uses_source(&S_MODULE, &project), Some(true));
     }
 
     // ---- Coverage: const constructors invoked at runtime -------------------
@@ -1687,7 +1762,10 @@ mod tests {
             None
         );
         // A single Custom-return overload → None (the `else { return None }` arm).
-        assert_eq!(DefaultResolver::return_type_name(&TEST_MODULE, "t.pick"), None);
+        assert_eq!(
+            DefaultResolver::return_type_name(&TEST_MODULE, "t.pick"),
+            None
+        );
         // Same-return overloads still resolve to the shared type.
         assert_eq!(
             DefaultResolver::return_type_name(&TEST_MODULE, "t.add"),

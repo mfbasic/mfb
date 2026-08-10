@@ -1,0 +1,59 @@
+{
+  "project": "vector_length_distance_inline_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "vector", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Integer2", "value": { "kind": "constructor", "type": "Integer2", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "iLen2=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "vector.length", "arguments": [{ "kind": "identifier", "value": "a" }] }] } }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Integer3", "value": { "kind": "constructor", "type": "Integer3", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "6" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "iLen3=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "vector.length", "arguments": [{ "kind": "identifier", "value": "b" }] }] } }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "Integer4", "value": { "kind": "constructor", "type": "Integer4", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "4" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "iLen4=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "vector.length", "arguments": [{ "kind": "identifier", "value": "c" }] }] } }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "d1", "type": "Integer2", "value": { "kind": "constructor", "type": "Integer2", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "d2", "type": "Integer2", "value": { "kind": "constructor", "type": "Integer2", "arguments": [{ "kind": "number", "value": "6" }, { "kind": "number", "value": "8" }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "iDist=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "vector.distance", "arguments": [{ "kind": "identifier", "value": "d1" }, { "kind": "identifier", "value": "d2" }] }] } }] }, "line": 20 },
+      { "kind": "binding", "mutable": true, "name": "acc", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 21 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "number", "value": "200" },
+        "step": null,
+        "line": 22,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "v", "type": "Integer2", "value": { "kind": "constructor", "type": "Integer2", "arguments": [{ "kind": "identifier", "value": "i" }, { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }] }, "line": 23 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "call", "callee": "vector.length", "arguments": [{ "kind": "identifier", "value": "v" }] } }, "line": 24 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "iAcc=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "acc" }] } }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "fa", "type": "Fixed2", "value": { "kind": "constructor", "type": "Fixed2", "arguments": [{ "kind": "number", "value": "3.0" }, { "kind": "number", "value": "4.0" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fLen2=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "vector.length", "arguments": [{ "kind": "identifier", "value": "fa" }] }] } }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "fb", "type": "Fixed3", "value": { "kind": "constructor", "type": "Fixed3", "arguments": [{ "kind": "number", "value": "1.5" }, { "kind": "number", "value": "2.5" }, { "kind": "number", "value": "3.5" }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fLen3=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "vector.length", "arguments": [{ "kind": "identifier", "value": "fb" }] }] } }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "fc", "type": "Fixed4", "value": { "kind": "constructor", "type": "Fixed4", "arguments": [{ "kind": "number", "value": "1.0" }, { "kind": "number", "value": "2.0" }, { "kind": "number", "value": "2.0" }, { "kind": "number", "value": "4.0" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fLen4=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "vector.length", "arguments": [{ "kind": "identifier", "value": "fc" }] }] } }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "name": "fd1", "type": "Fixed2", "value": { "kind": "constructor", "type": "Fixed2", "arguments": [{ "kind": "number", "value": "1.0" }, { "kind": "number", "value": "1.0" }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "name": "fd2", "type": "Fixed2", "value": { "kind": "constructor", "type": "Fixed2", "arguments": [{ "kind": "number", "value": "4.0" }, { "kind": "number", "value": "5.0" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fDist=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "vector.distance", "arguments": [{ "kind": "identifier", "value": "fd1" }, { "kind": "identifier", "value": "fd2" }] }] } }] }, "line": 35 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 36 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -24,6 +24,109 @@ impl CodeBuilder<'_> {
         result
     }
 
+    /// bug-424 Layer 1: recognize `s.state.field = <value>` where every updated
+    /// field is a fixed-width scalar stored inline in its record slot, and store
+    /// each new value in place at its field offset in the *existing* STATE block
+    /// — no whole-record rebuild, so no re-copy of any other (possibly large,
+    /// inlined `List`/`String`) field. `src/ast/stmt.rs` desugars the single-field
+    /// form to a single-field `WITH` update over `s.state`, so this matches a
+    /// `WithUpdate` whose target is exactly this resource's `state`.
+    ///
+    /// Only plain scalars are eligible: an inlined field (`String`, a flat
+    /// collection, a nested record — the slot holds a block-relative offset into
+    /// the trailing data region) or a pointer composite cannot be overwritten at a
+    /// fixed slot without relaying the block out, so those fall through to the
+    /// whole-record replace (`NirOp::StateAssign`) and Layer 2. The store goes
+    /// through the resource record's shared STATE pointer, so it stays visible to
+    /// the owner and every alias (§15). Returns `true` when handled in place.
+    fn try_inplace_state_scalar_assign(
+        &mut self,
+        resource: &str,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        let NirValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } = value
+        else {
+            return Ok(false);
+        };
+        // The update must rebuild THIS resource's current state (`resource.state`),
+        // not install some other record as the new state.
+        let NirValue::MemberAccess {
+            target: inner,
+            member,
+        } = target.as_ref()
+        else {
+            return Ok(false);
+        };
+        if member != "state" || !matches!(inner.as_ref(), NirValue::Local(name) if name == resource)
+        {
+            return Ok(false);
+        }
+        let Some(fields) = self.type_model.record_fields.get(type_).cloned() else {
+            return Ok(false);
+        };
+        // Every updated field must be a plain inline scalar. A `String`/collection/
+        // nested field is inlined (a block-relative offset) or a pointer composite;
+        // overwriting it at a fixed slot would corrupt the block or leak the old
+        // allocation, so bail to the whole-record replace.
+        let mut indices = Vec::with_capacity(updates.len());
+        for update in updates {
+            let Some((index, (_, field_type))) = fields
+                .iter()
+                .enumerate()
+                .find(|(_, (name, _))| name == &update.field)
+            else {
+                return Ok(false);
+            };
+            if self.record_field_is_inlined(type_, field_type)
+                || self.record_field_is_pointer(field_type)
+            {
+                return Ok(false);
+            }
+            indices.push(index);
+        }
+        if indices.is_empty() {
+            return Ok(false);
+        }
+        // Eligible. Compute every new value first (source order, matching WITH so a
+        // field that reads another field's old value sees it), spilling each to a
+        // slot; then store them into the existing STATE block.
+        let mut stores = Vec::with_capacity(updates.len());
+        for (update, index) in updates.iter().zip(indices) {
+            let value = self.lower_value(&update.value)?;
+            // Observation boundary: a `Float` field must be finite (plan-17).
+            self.observe_float(&update.value, &value)?;
+            // Materialize a `d`-native float to its GP bit pattern before the spill
+            // (plan-01), matching how `lower_with_update` gathers field values.
+            let value = self.materialize_value(value)?;
+            let slot = self.allocate_stack_object("state_field_inplace", 8);
+            self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
+            stores.push((index, slot));
+        }
+        // Load the shared STATE record pointer from the resource record. A scalar
+        // store never moves the block, so one load serves every field store.
+        let local = self
+            .locals
+            .get(resource)
+            .ok_or_else(|| format!("native code state assignment unknown local '{resource}'"))?;
+        let stack_offset = local.stack_offset;
+        let resource_type = local.type_.clone();
+        let block = self.allocate_register()?;
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
+        let record = self.emit_resource_record_ptr(&block, &resource_type)?;
+        let state_ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&state_ptr, &record, RESOURCE_OFFSET_STATE));
+        for (index, slot) in stores {
+            let value = self.allocate_register()?;
+            self.emit(abi::load_u64(&value, abi::stack_pointer(), slot));
+            self.emit(abi::store_u64(&value, &state_ptr, 8 * index));
+        }
+        Ok(true)
+    }
+
     fn lower_ops_inner(&mut self, ops: &[NirOp], cleanup_scope_start: usize) -> Result<(), String> {
         let zero_slot = self.temporary_vreg();
         for op in ops {
@@ -89,6 +192,38 @@ impl CodeBuilder<'_> {
                         // another); it is re-established below only if this binding
                         // promotes (plan-01-vector).
                         self.promoted_vector_locals.remove(name);
+                        // plan-86 G1: track `LET n = len(L)` (both locals) so a loop
+                        // bound `n - k` can resolve to `len(L) - k`. A rebind of `n`
+                        // drops its fact; a rebind of any list drops facts naming it
+                        // as `L` (its length may have changed).
+                        self.len_of_local.remove(name);
+                        self.len_of_local.retain(|_, l| l != name);
+                        if let Some(NirValue::Call { target, args, .. }) = value {
+                            if target == "len" && args.len() == 1 {
+                                if let NirValue::Local(l) = &args[0] {
+                                    self.len_of_local.insert(name.clone(), l.clone());
+                                }
+                            }
+                        }
+                        // Record the synthetic FOR-bound/step binds so the loop's
+                        // `end`/`step` (which arrive as `Local($for_endN)`) resolve.
+                        if name.starts_with("$for_end") || name.starts_with("$for_step") {
+                            if let Some(v) = value {
+                                self.for_bound_expr.insert(name.clone(), v.clone());
+                            }
+                        }
+                        // plan-86 G1: a rebind clears any provable-index fact keyed on
+                        // `name`, and any fact naming it as the indexed list `L`. An
+                        // alias `LET i = $for_iterN` (the IR's user-var binding) then
+                        // INHERITS the loop var's provable fact, so `get(L, i)` in the
+                        // body can elide. `i` is immutable, so the alias stays valid.
+                        self.provable_index_locals.remove(name);
+                        self.provable_index_locals.retain(|_, (l, _)| l != name);
+                        if let Some(NirValue::Local(src)) = value {
+                            if let Some(fact) = self.provable_index_locals.get(src).cloned() {
+                                self.provable_index_locals.insert(name.clone(), fact);
+                            }
+                        }
                         // A `MATCH` variant binding (`UnionExtract`) is an alias
                         // into the matched union's inlined variant block: the union
                         // owns the data and frees it as one block on its own drop,
@@ -107,10 +242,20 @@ impl CodeBuilder<'_> {
                         // arena block (plan-01-vector), so it is neither zero-init'd
                         // nor freed at scope-drop.
                         let promote_vector = self.promotable_vector_locals.contains(name);
+                        // plan-86 E: a read-only `get`-borrow binding (`e = get(L,i)`
+                        // used only as a MATCH scrutinee over an immutable container
+                        // `L`) aliases `L`'s inline element for a freeable-flat,
+                        // non-String type — so it is neither copied nor freed here
+                        // (the container owns the element). String `get` returns an
+                        // OWNED fresh block, so it is excluded and keeps its copy+free.
+                        let is_borrow_get = self.borrow_get_locals.contains(name)
+                            && self.is_freeable_flat_value(type_)
+                            && type_ != "String";
                         let owns_freeable_value = !aliases_union_variant
                             && !by_ref_capture_slot
                             && !runtime_managed
                             && !promote_vector
+                            && !is_borrow_get
                             && self.is_freeable_flat_value(type_);
                         // This binding will register a resource-close cleanup (a
                         // plain resource or a resource union) rather than a flat-value
@@ -137,11 +282,24 @@ impl CodeBuilder<'_> {
                             && !aliases_live_resource
                             && (self.resource_cleanup_symbol(type_).is_some()
                                 || self.resource_union_cleanup(type_).is_some());
+                        // plan-77 M6: a closure binding is non-escaping when its
+                        // name is never used as a value (only a direct invoke
+                        // target) — see `collect_value_used_locals`. Such a closure
+                        // is dead at scope end; its object/env/flat-captures are
+                        // freed by the closure branch below. The env/object frees
+                        // share the same not-yet-initialized-slot hazard as an owned
+                        // flat value, so the slot must be zeroed and registered too.
+                        let is_non_escaping_closure = !aliases_union_variant
+                            && !by_ref_capture_slot
+                            && !self.value_used_locals.contains(name)
+                            && value
+                                .as_ref()
+                                .is_some_and(|v| matches!(v, NirValue::Closure { .. }));
                         // Zero the slot before a (possibly fallible) initializer
                         // runs. If the initializer traps before storing, the slot
                         // stays null and the scope-drop free/close skips it instead of
                         // touching an uninitialized pointer.
-                        if owns_freeable_value || owns_resource_slot {
+                        if owns_freeable_value || owns_resource_slot || is_non_escaping_closure {
                             self.emit(abi::move_immediate(&zero_slot, "Integer", "0"));
                             self.emit(abi::store_u64(
                                 &zero_slot,
@@ -179,6 +337,7 @@ impl CodeBuilder<'_> {
                                         OwnedValueCleanup {
                                             type_: type_.clone(),
                                             stack_offset,
+                                            closure_captures: None,
                                         },
                                     ));
                                     self.owned_value_slots.push(stack_offset);
@@ -200,8 +359,18 @@ impl CodeBuilder<'_> {
                             // independent flat block (plan-02 Phase 8); an aliased
                             // variant binding or by-ref capture slot aliases its
                             // source deliberately and is stored without copying.
+                            // plan-86 E: a borrow binding lowers its `get` WITHOUT the
+                            // owning copy, and the `borrow_get_result` flag makes
+                            // `materialize_owned_element` return the aliasing element
+                            // pointer instead of copying it. Scoped to this one
+                            // initializer.
                             let result = if aliases_union_variant || by_ref_capture_slot {
                                 self.lower_value(value)?
+                            } else if is_borrow_get {
+                                self.borrow_get_result = true;
+                                let r = self.lower_value(value);
+                                self.borrow_get_result = false;
+                                r?
                             } else {
                                 self.lower_value_owned(value)?
                             };
@@ -219,7 +388,9 @@ impl CodeBuilder<'_> {
                             // scope-drop free can reclaim (collections/records
                             // default to arena allocations already).
                             let location = if result.type_ == "String" {
-                                self.copy_flat_block("String", &result.location)?
+                                Operand::from(
+                                    self.copy_flat_block("String", &result.location)?.render(),
+                                )
                             } else {
                                 result.location
                             };
@@ -277,6 +448,18 @@ impl CodeBuilder<'_> {
                             // is now an alias and registers no static cleanup.
                             let collection = collection.clone();
                             self.emit_owned_list_push(&collection, stack_offset)?;
+                            // The floated record is aliased from a producer temp
+                            // (`local $src`) when a fallible producer used an inline
+                            // `TRAP` — the desugar's `$trap_valN` is not a `RES`
+                            // name, so the escape analysis leaves it owning a close
+                            // at *its* (inner loop) scope. Ownership has floated to
+                            // `collection`; drop the source's close so the record is
+                            // closed once by the owned-list drain, not prematurely at
+                            // each loop iteration (a floated handle would otherwise be
+                            // closed while the collection still held it).
+                            if let Some(NirValue::Local(src)) = value {
+                                self.deactivate_resource_cleanup(src);
+                            }
                         } else if aliases_live_resource
                             && (self.resource_cleanup_symbol(type_).is_some()
                                 || self.resource_union_cleanup(type_).is_some())
@@ -319,9 +502,31 @@ impl CodeBuilder<'_> {
                                 OwnedValueCleanup {
                                     type_: type_.clone(),
                                     stack_offset,
+                                    closure_captures: None,
                                 },
                             ));
                             self.owned_value_slots.push(stack_offset);
+                        } else if is_non_escaping_closure {
+                            // plan-77 M6: free the closure object, its env, and each
+                            // freeable-flat capture (all deep-copied, so unaliased)
+                            // at scope-drop. The captures' free types are resolved
+                            // now (Local captures from `self.locals`); a capture that
+                            // is a by-value scalar/float or of unknown type is left
+                            // (a safe leak, never a wild free).
+                            if let Some(NirValue::Closure { captures, .. }) = value {
+                                let capture_types = captures
+                                    .iter()
+                                    .map(|capture| self.capture_free_type(capture))
+                                    .collect();
+                                self.active_cleanups.push(ActiveCleanup::OwnedValue(
+                                    OwnedValueCleanup {
+                                        type_: type_.clone(),
+                                        stack_offset,
+                                        closure_captures: Some(capture_types),
+                                    },
+                                ));
+                                self.owned_value_slots.push(stack_offset);
+                            }
                         }
                         // Default-initialize a `RES` binding's `STATE` payload.
                         // The owning binding allocates the state record on first
@@ -385,12 +590,13 @@ impl CodeBuilder<'_> {
                             self.emit_owned_value_drop(&OwnedValueCleanup {
                                 type_: value_type.clone(),
                                 stack_offset: old_slot,
+                                closure_captures: None,
                             })?;
                             let new_ptr = self.allocate_register()?;
                             self.emit(abi::load_u64(&new_ptr, abi::stack_pointer(), new_slot));
                             let stored = ValueResult {
                                 type_: result.type_.clone(),
-                                location: new_ptr,
+                                location: Operand::from(new_ptr.render()),
                                 text: String::new(),
                             };
                             let address = self.load_global_address(name)?;
@@ -401,6 +607,13 @@ impl CodeBuilder<'_> {
                         }
                     }
                     NirOp::Assign { name, value } => {
+                        // plan-86 G1: reassigning `name` invalidates any `len_of_local`
+                        // or provable-index fact keyed on it, and any fact naming it
+                        // as the list `L`.
+                        self.len_of_local.remove(name);
+                        self.len_of_local.retain(|_, l| l != name);
+                        self.provable_index_locals.remove(name);
+                        self.provable_index_locals.retain(|_, (l, _)| l != name);
                         // A loop-promoted float local is updated in its FP
                         // register, not its slot (plan-03 Stage D part 2).
                         if let Some(d) = self.promoted_float_locals.get(name).cloned() {
@@ -431,7 +644,19 @@ impl CodeBuilder<'_> {
                                 stack_offset,
                                 by_ref,
                             )?
+                            && !self.try_inplace_set_add_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
                             && !self.try_inplace_set_assign(name, value, stack_offset, by_ref)?
+                            && !self.try_inplace_remove_key_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
                             && !self.try_inplace_prepend_assign(
                                 name,
                                 value,
@@ -509,6 +734,7 @@ impl CodeBuilder<'_> {
                                 self.emit_owned_value_drop(&OwnedValueCleanup {
                                     type_: result.type_.clone(),
                                     stack_offset,
+                                    closure_captures: None,
                                 })?;
                                 Some(slot)
                             } else {
@@ -524,7 +750,7 @@ impl CodeBuilder<'_> {
                                 self.emit(abi::load_u64(&register, abi::stack_pointer(), slot));
                                 ValueResult {
                                     type_: result.type_.clone(),
-                                    location: register,
+                                    location: Operand::from(register.render()),
                                     text: String::new(),
                                 }
                             } else {
@@ -540,7 +766,7 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     stack_offset,
                                 ));
-                                self.store_value_at(&store_value, &slot_pointer, 0);
+                                self.store_value_at(&store_value, &slot_pointer.render(), 0);
                             } else {
                                 self.store_value_at(
                                     &store_value,
@@ -565,6 +791,12 @@ impl CodeBuilder<'_> {
                         }
                     }
                     NirOp::StateAssign { resource, value } => {
+                        // bug-424 Layer 1: a scalar `s.state.field = v` mutates the
+                        // existing STATE block in place; only a whole-record replace
+                        // (or a not-yet-in-place inlined field) falls through here.
+                        if self.try_inplace_state_scalar_assign(resource, value)? {
+                            return Ok(());
+                        }
                         // Replace the resource's `STATE` payload: store the new
                         // record pointer into the resource record's state slot.
                         // The resource value is itself a pointer, so the update
@@ -596,7 +828,7 @@ impl CodeBuilder<'_> {
                         let ptr = self.emit_resource_record_ptr(&block, &resource_type)?;
                         let val = self.allocate_register()?;
                         self.emit(abi::load_u64(&val, abi::stack_pointer(), value_slot));
-                        self.emit(abi::store_u64(&val, &ptr, FILE_OFFSET_STATE));
+                        self.emit(abi::store_u64(&val, &ptr, RESOURCE_OFFSET_STATE));
                     }
                     NirOp::Eval { value } => {
                         self.lower_value(value)?;
@@ -693,7 +925,7 @@ impl CodeBuilder<'_> {
                             ));
                             let case_matched = ValueResult {
                                 type_: matched.type_.clone(),
-                                location: matched_register,
+                                location: Operand::from(matched_register.render()),
                                 text: matched.text.clone(),
                             };
                             let next_label = self.label("match_next");
@@ -905,6 +1137,7 @@ impl CodeBuilder<'_> {
                             .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
                                 type_: "Error".to_string(),
                                 stack_offset: trap_offset,
+                                closure_captures: None,
                             }));
                         self.owned_value_slots.push(trap_offset);
                         let handler_result = self.lower_ops_inner(body, handler_scope_start);
@@ -974,6 +1207,118 @@ impl CodeBuilder<'_> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// plan-86 G1: resolve an expression to the list `L` whose `len(L)` it is —
+    /// either a direct `len(L)` call or a local `n` bound as `LET n = len(L)`.
+    fn resolve_len_list(&self, expr: &NirValue) -> Option<String> {
+        match expr {
+            NirValue::Call { target, args, .. } if target == "len" && args.len() == 1 => {
+                match &args[0] {
+                    NirValue::Local(l) => Some(l.clone()),
+                    _ => None,
+                }
+            }
+            NirValue::Local(n) => self.len_of_local.get(n).cloned(),
+            _ => None,
+        }
+    }
+
+    /// plan-86 G1: recognize `FOR i = 0 TO len(L) - k` (`k >= 1`, step 1) where `i`
+    /// and `L` are provably unmodified across the whole loop body. Returns
+    /// `(L, k)` — then `get/set(L, i)` is in-range (`i <= len-k < len`), and
+    /// `get/set(L, i+1)` too when `k >= 2`. Conservative: any deviation returns
+    /// `None` (the bounds check is kept). SOUNDNESS rests on the whole-body
+    /// no-reassign proof — an unsound elision is a silent OOB.
+    /// plan-86 G1: resolve a synthetic `$for_end*`/`$for_step*` local back to its
+    /// bound expr; identity for anything else.
+    fn resolve_for_local<'a>(&'a self, v: &'a NirValue) -> &'a NirValue {
+        if let NirValue::Local(name) = v {
+            if let Some(expr) = self.for_bound_expr.get(name) {
+                return expr;
+            }
+        }
+        v
+    }
+
+    fn recognize_provable_index(
+        &self,
+        i: &str,
+        start: &NirValue,
+        end: &NirValue,
+        step: &NirValue,
+        body: &[NirOp],
+    ) -> Option<(String, i64)> {
+        let is_int_const = |v: &NirValue, want: &str| matches!(v, NirValue::Const { type_, value } if type_ == "Integer" && value == want);
+        // The IR desugars the bound/step into synthetic locals — resolve them.
+        let start = self.resolve_for_local(start);
+        let step = self.resolve_for_local(step);
+        let end = self.resolve_for_local(end);
+        if !is_int_const(start, "0") || !is_int_const(step, "1") {
+            return None;
+        }
+        // end must be `<lenexpr> - k`, k >= 1.
+        let NirValue::Binary {
+            op, left, right, ..
+        } = end
+        else {
+            return None;
+        };
+        if op != "-" {
+            return None;
+        }
+        let NirValue::Const { type_, value } = right.as_ref() else {
+            return None;
+        };
+        if type_ != "Integer" {
+            return None;
+        }
+        let k: i64 = value.parse().ok()?;
+        if k < 1 {
+            return None;
+        }
+        let list = self.resolve_len_list(left)?;
+        // Soundness: `i` and `L` (and the `n` in `n - k`, since `n = len(L)` must
+        // still hold) must not be reassigned anywhere in the body.
+        let reassigned = super::function_lowering::collect_reassigned_locals(body);
+        if reassigned.contains(i) || reassigned.contains(&list) {
+            return None;
+        }
+        if let NirValue::Local(n) = left.as_ref() {
+            if reassigned.contains(n) {
+                return None;
+            }
+        }
+        Some((list, k))
+    }
+
+    /// plan-86 G1: is `index_arg` a provably-in-range index into list `list_arg`?
+    /// True when `list_arg == Local(L)` and `index_arg` is `Local(i)` (needs
+    /// headroom `k >= 1`) or `i + 1` (needs `k >= 2`), with
+    /// `provable_index_locals[i] == (L, k)`.
+    pub(super) fn is_provable_index_access(
+        &self,
+        list_arg: &NirValue,
+        index_arg: &NirValue,
+    ) -> bool {
+        let NirValue::Local(list) = list_arg else {
+            return false;
+        };
+        let (i, need_k) = match index_arg {
+            NirValue::Local(i) => (i.as_str(), 1i64),
+            NirValue::Binary {
+                op, left, right, ..
+            } if op == "+" => match (left.as_ref(), right.as_ref()) {
+                (NirValue::Local(i), NirValue::Const { type_, value })
+                    if type_ == "Integer" && value == "1" =>
+                {
+                    (i.as_str(), 2i64)
+                }
+                _ => return false,
+            },
+            _ => return false,
+        };
+        matches!(self.provable_index_locals.get(i), Some((l, k)) if l == list && *k >= need_k)
+    }
+
     pub(super) fn lower_numeric_for(
         &mut self,
         name: &str,
@@ -999,6 +1344,15 @@ impl CodeBuilder<'_> {
                 by_ref: false,
             },
         );
+
+        // plan-86 G1: if this is `FOR name = 0 TO len(L)-k` (step 1) with `name` and
+        // `L` unmodified across the whole body, record that `name` provably indexes
+        // `L` in-range for the body's `get`/`set(L, name[+1])` — cleared right after.
+        let g1_provable = self.recognize_provable_index(name, start, end, step, body);
+        if let Some((list, k)) = &g1_provable {
+            self.provable_index_locals
+                .insert(name.to_string(), (list.clone(), *k));
+        }
 
         let promoted = self.begin_loop_promotion(body, Some(name))?;
         let loop_label = self.label("for_loop");
@@ -1061,6 +1415,10 @@ impl CodeBuilder<'_> {
             cleanup_depth: self.active_cleanups.len(),
         });
         self.lower_ops(body)?;
+        // plan-86 G1: the provable-index fact is scoped to this loop's body only.
+        if g1_provable.is_some() {
+            self.provable_index_locals.remove(name);
+        }
         self.loop_stack.pop();
         self.emit(abi::label(&continue_label));
         let increment_node = NirValue::Binary {
@@ -1188,7 +1546,7 @@ impl CodeBuilder<'_> {
             if let Some(local) = self.locals.get_mut(&name) {
                 local.constant = None;
             }
-            self.promoted_float_locals.insert(name.clone(), d);
+            self.promoted_float_locals.insert(name.clone(), d.render());
             promoted.push(name);
         }
         Ok(promoted)
@@ -1225,7 +1583,7 @@ impl CodeBuilder<'_> {
             if result.location != d {
                 self.emit(abi::float_move_d_from_d(d, &result.location));
             }
-        } else if let Some(d_res) = self.float_residents.get(&result.location).cloned() {
+        } else if let Some(d_res) = self.float_residents.get(&result.location.render()).cloned() {
             if d_res != d {
                 self.emit(abi::float_move_d_from_d(d, &d_res));
             }

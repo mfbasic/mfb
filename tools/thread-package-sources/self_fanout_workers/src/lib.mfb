@@ -1,0 +1,33 @@
+REM plan-81 IMPORT self: a package spawns its OWN exported ISOLATED FUNC as a
+REM thread worker through the reserved `self` specifier. Two self-workers each
+REM mutate the package-level MUT COUNTER; because a worker runs on its own arena
+REM with its own copy of the writable-globals region (initialized from the same
+REM declaration the parent runs), each worker sees COUNTER start at 7, mutates
+REM only its own copy, and the parent's COUNTER is never touched.
+
+IMPORT thread
+IMPORT self
+
+MUT COUNTER AS Integer = 7
+
+REM The exported worker: receives its own ThreadWorker handle plus an increment,
+REM adds it to this package instance's COUNTER, and returns the updated value.
+EXPORT ISOLATED FUNC bump(w AS ThreadWorker OF Nothing TO Integer, add AS Integer) AS Integer
+  COUNTER = COUNTER + add
+  RETURN COUNTER
+END FUNC
+
+REM The parent-visible read of COUNTER, used to prove isolation held.
+EXPORT FUNC counter AS Integer
+  RETURN COUNTER
+END FUNC
+
+REM Fan out two self-workers from WITHIN this package via `self::bump`, join both,
+REM and report each worker's result plus this (parent) instance's untouched COUNTER.
+EXPORT FUNC runFanout AS String
+  LET a AS Thread OF Nothing TO Integer = thread::start(self::bump, 100)
+  LET b AS Thread OF Nothing TO Integer = thread::start(self::bump, 200)
+  LET ra AS Integer = thread::waitFor(a)
+  LET rb AS Integer = thread::waitFor(b)
+  RETURN "a=" & toString(ra) & " b=" & toString(rb) & " parent=" & toString(COUNTER)
+END FUNC

@@ -4,8 +4,9 @@
 //! backend (see the `macos` submodule) drives Network.framework through a
 //! dispatch-semaphore synchronous bridge.
 //!
-//! On Linux a `TlsSocket` handle is a 32-byte arena record: `fd` at 0, a
-//! `closed` flag at 8, the `SSL*` at 16, and the `SSL_CTX*` at 24. Each helper
+//! On Linux a `TlsSocket` handle is an arena record with the canonical plan-80
+//! header (`tag`@0, `fd`@8, `closed`@16, `STATE`@24) and a TLS tail: the
+//! `SSL_CTX*` at 32 and the `SSL*` at 40. Each helper
 //! re-`dlopen`s `libssl` (cheap once loaded — it just bumps the refcount) and
 //! `dlsym`s the `SSL_*` symbols it needs; `dlsym` resolves the library's default
 //! symbol version, which is why a single binary works against both OpenSSL
@@ -17,29 +18,45 @@ use super::native_helpers::{emit_data_address, emit_fail, hex_encode_cstring};
 use super::*;
 use crate::target::shared::abi;
 
-// OpenSSL handles share this fixed record layout (distinct from the `File`
-// layout used by `Socket`/`UdpSocket`). An accepted (server-side) `TlsSocket`
+// TLS handles share the canonical resource-record header (plan-80): tag@0,
+// fd (handle)@8, closed@16, STATE@24 — then the TLS-specific `SSL_CTX*`/`SSL*`
+// tail at 32+. Before plan-80 this record was 32 bytes with `SSL*` at 16, which
+// collided with the generic `STATE` slot and SIGSEGV'd a `Stream STATE` union
+// over a `TlsSocket` (plan-76-D D4). An accepted (server-side) `TlsSocket`
 // stores 0 in the `SSL_CTX*` slot: the marker that it points at the listener's
 // shared server context and must not free it (plan-06-tls-server.md §5.1).
-pub(super) const TLS_OFFSET_FD: usize = 0;
-pub(super) const TLS_OFFSET_CLOSED: usize = 8;
-pub(super) const TLS_OFFSET_SSL: usize = 16;
-pub(super) const TLS_OFFSET_CTX: usize = 24;
-pub(super) const TLS_RECORD_SIZE: &str = "32";
+pub(super) const TLS_OFFSET_FD: usize = RESOURCE_OFFSET_HANDLE;
+pub(super) const TLS_OFFSET_CLOSED: usize = RESOURCE_OFFSET_CLOSED;
+pub(super) const TLS_OFFSET_STATE: usize = RESOURCE_OFFSET_STATE;
+pub(super) const TLS_OFFSET_CTX: usize = 32;
+pub(super) const TLS_OFFSET_SSL: usize = 40;
+pub(super) const TLS_RECORD_SIZE: &str = RESOURCE_RECORD_SIZE;
 
-// The `TlsListener` record (Linux/OpenSSL): the listening fd plus the server
-// `SSL_CTX*` it owns (freed exactly once, when the listener closes). The
-// fourth slot is reserved (plan-06-tls-server.md §5.1).
-pub(super) const TLS_LISTENER_OFFSET_FD: usize = 0;
-pub(super) const TLS_LISTENER_OFFSET_CLOSED: usize = 8;
-pub(super) const TLS_LISTENER_OFFSET_CTX: usize = 16;
+// The schannel (Windows) backend stores a pointer to its separate SSPI
+// credential/context arena block in the record. Before plan-80 that pointer sat
+// at offset 16 (a bare literal); the header now owns 0..32, so it moves to the
+// TLS-specific tail at 40 (there is no `SSL*` slot on Windows — SSPI keeps its
+// handles in the block this points at).
+pub(super) const TLS_SCHANNEL_OFFSET_BLOCK: usize = 40;
 
-// Both OpenSSL records place the `closed` flag at the canonical resource
-// closed-flag offset (plan-38), so the backend-independent closed-default sets
-// exactly the byte these guards read. The macOS Network.framework backend
-// carries its own `REC_CLOSED` assert in `macos.rs`.
+// The `TlsListener` record: the listening fd plus the server `SSL_CTX*` it owns
+// (freed exactly once, when the listener closes). Shares the canonical header;
+// the `SSL_CTX*` moves to the type-specific tail at 32 (plan-80).
+pub(super) const TLS_LISTENER_OFFSET_FD: usize = RESOURCE_OFFSET_HANDLE;
+pub(super) const TLS_LISTENER_OFFSET_CLOSED: usize = RESOURCE_OFFSET_CLOSED;
+pub(super) const TLS_LISTENER_OFFSET_CTX: usize = 32;
+
+// Both OpenSSL records place `closed`/`STATE` at the canonical resource offsets
+// (plan-38, plan-80), so the backend-independent closed-default and union STATE
+// land on the right bytes. The macOS Network.framework backend carries its own
+// `REC_CLOSED`/`REC_STATE` asserts in `macos.rs`.
 const _: () = assert!(TLS_OFFSET_CLOSED == RESOURCE_OFFSET_CLOSED);
 const _: () = assert!(TLS_LISTENER_OFFSET_CLOSED == RESOURCE_OFFSET_CLOSED);
+const _: () = assert!(TLS_OFFSET_STATE == RESOURCE_OFFSET_STATE);
+const _: () = assert!(TLS_OFFSET_FD == RESOURCE_OFFSET_HANDLE);
+// The widest TLS tail (`SSL*`@40) fits inside the shared envelope.
+const _: () = assert!(TLS_OFFSET_SSL + 8 <= RESOURCE_RECORD_SIZE_BYTES);
+const _: () = assert!(TLS_SCHANNEL_OFFSET_BLOCK + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 
 pub(super) const SOCK_STREAM: &str = "1";
 pub(super) const HINTS_FAMILY_WORD: &str = "8589934592"; // ai_family = AF_INET (2 << 32), ai_flags = 0
@@ -71,6 +88,10 @@ pub(super) const TLS_SYMBOLS: &[&str] = &[
     "SSL_connect",
     "SSL_get_verify_result",
     "SSL_read",
+    // plan-76-B: non-consuming count of already-decrypted, buffered app bytes —
+    // the readiness fast-path for `tls::poll` (a TLS record can hold app bytes with
+    // the fd idle, so an fd-only poll would under-report).
+    "SSL_pending",
     "SSL_write",
     "SSL_shutdown",
     "SSL_free",
@@ -149,15 +170,15 @@ pub(super) fn emit_cstring(
         abi::load_u64("%v17", abi::stack_pointer(), str_off),
         abi::load_u64("%v18", "%v17", 0),
         abi::add_immediate(abi::return_register(), "%v18", 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), out_off),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), out_off),
         abi::load_u64("%v17", abi::stack_pointer(), str_off),
         abi::load_u64("%v18", "%v17", 0),
         abi::add_immediate("%v19", "%v17", 8),
-        abi::move_register("%v20", abi::RET[1]),
+        abi::move_register("%v20", abi::mfb_return(1)),
         abi::move_immediate("%v21", "Integer", "0"),
         abi::label(&copy_loop),
         abi::compare_registers("%v21", "%v18"),
@@ -193,7 +214,7 @@ pub(super) fn emit_dlopen_libssl(
         ctx.relocations,
     );
     ctx.instructions
-        .push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
+        .push(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
     platform.emit_libc_call(
         "dlopen",
         symbol,
@@ -214,7 +235,7 @@ pub(super) fn emit_dlopen_libssl(
         ctx.relocations,
     );
     ctx.instructions
-        .push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
+        .push(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
     platform.emit_libc_call(
         "dlopen",
         symbol,
@@ -250,7 +271,7 @@ pub(super) fn emit_dlsym(
     ));
     emit_data_address(
         symbol,
-        abi::ARG[1],
+        abi::c_arg(1),
         &sym_data_symbol(name),
         ctx.instructions,
         ctx.relocations,
@@ -297,10 +318,10 @@ pub(super) fn emit_set_sock_timeouts(
     for opt in [platform.so_rcvtimeo(), platform.so_sndtimeo()] {
         ctx.instructions.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_off),
-            abi::move_immediate(abi::ARG[1], "Integer", platform.sol_socket()),
-            abi::move_immediate(abi::ARG[2], "Integer", opt),
-            abi::add_immediate(abi::ARG[3], abi::stack_pointer(), tv_off),
-            abi::move_immediate(abi::ARG[4], "Integer", optlen),
+            abi::move_immediate(abi::c_arg(1), "Integer", platform.sol_socket()),
+            abi::move_immediate(abi::c_arg(2), "Integer", opt),
+            abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), tv_off),
+            abi::move_immediate(abi::c_arg(4), "Integer", optlen),
         ]);
         // plan-73-D: setsockopt has 5 int args; on Win64 the 5th (optlen) is a stack
         // argument above the shadow, not a register (bug-384) — a garbage optlen makes
@@ -406,6 +427,196 @@ pub(super) fn lower_tls_write_helper(
             schannel::lower_tls_write(symbol, platform_imports, platform, text)
         }
     }
+}
+
+/// plan-76-B: `tls::poll(sock[, timeoutMs]) AS Boolean` — the TLS readiness query,
+/// per-backend (openssl `SSL_pending`+`poll`, schannel carry-over+`WSAPoll`, macOS
+/// the outstanding-receive model).
+pub(super) fn lower_tls_poll_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    match platform.family() {
+        PlatformFamily::MacOS => macos::lower_tls_poll_macos(symbol, platform_imports, platform),
+        PlatformFamily::Linux => {
+            openssl::lower_tls_poll_openssl(symbol, platform_imports, platform)
+        }
+        PlatformFamily::Windows => schannel::lower_tls_poll(symbol, platform_imports, platform),
+    }
+}
+
+/// plan-76-C: `tls::poll(List OF RES TlsSocket[, timeoutMs]) AS TlsSocket` — the TLS
+/// readiness multiplex. Blocks until one socket in the list is readable, then returns
+/// a BORROWED pointer to the first ready one (lowest index); the list keeps ownership
+/// and closes each socket on scope exit (§15.6). Empty list → `ErrInvalidArgument`;
+/// expiry with none ready → `ErrTimeout` (producing call).
+///
+/// **Portable, backend-uniform**: rather than a per-backend fd/ring multiplex, it
+/// reuses the per-backend scalar readiness predicate — it scans each socket with
+/// `_mfb_rt_tls_tls_poll(rec, 0)` (non-blocking) and, when none is ready, waits a
+/// bounded slice on the first socket (also via the scalar helper) before rescanning,
+/// so every backend's buffered + raw readiness is honoured with no new native code.
+/// The scalar helper also propagates any per-socket error (e.g. a closed socket).
+/// `x0` = list ptr, `x1` = timeoutMs.
+pub(super) fn lower_tls_poll_list_helper(
+    symbol: &str,
+    _platform_imports: &HashMap<String, String>,
+    _platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    const FRAME_SIZE: usize = 64;
+    const LIST_OFF: usize = 8;
+    const COUNT_OFF: usize = 16;
+    const DATABASE_OFF: usize = 24;
+    const I_OFF: usize = 32;
+    const ROUNDS_OFF: usize = 40;
+    const INFINITE_OFF: usize = 48; // 1 = block until ready (omitted timeout)
+    const SLICE_MS: &str = "20";
+    const SCALAR: &str = "_mfb_rt_tls_tls_poll";
+
+    let invalid = format!("{symbol}_invalid");
+    let timeout_lbl = format!("{symbol}_timeout");
+    let mode_infinite = format!("{symbol}_mode_infinite");
+    let mode_zero = format!("{symbol}_mode_zero");
+    let rounds_done = format!("{symbol}_rounds_done");
+    let round_loop = format!("{symbol}_round_loop");
+    let scan_loop = format!("{symbol}_scan_loop");
+    let scan_done = format!("{symbol}_scan_done");
+    let do_wait = format!("{symbol}_do_wait");
+    let found = format!("{symbol}_found");
+    let done = format!("{symbol}_done");
+
+    let mut ins = vec![abi::label("entry")];
+    let mut rel = Vec::new();
+    // Loads socks[i]'s record ptr into `dst`: entry = list+HEADER+i*ENTRY_SIZE;
+    // rec = load(data_base + load(entry+VALUE_OFFSET)). Uses %v13/%v14 as scratch.
+    // (list ptr in LIST_OFF, data_base in DATABASE_OFF, index reg in `idx`.)
+    let load_elem = |ins: &mut Vec<CodeInstruction>, dst: Operand, idx: &str| {
+        ins.extend([
+            abi::load_u64("%v13", abi::stack_pointer(), LIST_OFF),
+            abi::move_immediate("%v14", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+            abi::multiply_registers("%v14", idx, "%v14"),
+            abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
+            abi::add_registers("%v13", "%v13", "%v14"),
+            abi::load_u64("%v13", "%v13", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+            abi::load_u64("%v14", abi::stack_pointer(), DATABASE_OFF),
+            abi::add_registers("%v13", "%v14", "%v13"),
+            abi::load_u64(dst, "%v13", 0),
+        ]);
+    };
+    ins.extend([
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), LIST_OFF),
+        // count = socks.count; reject empty.
+        abi::load_u64("%v9", abi::return_register(), COLLECTION_OFFSET_COUNT),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&invalid),
+        abi::store_u64("%v9", abi::stack_pointer(), COUNT_OFF),
+        // data_base = list + HEADER + capacity * ENTRY_SIZE (kind-0 resource list).
+        abi::load_u64("%v10", abi::return_register(), COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate("%v11", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers("%v10", "%v10", "%v11"),
+        abi::add_immediate("%v11", abi::return_register(), COLLECTION_HEADER_SIZE),
+        abi::add_registers("%v11", "%v11", "%v10"),
+        abi::store_u64("%v11", abi::stack_pointer(), DATABASE_OFF),
+        // Timeout → mode: sentinel = infinite (block); <0 = invalid; 0 = one scan,
+        // no wait; >0 = ceil(t / SLICE) rounds.
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), INFINITE_OFF),
+        abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers(abi::c_arg(1), "%v10"),
+        abi::branch_eq(&mode_infinite),
+        abi::compare_immediate(abi::c_arg(1), "0"),
+        abi::branch_lt(&invalid),
+        abi::branch_eq(&mode_zero),
+        // rounds = (t + SLICE - 1) / SLICE
+        abi::move_immediate("%v10", "Integer", SLICE_MS),
+        abi::add_immediate(abi::c_arg(1), abi::c_arg(1), 19),
+        abi::unsigned_divide_registers("%v9", abi::c_arg(1), "%v10"),
+        abi::store_u64("%v9", abi::stack_pointer(), ROUNDS_OFF),
+        abi::branch(&rounds_done),
+        abi::label(&mode_infinite),
+        abi::move_immediate("%v9", "Integer", "1"),
+        abi::store_u64("%v9", abi::stack_pointer(), INFINITE_OFF),
+        abi::branch(&rounds_done),
+        abi::label(&mode_zero),
+        abi::move_immediate("%v9", "Integer", "1"),
+        abi::store_u64("%v9", abi::stack_pointer(), ROUNDS_OFF),
+        abi::label(&rounds_done),
+        abi::label(&round_loop),
+        // Scan every socket non-blocking.
+        abi::move_immediate("%v9", "Integer", "0"),
+        abi::store_u64("%v9", abi::stack_pointer(), I_OFF),
+        abi::label(&scan_loop),
+        abi::load_u64("%v9", abi::stack_pointer(), I_OFF),
+        abi::load_u64("%v10", abi::stack_pointer(), COUNT_OFF),
+        abi::compare_registers("%v9", "%v10"),
+        abi::branch_ge(&scan_done),
+    ]);
+    load_elem(&mut ins, abi::return_register(), "%v9");
+    ins.extend([
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"), // non-blocking check
+        abi::branch_link(SCALAR),
+        // Propagate any scalar error (closed socket etc.).
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_ne(&done),
+        abi::compare_immediate(RESULT_VALUE_REGISTER, "1"),
+        abi::branch_eq(&found),
+        abi::load_u64("%v9", abi::stack_pointer(), I_OFF),
+        abi::add_immediate("%v9", "%v9", 1),
+        abi::store_u64("%v9", abi::stack_pointer(), I_OFF),
+        abi::branch(&scan_loop),
+        abi::label(&scan_done),
+        // None ready. Infinite mode always waits; otherwise decrement rounds and
+        // raise ErrTimeout when exhausted (zero mode: rounds 1 → 0 → timeout, no wait).
+        abi::load_u64("%v9", abi::stack_pointer(), INFINITE_OFF),
+        abi::compare_immediate("%v9", "1"),
+        abi::branch_eq(&do_wait),
+        abi::load_u64("%v9", abi::stack_pointer(), ROUNDS_OFF),
+        abi::subtract_immediate("%v9", "%v9", 1),
+        abi::store_u64("%v9", abi::stack_pointer(), ROUNDS_OFF),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_le(&timeout_lbl),
+        abi::label(&do_wait),
+        // Wait a bounded slice on socket 0 (via the scalar helper) before rescanning.
+        abi::move_immediate("%v9", "Integer", "0"),
+    ]);
+    load_elem(&mut ins, abi::return_register(), "%v9");
+    ins.extend([
+        abi::move_immediate(abi::c_arg(1), "Integer", SLICE_MS),
+        abi::branch_link(SCALAR),
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_ne(&done), // propagate a wait-time error
+        abi::branch(&round_loop),
+        abi::label(&found),
+        // Return socks[i] (borrowed) — the list still owns/closes it.
+        abi::load_u64("%v9", abi::stack_pointer(), I_OFF),
+    ]);
+    load_elem(&mut ins, RESULT_VALUE_REGISTER, "%v9");
+    ins.extend([
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+    ]);
+    rel.push(internal_branch(symbol, SCALAR));
+    ins.push(abi::label(&invalid));
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    ins.push(abi::label(&timeout_lbl));
+    emit_fail(
+        symbol,
+        ERR_TIMEOUT_CODE,
+        ERR_TIMEOUT_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    ins.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
+    Ok((frame, ins, rel, stack_slots))
 }
 
 pub(super) fn lower_tls_close_helper(
