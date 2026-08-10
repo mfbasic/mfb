@@ -185,7 +185,7 @@ metadata source.** These greps are the acceptance, not decoration.
       `table_has_no_duplicate_names_or_codes` (unique name/code/symbol). Both green.
 - [x] errorCode-table doc-comment already states it is the metadata authority
       (code/message/symbol columns). `error_constants.rs` rename deferred (Phase 2).
-- [~] Move sub-plans to `planning/completed/`: A, B, C archived (`9d4af14c3`); D
+- [x] Move sub-plans to `planning/completed/`: A, B, C archived (`9d4af14c3`); D archived on close of this plan (below). D
       archives on close.
 - [x] Tests: the two invariant checks + drift guards pass; `cargo test` 3751 green.
 
