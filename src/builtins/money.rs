@@ -16,7 +16,7 @@
 //! `Rounding` enum is a builtin type; the `package_source_glue!` companion is
 //! `WhenImported`.
 
-use super::descriptor::{
+use crate::codegen::registry::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, BuiltinType,
     Implementation, InjectionRule, Lowering, Parameter, ReturnType, TypeKind,
 };

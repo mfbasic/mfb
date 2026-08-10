@@ -1,4 +1,4 @@
-use super::descriptor::{
+use crate::codegen::registry::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, DefaultResolver, Implementation,
     Lowering, Parameter, ReturnType,
 };

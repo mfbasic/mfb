@@ -1791,7 +1791,7 @@ impl CodeBuilder<'_> {
         target: &str,
         args: &[NirValue],
     ) -> Option<Result<ValueResult, String>> {
-        let lower = crate::builtins::descriptor::REGISTRY
+        let lower = crate::codegen::registry::REGISTRY
             .function(target)?
             .1
             .native_lower()?;

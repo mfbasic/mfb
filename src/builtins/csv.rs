@@ -1,4 +1,4 @@
-use super::descriptor::{
+use crate::codegen::registry::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, BuiltinType,
     DefaultResolver, DefaultValue, Implementation, InjectionRule, Parameter, ParameterType,
     ReturnType, TypeKind,
@@ -94,7 +94,7 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
             return_type: ReturnType::Fixed(GRID_TYPE),
         }],
         implementation: Implementation::Rewrite(INTERNAL_PARSE),
-        lowering: super::descriptor::Lowering::Helper,
+        lowering: crate::codegen::registry::Lowering::Helper,
         flags: BuiltinFlags {
             internal_only: false,
             return_type_overloaded: false,
@@ -111,7 +111,7 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
             return_type: ReturnType::Fixed("String"),
         }],
         implementation: Implementation::Rewrite(INTERNAL_STRINGIFY),
-        lowering: super::descriptor::Lowering::Helper,
+        lowering: crate::codegen::registry::Lowering::Helper,
         flags: BuiltinFlags {
             internal_only: false,
             return_type_overloaded: false,
@@ -128,7 +128,7 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
             return_type: ReturnType::Fixed(READER_TYPE),
         }],
         implementation: Implementation::Rewrite(INTERNAL_PARSE_STREAM),
-        lowering: super::descriptor::Lowering::Helper,
+        lowering: crate::codegen::registry::Lowering::Helper,
         flags: BuiltinFlags {
             internal_only: false,
             return_type_overloaded: false,
@@ -145,7 +145,7 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
             return_type: ReturnType::Fixed(ROW_TYPE),
         }],
         implementation: Implementation::Rewrite(INTERNAL_NEXT),
-        lowering: super::descriptor::Lowering::Helper,
+        lowering: crate::codegen::registry::Lowering::Helper,
         flags: BuiltinFlags {
             internal_only: false,
             return_type_overloaded: false,

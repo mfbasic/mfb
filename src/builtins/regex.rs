@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::descriptor::{
+use crate::codegen::registry::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, DefaultResolver,
     DefaultValue, Implementation, InjectionRule, Lowering, Parameter, ParameterType, ReturnType,
 };

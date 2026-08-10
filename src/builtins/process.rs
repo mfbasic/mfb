@@ -19,7 +19,7 @@
 //! Landing across plan-90: **A** the plumbing + spawn/shell/pid/isRunning/
 //! waitFor/close; **B** streaming I/O; **C** signals & detach; **D** Windows.
 
-use super::descriptor::{
+use crate::codegen::registry::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, BuiltinType,
     DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
     ParameterType, ReturnType, TypeKind,

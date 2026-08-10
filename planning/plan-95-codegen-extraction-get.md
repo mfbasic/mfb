@@ -360,19 +360,20 @@ moves. This falsifies the only real design uncertainty for a ~50-line diff.
 - [x] Tests: `only_get_carries_native_lowering` in `descriptor.rs` — `get` has `native_lower()`, every other function does not.
 
 Acceptance: MET — `bash scripts/artifact-gate.sh target/release/mfb collections` → `0 diff(s)` on all 5 targets; `cargo test --bin mfb` → 3836 passed, 0 failed.
-Commit: —
+Commit: ccf15b84b
 
 ### Phase 2 — Stand up `src/codegen`, move the registry
 
 Create `src/codegen`; move `descriptor.rs` → `src/codegen/registry.rs` verbatim
 (carrying the Phase-1 additions); update the 31 importers. Pure relocation.
 
-- [ ] Create `src/codegen/mod.rs` (`pub mod registry;`) and add `pub mod codegen;` to the crate root.
-- [ ] `git mv src/builtins/descriptor.rs src/codegen/registry.rs`; keep `mod descriptor;` deletion in `src/builtins/mod.rs` in the same commit.
-- [ ] Update all 31 importers: `super::descriptor` / `builtins::descriptor` / `descriptor::` → `crate::codegen::registry` (grep list from §2).
-- [ ] The `Native` fn-pointer type in `registry.rs` now `use`s `crate::target::shared::code::{CodeBuilder, ValueResult}` and `crate::target::shared::nir::NirValue` (the accepted temporary `codegen→target` edge).
+- [x] Created `src/codegen/mod.rs` (`pub(crate) mod registry;`); added `mod codegen;` to `src/main.rs` (crate root — binary crate, no lib.rs).
+- [x] `git mv src/builtins/descriptor.rs src/codegen/registry.rs`; removed `pub(crate) mod descriptor;` from `src/builtins/mod.rs` (same commit). `registry.rs` byte-identical to the old file → rename detected, history preserved.
+- [x] Rewrote all importers (`super::descriptor::` + `crate::builtins::descriptor::` → `crate::codegen::registry::` tree-wide; bare `descriptor::` in `builtins/mod.rs` → same). No module-import (`use …descriptor;`) stragglers; 0 warnings.
+- [x] The `NativeLower` type in `registry.rs` names `crate::target::shared::code::{CodeBuilder, ValueResult}` + `crate::target::shared::nir::NirValue` (accepted temporary `codegen→target` edge).
+- [x] Fixed one dangling spec citation (see Corrections).
 
-Acceptance: byte-identical `artifact-gate.sh collections` (all 5) + `cargo test --bin mfb` green. `git mv` preserves history (`git log --follow src/codegen/registry.rs`).
+Acceptance: MET — `artifact-gate.sh collections` 0 diffs (all 5); `cargo test --bin mfb` 3836 passed, 0 failed.
 Commit: —
 
 ### Phase 3 — Move the `collections` package into `src/codegen`
@@ -458,6 +459,11 @@ Commit: —
 - **Visibility promotions (Phase 1):** `CodeBuilder`, `ValueResult`
   (`src/target/shared/code/mod.rs`) and `lower_collection_get`
   (`builder_collection_queries.rs`) → `pub(crate)`. `NirValue` was already `pub(crate)`.
+- **Doc-sync the move required (Phase 2, §Non-goals said "none"):** one dangling
+  spec citation — `spec/architecture/09_modules.md` `[[src/builtins/descriptor.rs]]`
+  → `[[src/codegen/registry.rs]]` (caught by `spec_citations_resolve`). The
+  registry-move importer count was 31 files (matched §2); no other doc referenced
+  the moved file.
 
 ## Summary
 

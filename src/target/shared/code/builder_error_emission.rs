@@ -14,7 +14,7 @@ impl CodeBuilder<'_> {
         error_name: &'static str,
     ) -> Result<(), String> {
         debug_assert!(
-            crate::builtins::descriptor::REGISTRY
+            crate::codegen::registry::REGISTRY
                 .function(function_id)
                 .is_some_and(|(_, function)| function.errors.contains(&error_name)),
             "{function_id} raises {error_name} but does not declare it in BuiltinFunction.errors",

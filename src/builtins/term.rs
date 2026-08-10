@@ -13,7 +13,7 @@
 
 use std::borrow::Cow;
 
-use super::descriptor::{
+use crate::codegen::registry::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinType,
     DefaultResolver, Implementation, Lowering, Parameter, ReturnType, TypeKind,
 };
@@ -230,8 +230,8 @@ pub(crate) static TERM: BuiltinModule = BuiltinModule {
     doc_desc: "",
     functions: TERM_FUNCTIONS,
     types: TERM_TYPES,
-    source: Some(super::descriptor::BuiltinSource {
-        rule: super::descriptor::InjectionRule::WhenImported,
+    source: Some(crate::codegen::registry::BuiltinSource {
+        rule: crate::codegen::registry::InjectionRule::WhenImported,
         loader: source_file,
     }),
     resolver: Some(&TERM_RESOLVER),

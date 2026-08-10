@@ -8,7 +8,7 @@
 
 use std::io::IsTerminal;
 
-use crate::builtins::descriptor::{
+use crate::codegen::registry::{
     BuiltinFunction, BuiltinModule, DefaultValue, ReturnType, REGISTRY,
 };
 use crate::builtins::errorcode;

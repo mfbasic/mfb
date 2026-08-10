@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use super::descriptor::{
+use crate::codegen::registry::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinType, DefaultResolver,
     DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType, TypeKind,
 };
@@ -176,7 +176,7 @@ const THREAD_TYPES: &[BuiltinType] = &[
 /// the operand's thread-type string). Exposed through the descriptor so plan-72-BB
 /// can drive `thread::` return types from the registry.
 struct ThreadResolver;
-impl super::descriptor::BuiltinResolver for ThreadResolver {
+impl crate::codegen::registry::BuiltinResolver for ThreadResolver {
     fn resolve_return_type(
         &self,
         _module: &BuiltinModule,
@@ -1049,7 +1049,7 @@ mod tests {
         // `ThreadResolver::resolve_return_type` is only invoked through the
         // registry; drive it directly so the delegating body and the
         // argument-dependent `resolve_call` arms (start/waitFor/receive/stdin) run.
-        use crate::builtins::descriptor::BuiltinResolver;
+        use crate::codegen::registry::BuiltinResolver;
         let resolver = ThreadResolver;
         let f = "ISOLATED FUNC(ThreadWorker OF Integer TO String, Integer) AS String";
         assert_eq!(

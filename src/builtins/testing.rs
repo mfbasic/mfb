@@ -5,7 +5,7 @@
 //! (there is no runtime helper). They are valid only inside a `TCASE` body —
 //! placement is enforced by `crate::testing` before any other front-end pass.
 
-use super::descriptor::{
+use crate::codegen::registry::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, DefaultResolver, DefaultValue,
     Implementation, Lowering, Parameter, ParameterType, ReturnType,
 };
@@ -325,7 +325,7 @@ mod tests {
     // operands never bound by name). Kept until plan-72-BB.
     #[test]
     fn parity_matches_descriptor() {
-        use crate::builtins::descriptor::{parity, DefaultResolver, REGISTRY};
+        use crate::codegen::registry::{parity, DefaultResolver, REGISTRY};
 
         const NAMES: &[&str] = &[
             EXPECT_EQUAL,
