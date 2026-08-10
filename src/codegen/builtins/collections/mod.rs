@@ -16,7 +16,7 @@ mod func_get;
 pub(crate) const SOURCE_PATH: &str = "builtins/collections.mfb";
 
 /// The public `collections::` function names (without the `collections.`
-/// qualifier). The implementations live in `collections_package.mfb` as generic
+/// qualifier). The implementations live in `package.mfb` as generic
 /// `__collections_<name>` functions; a user call `collections::sort(...)` is
 /// rewritten to `__collections_sort(...)` during monomorphization so the generic
 /// machinery instantiates it like any other generic function.
@@ -1932,7 +1932,7 @@ pub(crate) fn source_file() -> Result<AstFile, ()> {
     crate::ast::parse_source_internal(
         Path::new(SOURCE_PATH),
         SOURCE_PATH,
-        include_str!("collections_package.mfb"),
+        include_str!("package.mfb"),
     )
 }
 

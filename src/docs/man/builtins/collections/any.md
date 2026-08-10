@@ -26,7 +26,7 @@ IMPORT collections
 `collections::any` walks `value` from index `0` upward and calls `predicate`
 with each element in turn. It returns `TRUE` as soon as a call returns `TRUE`,
 without examining any later element, and returns `FALSE` only after every
-element has been tested and none matched. [[src/codegen/builtins/collections/collections_package.mfb:__collections_any]]
+element has been tested and none matched. [[src/codegen/builtins/collections/package.mfb:__collections_any]]
 
 The scan short-circuits: `predicate` is called at most once per element, and no
 call is made for elements after the first match. Callers must not rely on
@@ -53,14 +53,14 @@ mutate `value` and has no other side effects beyond whatever `predicate` does.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to scan, in index order starting at `0`. An empty list is accepted and yields `FALSE`. Not modified. [[src/codegen/builtins/collections/collections_package.mfb:__collections_any]] |
-| `predicate` | `FUNC(T) AS Boolean` | Test applied to each element. Called with one element at a time; the scan stops at the first call that returns `TRUE`. An error it raises propagates to the caller. [[src/codegen/builtins/collections/collections_package.mfb:__collections_any]] |
+| `value` | `List OF T` | The list to scan, in index order starting at `0`. An empty list is accepted and yields `FALSE`. Not modified. [[src/codegen/builtins/collections/package.mfb:__collections_any]] |
+| `predicate` | `FUNC(T) AS Boolean` | Test applied to each element. Called with one element at a time; the scan stops at the first call that returns `TRUE`. An error it raises propagates to the caller. [[src/codegen/builtins/collections/package.mfb:__collections_any]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `predicate` returns `TRUE` for at least one element of `value`; `FALSE` when it returns `FALSE` for every element, including when `value` is empty. [[src/codegen/builtins/collections/collections_package.mfb:__collections_any]] |
+| `Boolean` | `TRUE` when `predicate` returns `TRUE` for at least one element of `value`; `FALSE` when it returns `FALSE` for every element, including when `value` is empty. [[src/codegen/builtins/collections/package.mfb:__collections_any]] |
 
 ## Errors
 
@@ -72,7 +72,7 @@ No errors.
 imposes no comparability or orderability constraint on `T`, because elements are
 never compared to one another — they are only passed to `predicate`. The second
 argument must be a function value taking exactly one `T` and returning
-`Boolean`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_any]]
+`Boolean`. [[src/codegen/builtins/collections/package.mfb:__collections_any]]
 
 ## Examples
 

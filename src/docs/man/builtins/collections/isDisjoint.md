@@ -28,7 +28,7 @@ common, and `FALSE` otherwise. It walks the elements of `a` and returns `FALSE`
 as soon as `collections::contains` reports one that is also in `b`; if the walk
 finds no shared element, it returns `TRUE`. Equivalently, two sets are disjoint
 exactly when their intersection is empty.
-[[src/codegen/builtins/collections/collections_package.mfb:__collections_isDisjoint]]
+[[src/codegen/builtins/collections/package.mfb:__collections_isDisjoint]]
 
 `isDisjoint` is **pure**: it inspects both arguments and mutates neither. The
 empty set is disjoint from every set, so a call with an empty argument is always
@@ -45,14 +45,14 @@ type like any other generic function. [[src/codegen/builtins/collections/mod.rs:
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Set OF T` | The first set, walked element by element. Not modified. `T` must be a comparable type. [[src/codegen/builtins/collections/collections_package.mfb:__collections_isDisjoint]] |
-| `b` | `Set OF T` | The second set, of the same type as `a`, tested for shared membership. Not modified. [[src/codegen/builtins/collections/collections_package.mfb:__collections_isDisjoint]] |
+| `a` | `Set OF T` | The first set, walked element by element. Not modified. `T` must be a comparable type. [[src/codegen/builtins/collections/package.mfb:__collections_isDisjoint]] |
+| `b` | `Set OF T` | The second set, of the same type as `a`, tested for shared membership. Not modified. [[src/codegen/builtins/collections/package.mfb:__collections_isDisjoint]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `a` and `b` share no element (including when either is empty); `FALSE` when they share at least one element. [[src/codegen/builtins/collections/collections_package.mfb:__collections_isDisjoint]] |
+| `Boolean` | `TRUE` when `a` and `b` share no element (including when either is empty); `FALSE` when they share at least one element. [[src/codegen/builtins/collections/package.mfb:__collections_isDisjoint]] |
 
 ## Errors
 
@@ -63,7 +63,7 @@ No errors.
 Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
 arguments are not both sets of the same element type does not resolve and is
-rejected at compile time. [[src/codegen/builtins/collections/collections_package.mfb:__collections_isDisjoint]]
+rejected at compile time. [[src/codegen/builtins/collections/package.mfb:__collections_isDisjoint]]
 
 ## Examples
 

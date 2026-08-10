@@ -31,7 +31,7 @@ compiler-owned generic record template in the always-in-scope builtin prelude.
 `predicate` with each element. Each element is appended to the `matched` list
 when `predicate` returns `TRUE` and to the `unmatched` list otherwise, and the
 two lists are returned together in a single `Partition OF T` record.
-[[src/codegen/builtins/collections/collections_package.mfb:__collections_partition]]
+[[src/codegen/builtins/collections/package.mfb:__collections_partition]]
 
 Unlike `collections::any` and `collections::all`, `partition` does **not**
 short-circuit: `predicate` is called exactly once for every element of `value`,
@@ -71,14 +71,14 @@ type like any other generic function. [[src/codegen/builtins/collections/mod.rs:
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to split, visited in index order from `0`. An empty list is accepted and yields two empty lists. Not modified. [[src/codegen/builtins/collections/collections_package.mfb:__collections_partition]] |
-| `predicate` | `FUNC(T) AS Boolean` | Classifier applied to every element exactly once. `TRUE` sends the element to `matched`, `FALSE` to `unmatched`. An error it raises propagates to the caller. [[src/codegen/builtins/collections/collections_package.mfb:__collections_partition]] |
+| `value` | `List OF T` | The list to split, visited in index order from `0`. An empty list is accepted and yields two empty lists. Not modified. [[src/codegen/builtins/collections/package.mfb:__collections_partition]] |
+| `predicate` | `FUNC(T) AS Boolean` | Classifier applied to every element exactly once. `TRUE` sends the element to `matched`, `FALSE` to `unmatched`. An error it raises propagates to the caller. [[src/codegen/builtins/collections/package.mfb:__collections_partition]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Partition OF T` | A record with fields `matched AS List OF T` (the elements for which `predicate` returned `TRUE`) and `unmatched AS List OF T` (the rest), each in original relative order. Their lengths always sum to `len(value)`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_partition]] [[src/ast/manifest.rs:builtin_prelude_file]] |
+| `Partition OF T` | A record with fields `matched AS List OF T` (the elements for which `predicate` returned `TRUE`) and `unmatched AS List OF T` (the rest), each in original relative order. Their lengths always sum to `len(value)`. [[src/codegen/builtins/collections/package.mfb:__collections_partition]] [[src/ast/manifest.rs:builtin_prelude_file]] |
 
 ## Errors
 
@@ -92,7 +92,7 @@ elements are never compared to one another — they are only passed to
 `predicate`. The second argument must be a function value taking exactly one `T`
 and returning `Boolean`. The result binding, when annotated, is written
 `Partition OF T` with the same `T` as the input's element type.
-[[src/codegen/builtins/collections/collections_package.mfb:__collections_partition]]
+[[src/codegen/builtins/collections/package.mfb:__collections_partition]]
 
 ## Examples
 

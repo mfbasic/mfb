@@ -54,7 +54,7 @@ insertion order) are native too, and `collections::contains` gains a `Set OF T`
 overload alongside its `List OF T` one. [[src/codegen/builtins/collections/mod.rs:NATIVE_MEMBERS]]
 
 **Source generics** — generic MFBASIC functions defined in a bundled MFBASIC
-source companion and injected when the package is imported. [[src/codegen/builtins/collections/collections_package.mfb]]
+source companion and injected when the package is imported. [[src/codegen/builtins/collections/package.mfb]]
 A call `collections::sort(x)` is rewritten to `__collections_sort(x)` during
 monomorphization and instantiated like any generic function:
 `collections::sort`, `collections::sortBy`, `collections::take`,

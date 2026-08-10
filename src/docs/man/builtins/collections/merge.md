@@ -27,7 +27,7 @@ IMPORT collections
 `FOR EACH` and considers each of its entries in turn. An entry of `b` is written
 into the result only when `preferB` is `TRUE`, or when the entry's key is not
 already present in the result. Every other entry of `b` is skipped, leaving the
-value that came from `a` in place. [[src/codegen/builtins/collections/collections_package.mfb:__collections_merge]]
+value that came from `a` in place. [[src/codegen/builtins/collections/package.mfb:__collections_merge]]
 
 The result therefore always contains the union of the two key sets: every key of
 `a` and every key of `b` appears exactly once. `preferB` decides only what
@@ -38,7 +38,7 @@ happens on a collision — a key present in both maps:
 
 `preferB` is a required `Boolean` parameter. It has no default, so all three
 arguments must be supplied; there is no two-argument form of `merge`.
-[[src/codegen/builtins/collections/collections_package.mfb:__collections_merge]]
+[[src/codegen/builtins/collections/package.mfb:__collections_merge]]
 
 Neither `a` nor `b` is modified. The result is a distinct map value, so writing
 to it afterwards does not disturb either input.
@@ -57,15 +57,15 @@ not move the key to the end.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Map OF K TO V` | The base map. The result begins as a copy of it, so its entries survive unless a colliding entry of `b` displaces them. May be empty. Not modified. [[src/codegen/builtins/collections/collections_package.mfb:__collections_merge]] |
-| `b` | `Map OF K TO V` | The map merged on top. Must have the same key and value types as `a`. May be empty. Not modified. [[src/codegen/builtins/collections/collections_package.mfb:__collections_merge]] |
-| `preferB` | `Boolean` | Which side wins on a key present in both maps: `TRUE` takes `b`'s value, `FALSE` keeps `a`'s. Required — there is no default. [[src/codegen/builtins/collections/collections_package.mfb:__collections_merge]] |
+| `a` | `Map OF K TO V` | The base map. The result begins as a copy of it, so its entries survive unless a colliding entry of `b` displaces them. May be empty. Not modified. [[src/codegen/builtins/collections/package.mfb:__collections_merge]] |
+| `b` | `Map OF K TO V` | The map merged on top. Must have the same key and value types as `a`. May be empty. Not modified. [[src/codegen/builtins/collections/package.mfb:__collections_merge]] |
+| `preferB` | `Boolean` | Which side wins on a key present in both maps: `TRUE` takes `b`'s value, `FALSE` keeps `a`'s. Required — there is no default. [[src/codegen/builtins/collections/package.mfb:__collections_merge]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Map OF K TO V` | A new map holding every key of `a` and of `b`. Colliding keys take `b`'s value when `preferB` is `TRUE` and `a`'s value otherwise. Equal to a copy of the other map when either input is empty. [[src/codegen/builtins/collections/collections_package.mfb:__collections_merge]] |
+| `Map OF K TO V` | A new map holding every key of `a` and of `b`. Colliding keys take `b`'s value when `preferB` is `TRUE` and `a`'s value otherwise. Equal to a copy of the other map when either input is empty. [[src/codegen/builtins/collections/package.mfb:__collections_merge]] |
 
 ## Errors
 
@@ -77,7 +77,7 @@ No errors.
 `a` and `b` bind the same `K` and the same `V`, so the two maps must have
 identical key and value types; merging maps with different value types is a
 compile-time error. The result is a `Map OF K TO V` with those same types.
-[[src/codegen/builtins/collections/collections_package.mfb:__collections_merge]]
+[[src/codegen/builtins/collections/package.mfb:__collections_merge]]
 
 ## Examples
 

@@ -28,7 +28,7 @@ in `a` but not in `b`. It walks the elements of `a` and keeps each one that
 `collections::contains` reports as **absent** from `b`, so the result is `a` with
 every element of `b` removed. The operation is asymmetric:
 `difference(a, b)` and `difference(b, a)` are generally different sets.
-[[src/codegen/builtins/collections/collections_package.mfb:__collections_difference]]
+[[src/codegen/builtins/collections/package.mfb:__collections_difference]]
 
 `difference` is **pure**: it returns a new value and mutates neither argument.
 Surviving elements keep the insertion order they had in `a`. The difference of a
@@ -47,14 +47,14 @@ type like any other generic function. [[src/codegen/builtins/collections/mod.rs:
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Set OF T` | The set to subtract from, walked to decide element order. Not modified. `T` must be a comparable type. [[src/codegen/builtins/collections/collections_package.mfb:__collections_difference]] |
-| `b` | `Set OF T` | The set whose elements are removed from `a`, of the same type as `a`. Not modified. [[src/codegen/builtins/collections/collections_package.mfb:__collections_difference]] |
+| `a` | `Set OF T` | The set to subtract from, walked to decide element order. Not modified. `T` must be a comparable type. [[src/codegen/builtins/collections/package.mfb:__collections_difference]] |
+| `b` | `Set OF T` | The set whose elements are removed from `a`, of the same type as `a`. Not modified. [[src/codegen/builtins/collections/package.mfb:__collections_difference]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Set OF T` | A new set of the elements of `a` that are not in `b`; its length is between `0` and `len(a)`. [[src/codegen/builtins/collections/collections_package.mfb:__collections_difference]] |
+| `Set OF T` | A new set of the elements of `a` that are not in `b`; its length is between `0` and `len(a)`. [[src/codegen/builtins/collections/package.mfb:__collections_difference]] |
 
 ## Errors
 
@@ -65,7 +65,7 @@ No errors.
 Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
 arguments are not both sets of the same element type does not resolve and is
-rejected at compile time. [[src/codegen/builtins/collections/collections_package.mfb:__collections_difference]]
+rejected at compile time. [[src/codegen/builtins/collections/package.mfb:__collections_difference]]
 
 ## Examples
 
