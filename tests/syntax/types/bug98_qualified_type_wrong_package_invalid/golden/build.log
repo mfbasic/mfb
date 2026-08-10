@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/types/bug98_qualified_type_wrong_package_invalid
+   7 | ' package half was not enforced, so `io::Url` mis-resolved to net's Url.
+   8 | FUNC main AS Integer
+   9 |   LET x AS io::Url = net::parseUrl("http://example.com")
+     | ^
+tests/syntax/types/bug98_qualified_type_wrong_package_invalid/src/main.mfb:9 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `io` does not export `io.Url`.
+   7 | ' package half was not enforced, so `io::Url` mis-resolved to net's Url.
+   8 | FUNC main AS Integer
+   9 |   LET x AS io::Url = net::parseUrl("http://example.com")
+     | ^
+tests/syntax/types/bug98_qualified_type_wrong_package_invalid/src/main.mfb:9 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.parseUrl`.
+[exit 1]
