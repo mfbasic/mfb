@@ -256,6 +256,19 @@ impl CodeBuilder<'_> {
             size_slot,
         ));
         self.emit_arena_free_call();
+        // Free-and-null: zero the slot after freeing so a drop that is re-reached
+        // without an intervening store — a loop body whose owned temp came from a
+        // conditionally/short-circuit-evaluated initializer, so this iteration
+        // never re-stored the slot — sees 0 and skips instead of freeing the stale
+        // (already-freed) pointer again. Without this the once-only prologue
+        // zero-init is insufficient across iterations and the second free is a
+        // double free that corrupts the arena (bug-440). Only the freed path needs
+        // it; the null path already read 0.
+        self.emit(abi::store_u64(
+            abi::ZERO,
+            abi::stack_pointer(),
+            cleanup.stack_offset,
+        ));
         self.emit(abi::label(&skip));
         Ok(())
     }
@@ -340,6 +353,10 @@ impl CodeBuilder<'_> {
             &CLOSURE_OBJECT_SIZE.to_string(),
         ));
         self.emit_arena_free_call();
+        // Free-and-null (see emit_owned_value_drop / bug-440): zero the object slot
+        // after freeing so a re-reached closure drop with no intervening store does
+        // not double-free the stale pointer.
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), object_slot));
         self.emit(abi::label(&skip));
         Ok(())
     }

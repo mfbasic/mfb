@@ -3,12 +3,17 @@
 # bug-440: A record-returning function called in a `WHILE` condition, combined with `term::` writes in the loop body, miscompiles — the loop's later `term::setBold`/`setUnderline` receive corrupted (garbage) arguments
 
 Last updated: 2026-08-09
-Effort: unknown (native regalloc/clobber root-cause; needs `.ncode`/objdump inspection)
-Severity: MEDIUM — silent wrong output (wrong cell attributes / miscount), not a crash; needs a specific code shape
-Class: Correctness (native codegen — register allocation / call-clobber)
+Effort: small fix (one zero-store per owned-value drop); wide golden churn (`.ncode`/`.ncodesum` for every fixture with an owned-value drop)
+Severity: MEDIUM — silent wrong output / arena corruption, not a reliable crash; needs a specific code shape
+Class: Correctness (native codegen — owned-value drop double-free)
 
-Status: Open (discovered while implementing `term::drawText(x, y, AttributedString)`; worked around there by not using the triggering shape)
-Regression Test: none yet — see Acceptance
+Status: FIXED — root cause is NOT register clobber (the original title's guess); it is a
+double free from an owned-value-drop cleanup slot that is zero-initialized only once at
+the prologue and never re-nulled after a free, so a drop re-reached across a loop
+back-edge without an intervening store frees a stale pointer again. Fix: free-and-null in
+`emit_owned_value_drop` (and `emit_closure_drop`).
+Regression Test: `tests/codegen_owned_drop_free_and_null.rs` (codegen inspection — the
+runtime symptom is entropy-scrub-flaky, so a black-box rt test is unsound here).
 
 ## Symptom
 
@@ -28,26 +33,38 @@ to the interaction between the record-returning call in the loop condition and t
 
 ## Root Cause
 
-Not yet localized. Observations that bound it (each is a minimal delta from a
-working variant, native macOS-aarch64):
+**A double free of an owned-value-drop cleanup slot, NOT a register clobber.** The
+original title/observations (register-allocation-sensitive) were a red herring —
+the profile/tty-dependence is just the arena's entropy-scrub of the double-freed
+block surfacing (or not) through a live alias.
 
-- Trigger REQUIRES a **record-returning** helper called in the `WHILE` condition.
-  The same loop with **Boolean**-returning helpers in the condition renders
-  correctly. (Booleans vs a 2-field record is the only change.)
-- Trigger REQUIRES the helper call to be **in the loop condition**. Calling the
-  record helper only in the loop *body* (per-iteration, no inner `WHILE`) renders
-  correctly.
-- Trigger REQUIRES `term::` writer calls in the body. Replacing them with
-  `io::print` of the same record fields prints correct values.
-- An extra allocating call (e.g. `astrings::getAttributes`) placed between the
-  resolve and the `term::` calls does **not** trigger it on its own.
+`styleAt(j)` in the inner-`WHILE` condition returns a record; that owned temp is
+dropped by `emit_owned_value_drop` (`src/target/shared/code/builder_owned_cleanup.rs`)
+at the inner-loop scope. The drop is null-guarded — `if slot != 0 { arena_free(slot) }`
+— and the guard is sound only if the slot reads 0 on every path that reaches the
+drop without a store. The slot is zero-initialized **once at the prologue**
+(`function_lowering.rs`, `owned_value_slots` splice) and **never re-nulled after a
+free**. Across outer-loop iterations that breaks:
 
-This points at a callee-clobbered / mis-allocated register or stack slot around
-the record temporary materialized for the loop-condition call, exposed when the
-`term::` writer helpers (which load the arena state base and store the flag
-argument) run in the same loop. The garbage `underline` (a flag never set to
-`TRUE` in the program) indicates the Boolean argument register handed to
-`term::setUnderline` is corrupted, not the resolved record value.
+- iter i=1: inner condition calls `styleAt(j)` → slot = T1; at inner-loop exit the
+  drop frees T1. The slot still holds T1 (freed).
+- iter i=2 (last): `j < 3` is false, so the `AND` short-circuits and `styleAt(j)`
+  is **never called** — the slot is not re-stored. The drop runs anyway and frees
+  T1 **again**.
+
+The second free is a *non-immediate* double free (other allocs intervened, so the
+arena's immediate-double-free idempotency guard in `arena.rs` does not catch it):
+it re-inserts an already-freed block, and if a live block (`st` for i=2, or any
+16-byte record) had reused T1's storage, the free scrubs it — `st.underline`
+(never set) then reads entropy-poison garbage, so the last cell renders underlined.
+`io::print` instead of `term::` renders correctly only because its different
+allocation order happens not to reuse the double-freed block; that is why the
+symptom looked term- and profile-specific.
+
+The confirming `.ncode` (`main`, macOS-aarch64): the inner-condition temp slot is
+`str xzr` zeroed once in the prologue, assigned inside the inner while, and freed
+at `while_end` (`bl _mfb_arena_free`) with **no** following store — so the stale
+pointer survives to the next iteration's free.
 
 ## Failing Reproduction
 
@@ -103,31 +120,48 @@ calls with
 It prints the correct three runs (`bold=FALSE/TRUE/FALSE`, `underline=FALSE`
 throughout).
 
-## Proposed Fix
+## Fix
 
-Root-cause in native codegen: dump `.ncode` (and objdump) for the reproduction and
-localize which register/slot the loop-condition record temporary and the `term::`
-writer argument share. Likely a missing save/restore or a vreg-allocation-order
-issue around a record-returning call whose result is consumed across a subsequent
-call in the same loop. Fix the allocation/clobber, then confirm the reproduction
-renders plain/bold/plain in **both** debug and release.
+Free-and-null the owned-value drop: in `emit_owned_value_drop`
+(`src/target/shared/code/builder_owned_cleanup.rs`), immediately after
+`emit_arena_free_call()` (the freed path, before the skip label), zero the slot —
+`self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), cleanup.stack_offset))`.
+This restores the drop's documented invariant ("the slot reads 0 on every path that
+reaches this drop without a store") for loop re-entry, so a re-reached drop with no
+intervening store reads 0 and skips instead of double-freeing. The null path already
+read 0, so only the freed path needs it. The same free-and-null was added to
+`emit_closure_drop` (its `object_slot`) for the closure-temp-in-loop analogue.
+
+The added store uses only `abi::ZERO`/`abi::stack_pointer()` (no `temporary_vreg()`/
+`allocate_register()`), so it does NOT perturb vreg numbering — the `.ncode` delta is
+purely the additive zero-stores (one per owned-value drop), reviewable as such.
 
 ## Acceptance
 
-- The reproduction above renders `?`(plain) `?`(bold) `?`(plain) in both profiles.
-- A regression test (native PTY, like `tests/rt_native_term_runtime.rs`) asserting
-  the last run's cell carries no stray bold/underline.
-- Full `cargo test` green.
+- `tests/codegen_owned_drop_free_and_null.rs` asserts every `owned_value_free_skip*`
+  cleanup ends with a zero-store to its slot (RED before the fix: the label is
+  preceded by the bare `bl _mfb_arena_free`). Deterministic; the runtime symptom is
+  entropy-scrub-flaky (0/20 under a pipe even unfixed), so a black-box rt assertion
+  is unsound — this is the codegen-inspection test the memory note prescribes for a
+  slot/double-free fix.
+- Goldens regenerated for the `.ncode`/`.ncodesum` shift (the added zero-stores);
+  diff confirmed to be ONLY those additions.
+- Full `cargo test` green (aside from the pre-existing, independent bug-438 GTK
+  grid-size failure).
 
 ## Notes / Scope
 
-- Found while adding `term::drawText(x, y, AttributedString)`. That feature was
-  written to AVOID this shape: its bridge
-  (`src/builtins/term_astrings_bridge.mfb`) resolves bold/underline with two
-  **Boolean**-returning helpers (`__term_boldAt` / `__term_underlineAt`) compared
-  in the run-scan `WHILE` condition, rather than one record-returning resolver, so
-  it does not hit this miscompile. This bug is independent of that feature — the
-  reproduction uses only `term` + a user record.
+- Found while adding `term::drawText(x, y, AttributedString)`. That feature had
+  originally been written to AVOID this shape (two Boolean-returning helpers
+  compared in the run-scan `WHILE` condition instead of one record-returning
+  resolver). As part of this fix the workaround is REMOVED: the bridge
+  (`src/builtins/term_astrings_bridge.mfb`) now uses the natural single
+  record resolver `__term_styleAt` returning a `__TermStyle` record and compares
+  it in the `WHILE` condition — the exact shape that used to miscompile, now
+  correct (and one `getAttributes` per scalar instead of two). The record type is
+  named with the internal `__` sigil (`__TermStyle`) so the injected type cannot
+  collide with a user's own `TermStyle`. This bug is independent of that feature —
+  the reproduction uses only `term` + a user record.
 - The variance between debug and release output is itself diagnostic: the same
   source, same front-end IR, different native register allocation → different
   wrong output. Any fix must be verified in both profiles.
