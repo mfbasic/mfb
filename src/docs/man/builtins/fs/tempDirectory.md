@@ -65,8 +65,8 @@ This function takes no parameters. [[src/builtins/fs.rs:call_param_names]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77020001` | `ErrRead` | The host fails to report a temporary directory path, for example when the platform query returns a zero-length or empty result. [[src/target/shared/code/error_constants.rs:ERR_READ_CODE]] |
-| `77010001` | `ErrOutOfMemory` | The internal buffer used to query the path, or the returned `String` resource, cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77020001` | `ErrRead` | The host fails to report a temporary directory path, for example when the platform query returns a zero-length or empty result. [[src/builtins/errorcode.rs:ErrReadFailed]] |
+| `77010001` | `ErrOutOfMemory` | The internal buffer used to query the path, or the returned `String` resource, cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

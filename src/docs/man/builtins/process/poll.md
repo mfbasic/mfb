@@ -71,7 +71,7 @@ The same, for the selected stream — `Stream.StdOut` or `Stream.StdErr`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
+| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
 
 ## Examples
 

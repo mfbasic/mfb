@@ -1,52 +1,35 @@
 use super::*;
 
 impl CodeBuilder<'_> {
-    pub(super) fn emit_overflow_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_OVERFLOW_CODE, ERR_OVERFLOW_MESSAGE)
+    /// plan-88: raise a runtime error by its `errorCode` NAME, on behalf of the
+    /// builtin `function_id`. Validates the name is declared in that function's
+    /// `BuiltinFunction.errors`, resolves `(code, message)` from the single
+    /// `ERRORCODE_CONSTANTS` table, records the name in the module used-set, and
+    /// emits the error return. One of the two sanctioned error-emission entry
+    /// points (the other is `raise_error_bare`); no site emits an error any other
+    /// way once the migration is complete.
+    pub(super) fn raise_error(
+        &mut self,
+        function_id: &str,
+        error_name: &'static str,
+    ) -> Result<(), String> {
+        debug_assert!(
+            crate::builtins::descriptor::REGISTRY
+                .function(function_id)
+                .is_some_and(|(_, function)| function.errors.contains(&error_name)),
+            "{function_id} raises {error_name} but does not declare it in BuiltinFunction.errors",
+        );
+        self.raise_error_bare(error_name)
     }
 
-    pub(super) fn emit_underflow_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_UNDERFLOW_CODE, ERR_UNDERFLOW_MESSAGE)
-    }
-
-    pub(super) fn emit_float_domain_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_FLOAT_DOMAIN_CODE, ERR_FLOAT_DOMAIN_MESSAGE)
-    }
-
-    pub(super) fn emit_float_nan_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_FLOAT_NAN_CODE, ERR_FLOAT_NAN_MESSAGE)
-    }
-
-    pub(super) fn emit_float_inf_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_FLOAT_INF_CODE, ERR_FLOAT_INF_MESSAGE)
-    }
-
-    pub(super) fn emit_float_overflow_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_FLOAT_OVERFLOW_CODE, ERR_FLOAT_OVERFLOW_MESSAGE)
-    }
-
-    pub(super) fn emit_invalid_argument_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_MESSAGE)
-    }
-
-    pub(super) fn emit_invalid_format_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_INVALID_FORMAT_CODE, ERR_INVALID_FORMAT_MESSAGE)
-    }
-
-    pub(super) fn emit_allocation_error_return(&mut self) -> Result<(), String> {
-        self.emit_error_register_return(RESULT_TAG_REGISTER, ERR_ALLOCATION_MESSAGE)
-    }
-
-    pub(super) fn emit_index_out_of_range_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_INDEX_OUT_OF_RANGE_CODE, ERR_INDEX_OUT_OF_RANGE_MESSAGE)
-    }
-
-    pub(super) fn emit_not_found_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_NOT_FOUND_CODE, ERR_NOT_FOUND_MESSAGE)
-    }
-
-    pub(super) fn emit_encoding_error_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_ENCODING_CODE, ERR_ENCODING_MESSAGE)
+    /// plan-88: raise a runtime error by NAME with no owning builtin — for
+    /// language-level operator/TRAP sites that have no `BuiltinFunction` to
+    /// validate against. Resolves `(code, message)` from `ERRORCODE_CONSTANTS`
+    /// and emits.
+    pub(super) fn raise_error_bare(&mut self, error_name: &'static str) -> Result<(), String> {
+        let (code, message) = crate::builtins::errorcode::runtime_error(error_name)
+            .unwrap_or_else(|| panic!("{error_name} is not a known errorCode constant"));
+        self.emit_error_code_return(code, message)
     }
 
     /// `product = lhs * rhs` for an allocation size, branching to `overflow`
@@ -301,7 +284,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::mfb_return(1),
@@ -732,8 +715,9 @@ impl CodeBuilder<'_> {
     /// and the OOM legacy path still read `code`/`message` from them.
     ///
     /// Guarded by `building_error_block`: building the block can itself hit OOM,
-    /// whose fallback routes through `emit_allocation_error_return` →
-    /// `emit_error_register_return`; that nested return must stay a loose
+    /// whose fallback routes through `raise_error_bare("ErrOutOfMemory")` →
+    /// `emit_error_code_return` → `emit_error_register_return`; that nested return
+    /// must stay a loose
     /// `RESULT_ERR_TAG` (no memory to park a block), so the funnel suppresses a
     /// nested park while the flag is set.
     pub(super) fn emit_park_error_block_from_registers(&mut self) -> Result<(), String> {
@@ -1074,3 +1058,4 @@ impl CodeBuilder<'_> {
         }
     }
 }
+

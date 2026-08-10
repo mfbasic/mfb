@@ -63,7 +63,7 @@ allocation failure, always succeeds.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050000` | `ErrUnknown` | The OS entropy call (`getentropy`) backing the internal `crypto::randomBytes(16)` draw fails. [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]] |
-| `77010001` | `ErrOutOfMemory` | An arena allocation for the random bytes or the assembled UUID `String` fails. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77010001` | `ErrOutOfMemory` | An arena allocation for the random bytes or the assembled UUID `String` fails. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

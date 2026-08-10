@@ -599,8 +599,7 @@ pub(super) fn lower_tls_poll_list_helper(
     ins.push(abi::label(&invalid));
     emit_fail(
         symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        "ErrInvalidArgument",
         &mut ins,
         &mut rel,
         &done,
@@ -608,8 +607,7 @@ pub(super) fn lower_tls_poll_list_helper(
     ins.push(abi::label(&timeout_lbl));
     emit_fail(
         symbol,
-        ERR_TIMEOUT_CODE,
-        ERR_TIMEOUT_SYMBOL,
+        "ErrTimeout",
         &mut ins,
         &mut rel,
         &done,

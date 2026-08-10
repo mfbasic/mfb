@@ -1179,8 +1179,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_listen_macos(
     ins.push(abi::label(&net_fail));
     emit_fail(
         symbol,
-        ERR_NETWORK_FAILED_CODE,
-        ERR_NETWORK_FAILED_SYMBOL,
+        "ErrNetworkFailed",
         &mut ins,
         &mut rel,
         &done,
@@ -1220,8 +1219,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_listen_macos(
     }
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut ins,
         &mut rel,
         &done,
@@ -1229,8 +1227,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_listen_macos(
     ins.push(abi::label(&load_fail));
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut ins,
         &mut rel,
         &done,
@@ -1238,8 +1235,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_listen_macos(
     ins.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut ins,
         &mut rel,
         &done,
@@ -1644,8 +1640,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
     emit_cancel_drain(&mut ins, CCTX, WAITFN, &conn_fail_drain, "5");
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut ins,
         &mut rel,
         &done,
@@ -1667,8 +1662,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
     emit_cancel_drain(&mut ins, CCTX, WAITFN, &hs_timeout_drain, "5");
     emit_fail(
         symbol,
-        ERR_TIMEOUT_CODE,
-        ERR_TIMEOUT_SYMBOL,
+        "ErrTimeout",
         &mut ins,
         &mut rel,
         &done,
@@ -1676,8 +1670,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
     ins.push(abi::label(&accept_timeout));
     emit_fail(
         symbol,
-        ERR_TIMEOUT_CODE,
-        ERR_TIMEOUT_SYMBOL,
+        "ErrTimeout",
         &mut ins,
         &mut rel,
         &done,
@@ -1685,8 +1678,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
     ins.push(abi::label(&listener_dead));
     emit_fail(
         symbol,
-        ERR_NETWORK_FAILED_CODE,
-        ERR_NETWORK_FAILED_SYMBOL,
+        "ErrNetworkFailed",
         &mut ins,
         &mut rel,
         &done,
@@ -1694,8 +1686,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
     ins.push(abi::label(&closed));
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut ins,
         &mut rel,
         &done,
@@ -1705,8 +1696,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
     ins.push(abi::label(&accept_invalid));
     emit_fail(
         symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        "ErrInvalidArgument",
         &mut ins,
         &mut rel,
         &done,
@@ -1714,8 +1704,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
     ins.push(abi::label(&load_fail));
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut ins,
         &mut rel,
         &done,
@@ -1723,8 +1712,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
     ins.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut ins,
         &mut rel,
         &done,
@@ -1926,8 +1914,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_close_listener_macos(
     ins.push(abi::label(&load_fail));
     emit_fail(
         symbol,
-        ERR_TLS_FAILED_CODE,
-        ERR_TLS_FAILED_SYMBOL,
+        "ErrTlsFailed",
         &mut ins,
         &mut rel,
         &done,

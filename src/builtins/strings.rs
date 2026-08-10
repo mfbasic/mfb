@@ -213,6 +213,20 @@ const OV_REPLACE: &[BuiltinOverload] = &ov(P_REPLACE, "String");
 const OV_FROM_SCALARS: &[BuiltinOverload] = &ov(P_FROM_SCALARS, "String");
 const OV_SCALAR_BOOL: &[BuiltinOverload] = &ov(P_SCALAR, "Boolean");
 
+/// plan-88: a strings builtin that declares the `errorCode` names it can raise at
+/// runtime (the codegen contract validated by `raise_error`). Reuses `strings_fn`.
+const fn strings_fn_err(
+    name: &'static str,
+    slug: &'static str,
+    errors: &'static [&'static str],
+    overloads: &'static [BuiltinOverload],
+    implementation: Implementation,
+) -> BuiltinFunction {
+    let mut function = strings_fn(name, slug, overloads, implementation);
+    function.errors = errors;
+    function
+}
+
 const fn strings_fn(
     name: &'static str,
     slug: &'static str,
@@ -222,6 +236,9 @@ const fn strings_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads,
         implementation,
         lowering: Lowering::Helper,
@@ -264,71 +281,26 @@ const STRINGS_FUNCTIONS: &[BuiltinFunction] = &[
     ),
     strings_fn(ENDS_WITH, "endsWith", OV_SUFFIX_BOOL, Implementation::Same),
     strings_fn(CONTAINS, "contains", OV_NEEDLE_BOOL, Implementation::Same),
-    strings_fn(SPLIT, "split", OV_SPLIT, Implementation::Same),
+    strings_fn_err(SPLIT, "split", &["ErrInvalidArgument"], OV_SPLIT, Implementation::Same),
     strings_fn(JOIN, "join", OV_JOIN, Implementation::Same),
     strings_fn(BYTE_LEN, "byteLen", OV_VALUE_INTEGER, Implementation::Same),
-    strings_fn(
-        STARTS_WITH_ANY,
-        "startsWithAny",
-        OV_PREFIXES_BOOL,
-        Implementation::Same,
-    ),
-    strings_fn(
-        ENDS_WITH_ANY,
-        "endsWithAny",
-        OV_SUFFIXES_BOOL,
-        Implementation::Same,
-    ),
-    strings_fn(
-        STRIP_PREFIX,
-        "stripPrefix",
-        OV_PREFIX_STRING,
-        Implementation::Same,
-    ),
-    strings_fn(
-        STRIP_SUFFIX,
-        "stripSuffix",
-        OV_SUFFIX_STRING,
-        Implementation::Same,
-    ),
-    strings_fn(COUNT, "count", OV_NEEDLE_INT, Implementation::Same),
+    strings_fn(STARTS_WITH_ANY, "startsWithAny", OV_PREFIXES_BOOL, Implementation::Same),
+    strings_fn(ENDS_WITH_ANY, "endsWithAny", OV_SUFFIXES_BOOL, Implementation::Same),
+    strings_fn(STRIP_PREFIX, "stripPrefix", OV_PREFIX_STRING, Implementation::Same),
+    strings_fn(STRIP_SUFFIX, "stripSuffix", OV_SUFFIX_STRING, Implementation::Same),
+    strings_fn_err(COUNT, "count", &["ErrInvalidArgument"], OV_NEEDLE_INT, Implementation::Same),
     strings_fn(LEFT, "left", OV_COUNT_STRING, Implementation::Same),
     strings_fn(RIGHT, "right", OV_COUNT_STRING, Implementation::Same),
-    strings_fn(REPEAT, "repeat", OV_TIMES_STRING, Implementation::Same),
+    strings_fn_err(REPEAT, "repeat", &["ErrInvalidArgument"], OV_TIMES_STRING, Implementation::Same),
     strings_fn(PAD_LEFT, "padLeft", OV_PAD, Implementation::Same),
     strings_fn(PAD_RIGHT, "padRight", OV_PAD, Implementation::Same),
-    strings_fn(
-        GRAPHEME_AT,
-        "graphemeAt",
-        OV_INDEX_STRING,
-        Implementation::Same,
-    ),
-    strings_fn(
-        GRAPHEMES_COUNT,
-        "graphemesCount",
-        OV_VALUE_INTEGER,
-        Implementation::Same,
-    ),
-    strings_fn(
-        DISPLAY_WIDTH,
-        "displayWidth",
-        OV_VALUE_INTEGER,
-        Implementation::Same,
-    ),
-    strings_fn(
-        TRIM_CHARS,
-        "trimChars",
-        OV_CHARS_STRING,
-        Implementation::Same,
-    ),
-    strings_fn(
-        TO_BYTES,
-        "toBytes",
-        OV_VALUE_LIST_BYTE,
-        Implementation::Same,
-    ),
-    strings_fn(FIND, "find", OV_FIND, Implementation::Same),
-    strings_fn(MID, "mid", OV_MID, Implementation::Same),
+    strings_fn_err(GRAPHEME_AT, "graphemeAt", &["ErrIndexOutOfRange"], OV_INDEX_STRING, Implementation::Same),
+    strings_fn(GRAPHEMES_COUNT, "graphemesCount", OV_VALUE_INTEGER, Implementation::Same),
+    strings_fn(DISPLAY_WIDTH, "displayWidth", OV_VALUE_INTEGER, Implementation::Same),
+    strings_fn(TRIM_CHARS, "trimChars", OV_CHARS_STRING, Implementation::Same),
+    strings_fn(TO_BYTES, "toBytes", OV_VALUE_LIST_BYTE, Implementation::Same),
+    strings_fn_err(FIND, "find", &["ErrIndexOutOfRange", "ErrNotFound"], OV_FIND, Implementation::Same),
+    strings_fn_err(MID, "mid", &["ErrIndexOutOfRange"], OV_MID, Implementation::Same),
     strings_fn(REPLACE, "replace", OV_REPLACE, Implementation::Same),
     // Scalar seam + classification predicates — source-companion rewrites.
     strings_fn(

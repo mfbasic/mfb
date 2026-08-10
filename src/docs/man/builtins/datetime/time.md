@@ -64,7 +64,7 @@ side effects.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `hour` is outside `0 .. 23`, `minute` or `second` is outside `0 .. 59`, or `nanos` is outside `0 .. 999_999_999` (for example `datetime::time(24, 0)`). [[src/builtins/datetime_package.mfb:__datetime_time]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `hour` is outside `0 .. 23`, `minute` or `second` is outside `0 .. 59`, or `nanos` is outside `0 .. 999_999_999` (for example `datetime::time(24, 0)`). [[src/builtins/datetime_package.mfb:__datetime_time]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
 
 ## Examples
 

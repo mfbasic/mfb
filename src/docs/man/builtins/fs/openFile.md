@@ -94,12 +94,12 @@ Opens `path` using the explicitly named access mode.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `path` is empty, `path` contains an embedded NUL byte, or `mode` is not one of the recognized portable mode names. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `path` or the `File` resource record cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
-| `77030001` | `ErrPathNotFound` | A `read` open finds no file at `path`, or a directory component of `path` does not exist (host `ENOENT`). [[src/target/shared/code/error_constants.rs:ERR_PATH_NOT_FOUND_CODE]] |
-| `77030003` | `ErrAccessDenied` | The host denies access to `path` for the requested mode (host `EACCES`). [[src/target/shared/code/error_constants.rs:ERR_ACCESS_DENIED_CODE]] |
-| `77030002` | `ErrInvalidPath` | `path` is unusable as a path: a non-directory used as a directory component, an over-long path, an invalid byte sequence, or a symlink loop resolving the final component (host `ENOTDIR`, `ENAMETOOLONG`, `EILSEQ`, or `ELOOP`). [[src/target/shared/code/error_constants.rs:ERR_INVALID_PATH_CODE]] |
-| `77020002` | `ErrOutput` | The file cannot be opened for any other host reason not classified above. [[src/target/shared/code/error_constants.rs:ERR_OUTPUT_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `path` is empty, `path` contains an embedded NUL byte, or `mode` is not one of the recognized portable mode names. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `path` or the `File` resource record cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77030001` | `ErrPathNotFound` | A `read` open finds no file at `path`, or a directory component of `path` does not exist (host `ENOENT`). [[src/builtins/errorcode.rs:ErrPathNotFound]] |
+| `77030003` | `ErrAccessDenied` | The host denies access to `path` for the requested mode (host `EACCES`). [[src/builtins/errorcode.rs:ErrAccessDenied]] |
+| `77030002` | `ErrInvalidPath` | `path` is unusable as a path: a non-directory used as a directory component, an over-long path, an invalid byte sequence, or a symlink loop resolving the final component (host `ENOTDIR`, `ENAMETOOLONG`, `EILSEQ`, or `ELOOP`). [[src/builtins/errorcode.rs:ErrInvalidPath]] |
+| `77020002` | `ErrOutput` | The file cannot be opened for any other host reason not classified above. [[src/builtins/errorcode.rs:ErrWriteFailed]] |
 
 ## Examples
 

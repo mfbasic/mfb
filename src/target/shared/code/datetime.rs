@@ -193,22 +193,7 @@ pub(super) fn lower_datetime_helper(
         // package-source change is needed (bug-42). This tail sits after the shared
         // OK return so success never falls into it.
         instructions.push(abi::label(&localoffset_range_fail));
-        instructions.push(abi::move_immediate(
-            RESULT_VALUE_REGISTER,
-            "Integer",
-            ERR_INVALID_ARGUMENT_CODE,
-        ));
-        instructions.push(abi::move_immediate(
-            RESULT_TAG_REGISTER,
-            "Integer",
-            RESULT_ERR_TAG,
-        ));
-        push_error_message_address(
-            symbol,
-            ERR_INVALID_ARGUMENT_SYMBOL,
-            &mut instructions,
-            &mut relocations,
-        );
+        raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
         instructions.push(abi::return_());
     }
 

@@ -74,12 +74,12 @@ convenient than building a `List OF Byte`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
-| `77070002` | `ErrAddressNotFound` | The destination host in `address` could not be resolved. [[src/target/shared/code/error_constants.rs:ERR_ADDRESS_NOT_FOUND_CODE]] |
-| `77070007` | `ErrMessageTooLarge` | The payload is too large to be sent as a single datagram on this path (the host reports `EMSGSIZE`). [[src/target/shared/code/error_constants.rs:ERR_MESSAGE_TOO_LARGE_CODE]] |
-| `77050008` | `ErrTimeout` | The socket's write timeout elapsed before the datagram could be handed over. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
-| `77070003` | `ErrNetworkFailed` | The send fails for a host reason other than a timeout, an oversized payload, or an interruption. [[src/target/shared/code/error_constants.rs:ERR_NETWORK_FAILED_CODE]] |
-| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of the destination host could not be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77070002` | `ErrAddressNotFound` | The destination host in `address` could not be resolved. [[src/builtins/errorcode.rs:ErrAddressNotFound]] |
+| `77070007` | `ErrMessageTooLarge` | The payload is too large to be sent as a single datagram on this path (the host reports `EMSGSIZE`). [[src/builtins/errorcode.rs:ErrMessageTooLarge]] |
+| `77050008` | `ErrTimeout` | The socket's write timeout elapsed before the datagram could be handed over. [[src/builtins/errorcode.rs:ErrTimeout]] |
+| `77070003` | `ErrNetworkFailed` | The send fails for a host reason other than a timeout, an oversized payload, or an interruption. [[src/builtins/errorcode.rs:ErrNetworkFailed]] |
+| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of the destination host could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

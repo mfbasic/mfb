@@ -83,8 +83,8 @@ entirely, yielding the dimensionless whole-unit `Integer` count;
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `decimals` is negative or greater than `5`. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] [[src/target/shared/code/builder_money.rs:lower_money_round]] |
-| `77050010` | `ErrOverflow` | Settling rounds the magnitude up and the rescaled result no longer fits the `Money` range — reachable only for amounts near the representable maximum. [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] [[src/target/shared/code/builder_money.rs:lower_money_round]] |
+| `77050002` | `ErrInvalidArgument` | `decimals` is negative or greater than `5`. [[src/builtins/errorcode.rs:ErrInvalidArgument]] [[src/target/shared/code/builder_money.rs:lower_money_round]] |
+| `77050010` | `ErrOverflow` | Settling rounds the magnitude up and the rescaled result no longer fits the `Money` range — reachable only for amounts near the representable maximum. [[src/builtins/errorcode.rs:ErrOverflow]] [[src/target/shared/code/builder_money.rs:lower_money_round]] |
 
 ## Examples
 

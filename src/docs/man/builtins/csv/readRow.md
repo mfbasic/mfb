@@ -54,7 +54,7 @@ trailing empty row. The dialect is fixed when the reader is opened by
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | the record being read has a quoted field that is never closed before end of input, or text after a closing quote. [[src/builtins/csv_package.mfb:__csv_next]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
+| `77050003` | `ErrInvalidFormat` | the record being read has a quoted field that is never closed before end of input, or text after a closing quote. [[src/builtins/csv_package.mfb:__csv_next]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

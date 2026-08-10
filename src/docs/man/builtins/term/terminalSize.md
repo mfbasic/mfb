@@ -73,8 +73,8 @@ is off or no view is attached.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050007` | `ErrUnsupported` | TUI mode is off, or the terminal size cannot be obtained — the size query fails, or it reports zero rows or zero columns. [[src/target/shared/code/error_constants.rs:ERR_UNSUPPORTED_CODE]] |
-| `77010001` | `ErrOutOfMemory` | The returned `TermSize` record cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77050007` | `ErrUnsupported` | TUI mode is off, or the terminal size cannot be obtained — the size query fails, or it reports zero rows or zero columns. [[src/builtins/errorcode.rs:ErrUnsupported]] |
+| `77010001` | `ErrOutOfMemory` | The returned `TermSize` record cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

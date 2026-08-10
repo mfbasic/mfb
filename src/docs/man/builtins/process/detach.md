@@ -37,7 +37,7 @@ to another process. [[src/builtins/process.rs:resource_close_function]]
 Because `detach` marks the handle closed, it consumes the handle for all practical
 purposes: every later `process::` call on it — including a second `detach` — raises
 `ErrResourceClosed`, and the eventual scope-drop is a no-op rather than a kill.
-[[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]]
+[[src/builtins/errorcode.rs:ErrResourceClosed]]
 
 ## Parameters
 
@@ -55,7 +55,7 @@ purposes: every later `process::` call on it — including a second `detach` —
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
+| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
 
 ## Examples
 

@@ -250,12 +250,6 @@ const SEL_DEFAULT_LINE_HEIGHT: (&str, &str) = (
 // Consumed by the app-mode terminal-size / TermView helpers
 // (`emit_app_terminal_size`, `app_io.rs`).
 const ARENA_ALLOC_SYMBOL: &str = "_mfb_arena_alloc";
-/// `ERR_UNSUPPORTED` (`ERR_UNSUPPORTED_CODE` / `ERR_UNSUPPORTED_SYMBOL` in
-/// src/target/shared/code/mod.rs): returned by the app terminal-size helper when
-/// no transcript is attached. The `_mfb_str_error_unsupported` data object is
-/// emitted by the shared lowering whenever `term::terminalSize` is used.
-const ERR_UNSUPPORTED_CODE: &str = "77050007";
-const ERR_UNSUPPORTED_SYMBOL: &str = "_mfb_str_error_unsupported";
 /// Program-completion handler (plan §5.7): runs on the worker thread when the
 /// MFBASIC program finishes. macOS `emit_program_exit` routes the worker
 /// program's exit through this instead of `_exit` so the window can stay open.

@@ -67,13 +67,13 @@ arbitrary binary data without the UTF-8 requirement, use `fs::readBytes`.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | `path` is empty or contains an embedded NUL byte, so it cannot be turned into a valid NUL-terminated host path. [[src/target/shared/code/fs/atomic.rs:lower_fs_read_text_path_helper]] |
-| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `path` or the `String` holding the file contents cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `path` or the `String` holding the file contents cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 | `77030001` | `ErrPathNotFound` | No file exists at `path` (host `ENOENT`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
 | `77030003` | `ErrAccessDenied` | The host denies access to `path` (host `EACCES`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
 | `77030002` | `ErrInvalidPath` | `path` is unusable as a path: a non-directory used as a directory component, an over-long path, an invalid byte sequence, or a symlink loop resolving the final component (host `ENOTDIR`, `ENAMETOOLONG`, `EILSEQ`, or `ELOOP`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
 | `77020002` | `ErrOutput` | The file cannot be opened for any other host reason not classified above. [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
-| `77020001` | `ErrRead` | Determining the file's length (seek) or reading its bytes fails partway through, before the full contents have been read. [[src/target/shared/code/fs/atomic.rs:ERR_READ_CODE]] |
-| `77020004` | `ErrEncoding` | The bytes read from the file are not valid UTF-8. [[src/target/shared/code/fs/atomic.rs:ERR_ENCODING_CODE]] |
+| `77020001` | `ErrRead` | Determining the file's length (seek) or reading its bytes fails partway through, before the full contents have been read. [[src/target/shared/code/fs/atomic.rs:ErrReadFailed]] |
+| `77020004` | `ErrEncoding` | The bytes read from the file are not valid UTF-8. [[src/target/shared/code/fs/atomic.rs:ErrEncoding]] |
 
 ## Examples
 

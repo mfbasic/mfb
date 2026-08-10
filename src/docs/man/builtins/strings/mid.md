@@ -72,7 +72,7 @@ whose attribute spans are remapped by the same edit. [[src/builtins/strings.rs:i
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050001` | `ErrIndexOutOfRange` | `start` is negative, `count` is negative, `start` exceeds the scalar length of `value`, `start + count` exceeds it, or `start + count` overflows 64 bits. [[src/target/shared/code/builder_search.rs:lower_mid]] [[src/target/shared/code/error_constants.rs:ERR_INDEX_OUT_OF_RANGE_CODE]] |
+| `77050001` | `ErrIndexOutOfRange` | `start` is negative, `count` is negative, `start` exceeds the scalar length of `value`, `start + count` exceeds it, or `start + count` overflows 64 bits. [[src/target/shared/code/builder_search.rs:lower_mid]] [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] |
 
 ## Examples
 

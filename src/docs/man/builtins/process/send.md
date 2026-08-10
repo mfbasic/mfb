@@ -38,7 +38,7 @@ consume enough to make room. [[src/target/shared/code/process/unix.rs:lower_proc
 If the child has closed or is no longer reading its standard input — a broken pipe —
 the write fails and `send` raises `ErrResourceClosed`, the same error raised when
 the input was already closed with `process::close` or the handle was dropped or
-detached. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]]
+detached. [[src/builtins/errorcode.rs:ErrResourceClosed]]
 
 `timeoutMs` bounds how long the call may wait for pipe space, in milliseconds;
 when the deadline passes with the payload not fully written it raises `ErrTimeout`.
@@ -77,8 +77,8 @@ milliseconds (best-effort on Windows). [[src/target/shared/code/process/unix.rs:
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | The child's input pipe is gone — a broken pipe, an input already closed with `process::close`, or a handle that was dropped or detached. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
-| `77050008` | `ErrTimeout` | (timeout overload) `timeoutMs` elapsed before the line could be fully written. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
+| `77030004` | `ErrResourceClosed` | The child's input pipe is gone — a broken pipe, an input already closed with `process::close`, or a handle that was dropped or detached. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77050008` | `ErrTimeout` | (timeout overload) `timeoutMs` elapsed before the line could be fully written. [[src/builtins/errorcode.rs:ErrTimeout]] |
 
 ## Examples
 

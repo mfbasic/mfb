@@ -47,7 +47,7 @@ is left; call `process::waitFor` first if the child should be allowed to finish,
 `process::detach` to let it outlive the program. [[src/builtins/process.rs:resource_close_function]]
 
 The empty argument list is rejected with `ErrInvalidArgument` — there is no program
-to run. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]]
+to run. [[src/builtins/errorcode.rs:ErrInvalidArgument]]
 
 ## Overloads
 
@@ -84,9 +84,9 @@ are merged over the inherited environment. [[src/target/shared/code/process/unix
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `args` is empty — there is no program to run. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77080001` | `ErrSpawnFailed` | The child could not be created: `fork`/`pipe` failed, or the program was not found or could not be `exec`'d. [[src/target/shared/code/error_constants.rs:ERR_SPAWN_FAILED_CODE]] |
-| `77010001` | `ErrOutOfMemory` | The `argv`/environment C strings or the `Process` handle record could not be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `args` is empty — there is no program to run. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77080001` | `ErrSpawnFailed` | The child could not be created: `fork`/`pipe` failed, or the program was not found or could not be `exec`'d. [[src/builtins/errorcode.rs:ErrSpawnFailed]] |
+| `77010001` | `ErrOutOfMemory` | The `argv`/environment C strings or the `Process` handle record could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

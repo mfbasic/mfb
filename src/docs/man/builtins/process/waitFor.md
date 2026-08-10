@@ -38,7 +38,7 @@ without blocking again. Because reaping and caching happen here (or in
 The handle is borrowed and left open; the child stays reaped, so letting the handle
 drop afterward is a no-op rather than a second wait. Calling `waitFor` on a handle
 that has already been dropped or detached raises `ErrResourceClosed`.
-[[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]]
+[[src/builtins/errorcode.rs:ErrResourceClosed]]
 
 Standard output a child writes but the program never reads is discarded when the
 pipe buffer fills, which can cause a child that keeps writing to block instead of
@@ -61,7 +61,7 @@ exiting; drain the child with `process::receive` (or close its input with
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
+| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
 
 ## Examples
 

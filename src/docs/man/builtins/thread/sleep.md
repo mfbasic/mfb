@@ -90,9 +90,9 @@ does not interrupt package or native code. [[src/target/shared/code/runtime_help
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `ms` is negative (both overloads). [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77030004` | `ErrResourceClosed` | Parent overload only: the `Thread` handle's state is closed — after `thread::waitFor` retrieved the outcome, or after the handle was dropped. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
-| `77050009` | `ErrInterrupted` | Worker overload only: cancellation was requested (`thread::cancel`, or the parent handle was dropped) while the worker was sleeping. [[src/target/shared/code/error_constants.rs:ERR_INTERRUPTED_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `ms` is negative (both overloads). [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77030004` | `ErrResourceClosed` | Parent overload only: the `Thread` handle's state is closed — after `thread::waitFor` retrieved the outcome, or after the handle was dropped. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77050009` | `ErrInterrupted` | Worker overload only: cancellation was requested (`thread::cancel`, or the parent handle was dropped) while the worker was sleeping. [[src/builtins/errorcode.rs:ErrInterrupted]] |
 
 ## Type checking
 

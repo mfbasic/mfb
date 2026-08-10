@@ -454,7 +454,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&bound, "Integer", F64_SIGN_BIT));
                 self.emit(abi::compare_registers(&value.location, &bound));
                 self.emit(abi::branch_ne(&ok));
-                self.emit_overflow_return()?;
+                self.raise_error("math.abs", "ErrOverflow")?;
                 self.emit(abi::label(&ok));
                 self.emit(abi::compare_immediate(&value.location, "0"));
                 let done = self.label("math_abs_done");
@@ -717,7 +717,7 @@ impl CodeBuilder<'_> {
                 let done = self.label("math_clamp_done");
                 self.emit(abi::compare_registers(&low_reg, &high_reg));
                 self.emit(abi::branch_le(&bounds_valid));
-                self.emit_invalid_argument_return()?;
+                self.raise_error_bare("ErrInvalidArgument")?;
                 self.emit(abi::label(&bounds_valid));
                 self.emit(abi::compare_registers(&value_reg, &low_reg));
                 self.emit(abi::branch_lt(&take_low));
@@ -746,7 +746,7 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::float_compare_zero_d(abi::FP_SCRATCH[2]));
                 self.emit(abi::branch_le(&bounds_valid));
-                self.emit_invalid_argument_return()?;
+                self.raise_error_bare("ErrInvalidArgument")?;
                 self.emit(abi::label(&bounds_valid));
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &value_reg));
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], &low_reg));
@@ -883,7 +883,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&ok));
 
         self.emit(abi::label(&overflow));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&ok));
         Ok(())
     }
@@ -949,7 +949,7 @@ impl CodeBuilder<'_> {
         let bounds_valid = self.label("math_rand_bounds_valid");
         self.emit(abi::compare_registers(&min_reg, &max_reg));
         self.emit(abi::branch_le(&bounds_valid));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&bounds_valid));
         // span = (max - min) + 1; wraps to 0 only for the full Integer range,
         // which the `full_range` branch handles by returning a single raw draw.
@@ -1095,7 +1095,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::float_compare_zero_d(&src));
             let valid = self.label("math_sqrt_valid");
             self.emit(abi::branch_ge(&valid));
-            self.emit_float_domain_return()?;
+            self.raise_error("math.sqrt", "ErrFloatDomain")?;
             self.emit(abi::label(&valid));
             let result = self.allocate_fp_register()?;
             self.emit(abi::float_sqrt_d(&result, &src));
@@ -1112,7 +1112,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::compare_immediate(&value.location, "0"));
                 let valid = self.label("math_fixed_sqrt_valid");
                 self.emit(abi::branch_ge(&valid));
-                self.emit_invalid_argument_return()?;
+                self.raise_error_bare("ErrInvalidArgument")?;
                 self.emit(abi::label(&valid));
                 // Deterministic raw Q32.32 square root (no host floating-point).
                 let dst = self.emit_fixed_sqrt(&value.location)?;
@@ -1206,11 +1206,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_hi(&nan)); // unsigned > +inf<<1 => NaN
                                          // Equal => the value is exactly ±inf.
         match infinity_error {
-            FloatInfinityError::Infinity => self.emit_float_inf_return()?,
-            FloatInfinityError::Overflow => self.emit_float_overflow_return()?,
+            FloatInfinityError::Infinity => self.raise_error_bare("ErrFloatInf")?,
+            FloatInfinityError::Overflow => self.raise_error_bare("ErrFloatOverflow")?,
         }
         self.emit(abi::label(&nan));
-        self.emit_float_nan_return()?;
+        self.raise_error_bare("ErrFloatNaN")?;
         self.emit(abi::label(&ok));
         Ok(())
     }
@@ -1251,11 +1251,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&ok)); // |x| < +inf (ordered, not equal) => finite
                                         // Fall-through: |x| == +inf, i.e. the value is exactly ±inf.
         match infinity_error {
-            FloatInfinityError::Infinity => self.emit_float_inf_return()?,
-            FloatInfinityError::Overflow => self.emit_float_overflow_return()?,
+            FloatInfinityError::Infinity => self.raise_error_bare("ErrFloatInf")?,
+            FloatInfinityError::Overflow => self.raise_error_bare("ErrFloatOverflow")?,
         }
         self.emit(abi::label(&nan));
-        self.emit_float_nan_return()?;
+        self.raise_error_bare("ErrFloatNaN")?;
         self.emit(abi::label(&ok));
         Ok(())
     }

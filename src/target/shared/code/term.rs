@@ -146,17 +146,7 @@ fn emit_unsupported(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    instructions.push(abi::move_immediate(
-        RESULT_VALUE_REGISTER,
-        "Integer",
-        ERR_UNSUPPORTED_CODE,
-    ));
-    instructions.push(abi::move_immediate(
-        RESULT_TAG_REGISTER,
-        "Integer",
-        RESULT_ERR_TAG,
-    ));
-    push_error_message_address(symbol, ERR_UNSUPPORTED_SYMBOL, instructions, relocations);
+    raise_error_into(symbol, "ErrUnsupported", instructions, relocations);
 }
 
 pub(super) fn lower_term_helper(
@@ -441,22 +431,7 @@ fn emit_on(ctx: &mut EmitCtx, term_state_offset: usize, done: &str) -> Result<()
     ctx.instructions.push(abi::branch(done));
     // Grid allocation failed: active was never set, so the terminal is untouched.
     ctx.instructions.push(abi::label(&alloc_fail));
-    ctx.instructions.push(abi::move_immediate(
-        RESULT_VALUE_REGISTER,
-        "Integer",
-        ERR_OUT_OF_MEMORY_CODE,
-    ));
-    ctx.instructions.push(abi::move_immediate(
-        RESULT_TAG_REGISTER,
-        "Integer",
-        RESULT_ERR_TAG,
-    ));
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        ctx.instructions,
-        ctx.relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", ctx.instructions, ctx.relocations);
     Ok(())
 }
 
@@ -2136,10 +2111,8 @@ fn emit_get_color(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(done),
         abi::label(&alloc_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_ALLOCATION_SYMBOL, instructions, relocations);
+    raise_error_into(symbol, "ErrOutOfMemory", instructions, relocations);
 }
 
 fn emit_get_attr(
@@ -2247,14 +2220,7 @@ fn emit_terminal_size(
     ctx.instructions.extend([
         abi::branch(done),
         abi::label(&alloc_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        ctx.instructions,
-        ctx.relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", ctx.instructions, ctx.relocations);
     Ok(())
 }

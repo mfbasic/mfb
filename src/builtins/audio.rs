@@ -117,6 +117,9 @@ const fn af(
     BuiltinFunction {
         name,
         doc_slug: slug,
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads,
         implementation: Implementation::Custom,
         lowering: Lowering::Helper,

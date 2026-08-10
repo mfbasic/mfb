@@ -186,6 +186,18 @@ pub(crate) struct BuiltinFunction {
     pub(crate) name: &'static str,
     /// The man-page slug for this function (documentation cross-reference).
     pub(crate) doc_slug: &'static str,
+    /// Short intro/summary line for this function, authored in the renderer's
+    /// Markdown subset. Empty until authored. Capped at 1024 bytes; the cap is
+    /// enforced across the whole registry by the `doc_into_within_cap` test
+    /// rather than the type, so it stays a plain `&'static str`.
+    pub(crate) doc_into: &'static str,
+    /// Full reference description for this function, authored in the renderer's
+    /// Markdown subset. Unbounded. Empty until authored.
+    pub(crate) doc_desc: &'static str,
+    /// The `errorCode::Err*` names this function can raise at runtime (e.g.
+    /// `"ErrIndexOutOfRange"`), for documentation. Empty for infallible functions
+    /// and until authored.
+    pub(crate) errors: &'static [&'static str],
     pub(crate) overloads: &'static [BuiltinOverload],
     pub(crate) implementation: Implementation,
     pub(crate) lowering: Lowering,
@@ -882,6 +894,9 @@ mod tests {
     const ADD: BuiltinFunction = BuiltinFunction {
         name: "t.add",
         doc_slug: "add",
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads: &[BuiltinOverload {
             params: &[
                 Parameter::required("a", "Integer"),
@@ -900,6 +915,9 @@ mod tests {
     const EMIT: BuiltinFunction = BuiltinFunction {
         name: "t.emit",
         doc_slug: "emit",
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads: &[BuiltinOverload {
             params: &[
                 Parameter {
@@ -932,6 +950,9 @@ mod tests {
     const PICK: BuiltinFunction = BuiltinFunction {
         name: "t.pick",
         doc_slug: "pick",
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads: &[BuiltinOverload {
             params: &[Parameter::required("x", "Integer")],
             return_type: ReturnType::Custom,
@@ -974,6 +995,9 @@ mod tests {
     const NOW: BuiltinFunction = BuiltinFunction {
         name: "t.now",
         doc_slug: "now",
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads: &[BuiltinOverload {
             params: &[],
             return_type: ReturnType::Fixed("Integer"),
@@ -1004,6 +1028,9 @@ mod tests {
     const OTHER_ADD: BuiltinFunction = BuiltinFunction {
         name: "u.add",
         doc_slug: "add",
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads: &[BuiltinOverload {
             params: &[Parameter::required("a", "Integer")],
             return_type: ReturnType::Fixed("Integer"),
@@ -1328,6 +1355,23 @@ mod tests {
     }
 
     #[test]
+    fn doc_into_within_cap() {
+        // `doc_into` is a short intro line, capped at 1024 bytes. The bound is a
+        // registry-wide invariant enforced here rather than by the type, so the
+        // field can stay a plain `&'static str`. Empty (unauthored) entries pass.
+        for module in REGISTRY.modules() {
+            for function in module.functions {
+                assert!(
+                    function.doc_into.len() <= 1024,
+                    "{} doc_into is {} bytes, exceeds the 1024-byte cap",
+                    function.name,
+                    function.doc_into.len()
+                );
+            }
+        }
+    }
+
+    #[test]
     fn descriptor_fields_are_well_formed() {
         // Read the facets not on the resolution path (doc_slug, lowering, flags,
         // builtin types, source) so their invariants are asserted and they are
@@ -1342,6 +1386,9 @@ mod tests {
                 assert!(!function.flags.internal_only);
                 assert!(!function.flags.return_type_overloaded);
                 assert!(!function.overloads.is_empty(), "{}", function.name);
+                // Documentation/contract facets (doc surface + plan-88 `errors`):
+                // off the resolution path, so read them here to keep them live.
+                let _ = (function.doc_into, function.doc_desc, function.errors);
             }
         }
 
@@ -1477,6 +1524,9 @@ mod tests {
     const S_PICK: BuiltinFunction = BuiltinFunction {
         name: "s.pick",
         doc_slug: "pick",
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads: S_OVERLOADS,
         implementation: Implementation::Custom,
         lowering: Lowering::Helper,
@@ -1674,6 +1724,9 @@ mod tests {
     const MIXED_RET: BuiltinFunction = BuiltinFunction {
         name: "t.mixed",
         doc_slug: "mixed",
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads: &[
             BuiltinOverload {
                 params: &[Parameter::required("a", "Integer")],

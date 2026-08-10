@@ -57,7 +57,7 @@ for signed values. [[src/builtins/encoding_package.mfb:__encoding_uleb128Decode]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `data` is empty, the sequence is truncated (the bytes end before a terminator with a clear high bit), or the value overflows 64 bits (the shift exceeds 63). [[src/builtins/encoding_package.mfb:__encoding_uleb128Decode]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
+| `77050003` | `ErrInvalidFormat` | `data` is empty, the sequence is truncated (the bytes end before a terminator with a clear high bit), or the value overflows 64 bits (the shift exceeds 63). [[src/builtins/encoding_package.mfb:__encoding_uleb128Decode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

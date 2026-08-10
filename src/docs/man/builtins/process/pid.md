@@ -32,7 +32,7 @@ that). [[src/target/shared/code/process/unix.rs:lower_process_pid_helper]]
 
 The handle is borrowed and left open. Calling `pid` on a handle that has already
 been dropped or detached raises `ErrResourceClosed`.
-[[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]]
+[[src/builtins/errorcode.rs:ErrResourceClosed]]
 
 ## Parameters
 
@@ -50,7 +50,7 @@ been dropped or detached raises `ErrResourceClosed`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
+| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
 
 ## Examples
 

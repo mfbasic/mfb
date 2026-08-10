@@ -19,8 +19,12 @@ fn reads_reject_invalid_maxbytes(text: bool) {
     let imports = HashMap::new();
     let (_frame, _ins, rel, _slots) =
         lower_tls_read("t_read", &imports, &TestPlatform, text).expect("lower schannel tls::read");
+    let invalid_argument_symbol =
+        crate::builtins::errorcode::runtime_error_emission("ErrInvalidArgument")
+            .expect("errorCode name")
+            .1;
     assert!(
-        rel.iter().any(|r| r.to == ERR_INVALID_ARGUMENT_SYMBOL),
+        rel.iter().any(|r| r.to == invalid_argument_symbol),
         "bug-414: schannel tls::read must reject maxBytes <= 0 with ErrInvalidArgument \
          (text={text})"
     );

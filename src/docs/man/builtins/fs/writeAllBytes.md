@@ -73,7 +73,7 @@ blocking descriptor should check `thread::isCancelled` between operations.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77030004` | `ErrResourceClosed` | `file` has already been closed. [[src/target/shared/code/fs/io.rs:lower_fs_write_all_bytes_helper]] |
-| `77020002` | `ErrOutput` | `file` was not opened for writing, or the host write fails partway through before all of `bytes` has been written. [[src/target/shared/code/error_constants.rs:ERR_OUTPUT_CODE]] |
+| `77020002` | `ErrOutput` | `file` was not opened for writing, or the host write fails partway through before all of `bytes` has been written. [[src/builtins/errorcode.rs:ErrWriteFailed]] |
 
 ## Examples
 

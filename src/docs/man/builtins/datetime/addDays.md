@@ -61,7 +61,7 @@ yield the same result, and it has no side effects.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The day-count arithmetic (`daysFromCivil(...) + days`), or the conversion of the shifted date back to epoch seconds during zone resolution, produces a value outside the signed `Integer` range. [[src/builtins/datetime_package.mfb:__datetime_addDays]] [[src/builtins/datetime_package.mfb:__datetime_civil]] [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
+| `77050010` | `ErrOverflow` | The day-count arithmetic (`daysFromCivil(...) + days`), or the conversion of the shifted date back to epoch seconds during zone resolution, produces a value outside the signed `Integer` range. [[src/builtins/datetime_package.mfb:__datetime_addDays]] [[src/builtins/datetime_package.mfb:__datetime_civil]] [[src/builtins/errorcode.rs:ErrOverflow]] |
 
 ## Examples
 

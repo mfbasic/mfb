@@ -129,73 +129,11 @@ pub(super) fn lower_io_poll_input_helper(
     // plan-73-F: a negative timeout other than the unbounded sentinel is
     // `ErrInvalidArgument`. Placed before `poll_error` and terminated with a branch to
     // `done` so `poll_error` still falls through to `done` (byte-identical to before).
-    instructions.extend([
-        abi::label(&poll_invalid),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    let invalid_arg_symbol = ERR_INVALID_ARGUMENT_SYMBOL.to_string();
-    instructions.push(
-        CodeInstruction::new("adrp")
-            .field("dst", RESULT_ERROR_MESSAGE_REGISTER)
-            .field("symbol", &invalid_arg_symbol),
-    );
-    instructions.push(
-        CodeInstruction::new("add_pageoff")
-            .field("dst", RESULT_ERROR_MESSAGE_REGISTER)
-            .field("src", RESULT_ERROR_MESSAGE_REGISTER)
-            .field("symbol", &invalid_arg_symbol),
-    );
-    relocations.extend([
-        CodeRelocation {
-            from: symbol.to_string(),
-            to: invalid_arg_symbol.clone(),
-            kind: RelocIntent::DataAddrHi,
-            binding: "data".to_string(),
-            library: None,
-        },
-        CodeRelocation {
-            from: symbol.to_string(),
-            to: invalid_arg_symbol,
-            kind: RelocIntent::DataAddrLo,
-            binding: "data".to_string(),
-            library: None,
-        },
-    ]);
+    instructions.push(abi::label(&poll_invalid));
+    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
     instructions.push(abi::branch(&done));
-    instructions.extend([
-        abi::label(&poll_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    let input_error_symbol = ERR_INPUT_SYMBOL.to_string();
-    instructions.push(
-        CodeInstruction::new("adrp")
-            .field("dst", RESULT_ERROR_MESSAGE_REGISTER)
-            .field("symbol", &input_error_symbol),
-    );
-    instructions.push(
-        CodeInstruction::new("add_pageoff")
-            .field("dst", RESULT_ERROR_MESSAGE_REGISTER)
-            .field("src", RESULT_ERROR_MESSAGE_REGISTER)
-            .field("symbol", &input_error_symbol),
-    );
-    relocations.extend([
-        CodeRelocation {
-            from: symbol.to_string(),
-            to: input_error_symbol.clone(),
-            kind: RelocIntent::DataAddrHi,
-            binding: "data".to_string(),
-            library: None,
-        },
-        CodeRelocation {
-            from: symbol.to_string(),
-            to: input_error_symbol,
-            kind: RelocIntent::DataAddrLo,
-            binding: "data".to_string(),
-            library: None,
-        },
-    ]);
+    instructions.push(abi::label(&poll_error));
+    raise_error_into(symbol, "ErrInputFailed", &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
@@ -383,34 +321,18 @@ pub(super) fn lower_io_read_byte_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&eof),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_EOF_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_EOF_SYMBOL, &mut instructions, &mut relocations);
+    raise_error_into(symbol, "ErrEndOfFile", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&input_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INPUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInputFailed", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&invalid_context),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_CONTEXT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INVALID_CONTEXT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInvalidContext", &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));
     emit_restore_stdin_terminal(
         &mut EmitCtx {
@@ -819,58 +741,28 @@ pub(super) fn lower_io_read_char_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&eof),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_EOF_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_EOF_SYMBOL, &mut instructions, &mut relocations);
+    raise_error_into(symbol, "ErrEndOfFile", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&input_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INPUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInputFailed", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&encoding_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ENCODING_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ENCODING_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrEncoding", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&invalid_context),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_CONTEXT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INVALID_CONTEXT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInvalidContext", &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));
     emit_restore_stdin_terminal(
         &mut EmitCtx {
@@ -1250,70 +1142,31 @@ pub(super) fn lower_io_read_line_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&output_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_OUTPUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrWriteFailed", &mut instructions, &mut relocations);
     instructions.push(abi::branch(&done));
-    instructions.extend([
-        abi::label(&eof_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_EOF_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(symbol, ERR_EOF_SYMBOL, &mut instructions, &mut relocations);
+    instructions.push(abi::label(&eof_error));
+    raise_error_into(symbol, "ErrEndOfFile", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&input_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INPUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInputFailed", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&encoding_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ENCODING_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ENCODING_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrEncoding", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&invalid_context),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_CONTEXT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INVALID_CONTEXT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInvalidContext", &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));
     if !with_prompt {
         emit_restore_stdin_terminal(

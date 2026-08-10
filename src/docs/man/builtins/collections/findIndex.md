@@ -76,8 +76,8 @@ does not mutate `value`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050001` | `ErrIndexOutOfRange` | `start` is less than `0` or greater than `len(value)`, checked before the scan begins. [[src/target/shared/code/error_constants.rs:ERR_INDEX_OUT_OF_RANGE_CODE]] |
-| `77050004` | `ErrNotFound` | The scan reaches the end of `value` without `predicate` returning `TRUE`, including the empty scan produced by `start = len(value)`. [[src/target/shared/code/error_constants.rs:ERR_NOT_FOUND_CODE]] |
+| `77050001` | `ErrIndexOutOfRange` | `start` is less than `0` or greater than `len(value)`, checked before the scan begins. [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] |
+| `77050004` | `ErrNotFound` | The scan reaches the end of `value` without `predicate` returning `TRUE`, including the empty scan produced by `start = len(value)`. [[src/builtins/errorcode.rs:ErrNotFound]] |
 
 ## Type checking
 

@@ -124,10 +124,10 @@ The full form: binds `port` on `host` with the given backlog hint.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77010001` | `ErrOutOfMemory` | Memory for a host/path C string or the `TlsListener` handle could not be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
-| `77070001` | `ErrAddressInvalid` | `host` could not be resolved into a local IPv4 endpoint — a malformed address, an unresolvable name, or an IPv6-only host such as `"::"`. Linux only; macOS reports the same condition as `ErrNetworkFailed`. [[src/target/shared/code/error_constants.rs:ERR_ADDRESS_INVALID_CODE]] |
-| `77070003` | `ErrNetworkFailed` | The socket could not be created, bound, or placed in the listening state — for example the port is already in use or binding it requires privileges the process lacks. [[src/target/shared/code/error_constants.rs:ERR_NETWORK_FAILED_CODE]] |
-| `77070008` | `ErrTlsFailed` | The TLS layer could not be initialized (on Linux, `libssl` could not be loaded or a required symbol was missing), or the server identity could not be loaded — the certificate or key file could not be read or parsed, or the key does not match the certificate. [[src/target/shared/code/error_constants.rs:ERR_TLS_FAILED_CODE]] |
+| `77010001` | `ErrOutOfMemory` | Memory for a host/path C string or the `TlsListener` handle could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77070001` | `ErrAddressInvalid` | `host` could not be resolved into a local IPv4 endpoint — a malformed address, an unresolvable name, or an IPv6-only host such as `"::"`. Linux only; macOS reports the same condition as `ErrNetworkFailed`. [[src/builtins/errorcode.rs:ErrAddressInvalid]] |
+| `77070003` | `ErrNetworkFailed` | The socket could not be created, bound, or placed in the listening state — for example the port is already in use or binding it requires privileges the process lacks. [[src/builtins/errorcode.rs:ErrNetworkFailed]] |
+| `77070008` | `ErrTlsFailed` | The TLS layer could not be initialized (on Linux, `libssl` could not be loaded or a required symbol was missing), or the server identity could not be loaded — the certificate or key file could not be read or parsed, or the key does not match the certificate. [[src/builtins/errorcode.rs:ErrTlsFailed]] |
 
 ## Examples
 

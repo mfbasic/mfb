@@ -65,9 +65,9 @@ convenient than building a `List OF Byte`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
-| `77070004` | `ErrConnectionClosed` | The peer has closed the connection, or the write fails for a host reason other than a timeout or an interruption. [[src/target/shared/code/error_constants.rs:ERR_CONNECTION_CLOSED_CODE]] |
-| `77050008` | `ErrTimeout` | The socket's write timeout elapsed before the payload could be handed over. Part of it may already have been sent. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
+| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77070004` | `ErrConnectionClosed` | The peer has closed the connection, or the write fails for a host reason other than a timeout or an interruption. [[src/builtins/errorcode.rs:ErrConnectionClosed]] |
+| `77050008` | `ErrTimeout` | The socket's write timeout elapsed before the payload could be handed over. Part of it may already have been sent. [[src/builtins/errorcode.rs:ErrTimeout]] |
 
 ## Examples
 

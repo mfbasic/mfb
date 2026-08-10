@@ -112,8 +112,8 @@ Returns the whole-unit count of a `Money` value, truncated toward zero. Infallib
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | A `String` value is empty or not well-formed integer text for the requested base; for the two-argument form, `base` is outside `2` through `36`; or a `Float` value is NaN or infinite. [[src/target/shared/code/builder_conversions.rs:emit_string_to_int_value_base]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
-| `77050010` | `ErrOverflow` | The value is outside the signed 64-bit `Integer` range, such as integer text that is too large or a `Float` whose truncated magnitude exceeds the range. [[src/target/shared/code/builder_conversions.rs:emit_float_to_int_value]] [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
+| `77050003` | `ErrInvalidFormat` | A `String` value is empty or not well-formed integer text for the requested base; for the two-argument form, `base` is outside `2` through `36`; or a `Float` value is NaN or infinite. [[src/target/shared/code/builder_conversions.rs:emit_string_to_int_value_base]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050010` | `ErrOverflow` | The value is outside the signed 64-bit `Integer` range, such as integer text that is too large or a `Float` whose truncated magnitude exceeds the range. [[src/target/shared/code/builder_conversions.rs:emit_float_to_int_value]] [[src/builtins/errorcode.rs:ErrOverflow]] |
 
 The `Byte`, `Scalar`, `Fixed`, and `Money` overloads raise no errors. [[src/target/shared/code/builder_conversions.rs:lower_to_int]]
 

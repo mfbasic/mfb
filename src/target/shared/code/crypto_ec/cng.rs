@@ -359,8 +359,7 @@ fn generate(
     )?;
     emit_fail(
         symbol,
-        ERR_UNKNOWN_CODE,
-        ERR_UNKNOWN_SYMBOL,
+        "ErrUnknown",
         &mut ins,
         &mut rel,
         &done,
@@ -371,8 +370,7 @@ fn generate(
     )?;
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut ins,
         &mut rel,
         &done,

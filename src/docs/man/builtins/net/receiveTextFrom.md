@@ -71,14 +71,14 @@ to `from` with `net::sendTextTo`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `maxBytes` is not positive. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
-| `77070007` | `ErrMessageTooLarge` | The received datagram's payload is larger than `maxBytes`. The datagram is not truncated and not returned. [[src/target/shared/code/error_constants.rs:ERR_MESSAGE_TOO_LARGE_CODE]] |
-| `77050008` | `ErrTimeout` | The socket's read timeout elapsed before a datagram arrived. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
-| `77020004` | `ErrEncoding` | The received payload is not valid UTF-8. [[src/target/shared/code/error_constants.rs:ERR_ENCODING_CODE]] |
-| `77070003` | `ErrNetworkFailed` | The receive fails for a host reason other than a timeout or an interruption. [[src/target/shared/code/error_constants.rs:ERR_NETWORK_FAILED_CODE]] |
-| `77070001` | `ErrAddressInvalid` | The sender address reported by the host could not be converted to its textual form. [[src/target/shared/code/error_constants.rs:ERR_ADDRESS_INVALID_CODE]] |
-| `77010001` | `ErrOutOfMemory` | The receive buffer, the decoded string, the sender `Address`, or the `DatagramText` record could not be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `maxBytes` is not positive. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77070007` | `ErrMessageTooLarge` | The received datagram's payload is larger than `maxBytes`. The datagram is not truncated and not returned. [[src/builtins/errorcode.rs:ErrMessageTooLarge]] |
+| `77050008` | `ErrTimeout` | The socket's read timeout elapsed before a datagram arrived. [[src/builtins/errorcode.rs:ErrTimeout]] |
+| `77020004` | `ErrEncoding` | The received payload is not valid UTF-8. [[src/builtins/errorcode.rs:ErrEncoding]] |
+| `77070003` | `ErrNetworkFailed` | The receive fails for a host reason other than a timeout or an interruption. [[src/builtins/errorcode.rs:ErrNetworkFailed]] |
+| `77070001` | `ErrAddressInvalid` | The sender address reported by the host could not be converted to its textual form. [[src/builtins/errorcode.rs:ErrAddressInvalid]] |
+| `77010001` | `ErrOutOfMemory` | The receive buffer, the decoded string, the sender `Address`, or the `DatagramText` record could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

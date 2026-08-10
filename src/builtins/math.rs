@@ -66,6 +66,19 @@ const fn ov(params: &'static [Parameter], ret: ReturnType) -> BuiltinOverload {
     }
 }
 
+/// plan-88: a math builtin that declares the `errorCode` names it can raise at
+/// runtime (the codegen contract validated by `raise_error`). Reuses `mf`.
+const fn mf_err(
+    name: &'static str,
+    slug: &'static str,
+    errors: &'static [&'static str],
+    overloads: &'static [BuiltinOverload],
+) -> BuiltinFunction {
+    let mut function = mf(name, slug, overloads);
+    function.errors = errors;
+    function
+}
+
 const fn mf(
     name: &'static str,
     slug: &'static str,
@@ -74,6 +87,9 @@ const fn mf(
     BuiltinFunction {
         name,
         doc_slug: slug,
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads,
         implementation: Implementation::Same,
         lowering: Lowering::Inline,
@@ -124,14 +140,14 @@ const OV_RAND: &[BuiltinOverload] = &[ov(P_RAND, ReturnType::Custom)];
 const OV_SEED: &[BuiltinOverload] = &[ov(P_SEED, ReturnType::Fixed("Nothing"))];
 
 const MATH_FUNCTIONS: &[BuiltinFunction] = &[
-    mf(ABS, "abs", OV_UNARY_CUSTOM),
+    mf_err(ABS, "abs", &["ErrOverflow"], OV_UNARY_CUSTOM),
     mf(MIN, "min", OV_MINMAX),
     mf(MAX, "max", OV_MINMAX),
     mf(CLAMP, "clamp", OV_CLAMP),
     mf(FLOOR, "floor", OV_UNARY_INTEGER),
     mf(CEIL, "ceil", OV_UNARY_INTEGER),
     mf(ROUND, "round", OV_UNARY_INTEGER),
-    mf(SQRT, "sqrt", OV_UNARY_CUSTOM),
+    mf_err(SQRT, "sqrt", &["ErrFloatDomain"], OV_UNARY_CUSTOM),
     mf(POW, "pow", OV_POW),
     mf(EXP, "exp", OV_UNARY_CUSTOM),
     mf(LOG, "log", OV_UNARY_CUSTOM),

@@ -126,6 +126,9 @@ const fn hfn(
     BuiltinFunction {
         name,
         doc_slug: slug,
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads,
         implementation,
         lowering: Lowering::Helper,

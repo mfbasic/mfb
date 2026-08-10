@@ -71,7 +71,7 @@ raise when the key is absent. [[src/builtins/collections.rs:resolve_remove_key]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050001` | `ErrIndexOutOfRange` | `index` is negative, or `index` is greater than or equal to `len(value)`. This includes every call on an empty list. [[src/target/shared/code/error_constants.rs:ERR_INDEX_OUT_OF_RANGE_CODE]] [[src/target/shared/code/list_mutate.rs:lower_list_remove_at]] |
+| `77050001` | `ErrIndexOutOfRange` | `index` is negative, or `index` is greater than or equal to `len(value)`. This includes every call on an empty list. [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] [[src/target/shared/code/list_mutate.rs:lower_list_remove_at]] |
 
 ## Type checking
 

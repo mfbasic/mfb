@@ -86,7 +86,7 @@ has no side effects. [[src/builtins/datetime_package.mfb:__datetime_format]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `pattern` contains a run of ASCII letters that is not one of the recognized formatting tokens. [[src/builtins/datetime_package.mfb:__datetime_formatToken]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
+| `77050003` | `ErrInvalidFormat` | `pattern` contains a run of ASCII letters that is not one of the recognized formatting tokens. [[src/builtins/datetime_package.mfb:__datetime_formatToken]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

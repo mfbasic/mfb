@@ -110,8 +110,8 @@ component. [[src/builtins/fs.rs:OPEN_FILE_NO_FOLLOW]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `path` is empty, `path` contains an embedded NUL byte, or `mode` is not one of the recognized portable mode names. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `path` or the `File` resource record cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `path` is empty, `path` contains an embedded NUL byte, or `mode` is not one of the recognized portable mode names. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `path` or the `File` resource record cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 | `77030001` | `ErrPathNotFound` | A `read` open finds no file at `path`, or a directory component of `path` does not exist (host `ENOENT`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
 | `77030003` | `ErrAccessDenied` | The host denies access to `path` for the requested mode (host `EACCES`), or a symlink is encountered at any path component so the no-follow open is refused (host `ELOOP`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
 | `77030002` | `ErrInvalidPath` | `path` is unusable as a path: a non-directory used as a directory component, an over-long path, or an invalid byte sequence (host `ENOTDIR`, `ENAMETOOLONG`, or `EILSEQ`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |

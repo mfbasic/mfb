@@ -86,8 +86,8 @@ to walk successive matches. [[src/builtins/strings.rs:STRINGS]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050001` | `ErrIndexOutOfRange` | `start` is negative, or greater than the scalar length of `value`. [[src/target/shared/code/builder_search.rs:lower_find]] [[src/target/shared/code/error_constants.rs:ERR_INDEX_OUT_OF_RANGE_CODE]] |
-| `77050004` | `ErrNotFound` | No occurrence of `needle` exists at or after `start`. [[src/target/shared/code/builder_search.rs:lower_find]] [[src/target/shared/code/error_constants.rs:ERR_NOT_FOUND_CODE]] |
+| `77050001` | `ErrIndexOutOfRange` | `start` is negative, or greater than the scalar length of `value`. [[src/target/shared/code/builder_search.rs:lower_find]] [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] |
+| `77050004` | `ErrNotFound` | No occurrence of `needle` exists at or after `start`. [[src/target/shared/code/builder_search.rs:lower_find]] [[src/builtins/errorcode.rs:ErrNotFound]] |
 
 ## Examples
 

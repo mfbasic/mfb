@@ -68,7 +68,7 @@ inverse of `encoding::htmlEscape`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | A `&` reference is not closed by a `;`; a numeric reference has empty or non-digit digits; a named reference is unknown; or a numeric reference resolves to a value above `1114111`. [[src/builtins/encoding_package.mfb:__encoding_htmlUnescape]] [[src/builtins/encoding_package.mfb:__encoding_fromCodepoint]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
+| `77050003` | `ErrInvalidFormat` | A `&` reference is not closed by a `;`; a numeric reference has empty or non-digit digits; a named reference is unknown; or a numeric reference resolves to a value above `1114111`. [[src/builtins/encoding_package.mfb:__encoding_htmlUnescape]] [[src/builtins/encoding_package.mfb:__encoding_fromCodepoint]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

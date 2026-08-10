@@ -71,12 +71,12 @@ receiving and does not close the socket.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `maxBytes` is not positive. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
-| `77070004` | `ErrConnectionClosed` | The peer has closed the connection (a zero-length receive), or the receive fails for a host reason other than a timeout or an interruption. [[src/target/shared/code/error_constants.rs:ERR_CONNECTION_CLOSED_CODE]] |
-| `77050008` | `ErrTimeout` | The socket's read timeout elapsed before any data arrived. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
-| `77020004` | `ErrEncoding` | The received bytes are not valid UTF-8 — including the case where a multi-byte sequence was split across two receives. [[src/target/shared/code/error_constants.rs:ERR_ENCODING_CODE]] |
-| `77010001` | `ErrOutOfMemory` | The temporary read buffer or the returned `String` could not be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `maxBytes` is not positive. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77070004` | `ErrConnectionClosed` | The peer has closed the connection (a zero-length receive), or the receive fails for a host reason other than a timeout or an interruption. [[src/builtins/errorcode.rs:ErrConnectionClosed]] |
+| `77050008` | `ErrTimeout` | The socket's read timeout elapsed before any data arrived. [[src/builtins/errorcode.rs:ErrTimeout]] |
+| `77020004` | `ErrEncoding` | The received bytes are not valid UTF-8 — including the case where a multi-byte sequence was split across two receives. [[src/builtins/errorcode.rs:ErrEncoding]] |
+| `77010001` | `ErrOutOfMemory` | The temporary read buffer or the returned `String` could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

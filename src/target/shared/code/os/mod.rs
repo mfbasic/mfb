@@ -249,11 +249,7 @@ fn push_alloc_error(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    instructions.extend([
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(symbol, ERR_ALLOCATION_SYMBOL, instructions, relocations);
+    raise_error_into(symbol, "ErrOutOfMemory", instructions, relocations);
 }
 
 #[allow(clippy::too_many_arguments)]

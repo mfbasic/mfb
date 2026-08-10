@@ -73,9 +73,9 @@ idempotent and `didSignal` can report the death cause after the fact.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77010001` | `ErrOutOfMemory` | raised by `spawn`, `shell`, `receive`, and `receiveBytes` when an internal allocation fails — the `argv`/environment C strings, the read buffer, or the returned `String`/`List OF Byte` [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
-| `77020004` | `ErrEncoding` | raised by `receive` when the line read from the child is not valid UTF-8 [[src/target/shared/code/error_constants.rs:ERR_ENCODING_CODE]] |
-| `77030004` | `ErrResourceClosed` | raised by any function taking a `Process` when the handle has already been dropped or detached; and by the I/O functions at end of stream — a `receive`/`receiveBytes` past end of output, or a `send`/`sendBytes` to a child whose input pipe is gone [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
-| `77050002` | `ErrInvalidArgument` | raised by `spawn` when the `args` list is empty (there is no program to run) [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77050008` | `ErrTimeout` | raised by the `send`/`sendBytes` timeout overload when the child's input pipe stays full past the deadline [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
-| `77080001` | `ErrSpawnFailed` | raised by `spawn` and `shell` when the child cannot be created — `fork`/`pipe` failed, or the program was not found or could not be `exec`'d [[src/target/shared/code/error_constants.rs:ERR_SPAWN_FAILED_CODE]] |
+| `77010001` | `ErrOutOfMemory` | raised by `spawn`, `shell`, `receive`, and `receiveBytes` when an internal allocation fails — the `argv`/environment C strings, the read buffer, or the returned `String`/`List OF Byte` [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77020004` | `ErrEncoding` | raised by `receive` when the line read from the child is not valid UTF-8 [[src/builtins/errorcode.rs:ErrEncoding]] |
+| `77030004` | `ErrResourceClosed` | raised by any function taking a `Process` when the handle has already been dropped or detached; and by the I/O functions at end of stream — a `receive`/`receiveBytes` past end of output, or a `send`/`sendBytes` to a child whose input pipe is gone [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77050002` | `ErrInvalidArgument` | raised by `spawn` when the `args` list is empty (there is no program to run) [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050008` | `ErrTimeout` | raised by the `send`/`sendBytes` timeout overload when the child's input pipe stays full past the deadline [[src/builtins/errorcode.rs:ErrTimeout]] |
+| `77080001` | `ErrSpawnFailed` | raised by `spawn` and `shell` when the child cannot be created — `fork`/`pipe` failed, or the program was not found or could not be `exec`'d [[src/builtins/errorcode.rs:ErrSpawnFailed]] |

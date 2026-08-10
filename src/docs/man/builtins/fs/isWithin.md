@@ -77,8 +77,8 @@ open a caller-supplied name that cannot escape a trusted root, use
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `base` or `child` is empty or contains an embedded NUL byte, so it cannot be turned into a valid NUL-terminated host path. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77010001` | `ErrOutOfMemory` | An internal NUL-terminated copy of an argument or a `realpath` resolution buffer cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `base` or `child` is empty or contains an embedded NUL byte, so it cannot be turned into a valid NUL-terminated host path. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77010001` | `ErrOutOfMemory` | An internal NUL-terminated copy of an argument or a `realpath` resolution buffer cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 | `77050004` | `ErrNotFound` | `base` or `child`, or a required component of either, does not exist (host `ENOENT`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
 | `77030003` | `ErrAccessDenied` | The host denies access while canonicalizing `base` or `child` (host `EACCES`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
 | `77050005` | `ErrAlreadyExists` | The host reports an existing-object conflict while canonicalizing `base` or `child` (host `EEXIST`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |

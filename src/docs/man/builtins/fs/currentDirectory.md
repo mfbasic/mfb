@@ -59,8 +59,8 @@ This function takes no parameters. [[src/builtins/fs.rs:call_param_names]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77020001` | `ErrRead` | The host `getcwd` call fails, for example when the working directory has been removed, when access to a parent component is denied, or when the path does not fit in the internal 4096-byte buffer. [[src/target/shared/code/error_constants.rs:ERR_READ_CODE]] |
-| `77010001` | `ErrOutOfMemory` | The internal buffer used to query the path, or the returned `String` resource, cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77020001` | `ErrRead` | The host `getcwd` call fails, for example when the working directory has been removed, when access to a parent component is denied, or when the path does not fit in the internal 4096-byte buffer. [[src/builtins/errorcode.rs:ErrReadFailed]] |
+| `77010001` | `ErrOutOfMemory` | The internal buffer used to query the path, or the returned `String` resource, cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

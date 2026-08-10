@@ -70,7 +70,7 @@ any file and has no other side effects.
 | `77030003` | `ErrAccessDenied` | The host denies access while resolving `path` (host `EACCES`, errno `13`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
 | `77050005` | `ErrAlreadyExists` | The host reports an existing-object conflict while resolving `path` (host `EEXIST`, errno `17`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
 | `77020002` | `ErrOutput` | Resolution fails for any other host reason, such as a non-directory used as a directory component or a symlink loop. [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
-| `77010001` | `ErrOutOfMemory` | The internal NUL-terminated copy of `path`, the resolution buffer, or the result `String` cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77010001` | `ErrOutOfMemory` | The internal NUL-terminated copy of `path`, the resolution buffer, or the result `String` cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

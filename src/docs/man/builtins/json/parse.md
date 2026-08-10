@@ -100,8 +100,8 @@ The argument may also be passed by the name `text`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `value` is not one complete JSON document: it is empty or whitespace only, is truncated, carries non-whitespace content after the document, contains a malformed number, a bad or truncated escape, an unpaired or invalid surrogate, an out-of-range code point, an unescaped raw control character in a string, is nested beyond the structural depth limit (256 levels of arrays and objects), or any other syntax the grammar does not accept. [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] [[src/builtins/json_package.mfb:__json_parse]] |
-| `77010001` | `ErrOutOfMemory` | The lists, maps, or strings that hold the parsed document cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77050003` | `ErrInvalidFormat` | `value` is not one complete JSON document: it is empty or whitespace only, is truncated, carries non-whitespace content after the document, contains a malformed number, a bad or truncated escape, an unpaired or invalid surrogate, an out-of-range code point, an unescaped raw control character in a string, is nested beyond the structural depth limit (256 levels of arrays and objects), or any other syntax the grammar does not accept. [[src/builtins/errorcode.rs:ErrInvalidFormat]] [[src/builtins/json_package.mfb:__json_parse]] |
+| `77010001` | `ErrOutOfMemory` | The lists, maps, or strings that hold the parsed document cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

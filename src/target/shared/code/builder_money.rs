@@ -96,12 +96,12 @@ impl CodeBuilder<'_> {
         let lo_ok = self.label("money_round_lo_ok");
         self.emit(abi::compare_immediate(&dec, "0"));
         self.emit(abi::branch_ge(&lo_ok));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&lo_ok));
         let hi_ok = self.label("money_round_hi_ok");
         self.emit(abi::compare_immediate(&dec, "5"));
         self.emit(abi::branch_le(&hi_ok));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&hi_ok));
 
         // divisor = 10^(5 - decimals), built by a bounded (<=5) multiply loop.

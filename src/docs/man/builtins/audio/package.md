@@ -56,8 +56,8 @@ imports `audio` still starts on a Linux host without alsa-lib, and every
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050017` | `ErrAudioUnavailable` | the audio backend cannot be used at all — no `libasound.so.2` on Linux, no audio device present, or capture authorization denied. [[src/target/shared/code/error_constants.rs:ERR_AUDIO_UNAVAILABLE_CODE]] |
-| `77050018` | `ErrAudioDevice` | a device is present but the requested operation on it failed. [[src/target/shared/code/error_constants.rs:ERR_AUDIO_DEVICE_CODE]] |
+| `77050017` | `ErrAudioUnavailable` | the audio backend cannot be used at all — no `libasound.so.2` on Linux, no audio device present, or capture authorization denied. [[src/builtins/errorcode.rs:ErrAudioUnavailable]] |
+| `77050018` | `ErrAudioDevice` | a device is present but the requested operation on it failed. [[src/builtins/errorcode.rs:ErrAudioDevice]] |
 
 Per-function conditions are on each function's own page; run
 `mfb man audio <function>`.

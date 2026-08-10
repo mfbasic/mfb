@@ -106,7 +106,7 @@ which element triggered it; no list is returned in that case.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050013` | `ErrFloatNaN` | The `Float` overload only: the computed result is a NaN, which happens for an infinity or NaN argument and for a sufficiently large magnitude. The `Fixed` overload never fails. [[src/target/shared/code/error_constants.rs:ERR_FLOAT_NAN_CODE]] |
+| `77050013` | `ErrFloatNaN` | The `Float` overload only: the computed result is a NaN, which happens for an infinity or NaN argument and for a sufficiently large magnitude. The `Fixed` overload never fails. [[src/builtins/errorcode.rs:ErrFloatNaN]] |
 
 ## Type checking
 

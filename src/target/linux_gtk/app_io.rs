@@ -103,17 +103,16 @@ fn emit_app_term_terminal_size(symbol: &str) -> AppHookBody {
     asm.push(abi::store_u64("x9", "x1", 8)); // rows
     asm.push(abi::move_immediate("x0", "Integer", "0")); // OK; x1 = record
     asm.push(abi::branch("ts_err"));
+    // plan-88-C: code + message symbol from `ERRORCODE_CONSTANTS` (this app helper
+    // returns via x0/x1 and the custom `asm.local_address`, so the shared
+    // `raise_error_into` does not fit; table-sourced, byte-identical).
+    let (unsupported_code, unsupported_symbol) =
+        crate::builtins::errorcode::runtime_error_emission("ErrUnsupported")
+            .expect("ErrUnsupported is an errorCode constant");
     asm.push(abi::label("ts_unsupported"));
     asm.push(abi::move_immediate("x0", "Integer", code::RESULT_ERR_TAG));
-    asm.push(abi::move_immediate(
-        "x1",
-        "Integer",
-        code::ERR_UNSUPPORTED_CODE,
-    ));
-    asm.local_address(
-        code::RESULT_ERROR_MESSAGE_REGISTER,
-        code::ERR_UNSUPPORTED_SYMBOL,
-    );
+    asm.push(abi::move_immediate("x1", "Integer", unsupported_code));
+    asm.local_address(code::RESULT_ERROR_MESSAGE_REGISTER, unsupported_symbol);
     asm.push(abi::label("ts_err"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));

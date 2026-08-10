@@ -103,8 +103,8 @@ overrides `zone`. [[src/builtins/datetime_package.mfb:__datetime_parse3]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `value` does not match `pattern`: a literal character or quoted literal is absent, a numeric token finds no digit, a month-name or AM/PM token is unrecognized, an offset token is malformed, or `pattern` contains a run of letters that is not a recognized token. [[src/builtins/datetime_package.mfb:__datetime_parseFields]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
-| `77050002` | `ErrInvalidArgument` | An offset token in `value` decodes to a magnitude of 24 hours (86400 seconds) or more, which is out of range for a fixed-offset zone. [[src/builtins/datetime_package.mfb:__datetime_fixedOffset1]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
+| `77050003` | `ErrInvalidFormat` | `value` does not match `pattern`: a literal character or quoted literal is absent, a numeric token finds no digit, a month-name or AM/PM token is unrecognized, an offset token is malformed, or `pattern` contains a run of letters that is not a recognized token. [[src/builtins/datetime_package.mfb:__datetime_parseFields]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050002` | `ErrInvalidArgument` | An offset token in `value` decodes to a magnitude of 24 hours (86400 seconds) or more, which is out of range for a fixed-offset zone. [[src/builtins/datetime_package.mfb:__datetime_fixedOffset1]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
 
 ## Examples
 

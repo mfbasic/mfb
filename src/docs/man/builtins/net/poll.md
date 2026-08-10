@@ -106,9 +106,9 @@ single immediate scan. Expiry with none ready raises `ErrTimeout`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative, or (list overload) `socks` is empty. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77050008` | `ErrTimeout` | (list overload) the timeout expires with no socket ready. The scalar overload returns `FALSE` instead. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
-| `77030004` | `ErrResourceClosed` | `sock` has already been closed, or the underlying readiness check fails for a reason other than an interruption. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative, or (list overload) `socks` is empty. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050008` | `ErrTimeout` | (list overload) the timeout expires with no socket ready. The scalar overload returns `FALSE` instead. [[src/builtins/errorcode.rs:ErrTimeout]] |
+| `77030004` | `ErrResourceClosed` | `sock` has already been closed, or the underlying readiness check fails for a reason other than an interruption. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
 
 ## Examples
 

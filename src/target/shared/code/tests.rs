@@ -346,10 +346,14 @@ fn checked_arena_used_after_alloc(
     size: u64,
     align: u64,
 ) -> Result<(u64, u64), u64> {
-    let invalid_argument = ERR_INVALID_ARGUMENT_CODE
+    let invalid_argument = crate::builtins::errorcode::runtime_error("ErrInvalidArgument")
+        .expect("errorCode name")
+        .0
         .parse::<u64>()
         .expect("invalid argument code");
-    let out_of_memory = ERR_OUT_OF_MEMORY_CODE
+    let out_of_memory = crate::builtins::errorcode::runtime_error("ErrOutOfMemory")
+        .expect("errorCode name")
+        .0
         .parse::<u64>()
         .expect("out of memory code");
     if align == 0 || !align.is_power_of_two() {

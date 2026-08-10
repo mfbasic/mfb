@@ -89,8 +89,8 @@ directory.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | The directory path is empty or contains an embedded NUL byte, so it cannot be turned into a valid NUL-terminated host path. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77010001` | `ErrOutOfMemory` | The internal buffer for the constructed temporary path, or the `File` resource record, cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77050002` | `ErrInvalidArgument` | The directory path is empty or contains an embedded NUL byte, so it cannot be turned into a valid NUL-terminated host path. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77010001` | `ErrOutOfMemory` | The internal buffer for the constructed temporary path, or the `File` resource record, cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 | `77050004` | `ErrNotFound` | The file cannot be created because a path component does not exist, such as a missing containing directory (host `ENOENT`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
 | `77030003` | `ErrAccessDenied` | The host denies permission to create the file in the directory (host `EACCES`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
 | `77050005` | `ErrAlreadyExists` | Exclusive creation fails because a file with the generated name already exists (host `EEXIST`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |

@@ -68,6 +68,45 @@ pub(super) fn push_error_message_address(
     ]);
 }
 
+/// Emit a runtime error from a **fixed runtime helper** (a free-function codegen
+/// builder with no `CodeBuilder`/`self` in scope) — the free-function companion to
+/// [`CodeBuilder::raise_error`]/[`raise_error_bare`] (plan-88-C). It reproduces the
+/// historical lightweight fixed-helper error sequence exactly: set the error code
+/// immediate, set the error tag, and load the message data-object address — but
+/// sources the `(code, message-symbol)` from `ERRORCODE_CONSTANTS` instead of the
+/// per-error `ERR_*_CODE`/`ERR_*_SYMBOL` codegen constants. This is why the two
+/// emission worlds (per-call-site methods, fixed-helper free functions) now share
+/// one metadata authority while keeping their distinct instruction shapes.
+///
+/// `error_name` must be a known `errorCode` constant (e.g. `"ErrEndOfFile"`);
+/// unknown names are a codegen bug and panic. `from` is the emitting function's
+/// symbol (the relocation origin), matching `push_error_message_address`.
+pub(super) fn raise_error_into(
+    from: &str,
+    error_name: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let (code, symbol) = crate::builtins::errorcode::runtime_error_emission(error_name)
+        .unwrap_or_else(|| {
+            panic!("raise_error_into: `{error_name}` is not an errorCode constant")
+        });
+    instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", code));
+    instructions.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG));
+    push_error_message_address(from, symbol, instructions, relocations);
+}
+
+/// The registered runtime-error message for an `errorCode` name (plan-88-D). The
+/// data-object gating below emits each fixed `_mfb_str_error_*` string; it now
+/// sources every message from `ERRORCODE_CONSTANTS` (the single metadata authority)
+/// instead of the deleted per-error `ERR_*_MESSAGE` codegen constants.
+fn err_msg(name: &str) -> String {
+    crate::builtins::errorcode::runtime_error(name)
+        .unwrap_or_else(|| panic!("err_msg: `{name}` is not an errorCode constant"))
+        .1
+        .to_string()
+}
+
 pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     let mut values = Vec::new();
     // The module's record / union-variant field types, so every walk below can
@@ -87,21 +126,21 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         }
     }
     for value in [
-        ERR_INVALID_ARGUMENT_MESSAGE,
-        ERR_OVERFLOW_MESSAGE,
-        ERR_UNDERFLOW_MESSAGE,
-        ERR_ALLOCATION_MESSAGE,
+        err_msg("ErrInvalidArgument"),
+        err_msg("ErrOverflow"),
+        err_msg("ErrUnderflow"),
+        err_msg("ErrOutOfMemory"),
     ] {
-        push_string_value(&mut values, value.to_string());
+        push_string_value(&mut values, value);
     }
     if module_may_emit_float_numeric_error(module) {
         for value in [
-            ERR_FLOAT_DOMAIN_MESSAGE,
-            ERR_FLOAT_NAN_MESSAGE,
-            ERR_FLOAT_INF_MESSAGE,
-            ERR_FLOAT_OVERFLOW_MESSAGE,
+            err_msg("ErrFloatDomain"),
+            err_msg("ErrFloatNaN"),
+            err_msg("ErrFloatInf"),
+            err_msg("ErrFloatOverflow"),
         ] {
-            push_string_value(&mut values, value.to_string());
+            push_string_value(&mut values, value);
         }
     }
     if module_uses_any_call(
@@ -114,7 +153,7 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "io.flush",
         ],
     ) {
-        push_string_value(&mut values, ERR_OUTPUT_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrWriteFailed"));
     }
     if module_uses_any_call(
         module,
@@ -123,21 +162,21 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         if module_uses_call(module, "io.input") {
             push_string_value(&mut values, String::new());
         }
-        push_string_value(&mut values, ERR_EOF_MESSAGE.to_string());
-        push_string_value(&mut values, ERR_INPUT_MESSAGE.to_string());
-        push_string_value(&mut values, ERR_ENCODING_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrEndOfFile"));
+        push_string_value(&mut values, err_msg("ErrInputFailed"));
+        push_string_value(&mut values, err_msg("ErrEncoding"));
         // plan-15 D1: reading stdin from an unsubscribed thread traps ErrInvalidContext.
-        push_string_value(&mut values, ERR_INVALID_CONTEXT_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrInvalidContext"));
         // bug-256 class (found during plan-62-E): every console-read helper begins by
         // draining pending stdout (`STDOUT_DRAIN_SYMBOL`), which raises `ErrOutput`
         // on a write failure — so its `_mfb_str_error_output` data object must exist
         // whenever a read helper is emitted, even if the program never calls
         // `io::print`/`io::write`. Without this, an `io::readLine`-only program (any
         // build) failed to link with a dangling `_mfb_str_error_output` relocation.
-        push_string_value(&mut values, ERR_OUTPUT_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrWriteFailed"));
     }
     if module_uses_call(module, "io.pollInput") {
-        push_string_value(&mut values, ERR_INPUT_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrInputFailed"));
     }
     // plan-62-E: in an app build that uses `app::` (so a non-`Console` presentation
     // mode is reachable), every `term::` and console-read `io::` helper carries an
@@ -146,7 +185,7 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     // (the bug-256 class). Over-approximated to any `app::`-using app build; an
     // unreferenced pooled string is harmless dead data.
     if module.build_mode.is_app() && module_uses_any_call(module, &["app.getMode", "app.setMode"]) {
-        push_string_value(&mut values, ERR_WRONG_MODE_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrWrongMode"));
     }
     if module_uses_any_call(
         module,
@@ -160,7 +199,7 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "thread.read",
         ],
     ) {
-        push_string_value(&mut values, ERR_RESOURCE_CLOSED_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrResourceClosed"));
         // `ErrResourceMoved` rides the SAME closed-guard as `ErrResourceClosed`
         // (both bits live in the offset-8 word, and the guard splits them only at
         // the report), so wherever the closed message is registered the moved one
@@ -170,16 +209,16 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         // `net::` programs link no `_mfb_rt_fs_*`/`_mfb_rt_thread_*` symbol, so
         // they do not get the whole standard set for free and failed with
         // "relocation target '_mfb_str_error_resource_moved' is not a data object").
-        push_string_value(&mut values, ERR_RESOURCE_MOVED_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrResourceMoved"));
     }
     if module_uses_call(module, "fs.currentDirectory") {
-        push_string_value(&mut values, ERR_READ_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrReadFailed"));
     }
     // `os::getEnv` raises `ErrNotFound` for an unset variable; `os::setEnv`
     // reuses the always-emitted `ErrInvalidArgument`/allocation messages
     // (plan-31-A).
     if module_uses_call(module, "os.getEnv") {
-        push_string_value(&mut values, ERR_NOT_FOUND_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrNotFound"));
     }
     // `os::hostName`/`userName`/`executablePath` raise ErrUnsupported when the
     // host lookup fails (no passwd entry, unreadable /proc/self/exe, …).
@@ -194,12 +233,12 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "os.resourcePath",
         ],
     ) {
-        push_string_value(&mut values, ERR_UNSUPPORTED_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrUnsupported"));
     }
     // plan-55-B: `os.resourcePath` additionally raises ErrInvalidPath when the
     // `relative` argument contains a `.`/`..` path component.
     if module_uses_call(module, "os.resourcePath") {
-        push_string_value(&mut values, ERR_INVALID_PATH_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrInvalidPath"));
     }
     if module_uses_any_call(
         module,
@@ -212,14 +251,14 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         ],
     ) {
         for value in [
-            ERR_INVALID_ARGUMENT_MESSAGE,
-            ERR_NOT_FOUND_MESSAGE,
-            ERR_ACCESS_DENIED_MESSAGE,
-            ERR_ALREADY_EXISTS_MESSAGE,
-            ERR_DIRECTORY_NOT_EMPTY_MESSAGE,
-            ERR_OUTPUT_MESSAGE,
+            err_msg("ErrInvalidArgument"),
+            err_msg("ErrNotFound"),
+            err_msg("ErrAccessDenied"),
+            err_msg("ErrAlreadyExists"),
+            err_msg("ErrResourceBusy"),
+            err_msg("ErrWriteFailed"),
         ] {
-            push_string_value(&mut values, value.to_string());
+            push_string_value(&mut values, value);
         }
     }
     if module_uses_any_call(
@@ -237,15 +276,15 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         ],
     ) {
         for value in [
-            ERR_INVALID_ARGUMENT_MESSAGE,
-            ERR_NOT_FOUND_MESSAGE,
-            ERR_ACCESS_DENIED_MESSAGE,
-            ERR_ALREADY_EXISTS_MESSAGE,
-            ERR_OUTPUT_MESSAGE,
-            ERR_RESOURCE_CLOSED_MESSAGE,
-            ERR_RESOURCE_MOVED_MESSAGE,
+            err_msg("ErrInvalidArgument"),
+            err_msg("ErrNotFound"),
+            err_msg("ErrAccessDenied"),
+            err_msg("ErrAlreadyExists"),
+            err_msg("ErrWriteFailed"),
+            err_msg("ErrResourceClosed"),
+            err_msg("ErrResourceMoved"),
         ] {
-            push_string_value(&mut values, value.to_string());
+            push_string_value(&mut values, value);
         }
     }
     // `term.terminalSize` raises ErrUnsupported when the console size cannot be
@@ -265,7 +304,7 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "term.drawGlyph",
         ],
     ) {
-        push_string_value(&mut values, ERR_UNSUPPORTED_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrUnsupported"));
     }
     if module_uses_any_call(
         module,
@@ -292,26 +331,26 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         ],
     ) {
         for value in [
-            ERR_ADDRESS_INVALID_MESSAGE,
-            ERR_ADDRESS_NOT_FOUND_MESSAGE,
-            ERR_NETWORK_FAILED_MESSAGE,
-            ERR_CONNECTION_CLOSED_MESSAGE,
-            ERR_MESSAGE_TOO_LARGE_MESSAGE,
-            ERR_RESOURCE_CLOSED_MESSAGE,
-            ERR_RESOURCE_MOVED_MESSAGE,
-            ERR_CLOSE_FAILED_MESSAGE,
-            ERR_ENCODING_MESSAGE,
-            ERR_TIMEOUT_MESSAGE,
+            err_msg("ErrAddressInvalid"),
+            err_msg("ErrAddressNotFound"),
+            err_msg("ErrNetworkFailed"),
+            err_msg("ErrConnectionClosed"),
+            err_msg("ErrMessageTooLarge"),
+            err_msg("ErrResourceClosed"),
+            err_msg("ErrResourceMoved"),
+            err_msg("ErrCloseFailed"),
+            err_msg("ErrEncoding"),
+            err_msg("ErrTimeout"),
         ] {
-            push_string_value(&mut values, value.to_string());
+            push_string_value(&mut values, value);
         }
     }
     // `crypto::randomBytes` fails `ErrInvalidArgument` on a negative count and
     // `ErrUnknown` on an (essentially unreachable) OS-entropy failure
     // (plan-04-crypto.md §A.6).
     if module_uses_call(module, "crypto.randomBytes") {
-        for value in [ERR_INVALID_ARGUMENT_MESSAGE, ERR_UNKNOWN_MESSAGE] {
-            push_string_value(&mut values, value.to_string());
+        for value in [err_msg("ErrInvalidArgument"), err_msg("ErrUnknown")] {
+            push_string_value(&mut values, value);
         }
     }
     // Every `tls::` helper that can raise one of these must be listed, including
@@ -335,18 +374,18 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         ],
     ) {
         for value in [
-            ERR_TLS_FAILED_MESSAGE,
-            ERR_ADDRESS_INVALID_MESSAGE,
-            ERR_ADDRESS_NOT_FOUND_MESSAGE,
-            ERR_NETWORK_FAILED_MESSAGE,
-            ERR_CONNECTION_CLOSED_MESSAGE,
-            ERR_RESOURCE_CLOSED_MESSAGE,
-            ERR_RESOURCE_MOVED_MESSAGE,
-            ERR_INVALID_ARGUMENT_MESSAGE,
-            ERR_ENCODING_MESSAGE,
-            ERR_TIMEOUT_MESSAGE,
+            err_msg("ErrTlsFailed"),
+            err_msg("ErrAddressInvalid"),
+            err_msg("ErrAddressNotFound"),
+            err_msg("ErrNetworkFailed"),
+            err_msg("ErrConnectionClosed"),
+            err_msg("ErrResourceClosed"),
+            err_msg("ErrResourceMoved"),
+            err_msg("ErrInvalidArgument"),
+            err_msg("ErrEncoding"),
+            err_msg("ErrTimeout"),
         ] {
-            push_string_value(&mut values, value.to_string());
+            push_string_value(&mut values, value);
         }
     }
     // Audio helpers raise ErrAudioUnavailable / ErrAudioDevice, and validate
@@ -372,11 +411,11 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         ],
     ) {
         for value in [
-            ERR_AUDIO_UNAVAILABLE_MESSAGE,
-            ERR_AUDIO_DEVICE_MESSAGE,
-            ERR_INVALID_ARGUMENT_MESSAGE,
+            err_msg("ErrAudioUnavailable"),
+            err_msg("ErrAudioDevice"),
+            err_msg("ErrInvalidArgument"),
         ] {
-            push_string_value(&mut values, value.to_string());
+            push_string_value(&mut values, value);
         }
     }
     // plan-90: `process::spawn`/`shell` raise ErrSpawnFailed; lifecycle ops raise
@@ -410,20 +449,20 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     ];
     if module_uses_any_call(module, &process_calls) {
         for value in [
-            ERR_SPAWN_FAILED_MESSAGE,
-            ERR_RESOURCE_CLOSED_MESSAGE,
-            ERR_INVALID_ARGUMENT_MESSAGE,
-            ERR_ALLOCATION_MESSAGE,
-            ERR_TIMEOUT_MESSAGE,
+            err_msg("ErrSpawnFailed"),
+            err_msg("ErrResourceClosed"),
+            err_msg("ErrInvalidArgument"),
+            err_msg("ErrOutOfMemory"),
+            err_msg("ErrTimeout"),
         ] {
-            push_string_value(&mut values, value.to_string());
+            push_string_value(&mut values, value);
         }
     }
     // `process::receive`/`receiveFrom` validate the line as UTF-8 and raise
     // ErrEncoding on a malformed byte sequence, so the receive path needs the
     // encoding string even when the program never calls `toString`.
     if module_uses_any_call(module, &["process.receive", "process.receiveFrom"]) {
-        push_string_value(&mut values, ERR_ENCODING_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrEncoding"));
     }
     if module_uses_migrated(module, "find")
         || module_uses_migrated(module, "mid")
@@ -437,15 +476,15 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         || module_uses_migrated(module, "set")
         || module_uses_call(module, "strings.graphemeAt")
     {
-        push_string_value(&mut values, ERR_INDEX_OUT_OF_RANGE_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrIndexOutOfRange"));
     }
     if module_uses_migrated(module, "find") || module_uses_migrated(module, "get") {
-        push_string_value(&mut values, ERR_NOT_FOUND_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrNotFound"));
     }
     if module_uses_call(module, "toString") {
         push_string_value(&mut values, "TRUE".to_string());
         push_string_value(&mut values, "FALSE".to_string());
-        push_string_value(&mut values, ERR_ENCODING_MESSAGE.to_string());
+        push_string_value(&mut values, err_msg("ErrEncoding"));
     }
     for value in [ENTRY_ERROR_PREFIX, ENTRY_ERROR_NEWLINE] {
         if !values.contains(&value.to_string()) {
@@ -1012,7 +1051,7 @@ fn collect_string_values_from_value(
         }
     }
     if value_may_return_invalid_format(value, constants, types, fields) {
-        push_string_value(values, ERR_INVALID_FORMAT_MESSAGE.to_string());
+        push_string_value(values, err_msg("ErrInvalidFormat"));
     }
     match value {
         NirValue::Const { type_, value } if type_ == "String" => {

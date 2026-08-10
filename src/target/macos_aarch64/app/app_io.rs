@@ -1616,24 +1616,31 @@ fn emit_app_terminal_size(symbol: &str, term_state_offset: usize) -> AppHookBody
     asm.push(abi::store_u64(abi::SCRATCH[2], "x1", 8)); // rows
     asm.push(abi::move_immediate("x0", "Integer", "0")); // OK; x1 = record
     asm.push(abi::branch(&done));
+    // plan-88-C: code + message symbol from `ERRORCODE_CONSTANTS`. This app helper
+    // returns via x0/x1/x2 directly (not the shared `RESULT_*` registers), so the
+    // shared `raise_error_into` emitter does not fit; the values are table-sourced
+    // and loaded here, byte-identical to the former local `ERR_UNSUPPORTED_*` consts.
+    let (unsupported_code, unsupported_symbol) =
+        crate::builtins::errorcode::runtime_error_emission("ErrUnsupported")
+            .expect("ErrUnsupported is an errorCode constant");
     asm.push(abi::label(&unsupported));
-    asm.push(abi::move_immediate("x1", "Integer", ERR_UNSUPPORTED_CODE));
+    asm.push(abi::move_immediate("x1", "Integer", unsupported_code));
     asm.push(abi::move_immediate("x0", "Integer", "1")); // ERR tag
     asm.push(
         CodeInstruction::new("adrp")
             .field("dst", "x2")
-            .field("symbol", ERR_UNSUPPORTED_SYMBOL),
+            .field("symbol", unsupported_symbol),
     );
     asm.push(
         CodeInstruction::new("add_pageoff")
             .field("dst", "x2")
             .field("src", "x2")
-            .field("symbol", ERR_UNSUPPORTED_SYMBOL),
+            .field("symbol", unsupported_symbol),
     );
     for kind in [RelocIntent::DataAddrHi, RelocIntent::DataAddrLo] {
         asm.rel.push(CodeRelocation {
             from: symbol.to_string(),
-            to: ERR_UNSUPPORTED_SYMBOL.to_string(),
+            to: unsupported_symbol.to_string(),
             kind,
             binding: "data".to_string(),
             library: None,

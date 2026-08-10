@@ -150,7 +150,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&miss));
         let text = match default_slot {
             None => {
-                self.emit_index_out_of_range_return()?;
+                self.raise_error("collections.get", "ErrIndexOutOfRange")?;
                 format!("get({collection_type}, Integer)")
             }
             Some(default_slot) => {
@@ -483,7 +483,7 @@ impl CodeBuilder<'_> {
                 self.emit_load_map_payload(value_type, &collection, &value_offset, &value_length)?;
             self.emit(abi::branch(&done));
             self.emit(abi::label(&not_found));
-            self.emit_not_found_return()?;
+            self.raise_error("collections.get", "ErrNotFound")?;
             self.emit(abi::label(&done));
             return Ok(ValueResult {
                 type_: value_type.to_string(),
@@ -554,7 +554,7 @@ impl CodeBuilder<'_> {
         self.emit_entry_scan_advance(&entry, &index, &next, &loop_label);
 
         self.emit(abi::label(&not_found));
-        self.emit_not_found_return()?;
+        self.raise_error("collections.get", "ErrNotFound")?;
         self.emit(abi::label(&done));
 
         Ok(ValueResult {

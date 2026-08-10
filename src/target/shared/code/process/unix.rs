@@ -8,6 +8,7 @@
 //! explicit `sp`-relative frame from `finalize_vreg_body_with_locals`.
 
 use super::*;
+use super::super::native_helpers::emit_fail;
 use crate::target::shared::abi;
 use std::collections::HashMap;
 
@@ -24,24 +25,6 @@ const LIST_HEADER: usize = COLLECTION_HEADER_SIZE;
 const LIST_ENTRY: usize = COLLECTION_ENTRY_SIZE;
 const ENTRY_VOFF: usize = COLLECTION_ENTRY_OFFSET_VALUE_OFFSET;
 const ENTRY_VLEN: usize = COLLECTION_ENTRY_OFFSET_VALUE_LENGTH;
-
-/// Emit the resource-record `(tag, value)` failure for a code + message symbol,
-/// then branch to `done` — the process analogue of `net`'s `emit_fail`.
-fn emit_fail(
-    symbol: &str,
-    code: &str,
-    message_symbol: &str,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-    done: &str,
-) {
-    instructions.extend([
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", code),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(symbol, message_symbol, instructions, relocations);
-    instructions.push(abi::branch(done));
-}
 
 /// Decode a raw `waitpid` status word (`status` vreg) into an exit code (`exit`
 /// vreg): `WIFEXITED` → `(status >> 8) & 0xff`, otherwise signal-death → `-1`.
@@ -102,8 +85,7 @@ pub(in crate::target::shared::code) fn lower_process_pid_helper(
     let mut relocations = Vec::new();
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -158,8 +140,7 @@ pub(in crate::target::shared::code) fn lower_process_close_helper(
     ]);
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -240,8 +221,7 @@ pub(in crate::target::shared::code) fn lower_process_waitfor_helper(
     ]);
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -324,8 +304,7 @@ pub(in crate::target::shared::code) fn lower_process_isrunning_helper(
     ]);
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1023,8 +1002,7 @@ pub(in crate::target::shared::code) fn lower_process_spawn_helper(
     instructions.push(abi::label(&fork_fail));
     emit_fail(
         symbol,
-        ERR_SPAWN_FAILED_CODE,
-        ERR_SPAWN_FAILED_SYMBOL,
+        "ErrSpawnFailed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1032,8 +1010,7 @@ pub(in crate::target::shared::code) fn lower_process_spawn_helper(
     instructions.push(abi::label(&invalid));
     emit_fail(
         symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        "ErrInvalidArgument",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1041,8 +1018,7 @@ pub(in crate::target::shared::code) fn lower_process_spawn_helper(
     instructions.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1151,8 +1127,7 @@ pub(in crate::target::shared::code) fn lower_process_shell_helper(
     instructions.push(abi::label(&fork_fail));
     emit_fail(
         symbol,
-        ERR_SPAWN_FAILED_CODE,
-        ERR_SPAWN_FAILED_SYMBOL,
+        "ErrSpawnFailed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1160,8 +1135,7 @@ pub(in crate::target::shared::code) fn lower_process_shell_helper(
     instructions.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1326,8 +1300,7 @@ pub(in crate::target::shared::code) fn lower_process_spawnenv_helper(
     instructions.push(abi::label(&fork_fail));
     emit_fail(
         symbol,
-        ERR_SPAWN_FAILED_CODE,
-        ERR_SPAWN_FAILED_SYMBOL,
+        "ErrSpawnFailed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1335,8 +1308,7 @@ pub(in crate::target::shared::code) fn lower_process_spawnenv_helper(
     instructions.push(abi::label(&invalid));
     emit_fail(
         symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        "ErrInvalidArgument",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1344,8 +1316,7 @@ pub(in crate::target::shared::code) fn lower_process_spawnenv_helper(
     instructions.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1533,8 +1504,7 @@ pub(in crate::target::shared::code) fn lower_process_send_helper(
     ]);
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1543,8 +1513,7 @@ pub(in crate::target::shared::code) fn lower_process_send_helper(
         instructions.push(abi::label(&timeout_l));
         emit_fail(
             symbol,
-            ERR_TIMEOUT_CODE,
-            ERR_TIMEOUT_SYMBOL,
+            "ErrTimeout",
             &mut instructions,
             &mut relocations,
             &done,
@@ -1678,8 +1647,7 @@ pub(in crate::target::shared::code) fn lower_process_poll_helper(
     ]);
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1843,8 +1811,7 @@ pub(in crate::target::shared::code) fn lower_process_receivebytes_helper(
     ]);
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -1852,8 +1819,7 @@ pub(in crate::target::shared::code) fn lower_process_receivebytes_helper(
     instructions.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2005,8 +1971,7 @@ pub(in crate::target::shared::code) fn lower_process_receive_helper(
     ]);
     emit_fail(
         symbol,
-        ERR_ENCODING_CODE,
-        ERR_ENCODING_SYMBOL,
+        "ErrEncoding",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2014,8 +1979,7 @@ pub(in crate::target::shared::code) fn lower_process_receive_helper(
     instructions.push(abi::label(&closed));
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2023,8 +1987,7 @@ pub(in crate::target::shared::code) fn lower_process_receive_helper(
     instructions.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2096,8 +2059,7 @@ pub(in crate::target::shared::code) fn lower_process_signal_helper(
     ]);
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2178,8 +2140,7 @@ pub(in crate::target::shared::code) fn lower_process_didsignal_helper(
     let mut relocations = Vec::new();
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,
@@ -2257,8 +2218,7 @@ pub(in crate::target::shared::code) fn lower_process_detach_helper(
     ]);
     emit_fail(
         symbol,
-        ERR_RESOURCE_CLOSED_CODE,
-        ERR_RESOURCE_CLOSED_SYMBOL,
+        "ErrResourceClosed",
         &mut instructions,
         &mut relocations,
         &done,

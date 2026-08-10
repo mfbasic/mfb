@@ -575,10 +575,8 @@ pub(super) fn lower_float_to_string_helper() -> CodeFunction {
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
             abi::branch(&done),
             abi::label(&alloc_error),
-            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
         ]);
-        push_error_message_address(symbol, ERR_ALLOCATION_SYMBOL, &mut ins, &mut relocations);
+        raise_error_into(symbol, "ErrOutOfMemory", &mut ins, &mut relocations);
         ins.extend([abi::label(&done), abi::return_()]);
     }
 

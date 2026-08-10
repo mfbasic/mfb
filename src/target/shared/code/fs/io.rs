@@ -431,15 +431,8 @@ pub(in crate::target::shared::code) fn lower_fs_flush_helper(symbol: &str) -> He
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&flush_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_OUTPUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrWriteFailed", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -513,15 +506,8 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&alloc_ok),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     let len = vregs.next();
     let src = vregs.next();
     let dst = vregs.next();
@@ -700,16 +686,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
             &mut instructions,
             &mut relocations,
         )?;
-        instructions.extend([
-            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ACCESS_DENIED_CODE),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-        ]);
-        push_error_message_address(
-            symbol,
-            ERR_ACCESS_DENIED_SYMBOL,
-            &mut instructions,
-            &mut relocations,
-        );
+        raise_error_into(symbol, "ErrAccessDenied", &mut instructions, &mut relocations);
         instructions.extend([abi::branch(&done), abi::label(&nofollow_ok)]);
     }
     instructions.extend([
@@ -732,16 +709,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    instructions.extend([
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&file_alloc_ok),
@@ -769,15 +737,8 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&invalid),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INVALID_ARGUMENT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
     instructions.extend([abi::branch(&done), abi::label(&open_error)]);
     let errno_reg = vregs.next();
     platform.emit_errno(
@@ -921,15 +882,8 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&root_alloc_ok),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&root_alloc_ok),
@@ -963,15 +917,8 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&buffer_alloc_ok),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&buffer_alloc_ok),
@@ -1208,16 +1155,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
             &mut instructions,
             &mut relocations,
         )?;
-        instructions.extend([
-            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ACCESS_DENIED_CODE),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-        ]);
-        push_error_message_address(
-            symbol,
-            ERR_ACCESS_DENIED_SYMBOL,
-            &mut instructions,
-            &mut relocations,
-        );
+        raise_error_into(symbol, "ErrAccessDenied", &mut instructions, &mut relocations);
         instructions.extend([abi::branch(&done), abi::label(&within_ok)]);
     }
     instructions.extend([
@@ -1236,16 +1174,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    instructions.extend([
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&file_alloc_ok),
@@ -1270,15 +1199,8 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&invalid),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INVALID_ARGUMENT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrInvalidArgument", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&realpath_error),
@@ -1393,52 +1315,24 @@ pub(in crate::target::shared::code) fn lower_fs_close_helper(
         abi::and_registers(&flag, &closed, &flag),
         abi::compare_immediate(&flag, "0"),
         abi::branch_ne(&already_moved),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_RESOURCE_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrResourceClosed", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&already_moved),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_MOVED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_RESOURCE_MOVED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrResourceMoved", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&close_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_CLOSE_FAILED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_CLOSE_FAILED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrCloseFailed", &mut instructions, &mut relocations);
     if flush_on_close {
         instructions.extend([
             abi::branch(&done),
             abi::label(&flush_failed),
-            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
         ]);
-        push_error_message_address(
-            symbol,
-            ERR_OUTPUT_SYMBOL,
-            &mut instructions,
-            &mut relocations,
-        );
+        raise_error_into(symbol, "ErrWriteFailed", &mut instructions, &mut relocations);
     }
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -1550,27 +1444,13 @@ pub(in crate::target::shared::code) fn lower_fs_write_all_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&closed),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_RESOURCE_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrResourceClosed", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&write_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_OUTPUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrWriteFailed", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -1726,47 +1606,24 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&encoding_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ENCODING_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ENCODING_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrEncoding", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&closed),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_RESOURCE_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrResourceClosed", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&seek_error),
         abi::label(&read_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_READ_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_READ_SYMBOL, &mut instructions, &mut relocations);
+    raise_error_into(symbol, "ErrReadFailed", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -1884,27 +1741,13 @@ pub(in crate::target::shared::code) fn lower_fs_write_all_bytes_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&closed),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_RESOURCE_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrResourceClosed", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&write_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_OUTPUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrWriteFailed", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -2105,35 +1948,19 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_bytes_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&closed),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_RESOURCE_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrResourceClosed", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&seek_error),
         abi::label(&read_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_READ_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_READ_SYMBOL, &mut instructions, &mut relocations);
+    raise_error_into(symbol, "ErrReadFailed", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -2228,22 +2055,13 @@ pub(in crate::target::shared::code) fn lower_fs_eof_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&closed),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_RESOURCE_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrResourceClosed", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&seek_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_READ_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_READ_SYMBOL, &mut instructions, &mut relocations);
+    raise_error_into(symbol, "ErrReadFailed", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -2628,54 +2446,29 @@ pub(in crate::target::shared::code) fn lower_fs_read_line_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&encoding_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ENCODING_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ENCODING_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrEncoding", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&closed),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_RESOURCE_CLOSED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrResourceClosed", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&eof_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_EOF_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_EOF_SYMBOL, &mut instructions, &mut relocations);
+    raise_error_into(symbol, "ErrEndOfFile", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&seek_error),
         abi::label(&read_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_READ_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_READ_SYMBOL, &mut instructions, &mut relocations);
+    raise_error_into(symbol, "ErrReadFailed", &mut instructions, &mut relocations);
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))

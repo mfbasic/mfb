@@ -60,6 +60,9 @@ const fn regex_fn(
     BuiltinFunction {
         name,
         doc_slug: slug,
+        doc_into: "",
+        doc_desc: "",
+        errors: &[],
         overloads,
         implementation: Implementation::Rewrite(implementation),
         lowering: Lowering::Helper,

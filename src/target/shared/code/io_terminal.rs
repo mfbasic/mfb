@@ -144,10 +144,8 @@ pub(super) fn emit_restore_stdin_terminal(
         ),
         abi::branch(&format!("{symbol}_terminal_mode_restore_done")),
         abi::label(&restore_failed),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_INPUT_SYMBOL, ctx.instructions, ctx.relocations);
+    raise_error_into(symbol, "ErrInputFailed", ctx.instructions, ctx.relocations);
     ctx.instructions
         .push(abi::label(&format!("{symbol}_terminal_mode_restore_done")));
     Ok(())

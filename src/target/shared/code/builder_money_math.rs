@@ -291,7 +291,7 @@ impl CodeBuilder<'_> {
             let ok = self.label("money_float_div_ok");
             self.emit(abi::float_compare_zero_d(&fval));
             self.emit(abi::branch_ne(&ok));
-            self.emit_invalid_argument_return()?;
+            self.raise_error_bare("ErrInvalidArgument")?;
             self.emit(abi::label(&ok));
             self.emit(abi::float_divide_d(&result, &money_d, &fval));
         } else {
@@ -316,7 +316,7 @@ impl CodeBuilder<'_> {
         self.emit_float_exponent_classify(&exponent, &mask, &bits);
         self.emit(abi::branch_ne(&ok));
         self.emit(abi::label(&invalid));
-        self.emit_invalid_format_return()?;
+        self.raise_error_bare("ErrInvalidFormat")?;
         self.emit(abi::label(&ok));
         Ok(())
     }
@@ -347,7 +347,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::float_compare_d(&magnitude, &limit));
         self.emit(abi::branch_mi(&range_ok)); // |value| < 2^63 (ordered, less-than)
         self.emit(abi::label(&overflow));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&range_ok));
 
         // q = trunc(value) toward zero.

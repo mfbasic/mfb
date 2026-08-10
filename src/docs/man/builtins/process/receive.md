@@ -37,13 +37,13 @@ it **drains before reporting closed**: any bytes accumulated since the last newl
 are returned as a final (newline-less) line, and only a subsequent read that finds
 end of stream with nothing buffered raises `ErrResourceClosed`. A consumer therefore
 loops, reading lines until `ErrResourceClosed` marks the end of the output.
-[[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]]
+[[src/builtins/errorcode.rs:ErrResourceClosed]]
 
 The returned line is validated as UTF-8; output that is not valid UTF-8 raises
 `ErrEncoding`. Use `process::receiveBytes` for binary output or output whose
 encoding is unknown. Very long lines are capped at 1 MiB: a line reaching that
 length is returned as-is without waiting for a newline.
-[[src/target/shared/code/error_constants.rs:ERR_ENCODING_CODE]]
+[[src/builtins/errorcode.rs:ErrEncoding]]
 
 ## Overloads
 
@@ -73,9 +73,9 @@ Reads one line from the selected stream — `Stream.StdOut` or `Stream.StdErr`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | End of the selected stream was reached with nothing left to return, or `p` has already been dropped or detached. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
-| `77020004` | `ErrEncoding` | The bytes read are not valid UTF-8. [[src/target/shared/code/error_constants.rs:ERR_ENCODING_CODE]] |
-| `77010001` | `ErrOutOfMemory` | The line accumulator or the returned `String` could not be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77030004` | `ErrResourceClosed` | End of the selected stream was reached with nothing left to return, or `p` has already been dropped or detached. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77020004` | `ErrEncoding` | The bytes read are not valid UTF-8. [[src/builtins/errorcode.rs:ErrEncoding]] |
+| `77010001` | `ErrOutOfMemory` | The line accumulator or the returned `String` could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

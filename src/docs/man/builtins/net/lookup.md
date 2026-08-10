@@ -77,9 +77,9 @@ Resolves `host` and stamps every returned `Address` with the given port.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77070002` | `ErrAddressNotFound` | The host could not be resolved — it is malformed, or it has no address record at all. [[src/target/shared/code/error_constants.rs:ERR_ADDRESS_NOT_FOUND_CODE]] |
-| `77070001` | `ErrAddressInvalid` | A resolved address could not be converted to its textual form, so it cannot be represented as an `Address`. [[src/target/shared/code/error_constants.rs:ERR_ADDRESS_INVALID_CODE]] |
-| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `host`, the result list, or one of the `Address` records could not be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77070002` | `ErrAddressNotFound` | The host could not be resolved — it is malformed, or it has no address record at all. [[src/builtins/errorcode.rs:ErrAddressNotFound]] |
+| `77070001` | `ErrAddressInvalid` | A resolved address could not be converted to its textual form, so it cannot be represented as an `Address`. [[src/builtins/errorcode.rs:ErrAddressInvalid]] |
+| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `host`, the result list, or one of the `Address` records could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples
 

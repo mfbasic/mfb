@@ -36,7 +36,7 @@ cache without another system call. [[src/target/shared/code/process/unix.rs:emit
 
 The handle is borrowed and left open. Calling `isRunning` on a handle that has
 already been dropped or detached raises `ErrResourceClosed`.
-[[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]]
+[[src/builtins/errorcode.rs:ErrResourceClosed]]
 
 ## Parameters
 
@@ -54,7 +54,7 @@ already been dropped or detached raises `ErrResourceClosed`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
+| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
 
 ## Examples
 

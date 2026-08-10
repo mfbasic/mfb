@@ -98,8 +98,8 @@ integer square root, halves away from zero.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a squared component or the sum of squares exceeds the checked range of the element type. [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
-| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a squared component or the sum reaches infinity and is caught where the result is returned. [[src/target/shared/code/error_constants.rs:ERR_FLOAT_OVERFLOW_CODE]] |
+| `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a squared component or the sum of squares exceeds the checked range of the element type. [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a squared component or the sum reaches infinity and is caught where the result is returned. [[src/builtins/errorcode.rs:ErrFloatOverflow]] |
 
 ## Type checking
 

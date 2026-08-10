@@ -794,8 +794,7 @@ fn generate(
     cleanup(&mut ins, &mut rel, "lf")?;
     emit_fail(
         symbol,
-        ERR_UNKNOWN_CODE,
-        ERR_UNKNOWN_SYMBOL,
+        "ErrUnknown",
         &mut ins,
         &mut rel,
         &done,
@@ -804,8 +803,7 @@ fn generate(
     cleanup(&mut ins, &mut rel, "gf")?;
     emit_fail(
         symbol,
-        ERR_UNKNOWN_CODE,
-        ERR_UNKNOWN_SYMBOL,
+        "ErrUnknown",
         &mut ins,
         &mut rel,
         &done,
@@ -814,8 +812,7 @@ fn generate(
     cleanup(&mut ins, &mut rel, "af")?;
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut ins,
         &mut rel,
         &done,
@@ -825,8 +822,7 @@ fn generate(
     ins.push(abi::label(&raw_fail));
     emit_fail(
         symbol,
-        ERR_UNKNOWN_CODE,
-        ERR_UNKNOWN_SYMBOL,
+        "ErrUnknown",
         &mut ins,
         &mut rel,
         &done,
@@ -1193,8 +1189,7 @@ fn sign(
     cleanup(&mut ins, &mut rel, "lf")?;
     emit_fail(
         symbol,
-        ERR_UNKNOWN_CODE,
-        ERR_UNKNOWN_SYMBOL,
+        "ErrUnknown",
         &mut ins,
         &mut rel,
         &done,
@@ -1203,8 +1198,7 @@ fn sign(
     cleanup(&mut ins, &mut rel, "sf")?;
     emit_fail(
         symbol,
-        ERR_UNKNOWN_CODE,
-        ERR_UNKNOWN_SYMBOL,
+        "ErrUnknown",
         &mut ins,
         &mut rel,
         &done,
@@ -1213,8 +1207,7 @@ fn sign(
     cleanup(&mut ins, &mut rel, "iv")?;
     emit_fail(
         symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        "ErrInvalidArgument",
         &mut ins,
         &mut rel,
         &done,
@@ -1223,8 +1216,7 @@ fn sign(
     cleanup(&mut ins, &mut rel, "af")?;
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut ins,
         &mut rel,
         &done,
@@ -1234,8 +1226,7 @@ fn sign(
     ins.push(abi::label(&raw_fail));
     emit_fail(
         symbol,
-        ERR_UNKNOWN_CODE,
-        ERR_UNKNOWN_SYMBOL,
+        "ErrUnknown",
         &mut ins,
         &mut rel,
         &done,
@@ -1567,8 +1558,7 @@ fn verify(
     cleanup(&mut ins, &mut rel, "lf")?;
     emit_fail(
         symbol,
-        ERR_UNKNOWN_CODE,
-        ERR_UNKNOWN_SYMBOL,
+        "ErrUnknown",
         &mut ins,
         &mut rel,
         &done,
@@ -1577,8 +1567,7 @@ fn verify(
     cleanup(&mut ins, &mut rel, "iv")?;
     emit_fail(
         symbol,
-        ERR_INVALID_ARGUMENT_CODE,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        "ErrInvalidArgument",
         &mut ins,
         &mut rel,
         &done,
@@ -1587,8 +1576,7 @@ fn verify(
     cleanup(&mut ins, &mut rel, "af")?;
     emit_fail(
         symbol,
-        ERR_OUT_OF_MEMORY_CODE,
-        ERR_ALLOCATION_SYMBOL,
+        "ErrOutOfMemory",
         &mut ins,
         &mut rel,
         &done,
@@ -1598,8 +1586,7 @@ fn verify(
     ins.push(abi::label(&raw_fail));
     emit_fail(
         symbol,
-        ERR_UNKNOWN_CODE,
-        ERR_UNKNOWN_SYMBOL,
+        "ErrUnknown",
         &mut ins,
         &mut rel,
         &done,

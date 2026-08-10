@@ -101,9 +101,9 @@ which element triggered it; no list is returned in that case.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050014` | `ErrFloatInf` | The `Float` overload only: the result overflowed to an infinity, which happens for a sufficiently large positive `value`. [[src/target/shared/code/error_constants.rs:ERR_FLOAT_INF_CODE]] |
-| `77050013` | `ErrFloatNaN` | The `Float` overload only: `value` is a NaN, so the result is a NaN. [[src/target/shared/code/error_constants.rs:ERR_FLOAT_NAN_CODE]] |
-| `77050010` | `ErrOverflow` | The `Fixed` overload only: the result lies outside `Fixed` range. [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
+| `77050014` | `ErrFloatInf` | The `Float` overload only: the result overflowed to an infinity, which happens for a sufficiently large positive `value`. [[src/builtins/errorcode.rs:ErrFloatInf]] |
+| `77050013` | `ErrFloatNaN` | The `Float` overload only: `value` is a NaN, so the result is a NaN. [[src/builtins/errorcode.rs:ErrFloatNaN]] |
+| `77050010` | `ErrOverflow` | The `Fixed` overload only: the result lies outside `Fixed` range. [[src/builtins/errorcode.rs:ErrOverflow]] |
 
 ## Type checking
 

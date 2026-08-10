@@ -58,7 +58,7 @@ round-trips losslessly through the two functions.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | An element is negative, greater than `1114111`, or a surrogate code point in `55296..57343`. [[src/builtins/encoding_package.mfb:__encoding_utf32Decode]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
+| `77050003` | `ErrInvalidFormat` | An element is negative, greater than `1114111`, or a surrogate code point in `55296..57343`. [[src/builtins/encoding_package.mfb:__encoding_utf32Decode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

@@ -145,7 +145,7 @@ impl CodeBuilder<'_> {
             abi::return_register(),
             abi::mfb_return(1),
         ));
-        self.emit_allocation_error_return()?;
+        self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         Ok(result_base)
     }
@@ -242,8 +242,8 @@ impl CodeBuilder<'_> {
             self.emit(abi::compare_immediate(&err, "0"));
             self.emit(abi::branch_eq(&no_err));
             match kernel.error().unwrap() {
-                SimdError::Overflow => self.emit_overflow_return()?,
-                SimdError::FloatDomain => self.emit_float_domain_return()?,
+                SimdError::Overflow => self.raise_error_bare("ErrOverflow")?,
+                SimdError::FloatDomain => self.raise_error_bare("ErrFloatDomain")?,
             }
             self.emit(abi::label(&no_err));
         }
@@ -647,7 +647,7 @@ impl CodeBuilder<'_> {
         let lengths_ok = self.label("simd_bin_lengths_ok");
         self.emit(abi::compare_registers(&count, &rcount));
         self.emit(abi::branch_eq(&lengths_ok));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&lengths_ok));
 
         let count_slot = self.allocate_stack_object("simd_bin_count", 8);
@@ -849,7 +849,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_le(&bounds_ok));
             }
         }
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&bounds_ok));
 
         self.reset_temporary_registers();

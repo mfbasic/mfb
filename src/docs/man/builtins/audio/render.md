@@ -74,8 +74,8 @@ PCM on every target.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | A shaped sample is NaN or infinite before conversion (e.g. a non-finite `frequencyHz` or `gainOverall`). [[src/target/shared/code/builder_conversions.rs:emit_float_to_int_value]][[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
-| `77050010` | `ErrOverflow` | A shaped sample's magnitude exceeds the `Integer` range before it can be clamped (e.g. an extreme `gainOverall`). [[src/target/shared/code/builder_conversions.rs:emit_float_to_int_value]][[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
+| `77050003` | `ErrInvalidFormat` | A shaped sample is NaN or infinite before conversion (e.g. a non-finite `frequencyHz` or `gainOverall`). [[src/target/shared/code/builder_conversions.rs:emit_float_to_int_value]][[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050010` | `ErrOverflow` | A shaped sample's magnitude exceeds the `Integer` range before it can be clamped (e.g. an extreme `gainOverall`). [[src/target/shared/code/builder_conversions.rs:emit_float_to_int_value]][[src/builtins/errorcode.rs:ErrOverflow]] |
 
 ## Examples
 

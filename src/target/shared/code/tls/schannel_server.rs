@@ -576,7 +576,7 @@ pub(super) fn lower_tls_listen(
     ins.push(abi::label(&tls_fail_fd));
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD));
     platform.emit_libc_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
-    emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     // bind/listen failure: close the fd, ErrNetworkFailed.
     ins.push(abi::label(&op_fail));
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD));
@@ -585,11 +585,11 @@ pub(super) fn lower_tls_listen(
     ins.push(abi::label(&socket_fail));
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), RES));
     platform.emit_libc_call("freeaddrinfo", symbol, imports, &mut ins, &mut rel)?;
-    emit_fail(symbol, ERR_NETWORK_FAILED_CODE, ERR_NETWORK_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&resolve_fail));
-    emit_fail(symbol, ERR_ADDRESS_INVALID_CODE, ERR_ADDRESS_INVALID_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrAddressInvalid", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
 
     ins.extend([abi::label(&done), abi::return_()]);
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
@@ -966,21 +966,21 @@ pub(super) fn lower_tls_accept(
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&tls_fail_timeout),
     ]);
-    emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&tls_fail_timeout));
-    emit_fail(symbol, ERR_TIMEOUT_CODE, ERR_TIMEOUT_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     ins.push(abi::label(&accept_fail));
-    emit_fail(symbol, ERR_NETWORK_FAILED_CODE, ERR_NETWORK_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&accept_timeout));
-    emit_fail(symbol, ERR_TIMEOUT_CODE, ERR_TIMEOUT_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     // plan-73-D: a negative (non-sentinel) `timeoutMs` → ErrInvalidArgument (rejected
     // up front, before any accept/alloc).
     ins.push(abi::label(&accept_invalid));
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
-    emit_fail(symbol, ERR_RESOURCE_CLOSED_CODE, ERR_RESOURCE_CLOSED_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
 
     ins.extend([abi::label(&done), abi::return_()]);
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);

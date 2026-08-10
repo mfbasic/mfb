@@ -556,17 +556,8 @@ pub(crate) fn lower_program_entry(
     }
     instructions.push(abi::branch(exit_label));
     if language_entry_returns == "Integer" {
-        instructions.extend([
-            abi::label("entry_exit_range_error"),
-            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OVERFLOW_CODE),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-        ]);
-        push_error_message_address(
-            entry_symbol,
-            ERR_OVERFLOW_SYMBOL,
-            &mut instructions,
-            &mut relocations,
-        );
+        instructions.push(abi::label("entry_exit_range_error"));
+        raise_error_into(entry_symbol, "ErrOverflow", &mut instructions, &mut relocations);
         instructions.push(abi::branch(error_label));
     }
     instructions.extend([
@@ -899,15 +890,8 @@ fn emit_entry_args_list_materialization(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq("entry_args_alloc_ok"),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        entry_symbol,
-        ERR_ALLOCATION_SYMBOL,
-        instructions,
-        relocations,
-    );
+    raise_error_into(entry_symbol, "ErrOutOfMemory", instructions, relocations);
     // The fill phase below uses ONLY `x9`–`x17`: the x86 residual-scratch pool
     // has 11 distinct registers, so `map_scratch_register` wraps at `xN+11` —
     // `x9`/`x20` share rbx, `x10`/`x21` share rsi, and so on. Mixing the low

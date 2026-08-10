@@ -427,9 +427,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&lane0, "0"));
         self.emit(abi::branch_eq(&no_err));
         match err {
-            FloatError::Domain => self.emit_float_domain_return()?,
-            FloatError::Nan => self.emit_float_nan_return()?,
-            FloatError::Inf => self.emit_float_inf_return()?,
+            FloatError::Domain => self.raise_error_bare("ErrFloatDomain")?,
+            FloatError::Nan => self.raise_error_bare("ErrFloatNaN")?,
+            FloatError::Inf => self.raise_error_bare("ErrFloatInf")?,
         }
         self.emit(abi::label(&no_err));
         Ok(())
@@ -2012,7 +2012,7 @@ impl CodeBuilder<'_> {
         let lengths_ok = self.label("simd_flb_len_ok");
         self.emit(abi::compare_registers(&count, &rcount));
         self.emit(abi::branch_eq(&lengths_ok));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&lengths_ok));
         let count_slot = self.allocate_stack_object("simd_flb_count", 8);
         self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));

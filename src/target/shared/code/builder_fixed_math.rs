@@ -588,7 +588,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers(&x, &neg_one));
         self.emit(abi::branch_ge(&checked));
         self.emit(abi::label(&domain_error));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&checked));
         // s = sqrt(1 - x^2).
         let x2 = self.emit_fixed_mul(&x, &x)?;
@@ -697,7 +697,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&up_done));
         self.emit(abi::compare_registers(value.clone(), &limit));
         self.emit(abi::branch_le(&no_overflow));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&no_overflow));
         self.emit(abi::shift_left_immediate(value.clone(), value.clone(), 1));
         self.emit(abi::subtract_immediate(&count, &count, 1));
@@ -739,7 +739,7 @@ impl CodeBuilder<'_> {
         let positive = self.label("fixed_log_positive");
         self.emit(abi::compare_immediate(&x, "0"));
         self.emit(abi::branch_gt(&positive));
-        self.emit_invalid_argument_return()?;
+        self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&positive));
         // Normalise x into [1, 2): m_raw in [2^32, 2^33), tracking exponent e.
         let m = self.allocate_register()?;
@@ -968,7 +968,7 @@ impl CodeBuilder<'_> {
         let recip_ok = self.label("fixed_pow_recip_ok");
         self.emit(abi::compare_immediate(&denom, "0"));
         self.emit(abi::branch_ne(&recip_ok));
-        self.emit_overflow_return()?;
+        self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&recip_ok));
         self.emit(abi::move_immediate(&one, "Fixed", &FIXED_ONE.to_string()));
         self.emit_fixed_divide(&recip, &one, &denom)?;
