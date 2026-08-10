@@ -1,13 +1,13 @@
-# plan-93-C: Mouse events — macOS app backend
+# plan-94-C: Mouse events — macOS app backend
 
 Last updated: 2026-08-09
 Effort: large (3h–1d)
-Depends on: plan-93-B (the shared decoder + injection contract)
+Depends on: plan-94-B (the shared decoder + injection contract)
 
 Wire native mouse input in `--app` mode on macOS by adding mouse-event IMPs to the
 `TermView : NSView`, converting each to cell coordinates, formatting the SGR bytes,
 and **injecting them into the same worker input pipe the backend already uses for
-keystrokes** — so the plan-93-B decoder/ring decodes them with zero macOS-specific
+keystrokes** — so the plan-94-B decoder/ring decodes them with zero macOS-specific
 event-queue code.
 
 Behavioral outcome: a macОS app that `enableMouse(TRUE)` and polls receives
@@ -18,7 +18,7 @@ the `didResize` macOS work.)
 
 References:
 
-- plan-93-A §3–§4 and plan-93-B §3 (the pump + injection contract — read first).
+- plan-94-A §3–§4 and plan-94-B §3 (the pump + injection contract — read first).
 - `src/target/macos_aarch64/app/term_view.rs` (the TermView class synthesis,
   `setFrameSize:` IMP, and the `TVSTATE` struct with `TV_CELL_W`/`TV_CELL_H` cell
   metrics), `src/target/macos_aarch64/app/mod.rs` (`TV_*` offsets, selector table,
@@ -30,10 +30,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-93-B complete | CLI mouse rt test passes; the decoder consumes injected bytes from the input pipe | NOT MET |
+| plan-94-B complete | CLI mouse rt test passes; the decoder consumes injected bytes from the input pipe | NOT MET |
 | macOS app keystroke→worker input path located | grep the app input plumbing (Phase 1 task) | UNVERIFIED |
 
-> If plan-93-B is not complete, this sub-plan cannot start, full stop.
+> If plan-94-B is not complete, this sub-plan cannot start, full stop.
 
 ## 1. Goal
 
@@ -51,7 +51,7 @@ References:
 
 - No change to CLI, GTK, or Windows.
 - No new event queue: events flow as bytes through the existing pipe into the
-  plan-93-B decoder/ring. (Keeps the ring worker-local — plan-93-A §4.3.)
+  plan-94-B decoder/ring. (Keeps the ring worker-local — plan-94-A §4.3.)
 - No change to `setFrameSize:`/`drawRect:`/the grid.
 
 ## 2. Current State
@@ -81,7 +81,7 @@ Per IMP: read `locationInWindow` (NSPoint, two doubles in the ObjC calling
 convention), convert to view coords (`convertPoint:fromView:nil`), flip Y if
 needed (NSView is bottom-left origin; grid is top-left), divide by
 `TV_CELL_W`/`TV_CELL_H` → `(col,row)`, clamp to the grid. Encode the SGR report
-(button/motion/modifier bits per plan-93-B §3, coords +1 back to 1-based), write
+(button/motion/modifier bits per plan-94-B §3, coords +1 back to 1-based), write
 the bytes into the worker input pipe. `scrollWheel:` maps `deltaY` sign to
 `ScrollUp`/`Down`. Modifiers come from `[NSEvent modifierFlags]`.
 

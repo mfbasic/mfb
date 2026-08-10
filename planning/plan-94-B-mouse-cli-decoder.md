@@ -1,8 +1,8 @@
-# plan-93-B: Mouse events — CLI decoder, ring, and pollMouse
+# plan-94-B: Mouse events — CLI decoder, ring, and pollMouse
 
 Last updated: 2026-08-09
 Effort: large (3h–1d)
-Depends on: plan-93-A (surface + record layout frozen)
+Depends on: plan-94-A (surface + record layout frozen)
 
 Implement mouse input end-to-end in **CLI (console) mode**: `term::enableMouse`
 emits/withdraws ANSI mouse tracking; a shared stdin **decoder ("pump")** sits in
@@ -21,7 +21,7 @@ SGR sequences fed to a pty; events older than 100 ms are dropped; a thread must
 
 References:
 
-- plan-93-A §3–§4 (shared design: pump, ring, per-arena/thread placement — read
+- plan-94-A §3–§4 (shared design: pump, ring, per-arena/thread placement — read
   first; not repeated here).
 - plan-15 stdin broadcast log: `src/target/shared/code/stdin_broadcast.rs`,
   `src/target/shared/code/io_stdin.rs`, `error_constants.rs:600–713`.
@@ -34,10 +34,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-93-A complete | `git log --oneline \| grep plan-93-A` shows the landed phase; `mfb build` of a `pollMouse` program returns `None` | NOT MET |
+| plan-94-A complete | `git log --oneline \| grep plan-94-A` shows the landed phase; `mfb build` of a `pollMouse` program returns `None` | NOT MET |
 | `emit_read_monotonic_nanos` usable outside perf | read `src/target/shared/code/perf.rs:197` + call site — confirm no perf-table coupling | UNVERIFIED (first task of Phase 1) |
 
-> If plan-93-A is not complete, this sub-plan cannot start, full stop.
+> If plan-94-A is not complete, this sub-plan cannot start, full stop.
 
 ## 1. Goal
 
@@ -65,7 +65,7 @@ References:
 
 ## 2. Current State
 
-The plan-15 read path (per plan-93-A §4.4): main auto-subscribes at entry; a
+The plan-15 read path (per plan-94-A §4.4): main auto-subscribes at entry; a
 worker calls `thread::openStdIn`; `_mfb_rt_stdin_next_byte`
 (`error_constants.rs:701`) returns the next byte for the calling thread from its
 arena-local 4 KiB copy of the global log, taking no lock on the fast path.
@@ -85,7 +85,7 @@ mouse-mode flag and the enable/disable ANSI belong in the same place.
   Windows path exists or is added (perf may special-case Windows; irrelevant to B
   since B is linux/macOS, but note it for D/E — Windows app is C-E scope).
 - **The fast-path reader is per-thread and lock-free** — so a decoder wrapping it
-  needs no lock; the ring is worker-local (plan-93-A §4.3). Verified from
+  needs no lock; the ring is worker-local (plan-94-A §4.3). Verified from
   `error_constants.rs:701` ("Fast path … takes no lock") and the arena-local buffer
   slots (`:614–623`).
 
@@ -104,7 +104,7 @@ and bare ESC pass through). Partial-sequence state (a sequence split across
 `_mfb_rt_stdin_next_byte` calls) lives in per-arena slots. **This is where the
 design risk is** — it changes who consumes bytes on the read path.
 
-**(b) The ring.** Per plan-93-A §4.2: per-arena arena block, 64 slots of
+**(b) The ring.** Per plan-94-A §4.2: per-arena arena block, 64 slots of
 `(kind,button,row,col,shift,ctrl,alt, u64 stamp)`, head/tail in per-arena slots,
 overwrite-on-full, `emit_read_monotonic_nanos` at enqueue and poll,
 prefix-skip-older-than-100 ms on poll.
@@ -136,7 +136,7 @@ events, so the ring/TTL is proven before touching the read path.
 
 - [ ] Verify `emit_read_monotonic_nanos` is reusable; note findings in Corrections.
 - [ ] Add per-arena slots: mouse-mode flag, ring block pointer, head, tail, parse
-      state (`error_constants.rs` TERM_STATE_* family, per plan-93-A §4.2/§4.4).
+      state (`error_constants.rs` TERM_STATE_* family, per plan-94-A §4.2/§4.4).
 - [ ] `src/target/shared/code/term.rs`: allocate the ring block on `enableMouse(TRUE)`
       (free on `enableMouse(FALSE)`/`off`); implement `pollMouse` = prefix-skip
       stale + return oldest ≤100 ms (replaces the A stub); a small internal
@@ -158,7 +158,7 @@ Commit: —
       through unchanged. Partial-sequence state in the per-arena slots.
 - [ ] `enableMouse`/`off`: emit the ANSI set/reset sequences; flip the flag.
 - [ ] Document broadcast (per-subscriber) semantics in the term-backend spec
-      (plan-93-A §4.4): each subscribed+mouse-enabled thread decodes independently.
+      (plan-94-A §4.4): each subscribed+mouse-enabled thread decodes independently.
 - [ ] Tests: `tests/rt_native_term_runtime.rs` — feed SGR sequences to a pty:
       a click at a cell returns `Down` then `Up` with correct coords; a drag
       returns `Drag`; wheel returns `ScrollUp`/`Down`; a modifier (ctrl-click) sets

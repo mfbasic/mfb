@@ -1,13 +1,13 @@
-# plan-93-D: Mouse events — Linux GTK app backend
+# plan-94-D: Mouse events — Linux GTK app backend
 
 Last updated: 2026-08-09
 Effort: large (3h–1d)
-Depends on: plan-93-B (the shared decoder + injection contract)
+Depends on: plan-94-B (the shared decoder + injection contract)
 
 Wire native mouse input in `--app` mode on Linux/GTK by attaching GTK4 event
 controllers to the drawing area, converting each event to cell coordinates, and
 **injecting the SGR bytes into the fd-0 window-input pipe the backend already
-writes keystrokes to** — decoded by the plan-93-B pump/ring with no GTK-specific
+writes keystrokes to** — decoded by the plan-94-B pump/ring with no GTK-specific
 event queue.
 
 Behavioral outcome: a GTK app that `enableMouse(TRUE)` and polls receives the six
@@ -19,7 +19,7 @@ host.
 
 References:
 
-- plan-93-A §3–§4, plan-93-B §3 (pump + injection — read first).
+- plan-94-A §3–§4, plan-94-B §3 (pump + injection — read first).
 - `src/target/linux_gtk/bootstrap.rs` (where `GtkDrawingArea` signals/controllers
   are connected — the `resize` signal wiring at `:180` and the key controller are
   the mirror), `src/target/linux_gtk/mod.rs` (the `_mfb_gtkapp_state` global with
@@ -33,10 +33,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-93-B complete | CLI mouse rt test passes | NOT MET |
+| plan-94-B complete | CLI mouse rt test passes | NOT MET |
 | GTK keystroke→pipe write located | grep `linux_gtk/app_io.rs`/`bootstrap.rs` (Phase 1) | UNVERIFIED |
 
-> If plan-93-B is not complete, this sub-plan cannot start, full stop.
+> If plan-94-B is not complete, this sub-plan cannot start, full stop.
 
 ## 1. Goal
 
@@ -80,7 +80,7 @@ mirrors that write.
 
 Attach the three controllers in `bootstrap.rs` beside the existing `resize`/key
 wiring. Handlers (main loop): read event coords (widget-relative px), divide by
-cell metrics, clamp, encode SGR (plan-93-B §3), write to the pipe. `GtkGestureClick`
+cell metrics, clamp, encode SGR (plan-94-B §3), write to the pipe. `GtkGestureClick`
 gives button + n-press; modifiers via `gtk_event_controller_get_current_event_state`.
 Scroll deltas → ScrollUp/Down. A `_mfb_gtkapp_state` mouse-enabled flag (set by the
 GTK `enableMouse` arm) gates emission.

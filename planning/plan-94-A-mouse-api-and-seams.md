@@ -1,4 +1,4 @@
-# plan-93-A: Mouse events — API, types, and registration seams
+# plan-94-A: Mouse events — API, types, and registration seams
 
 Last updated: 2026-08-09
 Overall Effort: huge (>3d)
@@ -12,7 +12,7 @@ backend share. This sub-plan (A) lands the language surface — the two new
 functions and three new types — and every registration seam, wired to **no-op
 stubs** so the feature typechecks, lowers, and runs (returning "no event") on all
 five targets before any decoder or backend exists. It is the hub for the whole
-`plan-93` feature: sub-plans **B–E** reference §2–§4 here for the shared design.
+`plan-94` feature: sub-plans **B–E** reference §2–§4 here for the shared design.
 
 Behavioral outcome for A alone: a program can `IMPORT term`, call
 `term::enableMouse(TRUE)` and `term::pollMouse()`, and build+run on every target;
@@ -130,7 +130,7 @@ any app dispatch → they delegate to the shared no-op stub, uniform on every mo
   one-arg), so `pollMouse()`/`enableMouse(Boolean)` need no new arity machinery
   (`src/builtins/term.rs:183,186`).
 
-## 3. Design Overview (shared across plan-93 A–E)
+## 3. Design Overview (shared across plan-94 A–E)
 
 The feature has four independent pieces; A builds only the first.
 

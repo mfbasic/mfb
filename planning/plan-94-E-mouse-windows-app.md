@@ -1,13 +1,13 @@
-# plan-93-E: Mouse events — Windows app backend
+# plan-94-E: Mouse events — Windows app backend
 
 Last updated: 2026-08-09
 Effort: medium (1h–2h)
-Depends on: plan-93-B (the shared decoder + injection contract)
+Depends on: plan-94-B (the shared decoder + injection contract)
 
 Wire native mouse input in `--app` mode on Windows by handling the mouse
 `WM_*` messages in the app `WndProc`, converting each to cell coordinates, and
 **injecting the SGR bytes into the worker input pipe the backend already uses for
-keystrokes** — decoded by the plan-93-B pump/ring with no Windows-specific event
+keystrokes** — decoded by the plan-94-B pump/ring with no Windows-specific event
 queue. Smallest of the three backends because the Windows app grid is fixed-size
 (constant cell metrics, no reflow) and the `WndProc` already exists.
 
@@ -18,7 +18,7 @@ host (no Windows, no window); gate is compile + assembly inspection + the
 
 References:
 
-- plan-93-A §3–§4, plan-93-B §3 (pump + injection — read first).
+- plan-94-A §3–§4, plan-94-B §3 (pump + injection — read first).
 - `src/target/win_x86_64/app/mod.rs` (`WndProc` at `:801`, currently handling only
   `WM_PAINT`/`WM_DESTROY`; the `emit_app_term_helper` at `:1772`; the fixed grid
   constants `TUI_COLS`/`TUI_ROWS` and cell metrics), and how the app feeds
@@ -28,11 +28,11 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-93-B complete | CLI mouse rt test passes | NOT MET |
+| plan-94-B complete | CLI mouse rt test passes | NOT MET |
 | Windows keystroke→worker input path located | grep `win_x86_64/app/mod.rs` (Phase 1) | UNVERIFIED |
 | Windows cell metrics (px/cell) available as constants | read the fixed-grid setup | UNVERIFIED |
 
-> If plan-93-B is not complete, this sub-plan cannot start, full stop.
+> If plan-94-B is not complete, this sub-plan cannot start, full stop.
 
 ## 1. Goal
 
@@ -61,7 +61,7 @@ why the didResize Windows app path reads false), so cell metrics are constants �
 px→cell is a constant divide. The Windows `emit_app_term_helper` (`app/mod.rs:1772`)
 handles most `term::` calls itself and returns `None` for getters that fall through
 to the shared backend — the `enableMouse` arm goes here (to set the flag);
-`pollMouse` falls through to the shared plan-93-B ring reader.
+`pollMouse` falls through to the shared plan-94-B ring reader.
 
 ### Verified properties
 
@@ -77,7 +77,7 @@ to the shared backend — the `enableMouse` arm goes here (to set the flag);
 
 Add `WM_*` mouse arms to `WndProc`. Extract `x = LOWORD(lParam)`,
 `y = HIWORD(lParam)` (client px), divide by the constant cell width/height, clamp,
-encode SGR (plan-93-B §3), write to the worker input pipe. `wParam` carries
+encode SGR (plan-94-B §3), write to the worker input pipe. `wParam` carries
 `MK_SHIFT`/`MK_CONTROL` (→ modifier bits) and pressed-button flags (for drag vs
 move). `WM_MOUSEWHEEL` → ScrollUp/Down from the signed `HIWORD(wParam)` delta.
 A mouse-enabled flag (set by the `enableMouse` arm) gates emission; `WM_MOUSEMOVE`
