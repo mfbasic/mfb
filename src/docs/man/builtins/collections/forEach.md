@@ -27,13 +27,13 @@ IMPORT collections
 calls `action` once per element, passing the element as the single argument. It
 is a **native** member: the compiler emits the traversal loop directly rather
 than instantiating an MFBASIC generic. [[src/codegen/builtins/collections/mod.rs:is_native_member]]
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_for_each_call]]
+[[src/codegen/builtins/collections/func_for_each.rs:lower_for_each]]
 
 The loop is a straight forward scan over the list's entry table with no
 reordering and no skipping, so `action` observes exactly the elements of `value`
 in their stored order. `value` is neither copied nor modified; `forEach` builds
 no result collection at all and evaluates to `Nothing`.
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_for_each_call]]
+[[src/codegen/builtins/collections/func_for_each.rs:lower_for_each]]
 
 `action` must accept exactly one argument of the element type `T` and its
 success type must be `Nothing`. A `SUB` is therefore accepted directly, since a

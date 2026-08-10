@@ -29,7 +29,7 @@ predicate returns `TRUE`. Elements for which the predicate returns `FALSE` are
 skipped. It is a **native** member: the compiler emits the selection loop
 directly rather than instantiating an MFBASIC generic.
 [[src/codegen/builtins/collections/mod.rs:is_native_member]]
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_filter_call]]
+[[src/codegen/builtins/collections/func_filter.rs:lower_filter]]
 
 Relative order is preserved: kept elements appear in the result in the same
 order they had in `value`. The result has the same type as `value`, so filtering
@@ -38,12 +38,12 @@ the length of `value`. [[src/codegen/builtins/collections/mod.rs:resolve_filter]
 
 `value` is neither modified nor consumed; the result is a freshly allocated
 list, pre-sized to the source so the per-element append never has to regrow.
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_filter_call]]
+[[src/codegen/builtins/collections/func_filter.rs:lower_filter]]
 
 `predicate` must accept exactly one argument of the element type `T` and return
 `Boolean`. This is enforced both when the call is resolved and again in the
 lowering. [[src/codegen/builtins/collections/mod.rs:resolve_filter]]
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_filter_call]]
+[[src/codegen/builtins/collections/func_filter.rs:lower_filter]]
 
 The single-argument `general` predicates — `isEven`, `isOdd`, `isPositive`,
 `isNegative`, `isZero`, `isEmpty`, and `isNotEmpty` — are ordinary

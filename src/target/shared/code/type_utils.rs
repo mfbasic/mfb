@@ -380,7 +380,7 @@ fn split_top_level_params(params: &str) -> Vec<String> {
     out
 }
 
-pub(super) fn callable_return_type(type_: &str) -> Option<String> {
+pub(crate) fn callable_return_type(type_: &str) -> Option<String> {
     let idx = top_level_return_arrow(type_, 0)?;
     Some(type_[idx + ") AS ".len()..].to_string())
 }

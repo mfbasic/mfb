@@ -1325,377 +1325,6 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn lower_collection_for_each_call(
-        &mut self,
-        args: &[NirValue],
-    ) -> Result<ValueResult, String> {
-        let scratch8 = self.temporary_vreg();
-        let scratch9 = self.temporary_vreg();
-        let scratch10 = self.temporary_vreg();
-        let scratch11 = self.temporary_vreg();
-        let scratch12 = self.temporary_vreg();
-        let scratch17 = self.temporary_vreg();
-        let collection = self.lower_value(&args[0])?;
-        let Some(element_type) = list_element_type(&collection.type_) else {
-            return Err(format!(
-                "native collection forEach does not accept {}",
-                collection.type_
-            ));
-        };
-        let action = self.lower_value(&args[1])?;
-        if !action.type_.starts_with("FUNC(") {
-            return Err(format!(
-                "native collection forEach action must be a function, got {}",
-                action.type_
-            ));
-        }
-        if action.location == "void" {
-            return Err(
-                "native collection forEach action does not have a callable location".to_string(),
-            );
-        }
-        let action_slot = self.allocate_stack_object("for_each_call_action", 8);
-        self.emit(abi::store_u64(
-            &action.location,
-            abi::stack_pointer(),
-            action_slot,
-        ));
-        let collection_slot = self.allocate_stack_object("for_each_call_collection", 8);
-        let cursor_slot = self.allocate_stack_object("for_each_call_cursor", 8);
-        let remaining_slot = self.allocate_stack_object("for_each_call_remaining", 8);
-        self.emit(abi::store_u64(
-            &collection.location,
-            abi::stack_pointer(),
-            collection_slot,
-        ));
-        self.emit(abi::load_u64(
-            &scratch8,
-            abi::stack_pointer(),
-            collection_slot,
-        ));
-        self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        // A kind-2 list has no entry table: the cursor carries a byte OFFSET from
-        // the data base rather than an entry pointer, and strides by payloadSize
-        // (plan-57-D), matching `lower_for_each`. Reading an entry's
-        // offset/length words off a kind-2 block interprets payload bytes as
-        // addresses, which segfaults rather than returning a wrong value.
-        let payload_size = kind2_payload_size(&element_type);
-        if payload_size.is_some() {
-            self.emit(abi::move_immediate(&scratch10, "Integer", "0"));
-        } else {
-            self.emit(abi::add_immediate(
-                &scratch10,
-                &scratch8,
-                COLLECTION_HEADER_SIZE,
-            ));
-        }
-        self.emit(abi::store_u64(
-            &scratch10,
-            abi::stack_pointer(),
-            cursor_slot,
-        ));
-        self.emit(abi::store_u64(
-            &scratch9,
-            abi::stack_pointer(),
-            remaining_slot,
-        ));
-        let loop_label = self.label("for_each_call_loop");
-        let ok_label = self.label("for_each_call_ok");
-        let done = self.label("for_each_call_done");
-        self.emit(abi::label(&loop_label));
-        self.emit(abi::load_u64(
-            &scratch9,
-            abi::stack_pointer(),
-            remaining_slot,
-        ));
-        self.emit(abi::compare_immediate(&scratch9, "0"));
-        self.emit(abi::branch_eq(&done));
-        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), cursor_slot));
-        if let Some(payload) = payload_size {
-            self.emit(abi::move_register(&scratch11, &scratch10));
-            self.emit(abi::move_immediate(
-                &scratch12,
-                "Integer",
-                &payload.to_string(),
-            ));
-        } else {
-            self.emit(abi::load_u64(
-                &scratch11,
-                &scratch10,
-                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-            ));
-            self.emit(abi::load_u64(
-                &scratch12,
-                &scratch10,
-                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-            ));
-        }
-        self.emit(abi::load_u64(
-            &scratch8,
-            abi::stack_pointer(),
-            collection_slot,
-        ));
-        let item =
-            self.emit_load_collection_payload(&element_type, &scratch8, &scratch11, &scratch12)?;
-        // bug-307: stash the block pointer before the callback; the call clobbers
-        // every caller-saved register, so the register alone cannot be relied on.
-        let free_slot = self.allocate_stack_object("for_each_item_free", 8);
-        self.emit(abi::store_u64(&item, abi::stack_pointer(), free_slot));
-        self.emit(abi::move_register(&abi::argument_register(0)?, &item));
-        self.emit(abi::load_u64(&scratch17, abi::stack_pointer(), action_slot));
-        self.emit_direct_callable_branch(&scratch17);
-        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-        self.emit(abi::branch_eq(&ok_label));
-        // A failing callback: forEach owns no accumulator, so no cleanup — under
-        // an inline TRAP the raw error routes to the capture point (plan-26-B).
-        self.emit_callback_failure_exit(None)?;
-        self.emit(abi::label(&ok_label));
-        // bug-307: the callback took the item by value and retains nothing, so the
-        // freshly materialized String block is dead here.
-        self.free_collection_loop_item(free_slot, &element_type)?;
-        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), cursor_slot));
-        self.emit(abi::add_immediate(
-            &scratch10,
-            &scratch10,
-            payload_size.unwrap_or(COLLECTION_ENTRY_SIZE),
-        ));
-        self.emit(abi::store_u64(
-            &scratch10,
-            abi::stack_pointer(),
-            cursor_slot,
-        ));
-        self.emit(abi::load_u64(
-            &scratch9,
-            abi::stack_pointer(),
-            remaining_slot,
-        ));
-        self.emit(abi::subtract_immediate(&scratch9, &scratch9, 1));
-        self.emit(abi::store_u64(
-            &scratch9,
-            abi::stack_pointer(),
-            remaining_slot,
-        ));
-        self.emit(abi::branch(&loop_label));
-        self.emit(abi::label(&done));
-        Ok(ValueResult {
-            type_: "Nothing".to_string(),
-            location: Operand::from("void"),
-            text: format!("forEach({}, {})", collection.type_, action.text),
-        })
-    }
-
-    pub(super) fn lower_collection_transform_call(
-        &mut self,
-        args: &[NirValue],
-    ) -> Result<ValueResult, String> {
-        let scratch9 = self.temporary_vreg();
-        let scratch17 = self.temporary_vreg();
-        let collection = self.lower_value(&args[0])?;
-        let Some(element_type) = list_element_type(&collection.type_) else {
-            return Err(format!(
-                "native collection transform does not accept {}",
-                collection.type_
-            ));
-        };
-        let collection_slot = self.allocate_stack_object("transform_collection", 8);
-        self.emit(abi::store_u64(
-            &collection.location,
-            abi::stack_pointer(),
-            collection_slot,
-        ));
-        let action = self.lower_value(&args[1])?;
-        let output_type = callable_return_type(&action.type_).ok_or_else(|| {
-            format!(
-                "native collection transform action must be a function, got {}",
-                action.type_
-            )
-        })?;
-        self.require_direct_callable("transform", &action)?;
-        let action_slot = self.allocate_stack_object("transform_action", 8);
-        self.emit(abi::store_u64(
-            &action.location,
-            abi::stack_pointer(),
-            action_slot,
-        ));
-        let output_list_type = format!("List OF {output_type}");
-        // Pre-size the output to the source's working set so the per-element
-        // append never regrows the entry table (transform emits exactly
-        // count(source) entries) — plan-25-B B2.
-        let output = self.lower_reserved_list(&output_list_type, collection_slot)?;
-        let output_slot = self.allocate_stack_object("transform_output", 8);
-        let cursor_slot = self.allocate_stack_object("transform_cursor", 8);
-        let remaining_slot = self.allocate_stack_object("transform_remaining", 8);
-        self.emit(abi::store_u64(
-            &output.location,
-            abi::stack_pointer(),
-            output_slot,
-        ));
-        self.initialize_collection_loop_slots(
-            collection_slot,
-            cursor_slot,
-            remaining_slot,
-            &element_type,
-        );
-
-        let loop_label = self.label("transform_call_loop");
-        let ok_label = self.label("transform_call_ok");
-        let done = self.label("transform_call_done");
-        self.emit(abi::label(&loop_label));
-        self.emit(abi::load_u64(
-            &scratch9,
-            abi::stack_pointer(),
-            remaining_slot,
-        ));
-        self.emit(abi::compare_immediate(&scratch9, "0"));
-        self.emit(abi::branch_eq(&done));
-        let item = self.load_collection_loop_item(collection_slot, cursor_slot, &element_type)?;
-        // bug-307: stash before the callback (calls clobber caller-saved registers).
-        let free_slot = self.allocate_stack_object("transform_item_free", 8);
-        self.emit(abi::store_u64(&item, abi::stack_pointer(), free_slot));
-        self.emit(abi::move_register(&abi::argument_register(0)?, &item));
-        self.emit(abi::load_u64(&scratch17, abi::stack_pointer(), action_slot));
-        self.emit_direct_callable_branch(&scratch17);
-        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-        self.emit(abi::branch_eq(&ok_label));
-        // A failing callback: free the partial output list (a private, uniquely-
-        // owned buffer) before routing the raw error to the inline-TRAP capture
-        // point (plan-26-B); non-trapped, this is the same auto-propagating return.
-        self.emit_callback_failure_exit(Some((output_slot, output_list_type.clone())))?;
-        self.emit(abi::label(&ok_label));
-
-        let item_slot = self.allocate_stack_object("transform_item", 8);
-        self.emit(abi::store_u64(
-            RESULT_VALUE_REGISTER,
-            abi::stack_pointer(),
-            item_slot,
-        ));
-        // bug-307: only AFTER the callback's result is safely in its slot. The free
-        // is a call and would otherwise destroy RESULT_VALUE_REGISTER before it was
-        // stored. The appended value is that result, a separate allocation, so the
-        // source item is not retained and is dead here.
-        self.free_collection_loop_item(free_slot, &element_type)?;
-        // The output accumulator is a private, uniquely-owned buffer, so append
-        // each transformed item in place with geometric headroom (plan-01 §4.2)
-        // — amortized O(1) instead of the O(n) splice the singleton+insert did.
-        self.lower_list_append_in_place(output_slot, item_slot, &output_list_type, &output_type)?;
-        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, &element_type);
-        self.emit(abi::label(&done));
-        let result = self.allocate_register()?;
-        self.emit(abi::load_u64(&result, abi::stack_pointer(), output_slot));
-        Ok(ValueResult {
-            type_: output_list_type,
-            location: Operand::from(result.render()),
-            text: format!("transform({}, {})", collection.type_, action.text),
-        })
-    }
-
-    pub(super) fn lower_collection_filter_call(
-        &mut self,
-        args: &[NirValue],
-    ) -> Result<ValueResult, String> {
-        let scratch9 = self.temporary_vreg();
-        let scratch17 = self.temporary_vreg();
-        let collection = self.lower_value(&args[0])?;
-        let Some(element_type) = list_element_type(&collection.type_) else {
-            return Err(format!(
-                "native collection filter does not accept {}",
-                collection.type_
-            ));
-        };
-        let collection_slot = self.allocate_stack_object("filter_collection", 8);
-        self.emit(abi::store_u64(
-            &collection.location,
-            abi::stack_pointer(),
-            collection_slot,
-        ));
-        let action = self.lower_value(&args[1])?;
-        let output_type = callable_return_type(&action.type_).ok_or_else(|| {
-            format!(
-                "native collection filter predicate must be a function, got {}",
-                action.type_
-            )
-        })?;
-        if output_type != "Boolean" {
-            return Err(format!(
-                "native collection filter predicate must return Boolean, got {output_type}"
-            ));
-        }
-        self.require_direct_callable("filter", &action)?;
-        let action_slot = self.allocate_stack_object("filter_action", 8);
-        self.emit(abi::store_u64(
-            &action.location,
-            abi::stack_pointer(),
-            action_slot,
-        ));
-        // Pre-size the output to the source: filter's result is a subset, so the
-        // per-element append regrows neither the entry table nor the data region
-        // (plan-25-B B2).
-        let output = self.lower_reserved_list(&collection.type_, collection_slot)?;
-        let output_slot = self.allocate_stack_object("filter_output", 8);
-        let cursor_slot = self.allocate_stack_object("filter_cursor", 8);
-        let remaining_slot = self.allocate_stack_object("filter_remaining", 8);
-        let item_slot = self.allocate_stack_object("filter_item", 8);
-        self.emit(abi::store_u64(
-            &output.location,
-            abi::stack_pointer(),
-            output_slot,
-        ));
-        self.initialize_collection_loop_slots(
-            collection_slot,
-            cursor_slot,
-            remaining_slot,
-            &element_type,
-        );
-
-        let loop_label = self.label("filter_call_loop");
-        let ok_label = self.label("filter_call_ok");
-        let keep_label = self.label("filter_call_keep");
-        let skip_label = self.label("filter_call_skip");
-        let done = self.label("filter_call_done");
-        self.emit(abi::label(&loop_label));
-        self.emit(abi::load_u64(
-            &scratch9,
-            abi::stack_pointer(),
-            remaining_slot,
-        ));
-        self.emit(abi::compare_immediate(&scratch9, "0"));
-        self.emit(abi::branch_eq(&done));
-        let item = self.load_collection_loop_item(collection_slot, cursor_slot, &element_type)?;
-        self.emit(abi::store_u64(&item, abi::stack_pointer(), item_slot));
-        self.emit(abi::move_register(&abi::argument_register(0)?, &item));
-        self.emit(abi::load_u64(&scratch17, abi::stack_pointer(), action_slot));
-        self.emit_direct_callable_branch(&scratch17);
-        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-        self.emit(abi::branch_eq(&ok_label));
-        // A failing predicate: free the partial output list before routing the raw
-        // error to the inline-TRAP capture point (plan-26-B).
-        self.emit_callback_failure_exit(Some((output_slot, collection.type_.clone())))?;
-        self.emit(abi::label(&ok_label));
-        self.emit(abi::compare_immediate(RESULT_VALUE_REGISTER, "0"));
-        self.emit(abi::branch_ne(&keep_label));
-        self.emit(abi::branch(&skip_label));
-        self.emit(abi::label(&keep_label));
-        // Private accumulator → append in place with headroom (plan-01 §4.2).
-        self.lower_list_append_in_place(output_slot, item_slot, &collection.type_, &element_type)?;
-        self.emit(abi::label(&skip_label));
-        // bug-307: freed after the append on purpose. `emit_copy_payload_to_collection`
-        // COPIES the String's bytes into the output's packed data region rather than
-        // storing the pointer, so the source block is dead on both the keep and skip
-        // paths — which is why the free sits below `skip_label`, covering both.
-        // `item_slot` already holds the pointer (stored before the callback), so it
-        // survives both calls.
-        self.free_collection_loop_item(item_slot, &element_type)?;
-        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, &element_type);
-        self.emit(abi::label(&done));
-        let result = self.allocate_register()?;
-        self.emit(abi::load_u64(&result, abi::stack_pointer(), output_slot));
-        Ok(ValueResult {
-            type_: collection.type_.clone(),
-            location: Operand::from(result.render()),
-            text: format!("filter({}, {})", collection.type_, action.text),
-        })
-    }
-
     /// plan-86 A3: native `collections::findLastIndex` for a **String** item list
     /// (`#collections_findLastIndex$String`), a reverse predicate scan returning the
     /// last matching index. The 2-arg source form is padded to 3 (the default
@@ -2105,7 +1734,8 @@ impl CodeBuilder<'_> {
             // n*8). itemsB/keysB/items are then reserved FROM keys_slot (n*8), never
             // the String source. `transform` re-lowers args[0]/args[1]; the dispatch
             // gate only routes String sortBy here when both are re-eval-safe.
-            let keys = self.lower_collection_transform_call(args)?;
+            let keys =
+                crate::codegen::builtins::collections::func_transform::lower_transform(self, args)?;
             let keys_slot = self.allocate_stack_object("sortby_keys", 8);
             self.emit(abi::store_u64(
                 &keys.location,
@@ -4385,14 +4015,20 @@ impl CodeBuilder<'_> {
             .ok_or_else(|| "groupBy: key layout".to_string())?;
         let v_layout = CollectionTypeLayout::from_type(&list_v)
             .ok_or_else(|| "groupBy: value layout".to_string())?;
-        let keys = self.lower_collection_transform_call(&[args[0].clone(), args[1].clone()])?;
+        let keys = crate::codegen::builtins::collections::func_transform::lower_transform(
+            self,
+            &[args[0].clone(), args[1].clone()],
+        )?;
         let keys_slot = self.allocate_stack_object("gb_keys", 8);
         self.emit(abi::store_u64(
             &keys.location,
             abi::stack_pointer(),
             keys_slot,
         ));
-        let vals = self.lower_collection_transform_call(&[args[0].clone(), args[2].clone()])?;
+        let vals = crate::codegen::builtins::collections::func_transform::lower_transform(
+            self,
+            &[args[0].clone(), args[2].clone()],
+        )?;
         let vals_slot = self.allocate_stack_object("gb_vals", 8);
         self.emit(abi::store_u64(
             &vals.location,
@@ -4756,27 +4392,7 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn lower_collection_reduce_call(
-        &mut self,
-        args: &[NirValue],
-    ) -> Result<ValueResult, String> {
-        self.lower_collection_reduce_impl(args, false)
-    }
-
-    /// `reduceRight` (plan-86-B, B2): the same left-fold machinery as `reduce`,
-    /// walked from the last element to the first. `reduceRight(xs, init, f)` folds
-    /// `f(acc, xs[n-1]), f(acc, xs[n-2]), …, f(acc, xs[0])`, which is exactly
-    /// `reduce` over the reverse-iterated elements with the identical
-    /// `FUNC(U, T) AS U` reducer — so it shares the accumulator reclamation and the
-    /// aliasing-safe frees below, differing only in the loop-slot walk direction.
-    pub(super) fn lower_collection_reduce_right_call(
-        &mut self,
-        args: &[NirValue],
-    ) -> Result<ValueResult, String> {
-        self.lower_collection_reduce_impl(args, true)
-    }
-
-    fn lower_collection_reduce_impl(
+    pub(crate) fn lower_collection_reduce_impl(
         &mut self,
         args: &[NirValue],
         reverse: bool,
@@ -5077,7 +4693,7 @@ impl CodeBuilder<'_> {
     /// not been committed yet, so freeing here could double-free or free a borrowed
     /// block after the handler recovers. Its *success* path reclaims the superseded
     /// item/accumulator itself via runtime aliasing checks (plan-86-B).
-    pub(super) fn emit_callback_failure_exit(
+    pub(crate) fn emit_callback_failure_exit(
         &mut self,
         cleanup: Option<(usize, String)>,
     ) -> Result<(), String> {
@@ -5112,7 +4728,7 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(super) fn require_direct_callable(
+    pub(crate) fn require_direct_callable(
         &self,
         name: &str,
         action: &ValueResult,
@@ -5131,7 +4747,7 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(super) fn emit_direct_callable_branch(&mut self, location: impl Into<Operand>) {
+    pub(crate) fn emit_direct_callable_branch(&mut self, location: impl Into<Operand>) {
         let saved_env_slot = self.allocate_stack_object("closure_saved_env", 8);
         // Infallible vreg minters: an exhaustion under `-regalloc bump` is recorded
         // and surfaced by `run_register_allocation` instead of panicking (bug-70).
@@ -5187,7 +4803,7 @@ impl CodeBuilder<'_> {
     /// fixed-width-scalar lists no entry table at all, so the cursor there
     /// strides the *data region* by `payloadSize` instead. Adding the parameter
     /// when that lands would mean touching every cursor loop twice.
-    pub(super) fn initialize_collection_loop_slots(
+    pub(crate) fn initialize_collection_loop_slots(
         &mut self,
         collection_slot: usize,
         cursor_slot: usize,
@@ -5228,7 +4844,7 @@ impl CodeBuilder<'_> {
         ));
     }
 
-    pub(super) fn load_collection_loop_item(
+    pub(crate) fn load_collection_loop_item(
         &mut self,
         collection_slot: usize,
         cursor_slot: usize,
@@ -5298,7 +4914,7 @@ impl CodeBuilder<'_> {
     /// callback between materialization and this free is a call, and a call
     /// destroys every caller-saved register (see [[arena-alloc-clobbers-x14-x15]]).
     /// Reading the pointer back from a slot is what makes the free safe across it.
-    pub(super) fn free_collection_loop_item(
+    pub(crate) fn free_collection_loop_item(
         &mut self,
         item_slot: usize,
         element_type: &str,
@@ -5328,7 +4944,7 @@ impl CodeBuilder<'_> {
     /// [`Self::initialize_collection_loop_slots`]: the stride is
     /// `COLLECTION_ENTRY_SIZE` for every element type, and becomes `payloadSize`
     /// for a fixed-width list under plan-57-D.
-    pub(super) fn advance_collection_loop(
+    pub(crate) fn advance_collection_loop(
         &mut self,
         cursor_slot: usize,
         remaining_slot: usize,
@@ -5369,7 +4985,7 @@ impl CodeBuilder<'_> {
     /// When `count == 0` the loop's `remaining == 0` guard fires before the cursor
     /// is ever dereferenced, so the (then-negative) last-element address computed
     /// here is never used.
-    pub(super) fn initialize_collection_loop_slots_reverse(
+    pub(crate) fn initialize_collection_loop_slots_reverse(
         &mut self,
         collection_slot: usize,
         cursor_slot: usize,

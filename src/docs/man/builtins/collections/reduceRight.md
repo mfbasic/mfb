@@ -27,14 +27,14 @@ IMPORT collections
 accumulator starts at `initial`. The function walks the list from the last index
 down to index 0, and at each step replaces the accumulator with
 `f(accumulator, item)`. When the walk finishes, the accumulator is returned.
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_reduce_right_call]]
+[[src/codegen/builtins/collections/func_reduce_right.rs:lower_reduce_right]]
 
 The accumulator is the **first** argument of `f` and the list item is the second
 — the same argument order `collections::reduce` uses. Only the traversal
 direction differs between the two: `reduce` moves from the first item to the
 last, `reduceRight` from the last to the first. `f` is therefore declared as
 `FUNC(U, T) AS U`, not `FUNC(T, U) AS U`.
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_reduce_right_call]]
+[[src/codegen/builtins/collections/func_reduce_right.rs:lower_reduce_right]]
 
 For a three-item list `[x, y, z]`, the result is
 `f(f(f(initial, z), y), x)`. Direction matters whenever `f` is not associative
@@ -60,15 +60,15 @@ value of the required type. [[src/ast/expr.rs:parse_lambda]]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to fold. Traversed from its last item to its first. May be empty. Not modified. [[src/target/shared/code/builder_collection_queries.rs:lower_collection_reduce_right_call]] |
-| `initial` | `U` | The starting accumulator, and the result when `value` is empty. Determines the accumulator type `U`. [[src/target/shared/code/builder_collection_queries.rs:lower_collection_reduce_right_call]] |
-| `f` | `FUNC(U, T) AS U` | The folding step. Receives the current accumulator first and the list item second, and returns the next accumulator. Called once per item. [[src/target/shared/code/builder_collection_queries.rs:lower_collection_reduce_right_call]] |
+| `value` | `List OF T` | The list to fold. Traversed from its last item to its first. May be empty. Not modified. [[src/codegen/builtins/collections/func_reduce_right.rs:lower_reduce_right]] |
+| `initial` | `U` | The starting accumulator, and the result when `value` is empty. Determines the accumulator type `U`. [[src/codegen/builtins/collections/func_reduce_right.rs:lower_reduce_right]] |
+| `f` | `FUNC(U, T) AS U` | The folding step. Receives the current accumulator first and the list item second, and returns the next accumulator. Called once per item. [[src/codegen/builtins/collections/func_reduce_right.rs:lower_reduce_right]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `U` | The accumulator after every item has been folded, right to left. Exactly `initial` when `value` is empty. [[src/target/shared/code/builder_collection_queries.rs:lower_collection_reduce_right_call]] |
+| `U` | The accumulator after every item has been folded, right to left. Exactly `initial` when `value` is empty. [[src/codegen/builtins/collections/func_reduce_right.rs:lower_reduce_right]] |
 
 ## Errors
 
@@ -81,7 +81,7 @@ accumulator type. `T` is inferred from `value` and `U` from `initial`; `f` must
 accept them in the order `(U, T)` and return `U`, so a step function written with
 the item first will not match. The two type parameters are independent — `U` may
 be any type, including one unrelated to `T`.
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_reduce_right_call]]
+[[src/codegen/builtins/collections/func_reduce_right.rs:lower_reduce_right]]
 
 ## Examples
 

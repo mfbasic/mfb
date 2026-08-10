@@ -10,18 +10,25 @@ use std::path::Path;
 mod func_add;
 mod func_append;
 mod func_contains;
+mod func_filter;
+mod func_for_each;
 mod func_get;
 mod func_get_or;
 mod func_has_key;
 mod func_insert;
 mod func_keys;
 mod func_prepend;
+mod func_reduce;
+mod func_reduce_right;
 mod func_remove;
 mod func_remove_at;
 mod func_remove_key;
 mod func_set;
 mod func_sum;
 mod func_to_list;
+// `pub(crate)`: source-generic fast paths in `src/target` (sortBy, mapValues,
+// groupBy) reuse `lower_transform` directly until they too migrate (plan-96).
+pub(crate) mod func_transform;
 mod func_values;
 
 /// Path of the compiler-owned `collections` package source injected into every
@@ -177,192 +184,6 @@ const fn custom(params: &'static [Parameter]) -> BuiltinOverload {
 // Description section, citation markers stripped). See the `doc_intro`/`doc_desc`
 // fields on `BuiltinFunction`.
 // (`get`'s doc consts + entry moved to func_get.rs, plan-95.)
-
-// ---- forEach ----
-const INTO_FOR_EACH: &str = "Call an action once for each element of a list, in order";
-const DESC_FOR_EACH: &str = r#"`collections::forEach` walks `value` from the first element to the last and
-calls `action` once per element, passing the element as the single argument. It
-is a **native** member: the compiler emits the traversal loop directly rather
-than instantiating an MFBASIC generic.
-
-The loop is a straight forward scan over the list's entry table with no
-reordering and no skipping, so `action` observes exactly the elements of `value`
-in their stored order. `value` is neither copied nor modified; `forEach` builds
-no result collection at all and evaluates to `Nothing`.
-
-`action` must accept exactly one argument of the element type `T` and its
-success type must be `Nothing`. A `SUB` is therefore accepted directly, since a
-`SUB` has success type `Nothing`; a `FUNC` that produces a value is rejected at
-compile time. To collect results instead of discarding them, use
-`collections::transform`.
-
-`action` must be a callable *value* — a reference to a declared `SUB` or `FUNC`.
-A package member such as `io::print` is not a callable value and cannot be
-passed here; wrap it in a `SUB` of your own, as the first example below does.
-
-`action` is invoked through the shared direct-callable path, which restores a
-closure's captured environment around each call, so a callable value that
-carries an environment works as well as a plain named reference.
-
-`forEach` raises no domain error of its own. It is classified fallible solely
-because a failing `action` propagates: when the callback returns a non-`Ok`
-result, the loop stops immediately at that element, later elements are never
-visited, and the callback's own error is passed straight through — unchanged, so
-whatever code and message the callback raised is what the caller sees. Because
-`forEach` owns no accumulator, no cleanup runs on that path.
-
-An inline `TRAP` on a `forEach` call captures that propagated callback error at
-the call site rather than letting it auto-propagate.
-
-An empty `value` calls `action` zero times."#;
-
-// ---- transform ----
-const INTO_TRANSFORM: &str =
-    "Map every element of a list through a function and collect the results";
-const DESC_TRANSFORM: &str = r#"`collections::transform` walks `value` from the first element to the last,
-calls `f` once per element with that element as its only argument, and appends
-each returned value to a new list. The result therefore has exactly as many
-elements as `value`, in the same order. It is a **native** member: the compiler
-emits the mapping loop directly rather than instantiating an MFBASIC generic.
-
-The element type of the result is `f`'s success type `U`, so mapping a
-`List OF Integer` through a `FUNC(Integer) AS String` yields a `List OF String`.
-`U` may differ from `T` or equal it.
-
-`f` must be a callable *value* — a reference to a declared `FUNC`, or a
-`LAMBDA`. An overloaded built-in such as `toString` is not a callable value and
-cannot be passed here; wrap it in a one-line `FUNC` of your own instead. The
-single-argument `general` predicates (`isEven`, `isOdd`, and friends) *are*
-ordinary callables and can be passed directly where their type fits.
-
-`f` must produce a value: a callback whose success type is `Nothing` — such as a
-`SUB` — does not resolve, because there would be nothing to collect. Use
-`collections::forEach` to run a callback purely for its side effects.
-
-`value` is neither modified nor consumed; the result is a freshly allocated
-list. The output is pre-sized to the source list's working set, since
-`transform` emits exactly one entry per source element, and each mapped value is
-then appended in place.
-
-An empty `value` calls `f` zero times and yields an empty `List OF U`.
-
-`transform` raises no domain error of its own. It is classified fallible solely
-because a failing `f` propagates: when the callback returns a non-`Ok` result,
-the loop stops immediately at that element, later elements are never visited, no
-result list is produced, and the callback's own error is passed through
-unchanged. The partially built output is freed on that path before the error
-leaves.
-
-An inline `TRAP` on a `transform` call captures that propagated callback error
-at the call site rather than letting it auto-propagate."#;
-
-// ---- filter ----
-const INTO_FILTER: &str = "Keep the elements of a list for which a predicate returns TRUE";
-const DESC_FILTER: &str = r#"`collections::filter` walks `value` from the first element to the last, calls
-`predicate` once per element, and appends the element to a new list when the
-predicate returns `TRUE`. Elements for which the predicate returns `FALSE` are
-skipped. It is a **native** member: the compiler emits the selection loop
-directly rather than instantiating an MFBASIC generic.
-
-Relative order is preserved: kept elements appear in the result in the same
-order they had in `value`. The result has the same type as `value`, so filtering
-a `List OF String` yields a `List OF String`, and its length is between zero and
-the length of `value`.
-
-`value` is neither modified nor consumed; the result is a freshly allocated
-list, pre-sized to the source so the per-element append never has to regrow.
-
-`predicate` must accept exactly one argument of the element type `T` and return
-`Boolean`. This is enforced both when the call is resolved and again in the
-lowering.
-
-The single-argument `general` predicates — `isEven`, `isOdd`, `isPositive`,
-`isNegative`, `isZero`, `isEmpty`, and `isNotEmpty` — are ordinary
-`FUNC(T) AS Boolean` callables and can be passed directly whenever their
-argument type matches the element type.
-
-An empty `value` calls `predicate` zero times and yields an empty list.
-
-`filter` raises no domain error of its own. It is classified fallible solely
-because a failing `predicate` propagates: when the callback returns a non-`Ok`
-result, the loop stops immediately at that element, later elements are never
-visited, no result list is produced, and the callback's own error is passed
-through unchanged. The partially built output is freed on that path before the
-error leaves.
-
-An inline `TRAP` on a `filter` call captures that propagated callback error at
-the call site rather than letting it auto-propagate."#;
-
-// ---- reduce ----
-const INTO_REDUCE: &str = "Fold a list left to right into a single accumulated value";
-const DESC_REDUCE: &str = r#"`collections::reduce` folds `value` into one value. The accumulator starts as
-`initial`. The list is walked from the first element to the last, and for each
-element the reducer is called as `f(accumulator, element)` — **accumulator
-first, element second** — with its return value becoming the accumulator for the
-next step. The accumulator left after the final element is the result. It is a
-**native** member: the compiler emits the fold loop directly rather than
-instantiating an MFBASIC generic.
-
-The fold direction is left, from index 0 upward: the loop starts at the head of
-the entry table and advances one entry per step. For a right-to-left fold, use
-`collections::reduceRight`.
-
-The accumulator type `U` is fixed by `initial`. `f`'s first parameter type, its
-success type, and the type of `initial` must all be that same `U`, while `f`'s
-second parameter must be the list element type `T`. `U` may differ from `T`, so
-a `List OF String` can be folded into an `Integer`.
-
-When `value` is empty, the loop body never runs, `f` is never called, and
-`initial` is returned unchanged.
-
-`value` is not modified. Unlike the other three callback members, `reduce`
-deliberately does not free the per-element item it materializes for the
-callback, because the reducer is allowed to return that item itself as the new
-accumulator — freeing it would turn a leak into a use-after-free. Intermediate
-accumulators are likewise left unfreed.
-
-`reduce` raises no domain error of its own. It is classified fallible solely
-because a failing `f` propagates: when the reducer returns a non-`Ok` result,
-the fold stops immediately at that element, later elements are never visited,
-and the reducer's own error is passed through unchanged. No cleanup runs on that
-path, since the accumulator may still alias the borrowed `initial`.
-
-An inline `TRAP` on a `reduce` call captures that propagated reducer error at
-the call site rather than letting it auto-propagate."#;
-
-// ---- reduceRight ----
-const INTO_REDUCE_RIGHT: &str =
-    "Fold a list into a single value, walking from the last item to the first";
-const DESC_REDUCE_RIGHT: &str = r#"`collections::reduceRight` folds `value` into a single accumulated result. The
-accumulator starts at `initial`. The function walks the list from the last index
-down to index 0, and at each step replaces the accumulator with
-`f(accumulator, item)`. When the walk finishes, the accumulator is returned.
-
-The accumulator is the **first** argument of `f` and the list item is the second
-— the same argument order `collections::reduce` uses. Only the traversal
-direction differs between the two: `reduce` moves from the first item to the
-last, `reduceRight` from the last to the first. `f` is therefore declared as
-`FUNC(U, T) AS U`, not `FUNC(T, U) AS U`.
-
-For a three-item list `[x, y, z]`, the result is
-`f(f(f(initial, z), y), x)`. Direction matters whenever `f` is not associative
-and commutative: folding `[1, 2, 3]` from the right with subtraction and an
-initial accumulator of `0` yields `((0 - 3) - 2) - 1`, or `-6`.
-
-`f` is called exactly once per item, so an empty `value` calls `f` not at all and
-returns `initial` unchanged. `value` is not modified.
-
-The accumulator type `U` need not match the element type `T`; `reduceRight` can
-fold a list into a value of an entirely different type, such as building a
-`String` from a `List OF Integer`.
-
-`f` is an ordinary MFBASIC function value invoked with an ordinary call. If it
-fails at any step, its error propagates out of `reduceRight` to the caller and
-can be caught by the caller's `TRAP` block; the partially accumulated value is
-discarded. `reduceRight` itself raises no error of its own.
-
-`f` may be a named `FUNC` or a `LAMBDA` expression, since both produce a function
-value of the required type."#;
 
 // ---- find ----
 const INTO_FIND: &str =
@@ -580,63 +401,11 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
     func_values::VALUES,
     func_has_key::HAS_KEY,
     func_contains::CONTAINS,
-    native(
-        "collections.forEach",
-        "forEach",
-        INTO_FOR_EACH,
-        DESC_FOR_EACH,
-        &[],
-        &[custom(&[
-            req("value", &["collection"], "List OF T"),
-            req("action", &[], "FUNC(T) AS Nothing"),
-        ])],
-    ),
-    native(
-        "collections.transform",
-        "transform",
-        INTO_TRANSFORM,
-        DESC_TRANSFORM,
-        &[],
-        &[custom(&[
-            req("value", &["collection"], "List OF T"),
-            req("f", &["transform"], "FUNC(T) AS U"),
-        ])],
-    ),
-    native(
-        "collections.filter",
-        "filter",
-        INTO_FILTER,
-        DESC_FILTER,
-        &[],
-        &[custom(&[
-            req("value", &["collection"], "List OF T"),
-            req("predicate", &[], "FUNC(T) AS Boolean"),
-        ])],
-    ),
-    native(
-        "collections.reduce",
-        "reduce",
-        INTO_REDUCE,
-        DESC_REDUCE,
-        &[],
-        &[custom(&[
-            req("value", &["collection"], "List OF T"),
-            req("initial", &["seed"], "U"),
-            req("f", &["combine"], "FUNC(U, T) AS U"),
-        ])],
-    ),
-    native(
-        "collections.reduceRight",
-        "reduceRight",
-        INTO_REDUCE_RIGHT,
-        DESC_REDUCE_RIGHT,
-        &[],
-        &[custom(&[
-            req("value", &["collection"], "List OF T"),
-            req("initial", &["seed"], "U"),
-            req("f", &["combine"], "FUNC(U, T) AS U"),
-        ])],
-    ),
+    func_for_each::FOR_EACH,
+    func_transform::TRANSFORM,
+    func_filter::FILTER,
+    func_reduce::REDUCE,
+    func_reduce_right::REDUCE_RIGHT,
     func_sum::SUM,
     native(
         "collections.find",

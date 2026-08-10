@@ -2155,7 +2155,7 @@ impl CodeBuilder<'_> {
     /// Load a list element's payload. The data base uses `type_`'s entry
     /// stride, which is correct only because this is a LIST block; a map must
     /// call [`Self::emit_load_map_payload`].
-    pub(super) fn emit_load_collection_payload(
+    pub(crate) fn emit_load_collection_payload(
         &mut self,
         type_: &str,
         collection: impl Into<Operand>,

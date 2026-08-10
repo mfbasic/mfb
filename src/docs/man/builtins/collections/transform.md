@@ -29,7 +29,7 @@ each returned value to a new list. The result therefore has exactly as many
 elements as `value`, in the same order. It is a **native** member: the compiler
 emits the mapping loop directly rather than instantiating an MFBASIC generic.
 [[src/codegen/builtins/collections/mod.rs:is_native_member]]
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_transform_call]]
+[[src/codegen/builtins/collections/func_transform.rs:lower_transform]]
 
 The element type of the result is `f`'s success type `U`, so mapping a
 `List OF Integer` through a `FUNC(Integer) AS String` yields a `List OF String`.
@@ -51,7 +51,7 @@ ordinary callables and can be passed directly where their type fits.
 list. The output is pre-sized to the source list's working set, since
 `transform` emits exactly one entry per source element, and each mapped value is
 then appended in place.
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_transform_call]]
+[[src/codegen/builtins/collections/func_transform.rs:lower_transform]]
 
 An empty `value` calls `f` zero times and yields an empty `List OF U`.
 
@@ -78,7 +78,7 @@ at the call site rather than letting it auto-propagate.
 
 | Type | Description |
 | --- | --- |
-| `List OF U` | A new list holding `f`'s result for each element of `value`, in source order, with the same length as `value`. For an empty `value`, an empty `List OF U`. [[src/codegen/builtins/collections/mod.rs:resolve_transform]] [[src/target/shared/code/builder_collection_queries.rs:lower_collection_transform_call]] |
+| `List OF U` | A new list holding `f`'s result for each element of `value`, in source order, with the same length as `value`. For an empty `value`, an empty `List OF U`. [[src/codegen/builtins/collections/mod.rs:resolve_transform]] [[src/codegen/builtins/collections/func_transform.rs:lower_transform]] |
 
 ## Errors
 

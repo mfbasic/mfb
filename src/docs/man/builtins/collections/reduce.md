@@ -30,12 +30,12 @@ first, element second** — with its return value becoming the accumulator for t
 next step. The accumulator left after the final element is the result. It is a
 **native** member: the compiler emits the fold loop directly rather than
 instantiating an MFBASIC generic. [[src/codegen/builtins/collections/mod.rs:is_native_member]]
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_reduce_call]]
+[[src/codegen/builtins/collections/func_reduce.rs:lower_reduce]]
 
 The fold direction is left, from index 0 upward: the loop starts at the head of
 the entry table and advances one entry per step. For a right-to-left fold, use
 `collections::reduceRight`.
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_reduce_call]]
+[[src/codegen/builtins/collections/func_reduce.rs:lower_reduce]]
 
 The accumulator type `U` is fixed by `initial`. `f`'s first parameter type, its
 success type, and the type of `initial` must all be that same `U`, while `f`'s
@@ -45,14 +45,14 @@ a `List OF String` can be folded into an `Integer`.
 
 When `value` is empty, the loop body never runs, `f` is never called, and
 `initial` is returned unchanged.
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_reduce_call]]
+[[src/codegen/builtins/collections/func_reduce.rs:lower_reduce]]
 
 `value` is not modified. Unlike the other three callback members, `reduce`
 deliberately does not free the per-element item it materializes for the
 callback, because the reducer is allowed to return that item itself as the new
 accumulator — freeing it would turn a leak into a use-after-free. Intermediate
 accumulators are likewise left unfreed.
-[[src/target/shared/code/builder_collection_queries.rs:lower_collection_reduce_call]]
+[[src/codegen/builtins/collections/func_reduce.rs:lower_reduce]]
 
 `reduce` raises no domain error of its own. It is classified fallible solely
 because a failing `f` propagates: when the reducer returns a non-`Ok` result,
@@ -78,7 +78,7 @@ the call site rather than letting it auto-propagate.
 
 | Type | Description |
 | --- | --- |
-| `U` | The accumulator after the last element, that is, the result of the final `f` call. For an empty `value`, `initial` unchanged. [[src/codegen/builtins/collections/mod.rs:resolve_reduce]] [[src/target/shared/code/builder_collection_queries.rs:lower_collection_reduce_call]] |
+| `U` | The accumulator after the last element, that is, the result of the final `f` call. For an empty `value`, `initial` unchanged. [[src/codegen/builtins/collections/mod.rs:resolve_reduce]] [[src/codegen/builtins/collections/func_reduce.rs:lower_reduce]] |
 
 ## Errors
 

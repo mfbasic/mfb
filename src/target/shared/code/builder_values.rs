@@ -737,15 +737,6 @@ impl CodeBuilder<'_> {
                 if native == Some("replace") && args.len() == 3 {
                     return self.lower_replace(args);
                 }
-                if native == Some("forEach") && args.len() == 2 {
-                    return self.lower_collection_for_each_call(args);
-                }
-                if native == Some("transform") && args.len() == 2 {
-                    return self.lower_collection_transform_call(args);
-                }
-                if native == Some("filter") && args.len() == 2 {
-                    return self.lower_collection_filter_call(args);
-                }
                 // plan-64 D2: native sortBy only for 8-byte fixed-width items and
                 // signed 8-byte keys (Integer/Fixed/Money). Anything else — String,
                 // Scalar, Byte, or a Float key (NaN ordering) — falls through to the
@@ -967,12 +958,6 @@ impl CodeBuilder<'_> {
                     if t == "String" && args.len() == 3 {
                         return self.lower_collection_find_last_index_call(args);
                     }
-                }
-                if native == Some("reduce") && args.len() == 3 {
-                    return self.lower_collection_reduce_call(args);
-                }
-                if native == Some("reduceRight") && args.len() == 3 {
-                    return self.lower_collection_reduce_right_call(args);
                 }
                 if target == "toString" && (args.len() == 1 || args.len() == 2) {
                     return self.lower_to_string(args);
@@ -1772,11 +1757,6 @@ impl CodeBuilder<'_> {
             match crate::builtins::native_builtin_target(target) {
                 Some("find") => self.lower_find(args),
                 Some("mid") => self.lower_mid(args),
-                Some("transform") => self.lower_collection_transform_call(args),
-                Some("filter") => self.lower_collection_filter_call(args),
-                Some("reduce") => self.lower_collection_reduce_call(args),
-                Some("reduceRight") => self.lower_collection_reduce_right_call(args),
-                Some("forEach") => self.lower_collection_for_each_call(args),
                 other => Err(format!(
                     "native raw inline builtin '{target}' ({other:?}) is not supported"
                 )),

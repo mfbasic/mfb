@@ -453,7 +453,7 @@ impl CodeBuilder<'_> {
     /// the element is then written into the now-spare slot. The caller guarantees
     /// the buffer is uniquely owned (see the Assign-site / private-accumulator
     /// call sites). Returns the (possibly new) buffer pointer.
-    pub(super) fn lower_list_append_in_place(
+    pub(crate) fn lower_list_append_in_place(
         &mut self,
         buffer_slot: usize,
         item_slot: usize,
@@ -2398,7 +2398,7 @@ impl CodeBuilder<'_> {
     /// bound, never a cap). The reserved headroom is unobservable and tightened
     /// away when the value is copied out (shrink-to-fit), so the produced list is
     /// value-identical to the geometric-growth build it replaces.
-    pub(super) fn lower_reserved_list(
+    pub(crate) fn lower_reserved_list(
         &mut self,
         output_type: &str,
         source_slot: usize,
