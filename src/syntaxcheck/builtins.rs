@@ -703,7 +703,8 @@ impl<'a> SyntaxChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        let member = crate::codegen::builtins::collections::native_member_bare(callee).unwrap_or(callee);
+        let member =
+            crate::codegen::builtins::collections::native_member_bare(callee).unwrap_or(callee);
         let arguments =
             self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
         // `filter` used to be the ONLY position that accepted a bare built-in
@@ -711,7 +712,9 @@ impl<'a> SyntaxChecker<'a> {
         // is precisely how bug-368 stayed invisible. Every native member taking a
         // unary callback over the list's element type needs it, so the gate is a
         // set rather than one name.
-        if crate::codegen::builtins::collections::unary_callback_member(callee) && arguments.len() == 2 {
+        if crate::codegen::builtins::collections::unary_callback_member(callee)
+            && arguments.len() == 2
+        {
             if let Expression::Identifier(predicate) = &arguments[1] {
                 if builtins::general::builtin_function_id(predicate).is_some() {
                     let collection_type =
@@ -1295,7 +1298,10 @@ mod builtins_tests {
         type IsCall = (&'static str, fn(&str) -> bool);
         let bespoke: &[IsCall] = &[
             ("general", builtins::general::is_general_call),
-            ("collections", crate::codegen::builtins::collections::is_native_member_call),
+            (
+                "collections",
+                crate::codegen::builtins::collections::is_native_member_call,
+            ),
             ("term", builtins::term::is_term_call),
             ("thread", builtins::thread::is_thread_call),
         ];

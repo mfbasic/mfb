@@ -404,7 +404,7 @@ ladder arms.
 - [x] `only_get_carries_native_lowering` (Phase 1) already asserts `get` resolves + is the sole `Native`; the type-resolution path (`native_builtin_target`) is untouched (verified green).
 
 Acceptance: MET — `grep -rn 'fn lower_collection_get' src/target` → empty; the only `lower_collection_get` in `src` is a doc comment in `func_get.rs`. Byte-identical `artifact-gate.sh collections` 0 diffs (all 5). `cargo test --bin mfb` 3836 passed, 0 failed, 0 warnings. **Runtime proof:** a `collections::get` list+map program printed `10 / 30 / 36` as expected.
-Commit: —
+Commit: 1b7d2fa02
 
 ## Validation Plan
 

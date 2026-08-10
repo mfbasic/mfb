@@ -123,9 +123,11 @@ impl<'a> Monomorphizer<'a> {
             emitted_type_keys: HashSet::new(),
             emitted_function_keys: HashSet::new(),
             concrete_symbol_keys: HashMap::new(),
-            collections_bindings: crate::codegen::builtins::collections::collections_bindings(source)
-                .into_keys()
-                .collect(),
+            collections_bindings: crate::codegen::builtins::collections::collections_bindings(
+                source,
+            )
+            .into_keys()
+            .collect(),
             function_files,
             current_file: None,
             template_instantiation_depth: 0,
