@@ -2748,7 +2748,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&scratch14, abi::stack_pointer(), len_slot));
         self.emit(abi::branch(&ok));
         self.emit(abi::label(&invalid));
-        self.emit_index_out_of_range_return()?;
+        self.raise_error("strings.graphemeAt", "ErrIndexOutOfRange")?;
         self.emit(abi::label(&ok));
         self.emit(abi::load_u64(&scratch15, abi::stack_pointer(), ptr_slot));
         self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), len_slot));

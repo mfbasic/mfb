@@ -1204,7 +1204,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&validate_loop));
 
         self.emit(abi::label(&invalid));
-        self.emit_encoding_error_return()?;
+        self.raise_error_bare("ErrEncoding")?;
 
         self.emit(abi::label(&validate_done));
         self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));

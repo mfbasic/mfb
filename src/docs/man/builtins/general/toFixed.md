@@ -96,7 +96,7 @@ Rescales a `Money` value into `Fixed`, exactly when it fits the `Fixed` range.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | A `String` value is not well-formed decimal fixed-point text, or a `Float` value is NaN or infinite. [[src/target/shared/code/builder_conversions.rs:emit_invalid_format_return]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
+| `77050003` | `ErrInvalidFormat` | A `String` value is not well-formed decimal fixed-point text, or a `Float` value is NaN or infinite. [[src/target/shared/code/builder_conversions.rs:raise_error]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
 | `77050010` | `ErrOverflow` | The value is outside the representable `Fixed` range: a `String` or `Float` whose magnitude is too large, an `Integer` outside `-2147483648` through `2147483647`, or a `Money` value too large for the `Fixed` integer part. [[src/target/shared/code/builder_conversions.rs:raise_error]] [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
 
 ## Type checking

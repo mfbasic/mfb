@@ -37,24 +37,8 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_MESSAGE)
     }
 
-    pub(super) fn emit_invalid_format_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_INVALID_FORMAT_CODE, ERR_INVALID_FORMAT_MESSAGE)
-    }
-
     pub(super) fn emit_allocation_error_return(&mut self) -> Result<(), String> {
         self.emit_error_register_return(RESULT_TAG_REGISTER, ERR_ALLOCATION_MESSAGE)
-    }
-
-    pub(super) fn emit_index_out_of_range_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_INDEX_OUT_OF_RANGE_CODE, ERR_INDEX_OUT_OF_RANGE_MESSAGE)
-    }
-
-    pub(super) fn emit_not_found_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_NOT_FOUND_CODE, ERR_NOT_FOUND_MESSAGE)
-    }
-
-    pub(super) fn emit_encoding_error_return(&mut self) -> Result<(), String> {
-        self.emit_error_code_return(ERR_ENCODING_CODE, ERR_ENCODING_MESSAGE)
     }
 
     /// `product = lhs * rhs` for an allocation size, branching to `overflow`

@@ -163,7 +163,7 @@ const fn custom(params: &'static [Parameter]) -> BuiltinOverload {
 }
 
 const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
-    native("collections.get", "get", &["ErrIndexOutOfRange"], &[custom(&[
+    native("collections.get", "get", &["ErrIndexOutOfRange", "ErrNotFound"], &[custom(&[
         req("value", &["collection"], "List OF T"),
         req("index", &["key"], "Integer"),
     ])]),
@@ -172,7 +172,7 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
         req("index", &["key"], "Integer"),
         req("default", &["fallback"], "T"),
     ])]),
-    native("collections.set", "set", &[], &[custom(&[
+    native("collections.set", "set", &["ErrIndexOutOfRange"], &[custom(&[
         req("value", &["collection"], "List OF T"),
         req("index", &["key"], "Integer"),
         req("item", &[], "T"),
@@ -185,12 +185,12 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
         req("value", &["list"], "List OF T"),
         req("item", &[], "T"),
     ])]),
-    native("collections.insert", "insert", &[], &[custom(&[
+    native("collections.insert", "insert", &["ErrIndexOutOfRange"], &[custom(&[
         req("value", &["list"], "List OF T"),
         req("index", &[], "Integer"),
         req("item", &[], "T"),
     ])]),
-    native("collections.removeAt", "removeAt", &[], &[custom(&[
+    native("collections.removeAt", "removeAt", &["ErrIndexOutOfRange"], &[custom(&[
         req("value", &["list"], "List OF T"),
         req("index", &[], "Integer"),
     ])]),
@@ -226,12 +226,12 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
         req("f", &["combine"], "FUNC(U, T) AS U"),
     ])]),
     native("collections.sum", "sum", &[], &[custom(&[req("value", &["collection"], "List OF Number")])]),
-    native("collections.find", "find", &[], &[custom(&[
+    native("collections.find", "find", &["ErrIndexOutOfRange", "ErrNotFound"], &[custom(&[
         req("value", &["list"], "List OF T"),
         req("item", &["needle"], "T"),
         opt("start", &[], "Integer"),
     ])]),
-    native("collections.mid", "mid", &[], &[custom(&[
+    native("collections.mid", "mid", &["ErrIndexOutOfRange"], &[custom(&[
         req("value", &["list"], "List OF T"),
         req("start", &[], "Integer"),
         req("count", &[], "Integer"),

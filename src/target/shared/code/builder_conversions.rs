@@ -149,7 +149,7 @@ impl CodeBuilder<'_> {
         let done = self.label("float_to_int_done");
         self.emit(abi::branch(&done));
         self.emit(abi::label(&invalid));
-        self.emit_invalid_format_return()?;
+        self.raise_error_bare("ErrInvalidFormat")?;
         self.emit(abi::label(&overflow));
         self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&done));
@@ -257,7 +257,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(result, acc));
         self.emit(abi::branch(done));
         self.emit(abi::label(invalid));
-        self.emit_invalid_format_return()?;
+        self.raise_error_bare("ErrInvalidFormat")?;
         self.emit(abi::label(overflow));
         self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(done));
@@ -878,7 +878,7 @@ impl CodeBuilder<'_> {
                 let done = self.label("to_float_done");
                 self.emit(abi::branch(&done));
                 self.emit(abi::label(&invalid));
-                self.emit_invalid_format_return()?;
+                self.raise_error("toFloat", "ErrInvalidFormat")?;
                 self.emit(abi::label(&overflow));
                 self.raise_error("toFloat", "ErrOverflow")?;
                 self.emit(abi::label(&done));
@@ -938,7 +938,7 @@ impl CodeBuilder<'_> {
                 let done = self.label("to_fixed_done");
                 self.emit(abi::branch(&done));
                 self.emit(abi::label(&invalid));
-                self.emit_invalid_format_return()?;
+                self.raise_error("toFixed", "ErrInvalidFormat")?;
                 self.emit(abi::label(&overflow));
                 self.raise_error("toFixed", "ErrOverflow")?;
                 self.emit(abi::label(&done));
@@ -1021,7 +1021,7 @@ impl CodeBuilder<'_> {
                 self.emit_round_double_to_money_raw(&scaled, &result)?;
                 self.emit(abi::branch(&done));
                 self.emit(abi::label(&invalid));
-                self.emit_invalid_format_return()?;
+                self.raise_error("toMoney", "ErrInvalidFormat")?;
                 self.emit(abi::label(&done));
             }
             other => {
@@ -1266,7 +1266,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::float_round_to_signed_x(result, abi::FP_SCRATCH[0]));
         self.emit(abi::branch(&ok));
         self.emit(abi::label(&invalid));
-        self.emit_invalid_format_return()?;
+        self.raise_error_bare("ErrInvalidFormat")?;
         self.emit(abi::label(&overflow));
         self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&ok));

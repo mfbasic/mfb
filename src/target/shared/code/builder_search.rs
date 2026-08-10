@@ -239,9 +239,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&search_loop));
 
         self.emit(abi::label(&invalid_start));
-        self.emit_index_out_of_range_return()?;
+        self.raise_error("strings.find", "ErrIndexOutOfRange")?;
         self.emit(abi::label(&not_found));
-        self.emit_not_found_return()?;
+        self.raise_error("strings.find", "ErrNotFound")?;
         self.emit(abi::label(&found));
         self.emit(abi::store_u64(
             scalar_index,
@@ -367,9 +367,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&loop_label));
 
         self.emit(abi::label(&invalid_start));
-        self.emit_index_out_of_range_return()?;
+        self.raise_error("collections.find", "ErrIndexOutOfRange")?;
         self.emit(abi::label(&not_found));
-        self.emit_not_found_return()?;
+        self.raise_error("collections.find", "ErrNotFound")?;
         self.emit(abi::label(&found));
         self.emit(abi::store_u64(
             &scratch12,
@@ -549,9 +549,9 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::branch(&done));
         self.emit(abi::label(&invalid_start));
-        self.emit_index_out_of_range_return()?;
+        self.raise_error("collections.find", "ErrIndexOutOfRange")?;
         self.emit(abi::label(&not_found));
-        self.emit_not_found_return()?;
+        self.raise_error("collections.find", "ErrNotFound")?;
         self.emit(abi::label(&found));
         self.emit(abi::store_u64(
             &scratch13,
@@ -817,7 +817,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&invalid_range));
-        self.emit_index_out_of_range_return()?;
+        self.raise_error("strings.mid", "ErrIndexOutOfRange")?;
         self.emit(abi::label(&done));
 
         Ok(ValueResult {
@@ -1194,7 +1194,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&copy_done));
 
         self.emit(abi::label(&invalid_range));
-        self.emit_index_out_of_range_return()?;
+        self.raise_error("collections.mid", "ErrIndexOutOfRange")?;
         self.emit(abi::label(&copy_done));
         self.emit(abi::branch(&done));
         self.emit(abi::label(&done));

@@ -209,6 +209,20 @@ const OV_REPLACE: &[BuiltinOverload] = &ov(P_REPLACE, "String");
 const OV_FROM_SCALARS: &[BuiltinOverload] = &ov(P_FROM_SCALARS, "String");
 const OV_SCALAR_BOOL: &[BuiltinOverload] = &ov(P_SCALAR, "Boolean");
 
+/// plan-88: a strings builtin that declares the `errorCode` names it can raise at
+/// runtime (the codegen contract validated by `raise_error`). Reuses `strings_fn`.
+const fn strings_fn_err(
+    name: &'static str,
+    slug: &'static str,
+    errors: &'static [&'static str],
+    overloads: &'static [BuiltinOverload],
+    implementation: Implementation,
+) -> BuiltinFunction {
+    let mut function = strings_fn(name, slug, overloads, implementation);
+    function.errors = errors;
+    function
+}
+
 const fn strings_fn(
     name: &'static str,
     slug: &'static str,
@@ -256,12 +270,12 @@ const STRINGS_FUNCTIONS: &[BuiltinFunction] = &[
     strings_fn(REPEAT, "repeat", OV_TIMES_STRING, Implementation::Same),
     strings_fn(PAD_LEFT, "padLeft", OV_PAD, Implementation::Same),
     strings_fn(PAD_RIGHT, "padRight", OV_PAD, Implementation::Same),
-    strings_fn(GRAPHEME_AT, "graphemeAt", OV_INDEX_STRING, Implementation::Same),
+    strings_fn_err(GRAPHEME_AT, "graphemeAt", &["ErrIndexOutOfRange"], OV_INDEX_STRING, Implementation::Same),
     strings_fn(GRAPHEMES_COUNT, "graphemesCount", OV_VALUE_INTEGER, Implementation::Same),
     strings_fn(TRIM_CHARS, "trimChars", OV_CHARS_STRING, Implementation::Same),
     strings_fn(TO_BYTES, "toBytes", OV_VALUE_LIST_BYTE, Implementation::Same),
-    strings_fn(FIND, "find", OV_FIND, Implementation::Same),
-    strings_fn(MID, "mid", OV_MID, Implementation::Same),
+    strings_fn_err(FIND, "find", &["ErrIndexOutOfRange", "ErrNotFound"], OV_FIND, Implementation::Same),
+    strings_fn_err(MID, "mid", &["ErrIndexOutOfRange"], OV_MID, Implementation::Same),
     strings_fn(REPLACE, "replace", OV_REPLACE, Implementation::Same),
     // Scalar seam + classification predicates — source-companion rewrites.
     strings_fn(TO_SCALARS, "toScalars", OV_VALUE_LIST_SCALAR, Implementation::Rewrite("__strings_toScalars")),

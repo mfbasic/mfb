@@ -131,26 +131,34 @@ The float + over/underflow families are (mostly) operator sites → `raise_error
 Acceptance (per-site gate) MET: `grep -rcE 'self\.emit_(overflow|underflow|float_domain|
 float_nan|float_inf|float_overflow)_return\(\)' src/target/shared/code/*.rs` → 0;
 rt-error fixtures raise the same `Error.code` after as before; `cargo test` green.
-Commit: <this + next commit>.
+Commit: f5e3bc90b, a52a2e8a4, 0e3254f5a
 
 ### Phase 2 — func families (index/not_found/encoding/invalid_format)
 
 Single-bucket func families, one file cluster each.
 
-- [ ] Migrate the 8 `emit_index_out_of_range_return` sites (`list_mutate.rs`,
-      `builder_search.rs`, `builder_strings_builtins.rs`) to `raise_error(func_id,
-      "ErrIndexOutOfRange")`, adding `"ErrIndexOutOfRange"` to each owning builtin’s
-      `errors` (`collections.set/insert/removeAt`, `strings.mid`, …).
-- [ ] Migrate `emit_not_found_return` (5), `emit_encoding_error_return` (1),
-      `emit_invalid_format_return` (7) likewise, classifying each site’s owner and
-      declaring the error.
-- [ ] Tests: an `tests/rt-error/**` fixture per family (index-out-of-range,
-      not-found, encoding, invalid-format) triggering it and asserting `Error.code`;
-      green before and after each migration.
+- [x] Migrated all `emit_index_out_of_range_return` sites (9): `list_mutate.rs`
+      `collections.insert`/`set`/`removeAt`; `builder_search.rs` `strings.find`/
+      `strings.mid` + `collections.find`/`collections.mid`; `builder_strings_builtins.rs`
+      `strings.graphemeAt`. Declared `ErrIndexOutOfRange` on each (collections via
+      `native` errors; strings via new `strings_fn_err`).
+- [x] Migrated `emit_not_found_return` (5): `builder_collection_query.rs`
+      `lower_map_get` → `collections.get` (`ErrNotFound`, added to its errors);
+      `builder_search.rs` find sites → `strings.find`/`collections.find`.
+      `emit_encoding_error_return` (1): `emit_byte_list_to_string_value` (shared) →
+      `raise_error_bare("ErrEncoding")`. `emit_invalid_format_return` (7):
+      `lower_to_float`/`lower_to_fixed`/`lower_to_money` func (`toFloat`/`toFixed`/
+      `toMoney` declare `ErrInvalidFormat`); the `emit_*`/money helpers bare.
+- [x] Tests: `cargo test` 3753 green; `func_collection_set_out_of_range` (7-705-0001),
+      `func_collection_get_not_found` (7-705-0004), `func_collection_find_out_of_range`,
+      `toFixed_invalid_format` built + run byte-identical to goldens (func
+      `debug_assert`s pass). Deleted the 4 dead wrappers; fixed 2 more man citations
+      (`toFixed`/`toMoney` invalid-format).
 
-Acceptance (per-site gate): those four wrapper call-counts are 0; the rt-error
-fixtures raise the same `Error.code` after as before; `cargo test --bin mfb` green.
-Commit: —
+Acceptance (per-site gate) MET: `grep -rcE 'self\.emit_(index_out_of_range|not_found|
+encoding_error|invalid_format)_return\(\)' src/target/shared/code/*.rs` → 0; rt-error
+fixtures byte-identical; `cargo test` green.
+Commit: <this commit>.
 
 ### Phase 3 — high-volume families (allocation, invalid_argument)
 

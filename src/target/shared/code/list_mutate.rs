@@ -436,7 +436,7 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::branch(&done));
         self.emit(abi::label(&invalid));
-        self.emit_index_out_of_range_return()?;
+        self.raise_error("collections.insert", "ErrIndexOutOfRange")?;
         self.emit(abi::label(&done));
 
         let result = self.allocate_register()?;
@@ -2097,7 +2097,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&invalid));
-        self.emit_index_out_of_range_return()?;
+        self.raise_error("collections.set", "ErrIndexOutOfRange")?;
         self.emit(abi::label(&done));
 
         let result = self.allocate_register()?;
@@ -2396,7 +2396,7 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::branch(&done));
         self.emit(abi::label(&invalid));
-        self.emit_index_out_of_range_return()?;
+        self.raise_error("collections.removeAt", "ErrIndexOutOfRange")?;
         self.emit(abi::label(&done));
 
         let result = self.allocate_register()?;

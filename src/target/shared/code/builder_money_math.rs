@@ -307,7 +307,7 @@ impl CodeBuilder<'_> {
         self.emit_float_exponent_classify(&exponent, &mask, &bits);
         self.emit(abi::branch_ne(&ok));
         self.emit(abi::label(&invalid));
-        self.emit_invalid_format_return()?;
+        self.raise_error_bare("ErrInvalidFormat")?;
         self.emit(abi::label(&ok));
         Ok(())
     }
