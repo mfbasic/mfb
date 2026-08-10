@@ -6,6 +6,7 @@ Split a string into its extended grapheme clusters.
 
 ```
 strings::graphemes(value AS String) AS List OF String
+strings::graphemes(value AS AttributedString) AS List OF String
 ```
 
 ## Package
@@ -43,6 +44,10 @@ The clusters appear in the same left-to-right order as in `value`, and
 concatenating them reproduces `value` exactly — no scalar is dropped or
 reordered. The empty string yields the empty list. `value` is not mutated; the
 returned list and its elements are fresh owned values.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors). [[src/builtins/strings.rs:is_tier_a_query]]
 
 ## Parameters
 

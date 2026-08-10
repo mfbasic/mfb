@@ -6,6 +6,7 @@ Normalize a string to Unicode Normalization Form C.
 
 ```
 strings::normalizeNfc(value AS String) AS String
+strings::normalizeNfc(value AS AttributedString) AS AttributedString
 ```
 
 ## Package
@@ -47,6 +48,11 @@ Normalization is independent of case: it neither folds nor changes case, so appl
 `strings::caseFold` in addition when matching must ignore both normalization and
 case. The transformation is deterministic and locale-independent. `value` is not
 mutated; the result is a new owned `String`.
+
+`value` may also be an `astrings::AttributedString`: it returns an
+`AttributedString` whose text is transformed as above, but **attributes are
+dropped** — the mapping changes the scalar count within a span, so the overlay
+cannot be remapped. [[src/builtins/strings.rs:is_tier_b_transform]]
 
 ## Parameters
 

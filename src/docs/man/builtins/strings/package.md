@@ -52,18 +52,12 @@ be exactly one Unicode scalar value.
 
 `strings` is a built-in package: `IMPORT strings` needs no manifest dependency.
 
-The Tier-A query functions — `byteLen`, `contains`, `count`, `displayWidth`,
-`startsWith`, `endsWith`, `startsWithAny`, `endsWithAny`, `find`, `graphemes`,
-`graphemesCount`, `graphemeAt`, `split`, `toBytes`, and `toScalars` — also accept
-an `astrings::AttributedString` at the text position: they operate on its visible
-text and return exactly what the `String` overload returns (same value, type, and
-errors). The text-modifying functions (`left`, `right`, `mid`, `trim`, `trimStart`,
-`trimEnd`, `trimChars`, `stripPrefix`, `stripSuffix`, `padLeft`, `padRight`,
-`repeat`, `replace`) also accept an `AttributedString` and return an
-`AttributedString`, transforming the text exactly as the `String` overload does
-and remapping the attribute spans by the same edit; `upper`, `lower`, `caseFold`,
-and `normalizeNfc` transform the text but drop attributes (they change scalar
-counts within a span). [[src/builtins/strings.rs:is_tier_b_transform]]
+Many `strings` functions also accept an `astrings::AttributedString` at the text
+position; the overload is documented on each function's own page. A query returns
+exactly what the `String` overload returns, computed on the visible text; a
+text-transforming function returns an `AttributedString`, remapping the attribute
+spans by the same edit (`upper`, `lower`, `caseFold`, and `normalizeNfc` change
+scalar counts within a span, so they drop attributes).
 
 ## Errors
 

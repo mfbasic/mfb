@@ -6,6 +6,7 @@ Count the non-overlapping occurrences of a substring.
 
 ```
 strings::count(value AS String, needle AS String) AS Integer
+strings::count(value AS AttributedString, needle AS String) AS Integer
 ```
 
 ## Package
@@ -43,6 +44,10 @@ A `needle` longer than `value` yields `0`, as does an empty `value`. The empty
 `needle` has no well-defined occurrence count and is rejected with
 `ErrInvalidArgument` — note that this differs from `strings::contains` and
 `strings::find`, which both accept an empty needle. Neither operand is modified.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors). [[src/builtins/strings.rs:is_tier_a_query]]
 
 ## Parameters
 

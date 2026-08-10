@@ -6,6 +6,7 @@ Return the raw UTF-8 bytes backing a string, one element per byte.
 
 ```
 strings::toBytes(value AS String) AS List OF Byte
+strings::toBytes(value AS AttributedString) AS List OF Byte
 ```
 
 ## Package
@@ -44,6 +45,10 @@ built at run time — the observable result is identical.
 
 `value` is not mutated. The returned `List OF Byte` is a fresh owned value, so
 mutating it does not affect the string it came from.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors). [[src/builtins/strings.rs:is_tier_a_query]]
 
 ## Parameters
 

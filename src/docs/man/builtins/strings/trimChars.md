@@ -6,6 +6,7 @@ Remove leading and trailing scalars that belong to a given set.
 
 ```
 strings::trimChars(value AS String, chars AS String) AS String
+strings::trimChars(value AS AttributedString, chars AS String) AS AttributedString
 ```
 
 ## Package
@@ -47,6 +48,11 @@ is a newly allocated `String`, even when nothing was trimmed.
 Unlike `strings::trim`, which removes Unicode whitespace, `trimChars` removes
 only what `chars` lists. To strip a fixed leading or trailing *substring* rather
 than a set of scalars, use `strings::stripPrefix` or `strings::stripSuffix`.
+
+`value` may also be an `astrings::AttributedString`: it returns an
+`AttributedString` whose text is transformed exactly as the `String` overload's
+and whose attribute spans are remapped by the same edit.
+[[src/builtins/strings.rs:is_tier_b_transform]]
 
 ## Parameters
 

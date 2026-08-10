@@ -6,6 +6,7 @@ Test whether a string contains another string.
 
 ```
 strings::contains(value AS String, needle AS String) AS Boolean
+strings::contains(value AS AttributedString, needle AS String) AS Boolean
 ```
 
 ## Package
@@ -43,6 +44,10 @@ get the position of the first occurrence — and note that `find` raises
 `ErrNotFound` on absence, so guarding it with `contains` is the idiomatic way to
 treat absence as an ordinary outcome. Use `strings::count` for the number of
 occurrences.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors). [[src/builtins/strings.rs:is_tier_a_query]]
 
 ## Parameters
 
