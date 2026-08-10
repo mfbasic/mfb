@@ -66,7 +66,12 @@ Light or Heavy corners; `term::fillRect` fills every cell of a clamped rectangle
 with a block/shade glyph (the `FillStyle` enum) — one run per row.
 `term::drawText` stamps a string at an absolute cell (one cell per scalar, clipped
 to the row, cursor unmoved) and `term::drawGlyph` stamps a single scalar by code
-point. A single builtin, **`term::sync()`**, is the *only*
+point. `term::drawText` also has an `AttributedString` overload (a source companion,
+`term_astrings_bridge.mfb`, injected only when a program imports both `term` and
+`astrings`): it draws maximal same-style runs through the `String` helper above,
+applying the per-scalar **bold**/**underline** the value carries and ignoring every
+attribute the surface cannot represent (italic/strike/overline/font/size); it needs
+no new backend code. A single builtin, **`term::sync()`**, is the *only*
 operation that presents a frame: on the console it diffs the just-drawn back buffer
 against the last-presented front buffer and writes only the changed cells (minimal
 cursor moves + coalesced SGR runs + glyphs); in app mode it coalesces the frame

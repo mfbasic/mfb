@@ -88,6 +88,11 @@ pub fn lower_project_with_external_functions(
 ) -> IrProject {
     let augmented =
         builtins::json::augmented_project(ast).expect("built-in json package source must parse");
+    // The `term`↔`astrings` drawText bridge, injected only when a program imports
+    // BOTH packages; it imports term/astrings/strings, so it precedes all three so
+    // their `uses_package` sees the dependency (mirrors `http` before `net`).
+    let augmented = builtins::term::bridge_augmented_project(&augmented)
+        .expect("built-in term/astrings bridge source must parse");
     let augmented = builtins::astrings::augmented_project(&augmented)
         .expect("built-in astrings package source must parse");
     let augmented = builtins::app::augmented_project(&augmented)
@@ -2908,6 +2913,25 @@ fn lower_expression_with_expected(
                         .collect();
                     builtins::audio::source_implementation_name(&canonical_callee, &arg_types)
                         .map(crate::internal_name::internalize)
+                })
+                .or_else(|| {
+                    // `term::drawText(x, y, AttributedString)` routes to the
+                    // `__term_drawTextAttr` source-companion body, which applies the
+                    // per-scalar bold/underline attributes over the native `String`
+                    // drawText. A `String` third argument stays the native
+                    // `term.drawText` runtime helper. The companion body is a source
+                    // rewrite, so its target is internalized.
+                    if canonical_callee != builtins::term::DRAW_TEXT {
+                        return None;
+                    }
+                    let text_arg_type = arguments
+                        .get(2)
+                        .map(call_arg_value)
+                        .and_then(|argument| expression_type(argument, locals, context));
+                    if text_arg_type.as_deref() != Some("AttributedString") {
+                        return None;
+                    }
+                    Some(crate::internal_name::internalize("__term_drawTextAttr"))
                 })
                 .or_else(|| {
                     // plan-89-D: a Tier-B `strings::` transform whose text argument

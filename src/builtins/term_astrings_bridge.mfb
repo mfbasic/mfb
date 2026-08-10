@@ -1,0 +1,160 @@
+' ===========================================================================
+' term ↔ astrings bridge: term::drawText(x, y, text AS AttributedString)
+'
+' The native drawing callables know nothing of the `astrings` attribute overlay,
+' so the AttributedString overload of `term::drawText` is a source-companion body
+' here rather than native codegen. It is injected only when a program imports BOTH
+' `term` and `astrings` (see `term::bridge_uses_package`), so a plain `IMPORT term`
+' program never drags in the `astrings`/`strings` companions this file needs.
+'
+' `__term_drawTextAttr` stamps the visible text at (x, y) exactly as the String
+' overload, but honours the per-scalar styling the AttributedString carries. Only
+' the attributes the terminal surface can represent are applied — bold, underline,
+' foreground color and background color; every other attribute (italic, strike,
+' overline, font, font size) is silently ignored. The text is drawn in maximal
+' runs of a single (bold, underline, foreground, background) state, and each run is
+' handed to the native `String` drawText so the grapheme-cluster and wide-glyph
+' handling is identical to the String overload; runs are placed left to right,
+' advancing the start column by each run's display width. The current global
+' bold/underline/foreground/background are saved before the runs and restored
+' after, so drawText leaves the attribute state it found (matching the String
+' overload, which never changes it). While TUI mode is off the whole body is
+' skipped, so — like every other term:: call — it draws nothing and raises nothing.
+' ===========================================================================
+
+IMPORT term
+IMPORT astrings
+IMPORT strings
+IMPORT bits
+
+' Whether scalar `index` carries the bold flag: any covering span with the flag
+' turns it on (flags OR). Non-flag attributes and flags the terminal cannot
+' render are ignored. `__term_underlineAt` is the same for the underline flag.
+' These stay two Boolean queries — rather than one record-returning resolver —
+' deliberately: the run scan compares them in a WHILE condition, and a
+' record-returning call in a loop condition alongside the term:: writes triggers
+' a codegen miscompile (bug-440).
+FUNC __term_boldAt(value AS AttributedString, index AS Integer) AS Boolean
+  FOR EACH at IN astrings::getAttributes(value, index)
+    MATCH at
+      CASE AttrFlag(f)
+        IF f.kind = AttrTypeFlag.Bold THEN
+          RETURN TRUE
+        END IF
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN FALSE
+END FUNC
+
+FUNC __term_underlineAt(value AS AttributedString, index AS Integer) AS Boolean
+  FOR EACH at IN astrings::getAttributes(value, index)
+    MATCH at
+      CASE AttrFlag(f)
+        IF f.kind = AttrTypeFlag.Underline THEN
+          RETURN TRUE
+        END IF
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' The resolved foreground (or background) at scalar `index`, as a packed
+' `0xRRGGBB` Integer, or -1 when no such color attribute covers the scalar. A
+' scalar Integer (not a record) for the same reason bold/underline are scalar
+' Booleans: it is compared in the run-scan WHILE condition, and a record-returning
+' call there miscompiles (bug-440). -1 is an unambiguous "unset" sentinel because a
+' packed color is always in 0..0xFFFFFF.
+FUNC __term_fgAt(value AS AttributedString, index AS Integer) AS Integer
+  FOR EACH at IN astrings::getAttributes(value, index)
+    MATCH at
+      CASE AttrNumber(nm)
+        IF nm.kind = AttrTypeNumber.Foreground THEN
+          RETURN nm.value
+        END IF
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN -1
+END FUNC
+
+FUNC __term_bgAt(value AS AttributedString, index AS Integer) AS Integer
+  FOR EACH at IN astrings::getAttributes(value, index)
+    MATCH at
+      CASE AttrNumber(nm)
+        IF nm.kind = AttrTypeNumber.Background THEN
+          RETURN nm.value
+        END IF
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN -1
+END FUNC
+
+' Unpack the r / g / b channel from a packed `0xRRGGBB` color (r high, b low).
+FUNC __term_colorR(packed AS Integer) AS Byte
+  RETURN toByte(bits::band(bits::sr(packed, 16), 255))
+END FUNC
+
+FUNC __term_colorG(packed AS Integer) AS Byte
+  RETURN toByte(bits::band(bits::sr(packed, 8), 255))
+END FUNC
+
+FUNC __term_colorB(packed AS Integer) AS Byte
+  RETURN toByte(bits::band(packed, 255))
+END FUNC
+
+' Apply the run's foreground: a packed color when set, else fall back to the pen
+' the drawText call inherited (`saved`), so an unset run draws in the ambient
+' foreground rather than whatever the previous run left. Background is symmetric.
+SUB __term_applyFg(packed AS Integer, saved AS TermColor)
+  IF packed = -1 THEN
+    term::setForeground(saved.r, saved.g, saved.b)
+  ELSE
+    term::setForeground(__term_colorR(packed), __term_colorG(packed), __term_colorB(packed))
+  END IF
+END SUB
+
+SUB __term_applyBg(packed AS Integer, saved AS TermColor)
+  IF packed = -1 THEN
+    term::setBackground(saved.r, saved.g, saved.b)
+  ELSE
+    term::setBackground(__term_colorR(packed), __term_colorG(packed), __term_colorB(packed))
+  END IF
+END SUB
+
+SUB __term_drawTextAttr(x AS Integer, y AS Integer, value AS AttributedString)
+  IF term::isOn() THEN
+    LET text AS String = toString(value)
+    LET n AS Integer = len(strings::toScalars(value))
+    LET saveBold AS Boolean = term::getBold()
+    LET saveUnderline AS Boolean = term::getUnderline()
+    LET saveFg AS TermColor = term::getForeground()
+    LET saveBg AS TermColor = term::getBackground()
+    MUT col AS Integer = x
+    MUT i AS Integer = 0
+    WHILE i < n
+      LET bold AS Boolean = __term_boldAt(value, i)
+      LET underline AS Boolean = __term_underlineAt(value, i)
+      LET fg AS Integer = __term_fgAt(value, i)
+      LET bg AS Integer = __term_bgAt(value, i)
+      MUT j AS Integer = i + 1
+      WHILE j < n AND __term_boldAt(value, j) = bold AND __term_underlineAt(value, j) = underline AND __term_fgAt(value, j) = fg AND __term_bgAt(value, j) = bg
+        j = j + 1
+      END WHILE
+      LET seg AS String = strings::mid(text, i, j - i)
+      term::setBold(bold)
+      term::setUnderline(underline)
+      __term_applyFg(fg, saveFg)
+      __term_applyBg(bg, saveBg)
+      term::drawText(col, y, seg)
+      col = col + strings::displayWidth(seg)
+      i = j
+    END WHILE
+    term::setBold(saveBold)
+    term::setUnderline(saveUnderline)
+    term::setForeground(saveFg.r, saveFg.g, saveFg.b)
+    term::setBackground(saveBg.r, saveBg.g, saveBg.b)
+  END IF
+END SUB

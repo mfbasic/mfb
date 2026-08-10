@@ -72,6 +72,10 @@ pub fn resolve_project_with(
     validate_docs: bool,
 ) -> Result<(), ()> {
     let augmented = builtins::json::augmented_project(ast)?;
+    // The `term`↔`astrings` drawText bridge, injected only when a program imports
+    // BOTH packages; it imports term/astrings/strings, so it precedes all three so
+    // their `uses_package` sees the dependency (mirrors `http` before `net`).
+    let augmented = builtins::term::bridge_augmented_project(&augmented)?;
     // `astrings_package.mfb` imports only `collections` (native members) and
     // `astrings` itself (the internal overlay bridge), so it has no companion
     // ordering dependency.
@@ -81,8 +85,9 @@ pub fn resolve_project_with(
     let augmented = builtins::regex::augmented_project(&augmented)?;
     let augmented = builtins::datetime::augmented_project(&augmented)?;
     let augmented = builtins::money::augmented_project(&augmented)?;
-    // `term_package.mfb` declares only the `LineStyle` enum and imports nothing,
-    // so it has no source ordering dependency.
+    // `term_package.mfb` declares only the `LineStyle`/`FillStyle` enums and imports
+    // nothing, so it has no source ordering dependency (the attribute bridge is a
+    // separate gated source, injected above).
     let augmented = builtins::term::augmented_project(&augmented)?;
     // `vector` imports only the intrinsic `math` package, so it has no source
     // ordering dependency (plan-06-vector.md §5).

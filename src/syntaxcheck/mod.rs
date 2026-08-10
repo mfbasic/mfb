@@ -161,6 +161,10 @@ pub fn check_project_collect(
     ast: &AstProject,
 ) -> Result<Vec<crate::rules::PendingDiagnostic>, ()> {
     let augmented = builtins::json::augmented_project(ast)?;
+    // The `term`↔`astrings` drawText bridge, injected only when a program imports
+    // BOTH packages; it imports term/astrings/strings, so it precedes all three so
+    // their `uses_package` sees the dependency (mirrors `http` before `net`).
+    let augmented = builtins::term::bridge_augmented_project(&augmented)?;
     // `astrings` imports only `collections` (native members) + `astrings` itself.
     let augmented = builtins::astrings::augmented_project(&augmented)?;
     let augmented = builtins::app::augmented_project(&augmented)?;

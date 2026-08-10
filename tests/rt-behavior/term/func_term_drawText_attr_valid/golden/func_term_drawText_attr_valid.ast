@@ -1,0 +1,37 @@
+{
+  "project": "func_term_drawText_attr_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "term", "line": 5 },
+    { "module": "astrings", "line": 6 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.on", "arguments": [] }, "line": 9 },
+      { "kind": "binding", "mutable": true, "name": "a", "type": "AttributedString", "value": { "kind": "call", "callee": "astrings.fromString", "arguments": [{ "kind": "string", "value": "Hi Bold Und" }] }, "line": 10 },
+      { "kind": "assignment", "name": "a", "value": { "kind": "call", "callee": "astrings.addAttribute", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "6" }, { "kind": "call", "callee": "astrings.bold", "arguments": [] }] }, "line": 11 },
+      { "kind": "assignment", "name": "a", "value": { "kind": "call", "callee": "astrings.addAttribute", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "8" }, { "kind": "number", "value": "10" }, { "kind": "call", "callee": "astrings.underline", "arguments": [] }] }, "line": 12 },
+      { "kind": "assignment", "name": "a", "value": { "kind": "call", "callee": "astrings.addAttribute", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }, { "kind": "call", "callee": "astrings.italic", "arguments": [] }] }, "line": 13 },
+      { "kind": "assignment", "name": "a", "value": { "kind": "call", "callee": "astrings.addAttribute", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "10" }, { "kind": "call", "callee": "astrings.font", "arguments": [{ "kind": "string", "value": "Serif" }] }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "1" }, { "kind": "identifier", "value": "a" }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "string", "value": "plain" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 20 }
+      ]
+    }
+    ]
+  }
+  ]
+}

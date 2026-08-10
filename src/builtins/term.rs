@@ -317,6 +317,47 @@ super::package_source_glue!(
     include_str!("term_package.mfb")
 );
 
+// The `term`↔`astrings` bridge source (`term_astrings_bridge.mfb`) carries the
+// `term::drawText(x, y, AttributedString)` overload body `__term_drawTextAttr`
+// (routed to `#term_drawTextAttr` in `ir::lower`). It is a SEPARATE source from
+// `term_package.mfb` and gated on importing BOTH `term` and `astrings`, so a plain
+// `IMPORT term` program never drags in the `astrings`/`strings` companions the
+// bridge needs. The bridge itself imports term/astrings/strings, so it is injected
+// before all three (their `uses_package` then sees the dependency).
+pub(crate) fn bridge_source_file() -> Result<crate::ast::AstFile, ()> {
+    crate::ast::parse_source_internal(
+        std::path::Path::new("<builtin-term-astrings-bridge>"),
+        "builtins/term_astrings_bridge.mfb",
+        include_str!("term_astrings_bridge.mfb"),
+    )
+}
+
+/// The bridge is used when a program imports both `term` and `astrings` — the pair
+/// any `term::drawText(AttributedString)` call must have in scope. Over-injection
+/// (a program that imports both but never draws attributed text) is harmless: it
+/// adds only the two small resolver helpers plus `__term_drawTextAttr`.
+pub(crate) fn bridge_uses_package(ast: &crate::ast::AstProject) -> bool {
+    let imports = |name: &str| {
+        ast.files.iter().any(|file| {
+            file.imports
+                .iter()
+                .any(|import| import.package_name() == name)
+        })
+    };
+    imports("term") && imports("astrings")
+}
+
+pub(crate) fn bridge_augmented_project(
+    ast: &crate::ast::AstProject,
+) -> Result<crate::ast::AstProject, ()> {
+    if !bridge_uses_package(ast) {
+        return Ok(ast.clone());
+    }
+    let mut augmented = ast.clone();
+    augmented.files.push(bridge_source_file()?);
+    Ok(augmented)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

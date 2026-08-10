@@ -108,11 +108,13 @@ fn gtk_state_sizes_the_char_grid_at_four_bytes_per_cell() {
 
     const CELLS: u64 = 160 * 48;
     // handles(7) + argc/argv + mode + lineLen = 11 u64, then the 1024B line
-    // buffer, 13 u64 of term geometry, then chars/fg/bg live + snapshot at 4B,
-    // then the plan-70-E EGC pool live + snapshot at GTK_POOL_BYTES=32B/cell, then
-    // one u64 `ST_HELD` flag (plan-62-D: the windowless-mode hold tracker). The char
-    // grid is still 4 bytes/cell (bug-203); the pools are separate per-cell arrays.
-    let expected = 11 * 8 + 1024 + 13 * 8 + 6 * CELLS * 4 + 2 * CELLS * 32 + 8;
+    // buffer, 14 u64 of term geometry (13 + the `ST_TERM_DID_RESIZE` latch that
+    // term::didResize() reads, added between ST_TERM_CELL_H and ST_TERM_CHARS),
+    // then chars/fg/bg live + snapshot at 4B, then the plan-70-E EGC pool live +
+    // snapshot at GTK_POOL_BYTES=32B/cell, then one u64 `ST_HELD` flag (plan-62-D:
+    // the windowless-mode hold tracker). The char grid is still 4 bytes/cell
+    // (bug-203); didResize is a separate scalar, the pools separate per-cell arrays.
+    let expected = 11 * 8 + 1024 + 14 * 8 + 6 * CELLS * 4 + 2 * CELLS * 32 + 8;
     assert_eq!(
         size, expected,
         "the char grid should be 4 bytes/cell like fg/bg (bug-203); \
