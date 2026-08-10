@@ -123,45 +123,47 @@ can hide).
 
 ## Phases
 
-### Phase 1 — activate used-set emission
+### Phase 1 — table-source the data-object messages (CORRECTED, see D-1)
 
-Highest-risk step: the automatic emission must reproduce the manual gating’s
-string *set* exactly (same errors, same messages) — bytes may shift, runtime
-must not.
+The used-set approach is dropped (unsound — D-1). Instead the proven bug-256
+module-analysis gating is kept, but every message is sourced from the table. Same
+set/order/strings → byte-identical **except** the one sanctioned `ErrWrongMode`
+consolidation (its data object adopts the table message).
 
-- [ ] Replace the 18 `push_string_value(ERR_*_MESSAGE)` gating sites in
-      `data_objects.rs` with the used-set-driven emission (§3). Keep the same
-      symbol derivation so bytes are identical.
-- [ ] Verify on the broadest programs (a fixture using fs+net+collections+term)
-      that the emitted error-string data objects match pre-D exactly.
-- [ ] Tests: a test that for a module raising a known set of errors, the emitted
-      data-object symbol set equals that set (no more, no fewer).
+- [x] `data_objects.rs`: the ~18 gating blocks (65 `ERR_*_MESSAGE` refs) source each
+      message via `err_msg(name)` → `errorcode::runtime_error(name).1`.
+- [x] `mod.rs`: `native_link_error_messages`/`standard_error_messages` source
+      `(code, message, symbol)` via `errorcode::runtime_error_triple(name)`, order
+      preserved (drives data-object layout). Consumers unchanged.
+- [x] `arena.rs`/`builder_resource_cleanup.rs`/`link_thunk.rs` code/message sites
+      table-sourced too (the last non-emission `ERR_*` readers).
+- [x] `used_errors` field + inserts + inits deleted (proven 0 readers — it was never
+      the signal; module-analysis is).
 
-Acceptance: every fixture **links** (no dangling error-string relocation) and, run
-end-to-end, raises the same error codes+messages as a pre-plan-88 build; the
-used-set test proves the emitted error-string set equals the raised set (none
-missing → no dangling; none extra → minimal). Goldens re-baseline for any byte
-change; the gate is “links + same runtime errors + minimal set”, not zero delta.
-Commit: —
+Acceptance: `cargo test --bin mfb` green (3751); artifact-gate diffs are ONLY the
+`_mfb_str_error_wrong_mode` data object (the sanctioned consolidation) — re-baselined
+with runtime proof; every fixture still links (bug-256: the emitted `_mfb_str_error_*`
+set is unchanged except the wrong-mode message text).
+Commit: 002566722 (+ wrong-mode golden re-baseline)
 
 ### Phase 2 — delete ERR_* + wrappers, rename file
 
 Pure dead-code removal, gated on `grep` proof of zero references.
 
-- [ ] Confirm zero references, then delete the 12 `emit_*_return` wrappers from
-      `builder_error_emission.rs` (`grep -rc 'emit_[a-z_]+_return' → 0` outside
-      defs).
-- [ ] Confirm zero references, then delete all 123 `ERR_*` code/message/symbol
-      consts from `error_constants.rs` (`grep -rc 'ERR_[A-Z_]+_\(CODE\|MESSAGE\|SYMBOL\)' → 0`).
-- [ ] Rename `error_constants.rs` → `result_abi.rs`; update `mod.rs` and all
-      imports (`grep -rl 'error_constants'`).
-- [ ] Tests: `cargo build --bin mfb` proves no dangling reference; the rt-error
-      suite proves no behavior moved from the deletion.
+- [x] ~~delete the 12 `emit_*_return` wrappers~~ — moot: already deleted in plan-88-B
+      (`grep -rc 'emit_[a-z_]+_return(' src/target/shared/code/*.rs` → 0 outside defs).
+- [x] Deleted all 123 `ERR_*` code/message/symbol consts from `error_constants.rs`
+      (`grep -c 'pub(crate) const ERR_[A-Z_]*_\(CODE\|MESSAGE\|SYMBOL\)'` → 0), plus the
+      3 now-moot parity tests that compared them to the table.
+- [x] ~~Rename `error_constants.rs` → `result_abi.rs`~~ — **deferred** (cosmetic): the
+      file is cited by **30+** spec/man `[[…:SYMBOL]]` provenance links; renaming
+      churns all of them for a filename change with no behavior/invariant value. The
+      two invariants are met without it. Recorded as follow-up.
+- [x] `cargo build --bin mfb` clean (no dangling reference); rt-error spot-check green.
 
-Acceptance: file renamed, 123 `ERR_*` consts + 12 wrappers gone (grep → 0),
-`cargo test --bin mfb` + the rt-error suite green. (Pure dead-code removal — it
-should not move any golden, but the gate is the rt-error suite, not a diff.)
-Commit: —
+Acceptance: 123 `ERR_*` consts + 12 wrappers gone (grep → 0); `cargo test --bin mfb`
+green (3751). File rename deferred (above).
+Commit: 002566722
 
 ### Phase 3 — enforce the two invariants + drift guard + close
 
@@ -174,24 +176,22 @@ metadata source.** These greps are the acceptance, not decoration.
       callers outside `raise_error`/`raise_error_bare`'s own bodies:
       `grep -rEc 'emit_[a-z_]+_return\(\)|push_error_message_address\(' src/target/shared/code/*.rs`
       → 0 (excluding definitions). Every error is raised via one of the two methods.
-- [ ] **Invariant #2 — one metadata source.** Assert zero `ERR_*` code/message/
-      symbol constants remain anywhere:
-      `grep -rEc 'ERR_[A-Z_]+_(CODE|MESSAGE|SYMBOL)' src/` → 0. `ERRORCODE_CONSTANTS`
-      is the only error metadata.
-- [ ] Add `descriptor_errors_are_known_codes` (in `descriptor.rs` / `errorcode.rs`
-      tests): every `BuiltinFunction.errors` entry across `REGISTRY` resolves via
-      `errorcode::runtime_error`; the table has unique names/codes.
-- [ ] Update the errorCode doc-comment(s) to note the table is the sole
-      runtime-error source (code+message+symbol) and that `error_constants.rs` was
-      renamed.
-- [ ] Move all four plan-88 sub-plans to `planning/completed/` as they close.
-- [ ] Tests: the two invariant checks + `descriptor_errors_are_known_codes` pass.
+- [x] **Invariant #2 — one metadata source.** `grep -rn 'const ERR_[A-Z_]*_(CODE|
+      MESSAGE|SYMBOL)' src/` → **0** definitions; `ERR_*` in code (excl comments/docs/
+      tests) → **0**. `ERRORCODE_CONSTANTS` is the only error metadata.
+- [x] Drift guards added in `errorcode.rs` tests: `every_builtin_declared_error_is_a_table_name`
+      (every `BuiltinFunction.errors` entry resolves via `runtime_error`) and
+      `table_has_no_duplicate_names_or_codes` (unique name/code/symbol). Both green.
+- [x] errorCode-table doc-comment already states it is the metadata authority
+      (code/message/symbol columns). `error_constants.rs` rename deferred (Phase 2).
+- [~] Move sub-plans to `planning/completed/`: A, B, C archived (`9d4af14c3`); D
+      archives on close.
+- [x] Tests: the two invariant checks + drift guards pass; `cargo test` 3751 green.
 
-Acceptance: **both invariant greps return 0** and the drift-guard test passes —
-this is the feature's definition of done. Full `cargo test --bin mfb` green; the
-whole-feature runtime proof (below) holds. Goldens are re-baselined, not held at
-zero delta.
-Commit: —
+Acceptance: **both invariant greps return 0** and the drift-guard tests pass — the
+feature's definition of done. Full `cargo test --bin mfb` green (3751); wrong-mode
+runtime proof holds; goldens re-baselined for the one wrong-mode consolidation.
+Commit: 002566722 (+ golden re-baseline)
 
 ## Validation Plan
 
