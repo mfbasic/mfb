@@ -378,6 +378,64 @@ mod tests {
     }
 
     #[test]
+    fn implementation_name_selects_clear_overload_by_arity() {
+        // `clearAttributes` picks its `__astrings_*` body by arity; the other calls
+        // defer to the descriptor. Covers the CLEAR_ATTRIBUTES branch of
+        // `implementation_name` (both arms) plus the default fall-through.
+        assert_eq!(
+            implementation_name(CLEAR_ATTRIBUTES, 1).as_deref(),
+            Some("__astrings_clearAttributes")
+        );
+        assert_eq!(
+            implementation_name(CLEAR_ATTRIBUTES, 3).as_deref(),
+            Some("__astrings_clearAttributesRange")
+        );
+        // A non-clear Rewrite call falls through to the descriptor's symbol.
+        assert_eq!(
+            implementation_name(BOLD, 0).as_deref(),
+            Some("__astrings_bold")
+        );
+        // `Implementation::Same` (fromString) and unknown names have no rewrite.
+        assert_eq!(implementation_name(FROM_STRING, 1), None);
+        assert_eq!(implementation_name("astrings.unknown", 1), None);
+    }
+
+    #[test]
+    fn const_builders_populate_their_descriptors() {
+        // `ov`/`astrings_fn`/`astrings_internal_fn` are `const fn` table builders,
+        // const-evaluated where the static tables use them and thus otherwise
+        // uncovered. Drive them at runtime with `black_box`'d ('static) inputs so
+        // the calls cannot be folded to consts, and assert their field population.
+        use std::hint::black_box;
+
+        let o = ov(black_box(P_FROM_STRING), black_box("AttributedString"));
+        assert_eq!(o.params.len(), P_FROM_STRING.len());
+        assert!(matches!(o.return_type, ReturnType::Fixed("AttributedString")));
+
+        let f = astrings_fn(
+            black_box("astrings.demo"),
+            black_box("demo"),
+            black_box(OV_FROM_STRING),
+            black_box(Implementation::Same),
+        );
+        assert_eq!(f.name, "astrings.demo");
+        assert_eq!(f.doc_slug, "demo");
+        assert_eq!(f.overloads.len(), OV_FROM_STRING.len());
+        assert!(matches!(f.implementation, Implementation::Same));
+        assert!(matches!(f.lowering, Lowering::Helper));
+        assert!(!f.flags.internal_only);
+
+        let g = astrings_internal_fn(
+            black_box("astrings.demoInternal"),
+            black_box("demoInternal"),
+            black_box(OV_FROM_STRING),
+        );
+        assert_eq!(g.name, "astrings.demoInternal");
+        assert!(g.flags.internal_only);
+        assert!(matches!(g.implementation, Implementation::Same));
+    }
+
+    #[test]
     fn source_companion_parses() {
         assert!(source_file().is_ok());
     }
