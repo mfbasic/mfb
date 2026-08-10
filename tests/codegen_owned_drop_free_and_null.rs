@@ -55,7 +55,11 @@ END FUNC\n";
 #[test]
 fn owned_value_drop_frees_and_nulls_the_slot() {
     let project = temp_project("codegen_owned_drop_free_and_null", SOURCE);
-    let ncode = build_ncode(&project, "macos-aarch64", "codegen_owned_drop_free_and_null");
+    let ncode = build_ncode(
+        &project,
+        "macos-aarch64",
+        "codegen_owned_drop_free_and_null",
+    );
 
     let functions = ncode["functions"]
         .as_array()
