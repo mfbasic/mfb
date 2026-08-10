@@ -16,6 +16,7 @@ use crate::cli::help::{
 };
 use crate::cli::init::{init_package_project, init_project};
 use crate::cli::man::show_man;
+use crate::cli::man2::show_man2;
 use crate::cli::pkg::run_pkg_command;
 use crate::cli::repo::run_repo_command;
 use crate::cli::spec::show_spec;
@@ -202,6 +203,20 @@ pub(crate) fn run() {
                 return;
             }
             if let Err(err) = show_man(&man_args) {
+                eprintln!("error: {err}");
+                process::exit(2);
+            }
+        }
+        Some("man2") => {
+            // Experimental registry-driven man page (collections only).
+            let man2_args = args.collect::<Vec<_>>();
+            if man2_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("Usage: mfb man2 collections <function>");
+                println!();
+                println!("Render a collections builtin's man page from the descriptor registry.");
+                return;
+            }
+            if let Err(err) = show_man2(&man2_args) {
                 eprintln!("error: {err}");
                 process::exit(2);
             }
