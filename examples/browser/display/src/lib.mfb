@@ -210,36 +210,6 @@ FUNC pageHeight(root AS Node) AS Integer
   END MATCH
 END FUNC
 
-' The laid-out page's natural content width: the rightmost edge (box.x + box.width)
-' of any text run. This can exceed the layout viewport when content cannot shrink to
-' fit (a flex row already at its min-content width, a wide table) — the extent is the
-' true painted width so the caller can size a canvas that never clips and instead
-' offers horizontal scroll. Walks iteratively (the imported Node union does not lower
-' to a recursive function).
-FUNC contentExtent(root AS Node) AS Integer
-  MUT ext AS Integer = 0
-  MUT stack AS List OF Node = [root]
-  DO WHILE len(stack) > 0
-    LET i AS Integer = len(stack) - 1
-    LET node AS Node = collections::get(stack, i)
-    stack = collections::removeAt(stack, i)
-    MATCH node
-      CASE ElementNode(e)
-        MUT j AS Integer = len(e.children) - 1
-        DO WHILE j >= 0
-          stack = collections::append(stack, collections::get(e.children, j))
-          j = j - 1
-        LOOP
-      CASE TextNode(t)
-        LET right AS Integer = t.layout.x + t.layout.width
-        IF right > ext THEN ext = right
-      CASE HeaderNode(hn)
-      CASE ELSE
-    END MATCH
-  LOOP
-  RETURN ext
-END FUNC
-
 ' Draw one text run onto the canvas at its layout box.
 ' The column offset within a run's box for one wrapped line, honoring the run's
 ' horizontal alignment: left flush (0), centered, or right flush.
@@ -276,12 +246,6 @@ END FUNC
 EXPORT FUNC paint(root AS Node, width AS Integer, m AS Metrics) AS List OF String
   LET laid AS Node = dom::updateLayout(root, width, m)
   LET h AS Integer = pageHeight(laid)
-  ' Canvas width is the natural content extent, never less than the layout viewport:
-  ' `width` is only the *reflow target* (how wide the page thinks the screen is), while
-  ' the canvas holds whatever the layout actually produced. Content wider than the
-  ' viewport (an un-shrinkable flex row, a wide table) is painted in full rather than
-  ' clipped, so the app can pan across it with Left/Right instead of hitting a dead end.
-  LET canvasW AS Integer = maxOf(width, contentExtent(laid))
   MUT canvas AS List OF String = []
   FOR i = 0 TO h - 1
     canvas = collections::append(canvas, "")
@@ -299,21 +263,12 @@ EXPORT FUNC paint(root AS Node, width AS Integer, m AS Metrics) AS List OF Strin
           j = j - 1
         LOOP
       CASE TextNode(t)
-        canvas = paintRun(canvas, t, canvasW)
+        canvas = paintRun(canvas, t, width)
       CASE HeaderNode(hn)
       CASE ELSE
     END MATCH
   LOOP
   RETURN canvas
-END FUNC
-
-' The natural content width (in cells) a page lays out to at viewport `width` under
-' metric `m`: the rightmost painted edge, which may exceed `width` when content cannot
-' shrink to fit. The app measures this at the terminal width on load to auto-select the
-' display mode (standard / wide / extra-wide) whose canvas best holds the page.
-EXPORT FUNC contentWidth(root AS Node, width AS Integer, m AS Metrics) AS Integer
-  LET laid AS Node = dom::updateLayout(root, width, m)
-  RETURN contentExtent(laid)
 END FUNC
 
 ' The readable page text: a pre-order walk emitting text, breaking lines on
