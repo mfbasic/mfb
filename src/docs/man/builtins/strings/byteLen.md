@@ -6,6 +6,7 @@ Return the UTF-8 byte length of a string.
 
 ```
 strings::byteLen(value AS String) AS Integer
+strings::byteLen(value AS AttributedString) AS Integer
 ```
 
 ## Package
@@ -41,6 +42,10 @@ allocates nothing, mutates nothing, and is locale-independent.
 To count Unicode scalar values use the bare `len` builtin; to count
 user-perceived characters use `strings::graphemesCount`; to obtain the individual
 bytes use `strings::toBytes`.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors). [[src/builtins/strings.rs:is_tier_a_query]]
 
 ## Parameters
 

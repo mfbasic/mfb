@@ -27,69 +27,51 @@ IMPORT astrings
 IMPORT strings
 IMPORT bits
 
-' Whether scalar `index` carries the bold flag: any covering span with the flag
-' turns it on (flags OR). Non-flag attributes and flags the terminal cannot
-' render are ignored. `__term_underlineAt` is the same for the underline flag.
-' These stay two Boolean queries — rather than one record-returning resolver —
-' deliberately: the run scan compares them in a WHILE condition, and a
-' record-returning call in a loop condition alongside the term:: writes triggers
-' a codegen miscompile (bug-440).
-FUNC __term_boldAt(value AS AttributedString, index AS Integer) AS Boolean
+' The renderable subset of an AttributedString's per-scalar styling: the attributes
+' the terminal surface can represent — bold, underline, and packed 0xRRGGBB
+' foreground/background colors (-1 = unset, unambiguous because a packed color is
+' always in 0..0xFFFFFF). Compared by value to find maximal same-style runs. Named
+' with the internal `__` sigil so the injected type cannot collide with a user's
+' own `TermStyle`.
+TYPE __TermStyle
+  bold AS Boolean
+  underline AS Boolean
+  fg AS Integer
+  bg AS Integer
+END TYPE
+
+' Resolve the renderable style at scalar `index` in a single pass over the covering
+' attributes: bold/underline flags (any covering span carrying the flag turns it
+' on) and the winning foreground/background packed color (or -1 when unset). The
+' attributes the terminal cannot render (italic/strike/overline flags, font,
+' font size) are ignored.
+FUNC __term_styleAt(value AS AttributedString, index AS Integer) AS __TermStyle
+  MUT bold AS Boolean = FALSE
+  MUT underline AS Boolean = FALSE
+  MUT fg AS Integer = -1
+  MUT bg AS Integer = -1
   FOR EACH at IN astrings::getAttributes(value, index)
     MATCH at
       CASE AttrFlag(f)
-        IF f.kind = AttrTypeFlag.Bold THEN
-          RETURN TRUE
-        END IF
-      CASE ELSE
-    END MATCH
-  NEXT
-  RETURN FALSE
-END FUNC
-
-FUNC __term_underlineAt(value AS AttributedString, index AS Integer) AS Boolean
-  FOR EACH at IN astrings::getAttributes(value, index)
-    MATCH at
-      CASE AttrFlag(f)
-        IF f.kind = AttrTypeFlag.Underline THEN
-          RETURN TRUE
-        END IF
-      CASE ELSE
-    END MATCH
-  NEXT
-  RETURN FALSE
-END FUNC
-
-' The resolved foreground (or background) at scalar `index`, as a packed
-' `0xRRGGBB` Integer, or -1 when no such color attribute covers the scalar. A
-' scalar Integer (not a record) for the same reason bold/underline are scalar
-' Booleans: it is compared in the run-scan WHILE condition, and a record-returning
-' call there miscompiles (bug-440). -1 is an unambiguous "unset" sentinel because a
-' packed color is always in 0..0xFFFFFF.
-FUNC __term_fgAt(value AS AttributedString, index AS Integer) AS Integer
-  FOR EACH at IN astrings::getAttributes(value, index)
-    MATCH at
+        MATCH f.kind
+          CASE AttrTypeFlag.Bold
+            bold = TRUE
+          CASE AttrTypeFlag.Underline
+            underline = TRUE
+          CASE ELSE
+        END MATCH
       CASE AttrNumber(nm)
-        IF nm.kind = AttrTypeNumber.Foreground THEN
-          RETURN nm.value
-        END IF
+        MATCH nm.kind
+          CASE AttrTypeNumber.Foreground
+            fg = nm.value
+          CASE AttrTypeNumber.Background
+            bg = nm.value
+          CASE ELSE
+        END MATCH
       CASE ELSE
     END MATCH
   NEXT
-  RETURN -1
-END FUNC
-
-FUNC __term_bgAt(value AS AttributedString, index AS Integer) AS Integer
-  FOR EACH at IN astrings::getAttributes(value, index)
-    MATCH at
-      CASE AttrNumber(nm)
-        IF nm.kind = AttrTypeNumber.Background THEN
-          RETURN nm.value
-        END IF
-      CASE ELSE
-    END MATCH
-  NEXT
-  RETURN -1
+  RETURN __TermStyle[bold, underline, fg, bg]
 END FUNC
 
 ' Unpack the r / g / b channel from a packed `0xRRGGBB` color (r high, b low).
@@ -135,19 +117,16 @@ SUB __term_drawTextAttr(x AS Integer, y AS Integer, value AS AttributedString)
     MUT col AS Integer = x
     MUT i AS Integer = 0
     WHILE i < n
-      LET bold AS Boolean = __term_boldAt(value, i)
-      LET underline AS Boolean = __term_underlineAt(value, i)
-      LET fg AS Integer = __term_fgAt(value, i)
-      LET bg AS Integer = __term_bgAt(value, i)
+      LET st AS __TermStyle = __term_styleAt(value, i)
       MUT j AS Integer = i + 1
-      WHILE j < n AND __term_boldAt(value, j) = bold AND __term_underlineAt(value, j) = underline AND __term_fgAt(value, j) = fg AND __term_bgAt(value, j) = bg
+      WHILE j < n AND __term_styleAt(value, j) = st
         j = j + 1
       END WHILE
       LET seg AS String = strings::mid(text, i, j - i)
-      term::setBold(bold)
-      term::setUnderline(underline)
-      __term_applyFg(fg, saveFg)
-      __term_applyBg(bg, saveBg)
+      term::setBold(st.bold)
+      term::setUnderline(st.underline)
+      __term_applyFg(st.fg, saveFg)
+      __term_applyBg(st.bg, saveBg)
       term::drawText(col, y, seg)
       col = col + strings::displayWidth(seg)
       i = j

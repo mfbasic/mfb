@@ -6,6 +6,7 @@ Decode a string into its Unicode scalar values.
 
 ```
 strings::toScalars(value AS String) AS List OF Scalar
+strings::toScalars(value AS AttributedString) AS List OF Scalar
 ```
 
 ## Package
@@ -46,6 +47,10 @@ every `String` is well-formed UTF-8 by construction, so decoding cannot fail.
 The scalars appear in the same left-to-right order as in `value`. The empty
 string yields the empty list. `value` is not mutated; the returned list is a
 fresh owned value.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors). [[src/builtins/strings.rs:is_tier_a_query]]
 
 ## Parameters
 

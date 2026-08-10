@@ -6,6 +6,7 @@ Concatenate a string with itself a given number of times.
 
 ```
 strings::repeat(value AS String, times AS Integer) AS String
+strings::repeat(value AS AttributedString, times AS Integer) AS AttributedString
 ```
 
 ## Package
@@ -42,6 +43,11 @@ raises the same `ErrInvalidArgument` rather than allocating short and writing
 past the buffer. [[src/target/shared/code/builder_error_emission.rs:emit_checked_size_multiply]]
 
 `value` is not mutated; the result is a new owned `String`.
+
+`value` may also be an `astrings::AttributedString`: it returns an
+`AttributedString` whose text is transformed exactly as the `String` overload's
+and whose attribute spans are remapped by the same edit.
+[[src/builtins/strings.rs:is_tier_b_transform]]
 
 ## Parameters
 

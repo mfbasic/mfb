@@ -6,6 +6,7 @@ Remove one leading occurrence of a prefix from a string.
 
 ```
 strings::stripPrefix(value AS String, prefix AS String) AS String
+strings::stripPrefix(value AS AttributedString, prefix AS String) AS AttributedString
 ```
 
 ## Package
@@ -45,6 +46,11 @@ The function is total and never fails. Neither operand is modified, and a new
 To test for the prefix without removing it, use `strings::startsWith`. To remove
 a *set* of leading scalars rather than a fixed substring, use
 `strings::trimChars`.
+
+`value` may also be an `astrings::AttributedString`: it returns an
+`AttributedString` whose text is transformed exactly as the `String` overload's
+and whose attribute spans are remapped by the same edit.
+[[src/builtins/strings.rs:is_tier_b_transform]]
 
 ## Parameters
 

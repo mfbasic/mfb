@@ -6,6 +6,7 @@ Remove leading Unicode whitespace from a string.
 
 ```
 strings::trimStart(value AS String) AS String
+strings::trimStart(value AS AttributedString) AS AttributedString
 ```
 
 ## Package
@@ -39,6 +40,11 @@ for byte. A `value` that is entirely whitespace yields the empty string, and the
 empty string yields the empty string. `value` is not mutated; the result is a
 newly allocated `String`, even when nothing was trimmed.
 [[src/target/shared/code/builder_collection_layout.rs:emit_materialize_string_from_bytes]]
+
+`value` may also be an `astrings::AttributedString`: it returns an
+`AttributedString` whose text is transformed exactly as the `String` overload's
+and whose attribute spans are remapped by the same edit.
+[[src/builtins/strings.rs:is_tier_b_transform]]
 
 ## Parameters
 

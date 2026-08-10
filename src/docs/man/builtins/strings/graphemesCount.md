@@ -6,6 +6,7 @@ Count the extended grapheme clusters in a string.
 
 ```
 strings::graphemesCount(value AS String) AS Integer
+strings::graphemesCount(value AS AttributedString) AS Integer
 ```
 
 ## Package
@@ -44,6 +45,10 @@ The empty string yields `0`. `value` is not mutated and the call never fails.
 Because the count is derived by segmenting the whole string, it is a linear scan,
 not a stored field — prefer calling `strings::graphemes` once when you need both
 the clusters and their count.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors). [[src/builtins/strings.rs:is_tier_a_query]]
 
 ## Parameters
 

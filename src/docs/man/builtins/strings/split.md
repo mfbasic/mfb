@@ -6,6 +6,7 @@ Split a string into a list of substrings around a delimiter.
 
 ```
 strings::split(value AS String, delimiter AS String) AS List OF String
+strings::split(value AS AttributedString, delimiter AS String) AS List OF String
 ```
 
 ## Package
@@ -52,6 +53,10 @@ returned list and its elements are fresh owned values.
 `delimiter` is also accepted under the name `separator`. Joining the result with
 the same non-empty delimiter reproduces `value` exactly — `split` and
 `strings::join` are inverses. [[src/builtins/strings.rs:call_param_names]]
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors). [[src/builtins/strings.rs:is_tier_a_query]]
 
 ## Parameters
 
