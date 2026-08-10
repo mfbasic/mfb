@@ -78,10 +78,11 @@ These hold for every letter of plan-88; stated once here.
 | `errorcode::runtime_error` accessor exists | `grep -n 'fn runtime_error' src/builtins/errorcode.rs` | MET |
 | `ERRORCODE_CONSTANTS` is `(name, code, message)` | `grep -n 'ERRORCODE_CONSTANTS: &\[(&str, &str, &str)\]' src/builtins/errorcode.rs` | MET |
 
-> The Status column is a snapshot; re-run each Command before continuing. The
-> worktree currently carries the uncommitted descriptor-field / errorCode-3-tuple
-> / collections-threading / codegen-probe work — commit or confirm that in tree
-> before starting A so the parity audit runs against the intended base.
+> Re-verified at A start (baseline `72d903e91`): branch `worktree-new-man`; build
+> green; `errors` at `descriptor.rs:200`; `runtime_error` at `errorcode.rs:127`;
+> 3-tuple table at `errorcode.rs:33`. All five MET. The POC (descriptor fields /
+> errorCode 3-tuple / collections threading / codegen probes) is now committed as
+> that baseline, so the audit runs against the intended base.
 
 ## 1. Goal
 
@@ -223,29 +224,26 @@ Prove the table can replace `ERR_*` with zero **runtime** behavior change; if an
 message text differs, migrating would change the error a program observes (not
 just its bytes), so it must be reconciled here first.
 
-- [ ] Add a test `error_constants_match_table` (in `error_constants.rs` under
-      `#[cfg(test)]`): for every `ERR_*_CODE` / paired `ERR_*_MESSAGE`, look up the
-      table row **by code** via `errorcode::runtime_error` and compare. Assert the
-      **code** always matches (a code mismatch is a bug). For the **message**, do
-      NOT hard-fail on inequality — instead collect every `(code, ERR_* message,
-      table message)` where they differ into an **expected-change list** the test
-      prints/asserts against a checked-in snapshot. This is the authoritative set
-      of sites whose runtime message legitimately changes on consolidation.
-- [ ] Resolve the name-alias map by **code** for the 6 known aliases +
-      `ERR_DIRECTORY_NOT_EMPTY`; record each `ERR_* → Err*` pair (and its code) in
-      Corrections.
-- [ ] Confirm the 3 table-only codes (`ErrPermissionDenied`,
-      `ErrAuthenticationFailed`, `ErrWrapped`) have no emit-path obligation in A
-      (`ErrWrapped` verified off-path; the other two: `grep` their codes in
-      `src/target/shared/code/`).
-- [ ] Tests: `error_constants_match_table` passes (all codes match; message
-      divergences enumerated in the snapshot). The runtime-error suite lives at
+- [x] Add a test `error_constants_match_table` (in `error_constants.rs` under
+      `#[cfg(test)]` mod `parity_tests`): pairs all 41 `ERR_*_CODE`/`ERR_*_MESSAGE`
+      consts (`ERR_OUT_OF_MEMORY_CODE`↔`ERR_ALLOCATION_MESSAGE` special-cased),
+      looks up the table row **by code** in `ERRORCODE_CONSTANTS` (a code not found
+      panics = the code-parity check), and asserts the set of message-diverging
+      codes equals `EXPECTED_DIVERGING_CODES` (the consolidation manifest).
+- [x] Resolve the name-alias map by **code** (recorded in Corrections). All alias
+      messages matched the table; only `ErrWrongMode` (`77050020`) diverged.
+- [x] Confirm the 3 table-only codes (`ErrPermissionDenied` `77050006`,
+      `ErrAuthenticationFailed` `77050016`, `ErrWrapped` `77060001`) have no
+      emit-path obligation: `grep -rn` in `src/target/shared/code/` finds `77050006`
+      and `77060001` nowhere and `77050016` only in a comment. Confirmed.
+- [x] Tests: `error_constants_match_table` passes (all 41 codes in table; one
+      message divergence recorded). The runtime-error suite lives at
       `tests/rt-error/**` — the home for the per-site tests B/C/D add.
 
-Acceptance: `cargo test --bin mfb error_constants_match_table` passes, proving
-every `ERR_*` code equals its table row and producing the expected-message-change
-list — the audit + change-manifest that licenses B–D’s per-site gate.
-Commit: —
+Acceptance: `cargo test --bin mfb error_constants_match_table` passes ✓ — every
+`ERR_*` code equals its table row and the message-change manifest is one code
+(`77050020` ErrWrongMode). MET.
+Commit: <this commit — hash recorded in the next>.
 
 ### Phase 1 — dormant primitives + used-set
 
@@ -306,8 +304,34 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution — especially any Phase-0 message-text divergence and
-the resolved `ERR_* → Err*` alias-by-code map.>
+- **Integration worktree (deviation from the follow-plan fresh-fork step).** Used
+  the existing `worktree-new-man` as the integration worktree rather than forking a
+  fresh `worktree-P-88` from `main`. Reason: plan-88's Prerequisites (the descriptor
+  `errors` field, `runtime_error`, the `(name,code,message)` table) are the POC,
+  which was uncommitted in this worktree and absent from `main`; a fresh fork from
+  main would fail the gate. The POC was committed here as baseline `72d903e91`, and
+  the Prerequisites gate then passed against it.
+- **Phase-0 message divergence (the consolidation manifest).** Exactly one code
+  diverges: `77050020` `ErrWrongMode` — `ERR_WRONG_MODE_MESSAGE` ("Operation
+  requires the Console presentation mode: …") vs the table's "Operation requires a
+  presentation mode the program is not in: in an `--app` build … (plan-62-E)." Same
+  meaning; the wrong-mode gate adopts the table message when migrated in plan-88-C.
+  Recorded in `EXPECTED_DIVERGING_CODES`.
+- **Alias-by-code map** (`ERR_*` const → table `Err*`, where names differ; messages
+  all matched): `ERR_READ`→ErrReadFailed, `ERR_OUTPUT`→ErrWriteFailed,
+  `ERR_EOF`→ErrEndOfFile, `ERR_INPUT`→ErrInputFailed,
+  `ERR_DIRECTORY_NOT_EMPTY`→ErrResourceBusy,
+  `ERR_NATIVE_LINK_LOAD`→ErrNativeBindingUnavailable,
+  `ERR_NATIVE_LINK_CALL`→ErrNativeBindingCallFailed; plus the message alias
+  `ERR_OUT_OF_MEMORY_CODE`↔`ERR_ALLOCATION_MESSAGE` (name `ErrOutOfMemory`).
+- **`ErrAuthenticationFailed` (crypto) note for B/C.** `77050016` has no `ERR_*`
+  const; it is referenced only in an `error_constants.rs` comment. If crypto raises
+  it via a literal `emit_error_code_return`, that site is a B/C migration target —
+  flagged here so the B/C census does not miss it.
+- **Dead-code fix.** The baseline `doc_desc` descriptor field was unread
+  (`#[warn(dead_code)]`). Made it live by reading `doc_into`/`doc_desc`/`errors` in
+  the existing `descriptor_fields_are_well_formed` test (no suppression, no delete),
+  matching how `doc_slug` is kept live there.
 
 ## Summary
 

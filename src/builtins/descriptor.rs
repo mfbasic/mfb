@@ -1317,6 +1317,9 @@ mod tests {
                 assert!(!function.flags.internal_only);
                 assert!(!function.flags.return_type_overloaded);
                 assert!(!function.overloads.is_empty(), "{}", function.name);
+                // Documentation/contract facets (doc surface + plan-88 `errors`):
+                // off the resolution path, so read them here to keep them live.
+                let _ = (function.doc_into, function.doc_desc, function.errors);
             }
         }
 

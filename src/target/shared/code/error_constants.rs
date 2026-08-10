@@ -1019,3 +1019,98 @@ pub(crate) const UNICODE_CASEFOLD_SEQUENCES_SYMBOL: &str = "_mfb_unicode_casefol
 // ===========================================================================
 
 pub(crate) const THREAD_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_thread_trampoline";
+
+#[cfg(test)]
+mod parity_tests {
+    use super::*;
+    use crate::builtins::errorcode::ERRORCODE_CONSTANTS;
+
+    /// Every `ERR_*` `(code, message)` pair emitted by codegen today. Base names
+    /// line up except `ERR_OUT_OF_MEMORY_CODE`, which is emitted with
+    /// `ERR_ALLOCATION_MESSAGE`. This is the exhaustive set the plan-88 migration
+    /// must reproduce through `ERRORCODE_CONSTANTS`.
+    const ERR_PAIRS: &[(&str, &str)] = &[
+        (ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE),
+        (ERR_READ_CODE, ERR_READ_MESSAGE),
+        (ERR_OUTPUT_CODE, ERR_OUTPUT_MESSAGE),
+        (ERR_EOF_CODE, ERR_EOF_MESSAGE),
+        (ERR_ENCODING_CODE, ERR_ENCODING_MESSAGE),
+        (ERR_INPUT_CODE, ERR_INPUT_MESSAGE),
+        (ERR_PATH_NOT_FOUND_CODE, ERR_PATH_NOT_FOUND_MESSAGE),
+        (ERR_INVALID_PATH_CODE, ERR_INVALID_PATH_MESSAGE),
+        (ERR_ACCESS_DENIED_CODE, ERR_ACCESS_DENIED_MESSAGE),
+        (ERR_RESOURCE_CLOSED_CODE, ERR_RESOURCE_CLOSED_MESSAGE),
+        (ERR_RESOURCE_MOVED_CODE, ERR_RESOURCE_MOVED_MESSAGE),
+        (ERR_DIRECTORY_NOT_EMPTY_CODE, ERR_DIRECTORY_NOT_EMPTY_MESSAGE),
+        (ERR_CLOSE_FAILED_CODE, ERR_CLOSE_FAILED_MESSAGE),
+        (ERR_NATIVE_LINK_LOAD_CODE, ERR_NATIVE_LINK_LOAD_MESSAGE),
+        (ERR_NATIVE_LINK_CALL_CODE, ERR_NATIVE_LINK_CALL_MESSAGE),
+        (ERR_NATIVE_BUFFER_OVERRUN_CODE, ERR_NATIVE_BUFFER_OVERRUN_MESSAGE),
+        (ERR_UNKNOWN_CODE, ERR_UNKNOWN_MESSAGE),
+        (ERR_INDEX_OUT_OF_RANGE_CODE, ERR_INDEX_OUT_OF_RANGE_MESSAGE),
+        (ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_MESSAGE),
+        (ERR_INVALID_FORMAT_CODE, ERR_INVALID_FORMAT_MESSAGE),
+        (ERR_NOT_FOUND_CODE, ERR_NOT_FOUND_MESSAGE),
+        (ERR_ALREADY_EXISTS_CODE, ERR_ALREADY_EXISTS_MESSAGE),
+        (ERR_UNSUPPORTED_CODE, ERR_UNSUPPORTED_MESSAGE),
+        (ERR_TIMEOUT_CODE, ERR_TIMEOUT_MESSAGE),
+        (ERR_INTERRUPTED_CODE, ERR_INTERRUPTED_MESSAGE),
+        (ERR_OVERFLOW_CODE, ERR_OVERFLOW_MESSAGE),
+        (ERR_UNDERFLOW_CODE, ERR_UNDERFLOW_MESSAGE),
+        (ERR_FLOAT_DOMAIN_CODE, ERR_FLOAT_DOMAIN_MESSAGE),
+        (ERR_FLOAT_NAN_CODE, ERR_FLOAT_NAN_MESSAGE),
+        (ERR_FLOAT_INF_CODE, ERR_FLOAT_INF_MESSAGE),
+        (ERR_FLOAT_OVERFLOW_CODE, ERR_FLOAT_OVERFLOW_MESSAGE),
+        (ERR_AUDIO_UNAVAILABLE_CODE, ERR_AUDIO_UNAVAILABLE_MESSAGE),
+        (ERR_AUDIO_DEVICE_CODE, ERR_AUDIO_DEVICE_MESSAGE),
+        (ERR_INVALID_CONTEXT_CODE, ERR_INVALID_CONTEXT_MESSAGE),
+        (ERR_WRONG_MODE_CODE, ERR_WRONG_MODE_MESSAGE),
+        (ERR_ADDRESS_INVALID_CODE, ERR_ADDRESS_INVALID_MESSAGE),
+        (ERR_ADDRESS_NOT_FOUND_CODE, ERR_ADDRESS_NOT_FOUND_MESSAGE),
+        (ERR_NETWORK_FAILED_CODE, ERR_NETWORK_FAILED_MESSAGE),
+        (ERR_CONNECTION_CLOSED_CODE, ERR_CONNECTION_CLOSED_MESSAGE),
+        (ERR_MESSAGE_TOO_LARGE_CODE, ERR_MESSAGE_TOO_LARGE_MESSAGE),
+        (ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_MESSAGE),
+    ];
+
+    /// Codes whose codegen `ERR_*_MESSAGE` differs from the `ERRORCODE_CONSTANTS`
+    /// message today. On consolidation (plan-88 B/C) those sites adopt the single
+    /// table message; the per-site acceptance gate allows a runtime *message*
+    /// change ONLY for a code on this list (a code change is always a failure).
+    /// This snapshot is the consolidation manifest. As of plan-88 Phase 0 exactly
+    /// one code diverges:
+    /// - `77050020` `ErrWrongMode`: `ERR_WRONG_MODE_MESSAGE` ("Operation requires
+    ///   the Console presentation mode: …") vs the table's "Operation requires a
+    ///   presentation mode the program is not in: in an `--app` build, …
+    ///   (plan-62-E)." Same meaning, different wording; the wrong-mode gate adopts
+    ///   the table message when migrated in plan-88-C.
+    const EXPECTED_DIVERGING_CODES: &[&str] = &["77050020"];
+
+    /// plan-88 Phase 0 parity audit: every `ERR_*` code must exist in the
+    /// errorCode table (a missing code is a bug — panics below), and the set of
+    /// messages that diverge from the table must match the recorded manifest.
+    #[test]
+    fn error_constants_match_table() {
+        let mut diverging_codes: Vec<&str> = Vec::new();
+        for &(code, message) in ERR_PAIRS {
+            let &(_name, table_code, table_message) = ERRORCODE_CONSTANTS
+                .iter()
+                .find(|&&(_, table_code, _)| table_code == code)
+                .unwrap_or_else(|| {
+                    panic!("ERR_* code {code} is not in ERRORCODE_CONSTANTS (code parity broken)")
+                });
+            assert_eq!(table_code, code, "found-by-code invariant");
+            if table_message != message {
+                diverging_codes.push(code);
+            }
+        }
+        diverging_codes.sort_unstable();
+        let mut expected = EXPECTED_DIVERGING_CODES.to_vec();
+        expected.sort_unstable();
+        assert_eq!(
+            diverging_codes, expected,
+            "ERR_* vs errorCode-table message divergence set changed; if intended, \
+             update EXPECTED_DIVERGING_CODES (the plan-88 consolidation manifest)"
+        );
+    }
+}
