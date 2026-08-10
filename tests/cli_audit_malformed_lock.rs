@@ -11,7 +11,8 @@ use std::process::Command;
 mod common;
 use common::*;
 
-const SOURCE: &str = "IMPORT io\n\nFUNC main AS Integer\n  io::print(\"hi\")\n  RETURN 0\nEND FUNC\n";
+const SOURCE: &str =
+    "IMPORT io\n\nFUNC main AS Integer\n  io::print(\"hi\")\n  RETURN 0\nEND FUNC\n";
 
 #[test]
 fn audit_locked_reports_a_malformed_lockfile_as_an_error() {
