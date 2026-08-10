@@ -361,11 +361,46 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        let param_types = builtins::term::param_types(callee).unwrap_or(&[]);
         let arg_types = arguments
             .iter()
             .map(|argument| self.infer_expression(file, argument, locals, line, ExprMode::Read))
             .collect::<Vec<_>>();
+
+        // `term::drawText` additionally accepts an `AttributedString` at the text
+        // position; the source-companion overload honours its bold/underline
+        // attributes (the native `String` overload stays for a `String` argument).
+        // Its other positions are unchanged, so only the third expected type flips.
+        // The overload's body lives in a bridge source injected only when the
+        // project imports `astrings` (`term::bridge_uses_package`); require that
+        // import here so the call cannot route to an uninjected `#term_drawTextAttr`
+        // (`AttributedString` is always in scope, so a value can reach this call
+        // without `IMPORT astrings`).
+        let third_is_attributed = callee == builtins::term::DRAW_TEXT
+            && arg_types.len() == 3
+            && self.type_name(&arg_types[2]) == "AttributedString";
+        if third_is_attributed {
+            let astrings_imported = self.ast.files.iter().any(|file| {
+                file.imports
+                    .iter()
+                    .any(|import| import.package_name() == "astrings")
+            });
+            if !astrings_imported {
+                self.report(
+                    "TYPE_CALL_ARGUMENT_MISMATCH",
+                    &format!(
+                        "Call to `{display_callee}` with an `AttributedString` requires `IMPORT astrings`."
+                    ),
+                    file,
+                    line,
+                );
+                return self.term_return_type(callee);
+            }
+        }
+        let param_types: &[&str] = if third_is_attributed {
+            &["Integer", "Integer", "AttributedString"]
+        } else {
+            builtins::term::param_types(callee).unwrap_or(&[])
+        };
 
         let mut mismatch = false;
         for ((expected_name, actual), argument) in param_types

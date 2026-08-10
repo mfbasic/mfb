@@ -286,3 +286,53 @@ END FUNC
         "isOn should be TRUE while active: {out:?}"
     );
 }
+
+#[test]
+fn native_term_draw_text_attributed_applies_bold_underline() {
+    // `term::drawText(x, y, AttributedString)` stamps the visible text honouring
+    // the per-scalar bold/underline attributes, drawing maximal same-style runs and
+    // ignoring attributes the terminal cannot represent (italic/font here). The
+    // default pen is white-on-black, so each presented run carries its own SGR:
+    // "Hi " plain, "Bold" bold, " " plain, "Und" underlined. Driven into a pipe.
+    let project = temp_project(
+        "native_term_draw_attr",
+        r#"
+IMPORT term
+IMPORT astrings
+
+FUNC main AS Integer
+  term::on()
+  MUT a AS AttributedString = astrings::fromString("Hi Bold Und")
+  a = astrings::addAttribute(a, 3, 6, astrings::bold())
+  a = astrings::addAttribute(a, 8, 10, astrings::underline())
+  a = astrings::addAttribute(a, 0, 1, astrings::italic())
+  a = astrings::addAttribute(a, 0, 10, astrings::font("Serif"))
+  term::drawText(0, 0, a)
+  term::sync()
+  term::off()
+  RETURN 0
+END FUNC
+"#,
+    );
+    let executable = build_project(&project);
+    let out = run_with_stdin(&executable, b"");
+    // "Hi " is plain despite the italic/font spans covering it (both ignored): the
+    // reset pen (`\x1b[0m`) with default colours and no bold/underline.
+    assert!(
+        out.contains("\x1b[0m\x1b[38;2;255;255;255m\x1b[48;2;0;0;0mHi "),
+        "prefix run should be plain (ignored attrs), got {:?}",
+        hex(out.as_bytes())
+    );
+    // "Bold" carries the bold SGR (and no underline).
+    assert!(
+        out.contains("\x1b[1m\x1b[38;2;255;255;255m\x1b[48;2;0;0;0mBold"),
+        "bold run should carry \\x1b[1m, got {:?}",
+        hex(out.as_bytes())
+    );
+    // "Und" carries the underline SGR (and no bold).
+    assert!(
+        out.contains("\x1b[4m\x1b[38;2;255;255;255m\x1b[48;2;0;0;0mUnd"),
+        "underline run should carry \\x1b[4m, got {:?}",
+        hex(out.as_bytes())
+    );
+}

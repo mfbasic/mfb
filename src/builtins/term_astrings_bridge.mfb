@@ -1,0 +1,86 @@
+' ===========================================================================
+' term ↔ astrings bridge: term::drawText(x, y, text AS AttributedString)
+'
+' The native drawing callables know nothing of the `astrings` attribute overlay,
+' so the AttributedString overload of `term::drawText` is a source-companion body
+' here rather than native codegen. It is injected only when a program imports BOTH
+' `term` and `astrings` (see `term::bridge_uses_package`), so a plain `IMPORT term`
+' program never drags in the `astrings`/`strings` companions this file needs.
+'
+' `__term_drawTextAttr` stamps the visible text at (x, y) exactly as the String
+' overload, but honours the per-scalar styling the AttributedString carries. Only
+' the two attributes the terminal surface can represent are applied — bold and
+' underline; every other attribute (italic, strike, overline, font, font size) is
+' silently ignored. The text is drawn in maximal runs of a single (bold,
+' underline) state, and each run is handed to the native `String` drawText so the
+' grapheme-cluster and wide-glyph handling is identical to the String overload;
+' runs are placed left to right, advancing the start column by each run's display
+' width. The current global bold/underline are saved before the runs and restored
+' after, so drawText leaves the attribute state it found (matching the String
+' overload, which never changes it). While TUI mode is off the whole body is
+' skipped, so — like every other term:: call — it draws nothing and raises nothing.
+' ===========================================================================
+
+IMPORT term
+IMPORT astrings
+IMPORT strings
+
+' Whether scalar `index` carries the bold flag: any covering span with the flag
+' turns it on (flags OR). Non-flag attributes and flags the terminal cannot
+' render are ignored. `__term_underlineAt` is the same for the underline flag.
+' These stay two Boolean queries — rather than one record-returning resolver —
+' deliberately: the run scan compares them in a WHILE condition, and a
+' record-returning call in a loop condition alongside the term:: writes triggers
+' a codegen miscompile (bug-440).
+FUNC __term_boldAt(value AS AttributedString, index AS Integer) AS Boolean
+  FOR EACH at IN astrings::getAttributes(value, index)
+    MATCH at
+      CASE AttrFlag(f)
+        IF f.kind = AttrTypeFlag.Bold THEN
+          RETURN TRUE
+        END IF
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN FALSE
+END FUNC
+
+FUNC __term_underlineAt(value AS AttributedString, index AS Integer) AS Boolean
+  FOR EACH at IN astrings::getAttributes(value, index)
+    MATCH at
+      CASE AttrFlag(f)
+        IF f.kind = AttrTypeFlag.Underline THEN
+          RETURN TRUE
+        END IF
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN FALSE
+END FUNC
+
+SUB __term_drawTextAttr(x AS Integer, y AS Integer, value AS AttributedString)
+  IF term::isOn() THEN
+    LET text AS String = toString(value)
+    LET n AS Integer = len(strings::toScalars(value))
+    LET saveBold AS Boolean = term::getBold()
+    LET saveUnderline AS Boolean = term::getUnderline()
+    MUT col AS Integer = x
+    MUT i AS Integer = 0
+    WHILE i < n
+      LET bold AS Boolean = __term_boldAt(value, i)
+      LET underline AS Boolean = __term_underlineAt(value, i)
+      MUT j AS Integer = i + 1
+      WHILE j < n AND __term_boldAt(value, j) = bold AND __term_underlineAt(value, j) = underline
+        j = j + 1
+      END WHILE
+      LET seg AS String = strings::mid(text, i, j - i)
+      term::setBold(bold)
+      term::setUnderline(underline)
+      term::drawText(col, y, seg)
+      col = col + strings::displayWidth(seg)
+      i = j
+    END WHILE
+    term::setBold(saveBold)
+    term::setUnderline(saveUnderline)
+  END IF
+END SUB
