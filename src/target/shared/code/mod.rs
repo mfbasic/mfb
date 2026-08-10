@@ -85,7 +85,6 @@ use builder_collection_layout::{
 pub(crate) use builder_collection_layout::{kind2_payload_size, list_element_is_fixed_width};
 mod app;
 mod builder_collection_queries;
-mod builder_collection_query;
 mod builder_control;
 mod builder_conversions;
 mod builder_emit_helpers;

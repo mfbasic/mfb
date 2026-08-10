@@ -1,4 +1,26 @@
-use super::*;
+//! Target-generic map-retrieval primitives shared within the `collections`
+//! package (plan-96 follow-up: A1 code motion out of `src/target`).
+//!
+//! These were `CodeBuilder` methods in `src/target/shared/code/builder_collection_query.rs`.
+//! The census in the git history of `planning/` classified them **A1** — their
+//! only callers are collection-domain lowerings (`func_get`/`func_get_or`, the
+//! map `set`/`hasKey`/mutate paths in `builder_collection_queries.rs`/
+//! `map_mutate.rs`), never anything outside the package — so they live here beside
+//! the `func_*.rs` entries. They stay `impl CodeBuilder` methods (call sites are
+//! unchanged); only their defining module moved. The one change from the verbatim
+//! bodies: `emit_map_probe`'s open-coded `_mfb_rt_map_probe` relocation push now
+//! goes through `CodeBuilder::push_internal_call_relocation` (byte-identical to the
+//! inline `internal`/`None` push it replaced), so this module needs no access to
+//! `CodeBuilder`'s private `relocations`/`current_symbol` fields.
+
+use crate::target::shared::abi;
+use crate::target::shared::code::{
+    CodeBuilder, Operand, ValueResult, COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+    COLLECTION_ENTRY_OFFSET_KEY_OFFSET, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+    COLLECTION_ENTRY_OFFSET_VALUE_OFFSET, COLLECTION_ENTRY_SIZE, COLLECTION_HEADER_SIZE,
+    COLLECTION_OFFSET_BUCKETS_READY, COLLECTION_OFFSET_CAPACITY, COLLECTION_OFFSET_COUNT,
+    COLLECTION_OFFSET_DATA_CAPACITY, FNV1A_BASIS, FNV1A_PRIME, MAP_PROBE_SYMBOL,
+};
 
 impl CodeBuilder<'_> {
     /// Entry-table linear-scan preamble shared by the map lookups
@@ -11,7 +33,7 @@ impl CodeBuilder<'_> {
     /// data walk (e.g. `lower_collection_contains`) is a different shape and stays
     /// inline. Emit-only, so byte-identical to the copies it replaced.
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn emit_entry_scan_setup(
+    pub(crate) fn emit_entry_scan_setup(
         &mut self,
         collection: impl Into<Operand>,
         count: impl Into<Operand>,
@@ -48,7 +70,7 @@ impl CodeBuilder<'_> {
 
     /// Close the [`Self::emit_entry_scan_setup`] loop: bump `entry` by one entry
     /// stride and `index` by one, then branch back. Emit-only, byte-identical.
-    pub(super) fn emit_entry_scan_advance(
+    pub(crate) fn emit_entry_scan_advance(
         &mut self,
         entry: impl Into<Operand>,
         index: impl Into<Operand>,
@@ -67,124 +89,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(loop_label));
     }
 
-    pub(crate) fn lower_list_get(
-        &mut self,
-        collection_slot: usize,
-        key_slot: usize,
-        collection_type: &str,
-        element_type: &str,
-        unchecked: bool,
-    ) -> Result<ValueResult, String> {
-        self.lower_list_get_common(
-            collection_slot,
-            key_slot,
-            None,
-            collection_type,
-            element_type,
-            unchecked,
-        )
-    }
-
-    /// Shared body of list `get`/`getOr`: bounds-check the index and load the
-    /// element. `default_slot` is the `Miss` selector — `None` traps
-    /// (index-out-of-range), `Some(slot)` returns the default. Each variant mints
-    /// its own label prefix and result text, so output is byte-identical to the two
-    /// former standalone functions.
-    fn lower_list_get_common(
-        &mut self,
-        collection_slot: usize,
-        key_slot: usize,
-        default_slot: Option<usize>,
-        collection_type: &str,
-        element_type: &str,
-        unchecked: bool,
-    ) -> Result<ValueResult, String> {
-        self.reset_temporary_registers();
-        let collection = self.allocate_register()?;
-        let index = self.allocate_register()?;
-        let count = self.allocate_register()?;
-        let entry_offset = self.allocate_register()?;
-        let entry = self.allocate_register()?;
-        let value_offset = self.allocate_register()?;
-        let value_length = self.allocate_register()?;
-        let (miss, done) = match default_slot {
-            None => (self.label("list_get_invalid"), self.label("list_get_done")),
-            Some(_) => (
-                self.label("list_get_or_default"),
-                self.label("list_get_or_done"),
-            ),
-        };
-
-        self.emit(abi::load_u64(
-            &collection,
-            abi::stack_pointer(),
-            collection_slot,
-        ));
-        self.emit(abi::load_u64(&index, abi::stack_pointer(), key_slot));
-        // plan-86 G1: skip the `0 <= index < count` bounds check when the caller has
-        // PROVEN the index in range (induction var over `len(L)-k`, L unmodified).
-        // `count` is still loaded below by `emit_element_value_offset` as needed.
-        if !unchecked {
-            self.emit(abi::compare_immediate(&index, "0"));
-            self.emit(abi::branch_lt(&miss));
-            self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
-            self.emit(abi::compare_registers(&index, &count));
-            self.emit(abi::branch_ge(&miss));
-        }
-        self.emit_element_value_offset(
-            &value_offset,
-            &value_length,
-            &collection,
-            &index,
-            &entry_offset,
-            &entry,
-            element_type,
-        );
-        let result = self.emit_load_collection_payload(
-            element_type,
-            &collection,
-            &value_offset,
-            &value_length,
-        )?;
-        self.emit(abi::branch(&done));
-        self.emit(abi::label(&miss));
-        let text = match default_slot {
-            None => {
-                self.raise_error("collections.get", "ErrIndexOutOfRange")?;
-                format!("get({collection_type}, Integer)")
-            }
-            Some(default_slot) => {
-                if element_type == "String" {
-                    // See `lower_map_get_or`: the found path materializes a fresh
-                    // owned string, so the default must be copied too — returning
-                    // the alias double-frees it and corrupts the arena.
-                    let default_ptr = self.allocate_register()?;
-                    self.emit(abi::load_u64(
-                        &default_ptr,
-                        abi::stack_pointer(),
-                        default_slot,
-                    ));
-                    let copied = self.emit_copy_owned_string(&default_ptr)?;
-                    self.emit(abi::move_register(&result, &copied));
-                } else {
-                    self.emit(abi::load_u64(&result, abi::stack_pointer(), default_slot));
-                }
-                format!("getOr({collection_type}, Integer, {element_type})")
-            }
-        };
-        self.emit(abi::label(&done));
-
-        Ok(ValueResult {
-            type_: element_type.to_string(),
-            location: Operand::from(result.render()),
-            text,
-        })
-    }
-
     /// Whether a map key type uses the FNV-1a bucket probe (plan-02 Phase 6). The
     /// probe compares key bytes, which is exactly the linear scan's comparison for
     /// these types; other key types keep the scan.
-    pub(super) fn map_key_probe_eligible(key_type: &str) -> bool {
+    pub(crate) fn map_key_probe_eligible(key_type: &str) -> bool {
         matches!(
             key_type,
             "String" | "Integer" | "Float" | "Fixed" | "Byte" | "Boolean"
@@ -195,11 +103,7 @@ impl CodeBuilder<'_> {
     /// for the map probe — the same bytes `emit_copy_payload_to_collection` stored
     /// for the key. `String` keys point past the length word; fixed-width keys
     /// point at their stack slot.
-    pub(super) fn emit_map_query_key(
-        &mut self,
-        key_type: &str,
-        key_slot: usize,
-    ) -> Result<(), String> {
+    fn emit_map_query_key(&mut self, key_type: &str, key_slot: usize) -> Result<(), String> {
         let scratch9 = self.temporary_vreg();
         match key_type {
             "String" => {
@@ -244,7 +148,7 @@ impl CodeBuilder<'_> {
     /// which re-hashes and walks the full linear-probe chain. The inline arithmetic
     /// mirrors `lower_map_probe_helper` exactly, so the entry it resolves — and thus
     /// every observable map value and iteration order — is byte-identical.
-    pub(super) fn emit_map_probe(
+    pub(crate) fn emit_map_probe(
         &mut self,
         collection_slot: usize,
         key_slot: usize,
@@ -409,13 +313,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(abi::c_arg(1), &key_ptr));
         self.emit(abi::move_register(abi::c_arg(2), &key_len));
         self.emit(abi::branch_link(MAP_PROBE_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: MAP_PROBE_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
+        self.push_internal_call_relocation(MAP_PROBE_SYMBOL);
         // x0 = entry index, or -1 (signed negative) when absent.
         self.emit(abi::compare_immediate(abi::mfb_return(0), "0"));
         self.emit(abi::branch_lt(not_found_label));
@@ -562,25 +460,6 @@ impl CodeBuilder<'_> {
             location: Operand::from(result.render()),
             text: format!("get({collection_type}, {key_type})"),
         })
-    }
-
-    pub(crate) fn lower_list_get_or(
-        &mut self,
-        collection_slot: usize,
-        key_slot: usize,
-        default_slot: usize,
-        collection_type: &str,
-        element_type: &str,
-    ) -> Result<ValueResult, String> {
-        self.lower_list_get_common(
-            collection_slot,
-            key_slot,
-            Some(default_slot),
-            collection_type,
-            element_type,
-            // getOr returns a default on OOB (no trap), so the elision does not apply.
-            false,
-        )
     }
 
     pub(crate) fn lower_map_get_or(

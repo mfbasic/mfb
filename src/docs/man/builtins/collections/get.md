@@ -58,7 +58,7 @@ Map lookup for the common key types `String`, `Integer`, `Float`, `Fixed`,
 `Byte`, and `Boolean` goes through the map's hash bucket index; other key types
 fall back to a linear scan of the entry table. This is a performance difference
 only — both paths select the same entry and raise the same error when the key is
-absent. [[src/target/shared/code/builder_collection_query.rs:map_key_probe_eligible]]
+absent. [[src/codegen/builtins/collections/common/map.rs:map_key_probe_eligible]]
 
 ## Overloads
 
@@ -68,13 +68,13 @@ Returns the item stored at zero-based `index`. The index is bounds-checked
 against the list's element count before any payload is read: `index < 0` and
 `index >= len(value)` both raise `ErrIndexOutOfRange`, so the valid range is
 `0` through `len(value) - 1` and every index into an empty list fails.
-[[src/target/shared/code/builder_collection_query.rs:lower_list_get]]
+[[src/codegen/builtins/collections/common/list.rs:lower_list_get]]
 
 **`collections::get OF K, V(value AS Map OF K TO V, key AS K) AS V`**
 
 Returns the value stored under `key`. A key that is not present raises
 `ErrNotFound`; the map overload has no notion of an out-of-range key.
-[[src/target/shared/code/builder_collection_query.rs:lower_map_get]]
+[[src/codegen/builtins/collections/common/map.rs:lower_map_get]]
 
 ## Parameters
 
@@ -93,8 +93,8 @@ Returns the value stored under `key`. A key that is not present raises
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050001` | `ErrIndexOutOfRange` | List overload only: `index` is negative, or is greater than or equal to the number of items in `value`. [[src/target/shared/code/builder_collection_query.rs:lower_list_get]] |
-| `77050004` | `ErrNotFound` | Map overload only: `value` has no entry whose key matches `key`. [[src/target/shared/code/builder_collection_query.rs:lower_map_get]] |
+| `77050001` | `ErrIndexOutOfRange` | List overload only: `index` is negative, or is greater than or equal to the number of items in `value`. [[src/codegen/builtins/collections/common/list.rs:lower_list_get]] |
+| `77050004` | `ErrNotFound` | Map overload only: `value` has no entry whose key matches `key`. [[src/codegen/builtins/collections/common/map.rs:lower_map_get]] |
 
 ## Type checking
 

@@ -48,7 +48,7 @@ For the key types `String`, `Integer`, `Float`, `Fixed`, `Byte`, and `Boolean`
 the probe uses the map's hash bucket index; other key types use a linear scan of
 the entry table. Both paths compare exactly the same key bytes and return the
 same answer.
-[[src/target/shared/code/builder_collection_query.rs:map_key_probe_eligible]]
+[[src/codegen/builtins/collections/common/map.rs:map_key_probe_eligible]]
 
 `collections::hasKey` raises no trappable domain error, so an inline `TRAP` on a
 `hasKey` call has a dead handler.

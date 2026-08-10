@@ -7,6 +7,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
 
+pub(crate) mod common;
 mod func_add;
 mod func_append;
 mod func_contains;

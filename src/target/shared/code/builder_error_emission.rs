@@ -8,7 +8,7 @@ impl CodeBuilder<'_> {
     /// emits the error return. One of the two sanctioned error-emission entry
     /// points (the other is `raise_error_bare`); no site emits an error any other
     /// way once the migration is complete.
-    pub(super) fn raise_error(
+    pub(crate) fn raise_error(
         &mut self,
         function_id: &str,
         error_name: &'static str,

@@ -2043,7 +2043,7 @@ impl CodeBuilder<'_> {
     /// give fixed-width-scalar lists an entry-free representation, where the
     /// answer becomes `index * payloadSize` with no loads at all. Adding the
     /// parameter later would mean touching all of these call sites twice.
-    pub(super) fn emit_element_value_offset(
+    pub(crate) fn emit_element_value_offset(
         &mut self,
         dst_offset: impl Into<Operand>,
         dst_length: impl Into<Operand>,
@@ -2170,7 +2170,7 @@ impl CodeBuilder<'_> {
     /// uses the kind-0 stride: a map keeps its lookup table whatever its key and
     /// value types are, so selecting the entry-free base from a fixed-width key
     /// or value type would address it past its own entry array (plan-57-D).
-    pub(super) fn emit_load_map_payload(
+    pub(crate) fn emit_load_map_payload(
         &mut self,
         type_: &str,
         collection: impl Into<Operand>,
@@ -2250,7 +2250,7 @@ impl CodeBuilder<'_> {
     /// scope end, but deliberately skips `String` assuming it is already fresh)
     /// double-frees the caller's default and corrupts the arena free-list, which
     /// only surfaces as a trap on a *later* allocation. See [[scope-drop-frees]].
-    pub(super) fn emit_copy_owned_string(
+    pub(crate) fn emit_copy_owned_string(
         &mut self,
         source_ptr: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {

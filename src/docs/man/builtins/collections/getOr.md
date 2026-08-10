@@ -44,7 +44,7 @@ string on the fallback path rather than being returned as a borrow, so the
 result can be bound and freed identically no matter which path ran. A composite
 payload read out of the collection is likewise copied into a standalone block
 before it is returned.
-[[src/target/shared/code/builder_collection_query.rs:lower_map_get_or]]
+[[src/codegen/builtins/collections/common/map.rs:lower_map_get_or]]
 [[src/target/shared/code/builder_collection_queries.rs:materialize_owned_element]]
 
 `default` is an ordinary argument expression, so it is evaluated before the
@@ -63,7 +63,7 @@ Map lookup for the common key types `String`, `Integer`, `Float`, `Fixed`,
 branch; other key types fall back to a linear scan of the entry table. This is
 a performance difference only — both paths select the same entry and yield the
 same `default` when the key is absent.
-[[src/target/shared/code/builder_collection_query.rs:map_key_probe_eligible]]
+[[src/codegen/builtins/collections/common/map.rs:map_key_probe_eligible]]
 
 ## Overloads
 
@@ -71,12 +71,12 @@ same `default` when the key is absent.
 
 Returns the item at zero-based `index`, or `default` when `index` is negative or
 is greater than or equal to `len(value)`. Every index into an empty list yields
-`default`. [[src/target/shared/code/builder_collection_query.rs:lower_list_get_or]]
+`default`. [[src/codegen/builtins/collections/common/list.rs:lower_list_get_or]]
 
 **`collections::getOr OF K, V(value AS Map OF K TO V, key AS K, default AS V) AS V`**
 
 Returns the value stored under `key`, or `default` when the map has no entry for
-that key. [[src/target/shared/code/builder_collection_query.rs:lower_map_get_or]]
+that key. [[src/codegen/builtins/collections/common/map.rs:lower_map_get_or]]
 
 ## Parameters
 

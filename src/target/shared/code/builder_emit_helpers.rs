@@ -17,6 +17,22 @@ impl CodeBuilder<'_> {
         });
     }
 
+    /// Record an internal (`binding: "internal"`, no library) call relocation from
+    /// the current function to `to`, without emitting the branch itself. Extracted
+    /// verbatim from `emit_map_probe`'s open-coded push so that helper can live in
+    /// `codegen::builtins::collections::common` without reaching `CodeBuilder`'s
+    /// private `relocations`/`current_symbol` fields. Byte-identical to the inline
+    /// push it replaces (the caller still emits its own `branch_link`).
+    pub(crate) fn push_internal_call_relocation(&mut self, to: &str) {
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: to.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
+    }
+
     /// Call `_mfb_arena_alloc` (size in `x0`, alignment in `x1`) and compare the
     /// result tag against `RESULT_OK_TAG`, leaving the caller to branch.
     ///
