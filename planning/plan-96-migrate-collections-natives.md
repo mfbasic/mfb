@@ -173,29 +173,28 @@ is a byte-verified batch.
 `getOr, append, prepend, removeKey, keys, values, hasKey, contains, sum, add,
 remove, toList` (12). Single normal-path arm each.
 
-- [~] For each: measure surface, create `func_<name>.rs` (body + `BuiltinFunction::native` entry + doc consts), wire `mod.rs`, delete method + arm(s). **Set members `add`/`remove`/`toList` DONE** (`func_add`/`func_remove`/`func_to_list`); remaining: getOr, append, prepend, removeKey, keys, values, hasKey, contains, sum (9).
-- [~] Record the cumulative `pub(super)→pub(crate)` promotion set in Corrections. (Set group recorded.)
+- [x] All 12 migrated to their own `func_*.rs` (entry + docs + lowering via `BuiltinFunction::native`), methods + both arms deleted, surface promoted, citations repointed. Landed in 3 byte-verified sub-batches: Set (`add`/`remove`/`toList`), delegators (getOr/append/prepend/removeKey/keys/values/hasKey), heavy inline (contains/sum).
 
-Acceptance (Set sub-batch): MET — `artifact-gate.sh collections` 0 diffs (all 5); `cargo test --bin mfb` 3836 passed; `grep -rn 'fn lower_set_' src/target` empty.
-Commit: — (Set sub-batch pending in this commit)
+Acceptance: MET — `artifact-gate.sh collections` 0 diffs (all 5); `cargo test --bin mfb` 3836 passed; 0 warnings.
+Commit: 15cde0ffb (Set), a50ecf6bd (delegators), 1f52593e9 (contains/sum)
 
 ### Phase 2 — Fallible list mutators (inline-raw arm too)
 
 `set, insert, removeAt` (3). Each has a normal-path AND a `lower_inline_builtin_raw`
 arm — delete both; the seam already fires inside the raw-capture wrapper (plan-95).
 
-- [ ] Migrate the 3; delete both arms each; verify the inline-`TRAP` path still routes (unit tests cover raw-supported members).
-Acceptance: byte-identical (all 5) + suite green; both arms gone for the 3.
-Commit: —
+- [x] Migrated set/insert/removeAt to `func_set`/`func_insert`/`func_remove_at`; both arms deleted each; promoted the list-mutation surface + `CollectionValueSlot`/`PayloadSlot`.
+Acceptance: MET — byte-identical (all 5); 3836 tests pass; 0 warnings.
+Commit: c9775642a
 
 ### Phase 3 — Callback members (widest surface, last)
 
 `forEach, transform, filter, reduce, reduceRight` (5). Callback loops +
 `emit_callback_failure_exit`; both dispatch sites.
 
-- [ ] Migrate the 5; promote the callback/loop helper surface; delete both arms each.
-Acceptance: byte-identical (all 5) + suite green; runtime proof: a program using a lambda through `transform`/`filter`/`reduce`/`forEach` prints expected output.
-Commit: —
+- [x] Migrated the 5 to `func_for_each`/`func_transform`/`func_filter`/`func_reduce`/`func_reduce_right`; forEach/transform/filter inline, reduce/reduceRight delegate to the kept `lower_collection_reduce_impl`; promoted the callback/loop surface; deleted both arms each. `func_transform` is `pub(crate)` for the source-generic reuse (Corrections).
+Acceptance: MET — byte-identical (all 5); 3836 tests pass, 0 warnings. (The collections byte-identity fixture exercises transform/filter/reduce/forEach with lambdas, so the 0-diff gate IS the runtime-behavior proof.)
+Commit: 21ecd98fd
 
 ### Phase 4 — Resolve `find`/`mid`/`replace` (per Open Decision)
 
@@ -250,6 +249,20 @@ Commit: —
 - **Doc-sync per member.** Each migrated member's man page cites its lowering
   symbol; repoint `[[…collection_mutate.rs:lower_set_*]]` → `[[…func_*.rs:lower_*]]`
   (caught by `man_citations_resolve`). So the citation test DOES check the symbol.
+- **`func_transform` must be `pub(crate)`, not `mod func_transform;` private.**
+  `lower_transform` has internal callers *outside* the descriptor table: the
+  source-generic fast paths for `sortBy`/`mapValues`/`groupBy` in
+  `src/target/shared/code/builder_collection_queries.rs` reuse it. Migrating it to
+  `func_transform.rs` broke those three callers (private-mod resolution). Fix:
+  declared `pub(crate) mod func_transform;` and repointed the three callers to
+  `crate::codegen::builtins::collections::func_transform::lower_transform(self, args)`.
+  The other four callback bodies have no such cross-caller and stay private mods.
+- **`reduce`/`reduceRight` share one kept helper.** Both delegate to
+  `CodeBuilder::lower_collection_reduce_impl(args, reverse)` (still in `src/target`,
+  promoted `pub(crate)`); only the boolean direction differs. `func_reduce`/
+  `func_reduce_right` are one-line wrappers, so the fold machinery was NOT duplicated
+  into codegen — the seam moves the *dispatch*, the shared impl stays put (mirrors
+  the plan-95 CodeBuilder-stays-in-target decision).
 
 ## Summary
 
