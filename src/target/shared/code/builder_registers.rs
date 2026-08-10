@@ -12,7 +12,7 @@ impl CodeBuilder<'_> {
     /// that build an instruction list and have no `Result` to bubble through
     /// (bug-70). Neither is more correct — pick by whether the call site can
     /// propagate an error. Under linear-scan (the default) both are infallible.
-    pub(super) fn allocate_register(&mut self) -> Result<VirtualRegister, String> {
+    pub(crate) fn allocate_register(&mut self) -> Result<VirtualRegister, String> {
         let vreg = self.next_vreg;
         self.next_vreg += 1;
         debug_assert_eq!(self.vreg_eager.len(), vreg as usize);

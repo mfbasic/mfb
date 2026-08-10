@@ -296,7 +296,7 @@ pub(super) fn collection_has_buckets(type_: &str) -> bool {
 /// The element type of a `Set OF T` (`Set OF Integer` -> `Integer`). A Set
 /// element is always comparable and never `RES`-marked, so no marker strip is
 /// needed (unlike [`list_element_type`]).
-pub(super) fn set_element_type(type_: &str) -> Option<String> {
+pub(crate) fn set_element_type(type_: &str) -> Option<String> {
     type_.strip_prefix("Set OF ").map(str::to_string)
 }
 

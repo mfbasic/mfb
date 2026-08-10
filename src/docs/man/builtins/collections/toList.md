@@ -35,7 +35,7 @@ argument, which is neither optional nor variadic.
 The set is neither copied for the caller nor mutated: the result is a freshly
 built list. Because a set already holds each element at most once, the resulting
 list has no duplicates and its length equals `len(value)`. An empty set yields an
-empty list. [[src/target/shared/code/collection_mutate.rs:lower_set_to_list]]
+empty list. [[src/codegen/builtins/collections/func_to_list.rs:lower_to_list]]
 
 `toList` is **infallible**: no path in its lowering raises a trappable domain
 error, so an inline `TRAP` written on a `toList` call has a dead handler.

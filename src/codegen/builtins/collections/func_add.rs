@@ -1,0 +1,94 @@
+//! `collections::add` — descriptor entry + target-generic lowering (plan-96).
+
+use super::{custom, req};
+use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::abi;
+use crate::target::shared::code::type_utils::set_element_type;
+use crate::target::shared::code::{CodeBuilder, ValueResult};
+use crate::target::shared::nir::NirValue;
+
+const INTO_ADD: &str = "Return a set with one element inserted, leaving the argument unchanged";
+const DESC_ADD: &str = r#"`collections::add` returns a new `Set OF T` containing every element of `value`
+plus `item`. It takes exactly two arguments; neither is optional and neither is
+variadic.
+
+Insertion is **idempotent**: if an equal element is already in `value`, the
+result is a set with the same elements — no duplicate is created and the length
+is unchanged. When `item` is new, the result has one more element than `value`,
+appended in insertion order so a later `collections::toList` places it last.
+
+`add` is value-semantic. The set named by `value` is unchanged; the modified set
+is the returned value, and a program observes the update only through what it
+does with that return value. When the compiler can prove the target is a
+uniquely-owned local being reassigned — the `set = collections::add(set, x)`
+shape — it may update the live buffer in place; this is an optimization only, and
+the observable semantics are identical either way.
+
+`add` is **infallible**: no path in its lowering raises a trappable domain error,
+so an inline `TRAP` written on an `add` call has a dead handler. Allocation
+exhaustion is not a trappable domain error in this language."#;
+
+pub(crate) const ADD: BuiltinFunction = BuiltinFunction::native(
+    "collections.add",
+    "add",
+    INTO_ADD,
+    DESC_ADD,
+    &[],
+    &[custom(&[
+        req("value", &["set"], "Set OF T"),
+        req("item", &["element"], "T"),
+    ])],
+    lower_add,
+);
+
+/// `collections::add(Set OF T, T) AS Set OF T` (plan-63-B): insert an element,
+/// idempotent. Copy the set (tight, uniquely owned), then insert into the copy.
+pub(crate) fn lower_add(
+    builder: &mut CodeBuilder,
+    args: &[NirValue],
+) -> Result<ValueResult, String> {
+    let set = builder.lower_value(&args[0])?;
+    let Some(element_type) = set_element_type(&set.type_) else {
+        return Err(format!(
+            "native collection add does not accept {}",
+            set.type_
+        ));
+    };
+    let source_slot = builder.allocate_stack_object("set_add_source", 8);
+    builder.emit(abi::store_u64(
+        &set.location,
+        abi::stack_pointer(),
+        source_slot,
+    ));
+    let item = builder.lower_value(&args[1])?;
+    // Observation boundary: a `Float` element must be finite (plan-17).
+    builder.observe_float(&args[1], &item)?;
+    if item.type_ != element_type {
+        return Err(format!(
+            "native collection add element must be {element_type}, got {}",
+            item.type_
+        ));
+    }
+    let item = builder.materialize_value(item)?;
+    let item_slot = builder.allocate_stack_object("set_add_item", 8);
+    builder.store_value_at(&item, abi::stack_pointer(), item_slot);
+    // The per-element value is a 1-byte `Boolean` TRUE.
+    let true_slot = builder.allocate_stack_object("set_add_true", 8);
+    let true_reg = builder.allocate_register()?;
+    builder.emit(abi::move_immediate(&true_reg, "Boolean", "true"));
+    builder.emit(abi::store_u64(&true_reg, abi::stack_pointer(), true_slot));
+    // Copy the set (tight, uniquely owned), then insert into the copy.
+    let source = builder.allocate_register()?;
+    builder.emit(abi::load_u64(&source, abi::stack_pointer(), source_slot));
+    let copy = builder.copy_collection_tight(&set.type_, &source)?;
+    let copy_slot = builder.allocate_stack_object("set_add_copy", 8);
+    builder.emit(abi::store_u64(&copy, abi::stack_pointer(), copy_slot));
+    builder.lower_map_set_in_place(
+        copy_slot,
+        item_slot,
+        true_slot,
+        &set.type_,
+        &element_type,
+        "Boolean",
+    )
+}

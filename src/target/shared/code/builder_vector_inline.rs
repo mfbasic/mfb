@@ -238,7 +238,7 @@ impl CodeBuilder<'_> {
     /// vector becomes its block; a `d`-native `Float` becomes its GPR bits; every
     /// other value is unchanged. Every site that stores a value as 8 bytes or
     /// passes it as an argument routes through here.
-    pub(super) fn materialize_value(&mut self, value: ValueResult) -> Result<ValueResult, String> {
+    pub(crate) fn materialize_value(&mut self, value: ValueResult) -> Result<ValueResult, String> {
         if Self::is_vector_native(&value) {
             return self.vector_value_as_block(value);
         }

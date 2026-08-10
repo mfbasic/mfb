@@ -427,7 +427,7 @@ impl CodeBuilder<'_> {
     /// relative to the data base, so the verbatim data copy keeps them valid; the
     /// source's spare capacity slots and any trailing data slack are dropped.
     /// Returns the destination pointer in a fresh register.
-    pub(super) fn copy_collection_tight(
+    pub(crate) fn copy_collection_tight(
         &mut self,
         type_: &str,
         source: impl Into<Operand>,

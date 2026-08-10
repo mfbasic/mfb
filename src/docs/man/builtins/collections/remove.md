@@ -35,7 +35,7 @@ Removal is a **no-op when the element is absent**: if no element equal to `item`
 is in `value`, the result is a set with the same elements and the same length.
 When `item` is present, the result has exactly one fewer element and the
 remaining elements keep their relative insertion order.
-[[src/target/shared/code/collection_mutate.rs:lower_set_remove]]
+[[src/codegen/builtins/collections/func_remove.rs:lower_remove]]
 
 `remove` is value-semantic. The set named by `value` is unchanged; the modified
 set is the returned value, and a program observes the update only through what it

@@ -13,7 +13,7 @@ impl CodeBuilder<'_> {
     /// `count`/`dataLength`; when the live buffer is full it grows geometrically
     /// (copying entries + data verbatim, capacity-based base) and then writes. The
     /// caller guarantees unique ownership and not an active `FOR EACH` iterable.
-    pub(super) fn lower_map_set_in_place(
+    pub(crate) fn lower_map_set_in_place(
         &mut self,
         map_slot: usize,
         key_slot: usize,
@@ -1216,7 +1216,7 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn lower_map_remove_key(
+    pub(crate) fn lower_map_remove_key(
         &mut self,
         map_slot: usize,
         key_slot: usize,

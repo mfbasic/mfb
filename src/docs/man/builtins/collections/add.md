@@ -35,7 +35,7 @@ Insertion is **idempotent**: if an equal element is already in `value`, the
 result is a set with the same elements — no duplicate is created and the length
 is unchanged. When `item` is new, the result has one more element than `value`,
 appended in insertion order so a later `collections::toList` places it last.
-[[src/target/shared/code/collection_mutate.rs:lower_set_add]]
+[[src/codegen/builtins/collections/func_add.rs:lower_add]]
 
 `add` is value-semantic. The set named by `value` is unchanged; the modified set
 is the returned value, and a program observes the update only through what it

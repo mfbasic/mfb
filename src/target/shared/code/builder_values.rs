@@ -749,15 +749,6 @@ impl CodeBuilder<'_> {
                 if native == Some("prepend") && args.len() == 2 {
                     return self.lower_collection_prepend(args);
                 }
-                if native == Some("add") && args.len() == 2 {
-                    return self.lower_set_add(args);
-                }
-                if native == Some("remove") && args.len() == 2 {
-                    return self.lower_set_remove(args);
-                }
-                if native == Some("toList") && args.len() == 1 {
-                    return self.lower_set_to_list(args);
-                }
                 if native == Some("insert") && args.len() == 3 {
                     return self.lower_collection_insert(args);
                 }
@@ -1886,6 +1877,11 @@ impl CodeBuilder<'_> {
         target: &str,
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
+        // plan-95/96: prefer a migrated member's own lowering (Implementation::Native)
+        // over the infallible-inline ladder below (the third dispatch site).
+        if let Some(result) = self.try_native_lower(target, args) {
+            return result;
+        }
         if target == "len" && args.len() == 1 {
             return self.lower_len(&args[0]);
         }
@@ -1917,9 +1913,6 @@ impl CodeBuilder<'_> {
             Some("prepend") if args.len() == 2 => self.lower_collection_prepend(args),
             Some("removeKey") if args.len() == 2 => self.lower_collection_remove_key(args),
             Some("replace") if args.len() == 3 => self.lower_replace(args),
-            Some("add") if args.len() == 2 => self.lower_set_add(args),
-            Some("remove") if args.len() == 2 => self.lower_set_remove(args),
-            Some("toList") if args.len() == 1 => self.lower_set_to_list(args),
             other => Err(format!(
                 "native infallible inline builtin '{target}' ({other:?}) is not supported"
             )),

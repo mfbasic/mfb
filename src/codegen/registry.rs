@@ -1461,23 +1461,25 @@ mod tests {
     }
 
     #[test]
-    fn only_get_carries_native_lowering() {
-        // plan-95: `collections.get` is the sole migrated function — it carries an
-        // `Implementation::Native` lowering reached by the codegen dual-path seam;
-        // every other function still lowers through the `src/target` ladder.
+    fn native_lowering_only_in_collections() {
+        // plan-95/96: migrated members carry `Implementation::Native` (reached by the
+        // codegen dual-path seam). The set grows one batch at a time as `collections`
+        // members migrate; the stable invariant is that EVERY `Native`-lowered
+        // function is a `collections` member (no other package has migrated yet), and
+        // `get` (the first) is among them.
         let (_, get) = REGISTRY
             .function("collections.get")
             .expect("collections.get is registered");
         assert!(get.native_lower().is_some());
         for module in REGISTRY.modules() {
             for function in module.functions {
-                let expected = function.name == "collections.get";
-                assert_eq!(
-                    function.native_lower().is_some(),
-                    expected,
-                    "{} native_lower presence",
-                    function.name
-                );
+                if function.native_lower().is_some() {
+                    assert_eq!(
+                        module.name, "collections",
+                        "{} is Native-lowered but not a collections member",
+                        function.name
+                    );
+                }
             }
         }
     }

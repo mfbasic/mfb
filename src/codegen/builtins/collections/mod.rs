@@ -7,7 +7,10 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
 
+mod func_add;
 mod func_get;
+mod func_remove;
+mod func_to_list;
 
 /// Path of the compiler-owned `collections` package source injected into every
 /// project that imports it. This is the `AstFile.path` (see `source_file`), so
@@ -864,64 +867,7 @@ infallible alongside `append` and `prepend`, and an inline `TRAP` written on a
 `TYPE_INLINE_TRAP_DEAD_HANDLER`). Allocation exhaustion is not a trappable domain
 error in this language."#;
 
-// ---- add ----
-const INTO_ADD: &str = "Return a set with one element inserted, leaving the argument unchanged";
-const DESC_ADD: &str = r#"`collections::add` returns a new `Set OF T` containing every element of `value`
-plus `item`. It takes exactly two arguments; neither is optional and neither is
-variadic.
-
-Insertion is **idempotent**: if an equal element is already in `value`, the
-result is a set with the same elements — no duplicate is created and the length
-is unchanged. When `item` is new, the result has one more element than `value`,
-appended in insertion order so a later `collections::toList` places it last.
-
-`add` is value-semantic. The set named by `value` is unchanged; the modified set
-is the returned value, and a program observes the update only through what it
-does with that return value. When the compiler can prove the target is a
-uniquely-owned local being reassigned — the `set = collections::add(set, x)`
-shape — it may update the live buffer in place; this is an optimization only, and
-the observable semantics are identical either way.
-
-`add` is **infallible**: no path in its lowering raises a trappable domain error,
-so an inline `TRAP` written on an `add` call has a dead handler. Allocation
-exhaustion is not a trappable domain error in this language."#;
-
-// ---- remove ----
-const INTO_REMOVE: &str = "Return a set with one element removed, leaving the argument unchanged";
-const DESC_REMOVE: &str = r#"`collections::remove` returns a new `Set OF T` containing every element of
-`value` except `item`. It takes exactly two arguments; neither is optional and
-neither is variadic.
-
-Removal is a **no-op when the element is absent**: if no element equal to `item`
-is in `value`, the result is a set with the same elements and the same length.
-When `item` is present, the result has exactly one fewer element and the
-remaining elements keep their relative insertion order.
-
-`remove` is value-semantic. The set named by `value` is unchanged; the modified
-set is the returned value, and a program observes the update only through what it
-does with that return value. When the compiler can prove the target is a
-uniquely-owned local being reassigned — the `set = collections::remove(set, x)`
-shape — it may update the live buffer in place; this is an optimization only, and
-the observable semantics are identical either way.
-
-`remove` is **infallible**: removing an absent element is defined as a no-op
-rather than a failure, so no path raises a trappable domain error and an inline
-`TRAP` written on a `remove` call has a dead handler."#;
-
-// ---- toList ----
-const INTO_TO_LIST: &str = "Return the elements of a set as a list, in insertion order";
-const DESC_TO_LIST: &str = r#"`collections::toList` returns a new `List OF T` holding every element of the set
-`value` exactly once, in the set's stable insertion order. It takes exactly one
-argument, which is neither optional nor variadic.
-
-The set is neither copied for the caller nor mutated: the result is a freshly
-built list. Because a set already holds each element at most once, the resulting
-list has no duplicates and its length equals `len(value)`. An empty set yields an
-empty list.
-
-`toList` is **infallible**: no path in its lowering raises a trappable domain
-error, so an inline `TRAP` written on a `toList` call has a dead handler."#;
-
+// (`add`/`remove`/`toList` doc consts + entries moved to their func_*.rs, plan-96.)
 // ---- findIndex ----
 const INTO_FIND_INDEX: &str =
     "Index of the first element at or after a start position that satisfies a predicate";
@@ -1228,36 +1174,9 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
             req("new", &["replacement"], "T"),
         ])],
     ),
-    native(
-        "collections.add",
-        "add",
-        INTO_ADD,
-        DESC_ADD,
-        &[],
-        &[custom(&[
-            req("value", &["set"], "Set OF T"),
-            req("item", &["element"], "T"),
-        ])],
-    ),
-    native(
-        "collections.remove",
-        "remove",
-        INTO_REMOVE,
-        DESC_REMOVE,
-        &[],
-        &[custom(&[
-            req("value", &["set"], "Set OF T"),
-            req("item", &["element"], "T"),
-        ])],
-    ),
-    native(
-        "collections.toList",
-        "toList",
-        INTO_TO_LIST,
-        DESC_TO_LIST,
-        &[],
-        &[custom(&[req("value", &["set"], "Set OF T")])],
-    ),
+    func_add::ADD,
+    func_remove::REMOVE,
+    func_to_list::TO_LIST,
     // `findIndex`/`findLastIndex` are source-generic (they resolve and, for most
     // element types, run from the injected `.mfb` companion) with a native
     // String-item fast path for `findLastIndex`. They are listed here ONLY so

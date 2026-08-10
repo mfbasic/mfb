@@ -407,7 +407,7 @@ impl CodeBuilder<'_> {
         self.lower_map_projection(&collection, &value_type, false)
     }
 
-    pub(super) fn lower_map_projection(
+    pub(crate) fn lower_map_projection(
         &mut self,
         collection: &ValueResult,
         element_type: &str,

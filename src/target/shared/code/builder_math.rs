@@ -1280,7 +1280,7 @@ impl CodeBuilder<'_> {
     /// An escaping `±Inf` raises `ErrFloatOverflow` (the spec's "arithmetic
     /// overflow to infinity", byte-identical to the old per-op arithmetic
     /// check); a `NaN` raises `ErrFloatNaN`.
-    pub(super) fn observe_float(
+    pub(crate) fn observe_float(
         &mut self,
         value: &NirValue,
         result: &ValueResult,

@@ -173,11 +173,11 @@ is a byte-verified batch.
 `getOr, append, prepend, removeKey, keys, values, hasKey, contains, sum, add,
 remove, toList` (12). Single normal-path arm each.
 
-- [ ] For each: measure surface, create `func_<name>.rs` (body + `BuiltinFunction::native` entry + doc consts), wire `mod.rs`, delete method + normal-path arm.
-- [ ] Record the cumulative `pub(super)→pub(crate)` promotion set in Corrections.
+- [~] For each: measure surface, create `func_<name>.rs` (body + `BuiltinFunction::native` entry + doc consts), wire `mod.rs`, delete method + arm(s). **Set members `add`/`remove`/`toList` DONE** (`func_add`/`func_remove`/`func_to_list`); remaining: getOr, append, prepend, removeKey, keys, values, hasKey, contains, sum (9).
+- [~] Record the cumulative `pub(super)→pub(crate)` promotion set in Corrections. (Set group recorded.)
 
-Acceptance: `artifact-gate.sh collections` 0 diffs (all 5); `cargo test --bin mfb` green; `grep -rn 'fn lower_collection_get_or\|…' src/target` empty for the 12.
-Commit: —
+Acceptance (Set sub-batch): MET — `artifact-gate.sh collections` 0 diffs (all 5); `cargo test --bin mfb` 3836 passed; `grep -rn 'fn lower_set_' src/target` empty.
+Commit: — (Set sub-batch pending in this commit)
 
 ### Phase 2 — Fallible list mutators (inline-raw arm too)
 
@@ -232,9 +232,24 @@ Commit: —
 
 ## Corrections
 
-<Filled during execution: the cumulative visibility-promotion set; any member whose
-method is shared beyond the known three; any member missing from the byte-identity
-fixture; any count that differed from §2.>
+- **THIRD dispatch site (plan-95 machinery gap).** There are **three** dispatch
+  sites, not two: normal path (`builder_values.rs` ~`:722`), `lower_inline_builtin_raw`
+  (fallible inline-TRAP), and **`lower_infallible_member`** (~`:1884`, infallible
+  inline-TRAP). plan-95 only added the `try_native_lower` seam to the first two
+  (`get` is fallible, so the infallible site was never exercised). Fixed: added the
+  seam at the top of `lower_infallible_member`. Every infallible member has an arm
+  at BOTH the normal site AND this one — delete both.
+- **Set-group visibility promotions** (`pub(super)→pub(crate)`): `observe_float`,
+  `materialize_value`, `allocate_register`, `copy_collection_tight`,
+  `lower_map_set_in_place`, `lower_map_remove_key`, `lower_map_projection`, and the
+  free `type_utils::set_element_type`.
+- **Brittle test generalized.** plan-95's `only_get_carries_native_lowering` (get is
+  the sole Native member) breaks every batch; renamed to
+  `native_lowering_only_in_collections` — the stable invariant is that every
+  Native-lowered function is a `collections` member and `get` is among them.
+- **Doc-sync per member.** Each migrated member's man page cites its lowering
+  symbol; repoint `[[…collection_mutate.rs:lower_set_*]]` → `[[…func_*.rs:lower_*]]`
+  (caught by `man_citations_resolve`). So the citation test DOES check the symbol.
 
 ## Summary
 
