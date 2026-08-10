@@ -243,33 +243,39 @@ just its bytes), so it must be reconciled here first.
 Acceptance: `cargo test --bin mfb error_constants_match_table` passes ✓ — every
 `ERR_*` code equals its table row and the message-change manifest is one code
 (`77050020` ErrWrongMode). MET.
-Commit: <this commit — hash recorded in the next>.
+Commit: 978cbc16f
 
 ### Phase 1 — dormant primitives + used-set
 
 Add `raise_error` / `raise_error_bare` / `used_errors` with no caller migrated.
 
-- [ ] Add `used_errors: BTreeSet<&'static str>` to the code builder struct;
-      initialize empty; expose an accessor for D. Not read yet.
-- [ ] Add `raise_error(function_id, error_name)` and `raise_error_bare(error_name)`
+- [x] Add `used_errors: BTreeSet<&'static str>` to `CodeBuilder` (`mod.rs`),
+      initialized `BTreeSet::new()` at all 3 construction sites
+      (`function_lowering.rs`). **No accessor** — corrected: `used_errors` is a
+      private field, and D's consumer (`data_objects.rs`/`function_lowering.rs`,
+      child modules of `code`) reads it directly. The `insert` in `raise_error_bare`
+      is a use, so no dead-code warning.
+- [x] Add `raise_error(function_id, error_name)` and `raise_error_bare(error_name)`
       to `builder_error_emission.rs` per §4, each delegating to
-      `emit_error_code_return` so output is identical.
-- [ ] Convert the existing `collections.get` poc in `builder_collection_query.rs`
-      to call `self.raise_error("collections.get", "ErrIndexOutOfRange")` (it
-      currently open-codes the same lookup) — the one live caller, proving the
-      primitive end-to-end while staying byte-identical.
-- [ ] Tests: a unit test that `raise_error` for a known `(func, name)` and
-      `raise_error_bare(name)` each produce the same `CodeInstruction` sequence as
-      the corresponding `emit_*_return` wrapper (assert on emitted ops, per the
-      Windows-codegen-emit-inspection precedent), and that `used_errors` records
-      the name.
+      `emit_error_code_return` (identical emission). `error_name` is `&'static str`
+      so it can be recorded in `used_errors`.
+- [x] Convert the `collections.get` poc in `builder_collection_query.rs` to
+      `self.raise_error("collections.get", "ErrIndexOutOfRange")` and drop the
+      now-unused `builtin` lookup — measured byte-identical runtime output
+      (`Error: 7-705-0001` / "List or string index/range is outside valid bounds.").
+- [x] Tests: `raise_error_matches_every_wrapper` (`builder_error_emission.rs`)
+      proves `runtime_error(name) == (ERR_*_CODE, ERR_*_MESSAGE)` for all 12
+      wrappers — a value-equivalence proof of identical emission (stronger than
+      inspecting one constructed builder; see Corrections for why the builder-
+      inspection form was replaced). The runtime proof is the existing
+      `tests/rt-error/collections/func_collection_get_out_of_range` fixture, which
+      the poc reproduces exactly.
 
-Acceptance: `cargo test --bin mfb` green (incl. the emit-equivalence + used-set
-unit test), and the out-of-range runtime program still raises
-`ErrIndexOutOfRange` with the same message. Goldens should be unchanged **here**
-only because A migrates nothing (the poc already emitted identically) — that is
-an observation, not a constraint to defend; do not add scope to preserve it.
-Commit: —
+Acceptance: `cargo test --bin mfb` green (3753 passed, incl.
+`raise_error_matches_every_wrapper`) ✓ and the out-of-range runtime program raises
+`ErrIndexOutOfRange` with the same message (measured against the fixture golden) ✓.
+MET.
+Commit: <this commit — hash recorded next>.
 
 ## Validation Plan
 
@@ -332,6 +338,22 @@ Commit: —
   (`#[warn(dead_code)]`). Made it live by reading `doc_into`/`doc_desc`/`errors` in
   the existing `descriptor_fields_are_well_formed` test (no suppression, no delete),
   matching how `doc_slug` is kept live there.
+- **No `used_errors` accessor (Phase 1, §4 revised).** §4 said "expose an accessor
+  for D." Dropped it: `used_errors` is a private `CodeBuilder` field and D's
+  consumer lives in `data_objects.rs`/`function_lowering.rs`, both child modules of
+  `code`, which read a private field directly. An accessor would be an unused
+  `pub(super)` method (`#[warn(dead_code)]`) with no benefit. The `insert` in
+  `raise_error_bare` is itself a use, so the field does not warn.
+- **Phase-1 test form (§4/Phase-1 revised).** The plan called for a unit test that
+  constructs a `CodeBuilder` and inspects emitted `CodeInstruction`s. Replaced with
+  a **value-equivalence** test (`raise_error_matches_every_wrapper`): `CodeBuilder`
+  has 50+ fields incl. borrowed maps/`TypeModel`/`NirFunction` and there is **no**
+  builder-construction precedent in the codegen tests (they test free functions or
+  go end-to-end via `tests/rt-error/**`). Proving `runtime_error(name)` equals every
+  wrapper's `(ERR_*_CODE, ERR_*_MESSAGE)` proves identical emission for all 12
+  wrappers (the emitter is pure in its args), which is *stronger* than inspecting
+  one built instance — not a weakening. `used_errors` recording is exercised on the
+  rt-error path and is observed where it is read (plan-88-D's used-set test).
 
 ## Summary
 

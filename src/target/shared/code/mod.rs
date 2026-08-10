@@ -406,6 +406,11 @@ struct CodeBuilder<'a> {
     /// to elide the overflow check on `local + 1`; dropped on any assignment to the
     /// local and cleared at every loop/Match/Trap boundary.
     integer_strict_upper: std::collections::HashSet<String>,
+    /// plan-88: the `errorCode` names every `raise_error`/`raise_error_bare` call
+    /// in this function raised. Module-scoped accumulator (deterministic order).
+    /// Inert in plan-88-A/B/C; plan-88-D consumes it to emit exactly the referenced
+    /// error-string data objects, replacing the manual `data_objects.rs` gating.
+    used_errors: std::collections::BTreeSet<&'static str>,
 }
 
 #[derive(Clone)]
