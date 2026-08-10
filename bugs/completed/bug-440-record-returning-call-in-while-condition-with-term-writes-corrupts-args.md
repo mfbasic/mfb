@@ -1,5 +1,23 @@
 <!-- Bug document. See .claude/skills/write-bug/template.md -->
 
+> STATUS: FIXED (7bed440e2). Free-and-null in `emit_owned_value_drop` /
+> `emit_closure_drop` (`src/target/shared/code/builder_owned_cleanup.rs`). Codegen
+> regression test `tests/codegen_owned_drop_free_and_null.rs` (RED→GREEN verified;
+> the runtime symptom is entropy-scrub-flaky so a black-box rt test is unsound).
+> Reproduction now renders plain/bold/plain in both debug and release. Full
+> `cargo test --no-fail-fast` green (53 binaries, 0 failures) after merging main
+> (which also fixed bug-438). 4 `.ncode` goldens regenerated (additive zero-stores
+> only). Deviation from the original doc: root cause was NOT a register clobber —
+> the profile/tty variance was the arena entropy-scrub of the double-freed block.
+> The `term::drawText` bridge workaround this bug had forced was also removed
+> (e9e93b668) now that the shape compiles correctly — the bridge uses a single
+> `__TermStyle` record resolver (bold/underline/fg/bg) compared in the run-scan
+> `WHILE` condition.
+> Note (separate, pre-existing, NOT part of this fix): main's astrings color
+> commit `306d1bc0b` left ~10 `tests/rt-behavior/astrings/**.ir` goldens stale
+> (missing the `Foreground`/`Background` members) — surfaced during regen, left
+> untouched here to keep this change scoped.
+
 # bug-440: A record-returning function called in a `WHILE` condition, combined with `term::` writes in the loop body, miscompiles — the loop's later `term::setBold`/`setUnderline` receive corrupted (garbage) arguments
 
 Last updated: 2026-08-09
