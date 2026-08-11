@@ -18,30 +18,30 @@ use crate::docs::render;
 pub(crate) fn show_man2(args: &[String]) -> Result<(), String> {
     let positional: Vec<&str> = args.iter().map(String::as_str).collect();
     match positional.as_slice() {
-        ["collections", function_name] => {
-            let module = REGISTRY
-                .module("collections")
-                .expect("collections is a registered builtin package");
+        [package, function_name] => {
+            let module = lookup_module(package)?;
             let function = lookup(module, function_name).ok_or_else(|| {
                 format!(
-                    "unknown collections function `{function_name}`\n\nRun `mfb man collections` to list functions."
+                    "unknown {package} function `{function_name}`\n\nRun `mfb man {package}` to list functions."
                 )
             })?;
             print_markdown(&render_function_markdown(module, function));
             Ok(())
         }
-        ["collections"] => {
-            let module = REGISTRY
-                .module("collections")
-                .expect("collections is a registered builtin package");
+        [package] => {
+            let module = lookup_module(package)?;
             print_markdown(&render_package_markdown(module));
             Ok(())
         }
-        [package, ..] => Err(format!(
-            "mfb man2 is wired for the `collections` package only (got `{package}`)"
-        )),
-        [] => Err("Usage: mfb man2 collections <function>".to_string()),
+        [] | [_, _, _, ..] => Err("Usage: mfb man2 <package> [function]".to_string()),
     }
+}
+
+/// Resolve a package name to its registered descriptor, or a user-facing error.
+fn lookup_module(package: &str) -> Result<&'static BuiltinModule, String> {
+    REGISTRY
+        .module(package)
+        .ok_or_else(|| format!("mfb man2: unknown package `{package}`"))
 }
 
 /// Resolve a bare function name (`get`) to its descriptor entry, matching either
@@ -350,9 +350,28 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_collections_package() {
-        let err = show_man2(&s(&["io", "print"])).unwrap_err();
-        assert!(err.contains("wired for the `collections` package only"));
+    fn renders_any_registered_package() {
+        // man2 is registry-driven: every registered package resolves (encoding's
+        // docs have migrated, so it renders richly; others render what they carry).
+        assert!(show_man2(&s(&["encoding", "hexEncode"])).is_ok());
+        assert!(show_man2(&s(&["encoding"])).is_ok());
+        assert!(show_man2(&s(&["io", "print"])).is_ok());
+    }
+
+    #[test]
+    fn rejects_unknown_package() {
+        let err = show_man2(&s(&["definitely-not-a-package"])).unwrap_err();
+        assert!(err.contains("unknown package"));
+    }
+
+    #[test]
+    fn renders_encoding_function_from_migrated_docs() {
+        let module = REGISTRY.module("encoding").unwrap();
+        let md = render_function_markdown(module, lookup(module, "hexEncode").unwrap());
+        assert!(md.starts_with("# hexEncode\n"));
+        assert!(md.contains("lowercase hexadecimal"));
+        assert!(md.contains("## Description"));
+        assert!(md.contains("## Examples"));
     }
 
     #[test]

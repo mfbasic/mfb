@@ -208,12 +208,16 @@ pub(crate) fn run() {
             }
         }
         Some("man2") => {
-            // Experimental registry-driven man page (collections only).
+            // Experimental registry-driven man page. Renders any registered
+            // package/function from its descriptor metadata; richest for packages
+            // whose docs have migrated into the registry (collections, encoding).
             let man2_args = args.collect::<Vec<_>>();
             if man2_args.iter().any(|arg| is_help_flag(arg)) {
-                println!("Usage: mfb man2 collections <function>");
+                println!("Usage: mfb man2 <package> [function]");
                 println!();
-                println!("Render a collections builtin's man page from the descriptor registry.");
+                println!(
+                    "Render a builtin package or function's man page from the descriptor registry."
+                );
                 return;
             }
             if let Err(err) = show_man2(&man2_args) {
