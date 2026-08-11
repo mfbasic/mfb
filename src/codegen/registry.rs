@@ -306,6 +306,20 @@ impl BuiltinFunction {
         self
     }
 
+    /// Attach the one-line summary (`doc_intro`) in `const` context. Additive, so a
+    /// member without one keeps `doc_intro: ""`.
+    pub(crate) const fn with_intro(mut self, doc_intro: &'static str) -> BuiltinFunction {
+        self.doc_intro = doc_intro;
+        self
+    }
+
+    /// Attach the full `## Description` prose (`doc_desc`) in `const` context.
+    /// Additive, so a member without one keeps `doc_desc: ""`.
+    pub(crate) const fn with_desc(mut self, doc_desc: &'static str) -> BuiltinFunction {
+        self.doc_desc = doc_desc;
+        self
+    }
+
     /// The member's native fast path, if it carries one (`Implementation::Mfb`
     /// with a `Some` `fast_path`). The codegen monomorph-dispatch seam
     /// (`try_mfb_fast_path`) consults this before instantiating the `.mfb` body.
