@@ -1,10 +1,26 @@
+//! Built-in `json` package (plan-72-O), migrated into the codegen layer
+//! (planning/migrate.md). Every member is source-backed: its `__json_*` body
+//! lives in its `func_*.rs` as `Implementation::Mfb` and is spliced into the
+//! injected package source by `assembled_source()` in place of a
+//! `'@@MFB_BODY:<slug>@@` marker; the private helpers, the seven `Json*` value
+//! types (`EXPORT TYPE`/`EXPORT UNION`), and the internal parse-node types stay in
+//! `package.mfb`. json is concrete (rewritten in IR lowering), so the `__json_*`
+//! rewrite target comes from the explicit `IMPL_NAMES` table. A retained
+//! `JsonResolver` validates the `Json` value-type argument unions the descriptor's
+//! per-position match cannot express.
+
 use std::borrow::Cow;
 
+use crate::builtins::exact;
 use crate::codegen::registry::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
-    BuiltinType, DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
-    ParameterType, ReturnType, TypeKind,
+    BuiltinFunction, BuiltinModule, BuiltinResolver, BuiltinSource, BuiltinType, DefaultResolver,
+    DefaultValue, Implementation, InjectionRule, Parameter, ParameterType, TypeKind,
 };
+
+mod func_get;
+mod func_get_or;
+mod func_parse;
+mod func_stringify;
 
 const PARSE: &str = "json.parse";
 const STRINGIFY: &str = "json.stringify";
@@ -15,45 +31,6 @@ const INTERNAL_STRINGIFY: &str = "__json_stringify";
 const INTERNAL_GET: &str = "__json_get";
 const INTERNAL_GET_OR: &str = "__json_getOr";
 
-// plan-72-O: `JSON` is the descriptor authority for this package. Every function
-// has a single fixed-return overload and a fixed per-name implementation rewrite
-// (`__json_*`), so `is_json_call`/`arity`/`call_return_type_name`/
-// `implementation_name` derive from the descriptor with no resolver. The seven
-// `Json*` value types are opaque builtin types. The `package_source_glue!`
-// companion is `WhenImported`. `resolve_call` stays hand-authored: it accepts any
-// member of the json value-type set where the descriptor lists the umbrella `Json`
-// type (e.g. `stringify(JsonObj)`), which the descriptor's exact per-position type
-// match cannot reproduce — a bespoke facet like io's "no arguments" phrasing.
-const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload {
-    BuiltinOverload {
-        params,
-        return_type: ReturnType::Fixed(ret),
-    }
-}
-
-const fn json_fn(
-    name: &'static str,
-    slug: &'static str,
-    overloads: &'static [BuiltinOverload],
-    implementation: Implementation,
-) -> BuiltinFunction {
-    BuiltinFunction {
-        name,
-        doc_slug: slug,
-        doc_intro: "",
-        doc_desc: "",
-        errors: &[],
-        overloads,
-        doc_example: "",
-        implementation,
-        lowering: Lowering::Helper,
-        flags: BuiltinFlags {
-            internal_only: false,
-            return_type_overloaded: false,
-        },
-    }
-}
-
 const fn req(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
     Parameter {
         name,
@@ -63,43 +40,26 @@ const fn req(name: &'static str, aliases: &'static [&'static str], ty: &'static 
     }
 }
 
-const P_PARSE: &[Parameter] = &[req("value", &["text"], "String")];
-const P_STRINGIFY: &[Parameter] = &[req("value", &[], "Json")];
-const P_GET: &[Parameter] = &[
+pub(super) const P_PARSE: &[Parameter] = &[req("value", &["text"], "String")];
+pub(super) const P_STRINGIFY: &[Parameter] = &[req("value", &[], "Json")];
+pub(super) const P_GET: &[Parameter] = &[
     req("value", &[], "Json"),
     req("path", &["key"], "List OF String"),
 ];
-const P_GET_OR: &[Parameter] = &[
+pub(super) const P_GET_OR: &[Parameter] = &[
     req("value", &[], "Json"),
     req("path", &["key"], "List OF String"),
     req("default", &["defaultValue", "fallback"], "Json"),
 ];
 
+// plan-72-O: `JSON` is the descriptor authority. Each member owns its source body
+// in its `func_*.rs` (`Implementation::Mfb`); a call rewrites to the internal
+// `__json_*` name via `IMPL_NAMES` at IR lowering. `WhenImported` source.
 const JSON_FUNCTIONS: &[BuiltinFunction] = &[
-    json_fn(
-        PARSE,
-        "parse",
-        &[ov(P_PARSE, "Json")],
-        Implementation::Rewrite(INTERNAL_PARSE),
-    ),
-    json_fn(
-        STRINGIFY,
-        "stringify",
-        &[ov(P_STRINGIFY, "String")],
-        Implementation::Rewrite(INTERNAL_STRINGIFY),
-    ),
-    json_fn(
-        GET,
-        "get",
-        &[ov(P_GET, "Json")],
-        Implementation::Rewrite(INTERNAL_GET),
-    ),
-    json_fn(
-        GET_OR,
-        "getOr",
-        &[ov(P_GET_OR, "Json")],
-        Implementation::Rewrite(INTERNAL_GET_OR),
-    ),
+    func_parse::PARSE,
+    func_stringify::STRINGIFY,
+    func_get::GET,
+    func_get_or::GET_OR,
 ];
 
 // The seven json value types are registered as opaque builtin types (bare names,
@@ -241,18 +201,22 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     }
 }
 
+/// The internal `__json_*` symbol each public member rewrites to during IR
+/// lowering. The members carry `Implementation::Mfb` (whose descriptor
+/// `implementation_name` is `None`), so the rewrite target is provided here.
+const IMPL_NAMES: &[(&str, &str)] = &[
+    (PARSE, INTERNAL_PARSE),
+    (STRINGIFY, INTERNAL_STRINGIFY),
+    (GET, INTERNAL_GET),
+    (GET_OR, INTERNAL_GET_OR),
+];
+
 pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
-    DefaultResolver::implementation_name(&JSON, name)
+    IMPL_NAMES
+        .iter()
+        .find(|(public, _)| *public == name)
+        .map(|(_, internal)| *internal)
 }
-
-super::package_source_glue!(
-    "json",
-    "<builtin-json>",
-    "builtins/json.mfb",
-    include_str!("json_package.mfb")
-);
-
-use super::exact;
 
 /// A member of the json value-type set: the umbrella `Json` or any of its
 /// concrete variants. `resolve_call` accepts any of these where the descriptor
@@ -261,6 +225,61 @@ use super::exact;
 /// type set).
 fn is_json_value_type(type_name: &str) -> bool {
     JSON.types.iter().any(|ty| ty.name == type_name)
+}
+
+/// Synthetic path label / doc path for the injected json source. Preserved
+/// byte-for-byte from the pre-migration `package_source_glue!` invocation so the
+/// injected AST is unchanged.
+const SOURCE_LABEL: &str = "<builtin-json>";
+const SOURCE_DOC: &str = "builtins/json.mfb";
+
+/// Parses the built-in `json` package source (the `package.mfb` companion plus
+/// every `Implementation::Mfb` member body, spliced in by `assembled_source`).
+pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
+    crate::ast::parse_source_internal(
+        std::path::Path::new(SOURCE_LABEL),
+        SOURCE_DOC,
+        &assembled_source(),
+    )
+}
+
+/// The `json` package source: the `package.mfb` companion (helpers + type decls)
+/// with each member's `FUNC __json_* ... END FUNC` body spliced in for its
+/// `'@@MFB_BODY:<slug>@@` marker at the body's original position, keeping every
+/// other line's number unchanged so the injected AST is byte-identical to the
+/// pre-migration companion.
+fn assembled_source() -> String {
+    let mut source = String::from(include_str!("package.mfb"));
+    for func in JSON_FUNCTIONS {
+        if let Implementation::Mfb { body, .. } = func.implementation {
+            let marker = format!("'@@MFB_BODY:{}@@", func.doc_slug);
+            debug_assert!(
+                source.contains(&marker),
+                "json package.mfb is missing the '{marker}' body marker",
+            );
+            source = source.replacen(&marker, body, 1);
+        }
+    }
+    source
+}
+
+pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
+    ast.files.iter().any(|file| {
+        file.imports
+            .iter()
+            .any(|import| import.package_name() == "json")
+    })
+}
+
+pub(crate) fn augmented_project(
+    ast: &crate::ast::AstProject,
+) -> Result<crate::ast::AstProject, ()> {
+    if !uses_package(ast) {
+        return Ok(ast.clone());
+    }
+    let mut augmented = ast.clone();
+    augmented.files.push(source_file()?);
+    Ok(augmented)
 }
 
 #[cfg(test)]
@@ -379,33 +398,5 @@ mod tests {
         assert!(!uses_package(&ast));
         let augmented = augmented_project(&ast).expect("augment");
         assert_eq!(augmented.files.len(), ast.files.len());
-    }
-
-    #[test]
-    fn descriptor_constructors_execute_at_runtime() {
-        // `ov`/`json_fn`/`req` are const fns used only in const context; call them
-        // at runtime so their bodies are exercised.
-        let param = req("value", &["text"], "String");
-        assert_eq!(param.name, "value");
-        assert_eq!(param.aliases, &["text"]);
-        assert_eq!(param.ty, ParameterType::Named("String"));
-        assert_eq!(param.default, DefaultValue::None);
-
-        let overload = ov(P_PARSE, "Json");
-        assert_eq!(overload.params.len(), 1);
-        assert_eq!(overload.return_type, ReturnType::Fixed("Json"));
-
-        const OV_PARSE: &[BuiltinOverload] = &[ov(P_PARSE, "Json")];
-        let func = json_fn(
-            PARSE,
-            "parse",
-            OV_PARSE,
-            Implementation::Rewrite(INTERNAL_PARSE),
-        );
-        assert_eq!(func.name, PARSE);
-        assert_eq!(func.doc_slug, "parse");
-        assert_eq!(func.implementation, Implementation::Rewrite(INTERNAL_PARSE));
-        assert_eq!(func.lowering, Lowering::Helper);
-        assert!(!func.flags.internal_only);
     }
 }

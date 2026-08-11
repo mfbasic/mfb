@@ -25,7 +25,7 @@ IMPORT json
 ```
 
 `json` is a built-in package, so `IMPORT json` needs no manifest dependency.
-[[src/builtins/json.rs:augmented_project]]
+[[src/codegen/builtins/json/mod.rs:augmented_project]]
 
 ## Description
 
@@ -33,33 +33,33 @@ The `json` package represents a JSON value as a tree of six single-field record
 types, plus the `Json` union that ranges over all six. Every JSON document parses
 to exactly one of the six variants, and every `json::` function that takes or
 returns "a JSON value" is typed in terms of `Json`.
-[[src/builtins/json_package.mfb:Json]]
+[[src/codegen/builtins/json/package.mfb:Json]]
 
 `JsonNull`, `JsonBool`, `JsonNum`, and `JsonStr` are leaf scalars. `JsonArr` and
 `JsonObj` are containers whose single field holds further `Json` values, which is
 what lets a document nest to arbitrary depth.
-[[src/builtins/json_package.mfb:JsonArr]]
+[[src/codegen/builtins/json/package.mfb:JsonArr]]
 
 All seven names are builtin types, referenced bare rather than package-qualified:
 write `JsonStr["x"]`, not `json::JsonStr["x"]`. The union type itself is written
 `json::Json` in a declaration such as `LET doc AS json::Json`.
-[[src/builtins/json.rs:JSON]]
+[[src/codegen/builtins/json/mod.rs:JSON]]
 
 Anywhere a `Json` is accepted, a member type is accepted directly as well —
 `json::stringify`, `json::get`, and the `value`/`defaultValue` arguments of
 `json::getOr` all take the union or any one of the six records, so a scalar does
-not have to be widened by hand. [[src/builtins/json.rs:is_json_value_type]]
+not have to be widened by hand. [[src/codegen/builtins/json/mod.rs:is_json_value_type]]
 
 To take a value apart, `MATCH` on it and bind the variant, which is how the
 package's own code reads a tree. `json::get` and `json::getOr` are the shortcut
 for the common case of descending through `JsonObj` members by key.
-[[src/builtins/json_package.mfb:__json_stringify]]
+[[src/codegen/builtins/json/func_stringify.rs:__json_stringify]]
 
 ## Types
 
 ### json::JsonNull
 
-The JSON literal `null`. [[src/builtins/json_package.mfb:JsonNull]]
+The JSON literal `null`. [[src/codegen/builtins/json/package.mfb:JsonNull]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -67,7 +67,7 @@ The JSON literal `null`. [[src/builtins/json_package.mfb:JsonNull]]
 
 ### json::JsonBool
 
-A JSON boolean. [[src/builtins/json_package.mfb:JsonBool]]
+A JSON boolean. [[src/codegen/builtins/json/package.mfb:JsonBool]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -75,23 +75,23 @@ A JSON boolean. [[src/builtins/json_package.mfb:JsonBool]]
 
 ### json::JsonNum
 
-A JSON number. [[src/builtins/json_package.mfb:JsonNum]]
+A JSON number. [[src/codegen/builtins/json/package.mfb:JsonNum]]
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `value` | `Float` | The numeric payload as an IEEE 754 binary64. JSON has one number type, so integers and fractions alike land here; a literal with more precision or magnitude than binary64 can hold is approximated at parse time. `json::stringify` emits the shortest decimal that reads back to the same `Float`, so a parse/stringify round trip preserves the value exactly. [[src/builtins/json_package.mfb:__json_stringifyNumber]] |
+| `value` | `Float` | The numeric payload as an IEEE 754 binary64. JSON has one number type, so integers and fractions alike land here; a literal with more precision or magnitude than binary64 can hold is approximated at parse time. `json::stringify` emits the shortest decimal that reads back to the same `Float`, so a parse/stringify round trip preserves the value exactly. [[src/codegen/builtins/json/package.mfb:__json_stringifyNumber]] |
 
 ### json::JsonStr
 
-A JSON string. [[src/builtins/json_package.mfb:JsonStr]]
+A JSON string. [[src/codegen/builtins/json/package.mfb:JsonStr]]
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The decoded contents, with JSON escapes already resolved — the field holds the real characters, not the escaped source text. `json::stringify` reapplies escaping on the way out. [[src/builtins/json_package.mfb:__json_escapeString]] |
+| `value` | `String` | The decoded contents, with JSON escapes already resolved — the field holds the real characters, not the escaped source text. `json::stringify` reapplies escaping on the way out. [[src/codegen/builtins/json/package.mfb:__json_escapeString]] |
 
 ### json::JsonArr
 
-A JSON array. [[src/builtins/json_package.mfb:JsonArr]]
+A JSON array. [[src/codegen/builtins/json/package.mfb:JsonArr]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -99,17 +99,17 @@ A JSON array. [[src/builtins/json_package.mfb:JsonArr]]
 
 ### json::JsonObj
 
-A JSON object. [[src/builtins/json_package.mfb:JsonObj]]
+A JSON object. [[src/codegen/builtins/json/package.mfb:JsonObj]]
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `fields` | `Map OF String TO Json` | The members keyed by name, each value a nested `Json`. Duplicate keys in the source collapse last-wins during parsing. This is the map that `json::get` and `json::getOr` descend through. `json::stringify` emits the pairs in the map's iteration order, which is not guaranteed to match document order. [[src/builtins/json_package.mfb:__json_parseObjectItems]] |
+| `fields` | `Map OF String TO Json` | The members keyed by name, each value a nested `Json`. Duplicate keys in the source collapse last-wins during parsing. This is the map that `json::get` and `json::getOr` descend through. `json::stringify` emits the pairs in the map's iteration order, which is not guaranteed to match document order. [[src/codegen/builtins/json/package.mfb:__json_parseObjectItems]] |
 
 ### json::Json
 
 The union over all six record types. Every parsed JSON value is one of them, and
 this is the type to declare when a value's form is not known statically.
-[[src/builtins/json_package.mfb:Json]]
+[[src/codegen/builtins/json/package.mfb:Json]]
 
 ## Examples
 

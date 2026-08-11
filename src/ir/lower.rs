@@ -86,8 +86,8 @@ pub fn lower_project_with_external_functions(
     external_function_params: &HashMap<String, Vec<ExternalFunctionParam>>,
     imported_types: &[ImportedTypeDef],
 ) -> IrProject {
-    let augmented =
-        builtins::json::augmented_project(ast).expect("built-in json package source must parse");
+    let augmented = crate::codegen::builtins::json::augmented_project(ast)
+        .expect("built-in json package source must parse");
     // The `term`↔`astrings` drawText bridge, injected only when a program imports
     // BOTH packages; it imports term/astrings/strings, so it precedes all three so
     // their `uses_package` sees the dependency (mirrors `http` before `net`).
@@ -2080,7 +2080,7 @@ fn expression_type(
                 || builtins::tls::is_tls_call(&canonical_callee)
                 || builtins::audio::is_audio_call(&canonical_callee)
                 || builtins::http::is_http_call(&canonical_callee)
-                || builtins::json::is_json_call(&canonical_callee)
+                || crate::codegen::builtins::json::is_json_call(&canonical_callee)
                 || crate::codegen::builtins::csv::is_csv_call(&canonical_callee)
                 || builtins::regex::is_regex_call(&canonical_callee)
                 || builtins::datetime::is_datetime_call(&canonical_callee)
@@ -2952,7 +2952,7 @@ fn lower_expression_with_expected(
                         .map(crate::internal_name::internalize)
                 })
                 .or_else(|| {
-                    builtins::json::implementation_name(&canonical_callee)
+                    crate::codegen::builtins::json::implementation_name(&canonical_callee)
                         .or_else(|| {
                             crate::codegen::builtins::csv::implementation_name(&canonical_callee)
                         })

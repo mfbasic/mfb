@@ -20,7 +20,7 @@ complete JSON document into a `Json` value, `json::stringify` renders a `Json`
 value back into compact JSON text, and `json::get` and `json::getOr` walk a path
 of object keys to a nested member. `json` is a built-in package written in
 MFBASIC source over the `collections`, `strings`, and `encoding` packages, so
-`IMPORT json` needs no manifest dependency. [[src/builtins/json.rs:augmented_project]]
+`IMPORT json` needs no manifest dependency. [[src/codegen/builtins/json/mod.rs:augmented_project]]
 
 The package defines the `Json` union and its six member types. `Json` is a
 `UNION` over `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, and
@@ -31,20 +31,20 @@ The package defines the `Json` union and its six member types. `Json` is a
 `json::stringify` accepts either the `Json` union or any one of its member types
 directly. Because numbers are carried as `Float`, very large or very precise
 values may lose precision in a parse/stringify round trip, and a `JsonNum`
-holding a non-finite `Float` (NaN or infinity) has no JSON form. [[src/builtins/json.rs:JSON]]
+holding a non-finite `Float` (NaN or infinity) has no JSON form. [[src/codegen/builtins/json/mod.rs:JSON]]
 
 Serialization is compact: `json::stringify` emits no insignificant whitespace,
 preserves array item order, emits object pairs in the map's iteration order, and
 applies the standard JSON string escapes. Parsing reads one complete document,
 allows surrounding JSON whitespace, and rejects any trailing non-whitespace
-content. [[src/builtins/json_package.mfb:__json_parse]]
+content. [[src/codegen/builtins/json/func_parse.rs:__json_parse]]
 
 The path readers operate only on object members. `json::get` and `json::getOr`
 follow a `List OF String` of object keys left to right from `value`, requiring a
 `JsonObj` at each step; an empty path returns `value` unchanged. They do not copy
 `value`: the located `Json` value is returned directly. `json::get` fails when a
 key is missing or the current value is not an object, whereas `json::getOr`
-returns its default value in those cases instead of failing. [[src/builtins/json_package.mfb:__json_getOr]]
+returns its default value in those cases instead of failing. [[src/codegen/builtins/json/func_get_or.rs:__json_getOr]]
 
 ## Errors
 

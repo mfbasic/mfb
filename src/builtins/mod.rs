@@ -9,7 +9,6 @@ pub(crate) mod fs;
 pub(crate) mod general;
 pub(crate) mod http;
 pub(crate) mod io;
-pub(crate) mod json;
 pub(crate) mod math;
 pub(crate) mod money;
 pub(crate) mod net;
@@ -172,7 +171,7 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         "datetime" => datetime::is_builtin_type(member),
         "fs" => fs::is_builtin_type(member),
         "http" => http::is_builtin_type(member),
-        "json" => json::is_builtin_type(member),
+        "json" => crate::codegen::builtins::json::is_builtin_type(member),
         "money" => money::is_builtin_type(member),
         "net" => net::is_builtin_type(member),
         "process" => process::is_builtin_type(member),
@@ -466,7 +465,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| fs::expected_arguments(name))
         .or_else(|| os::expected_arguments(name))
         .or_else(|| io::expected_arguments(name))
-        .or_else(|| json::expected_arguments(name))
+        .or_else(|| crate::codegen::builtins::json::expected_arguments(name))
         .or_else(|| crate::codegen::builtins::csv::expected_arguments(name))
         .or_else(|| bits::expected_arguments(name))
         .or_else(|| datetime::expected_arguments(name))
@@ -502,7 +501,7 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| fs::expected_arguments(callee))
         .or_else(|| os::expected_arguments(callee))
         .or_else(|| io::expected_arguments(callee))
-        .or_else(|| json::expected_arguments(callee))
+        .or_else(|| crate::codegen::builtins::json::expected_arguments(callee))
         .or_else(|| crate::codegen::builtins::csv::expected_arguments(callee))
         .or_else(|| regex::expected_arguments(callee))
         .or_else(|| net::argument_types(callee))
@@ -746,7 +745,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| crate::codegen::builtins::encoding::call_param_names(name))
         .or_else(|| fs::call_param_names(name))
         .or_else(|| io::call_param_names(name))
-        .or_else(|| json::call_param_names(name))
+        .or_else(|| crate::codegen::builtins::json::call_param_names(name))
         .or_else(|| crate::codegen::builtins::csv::call_param_names(name))
         .or_else(|| regex::call_param_names(name))
         .or_else(|| datetime::call_param_names(name))

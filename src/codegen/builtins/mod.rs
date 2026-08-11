@@ -5,3 +5,4 @@
 pub(crate) mod collections;
 pub(crate) mod csv;
 pub(crate) mod encoding;
+pub(crate) mod json;

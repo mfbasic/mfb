@@ -19,7 +19,7 @@ IMPORT json
 ```
 
 `json` is a built-in package, so `IMPORT json` needs no manifest dependency.
-[[src/builtins/json.rs:augmented_project]]
+[[src/codegen/builtins/json/mod.rs:augmented_project]]
 
 ## Description
 
@@ -28,14 +28,14 @@ does, but returns `defaultValue` instead of failing whenever traversal cannot
 continue. Starting from `value`, each element of `path` is treated as an object
 key: the current value must be a `JsonObj` that has that key, and the member
 stored under it becomes the current value before the next element is applied.
-[[src/builtins/json_package.mfb:__json_getOr]]
+[[src/codegen/builtins/json/func_get_or.rs:__json_getOr]]
 
 Traversal stops and `defaultValue` is returned in exactly two situations: a path
 element names a key that is absent from the current `JsonObj`, or traversal
 reaches a `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, or `JsonArr` while path
 elements remain. As with `json::get`, only object members are traversable —
 array elements cannot be reached, so a path that descends into a `JsonArr`
-returns the default. [[src/builtins/json_package.mfb:__json_getOr]]
+returns the default. [[src/codegen/builtins/json/func_get_or.rs:__json_getOr]]
 
 An empty `path` performs no traversal and returns `value` unchanged, whatever
 variant it is; `defaultValue` is never consulted in that case.
@@ -45,27 +45,27 @@ indistinguishable from a value that was genuinely present. In particular
 `json::getOr(doc, path, JsonNull[NOTHING])` returns the same thing whether the key
 was absent or was present with the JSON value `null`. When that distinction
 matters, use `json::get` and catch the failure instead.
-[[src/builtins/json_package.mfb:__json_get]]
+[[src/codegen/builtins/json/func_get.rs:__json_get]]
 
 The `value` and `defaultValue` arguments each accept the `Json` union or any one
 of its six member types directly. `path` may also be passed by the name `key`,
 and `defaultValue` under the names `default` or `fallback`.
-[[src/builtins/json.rs:is_json_value_type]]
-[[src/builtins/json.rs:call_param_names]]
+[[src/codegen/builtins/json/mod.rs:is_json_value_type]]
+[[src/codegen/builtins/json/mod.rs:call_param_names]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Json` | The value to read from. Accepts the `Json` union or any of `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, `JsonObj`; traversal only succeeds through `JsonObj` members. [[src/builtins/json.rs:call_param_names]] [[src/builtins/json.rs:JSON]] |
-| `path` | `List OF String` | The object keys to follow, from the root inward. Each element selects a member by exact `String` key. An empty list selects `value` itself. Also accepted under the name `key`. [[src/builtins/json.rs:call_param_names]] |
-| `defaultValue` | `Json` | Returned when traversal cannot continue. Accepts the `Json` union or any member type. Also accepted under the names `default` and `fallback`. [[src/builtins/json.rs:call_param_names]] |
+| `value` | `Json` | The value to read from. Accepts the `Json` union or any of `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, `JsonObj`; traversal only succeeds through `JsonObj` members. [[src/codegen/builtins/json/mod.rs:call_param_names]] [[src/codegen/builtins/json/mod.rs:JSON]] |
+| `path` | `List OF String` | The object keys to follow, from the root inward. Each element selects a member by exact `String` key. An empty list selects `value` itself. Also accepted under the name `key`. [[src/codegen/builtins/json/mod.rs:call_param_names]] |
+| `defaultValue` | `Json` | Returned when traversal cannot continue. Accepts the `Json` union or any member type. Also accepted under the names `default` and `fallback`. [[src/codegen/builtins/json/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Json` | The value reached by following every key in `path`; `value` unchanged when `path` is empty; `defaultValue` when a key is missing or a non-object is reached with keys remaining. [[src/builtins/json.rs:JSON]] |
+| `Json` | The value reached by following every key in `path`; `value` unchanged when `path` is empty; `defaultValue` when a key is missing or a non-object is reached with keys remaining. [[src/codegen/builtins/json/mod.rs:JSON]] |
 
 ## Errors
 

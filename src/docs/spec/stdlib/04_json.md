@@ -15,7 +15,7 @@ behind that API.
 `Json` is an exported `UNION` of six exported single-field record types, one per
 JSON value kind. Each variant wraps its payload in a named record rather than
 storing it bare, so a `Json` is always a tagged record value.
-[[src/builtins/json_package.mfb:Json]]
+[[src/codegen/builtins/json/package.mfb:Json]]
 
 | Variant | Record field | MFBASIC type | Represents |
 | --- | --- | --- | --- |
@@ -35,7 +35,7 @@ A literal is constructed with the record-literal form, e.g. `JsonNull[NOTHING]`,
 `JsonBool[TRUE]`, `JsonStr[parsed.value]`, `JsonNum[numberValue]`,
 `JsonArr[items]`, `JsonObj[fields]`. Consumers discriminate with `MATCH` over the
 union, binding the wrapped record (`CASE JsonObj(obj)` then `obj.fields`).
-[[src/builtins/json_package.mfb:__json_stringify]]
+[[src/codegen/builtins/json/func_stringify.rs:__json_stringify]]
 
 ### Numbers are always `Float`
 
@@ -43,7 +43,7 @@ JSON has a single numeric type and the model follows: every number — integral 
 fractional — is stored in `JsonNum.value` as a 64-bit `Float`. There is no
 `JsonInt`. Parsing converts the lexed numeric token to `Float` via `toFloat`;
 out-of-range or unparseable tokens fail (see grammar).
-[[src/builtins/json_package.mfb:__json_parseNumber]]
+[[src/codegen/builtins/json/package.mfb:__json_parseNumber]]
 
 ## AST injection (front-end seam)
 
@@ -53,7 +53,7 @@ the project AST before the rest of the front end runs. The augmented project clo
 pushes `source_file()` (the parsed `json_package.mfb`) only if `uses_package`
 finds an `IMPORT json`; otherwise the project is returned unchanged. The package
 source then flows through the same resolver / monomorphization / codegen path as
-user code. [[src/builtins/json.rs:augmented_project]]
+user code. [[src/codegen/builtins/json/mod.rs:augmented_project]]
 
 The seam also models the four public calls (`json.parse`, `json.stringify`,
 `json.get`, `json.getOr`) for type resolution: `resolve_call` maps an exact
@@ -61,8 +61,8 @@ argument-type signature to a return type, and `implementation_name` rewrites eac
 public call to its `__json_*` source FUNC. The `Json*` family is registered as
 built-in types, and `is_json_value_type` treats `Json` and all six variant record
 names as acceptable wherever a `Json` argument is expected (so a bare `JsonObj`
-may be passed where `Json` is wanted). [[src/builtins/json.rs:resolve_call]]
-[[src/builtins/json.rs:is_json_value_type]]
+may be passed where `Json` is wanted). [[src/codegen/builtins/json/mod.rs:resolve_call]]
+[[src/codegen/builtins/json/mod.rs:is_json_value_type]]
 
 See `./mfb spec architecture frontend` for the injection ordering and
 `./mfb spec architecture monomorphization` for how the generic `List OF Json` /
@@ -73,7 +73,7 @@ See `./mfb spec architecture frontend` for the injection ordering and
 `__json_parse` graphemizes the input, skips leading whitespace, parses one value,
 skips trailing whitespace, and requires the cursor to be exactly at end-of-input;
 any trailing non-whitespace fails. All failures raise error `77050003`
-("invalid JSON format"). [[src/builtins/json_package.mfb:__json_parse]]
+("invalid JSON format"). [[src/codegen/builtins/json/func_parse.rs:__json_parse]]
 
 The accepted grammar (RFC-8259-aligned, with the noted deviations):
 
@@ -95,7 +95,7 @@ ws         := (" " | "\t" | "\n" | "\r")*
 
 Dispatch is by first non-whitespace character: `n`/`t`/`f` route to literal
 matching (`__json_expectLiteral`), `"` to string, `[`/`{` to array/object, and
-everything else to the number lexer. [[src/builtins/json_package.mfb:__json_parse]]
+everything else to the number lexer. [[src/codegen/builtins/json/func_parse.rs:__json_parse]]
 
 Notable parse rules and deviations:
 
@@ -104,26 +104,26 @@ Notable parse rules and deviations:
   *before* `toFloat` conversion. The exponent marker accepts both `e` and `E`; a
   leading `0` may not be followed by more integer digits; a fraction requires at
   least one digit after `.`; an exponent requires at least one digit.
-  [[src/builtins/json_package.mfb:__json_validNumber]]
+  [[src/codegen/builtins/json/package.mfb:__json_validNumber]]
 - **Strings**: raw control characters (code points `< 32`) inside a string are
   rejected. Escapes decode `\" \\ \/ \b \f \n \r \t` and `\uXXXX`. A `\u` high
   surrogate (`U+D800`–`U+DBFF`) must be immediately followed by `\u` and a low
   surrogate (`U+DC00`–`U+DFFF`), combined into one astral code point; a lone or
   mismatched surrogate fails. Hex digits accept both cases.
-  [[src/builtins/json_package.mfb:__json_parseUnicodeEscape]]
+  [[src/codegen/builtins/json/package.mfb:__json_parseUnicodeEscape]]
 - Sibling array items and object members are accumulated iteratively, but each
   level of structural *nesting* is a recursive call, so nesting depth would
   otherwise be bounded only by the runtime call stack. Because MFBASIC has no
   tail-call optimization, an adversarially deep document would overflow that stack
   and crash the process, so the parser caps structural nesting at an explicit fixed
   depth (256 levels of arrays and objects combined) and rejects anything deeper
-  with `77050003`. [[src/builtins/json_package.mfb:__json_parseValue]]
+  with `77050003`. [[src/codegen/builtins/json/package.mfb:__json_parseValue]]
 
 ## Stringify output form
 
 `__json_stringify` is a recursive, deterministic serializer producing compact
 output — no spaces, no newlines, no indentation.
-[[src/builtins/json_package.mfb:__json_stringify]]
+[[src/codegen/builtins/json/func_stringify.rs:__json_stringify]]
 
 | Kind | Output |
 | --- | --- |
@@ -147,7 +147,7 @@ decimal point). Otherwise the value is rendered with 9 fractional digits and the
 trailing zeros — and a trailing `.` — are trimmed by `__json_trimFloatText`. NaN
 and ±infinity (`"nan"`, `"-nan"`, `"inf"`, `"-inf"`) are rejected with error
 `77050003`, since JSON has no representation for them.
-[[src/builtins/json_package.mfb:__json_stringifyNumber]]
+[[src/codegen/builtins/json/package.mfb:__json_stringifyNumber]]
 
 ### String escaping
 
@@ -157,14 +157,14 @@ and ±infinity (`"nan"`, `"-nan"`, `"inf"`, `"-inf"`) are rejected with error
 (code point `< 32`) is emitted as a `\u00XX` escape; all other characters pass
 through unchanged (non-ASCII is left as raw UTF-8, not `\u`-escaped). Note the
 solidus `/` is always escaped on output even though it is optional in JSON.
-[[src/builtins/json_package.mfb:__json_escapeString]]
+[[src/codegen/builtins/json/package.mfb:__json_escapeString]]
 
 ## Path-based access: `get` / `getOr`
 
 Both accessors take a `Json` root and a `List OF String` *path* of object keys
 and walk it left to right. The path addresses object fields only — there is no
 array-index step; each path element is looked up as a key in the current value's
-`JsonObj.fields`. [[src/builtins/json_package.mfb:__json_get]]
+`JsonObj.fields`. [[src/codegen/builtins/json/func_get.rs:__json_get]]
 
 | Step state | `get` | `getOr` |
 | --- | --- | --- |
@@ -177,7 +177,7 @@ An empty path returns the root value unchanged. `get` raises error `77050004`
 ("not found") on any missing key or non-object traversal; `getOr` never fails for
 those cases and instead returns the supplied `defaultValue` (itself a `Json`).
 The returned value is the full `Json` subtree at the path, including the variant
-tag. [[src/builtins/json_package.mfb:__json_getOr]]
+tag. [[src/codegen/builtins/json/func_get_or.rs:__json_getOr]]
 
 ## Error codes
 

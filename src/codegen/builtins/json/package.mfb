@@ -86,87 +86,11 @@ TYPE __json_StringNode
   index AS Integer
 END TYPE
 
-FUNC __json_get(value AS Json, path AS List OF String) AS Json
-  MUT current AS Json = value
-  FOR EACH key IN path
-    MUT nextValue AS Json = current
-    LET currentValue AS Json = current
-    MATCH currentValue
-      CASE JsonObj(obj)
-        nextValue = collections::get(obj.fields, key)
-      CASE ELSE
-        FAIL error(77050004, "Requested item, key, file, or resource was not found.")
-    END MATCH
-    current = nextValue
-  NEXT
-  RETURN current
-END FUNC
+'@@MFB_BODY:get@@
 
-FUNC __json_getOr(value AS Json, path AS List OF String, defaultValue AS Json) AS Json
-  MUT current AS Json = value
-  FOR EACH key IN path
-    MUT nextValue AS Json = current
-    LET currentValue AS Json = current
-    MATCH currentValue
-      CASE JsonObj(obj)
-        IF collections::hasKey(obj.fields, key) THEN
-          nextValue = collections::get(obj.fields, key)
-        ELSE
-          RETURN defaultValue
-        END IF
-      CASE ELSE
-        RETURN defaultValue
-    END MATCH
-    current = nextValue
-  NEXT
-  RETURN current
-END FUNC
+'@@MFB_BODY:getOr@@
 
-FUNC __json_stringify(value AS Json) AS String
-  MATCH value
-    CASE JsonNull(nullValue)
-      RETURN "null"
-    CASE JsonBool(boolValue)
-      IF boolValue.value THEN
-        RETURN "true"
-      END IF
-      RETURN "false"
-    CASE JsonNum(numValue)
-      RETURN __json_stringifyNumber(numValue.value)
-    CASE JsonStr(strValue)
-      LET escaped AS String = __json_escapeString(strValue.value)
-      LET withOpen AS String = "\"" & escaped
-      RETURN withOpen & "\""
-    CASE JsonArr(arrValue)
-      MUT text AS String = "["
-      MUT first AS Boolean = TRUE
-      FOR EACH item IN arrValue.items
-        IF first THEN
-          first = FALSE
-        ELSE
-          text = text & ","
-        END IF
-        text = text & __json_stringify(item)
-      NEXT
-      RETURN text & "]"
-    CASE JsonObj(objValue)
-      MUT text AS String = "{"
-      MUT first AS Boolean = TRUE
-      FOR EACH entry IN objValue.fields
-        IF first THEN
-          first = FALSE
-        ELSE
-          text = text & ","
-        END IF
-        LET escapedKey AS String = __json_escapeString(entry.key)
-        LET keyText AS String = "\"" & escapedKey
-        LET labelText AS String = keyText & "\":"
-        LET valueText AS String = __json_stringify(entry.value)
-        text = text & labelText & valueText
-      NEXT
-      RETURN text & "}"
-  END MATCH
-END FUNC
+'@@MFB_BODY:stringify@@
 
 ' bug-304: the fractional path used a fixed `toString(value, toByte(9))`. Nine
 ' decimal places cannot represent a general binary64, so significant digits were
@@ -325,17 +249,7 @@ END FUNC
 ' it — the scalar scanners are iterative (bug-302) and unbounded at any length.
 LET __JSON_DEPTH_LIMIT AS Integer = 256
 
-FUNC __json_parse(value AS String) AS Json
-  LET chars AS List OF String = strings::graphemes(value)
-  ' bug-422: depth 0 seeds the structural nesting-depth guard threaded through
-  ' the value/array/object parsers below.
-  LET parsed AS __json_Node = __json_parseValue(chars, __json_skipWhitespace(chars, 0), 0)
-  LET endIndex AS Integer = __json_skipWhitespace(chars, parsed.index)
-  IF endIndex <> len(chars) THEN
-    FAIL error(77050003, "invalid JSON format")
-  END IF
-  RETURN parsed.value
-END FUNC
+'@@MFB_BODY:parse@@
 
 FUNC __json_parseValue(chars AS List OF String, index AS Integer, depth AS Integer) AS __json_Node
   ' bug-422: structural nesting-depth guard. Each nested array/object descends

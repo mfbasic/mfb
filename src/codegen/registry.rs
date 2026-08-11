@@ -922,7 +922,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::strings::STRINGS,
     &crate::builtins::term::TERM,
     &crate::builtins::testing::TESTING,
-    &crate::builtins::json::JSON,
+    &crate::codegen::builtins::json::JSON,
     &crate::builtins::math::MATH,
     &crate::builtins::money::MONEY,
     &crate::builtins::net::NET,

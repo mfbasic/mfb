@@ -145,7 +145,7 @@ sync.[[src/resolver/mod.rs:BUILTIN_TYPES]]
 
 Before resolving, the resolver runs the built-in package augmentation chain
 described above (see "Built-in Package Augmentation"), so the rest of resolution
-sees the augmented AST.[[src/builtins/json.rs:augmented_project]]
+sees the augmented AST.[[src/codegen/builtins/json/mod.rs:augmented_project]]
 
 It also reads declared package dependencies from the manifest and uses those to
 validate imported package roots. For source imports, it detects duplicate
