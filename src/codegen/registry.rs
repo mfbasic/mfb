@@ -306,6 +306,21 @@ impl BuiltinFunction {
         self
     }
 
+    /// Attach the one-line summary (`doc_intro`) in `const` context. Additive, for
+    /// packages that declare members with a compact constructor (`datetime`'s `df`)
+    /// and layer docs on afterward.
+    pub(crate) const fn with_intro(mut self, doc_intro: &'static str) -> BuiltinFunction {
+        self.doc_intro = doc_intro;
+        self
+    }
+
+    /// Attach the full `## Description` prose (`doc_desc`) in `const` context.
+    /// Additive companion to [`Self::with_intro`].
+    pub(crate) const fn with_desc(mut self, doc_desc: &'static str) -> BuiltinFunction {
+        self.doc_desc = doc_desc;
+        self
+    }
+
     /// Declare a builtin whose implementation is argument-dependent and selected
     /// by the owning package's [`BuiltinResolver`] (`Implementation::Custom`) —
     /// e.g. `encoding::utf8Encode`'s return-type overload. The registry-wide
