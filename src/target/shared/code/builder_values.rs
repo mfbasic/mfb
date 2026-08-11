@@ -737,6 +737,15 @@ impl CodeBuilder<'_> {
                 if native == Some("replace") && args.len() == 3 {
                     return self.lower_replace(args);
                 }
+                // Mfb dual-path: a migrated source-generic member's native fast path
+                // (`Implementation::Mfb.fast_path`, owned by its `func_*.rs`) is
+                // consulted here. It self-gates on the monomorph instantiation and
+                // either lowers (returns here) or declines, falling through to the
+                // un-migrated per-member arms below and then the monomorphized `.mfb`
+                // body. As each member migrates, its per-member arm below is deleted.
+                if let Some(result) = self.try_mfb_fast_path(target, args) {
+                    return result;
+                }
                 // plan-64 D2: native sortBy only for 8-byte fixed-width items and
                 // signed 8-byte keys (Integer/Fixed/Money). Anything else — String,
                 // Scalar, Byte, or a Float key (NaN ordering) — falls through to the
@@ -1733,6 +1742,27 @@ impl CodeBuilder<'_> {
             .1
             .native_lower()?;
         Some(lower(self, args))
+    }
+
+    /// Mfb fast-path dual-path dispatch: for a `#collections_<name>$<TypeArgs>`
+    /// monomorph target, consult the member's `Implementation::Mfb.fast_path`. If
+    /// it lowers the call natively, return it; if it declines (`Ok(None)`), return
+    /// `None` so the caller falls through to monomorphizing the `.mfb` body. The
+    /// member name is parsed from the target and resolved to its qualified
+    /// `collections.<name>` descriptor. Migrated members' per-instantiation gating
+    /// lives in their `fast_path` fn, not here.
+    fn try_mfb_fast_path(
+        &mut self,
+        target: &str,
+        args: &[NirValue],
+    ) -> Option<Result<ValueResult, String>> {
+        let member = target.strip_prefix("#collections_")?.split('$').next()?;
+        let qualified = format!("collections.{member}");
+        let fast_path = crate::codegen::registry::REGISTRY
+            .function(&qualified)?
+            .1
+            .mfb_fast_path()?;
+        fast_path(self, target, args).transpose()
     }
 
     fn lower_inline_builtin_raw(

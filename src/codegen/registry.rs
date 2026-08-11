@@ -294,6 +294,16 @@ impl BuiltinFunction {
         }
     }
 
+    /// The member's native fast path, if it carries one (`Implementation::Mfb`
+    /// with a `Some` `fast_path`). The codegen monomorph-dispatch seam
+    /// (`try_mfb_fast_path`) consults this before instantiating the `.mfb` body.
+    pub(crate) fn mfb_fast_path(&self) -> Option<MfbFastPath> {
+        match self.implementation {
+            Implementation::Mfb { fast_path, .. } => fast_path,
+            _ => None,
+        }
+    }
+
     /// Declare a builtin function that owns its target-generic lowering
     /// (`Implementation::Native`, reached through the codegen dual-path seam).
     /// The registry-wide constructor every migrated builtin uses, so no package
