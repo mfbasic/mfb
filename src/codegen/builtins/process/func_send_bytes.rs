@@ -1,11 +1,16 @@
 //! `process::sendBytes` — descriptor entry.
 //!
-//! Per-member file (planning/migrate.md). process members are
-//! `Implementation::Same`: they lower via the `_mfb_rt_process_*` runtime-call
-//! seam (emission in `../native/`), so this file carries only the descriptor +
+//! Per-member file (planning/migrate.md). `Implementation::Os`: the member's
+//! per-platform OS-seam entry fns (`*_posix`/`*_win`) delegate to the arch-neutral
+//! emission in `../native/{unix,windows}`, and the generic runtime-call dispatch
+//! (`crate::codegen::os`) picks by `platform.family()`. This file carries the
+//! descriptor, those entry fns, and the
 //! docs migrated from `src/docs/man/builtins/process/sendBytes.md`.
 
+use std::collections::HashMap;
+
 use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::code::{CodegenPlatform, HelperResult};
 
 const INTRO: &str = r#"Write raw bytes to a child's standard input, with no newline added."#;
 const DESC: &str = r#"`process::sendBytes` writes the raw bytes of `data` to the child's standard input,
@@ -45,12 +50,45 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const SEND_BYTES: BuiltinFunction = BuiltinFunction::same(
+pub(crate) const SEND_BYTES: BuiltinFunction = BuiltinFunction::os(
     super::SEND_BYTES,
     "sendBytes",
     INTRO,
     DESC,
     &[],
     super::OV_SEND_BYTES,
+    lower_process_send_helper_posix,
+    lower_process_send_helper_win,
+    &["process.sendBytes", "process.sendBytesTimeout"],
 )
 .with_example(EX);
+
+pub(crate) fn lower_process_send_helper_posix(
+    call: &str,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    super::native::unix::lower_process_send_helper(
+        symbol,
+        platform_imports,
+        platform,
+        true,
+        call == "process.sendBytesTimeout",
+    )
+}
+
+pub(crate) fn lower_process_send_helper_win(
+    call: &str,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    super::native::windows::lower_process_send_helper(
+        symbol,
+        platform_imports,
+        platform,
+        true,
+        call == "process.sendBytesTimeout",
+    )
+}

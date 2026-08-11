@@ -1,11 +1,16 @@
 //! `process::shell` — descriptor entry.
 //!
-//! Per-member file (planning/migrate.md). process members are
-//! `Implementation::Same`: they lower via the `_mfb_rt_process_*` runtime-call
-//! seam (emission in `../native/`), so this file carries only the descriptor +
+//! Per-member file (planning/migrate.md). `Implementation::Os`: the member's
+//! per-platform OS-seam entry fns (`*_posix`/`*_win`) delegate to the arch-neutral
+//! emission in `../native/{unix,windows}`, and the generic runtime-call dispatch
+//! (`crate::codegen::os`) picks by `platform.family()`. This file carries the
+//! descriptor, those entry fns, and the
 //! docs migrated from `src/docs/man/builtins/process/shell.md`.
 
+use std::collections::HashMap;
+
 use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::code::{CodegenPlatform, HelperResult};
 
 const INTRO: &str =
     r#"Run a command line through the platform shell, returning a handle to the child."#;
@@ -52,12 +57,33 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const SHELL: BuiltinFunction = BuiltinFunction::same(
+pub(crate) const SHELL: BuiltinFunction = BuiltinFunction::os(
     super::SHELL,
     "shell",
     INTRO,
     DESC,
     &[],
     &[super::ov(super::P_SHELL, super::PROCESS_TYPE)],
+    lower_process_shell_helper_posix,
+    lower_process_shell_helper_win,
+    &["process.shell"],
 )
 .with_example(EX);
+
+pub(crate) fn lower_process_shell_helper_posix(
+    _call: &str,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    super::native::unix::lower_process_shell_helper(symbol, platform_imports, platform)
+}
+
+pub(crate) fn lower_process_shell_helper_win(
+    _call: &str,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    super::native::windows::lower_process_shell_helper(symbol, platform_imports, platform)
+}

@@ -2370,171 +2370,31 @@ fn lower_runtime_helper(
                 call if call.starts_with("audio.") => {
                     audio::lower_audio_helper(call, symbol, platform_imports, platform)?
                 }
-                call if call.starts_with("process.") => match call {
-                    "process.spawn" => {
-                        crate::codegen::builtins::process::lower_process_spawn_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            false,
-                        )?
-                    }
-                    "process.shell" => {
-                        crate::codegen::builtins::process::lower_process_shell_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                        )?
-                    }
-                    "process.spawnEnv" => {
-                        crate::codegen::builtins::process::lower_process_spawnenv_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                        )?
-                    }
-                    "process.pid" => crate::codegen::builtins::process::lower_process_pid_helper(
+                // Every `process.*` member carries `Implementation::Os`: the
+                // per-platform emission lives in its `func_*.rs`, and the generic
+                // registry-driven dispatch picks posix/win by `platform.family()`.
+                // `process.__drop` is the sole exception — it is not a descriptor
+                // member, so it keeps its own family-branching helper.
+                "process.__drop" => crate::codegen::builtins::process::lower_process_drop_helper(
+                    symbol,
+                    platform_imports,
+                    platform,
+                )?,
+                call if call.starts_with("process.") => {
+                    match crate::codegen::os::dispatch_runtime_helper(
+                        call,
                         symbol,
                         platform_imports,
                         platform,
-                    )?,
-                    "process.isRunning" => {
-                        crate::codegen::builtins::process::lower_process_isrunning_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                        )?
+                    ) {
+                        Some(result) => result?,
+                        None => {
+                            return Err(format!(
+                                "native code plan does not emit runtime call '{call}'"
+                            ));
+                        }
                     }
-                    "process.waitFor" => {
-                        crate::codegen::builtins::process::lower_process_waitfor_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                        )?
-                    }
-                    // Migrated to `Implementation::Os` (spike): the emission lives in
-                    // `func_close.rs`; the generic dispatch picks posix/win.
-                    "process.close" => crate::codegen::os::dispatch_runtime_helper(
-                        "process.close",
-                        symbol,
-                        platform_imports,
-                        platform,
-                    )
-                    .expect("process.close carries Implementation::Os")?,
-                    "process.send" => crate::codegen::builtins::process::lower_process_send_helper(
-                        symbol,
-                        platform_imports,
-                        platform,
-                        false,
-                        false,
-                    )?,
-                    "process.sendTimeout" => {
-                        crate::codegen::builtins::process::lower_process_send_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            false,
-                            true,
-                        )?
-                    }
-                    "process.sendBytes" => {
-                        crate::codegen::builtins::process::lower_process_send_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            true,
-                            false,
-                        )?
-                    }
-                    "process.sendBytesTimeout" => {
-                        crate::codegen::builtins::process::lower_process_send_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            true,
-                            true,
-                        )?
-                    }
-                    "process.receive" => {
-                        crate::codegen::builtins::process::lower_process_receive_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            false,
-                        )?
-                    }
-                    "process.receiveFrom" => {
-                        crate::codegen::builtins::process::lower_process_receive_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            true,
-                        )?
-                    }
-                    "process.receiveBytes" => {
-                        crate::codegen::builtins::process::lower_process_receivebytes_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            false,
-                        )?
-                    }
-                    "process.receiveBytesFrom" => {
-                        crate::codegen::builtins::process::lower_process_receivebytes_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            true,
-                        )?
-                    }
-                    "process.poll" => crate::codegen::builtins::process::lower_process_poll_helper(
-                        symbol,
-                        platform_imports,
-                        platform,
-                        false,
-                    )?,
-                    "process.pollFrom" => {
-                        crate::codegen::builtins::process::lower_process_poll_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            true,
-                        )?
-                    }
-                    "process.signal" => {
-                        crate::codegen::builtins::process::lower_process_signal_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                        )?
-                    }
-                    "process.didSignal" => {
-                        crate::codegen::builtins::process::lower_process_didsignal_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                        )?
-                    }
-                    "process.detach" => {
-                        crate::codegen::builtins::process::lower_process_detach_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                        )?
-                    }
-                    "process.__drop" => {
-                        crate::codegen::builtins::process::lower_process_drop_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                        )?
-                    }
-                    other => {
-                        return Err(format!(
-                            "native code plan does not emit runtime call '{other}'"
-                        ));
-                    }
-                },
+                }
                 call if call.starts_with("tls.") => match call {
                     "tls.connect" => {
                         tls::lower_tls_connect_helper(symbol, platform_imports, platform)?

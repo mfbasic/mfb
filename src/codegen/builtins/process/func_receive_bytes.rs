@@ -1,11 +1,16 @@
 //! `process::receiveBytes` — descriptor entry.
 //!
-//! Per-member file (planning/migrate.md). process members are
-//! `Implementation::Same`: they lower via the `_mfb_rt_process_*` runtime-call
-//! seam (emission in `../native/`), so this file carries only the descriptor +
+//! Per-member file (planning/migrate.md). `Implementation::Os`: the member's
+//! per-platform OS-seam entry fns (`*_posix`/`*_win`) delegate to the arch-neutral
+//! emission in `../native/{unix,windows}`, and the generic runtime-call dispatch
+//! (`crate::codegen::os`) picks by `platform.family()`. This file carries the
+//! descriptor, those entry fns, and the
 //! docs migrated from `src/docs/man/builtins/process/receiveBytes.md`.
 
+use std::collections::HashMap;
+
 use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::code::{CodegenPlatform, HelperResult};
 
 const INTRO: &str = r#"Read one available chunk of raw bytes from a child's output."#;
 const DESC: &str = r#"`process::receiveBytes` reads the next available chunk of raw bytes from a child's
@@ -36,12 +41,43 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const RECEIVE_BYTES: BuiltinFunction = BuiltinFunction::same(
+pub(crate) const RECEIVE_BYTES: BuiltinFunction = BuiltinFunction::os(
     super::RECEIVE_BYTES,
     "receiveBytes",
     INTRO,
     DESC,
     &[],
     super::OV_RECEIVE_BYTES,
+    lower_process_receivebytes_helper_posix,
+    lower_process_receivebytes_helper_win,
+    &["process.receiveBytes", "process.receiveBytesFrom"],
 )
 .with_example(EX);
+
+pub(crate) fn lower_process_receivebytes_helper_posix(
+    call: &str,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    super::native::unix::lower_process_receivebytes_helper(
+        symbol,
+        platform_imports,
+        platform,
+        call == "process.receiveBytesFrom",
+    )
+}
+
+pub(crate) fn lower_process_receivebytes_helper_win(
+    call: &str,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    super::native::windows::lower_process_receivebytes_helper(
+        symbol,
+        platform_imports,
+        platform,
+        call == "process.receiveBytesFrom",
+    )
+}

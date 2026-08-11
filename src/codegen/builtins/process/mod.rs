@@ -30,13 +30,10 @@ mod func_detach;
 mod native;
 pub(crate) mod specs;
 
-pub(crate) use native::{
-    lower_process_detach_helper, lower_process_didsignal_helper, lower_process_drop_helper,
-    lower_process_isrunning_helper, lower_process_pid_helper, lower_process_poll_helper,
-    lower_process_receive_helper, lower_process_receivebytes_helper, lower_process_send_helper,
-    lower_process_shell_helper, lower_process_signal_helper, lower_process_spawn_helper,
-    lower_process_spawnenv_helper, lower_process_waitfor_helper,
-};
+// `process.__drop` is not a descriptor member (no `func_*.rs`), so its helper is
+// still reached by name from the runtime-call dispatch; every other member now
+// lowers through its own `Implementation::Os` (`func_*.rs` → `native::{unix,windows}`).
+pub(crate) use native::lower_process_drop_helper;
 mod func_did_signal;
 mod func_is_running;
 mod func_pid;
@@ -363,8 +360,8 @@ mod tests {
         assert_eq!(o.params.len(), P_SHELL.len());
         assert!(matches!(o.return_type, ReturnType::Fixed("Boolean")));
 
-        // Members are declared via the registry-wide `BuiltinFunction::same` (each
-        // in its own `func_*.rs`); exercise it here.
+        // The `BuiltinFunction::same` constructor is still available for OS-seam
+        // members that carry no per-platform emission of their own; exercise it.
         let f = BuiltinFunction::same(
             black_box("process.demo"),
             black_box("demo"),
@@ -381,8 +378,13 @@ mod tests {
         assert!(matches!(f.lowering, Lowering::Helper));
         assert!(!f.flags.internal_only);
         assert!(!f.flags.return_type_overloaded);
-        // A migrated member descriptor lives in its func file.
+        // Every real member descriptor lives in its func file and carries an
+        // `Implementation::Os` (per-platform emission in `native::{unix,windows}`).
         assert_eq!(func_spawn::SPAWN.name, SPAWN);
+        assert!(matches!(
+            func_spawn::SPAWN.implementation,
+            Implementation::Os { .. }
+        ));
     }
 
     fn ret(name: &str, args: &[&str]) -> Option<String> {

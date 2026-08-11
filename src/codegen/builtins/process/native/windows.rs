@@ -14,13 +14,13 @@ use crate::target::shared::abi;
 use crate::target::shared::code::native_helpers::emit_fail;
 use std::collections::HashMap;
 
-fn unimplemented_on_windows(op: &str) -> HelperResult {
+pub(crate) fn unimplemented_on_windows(op: &str) -> HelperResult {
     Err(format!(
         "process::{op} native Windows backend is not yet emitted (plan-90-D)"
     ))
 }
 
-pub(super) fn lower_process_spawnenv_helper(
+pub(crate) fn lower_process_spawnenv_helper(
     _symbol: &str,
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
@@ -28,7 +28,7 @@ pub(super) fn lower_process_spawnenv_helper(
     unimplemented_on_windows("spawn")
 }
 
-pub(super) fn lower_process_shell_helper(
+pub(crate) fn lower_process_shell_helper(
     _symbol: &str,
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
@@ -41,7 +41,7 @@ pub(super) fn lower_process_shell_helper(
 // `didSignal`, PROC_EXITCODE for `waitFor`) and return false. The documented
 // STILL_ACTIVE ambiguity (a child that genuinely exits with 259 reads as running)
 // is accepted, matching the plan.
-pub(super) fn lower_process_isrunning_helper(
+pub(crate) fn lower_process_isrunning_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -120,7 +120,7 @@ pub(super) fn lower_process_isrunning_helper(
 /// zero-byte write (broken pipe) it branches to `fail`. `tag` disambiguates the
 /// per-call labels (payload vs the trailing newline).
 #[allow(clippy::too_many_arguments)]
-fn emit_write_all(
+pub(crate) fn emit_write_all(
     symbol: &str,
     tag: &str,
     sp: &str,
@@ -184,7 +184,7 @@ fn emit_write_all(
 // blocking WriteFile returns immediately for a draining reader (the common case)
 // and does not preempt a genuinely full pipe (a documented Windows limit,
 // mirroring `didSignal`).
-pub(super) fn lower_process_send_helper(
+pub(crate) fn lower_process_send_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -297,7 +297,7 @@ pub(super) fn lower_process_send_helper(
 // from the selected stream, as a validated String. Reads a byte at a time so it
 // never over-reads past the line boundary. EOF returns the accumulated bytes even
 // without a trailing newline; EOF on an empty line raises ErrResourceClosed.
-pub(super) fn lower_process_receive_helper(
+pub(crate) fn lower_process_receive_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -488,7 +488,7 @@ pub(super) fn lower_process_receive_helper(
 // process.receiveBytes / receiveBytesFrom — one `ReadFile` chunk from the selected
 // stream, returned as a List OF Byte. A broken pipe / zero-byte read is EOF with
 // nothing buffered → ErrResourceClosed. `with_from` selects stderr.
-pub(super) fn lower_process_receivebytes_helper(
+pub(crate) fn lower_process_receivebytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -665,7 +665,7 @@ pub(super) fn lower_process_receivebytes_helper(
 // on a `GetTickCount64` deadline, sleeping 1ms between probes. Returns true when
 // bytes are buffered OR the pipe is broken (EOF — so a draining receive can
 // follow); false on timeout. `with_from` selects the stream (0 = StdOut).
-pub(super) fn lower_process_poll_helper(
+pub(crate) fn lower_process_poll_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -811,7 +811,7 @@ pub(super) fn lower_process_poll_helper(
 // `TerminateProcess` (plan D2's best-effort fallback), with a POSIX-flavored exit
 // code (128 + signo) so a later `waitFor` reads a recognizable value; None is a
 // no-op. Kill=1, Terminate=2, Error=3 (the Signal enum order).
-pub(super) fn lower_process_signal_helper(
+pub(crate) fn lower_process_signal_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -885,7 +885,7 @@ pub(super) fn lower_process_signal_helper(
 // STATUS_ACCESS_VIOLATION) maps to Error; everything else (normal exit, a
 // `TerminateProcess` code, a not-yet-reaped child) maps to None — the documented
 // Windows limit. Reads the raw code cached by waitFor/isRunning in PROC_STATUS.
-pub(super) fn lower_process_didsignal_helper(
+pub(crate) fn lower_process_didsignal_helper(
     symbol: &str,
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
@@ -937,7 +937,7 @@ pub(super) fn lower_process_didsignal_helper(
 // pipe handles and the process handle, then set the record `closed` bit so
 // scope-drop's __drop is a no-op and a later op traps ErrResourceClosed. The child
 // keeps running (Windows does not reparent-kill on handle close).
-pub(super) fn lower_process_detach_helper(
+pub(crate) fn lower_process_detach_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1004,7 +1004,7 @@ pub(super) fn lower_process_detach_helper(
 // with the I/O phase). Builds a space-joined command line from the argv list.
 // Record: hProcess@8, pid@64, exitcode@72, reaped@56; the fd slots stay 0.
 // ---------------------------------------------------------------------------
-pub(super) fn lower_process_spawn_helper(
+pub(crate) fn lower_process_spawn_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1336,7 +1336,7 @@ pub(super) fn lower_process_spawn_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn lower_process_pid_helper(
+pub(crate) fn lower_process_pid_helper(
     symbol: &str,
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
@@ -1370,7 +1370,7 @@ pub(super) fn lower_process_pid_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn lower_process_waitfor_helper(
+pub(crate) fn lower_process_waitfor_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1452,7 +1452,7 @@ pub(super) fn lower_process_waitfor_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn lower_process_drop_helper(
+pub(crate) fn lower_process_drop_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,

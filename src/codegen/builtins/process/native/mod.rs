@@ -24,51 +24,32 @@
 use crate::target::shared::code::*;
 use std::collections::HashMap;
 
-mod unix;
-mod windows;
+pub(crate) mod unix;
+pub(crate) mod windows;
 
-/// Route a process helper to the Windows (`CreateProcess`) or Unix (fork/exec)
-/// backend by `platform.family()`. plan-90-D adds the Windows arm; on every other
-/// platform this is a thin pass-through to `unix`.
-macro_rules! process_dispatch {
-    ($name:ident ( $($arg:ident : $ty:ty),* $(,)? )) => {
-        pub(crate) fn $name(
-            symbol: &str,
-            platform_imports: &HashMap<String, String>,
-            platform: &dyn CodegenPlatform,
-            $($arg : $ty),*
-        ) -> HelperResult {
-            if platform.family() == PlatformFamily::Windows {
-                windows::$name(symbol, platform_imports, platform $(, $arg)*)
-            } else {
-                unix::$name(symbol, platform_imports, platform $(, $arg)*)
-            }
-        }
-    };
+/// Route `process.__drop` to the Windows (`CreateProcess`) or Unix (fork/exec)
+/// backend by `platform.family()`. Every descriptor member now owns its own
+/// per-platform dispatch via `Implementation::Os` in its `func_*.rs`; `__drop`
+/// is the lone non-member helper still reached by name, so it keeps this shim.
+pub(crate) fn lower_process_drop_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    if platform.family() == PlatformFamily::Windows {
+        windows::lower_process_drop_helper(symbol, platform_imports, platform)
+    } else {
+        unix::lower_process_drop_helper(symbol, platform_imports, platform)
+    }
 }
 
-process_dispatch!(lower_process_spawn_helper(with_env: bool));
-process_dispatch!(lower_process_spawnenv_helper());
-process_dispatch!(lower_process_shell_helper());
-process_dispatch!(lower_process_pid_helper());
-process_dispatch!(lower_process_isrunning_helper());
-process_dispatch!(lower_process_waitfor_helper());
-process_dispatch!(lower_process_send_helper(is_bytes: bool, with_timeout: bool));
-process_dispatch!(lower_process_receive_helper(with_from: bool));
-process_dispatch!(lower_process_receivebytes_helper(with_from: bool));
-process_dispatch!(lower_process_poll_helper(with_from: bool));
-process_dispatch!(lower_process_signal_helper());
-process_dispatch!(lower_process_didsignal_helper());
-process_dispatch!(lower_process_detach_helper());
-process_dispatch!(lower_process_drop_helper());
-
 // --- Process record tail (offsets from the record base) ----------------------
-pub(super) const PROC_STDIN_W: usize = 32;
-pub(super) const PROC_STDOUT_R: usize = 40;
-pub(super) const PROC_STDERR_R: usize = 48;
-pub(super) const PROC_REAPED: usize = 56;
-pub(super) const PROC_STATUS: usize = 64;
-pub(super) const PROC_EXITCODE: usize = 72;
+pub(crate) const PROC_STDIN_W: usize = 32;
+pub(crate) const PROC_STDOUT_R: usize = 40;
+pub(crate) const PROC_STDERR_R: usize = 48;
+pub(crate) const PROC_REAPED: usize = 56;
+pub(crate) const PROC_STATUS: usize = 64;
+pub(crate) const PROC_EXITCODE: usize = 72;
 // 80 / 88 reserved for sub-plan B's per-fd read buffers.
 
 // The whole tail must fit inside the shared 96-byte envelope (plan-80).

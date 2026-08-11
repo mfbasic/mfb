@@ -29,7 +29,7 @@ const ENTRY_VLEN: usize = COLLECTION_ENTRY_OFFSET_VALUE_LENGTH;
 /// Decode a raw `waitpid` status word (`status` vreg) into an exit code (`exit`
 /// vreg): `WIFEXITED` → `(status >> 8) & 0xff`, otherwise signal-death → `-1`.
 /// `s0`/`s1` are caller-supplied scratch vregs distinct from `status`/`exit`.
-fn emit_decode_status(
+pub(crate) fn emit_decode_status(
     status: &str,
     exit: &str,
     s0: &str,
@@ -59,7 +59,7 @@ fn emit_decode_status(
 // ---------------------------------------------------------------------------
 // process.pid — read the cached child pid (handle@8).
 // ---------------------------------------------------------------------------
-pub(super) fn lower_process_pid_helper(
+pub(crate) fn lower_process_pid_helper(
     symbol: &str,
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
@@ -103,7 +103,7 @@ pub(super) fn lower_process_pid_helper(
 // process.waitFor — block until exit, return the exit code (-1 on signal).
 // Idempotent: a second call returns the cached code.
 // ---------------------------------------------------------------------------
-pub(super) fn lower_process_waitfor_helper(
+pub(crate) fn lower_process_waitfor_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -183,7 +183,7 @@ pub(super) fn lower_process_waitfor_helper(
 // ---------------------------------------------------------------------------
 // process.isRunning — WNOHANG waitpid; caches the exit state on a reap.
 // ---------------------------------------------------------------------------
-pub(super) fn lower_process_isrunning_helper(
+pub(crate) fn lower_process_isrunning_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -267,7 +267,7 @@ pub(super) fn lower_process_isrunning_helper(
 // process.__drop — scope-drop: SIGKILL + reap a live child, close pipe fds, set
 // the closed bit. Idempotent (a closed record is a no-op).
 // ---------------------------------------------------------------------------
-pub(super) fn lower_process_drop_helper(
+pub(crate) fn lower_process_drop_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -367,7 +367,7 @@ const SPAWN_LOCAL: usize = 48;
 /// never freed (the child execs or _exits). `cnt`/`byte`/`sp`/`dp` are scratch
 /// vregs. `src`/`len` must survive `emit_alloc` (vregs spill).
 #[allow(clippy::too_many_arguments)]
-fn emit_copy_to_cstring(
+pub(crate) fn emit_copy_to_cstring(
     symbol: &str,
     src: &str,
     len: &str,
@@ -413,7 +413,7 @@ fn emit_copy_to_cstring(
 /// USED map entry. All C strings are arena-allocated and never freed (the child
 /// execs immediately).
 #[allow(clippy::too_many_arguments)]
-fn emit_child_apply_env(
+pub(crate) fn emit_child_apply_env(
     symbol: &str,
     v: &mut Vregs,
     map: &str,
@@ -619,7 +619,7 @@ fn emit_child_apply_env(
 /// `fork_fail`/`alloc_fail`/`done` labels. Draws its scratch vregs from the
 /// caller's `Vregs` so nothing collides.
 #[allow(clippy::too_many_arguments)]
-fn emit_spawn_tail(
+pub(crate) fn emit_spawn_tail(
     symbol: &str,
     v: &mut Vregs,
     argv: &str,
@@ -818,7 +818,7 @@ fn emit_spawn_tail(
 /// Emit `store_u8` bytes materializing a NUL-terminated ASCII literal at
 /// `dst + 0..`, using `byte` as a scratch vreg. The buffer must already be
 /// allocated with room for `text.len() + 1` bytes.
-fn emit_cstring_literal(
+pub(crate) fn emit_cstring_literal(
     text: &str,
     dst: &str,
     byte: &str,
@@ -831,7 +831,7 @@ fn emit_cstring_literal(
     instructions.push(abi::store_u8(abi::ZERO, dst, text.len()));
 }
 
-pub(super) fn lower_process_spawn_helper(
+pub(crate) fn lower_process_spawn_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -983,7 +983,7 @@ pub(super) fn lower_process_spawn_helper(
 // both macOS and Linux — the plan's bash-on-macOS preference is dropped for
 // portability; see Corrections.)
 // ---------------------------------------------------------------------------
-pub(super) fn lower_process_shell_helper(
+pub(crate) fn lower_process_shell_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1100,7 +1100,7 @@ pub(super) fn lower_process_shell_helper(
 // with child-side chdir + environment application (setenv per entry; the whole
 // inherited environment cleared first when envReplace is true).
 // ---------------------------------------------------------------------------
-pub(super) fn lower_process_spawnenv_helper(
+pub(crate) fn lower_process_spawnenv_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1281,7 +1281,7 @@ pub(super) fn lower_process_spawnenv_helper(
 // writes the raw List OF Byte with no newline. Blocking (partial-write loop with
 // EINTR retry); a broken pipe (child stdin gone) raises ErrResourceClosed.
 // ---------------------------------------------------------------------------
-pub(super) fn lower_process_send_helper(
+pub(crate) fn lower_process_send_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1481,7 +1481,7 @@ const POLLOUT: &str = "4";
 /// A `< 0` poll error (e.g. EINTR) falls through and the following blocking op
 /// re-polls — acceptable since a spurious wakeup just retries.
 #[allow(clippy::too_many_arguments)]
-fn emit_poll_wait(
+pub(crate) fn emit_poll_wait(
     symbol: &str,
     fd: &str,
     timeout: &str,
@@ -1518,7 +1518,7 @@ fn emit_poll_wait(
 // receive can follow; false on timeout. `with_from` selects the stream via the
 // `Stream` arg (0 = StdOut, else StdErr); the 2-arg form always polls stdout.
 // ---------------------------------------------------------------------------
-pub(super) fn lower_process_poll_helper(
+pub(crate) fn lower_process_poll_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1613,7 +1613,7 @@ pub(super) fn lower_process_poll_helper(
 // empty read) with nothing buffered, raises ErrResourceClosed. `with_from`
 // selects stderr; the 1-arg form reads stdout.
 // ---------------------------------------------------------------------------
-pub(super) fn lower_process_receivebytes_helper(
+pub(crate) fn lower_process_receivebytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1788,7 +1788,7 @@ pub(super) fn lower_process_receivebytes_helper(
 // (A byte-at-a-time read trades a syscall per byte for a buffer-free, always-
 // correct line framing; the chunk-oriented `receiveBytes` is the bulk path.)
 // ---------------------------------------------------------------------------
-pub(super) fn lower_process_receive_helper(
+pub(crate) fn lower_process_receive_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1951,7 +1951,7 @@ pub(super) fn lower_process_receive_helper(
 // Terminate->SIGTERM, Error->SIGABRT, None->no-op. Operating on a dropped/
 // detached process raises ErrResourceClosed.
 // ---------------------------------------------------------------------------
-pub(super) fn lower_process_signal_helper(
+pub(crate) fn lower_process_signal_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -2024,7 +2024,7 @@ pub(super) fn lower_process_signal_helper(
 // Kill for SIGKILL; Error for the fault signals (SIGILL/ABRT/FPE/BUS/SEGV);
 // Terminate for every other terminating signal.
 // ---------------------------------------------------------------------------
-pub(super) fn lower_process_didsignal_helper(
+pub(crate) fn lower_process_didsignal_helper(
     symbol: &str,
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
@@ -2105,7 +2105,7 @@ pub(super) fn lower_process_didsignal_helper(
 // child and no zombie is left, and set the record `closed` bit so scope-drop's
 // __drop is a no-op and any later op traps ErrResourceClosed.
 // ---------------------------------------------------------------------------
-pub(super) fn lower_process_detach_helper(
+pub(crate) fn lower_process_detach_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,

@@ -1,11 +1,16 @@
 //! `process::waitFor` — descriptor entry.
 //!
-//! Per-member file (planning/migrate.md). process members are
-//! `Implementation::Same`: they lower via the `_mfb_rt_process_*` runtime-call
-//! seam (emission in `../native/`), so this file carries only the descriptor +
+//! Per-member file (planning/migrate.md). `Implementation::Os`: the member's
+//! per-platform OS-seam entry fns (`*_posix`/`*_win`) delegate to the arch-neutral
+//! emission in `../native/{unix,windows}`, and the generic runtime-call dispatch
+//! (`crate::codegen::os`) picks by `platform.family()`. This file carries the
+//! descriptor, those entry fns, and the
 //! docs migrated from `src/docs/man/builtins/process/waitFor.md`.
 
+use std::collections::HashMap;
+
 use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::code::{CodegenPlatform, HelperResult};
 
 const INTRO: &str = r#"Block until a spawned child exits and return its exit code."#;
 const DESC: &str = r#"`process::waitFor` blocks until the child behind a `Process` handle has exited, then
@@ -43,12 +48,33 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const WAIT_FOR: BuiltinFunction = BuiltinFunction::same(
+pub(crate) const WAIT_FOR: BuiltinFunction = BuiltinFunction::os(
     super::WAIT_FOR,
     "waitFor",
     INTRO,
     DESC,
     &[],
     &[super::ov(super::P_PROC, "Integer")],
+    lower_process_waitfor_helper_posix,
+    lower_process_waitfor_helper_win,
+    &["process.waitFor"],
 )
 .with_example(EX);
+
+pub(crate) fn lower_process_waitfor_helper_posix(
+    _call: &str,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    super::native::unix::lower_process_waitfor_helper(symbol, platform_imports, platform)
+}
+
+pub(crate) fn lower_process_waitfor_helper_win(
+    _call: &str,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    super::native::windows::lower_process_waitfor_helper(symbol, platform_imports, platform)
+}
