@@ -19,7 +19,7 @@ IMPORT encoding
 ```
 
 `encoding` is a built-in package written in MFBASIC source, so no manifest
-dependency is required. [[src/builtins/encoding.rs:augmented_project]]
+dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project]]
 
 ## Description
 
@@ -28,36 +28,36 @@ dependency is required. [[src/builtins/encoding.rs:augmented_project]]
 raw byte sequence: each `%` (byte 37) introduces a two-digit hexadecimal escape
 whose value becomes a single output byte, and every other byte is copied through
 unchanged. The accumulated bytes are then interpreted as UTF-8 to produce the
-returned `String`. [[src/builtins/encoding_package.mfb:__encoding_percentDecodeBytes]]
+returned `String`. [[src/codegen/builtins/encoding/package.mfb:__encoding_percentDecodeBytes]]
 
 The two hex digits after a `%` accept either case (`0`–`9`, `a`–`f`, `A`–`F`) and
 may be mixed. Unlike `encoding::formUrlDecode`, a literal `+` (byte 43) is *not*
 translated to a space — it passes through verbatim — because plus-as-space is an
 `application/x-www-form-urlencoded` convention, not part of RFC 3986 percent
-encoding. [[src/builtins/encoding_package.mfb:__encoding_percentDecode]] [[src/builtins/encoding_package.mfb:__encoding_hexValue]]
+encoding. [[src/codegen/builtins/encoding/mod.rs:__encoding_percentDecode]] [[src/codegen/builtins/encoding/package.mfb:__encoding_hexValue]]
 
 The empty string decodes to the empty string. The function is a strict decoder:
 a `%` with fewer than two following bytes, a `%` followed by a non-hex digit, or
 a decoded byte sequence that is not valid UTF-8 all raise an error rather than
-being passed through or replaced. [[src/builtins/encoding_package.mfb:__encoding_utf8Valid]]
+being passed through or replaced. [[src/codegen/builtins/encoding/package.mfb:__encoding_utf8Valid]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `text` | `String` | The percent-encoded text to decode. Every `%` must be followed by two hexadecimal digits (`0`–`9`, `a`–`f`, `A`–`F`); all other bytes are literal. The empty string is accepted and decodes to the empty string. [[src/builtins/encoding.rs:call_param_names]] |
+| `text` | `String` | The percent-encoded text to decode. Every `%` must be followed by two hexadecimal digits (`0`–`9`, `a`–`f`, `A`–`F`); all other bytes are literal. The empty string is accepted and decodes to the empty string. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The decoded text: each `%XX` escape replaced by its byte, all other bytes verbatim, and the whole interpreted as UTF-8. The empty string for empty input. [[src/builtins/encoding.rs:ENCODING]] |
+| `String` | The decoded text: each `%XX` escape replaced by its byte, all other bytes verbatim, and the whole interpreted as UTF-8. The empty string for empty input. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | A `%` is not followed by two more bytes (truncated escape), a `%` is followed by a byte that is not a hexadecimal digit, or the decoded bytes are not valid UTF-8. [[src/builtins/encoding_package.mfb:__encoding_percentDecodeBytes]] |
+| `77050003` | `ErrInvalidFormat` | A `%` is not followed by two more bytes (truncated escape), a `%` is followed by a byte that is not a hexadecimal digit, or the decoded bytes are not valid UTF-8. [[src/codegen/builtins/encoding/package.mfb:__encoding_percentDecodeBytes]] |
 
 ## Examples
 

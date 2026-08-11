@@ -19,7 +19,7 @@ IMPORT encoding
 ```
 
 `encoding` is a built-in package written in MFBASIC source, so no manifest
-dependency is required. [[src/builtins/encoding.rs:augmented_project]]
+dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project]]
 
 ## Description
 
@@ -27,31 +27,31 @@ dependency is required. [[src/builtins/encoding.rs:augmented_project]]
 as defined by RFC 4648 §6. Input bytes are consumed as a continuous bit stream,
 most-significant bit first, and emitted five bits at a time; each 5-bit group
 selects one character from the uppercase alphabet
-`ABCDEFGHIJKLMNOPQRSTUVWXYZ234567`. [[src/builtins/encoding_package.mfb:__encoding_base32Encode]]
+`ABCDEFGHIJKLMNOPQRSTUVWXYZ234567`. [[src/codegen/builtins/encoding/mod.rs:__encoding_base32Encode]]
 
 Encoding operates on 40-bit (5-byte) groups, each producing eight Base32
 characters. When the final group is short, its remaining bits become the high
 bits of a last symbol and are zero-filled at the low end, then the output is
 padded with `=` characters until its length is a multiple of eight, so the
 result length is always a multiple of eight. An empty list yields the empty
-string. [[src/builtins/encoding_package.mfb:__encoding_baseEncode]]
+string. [[src/codegen/builtins/encoding/package.mfb:__encoding_baseEncode]]
 
 The function is **total**: every `List OF Byte`, including the empty list,
 encodes successfully, and it never raises a runtime error. The inverse operation
 is `encoding::base32Decode`, which parses a Base32 string back into a
-`List OF Byte`. [[src/builtins/encoding_package.mfb:__encoding_base32Decode]]
+`List OF Byte`. [[src/codegen/builtins/encoding/mod.rs:__encoding_base32Decode]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `data` | `List OF Byte` | The bytes to encode. Any list of bytes, including the empty list, is accepted. [[src/builtins/encoding.rs:call_param_names]] |
+| `data` | `List OF Byte` | The bytes to encode. Any list of bytes, including the empty list, is accepted. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The uppercase Base32 encoding of `data` with `=` padding to a multiple of eight characters; the empty string for an empty list. [[src/builtins/encoding.rs:ENCODING]] |
+| `String` | The uppercase Base32 encoding of `data` with `=` padding to a multiple of eight characters; the empty string for an empty list. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
 
 ## Errors
 

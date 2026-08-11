@@ -19,14 +19,14 @@ IMPORT encoding
 ```
 
 `encoding` is a built-in package written in MFBASIC source, so no manifest
-dependency is required. [[src/builtins/encoding.rs:augmented_project]]
+dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project]]
 
 ## Description
 
 `encoding::formUrlEncode` encodes `text` using the
 `application/x-www-form-urlencoded` rules that HTML forms apply to query-string
 values. The input is first converted to its UTF-8 byte sequence, then each byte
-is emitted in order. [[src/builtins/encoding_package.mfb:__encoding_formUrlEncode]]
+is emitted in order. [[src/codegen/builtins/encoding/mod.rs:__encoding_formUrlEncode]]
 
 A byte passes through unchanged only when it is an ASCII alphanumeric: the
 letters `A`–`Z` (65–90) and `a`–`z` (97–122) and the digits `0`–`9` (48–57).
@@ -34,7 +34,7 @@ The space byte (32) is emitted as a single `+`. Every other byte — including
 `-`, `.`, `_`, `~`, reserved and sub-delimiter characters, control bytes, and
 every continuation byte of a multi-byte UTF-8 character — is emitted as a
 three-character escape `%XX`, where `XX` is the byte value in **uppercase**
-hexadecimal. [[src/builtins/encoding_package.mfb:__encoding_isAlphaNum]] [[src/builtins/encoding_package.mfb:__encoding_percentByte]]
+hexadecimal. [[src/codegen/builtins/encoding/package.mfb:__encoding_isAlphaNum]] [[src/codegen/builtins/encoding/package.mfb:__encoding_percentByte]]
 
 This differs from `encoding::percentEncode`, which leaves the four unreserved
 marks `-`, `.`, `_`, and `~` untouched and escapes space as `%20` rather than
@@ -45,19 +45,19 @@ and symbol characters, three or four for higher code points).
 The function is **total**: every `String`, including the empty string (which
 yields the empty string), encodes successfully and it never raises a runtime
 error. The inverse operation is `encoding::formUrlDecode`, which parses `%XX`
-escapes and `+` back into text. [[src/builtins/encoding_package.mfb:__encoding_formUrlDecode]]
+escapes and `+` back into text. [[src/codegen/builtins/encoding/mod.rs:__encoding_formUrlDecode]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `text` | `String` | The text to encode. Any string, including the empty string, is accepted; it is interpreted as its UTF-8 byte sequence. [[src/builtins/encoding.rs:call_param_names]] |
+| `text` | `String` | The text to encode. Any string, including the empty string, is accepted; it is interpreted as its UTF-8 byte sequence. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The form-encoded form of `text`: ASCII alphanumeric bytes verbatim, space as `+`, all other bytes as `%XX` with uppercase hex. The empty string for empty input. [[src/builtins/encoding.rs:ENCODING]] |
+| `String` | The form-encoded form of `text`: ASCII alphanumeric bytes verbatim, space as `+`, all other bytes as `%XX` with uppercase hex. The empty string for empty input. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
 
 ## Errors
 

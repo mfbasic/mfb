@@ -179,115 +179,25 @@ END FUNC
 
 ' --- utf8 ----------------------------------------------------------------
 
-FUNC __encoding_utf8EncodeBytes(value AS String) AS List OF Byte
-  RETURN strings::toBytes(value)
-END FUNC
+'@@MFB_BODY:utf8EncodeBytes@@
 
-FUNC __encoding_utf8EncodeInts(value AS String) AS List OF Integer
-  LET data AS List OF Byte = strings::toBytes(value)
-  MUT result AS List OF Integer = []
-  FOR EACH b IN data
-    result = collections::append(result, toInt(b))
-  NEXT
-  RETURN result
-END FUNC
+'@@MFB_BODY:utf8EncodeInts@@
 
-FUNC __encoding_utf8DecodeBytes(value AS List OF Byte) AS String
-  IF __encoding_utf8Valid(value) = FALSE THEN
-    FAIL error(77050003, "invalid utf-8")
-  END IF
-  RETURN toString(value)
-END FUNC
+'@@MFB_BODY:utf8DecodeBytes@@
 
-FUNC __encoding_utf8DecodeInts(value AS List OF Integer) AS String
-  MUT data AS List OF Byte = []
-  FOR EACH unit IN value
-    IF unit < 0 OR unit > 255 THEN
-      FAIL error(77050003, "invalid utf-8 code unit")
-    END IF
-    data = collections::append(data, toByte(unit))
-  NEXT
-  IF __encoding_utf8Valid(data) = FALSE THEN
-    FAIL error(77050003, "invalid utf-8")
-  END IF
-  RETURN toString(data)
-END FUNC
+'@@MFB_BODY:utf8DecodeInts@@
 
 ' --- utf16 ---------------------------------------------------------------
 
-FUNC __encoding_utf16Encode(value AS String) AS List OF Integer
-  LET points AS List OF Integer = __encoding_codepoints(value)
-  MUT result AS List OF Integer = []
-  MUT scalar AS Integer = 0
-  MUT high AS Integer = 0
-  MUT low AS Integer = 0
-  FOR EACH cp IN points
-    IF cp <= 65535 THEN
-      result = collections::append(result, cp)
-    ELSE
-      scalar = cp - 65536
-      high = 55296 + bits::sr(scalar, 10)
-      low = 56320 + bits::band(scalar, 1023)
-      result = collections::append(result, high)
-      result = collections::append(result, low)
-    END IF
-  NEXT
-  RETURN result
-END FUNC
+'@@MFB_BODY:utf16Encode@@
 
-FUNC __encoding_utf16Decode(value AS List OF Integer) AS String
-  LET n AS Integer = len(value)
-  MUT out AS String = ""
-  MUT i AS Integer = 0
-  MUT unit AS Integer = 0
-  MUT low AS Integer = 0
-  MUT scalar AS Integer = 0
-  WHILE i < n
-    unit = collections::get(value, i)
-    IF unit < 0 OR unit > 65535 THEN
-      FAIL error(77050003, "invalid utf-16 code unit")
-    END IF
-    IF unit >= 55296 AND unit <= 56319 THEN
-      IF i + 1 >= n THEN
-        FAIL error(77050003, "unpaired surrogate")
-      END IF
-      low = collections::get(value, i + 1)
-      IF low < 56320 OR low > 57343 THEN
-        FAIL error(77050003, "unpaired surrogate")
-      END IF
-      scalar = 65536 + bits::sl(unit - 55296, 10) + (low - 56320)
-      out = out & __encoding_fromCodepoint(scalar)
-      i = i + 2
-    ELSE
-      IF unit >= 56320 AND unit <= 57343 THEN
-        FAIL error(77050003, "unpaired surrogate")
-      END IF
-      out = out & __encoding_fromCodepoint(unit)
-      i = i + 1
-    END IF
-  END WHILE
-  RETURN out
-END FUNC
+'@@MFB_BODY:utf16Decode@@
 
 ' --- utf32 ---------------------------------------------------------------
 
-FUNC __encoding_utf32Encode(value AS String) AS List OF Integer
-  RETURN __encoding_codepoints(value)
-END FUNC
+'@@MFB_BODY:utf32Encode@@
 
-FUNC __encoding_utf32Decode(value AS List OF Integer) AS String
-  MUT out AS String = ""
-  FOR EACH cp IN value
-    IF cp < 0 OR cp > 1114111 THEN
-      FAIL error(77050003, "invalid code point")
-    END IF
-    IF cp >= 55296 AND cp <= 57343 THEN
-      FAIL error(77050003, "surrogate code point")
-    END IF
-    out = out & __encoding_fromCodepoint(cp)
-  NEXT
-  RETURN out
-END FUNC
+'@@MFB_BODY:utf32Decode@@
 
 ' --- hex -----------------------------------------------------------------
 
@@ -308,37 +218,9 @@ FUNC __encoding_hexValue(c AS Integer) AS Integer
   RETURN -1
 END FUNC
 
-FUNC __encoding_hexEncode(data AS List OF Byte) AS String
-  MUT out AS String = ""
-  MUT v AS Integer = 0
-  FOR EACH b IN data
-    v = toInt(b)
-    out = out & __encoding_hexDigit(v / 16) & __encoding_hexDigit(v - (v / 16) * 16)
-  NEXT
-  RETURN out
-END FUNC
+'@@MFB_BODY:hexEncode@@
 
-FUNC __encoding_hexDecode(text AS String) AS List OF Byte
-  LET data AS List OF Byte = strings::toBytes(text)
-  LET n AS Integer = len(data)
-  IF n - (n / 2) * 2 <> 0 THEN
-    FAIL error(77050003, "odd-length hex")
-  END IF
-  MUT result AS List OF Byte = []
-  MUT i AS Integer = 0
-  MUT hi AS Integer = 0
-  MUT lo AS Integer = 0
-  WHILE i < n
-    hi = __encoding_hexValue(toInt(collections::get(data, i)))
-    lo = __encoding_hexValue(toInt(collections::get(data, i + 1)))
-    IF hi < 0 OR lo < 0 THEN
-      FAIL error(77050003, "invalid hex digit")
-    END IF
-    result = collections::append(result, toByte(hi * 16 + lo))
-    i = i + 2
-  END WHILE
-  RETURN result
-END FUNC
+'@@MFB_BODY:hexDecode@@
 
 ' --- base32 / base64 / base64url -----------------------------------------
 
@@ -431,17 +313,11 @@ FUNC __encoding_base32Value(c AS Integer) AS Integer
   RETURN -1
 END FUNC
 
-FUNC __encoding_base64Encode(data AS List OF Byte) AS String
-  RETURN __encoding_baseEncode(data, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", 6, 4, TRUE)
-END FUNC
+'@@MFB_BODY:base64Encode@@
 
-FUNC __encoding_base64UrlEncode(data AS List OF Byte) AS String
-  RETURN __encoding_baseEncode(data, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", 6, 4, FALSE)
-END FUNC
+'@@MFB_BODY:base64UrlEncode@@
 
-FUNC __encoding_base32Encode(data AS List OF Byte) AS String
-  RETURN __encoding_baseEncode(data, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567", 5, 8, TRUE)
-END FUNC
+'@@MFB_BODY:base32Encode@@
 
 ' Collect 6-/5-bit symbol values from `text`, validating the alphabet and that
 ' '=' padding appears only as a trailing run. Returns the values; the symbol
@@ -473,63 +349,11 @@ FUNC __encoding_base64Symbols(text AS String, urlSafe AS Boolean) AS List OF Int
   RETURN values
 END FUNC
 
-FUNC __encoding_base64Decode(text AS String) AS List OF Byte
-  LET data AS List OF Byte = strings::toBytes(text)
-  LET total AS Integer = len(data)
-  IF total - (total / 4) * 4 <> 0 THEN
-    FAIL error(77050003, "invalid base64 length")
-  END IF
-  LET values AS List OF Integer = __encoding_base64Symbols(text, FALSE)
-  LET symbols AS Integer = len(values)
-  IF symbols - (symbols / 4) * 4 = 1 THEN
-    FAIL error(77050003, "invalid base64 length")
-  END IF
-  RETURN __encoding_baseDecodeBits(values, 6)
-END FUNC
+'@@MFB_BODY:base64Decode@@
 
-FUNC __encoding_base64UrlDecode(text AS String) AS List OF Byte
-  LET values AS List OF Integer = __encoding_base64Symbols(text, TRUE)
-  LET symbols AS Integer = len(values)
-  IF symbols - (symbols / 4) * 4 = 1 THEN
-    FAIL error(77050003, "invalid base64 length")
-  END IF
-  RETURN __encoding_baseDecodeBits(values, 6)
-END FUNC
+'@@MFB_BODY:base64UrlDecode@@
 
-FUNC __encoding_base32Decode(text AS String) AS List OF Byte
-  LET data AS List OF Byte = strings::toBytes(text)
-  LET total AS Integer = len(data)
-  IF total - (total / 8) * 8 <> 0 THEN
-    FAIL error(77050003, "invalid base32 length")
-  END IF
-  MUT values AS List OF Integer = []
-  MUT i AS Integer = 0
-  MUT seenPad AS Boolean = FALSE
-  MUT c AS Integer = 0
-  MUT v AS Integer = 0
-  WHILE i < total
-    c = toInt(collections::get(data, i))
-    IF c = 61 THEN
-      seenPad = TRUE
-    ELSE
-      IF seenPad THEN
-        FAIL error(77050003, "invalid base32 padding")
-      END IF
-      v = __encoding_base32Value(c)
-      IF v < 0 THEN
-        FAIL error(77050003, "invalid base32 character")
-      END IF
-      values = collections::append(values, v)
-    END IF
-    i = i + 1
-  END WHILE
-  LET symbols AS Integer = len(values)
-  LET tail AS Integer = symbols - (symbols / 8) * 8
-  IF tail = 1 OR tail = 3 OR tail = 6 THEN
-    FAIL error(77050003, "invalid base32 length")
-  END IF
-  RETURN __encoding_baseDecodeBits(values, 5)
-END FUNC
+'@@MFB_BODY:base32Decode@@
 
 ' --- percent / form-url --------------------------------------------------
 
@@ -559,20 +383,7 @@ FUNC __encoding_percentByte(c AS Integer) AS String
   RETURN "%" & strings::upper(__encoding_hexDigit(c / 16) & __encoding_hexDigit(c - (c / 16) * 16))
 END FUNC
 
-FUNC __encoding_percentEncode(text AS String) AS String
-  LET data AS List OF Byte = strings::toBytes(text)
-  MUT out AS String = ""
-  MUT c AS Integer = 0
-  FOR EACH b IN data
-    c = toInt(b)
-    IF __encoding_isUnreserved(c) THEN
-      out = out & __encoding_byteChar(c)
-    ELSE
-      out = out & __encoding_percentByte(c)
-    END IF
-  NEXT
-  RETURN out
-END FUNC
+'@@MFB_BODY:percentEncode@@
 
 ' Decode percent escapes (and, when `plusSpace`, '+' as space) into raw bytes,
 ' then validate UTF-8 and return the decoded String.
@@ -612,44 +423,15 @@ FUNC __encoding_percentDecodeBytes(text AS String, plusSpace AS Boolean) AS Stri
   RETURN toString(result)
 END FUNC
 
-FUNC __encoding_percentDecode(text AS String) AS String
-  RETURN __encoding_percentDecodeBytes(text, FALSE)
-END FUNC
+'@@MFB_BODY:percentDecode@@
 
-FUNC __encoding_formUrlEncode(text AS String) AS String
-  LET data AS List OF Byte = strings::toBytes(text)
-  MUT out AS String = ""
-  MUT c AS Integer = 0
-  FOR EACH b IN data
-    c = toInt(b)
-    IF __encoding_isAlphaNum(c) THEN
-      out = out & __encoding_byteChar(c)
-    ELSE
-      IF c = 32 THEN
-        out = out & "+"
-      ELSE
-        out = out & __encoding_percentByte(c)
-      END IF
-    END IF
-  NEXT
-  RETURN out
-END FUNC
+'@@MFB_BODY:formUrlEncode@@
 
-FUNC __encoding_formUrlDecode(text AS String) AS String
-  RETURN __encoding_percentDecodeBytes(text, TRUE)
-END FUNC
+'@@MFB_BODY:formUrlDecode@@
 
 ' --- html escape / unescape ----------------------------------------------
 
-FUNC __encoding_htmlEscape(text AS String) AS String
-  MUT out AS String = text
-  out = strings::replace(out, "&", "&amp;")
-  out = strings::replace(out, "<", "&lt;")
-  out = strings::replace(out, ">", "&gt;")
-  out = strings::replace(out, "\"", "&quot;")
-  out = strings::replace(out, "'", "&apos;")
-  RETURN out
-END FUNC
+'@@MFB_BODY:htmlEscape@@
 
 ' Map a named HTML entity (without the surrounding & and ;) to its code point,
 ' or -1 when unknown. Covers the core five plus the common HTML named set.
@@ -841,54 +623,7 @@ FUNC __encoding_parseHex(text AS String) AS Integer
   RETURN value
 END FUNC
 
-FUNC __encoding_htmlUnescape(text AS String) AS String
-  LET chars AS List OF String = strings::graphemes(text)
-  LET n AS Integer = len(chars)
-  MUT out AS String = ""
-  MUT i AS Integer = 0
-  MUT ch AS String = ""
-  MUT body AS String = ""
-  MUT j AS Integer = 0
-  MUT found AS Boolean = FALSE
-  MUT code AS Integer = 0
-  WHILE i < n
-    ch = collections::get(chars, i)
-    IF ch = "&" THEN
-      body = ""
-      j = i + 1
-      found = FALSE
-      WHILE j < n AND found = FALSE
-        IF collections::get(chars, j) = ";" THEN
-          found = TRUE
-        ELSE
-          body = body & collections::get(chars, j)
-          j = j + 1
-        END IF
-      END WHILE
-      IF found = FALSE THEN
-        FAIL error(77050003, "malformed entity")
-      END IF
-      IF strings::startsWith(body, "#x") OR strings::startsWith(body, "#X") THEN
-        code = __encoding_parseHex(strings::mid(body, 2, len(body) - 2))
-      ELSE
-        IF strings::startsWith(body, "#") THEN
-          code = __encoding_parseDecimal(strings::mid(body, 1, len(body) - 1))
-        ELSE
-          code = __encoding_htmlEntity(body)
-        END IF
-      END IF
-      IF code < 0 THEN
-        FAIL error(77050003, "unknown entity")
-      END IF
-      out = out & __encoding_fromCodepoint(code)
-      i = j + 1
-    ELSE
-      out = out & ch
-      i = i + 1
-    END IF
-  END WHILE
-  RETURN out
-END FUNC
+'@@MFB_BODY:htmlUnescape@@
 
 ' --- leb128 / varint -----------------------------------------------------
 
@@ -915,110 +650,20 @@ FUNC __encoding_leb128Emit(seed AS Integer) AS List OF Byte
   RETURN result
 END FUNC
 
-FUNC __encoding_uleb128Encode(value AS Integer) AS List OF Byte
-  IF value < 0 THEN
-    FAIL error(77050003, "negative value")
-  END IF
-  RETURN __encoding_leb128Emit(value)
-END FUNC
+'@@MFB_BODY:uleb128Encode@@
 
-FUNC __encoding_uleb128Decode(data AS List OF Byte) AS Integer
-  LET n AS Integer = len(data)
-  IF n = 0 THEN
-    FAIL error(77050003, "truncated leb128")
-  END IF
-  MUT result AS Integer = 0
-  MUT shift AS Integer = 0
-  MUT i AS Integer = 0
-  MUT byteValue AS Integer = 0
-  MUT done AS Boolean = FALSE
-  WHILE done = FALSE
-    IF i >= n THEN
-      FAIL error(77050003, "truncated leb128")
-    END IF
-    IF shift > 63 THEN
-      FAIL error(77050003, "leb128 overflow")
-    END IF
-    byteValue = toInt(collections::get(data, i))
-    result = bits::bor(result, bits::sl(bits::band(byteValue, 127), shift))
-    shift = shift + 7
-    i = i + 1
-    IF byteValue < 128 THEN
-      done = TRUE
-    END IF
-  END WHILE
-  RETURN result
-END FUNC
+'@@MFB_BODY:uleb128Decode@@
 
-FUNC __encoding_sleb128Encode(value AS Integer) AS List OF Byte
-  MUT result AS List OF Byte = []
-  MUT remaining AS Integer = value
-  MUT chunk AS Integer = 0
-  MUT more AS Boolean = TRUE
-  MUT signBit AS Integer = 0
-  WHILE more
-    chunk = bits::band(remaining, 127)
-    remaining = bits::sra(remaining, 7)
-    signBit = bits::band(chunk, 64)
-    IF remaining = 0 AND signBit = 0 THEN
-      more = FALSE
-    ELSE
-      IF remaining = -1 AND signBit <> 0 THEN
-        more = FALSE
-      END IF
-    END IF
-    IF more THEN
-      result = collections::append(result, toByte(chunk + 128))
-    ELSE
-      result = collections::append(result, toByte(chunk))
-    END IF
-  END WHILE
-  RETURN result
-END FUNC
+'@@MFB_BODY:sleb128Encode@@
 
-FUNC __encoding_sleb128Decode(data AS List OF Byte) AS Integer
-  LET n AS Integer = len(data)
-  IF n = 0 THEN
-    FAIL error(77050003, "truncated leb128")
-  END IF
-  MUT result AS Integer = 0
-  MUT shift AS Integer = 0
-  MUT i AS Integer = 0
-  MUT byteValue AS Integer = 0
-  MUT done AS Boolean = FALSE
-  WHILE done = FALSE
-    IF i >= n THEN
-      FAIL error(77050003, "truncated leb128")
-    END IF
-    IF shift > 63 THEN
-      FAIL error(77050003, "leb128 overflow")
-    END IF
-    byteValue = toInt(collections::get(data, i))
-    result = bits::bor(result, bits::sl(bits::band(byteValue, 127), shift))
-    shift = shift + 7
-    i = i + 1
-    IF byteValue < 128 THEN
-      done = TRUE
-      IF shift < 64 AND bits::band(byteValue, 64) <> 0 THEN
-        result = bits::bor(result, bits::sl(-1, shift))
-      END IF
-    END IF
-  END WHILE
-  RETURN result
-END FUNC
+'@@MFB_BODY:sleb128Decode@@
 
 ' bug-339 C4: zigzag-map to unsigned, then share the LEB128 emit. Cannot delegate
 ' to __encoding_uleb128Encode: the zigzag is negative as a signed Integer for
 ' |value| >= 2^62 and that would trip uleb128's negativity guard.
-FUNC __encoding_varintEncode(value AS Integer) AS List OF Byte
-  LET zigzag AS Integer = bits::bxor(bits::sl(value, 1), bits::sra(value, 63))
-  RETURN __encoding_leb128Emit(zigzag)
-END FUNC
+'@@MFB_BODY:varintEncode@@
 
-FUNC __encoding_varintDecode(data AS List OF Byte) AS Integer
-  LET zigzag AS Integer = __encoding_uleb128Decode(data)
-  RETURN bits::bxor(bits::sr(zigzag, 1), 0 - bits::band(zigzag, 1))
-END FUNC
+'@@MFB_BODY:varintDecode@@
 
 ' --- punycode (RFC 3492 Bootstring) --------------------------------------
 
@@ -1233,41 +878,6 @@ FUNC __encoding_labelHasNonAscii(points AS List OF Integer) AS Boolean
   RETURN FALSE
 END FUNC
 
-FUNC __encoding_punycodeEncode(domain AS String) AS String
-  LET labels AS List OF String = strings::split(domain, ".")
-  MUT out AS String = ""
-  MUT first AS Boolean = TRUE
-  FOR EACH label IN labels
-    IF first THEN
-      first = FALSE
-    ELSE
-      out = out & "."
-    END IF
-    LET points AS List OF Integer = __encoding_codepoints(label)
-    IF __encoding_labelHasNonAscii(points) THEN
-      out = out & "xn--" & __encoding_punyEncodeLabel(points)
-    ELSE
-      out = out & label
-    END IF
-  NEXT
-  RETURN out
-END FUNC
+'@@MFB_BODY:punycodeEncode@@
 
-FUNC __encoding_punycodeDecode(asciiDomain AS String) AS String
-  LET labels AS List OF String = strings::split(asciiDomain, ".")
-  MUT out AS String = ""
-  MUT first AS Boolean = TRUE
-  FOR EACH label IN labels
-    IF first THEN
-      first = FALSE
-    ELSE
-      out = out & "."
-    END IF
-    IF strings::startsWith(label, "xn--") THEN
-      out = out & __encoding_punyDecodeLabel(strings::mid(label, 4, len(label) - 4))
-    ELSE
-      out = out & label
-    END IF
-  NEXT
-  RETURN out
-END FUNC
+'@@MFB_BODY:punycodeDecode@@

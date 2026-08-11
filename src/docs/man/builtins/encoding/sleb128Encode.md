@@ -19,7 +19,7 @@ IMPORT encoding
 ```
 
 `encoding` is a built-in package written in MFBASIC source, so no manifest
-dependency is required. [[src/builtins/encoding.rs:augmented_project]]
+dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project]]
 
 ## Description
 
@@ -28,7 +28,7 @@ representation of `value`, a base-128 little-endian variable-length encoding
 that carries the sign. The value is split into 7-bit groups, least-significant
 group first. Each output byte holds one group in its low seven bits; the high
 bit (`0x80`) is set on every byte except the last, where it is clear, marking
-the end of the sequence. [[src/builtins/encoding_package.mfb:__encoding_sleb128Encode]]
+the end of the sequence. [[src/codegen/builtins/encoding/mod.rs:__encoding_sleb128Encode]]
 
 Unlike unsigned LEB128, encoding continues by arithmetic (sign-extending) shift
 rather than logical shift: after each group `value` is shifted right by seven
@@ -36,26 +36,26 @@ bits with the sign preserved. The sequence terminates only when the remaining
 bits are all sign bits *and* the sign bit of the final group (`0x40`) matches —
 that is, when the remaining value is `0` and the group's sign bit is clear, or
 the remaining value is `-1` and the group's sign bit is set. This guarantees the
-top byte sign-extends correctly on decode. [[src/builtins/encoding_package.mfb:__encoding_sleb128Encode]]
+top byte sign-extends correctly on decode. [[src/codegen/builtins/encoding/mod.rs:__encoding_sleb128Encode]]
 
 At least one byte is always emitted: `0` encodes as the single byte `[0]` and
 `-1` encodes as the single byte `[0x7F]`. Both non-negative and negative values
 are accepted; use `encoding::uleb128Encode` when the value is known to be
 non-negative and the sign byte is unwanted. The inverse operation is
 `encoding::sleb128Decode`, which reads one signed LEB128 sequence back into an
-`Integer`. [[src/builtins/encoding_package.mfb:__encoding_sleb128Decode]]
+`Integer`. [[src/codegen/builtins/encoding/mod.rs:__encoding_sleb128Decode]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Integer` | The signed value to encode. Any `Integer`, positive, negative, or zero. [[src/builtins/encoding.rs:call_param_names]] |
+| `value` | `Integer` | The signed value to encode. Any `Integer`, positive, negative, or zero. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The signed LEB128 bytes, least-significant group first, with the continuation bit set on all but the final byte. Always contains at least one byte. [[src/builtins/encoding.rs:ENCODING]] |
+| `List OF Byte` | The signed LEB128 bytes, least-significant group first, with the continuation bit set on all but the final byte. Always contains at least one byte. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
 
 ## Errors
 

@@ -19,7 +19,7 @@ IMPORT encoding
 ```
 
 `encoding` is a built-in package written in MFBASIC source, so no manifest
-dependency is required. [[src/builtins/encoding.rs:augmented_project]]
+dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project]]
 
 ## Description
 
@@ -29,7 +29,7 @@ first range-checked and narrowed to a byte: every unit must lie in `0..255`
 (0 through 255 inclusive), and the assembled bytes must form a well-formed UTF-8
 sequence, with no invalid, overlong, or truncated byte sequence. If both checks
 pass, the octets become the string's storage. The empty list decodes to the
-empty string. [[src/builtins/encoding_package.mfb:__encoding_utf8DecodeInts]]
+empty string. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf8DecodeInts]]
 
 This is the integer-typed form of `encoding::utf8Decode`. `utf8Decode` is a
 parameter overload that selects between a `List OF Byte` and a `List OF Integer`
@@ -37,30 +37,30 @@ argument at compile time; `utf8DecodeInts` is the concrete, non-overloaded name
 that always takes a `List OF Integer`, so no overload resolution is involved.
 The byte-typed counterpart is `encoding::utf8DecodeBytes`, which takes a
 `List OF Byte` and therefore performs no per-element range check.
-[[src/builtins/encoding.rs:UTF8_DECODE_INTS]] [[src/builtins/encoding.rs:resolve_overload_target]]
+[[src/codegen/builtins/encoding/mod.rs:UTF8_DECODE_INTS]] [[src/codegen/builtins/encoding/mod.rs:resolve_overload_target]]
 
 It is the inverse of `encoding::utf8EncodeInts`: decoding the integers that
 `utf8EncodeInts` produced reconstructs the original string, and any string
 round-trips losslessly through the two functions.
-[[src/builtins/encoding_package.mfb:__encoding_utf8EncodeInts]]
+[[src/codegen/builtins/encoding/mod.rs:__encoding_utf8EncodeInts]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF Integer` | The UTF-8 octets to decode, one code unit per element. Each element must be in `0..255` and the sequence must be well-formed UTF-8. [[src/builtins/encoding_package.mfb:__encoding_utf8DecodeInts]] |
+| `value` | `List OF Integer` | The UTF-8 octets to decode, one code unit per element. Each element must be in `0..255` and the sequence must be well-formed UTF-8. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf8DecodeInts]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The decoded text; the empty string for an empty input list. [[src/builtins/encoding.rs:ENCODING]] |
+| `String` | The decoded text; the empty string for an empty input list. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | An element is outside `0..255`, or the assembled bytes are not a well-formed UTF-8 sequence (invalid, overlong, or truncated). [[src/builtins/encoding_package.mfb:__encoding_utf8DecodeInts]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | An element is outside `0..255`, or the assembled bytes are not a well-formed UTF-8 sequence (invalid, overlong, or truncated). [[src/codegen/builtins/encoding/mod.rs:__encoding_utf8DecodeInts]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

@@ -20,7 +20,7 @@ IMPORT encoding
 ```
 
 `encoding` is a built-in package written in MFBASIC source, so no manifest
-dependency is required. [[src/builtins/encoding.rs:augmented_project]]
+dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project]]
 
 ## Description
 
@@ -31,56 +31,56 @@ only a well-formed UTF-8 sequence and rejects an invalid lead byte, a missing or
 stray continuation byte, a truncated multi-byte sequence, an overlong encoding, a
 surrogate code point (`U+D800`–`U+DFFF`), and any scalar above `U+10FFFF`. The
 empty list decodes to the empty string.
-[[src/builtins/encoding_package.mfb:__encoding_utf8Valid]] [[src/builtins/encoding_package.mfb:__encoding_utf8DecodeBytes]]
+[[src/codegen/builtins/encoding/package.mfb:__encoding_utf8Valid]] [[src/codegen/builtins/encoding/mod.rs:__encoding_utf8DecodeBytes]]
 
 `utf8Decode` is a **parameter overload** selected by the argument's element type:
 a `List OF Byte` is decoded directly, while a `List OF Integer` is first checked
 element by element — each unit must lie in `0..255` — then decoded. The overload
 is resolved during monomorphization, so the selection is a compile-time decision,
-not a runtime dispatch. [[src/builtins/encoding.rs:resolve_overload_target]]
+not a runtime dispatch. [[src/codegen/builtins/encoding/mod.rs:resolve_overload_target]]
 
 It is the inverse of `encoding::utf8Encode`: decoding the bytes (or integers)
 that `utf8Encode` produced reconstructs the original string, and any string
 round-trips losslessly through the two functions.
-[[src/builtins/encoding_package.mfb:__encoding_utf8DecodeInts]]
+[[src/codegen/builtins/encoding/mod.rs:__encoding_utf8DecodeInts]]
 
 ## Overloads
 
 **`encoding::utf8Decode(value AS List OF Byte) AS String`**
 
 Validates the raw octets as UTF-8 and returns the decoded text. Selected when the
-argument is a `List OF Byte`. [[src/builtins/encoding.rs:UTF8_DECODE_BYTES]]
+argument is a `List OF Byte`. [[src/codegen/builtins/encoding/mod.rs:UTF8_DECODE_BYTES]]
 
 **`encoding::utf8Decode(value AS List OF Integer) AS String`**
 
 Requires every element to be in `0..255`, then validates and decodes the resulting
 bytes as UTF-8. Selected when the argument is a `List OF Integer`.
-[[src/builtins/encoding.rs:UTF8_DECODE_INTS]]
+[[src/codegen/builtins/encoding/mod.rs:UTF8_DECODE_INTS]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF Byte` or `List OF Integer` | The UTF-8 bytes to decode. For the `List OF Integer` form, every element must be in the range `0..255`. [[src/builtins/encoding.rs:call_param_names]] |
+| `value` | `List OF Byte` or `List OF Integer` | The UTF-8 bytes to decode. For the `List OF Integer` form, every element must be in the range `0..255`. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The decoded text; the empty string for an empty input list. [[src/builtins/encoding.rs:ENCODING]] |
+| `String` | The decoded text; the empty string for an empty input list. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | An element is outside `0..255` (integer form), or the bytes are not a well-formed UTF-8 sequence. [[src/builtins/encoding_package.mfb:__encoding_utf8DecodeInts]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | An element is outside `0..255` (integer form), or the bytes are not a well-formed UTF-8 sequence. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf8DecodeInts]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Type checking
 
 `utf8Decode` takes exactly one argument, either a `List OF Byte` or a
 `List OF Integer`, and returns a `String`. The argument type selects the overload
 at compile time; any other argument type is a compile-time error.
-[[src/builtins/encoding.rs:resolve_overload_target]] [[src/builtins/encoding.rs:ENCODING]]
+[[src/codegen/builtins/encoding/mod.rs:resolve_overload_target]] [[src/codegen/builtins/encoding/mod.rs:ENCODING]]
 
 ## Examples
 

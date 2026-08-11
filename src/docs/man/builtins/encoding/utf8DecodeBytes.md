@@ -19,7 +19,7 @@ IMPORT encoding
 ```
 
 `encoding` is a built-in package written in MFBASIC source, so no manifest
-dependency is required. [[src/builtins/encoding.rs:augmented_project]]
+dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project]]
 
 ## Description
 
@@ -29,7 +29,7 @@ UTF-8, the input is validated in full before the string is produced: the bytes
 must form a well-formed UTF-8 sequence, with no invalid, overlong, or truncated
 byte sequence. If validation succeeds, the octets are returned verbatim as the
 string's storage. The empty list decodes to the empty string.
-[[src/builtins/encoding_package.mfb:__encoding_utf8DecodeBytes]]
+[[src/codegen/builtins/encoding/mod.rs:__encoding_utf8DecodeBytes]]
 
 This is the byte-typed form of `encoding::utf8Decode`. `utf8Decode` is a
 parameter overload that selects between a `List OF Byte` and a `List OF Integer`
@@ -37,30 +37,30 @@ argument at compile time; `utf8DecodeBytes` is the concrete, non-overloaded name
 that always takes a `List OF Byte`, so no overload resolution is involved. The
 integer-typed counterpart is `encoding::utf8DecodeInts`, which additionally
 requires every element to be in `0..255` before decoding.
-[[src/builtins/encoding.rs:UTF8_DECODE_BYTES]] [[src/builtins/encoding.rs:resolve_overload_target]]
+[[src/codegen/builtins/encoding/mod.rs:UTF8_DECODE_BYTES]] [[src/codegen/builtins/encoding/mod.rs:resolve_overload_target]]
 
 It is the inverse of `encoding::utf8EncodeBytes`: decoding the bytes that
 `utf8EncodeBytes` produced reconstructs the original string, and any string
 round-trips losslessly through the two functions.
-[[src/builtins/encoding_package.mfb:__encoding_utf8EncodeBytes]]
+[[src/codegen/builtins/encoding/mod.rs:__encoding_utf8EncodeBytes]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF Byte` | The UTF-8 octets to decode, one byte per element. Must form a well-formed UTF-8 sequence. [[src/builtins/encoding_package.mfb:__encoding_utf8DecodeBytes]] |
+| `value` | `List OF Byte` | The UTF-8 octets to decode, one byte per element. Must form a well-formed UTF-8 sequence. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf8DecodeBytes]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The decoded text; the empty string for an empty input list. [[src/builtins/encoding.rs:ENCODING]] |
+| `String` | The decoded text; the empty string for an empty input list. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | The bytes are not a well-formed UTF-8 sequence (invalid, overlong, or truncated). [[src/builtins/encoding_package.mfb:__encoding_utf8DecodeBytes]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | The bytes are not a well-formed UTF-8 sequence (invalid, overlong, or truncated). [[src/codegen/builtins/encoding/mod.rs:__encoding_utf8DecodeBytes]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

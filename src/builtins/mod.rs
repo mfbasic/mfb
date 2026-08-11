@@ -5,7 +5,6 @@ pub(crate) mod bits;
 pub(crate) mod crypto;
 pub(crate) mod csv;
 pub(crate) mod datetime;
-pub(crate) mod encoding;
 pub(crate) mod errorcode;
 pub(crate) mod fs;
 pub(crate) mod general;
@@ -451,7 +450,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
     // its own calls, so the chain yields the owner's string; a package whose
     // `expected_arguments` was deletable (renderable == `DefaultResolver`, i.e.
     // `app`/`datetime`/`money`) falls through to the descriptor rendering below.
-    if let Some(text) = encoding::expected_arguments(name)
+    if let Some(text) = crate::codegen::builtins::encoding::expected_arguments(name)
         .or_else(|| crypto::expected_arguments(name))
         .or_else(|| math::expected_arguments(name))
         .or_else(|| net::expected_arguments(name))
@@ -490,7 +489,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
 pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
     let machine_table = term::param_types(callee)
         .or_else(|| datetime::argument_types(callee))
-        .or_else(|| encoding::argument_types(callee))
+        .or_else(|| crate::codegen::builtins::encoding::argument_types(callee))
         .or_else(|| money::argument_types(callee))
         .or_else(|| app::argument_types(callee));
     if let Some(types) = machine_table {
@@ -745,7 +744,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| math::call_param_names(name))
         .or_else(|| bits::call_param_names(name))
         .or_else(|| crypto::call_param_names(name))
-        .or_else(|| encoding::call_param_names(name))
+        .or_else(|| crate::codegen::builtins::encoding::call_param_names(name))
         .or_else(|| fs::call_param_names(name))
         .or_else(|| io::call_param_names(name))
         .or_else(|| json::call_param_names(name))

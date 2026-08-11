@@ -127,7 +127,7 @@ pub fn lower_project_with_external_functions(
     // (plan-41-D scalar seam).
     let augmented = builtins::strings::augmented_project(&augmented)
         .expect("built-in strings package source must parse");
-    let augmented = builtins::encoding::augmented_project(&augmented)
+    let augmented = crate::codegen::builtins::encoding::augmented_project(&augmented)
         .expect("built-in encoding package source must parse");
     let ast = &augmented;
     let mut types = Vec::new();
@@ -2956,7 +2956,11 @@ fn lower_expression_with_expected(
                         .or_else(|| builtins::csv::implementation_name(&canonical_callee))
                         .or_else(|| builtins::regex::implementation_name(&canonical_callee))
                         .or_else(|| builtins::net::implementation_name(&canonical_callee))
-                        .or_else(|| builtins::encoding::implementation_name(&canonical_callee))
+                        .or_else(|| {
+                            crate::codegen::builtins::encoding::implementation_name(
+                                &canonical_callee,
+                            )
+                        })
                         .or_else(|| builtins::strings::implementation_name(&canonical_callee))
                         .map(crate::internal_name::internalize)
                 })

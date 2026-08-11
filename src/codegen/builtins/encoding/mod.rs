@@ -100,6 +100,519 @@ const fn ef(
 }
 const VALTEXT: &[&str] = &["text"];
 
+// --- MFBASIC bodies (moved out of encoding_package.mfb; each replaces a
+// '@@MFB_BODY:<slug>@@ marker in package.mfb via assembled_source). Byte-
+// significant: the 2-space indentation feeds source columns into .ncode.
+#[rustfmt::skip]
+const UTF8_ENCODE_BYTES_BODY: &str =
+r#"FUNC __encoding_utf8EncodeBytes(value AS String) AS List OF Byte
+  RETURN strings::toBytes(value)
+END FUNC"#;
+
+#[rustfmt::skip]
+const UTF8_ENCODE_INTS_BODY: &str =
+r#"FUNC __encoding_utf8EncodeInts(value AS String) AS List OF Integer
+  LET data AS List OF Byte = strings::toBytes(value)
+  MUT result AS List OF Integer = []
+  FOR EACH b IN data
+    result = collections::append(result, toInt(b))
+  NEXT
+  RETURN result
+END FUNC"#;
+
+#[rustfmt::skip]
+const UTF8_DECODE_BYTES_BODY: &str =
+r#"FUNC __encoding_utf8DecodeBytes(value AS List OF Byte) AS String
+  IF __encoding_utf8Valid(value) = FALSE THEN
+    FAIL error(77050003, "invalid utf-8")
+  END IF
+  RETURN toString(value)
+END FUNC"#;
+
+#[rustfmt::skip]
+const UTF8_DECODE_INTS_BODY: &str =
+r#"FUNC __encoding_utf8DecodeInts(value AS List OF Integer) AS String
+  MUT data AS List OF Byte = []
+  FOR EACH unit IN value
+    IF unit < 0 OR unit > 255 THEN
+      FAIL error(77050003, "invalid utf-8 code unit")
+    END IF
+    data = collections::append(data, toByte(unit))
+  NEXT
+  IF __encoding_utf8Valid(data) = FALSE THEN
+    FAIL error(77050003, "invalid utf-8")
+  END IF
+  RETURN toString(data)
+END FUNC"#;
+
+#[rustfmt::skip]
+const UTF16_ENCODE_BODY: &str =
+r#"FUNC __encoding_utf16Encode(value AS String) AS List OF Integer
+  LET points AS List OF Integer = __encoding_codepoints(value)
+  MUT result AS List OF Integer = []
+  MUT scalar AS Integer = 0
+  MUT high AS Integer = 0
+  MUT low AS Integer = 0
+  FOR EACH cp IN points
+    IF cp <= 65535 THEN
+      result = collections::append(result, cp)
+    ELSE
+      scalar = cp - 65536
+      high = 55296 + bits::sr(scalar, 10)
+      low = 56320 + bits::band(scalar, 1023)
+      result = collections::append(result, high)
+      result = collections::append(result, low)
+    END IF
+  NEXT
+  RETURN result
+END FUNC"#;
+
+#[rustfmt::skip]
+const UTF16_DECODE_BODY: &str =
+r#"FUNC __encoding_utf16Decode(value AS List OF Integer) AS String
+  LET n AS Integer = len(value)
+  MUT out AS String = ""
+  MUT i AS Integer = 0
+  MUT unit AS Integer = 0
+  MUT low AS Integer = 0
+  MUT scalar AS Integer = 0
+  WHILE i < n
+    unit = collections::get(value, i)
+    IF unit < 0 OR unit > 65535 THEN
+      FAIL error(77050003, "invalid utf-16 code unit")
+    END IF
+    IF unit >= 55296 AND unit <= 56319 THEN
+      IF i + 1 >= n THEN
+        FAIL error(77050003, "unpaired surrogate")
+      END IF
+      low = collections::get(value, i + 1)
+      IF low < 56320 OR low > 57343 THEN
+        FAIL error(77050003, "unpaired surrogate")
+      END IF
+      scalar = 65536 + bits::sl(unit - 55296, 10) + (low - 56320)
+      out = out & __encoding_fromCodepoint(scalar)
+      i = i + 2
+    ELSE
+      IF unit >= 56320 AND unit <= 57343 THEN
+        FAIL error(77050003, "unpaired surrogate")
+      END IF
+      out = out & __encoding_fromCodepoint(unit)
+      i = i + 1
+    END IF
+  END WHILE
+  RETURN out
+END FUNC"#;
+
+#[rustfmt::skip]
+const UTF32_ENCODE_BODY: &str =
+r#"FUNC __encoding_utf32Encode(value AS String) AS List OF Integer
+  RETURN __encoding_codepoints(value)
+END FUNC"#;
+
+#[rustfmt::skip]
+const UTF32_DECODE_BODY: &str =
+r#"FUNC __encoding_utf32Decode(value AS List OF Integer) AS String
+  MUT out AS String = ""
+  FOR EACH cp IN value
+    IF cp < 0 OR cp > 1114111 THEN
+      FAIL error(77050003, "invalid code point")
+    END IF
+    IF cp >= 55296 AND cp <= 57343 THEN
+      FAIL error(77050003, "surrogate code point")
+    END IF
+    out = out & __encoding_fromCodepoint(cp)
+  NEXT
+  RETURN out
+END FUNC"#;
+
+#[rustfmt::skip]
+const HEX_ENCODE_BODY: &str =
+r#"FUNC __encoding_hexEncode(data AS List OF Byte) AS String
+  MUT out AS String = ""
+  MUT v AS Integer = 0
+  FOR EACH b IN data
+    v = toInt(b)
+    out = out & __encoding_hexDigit(v / 16) & __encoding_hexDigit(v - (v / 16) * 16)
+  NEXT
+  RETURN out
+END FUNC"#;
+
+#[rustfmt::skip]
+const HEX_DECODE_BODY: &str =
+r#"FUNC __encoding_hexDecode(text AS String) AS List OF Byte
+  LET data AS List OF Byte = strings::toBytes(text)
+  LET n AS Integer = len(data)
+  IF n - (n / 2) * 2 <> 0 THEN
+    FAIL error(77050003, "odd-length hex")
+  END IF
+  MUT result AS List OF Byte = []
+  MUT i AS Integer = 0
+  MUT hi AS Integer = 0
+  MUT lo AS Integer = 0
+  WHILE i < n
+    hi = __encoding_hexValue(toInt(collections::get(data, i)))
+    lo = __encoding_hexValue(toInt(collections::get(data, i + 1)))
+    IF hi < 0 OR lo < 0 THEN
+      FAIL error(77050003, "invalid hex digit")
+    END IF
+    result = collections::append(result, toByte(hi * 16 + lo))
+    i = i + 2
+  END WHILE
+  RETURN result
+END FUNC"#;
+
+#[rustfmt::skip]
+const BASE32_ENCODE_BODY: &str =
+r#"FUNC __encoding_base32Encode(data AS List OF Byte) AS String
+  RETURN __encoding_baseEncode(data, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567", 5, 8, TRUE)
+END FUNC"#;
+
+#[rustfmt::skip]
+const BASE32_DECODE_BODY: &str =
+r#"FUNC __encoding_base32Decode(text AS String) AS List OF Byte
+  LET data AS List OF Byte = strings::toBytes(text)
+  LET total AS Integer = len(data)
+  IF total - (total / 8) * 8 <> 0 THEN
+    FAIL error(77050003, "invalid base32 length")
+  END IF
+  MUT values AS List OF Integer = []
+  MUT i AS Integer = 0
+  MUT seenPad AS Boolean = FALSE
+  MUT c AS Integer = 0
+  MUT v AS Integer = 0
+  WHILE i < total
+    c = toInt(collections::get(data, i))
+    IF c = 61 THEN
+      seenPad = TRUE
+    ELSE
+      IF seenPad THEN
+        FAIL error(77050003, "invalid base32 padding")
+      END IF
+      v = __encoding_base32Value(c)
+      IF v < 0 THEN
+        FAIL error(77050003, "invalid base32 character")
+      END IF
+      values = collections::append(values, v)
+    END IF
+    i = i + 1
+  END WHILE
+  LET symbols AS Integer = len(values)
+  LET tail AS Integer = symbols - (symbols / 8) * 8
+  IF tail = 1 OR tail = 3 OR tail = 6 THEN
+    FAIL error(77050003, "invalid base32 length")
+  END IF
+  RETURN __encoding_baseDecodeBits(values, 5)
+END FUNC"#;
+
+#[rustfmt::skip]
+const BASE64_ENCODE_BODY: &str =
+r#"FUNC __encoding_base64Encode(data AS List OF Byte) AS String
+  RETURN __encoding_baseEncode(data, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", 6, 4, TRUE)
+END FUNC"#;
+
+#[rustfmt::skip]
+const BASE64_DECODE_BODY: &str =
+r#"FUNC __encoding_base64Decode(text AS String) AS List OF Byte
+  LET data AS List OF Byte = strings::toBytes(text)
+  LET total AS Integer = len(data)
+  IF total - (total / 4) * 4 <> 0 THEN
+    FAIL error(77050003, "invalid base64 length")
+  END IF
+  LET values AS List OF Integer = __encoding_base64Symbols(text, FALSE)
+  LET symbols AS Integer = len(values)
+  IF symbols - (symbols / 4) * 4 = 1 THEN
+    FAIL error(77050003, "invalid base64 length")
+  END IF
+  RETURN __encoding_baseDecodeBits(values, 6)
+END FUNC"#;
+
+#[rustfmt::skip]
+const BASE64_URL_ENCODE_BODY: &str =
+r#"FUNC __encoding_base64UrlEncode(data AS List OF Byte) AS String
+  RETURN __encoding_baseEncode(data, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", 6, 4, FALSE)
+END FUNC"#;
+
+#[rustfmt::skip]
+const BASE64_URL_DECODE_BODY: &str =
+r#"FUNC __encoding_base64UrlDecode(text AS String) AS List OF Byte
+  LET values AS List OF Integer = __encoding_base64Symbols(text, TRUE)
+  LET symbols AS Integer = len(values)
+  IF symbols - (symbols / 4) * 4 = 1 THEN
+    FAIL error(77050003, "invalid base64 length")
+  END IF
+  RETURN __encoding_baseDecodeBits(values, 6)
+END FUNC"#;
+
+#[rustfmt::skip]
+const PERCENT_ENCODE_BODY: &str =
+r#"FUNC __encoding_percentEncode(text AS String) AS String
+  LET data AS List OF Byte = strings::toBytes(text)
+  MUT out AS String = ""
+  MUT c AS Integer = 0
+  FOR EACH b IN data
+    c = toInt(b)
+    IF __encoding_isUnreserved(c) THEN
+      out = out & __encoding_byteChar(c)
+    ELSE
+      out = out & __encoding_percentByte(c)
+    END IF
+  NEXT
+  RETURN out
+END FUNC"#;
+
+#[rustfmt::skip]
+const PERCENT_DECODE_BODY: &str =
+r#"FUNC __encoding_percentDecode(text AS String) AS String
+  RETURN __encoding_percentDecodeBytes(text, FALSE)
+END FUNC"#;
+
+#[rustfmt::skip]
+const HTML_ESCAPE_BODY: &str =
+r#"FUNC __encoding_htmlEscape(text AS String) AS String
+  MUT out AS String = text
+  out = strings::replace(out, "&", "&amp;")
+  out = strings::replace(out, "<", "&lt;")
+  out = strings::replace(out, ">", "&gt;")
+  out = strings::replace(out, "\"", "&quot;")
+  out = strings::replace(out, "'", "&apos;")
+  RETURN out
+END FUNC"#;
+
+#[rustfmt::skip]
+const HTML_UNESCAPE_BODY: &str =
+r##"FUNC __encoding_htmlUnescape(text AS String) AS String
+  LET chars AS List OF String = strings::graphemes(text)
+  LET n AS Integer = len(chars)
+  MUT out AS String = ""
+  MUT i AS Integer = 0
+  MUT ch AS String = ""
+  MUT body AS String = ""
+  MUT j AS Integer = 0
+  MUT found AS Boolean = FALSE
+  MUT code AS Integer = 0
+  WHILE i < n
+    ch = collections::get(chars, i)
+    IF ch = "&" THEN
+      body = ""
+      j = i + 1
+      found = FALSE
+      WHILE j < n AND found = FALSE
+        IF collections::get(chars, j) = ";" THEN
+          found = TRUE
+        ELSE
+          body = body & collections::get(chars, j)
+          j = j + 1
+        END IF
+      END WHILE
+      IF found = FALSE THEN
+        FAIL error(77050003, "malformed entity")
+      END IF
+      IF strings::startsWith(body, "#x") OR strings::startsWith(body, "#X") THEN
+        code = __encoding_parseHex(strings::mid(body, 2, len(body) - 2))
+      ELSE
+        IF strings::startsWith(body, "#") THEN
+          code = __encoding_parseDecimal(strings::mid(body, 1, len(body) - 1))
+        ELSE
+          code = __encoding_htmlEntity(body)
+        END IF
+      END IF
+      IF code < 0 THEN
+        FAIL error(77050003, "unknown entity")
+      END IF
+      out = out & __encoding_fromCodepoint(code)
+      i = j + 1
+    ELSE
+      out = out & ch
+      i = i + 1
+    END IF
+  END WHILE
+  RETURN out
+END FUNC"##;
+
+#[rustfmt::skip]
+const FORM_URL_ENCODE_BODY: &str =
+r#"FUNC __encoding_formUrlEncode(text AS String) AS String
+  LET data AS List OF Byte = strings::toBytes(text)
+  MUT out AS String = ""
+  MUT c AS Integer = 0
+  FOR EACH b IN data
+    c = toInt(b)
+    IF __encoding_isAlphaNum(c) THEN
+      out = out & __encoding_byteChar(c)
+    ELSE
+      IF c = 32 THEN
+        out = out & "+"
+      ELSE
+        out = out & __encoding_percentByte(c)
+      END IF
+    END IF
+  NEXT
+  RETURN out
+END FUNC"#;
+
+#[rustfmt::skip]
+const FORM_URL_DECODE_BODY: &str =
+r#"FUNC __encoding_formUrlDecode(text AS String) AS String
+  RETURN __encoding_percentDecodeBytes(text, TRUE)
+END FUNC"#;
+
+#[rustfmt::skip]
+const PUNYCODE_ENCODE_BODY: &str =
+r#"FUNC __encoding_punycodeEncode(domain AS String) AS String
+  LET labels AS List OF String = strings::split(domain, ".")
+  MUT out AS String = ""
+  MUT first AS Boolean = TRUE
+  FOR EACH label IN labels
+    IF first THEN
+      first = FALSE
+    ELSE
+      out = out & "."
+    END IF
+    LET points AS List OF Integer = __encoding_codepoints(label)
+    IF __encoding_labelHasNonAscii(points) THEN
+      out = out & "xn--" & __encoding_punyEncodeLabel(points)
+    ELSE
+      out = out & label
+    END IF
+  NEXT
+  RETURN out
+END FUNC"#;
+
+#[rustfmt::skip]
+const PUNYCODE_DECODE_BODY: &str =
+r#"FUNC __encoding_punycodeDecode(asciiDomain AS String) AS String
+  LET labels AS List OF String = strings::split(asciiDomain, ".")
+  MUT out AS String = ""
+  MUT first AS Boolean = TRUE
+  FOR EACH label IN labels
+    IF first THEN
+      first = FALSE
+    ELSE
+      out = out & "."
+    END IF
+    IF strings::startsWith(label, "xn--") THEN
+      out = out & __encoding_punyDecodeLabel(strings::mid(label, 4, len(label) - 4))
+    ELSE
+      out = out & label
+    END IF
+  NEXT
+  RETURN out
+END FUNC"#;
+
+#[rustfmt::skip]
+const ULEB128_ENCODE_BODY: &str =
+r#"FUNC __encoding_uleb128Encode(value AS Integer) AS List OF Byte
+  IF value < 0 THEN
+    FAIL error(77050003, "negative value")
+  END IF
+  RETURN __encoding_leb128Emit(value)
+END FUNC"#;
+
+#[rustfmt::skip]
+const ULEB128_DECODE_BODY: &str =
+r#"FUNC __encoding_uleb128Decode(data AS List OF Byte) AS Integer
+  LET n AS Integer = len(data)
+  IF n = 0 THEN
+    FAIL error(77050003, "truncated leb128")
+  END IF
+  MUT result AS Integer = 0
+  MUT shift AS Integer = 0
+  MUT i AS Integer = 0
+  MUT byteValue AS Integer = 0
+  MUT done AS Boolean = FALSE
+  WHILE done = FALSE
+    IF i >= n THEN
+      FAIL error(77050003, "truncated leb128")
+    END IF
+    IF shift > 63 THEN
+      FAIL error(77050003, "leb128 overflow")
+    END IF
+    byteValue = toInt(collections::get(data, i))
+    result = bits::bor(result, bits::sl(bits::band(byteValue, 127), shift))
+    shift = shift + 7
+    i = i + 1
+    IF byteValue < 128 THEN
+      done = TRUE
+    END IF
+  END WHILE
+  RETURN result
+END FUNC"#;
+
+#[rustfmt::skip]
+const SLEB128_ENCODE_BODY: &str =
+r#"FUNC __encoding_sleb128Encode(value AS Integer) AS List OF Byte
+  MUT result AS List OF Byte = []
+  MUT remaining AS Integer = value
+  MUT chunk AS Integer = 0
+  MUT more AS Boolean = TRUE
+  MUT signBit AS Integer = 0
+  WHILE more
+    chunk = bits::band(remaining, 127)
+    remaining = bits::sra(remaining, 7)
+    signBit = bits::band(chunk, 64)
+    IF remaining = 0 AND signBit = 0 THEN
+      more = FALSE
+    ELSE
+      IF remaining = -1 AND signBit <> 0 THEN
+        more = FALSE
+      END IF
+    END IF
+    IF more THEN
+      result = collections::append(result, toByte(chunk + 128))
+    ELSE
+      result = collections::append(result, toByte(chunk))
+    END IF
+  END WHILE
+  RETURN result
+END FUNC"#;
+
+#[rustfmt::skip]
+const SLEB128_DECODE_BODY: &str =
+r#"FUNC __encoding_sleb128Decode(data AS List OF Byte) AS Integer
+  LET n AS Integer = len(data)
+  IF n = 0 THEN
+    FAIL error(77050003, "truncated leb128")
+  END IF
+  MUT result AS Integer = 0
+  MUT shift AS Integer = 0
+  MUT i AS Integer = 0
+  MUT byteValue AS Integer = 0
+  MUT done AS Boolean = FALSE
+  WHILE done = FALSE
+    IF i >= n THEN
+      FAIL error(77050003, "truncated leb128")
+    END IF
+    IF shift > 63 THEN
+      FAIL error(77050003, "leb128 overflow")
+    END IF
+    byteValue = toInt(collections::get(data, i))
+    result = bits::bor(result, bits::sl(bits::band(byteValue, 127), shift))
+    shift = shift + 7
+    i = i + 1
+    IF byteValue < 128 THEN
+      done = TRUE
+      IF shift < 64 AND bits::band(byteValue, 64) <> 0 THEN
+        result = bits::bor(result, bits::sl(-1, shift))
+      END IF
+    END IF
+  END WHILE
+  RETURN result
+END FUNC"#;
+
+#[rustfmt::skip]
+const VARINT_ENCODE_BODY: &str =
+r#"FUNC __encoding_varintEncode(value AS Integer) AS List OF Byte
+  LET zigzag AS Integer = bits::bxor(bits::sl(value, 1), bits::sra(value, 63))
+  RETURN __encoding_leb128Emit(zigzag)
+END FUNC"#;
+
+#[rustfmt::skip]
+const VARINT_DECODE_BODY: &str =
+r#"FUNC __encoding_varintDecode(data AS List OF Byte) AS Integer
+  LET zigzag AS Integer = __encoding_uleb128Decode(data)
+  RETURN bits::bxor(bits::sr(zigzag, 1), 0 - bits::band(zigzag, 1))
+END FUNC"#;
+
 const ENCODING_FUNCTIONS: &[BuiltinFunction] = &[
     // The two overloaded names: Custom implementation (resolved by the resolver).
     ef(
@@ -119,182 +632,272 @@ const ENCODING_FUNCTIONS: &[BuiltinFunction] = &[
         UTF8_ENCODE_BYTES,
         "utf8EncodeBytes",
         &[ov(&[p("value", &[], "String")], BYTES)],
-        Implementation::Rewrite("__encoding_utf8EncodeBytes"),
+        Implementation::Mfb {
+            body: UTF8_ENCODE_BYTES_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         UTF8_ENCODE_INTS,
         "utf8EncodeInts",
         &[ov(&[p("value", &[], "String")], INTS)],
-        Implementation::Rewrite("__encoding_utf8EncodeInts"),
+        Implementation::Mfb {
+            body: UTF8_ENCODE_INTS_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         UTF8_DECODE_BYTES,
         "utf8DecodeBytes",
         &[ov(&[p("value", &[], BYTES)], "String")],
-        Implementation::Rewrite("__encoding_utf8DecodeBytes"),
+        Implementation::Mfb {
+            body: UTF8_DECODE_BYTES_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         UTF8_DECODE_INTS,
         "utf8DecodeInts",
         &[ov(&[p("value", &[], INTS)], "String")],
-        Implementation::Rewrite("__encoding_utf8DecodeInts"),
+        Implementation::Mfb {
+            body: UTF8_DECODE_INTS_BODY,
+            fast_path: None,
+        },
     ),
     // Non-overloaded codecs.
     ef(
         UTF16_ENCODE,
         "utf16Encode",
         &[ov(&[p("value", VALTEXT, "String")], INTS)],
-        Implementation::Rewrite("__encoding_utf16Encode"),
+        Implementation::Mfb {
+            body: UTF16_ENCODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         UTF16_DECODE,
         "utf16Decode",
         &[ov(&[p("value", &[], INTS)], "String")],
-        Implementation::Rewrite("__encoding_utf16Decode"),
+        Implementation::Mfb {
+            body: UTF16_DECODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         UTF32_ENCODE,
         "utf32Encode",
         &[ov(&[p("value", VALTEXT, "String")], INTS)],
-        Implementation::Rewrite("__encoding_utf32Encode"),
+        Implementation::Mfb {
+            body: UTF32_ENCODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         UTF32_DECODE,
         "utf32Decode",
         &[ov(&[p("value", &[], INTS)], "String")],
-        Implementation::Rewrite("__encoding_utf32Decode"),
+        Implementation::Mfb {
+            body: UTF32_DECODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         HEX_ENCODE,
         "hexEncode",
         &[ov(&[p("data", &[], BYTES)], "String")],
-        Implementation::Rewrite("__encoding_hexEncode"),
+        Implementation::Mfb {
+            body: HEX_ENCODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         HEX_DECODE,
         "hexDecode",
         &[ov(&[p("text", &[], "String")], BYTES)],
-        Implementation::Rewrite("__encoding_hexDecode"),
+        Implementation::Mfb {
+            body: HEX_DECODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         BASE32_ENCODE,
         "base32Encode",
         &[ov(&[p("data", &[], BYTES)], "String")],
-        Implementation::Rewrite("__encoding_base32Encode"),
+        Implementation::Mfb {
+            body: BASE32_ENCODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         BASE32_DECODE,
         "base32Decode",
         &[ov(&[p("text", &[], "String")], BYTES)],
-        Implementation::Rewrite("__encoding_base32Decode"),
+        Implementation::Mfb {
+            body: BASE32_DECODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         BASE64_ENCODE,
         "base64Encode",
         &[ov(&[p("data", &[], BYTES)], "String")],
-        Implementation::Rewrite("__encoding_base64Encode"),
+        Implementation::Mfb {
+            body: BASE64_ENCODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         BASE64_DECODE,
         "base64Decode",
         &[ov(&[p("text", &[], "String")], BYTES)],
-        Implementation::Rewrite("__encoding_base64Decode"),
+        Implementation::Mfb {
+            body: BASE64_DECODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         BASE64URL_ENCODE,
         "base64UrlEncode",
         &[ov(&[p("data", &[], BYTES)], "String")],
-        Implementation::Rewrite("__encoding_base64UrlEncode"),
+        Implementation::Mfb {
+            body: BASE64_URL_ENCODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         BASE64URL_DECODE,
         "base64UrlDecode",
         &[ov(&[p("text", &[], "String")], BYTES)],
-        Implementation::Rewrite("__encoding_base64UrlDecode"),
+        Implementation::Mfb {
+            body: BASE64_URL_DECODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         PERCENT_ENCODE,
         "percentEncode",
         &[ov(&[p("value", VALTEXT, "String")], "String")],
-        Implementation::Rewrite("__encoding_percentEncode"),
+        Implementation::Mfb {
+            body: PERCENT_ENCODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         PERCENT_DECODE,
         "percentDecode",
         &[ov(&[p("value", VALTEXT, "String")], "String")],
-        Implementation::Rewrite("__encoding_percentDecode"),
+        Implementation::Mfb {
+            body: PERCENT_DECODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         HTML_ESCAPE,
         "htmlEscape",
         &[ov(&[p("value", VALTEXT, "String")], "String")],
-        Implementation::Rewrite("__encoding_htmlEscape"),
+        Implementation::Mfb {
+            body: HTML_ESCAPE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         HTML_UNESCAPE,
         "htmlUnescape",
         &[ov(&[p("value", VALTEXT, "String")], "String")],
-        Implementation::Rewrite("__encoding_htmlUnescape"),
+        Implementation::Mfb {
+            body: HTML_UNESCAPE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         FORM_URL_ENCODE,
         "formUrlEncode",
         &[ov(&[p("value", VALTEXT, "String")], "String")],
-        Implementation::Rewrite("__encoding_formUrlEncode"),
+        Implementation::Mfb {
+            body: FORM_URL_ENCODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         FORM_URL_DECODE,
         "formUrlDecode",
         &[ov(&[p("value", VALTEXT, "String")], "String")],
-        Implementation::Rewrite("__encoding_formUrlDecode"),
+        Implementation::Mfb {
+            body: FORM_URL_DECODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         PUNYCODE_ENCODE,
         "punycodeEncode",
         &[ov(&[p("domain", &[], "String")], "String")],
-        Implementation::Rewrite("__encoding_punycodeEncode"),
+        Implementation::Mfb {
+            body: PUNYCODE_ENCODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         PUNYCODE_DECODE,
         "punycodeDecode",
         &[ov(&[p("asciiDomain", &[], "String")], "String")],
-        Implementation::Rewrite("__encoding_punycodeDecode"),
+        Implementation::Mfb {
+            body: PUNYCODE_DECODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         ULEB128_ENCODE,
         "uleb128Encode",
         &[ov(&[p("value", &[], "Integer")], BYTES)],
-        Implementation::Rewrite("__encoding_uleb128Encode"),
+        Implementation::Mfb {
+            body: ULEB128_ENCODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         ULEB128_DECODE,
         "uleb128Decode",
         &[ov(&[p("data", &[], BYTES)], "Integer")],
-        Implementation::Rewrite("__encoding_uleb128Decode"),
+        Implementation::Mfb {
+            body: ULEB128_DECODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         SLEB128_ENCODE,
         "sleb128Encode",
         &[ov(&[p("value", &[], "Integer")], BYTES)],
-        Implementation::Rewrite("__encoding_sleb128Encode"),
+        Implementation::Mfb {
+            body: SLEB128_ENCODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         SLEB128_DECODE,
         "sleb128Decode",
         &[ov(&[p("data", &[], BYTES)], "Integer")],
-        Implementation::Rewrite("__encoding_sleb128Decode"),
+        Implementation::Mfb {
+            body: SLEB128_DECODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         VARINT_ENCODE,
         "varintEncode",
         &[ov(&[p("value", &[], "Integer")], BYTES)],
-        Implementation::Rewrite("__encoding_varintEncode"),
+        Implementation::Mfb {
+            body: VARINT_ENCODE_BODY,
+            fast_path: None,
+        },
     ),
     ef(
         VARINT_DECODE,
         "varintDecode",
         &[ov(&[p("data", &[], BYTES)], "Integer")],
-        Implementation::Rewrite("__encoding_varintDecode"),
+        Implementation::Mfb {
+            body: VARINT_DECODE_BODY,
+            fast_path: None,
+        },
     ),
 ];
 
@@ -443,16 +1046,52 @@ fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedC
     Some(ResolvedCall { return_type })
 }
 
-/// The non-overloaded public encoding functions map one-to-one onto their
-/// internal `__encoding_*` implementation. The two overloaded names
-/// (`utf8Encode`/`utf8Decode`) return `None`; they are rewritten by
-/// `resolve_overload_target` during monomorphization using the call's argument
-/// and expected types.
+/// The internal `__encoding_*` symbol each non-overloaded public member (and the
+/// four `utf8Encode`/`utf8Decode` monomorph targets) rewrites to during IR
+/// lowering. These members now carry [`Implementation::Mfb`], whose descriptor
+/// `implementation_name` is `None` (the body is assembled into the injected
+/// package rather than named by a fixed rewrite symbol), so the rewrite target is
+/// provided here explicitly. The two overloaded names (`utf8Encode`/`utf8Decode`,
+/// `Implementation::Custom`) are absent: they resolve to a concrete target via
+/// `resolve_overload_target` first, and that target then rewrites through here.
+const IMPL_NAMES: &[(&str, &str)] = &[
+    ("encoding.utf8EncodeBytes", "__encoding_utf8EncodeBytes"),
+    ("encoding.utf8EncodeInts", "__encoding_utf8EncodeInts"),
+    ("encoding.utf8DecodeBytes", "__encoding_utf8DecodeBytes"),
+    ("encoding.utf8DecodeInts", "__encoding_utf8DecodeInts"),
+    ("encoding.utf16Encode", "__encoding_utf16Encode"),
+    ("encoding.utf16Decode", "__encoding_utf16Decode"),
+    ("encoding.utf32Encode", "__encoding_utf32Encode"),
+    ("encoding.utf32Decode", "__encoding_utf32Decode"),
+    ("encoding.hexEncode", "__encoding_hexEncode"),
+    ("encoding.hexDecode", "__encoding_hexDecode"),
+    ("encoding.base32Encode", "__encoding_base32Encode"),
+    ("encoding.base32Decode", "__encoding_base32Decode"),
+    ("encoding.base64Encode", "__encoding_base64Encode"),
+    ("encoding.base64Decode", "__encoding_base64Decode"),
+    ("encoding.base64UrlEncode", "__encoding_base64UrlEncode"),
+    ("encoding.base64UrlDecode", "__encoding_base64UrlDecode"),
+    ("encoding.percentEncode", "__encoding_percentEncode"),
+    ("encoding.percentDecode", "__encoding_percentDecode"),
+    ("encoding.htmlEscape", "__encoding_htmlEscape"),
+    ("encoding.htmlUnescape", "__encoding_htmlUnescape"),
+    ("encoding.formUrlEncode", "__encoding_formUrlEncode"),
+    ("encoding.formUrlDecode", "__encoding_formUrlDecode"),
+    ("encoding.punycodeEncode", "__encoding_punycodeEncode"),
+    ("encoding.punycodeDecode", "__encoding_punycodeDecode"),
+    ("encoding.uleb128Encode", "__encoding_uleb128Encode"),
+    ("encoding.uleb128Decode", "__encoding_uleb128Decode"),
+    ("encoding.sleb128Encode", "__encoding_sleb128Encode"),
+    ("encoding.sleb128Decode", "__encoding_sleb128Decode"),
+    ("encoding.varintEncode", "__encoding_varintEncode"),
+    ("encoding.varintDecode", "__encoding_varintDecode"),
+];
+
 pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
-    // Non-overloaded names carry an `Implementation::Rewrite(__encoding_*)`; the
-    // two overloaded names are `Custom` and resolve to a target via
-    // `resolve_overload_target`, so they return `None` here.
-    DefaultResolver::implementation_name(&ENCODING, name)
+    IMPL_NAMES
+        .iter()
+        .find(|(public, _)| *public == name)
+        .map(|(_, internal)| *internal)
 }
 
 /// Resolve the overloaded `utf8Encode`/`utf8Decode` public calls to a concrete
@@ -487,12 +1126,65 @@ pub(crate) fn is_overloaded(callee: &str) -> bool {
         .is_some_and(|function| matches!(function.implementation, Implementation::Custom))
 }
 
-super::package_source_glue!(
-    "encoding",
-    "<builtin-encoding>",
-    "builtins/encoding.mfb",
-    include_str!("encoding_package.mfb")
-);
+/// Synthetic path label for the injected encoding source. `parse_source_internal`
+/// records it as the file path; `AstProject::to_json` filters this sentinel out of
+/// `-ast` output. Preserved byte-for-byte from the pre-migration
+/// `package_source_glue!` invocation so the injected AST is unchanged.
+const SOURCE_LABEL: &str = "<builtin-encoding>";
+const SOURCE_DOC: &str = "builtins/encoding.mfb";
+
+/// Parses the built-in `encoding` package source (dual path: the `package.mfb`
+/// companion plus every [`Implementation::Mfb`] member's body, spliced in by
+/// [`assembled_source`]).
+pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
+    crate::ast::parse_source_internal(
+        std::path::Path::new(SOURCE_LABEL),
+        SOURCE_DOC,
+        &assembled_source(),
+    )
+}
+
+/// The `encoding` package source, assembled from the dual path: the external
+/// `package.mfb` companion is the base, and every member carrying
+/// [`Implementation::Mfb`] contributes its `FUNC __encoding_<name> ... END FUNC`
+/// body in place of a one-line `'@@MFB_BODY:<slug>@@` marker at the body's
+/// original position. Splicing at the original position keeps every helper's
+/// source line numbers unchanged, so the injected AST — and every derived golden —
+/// is byte-identical to the pre-migration companion. Mirrors
+/// `collections::assembled_source`.
+fn assembled_source() -> String {
+    let mut source = String::from(include_str!("package.mfb"));
+    for func in ENCODING_FUNCTIONS {
+        if let Implementation::Mfb { body, .. } = func.implementation {
+            let marker = format!("'@@MFB_BODY:{}@@", func.doc_slug);
+            debug_assert!(
+                source.contains(&marker),
+                "encoding package.mfb is missing the '{marker}' body marker",
+            );
+            source = source.replacen(&marker, body, 1);
+        }
+    }
+    source
+}
+
+pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
+    ast.files.iter().any(|file| {
+        file.imports
+            .iter()
+            .any(|import| import.package_name() == "encoding")
+    })
+}
+
+pub(crate) fn augmented_project(
+    ast: &crate::ast::AstProject,
+) -> Result<crate::ast::AstProject, ()> {
+    if !uses_package(ast) {
+        return Ok(ast.clone());
+    }
+    let mut augmented = ast.clone();
+    augmented.files.push(source_file()?);
+    Ok(augmented)
+}
 
 #[cfg(test)]
 mod tests {

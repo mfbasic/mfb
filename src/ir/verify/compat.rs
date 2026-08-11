@@ -296,7 +296,7 @@ impl TypeEnv {
             builtins::bits::is_bits_call,
             builtins::vector::is_vector_call,
             builtins::strings::is_strings_call,
-            builtins::encoding::is_encoding_call,
+            crate::codegen::builtins::encoding::is_encoding_call,
             builtins::io::is_io_call,
             builtins::fs::is_fs_call,
             builtins::net::is_net_call,

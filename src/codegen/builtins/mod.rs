@@ -3,3 +3,4 @@
 //! migrated function, the target-generic lowering carried by `Implementation`.
 
 pub(crate) mod collections;
+pub(crate) mod encoding;

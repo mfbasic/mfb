@@ -19,7 +19,7 @@ IMPORT encoding
 ```
 
 `encoding` is a built-in package written in MFBASIC source, so no manifest
-dependency is required. [[src/builtins/encoding.rs:augmented_project]]
+dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project]]
 
 ## Description
 
@@ -27,37 +27,37 @@ dependency is required. [[src/builtins/encoding.rs:augmented_project]]
 representation used by internationalized domain names (IDNA), applying the
 Punycode Bootstring algorithm of RFC 3492. The hostname is split on `.` into
 labels, and each label is processed independently; the results are rejoined with
-`.` so the dot structure of the input is preserved. [[src/builtins/encoding_package.mfb:__encoding_punycodeEncode]]
+`.` so the dot structure of the input is preserved. [[src/codegen/builtins/encoding/mod.rs:__encoding_punycodeEncode]]
 
 Each label is examined for non-ASCII code points. A label whose code points are
 all below `128` is emitted verbatim, unchanged. A label containing any code
 point at or above `128` is Punycode-encoded and prefixed with the ACE marker
-`xn--`, producing the standard `xn--<encoding>` form. [[src/builtins/encoding_package.mfb:__encoding_labelHasNonAscii]]
+`xn--`, producing the standard `xn--<encoding>` form. [[src/codegen/builtins/encoding/package.mfb:__encoding_labelHasNonAscii]]
 
 Within an encoded label, the basic (ASCII) code points are copied out first,
 followed by a `-` delimiter when any basic code points are present, and then the
 generalized variable-length integers that describe the non-ASCII code points in
 ascending order. The algorithm uses the RFC 3492 parameters (initial `n` = 128,
-initial bias 72, base 36) and the standard bias-adaptation function. [[src/builtins/encoding_package.mfb:__encoding_punyEncodeLabel]] The input
+initial bias 72, base 36) and the standard bias-adaptation function. [[src/codegen/builtins/encoding/package.mfb:__encoding_punyEncodeLabel]] The input
 `String` is decoded to Unicode scalar values through the package's UTF-8
-decoder before encoding. [[src/builtins/encoding_package.mfb:__encoding_codepoints]]
+decoder before encoding. [[src/codegen/builtins/encoding/package.mfb:__encoding_codepoints]]
 
 The function is **total**: every `String`, including the empty string and
 all-ASCII hostnames, encodes successfully, and it never raises a runtime error.
 The inverse operation is `encoding::punycodeDecode`, which converts an ASCII
-Punycode hostname back to its Unicode form. [[src/builtins/encoding_package.mfb:__encoding_punycodeDecode]]
+Punycode hostname back to its Unicode form. [[src/codegen/builtins/encoding/mod.rs:__encoding_punycodeDecode]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `domain` | `String` | The Unicode hostname to encode. Split on `.` into labels; each label is encoded independently. Any `String`, including the empty string, is accepted. [[src/builtins/encoding.rs:call_param_names]] |
+| `domain` | `String` | The Unicode hostname to encode. Split on `.` into labels; each label is encoded independently. Any `String`, including the empty string, is accepted. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The ASCII Punycode hostname: all-ASCII labels are copied verbatim, and labels with non-ASCII code points become `xn--`-prefixed Punycode. The empty string maps to the empty string. [[src/builtins/encoding.rs:ENCODING]] |
+| `String` | The ASCII Punycode hostname: all-ASCII labels are copied verbatim, and labels with non-ASCII code points become `xn--`-prefixed Punycode. The empty string maps to the empty string. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
 
 ## Errors
 

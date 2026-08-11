@@ -106,7 +106,7 @@ pub fn resolve_project_with(
     let augmented = builtins::crypto::augmented_project(&augmented)?;
     // `strings` before `encoding`: `strings_package.mfb` imports `encoding`.
     let augmented = builtins::strings::augmented_project(&augmented)?;
-    let augmented = builtins::encoding::augmented_project(&augmented)?;
+    let augmented = crate::codegen::builtins::encoding::augmented_project(&augmented)?;
     let mut resolver = Resolver::new(project_dir, manifest, &augmented);
     resolver.resolve();
     if validate_docs {

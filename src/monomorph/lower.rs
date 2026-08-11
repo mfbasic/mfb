@@ -1211,7 +1211,7 @@ impl<'a> Monomorphizer<'a> {
                 // public calls onto their concrete internal implementation using
                 // the argument types and (for the return-type overload) the
                 // expected type (plan-02-encoding.md Part B).
-                if crate::builtins::encoding::is_overloaded(callee) {
+                if crate::codegen::builtins::encoding::is_overloaded(callee) {
                     // plan-72-I: resolve the overload target through the descriptor
                     // registry API rather than the encoding-specific free function.
                     match crate::builtins::resolve_overload_target(

@@ -17,13 +17,13 @@ encoding::percentEncode(text)
 The `encoding` package converts between text and its encoded byte or code-unit
 representations. It is a built-in package written in MFBASIC source over the
 `bits`, `strings`, and `collections` packages, so `IMPORT encoding` needs no
-manifest dependency. [[src/builtins/encoding.rs:augmented_project]]
+manifest dependency. [[src/codegen/builtins/encoding/mod.rs:augmented_project]]
 
 The package defines no new types. It works with three ordinary value shapes:
 `String` (always UTF-8 text), `List OF Byte` (raw octets, each `0..255`), and
 `List OF Integer` (code units or scalar values as `Integer`). Byte transport uses
 `strings::toBytes` — the raw UTF-8 bytes of a `String`, the inverse of
-`toString(List OF Byte)` — as its foundation. [[src/builtins/encoding_package.mfb:__encoding_utf8EncodeBytes]]
+`toString(List OF Byte)` — as its foundation. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf8EncodeBytes]]
 
 Functions come in encode/decode pairs and are total round-trips over well-formed
 input. Encoders always succeed; decoders validate their input and fail on
@@ -37,7 +37,7 @@ while `base64Url` is unpadded. The web codecs (`percentEncode`/`percentDecode`,
 `String`. The integer codecs (`uleb128`, `sleb128`, `varint`) serialize a single
 `Integer` to a `List OF Byte`; `varint` applies zig-zag mapping. `punycodeEncode`/
 `punycodeDecode` implement the RFC 3492 Bootstring transform per dot-separated
-label, adding or stripping the `xn--` prefix only on labels that need it. [[src/builtins/encoding_package.mfb:__encoding_punycodeEncode]]
+label, adding or stripping the `xn--` prefix only on labels that need it. [[src/codegen/builtins/encoding/mod.rs:__encoding_punycodeEncode]]
 
 `utf8Encode` and `utf8Decode` are overloaded. `utf8Encode` is a *return-type*
 overload: the same `String` argument yields either a `List OF Byte` or a
@@ -45,7 +45,7 @@ overload: the same `String` argument yields either a `List OF Byte` or a
 type context to select the overload is a compile-time `TYPE_OVERLOAD_AMBIGUOUS`
 error, not a runtime failure. `utf8Decode` is a parameter overload selected by
 whether its argument is a `List OF Byte` or a `List OF Integer`. Both are resolved
-during monomorphization. [[src/builtins/encoding.rs:resolve_overload_target]]
+during monomorphization. [[src/codegen/builtins/encoding/mod.rs:resolve_overload_target]]
 
 ## Errors
 

@@ -186,7 +186,7 @@ pub fn check_project_collect(
     // `strings` before `encoding`: `strings_package.mfb` imports `encoding`
     // (plan-41-D).
     let augmented = builtins::strings::augmented_project(&augmented)?;
-    let augmented = builtins::encoding::augmented_project(&augmented)?;
+    let augmented = crate::codegen::builtins::encoding::augmented_project(&augmented)?;
     let mut checker = SyntaxChecker::new(project_dir, &augmented);
     checker.check();
     Ok(checker.diagnostics)

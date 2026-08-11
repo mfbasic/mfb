@@ -19,7 +19,7 @@ IMPORT encoding
 ```
 
 `encoding` is a built-in package written in MFBASIC source, so no manifest
-dependency is required. [[src/builtins/encoding.rs:augmented_project]]
+dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project]]
 
 ## Description
 
@@ -28,32 +28,32 @@ as defined by RFC 4648 §4. Input bytes are consumed as a continuous bit stream,
 most-significant bit first, and emitted six bits at a time; each 6-bit group
 selects one character from the alphabet
 `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/`, so the
-result uses `+` and `/` for the final two symbols. [[src/builtins/encoding_package.mfb:__encoding_base64Encode]]
+result uses `+` and `/` for the final two symbols. [[src/codegen/builtins/encoding/mod.rs:__encoding_base64Encode]]
 
 Encoding operates on 24-bit (3-byte) groups, each producing four Base64
 characters. When the final group is short, the remaining data bits occupy the
 high-order bits of the last symbol and the low-order bits are zero-filled, and
 the output is then padded with `=` characters until its length is a multiple of
 four, so the result length is always a multiple of four. An empty list yields
-the empty string. [[src/builtins/encoding_package.mfb:__encoding_baseEncode]]
+the empty string. [[src/codegen/builtins/encoding/package.mfb:__encoding_baseEncode]]
 
 The function is **total**: every `List OF Byte`, including the empty list,
 encodes successfully, and it never raises a runtime error. For the URL- and
 filename-safe variant that uses `-` and `_` without `=` padding, use
 `encoding::base64UrlEncode`. The inverse operation is `encoding::base64Decode`,
-which parses a Base64 string back into a `List OF Byte`. [[src/builtins/encoding_package.mfb:__encoding_base64Decode]]
+which parses a Base64 string back into a `List OF Byte`. [[src/codegen/builtins/encoding/mod.rs:__encoding_base64Decode]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `data` | `List OF Byte` | The bytes to encode. Any list of bytes, including the empty list, is accepted. [[src/builtins/encoding.rs:call_param_names]] |
+| `data` | `List OF Byte` | The bytes to encode. Any list of bytes, including the empty list, is accepted. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The standard Base64 encoding of `data` with `+`/`/` symbols and `=` padding to a multiple of four characters; the empty string for an empty list. [[src/builtins/encoding.rs:ENCODING]] |
+| `String` | The standard Base64 encoding of `data` with `+`/`/` symbols and `=` padding to a multiple of four characters; the empty string for an empty list. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
 
 ## Errors
 
