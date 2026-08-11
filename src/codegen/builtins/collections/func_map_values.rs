@@ -19,11 +19,35 @@ const BODY: &str =
   RETURN result
 END FUNC";
 
+const DESC: &str = r#"`collections::mapValues` builds a new `Map OF K TO U` by iterating `value` with
+`FOR EACH` and, for each entry, storing the original `e.key` together with the
+transformed value `f(e.value)`. The keys are copied through untouched, so the
+result has exactly the same key set as `value` and the same number of entries.
+Only the value type changes, from `V` to `U`.
+
+`f` is applied exactly once per entry in `value`. Because entries are written in
+the order `FOR EACH` yields them, the result is built by inserting keys in the
+source map's traversal order. Map traversal order is implementation-defined but
+stable for a given unchanged map value during one program run, so no ordering
+guarantee beyond that should be relied on; see `mfb man types map`.
+
+`value` is not modified — the source map is read, and a separate result map is
+constructed and returned. When `value` is empty, `f` is never called and the
+result is an empty map.
+
+`f` is an ordinary MFBASIC function value invoked with an ordinary call. If `f`
+fails on some entry, its error propagates out of `mapValues` to the caller and
+can be caught by the caller's `TRAP` block; the partially built result map is
+discarded. `mapValues` itself raises no error of its own.
+
+`f` may be a named `FUNC` or a `LAMBDA` expression, since both produce a function
+value of the required type."#;
+
 pub(crate) const MAP_VALUES: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.mapValues",
     "mapValues",
     INTRO,
-    "",
+    DESC,
     &[],
     &[custom(&[
         req("value", &["map"], "Map OF K TO V"),

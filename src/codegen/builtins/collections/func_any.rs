@@ -19,11 +19,37 @@ const BODY: &str =
   RETURN FALSE
 END FUNC";
 
+const DESC: &str = r#"`collections::any` walks `value` from index `0` upward and calls `predicate`
+with each element in turn. It returns `TRUE` as soon as a call returns `TRUE`,
+without examining any later element, and returns `FALSE` only after every
+element has been tested and none matched.
+
+The scan short-circuits: `predicate` is called at most once per element, and no
+call is made for elements after the first match. Callers must not rely on
+`predicate` being invoked for the whole list.
+
+For an empty list `any` returns `FALSE`, since there is no element that could
+match. This is the dual of `collections::all`, which returns `TRUE` for an
+empty list.
+
+`predicate` is an ordinary function value of type `FUNC(T) AS Boolean` — a named
+`FUNC` or a `LAMBDA`. Because it is called as an ordinary call, an error raised
+inside `predicate` is **not** absorbed by `any`: it propagates out of the
+`collections::any` call to the caller, where a function-level or inline `TRAP`
+may catch it. `any` itself defines no error of its own. Note that a lambda
+passed here may not capture an outer `MUT` binding; the callback position proven
+non-escaping is `collections::forEach`, not `any`.
+
+`any` is a generic implemented in MFBASIC source; a call is rewritten to the
+internal `__collections_any` generic and instantiated for the element type like
+any other generic function. It does not
+mutate `value` and has no other side effects beyond whatever `predicate` does."#;
+
 pub(crate) const ANY: BuiltinFunction = BuiltinFunction::mfb(
     "collections.any",
     "any",
     INTRO,
-    "",
+    DESC,
     &[],
     &[custom(&[
         req("value", &["list"], "List OF T"),

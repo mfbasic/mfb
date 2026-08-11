@@ -24,11 +24,40 @@ const BODY: &str =
   RETURN result
 END FUNC";
 
+const DESC: &str = r#"`collections::merge` starts the result as a copy of `a`, then iterates `b` with
+`FOR EACH` and considers each of its entries in turn. An entry of `b` is written
+into the result only when `preferB` is `TRUE`, or when the entry's key is not
+already present in the result. Every other entry of `b` is skipped, leaving the
+value that came from `a` in place.
+
+The result therefore always contains the union of the two key sets: every key of
+`a` and every key of `b` appears exactly once. `preferB` decides only what
+happens on a collision — a key present in both maps:
+
+- `preferB = TRUE` — `b`'s value overwrites `a`'s value for that key.
+- `preferB = FALSE` — `a`'s value is kept and `b`'s value is discarded.
+
+`preferB` is a required `Boolean` parameter. It has no default, so all three
+arguments must be supplied; there is no two-argument form of `merge`.
+
+Neither `a` nor `b` is modified. The result is a distinct map value, so writing
+to it afterwards does not disturb either input.
+
+Because the result is seeded from `a` and then extended by iterating `b`, keys of
+`a` are inserted first and keys unique to `b` are inserted afterwards, each side
+in its own traversal order. Map traversal order is implementation-defined but
+stable for a given unchanged map value during one program run, so no ordering
+guarantee beyond that should be relied on; see `mfb man types map`. Note that
+overwriting an existing key when `preferB` is `TRUE` replaces its value and does
+not move the key to the end.
+
+`merge` invokes no user callback and raises no error."#;
+
 pub(crate) const MERGE: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.merge",
     "merge",
     INTRO,
-    "",
+    DESC,
     &[],
     &[custom(&[
         req("a", &["first"], "Map OF K TO V"),

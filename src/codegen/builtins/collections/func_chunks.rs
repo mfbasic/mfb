@@ -31,11 +31,37 @@ const BODY: &str =
   RETURN result
 END FUNC";
 
+const DESC: &str = r#"`collections::chunks` walks `value` from index 0 in steps of `chunkSize`, and
+for each step emits the range starting there and running `chunkSize` elements
+forward, stopping early at the end of the list. The result is a list of those
+blocks. It is a generic function written in MFBASIC source, rewritten to the
+internal `__collections_chunks` generic and instantiated for the element type
+`T` during monomorphization.
+
+Because the step and the block length are both `chunkSize`, the blocks are
+consecutive and never overlap, and concatenating them reproduces `value`
+exactly. Every block holds exactly `chunkSize` elements except possibly the
+last: when the length of `value` is not a multiple of `chunkSize`, the final
+block holds the remainder, which is between 1 and `chunkSize - 1` elements. No
+padding element is ever inserted.
+
+An empty `value` produces an empty result — the loop never runs, so there is no
+empty leading block. A `value` shorter than `chunkSize` produces exactly one
+block holding the whole list.
+
+`chunkSize` must be at least 1. A `chunkSize` below 1 is rejected at runtime
+with `ErrInvalidArgument`; there is no clamping and no default, so the argument
+is always required.
+
+Each block is built by the internal slice helper, which is lowered natively as a
+bulk range copy, so element payloads are copied into freshly allocated lists and
+no block shares storage with `value`. `value` is not modified."#;
+
 pub(crate) const CHUNKS: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.chunks",
     "chunks",
     INTRO,
-    "",
+    DESC,
     &["ErrInvalidArgument"],
     &[custom(&[
         req("value", &["list"], "List OF T"),

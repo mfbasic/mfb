@@ -29,11 +29,38 @@ const BODY: &str =
   RETURN result
 END FUNC";
 
+const DESC: &str = r#"`collections::flatten` walks `value` from index 0 upward and concatenates each
+inner list onto an accumulating result. It does this by calling
+`collections::append(result, inner)` where `inner` is itself a `List OF T` — that
+is the list-concatenation overload of `append`, which accepts a second argument
+that is either the element type or the same list type as the first argument.
+Each inner list is therefore spliced in whole rather than nested as a single
+element.
+
+`flatten` removes exactly **one** level of nesting. Its parameter type is
+`List OF List OF T`, so applying it to a `List OF List OF List OF Integer`
+produces a `List OF List OF Integer` — the innermost lists survive as elements.
+Flattening further requires calling `flatten` again on the result. It is not
+recursive and there is no depth parameter.
+
+Order is fully preserved: the inner lists are consumed in their own order, and
+the items within each inner list keep their relative order, so the result reads
+as the inner lists laid end to end. Empty inner lists contribute nothing and are
+simply skipped over; they do not produce a placeholder element. When `value`
+itself is empty, the result is an empty list.
+
+`value` is not modified, and neither are the inner lists it holds; the result is
+a newly built list. `flatten` invokes no user callback and raises no error.
+
+Note that the template argument `T` is inferred from the argument, so a bare
+untyped `[]` literal cannot be passed directly — bind it to a
+`List OF List OF T` first, or pass an expression whose type is known."#;
+
 pub(crate) const FLATTEN: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.flatten",
     "flatten",
     INTRO,
-    "",
+    DESC,
     &[],
     &[custom(&[req("value", &["list"], "List OF List OF T")])],
     BODY,

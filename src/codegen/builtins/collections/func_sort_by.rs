@@ -69,11 +69,38 @@ const BODY: &str =
   RETURN items
 END FUNC";
 
+const DESC: &str = r#"`collections::sortBy` returns a new list containing every element of `value`,
+arranged in ascending order of the key `keyFn(element)`. The elements themselves
+are never compared; only the keys are. It is a generic function written in
+MFBASIC source, rewritten to the internal `__collections_sortBy` generic and
+instantiated for the element type `T` and key type `U` during monomorphization.
+
+`keyFn` is applied to the whole list up front, in one pass, via
+`collections::transform`, producing a parallel list of keys. Each element's key
+is therefore computed **exactly once**, no matter how many comparisons that
+element takes part in. `keyFn` must be a function value — for example a named
+`FUNC` — and it is called once per element, in index order, before any
+comparison happens.
+
+The sort is a bottom-up merge sort with O(n log n) comparisons, merging runs of
+width 1, then 2, then 4, and so on. Items and their keys are carried through the
+merge in parallel, so an element always travels with its own key. The merge is
+**stable**: a right-run item is taken only when its key is *strictly less than*
+the left-run item's key, so elements whose keys compare equal keep their original
+relative order.
+
+When `value` has fewer than two elements, `sortBy` returns `value` unchanged.
+In that case `keyFn` is never called, because the key pass is skipped along with
+the sort.
+
+There is no descending form. To order descending by a numeric key, have `keyFn`
+return the negated key. `value` is not modified."#;
+
 pub(crate) const SORT_BY: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.sortBy",
     "sortBy",
     INTRO,
-    "",
+    DESC,
     &[],
     &[custom(&[
         req("value", &["list"], "List OF T"),

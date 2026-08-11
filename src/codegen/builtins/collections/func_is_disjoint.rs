@@ -17,11 +17,27 @@ const BODY: &str =
   RETURN TRUE
 END FUNC";
 
+const DESC: &str = r#"`collections::isDisjoint` returns `TRUE` when `a` and `b` have no element in
+common, and `FALSE` otherwise. It walks the elements of `a` and returns `FALSE`
+as soon as `collections::contains` reports one that is also in `b`; if the walk
+finds no shared element, it returns `TRUE`. Equivalently, two sets are disjoint
+exactly when their intersection is empty.
+
+`isDisjoint` is **pure**: it inspects both arguments and mutates neither. The
+empty set is disjoint from every set, so a call with an empty argument is always
+`TRUE`. The relation is symmetric: `isDisjoint(a, b)` equals `isDisjoint(b, a)`.
+
+`isDisjoint` raises no user-trappable error of its own.
+
+`isDisjoint` is a generic implemented in MFBASIC source; a call is rewritten to
+the internal `__collections_isDisjoint` generic and instantiated for the element
+type like any other generic function."#;
+
 pub(crate) const IS_DISJOINT: BuiltinFunction = BuiltinFunction::mfb(
     "collections.isDisjoint",
     "isDisjoint",
     INTRO,
-    "",
+    DESC,
     &[],
     &[custom(&[
         req("a", &["first"], "Set OF T"),

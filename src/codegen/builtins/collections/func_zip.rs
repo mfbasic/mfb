@@ -27,11 +27,35 @@ const BODY: &str =
   RETURN result
 END FUNC";
 
+const DESC: &str = r#"`collections::zip` combines two lists element by element. It first computes the
+pairing length `n` as the smaller of `len(a)` and `len(b)`, then for each index
+`i` from `0` to `n - 1` builds a `Pair OF A, B` whose `first` field is the item
+of `a` at `i` and whose `second` field is the item of `b` at `i`, appending each
+pair to the result.
+
+Pairing therefore stops at the shorter input: the result length is exactly
+`min(len(a), len(b))`, and the trailing items of the longer list are dropped
+without notice. There is no padding, no filler value, and no error — zipping a
+3-item list with a 1-item list simply yields one pair. When either list is empty,
+the result is empty.
+
+Positional correspondence is preserved: the pair at index `i` of the result
+always holds the items that were at index `i` in both inputs, so the result reads
+in the same order as the inputs.
+
+`Pair OF A, B` is a compiler-owned prelude record template with the two fields
+`first` and `second`. It is always in scope and needs no import, so a program can
+name the result type `List OF Pair OF A, B` and read `p.first` / `p.second`
+directly.
+
+Neither `a` nor `b` is modified; the result is a newly built list. `zip` invokes
+no user callback and raises no error."#;
+
 pub(crate) const ZIP: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.zip",
     "zip",
     INTRO,
-    "",
+    DESC,
     &[],
     &[custom(&[
         req("a", &["first"], "List OF A"),

@@ -62,11 +62,39 @@ const BODY: &str =
   RETURN src
 END FUNC";
 
+const DESC: &str = r#"`collections::sort` returns a new list containing every element of `value`
+arranged in ascending order. It is a generic function written in MFBASIC source:
+a call to `collections::sort` is rewritten to the internal
+`__collections_sort` generic and instantiated for the element type `T` during
+monomorphization.
+
+The algorithm is a bottom-up merge sort with O(n log n) comparisons. Runs of
+width 1 are merged into runs of width 2, then 4, and so on, until a single run
+covers the list. The merge is **stable**: when a left-run element and a
+right-run element compare equal, the left-run element is emitted first, because
+the right-run element is taken only when it is *strictly less than* the left-run
+element. Elements that compare equal therefore keep their original relative
+order.
+
+Ordering is determined entirely by the `<` operator applied to whole elements.
+For the numeric element types that is numeric order; for `String` it is the
+ordering the `<` operator defines on strings; for `Scalar` it is codepoint
+order. There is no descending form, no comparison-function parameter, and no
+locale or case-insensitivity option. To sort by something other than the element
+itself, use `collections::sortBy`, which orders by a computed key.
+
+When `value` has fewer than two elements — that is, when it is empty or holds a
+single element — `sort` returns `value` unchanged without performing any
+comparison.
+
+`value` is not modified. Like every `collections` helper, `sort` produces a new
+list value and leaves its argument intact."#;
+
 pub(crate) const SORT: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.sort",
     "sort",
     INTRO,
-    "",
+    DESC,
     &[],
     &[custom(&[req("value", &["list"], "List OF T")])],
     BODY,

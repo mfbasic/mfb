@@ -19,11 +19,37 @@ const BODY: &str =
   RETURN TRUE
 END FUNC";
 
+const DESC: &str = r#"`collections::all` walks `value` from index `0` upward and calls `predicate`
+with each element in turn. It returns `FALSE` as soon as a call returns `FALSE`,
+without examining any later element, and returns `TRUE` only after every element
+has been tested and all matched.
+
+The scan short-circuits: `predicate` is called at most once per element, and no
+call is made for elements after the first non-matching one. Callers must not
+rely on `predicate` being invoked for the whole list.
+
+For an empty list `all` returns `TRUE`, the vacuous result: there is no element
+that fails the test. This is the dual of `collections::any`, which returns
+`FALSE` for an empty list.
+
+`predicate` is an ordinary function value of type `FUNC(T) AS Boolean` — a named
+`FUNC` or a `LAMBDA`. Because it is called as an ordinary call, an error raised
+inside `predicate` is **not** absorbed by `all`: it propagates out of the
+`collections::all` call to the caller, where a function-level or inline `TRAP`
+may catch it. `all` itself defines no error of its own. Note that a lambda
+passed here may not capture an outer `MUT` binding; the callback position proven
+non-escaping is `collections::forEach`, not `all`.
+
+`all` is a generic implemented in MFBASIC source; a call is rewritten to the
+internal `__collections_all` generic and instantiated for the element type like
+any other generic function. It does not
+mutate `value` and has no other side effects beyond whatever `predicate` does."#;
+
 pub(crate) const ALL: BuiltinFunction = BuiltinFunction::mfb(
     "collections.all",
     "all",
     INTRO,
-    "",
+    DESC,
     &[],
     &[custom(&[
         req("value", &["list"], "List OF T"),

@@ -33,11 +33,41 @@ const BODY: &str =
   RETURN result
 END FUNC";
 
+const DESC: &str = r#"`collections::groupBy` builds a `Map OF K TO List OF V` from `value`. It first
+projects the whole list twice: `keyFn` over every item to produce the group key,
+and `valFn` over every item to produce the value stored in that group's bucket.
+Both projections run over the entire list up front, via `collections::transform`,
+before any bucket is written. It then walks the two projected lists in parallel
+in list order, appending each projected value to the bucket for its key, creating
+the bucket on first use.
+
+Because the walk proceeds in list order and each value is appended to the end of
+its bucket, the items inside a bucket appear in the same relative order they had
+in `value`. `groupBy` never merges, reorders, or deduplicates within a bucket:
+two items that produce equal keys *and* equal values both appear.
+
+`groupBy` takes three arguments. There is no single-argument-projection form that
+groups items by a key and stores the original items — pass an identity `FUNC` as
+`valFn` to get that behavior. Calling it with two arguments is a compile-time
+error, because the compiler cannot infer the template argument `V` (it appears
+only in the return type).
+
+`value` is not modified; the result is a newly built map. The key type `K` must
+be a usable map key type, since the result is a `Map OF K TO List OF V`.
+
+`keyFn` and `valFn` are ordinary MFBASIC function values and are called with
+ordinary calls. If either callback fails, its error propagates out of `groupBy`
+to the caller and can be caught by the caller's `TRAP` block; the partially built
+map is discarded. `groupBy` itself raises no error of its own.
+
+Either callback may be a named `FUNC` or a `LAMBDA` expression, since both
+produce a function value of the required type."#;
+
 pub(crate) const GROUP_BY: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.groupBy",
     "groupBy",
     INTRO,
-    "",
+    DESC,
     &[],
     &[custom(&[
         req("value", &["list"], "List OF T"),

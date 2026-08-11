@@ -17,11 +17,26 @@ const BODY: &str =
   RETURN TRUE
 END FUNC";
 
+const DESC: &str = r#"`collections::isSubset` returns `TRUE` when every element of `a` is also in `b`,
+and `FALSE` otherwise. It walks the elements of `a` and returns `FALSE` as soon as
+`collections::contains` reports one that is absent from `b`; if the walk finishes
+with no such element, it returns `TRUE`.
+
+`isSubset` is **pure**: it inspects both arguments and mutates neither. The empty
+set is a subset of every set, so `isSubset(Set OF T { }, b)` is always `TRUE`. A
+set is a subset of itself, and equal sets are subsets of each other.
+
+`isSubset` raises no user-trappable error of its own.
+
+`isSubset` is a generic implemented in MFBASIC source; a call is rewritten to the
+internal `__collections_isSubset` generic and instantiated for the element type
+like any other generic function."#;
+
 pub(crate) const IS_SUBSET: BuiltinFunction = BuiltinFunction::mfb(
     "collections.isSubset",
     "isSubset",
     INTRO,
-    "",
+    DESC,
     &[],
     &[custom(&[
         req("a", &["first"], "Set OF T"),

@@ -24,11 +24,31 @@ const BODY: &str =
   RETURN result
 END FUNC";
 
+const DESC: &str = r#"`collections::symmetricDifference` returns a new `Set OF T` holding the elements
+that are in exactly one of `a` and `b` — every element of their union that is not
+in their intersection. It is computed as a two-pass fold: it keeps each element of
+`a` that `collections::contains` reports as absent from `b`, then adds each
+element of `b` that is absent from `a`. Unlike `difference`, the operation is
+symmetric: `symmetricDifference(a, b)` and `symmetricDifference(b, a)` are equal.
+
+`symmetricDifference` is **pure**: it returns a new value and mutates neither
+argument. Element insertion order follows the surviving elements of `a` first,
+then the surviving elements of `b`. The symmetric difference of two equal sets is
+the empty set, and of a set with the empty set is a copy of that set.
+
+`symmetricDifference` raises no user-trappable error of its own. Allocation
+failure is not a trappable domain error, and the `add` it is built on is
+classified infallible.
+
+`symmetricDifference` is a generic implemented in MFBASIC source; a call is
+rewritten to the internal `__collections_symmetricDifference` generic and
+instantiated for the element type like any other generic function."#;
+
 pub(crate) const SYMMETRIC_DIFFERENCE: BuiltinFunction = BuiltinFunction::mfb(
     "collections.symmetricDifference",
     "symmetricDifference",
     INTRO,
-    "",
+    DESC,
     &[],
     &[custom(&[
         req("a", &["first"], "Set OF T"),

@@ -37,11 +37,49 @@ const BODY: &str =
   RETURN result
 END FUNC";
 
+const DESC: &str = r#"`collections::partition` walks `value` once, from index `0` upward, calling
+`predicate` with each element. Each element is appended to the `matched` list
+when `predicate` returns `TRUE` and to the `unmatched` list otherwise, and the
+two lists are returned together in a single `Partition OF T` record.
+
+Unlike `collections::any` and `collections::all`, `partition` does **not**
+short-circuit: `predicate` is called exactly once for every element of `value`,
+in index order, because every element must be classified.
+
+Order is preserved within each side. Elements keep their original relative order
+inside `matched` and inside `unmatched`; concatenating the two does not in
+general reconstruct `value`, but each side on its own is a subsequence of it.
+Every element lands on exactly one side, so `len(result.matched) +
+len(result.unmatched)` always equals `len(value)`. An empty input yields a
+`Partition` whose two lists are both empty.
+
+The result type `Partition OF T` is an ordinary generic record with two fields,
+`matched` and `unmatched`, both of type `List OF T`. It is constructed and
+field-accessed like any other record — write `result.matched` — and it is
+declared in the compiler-owned prelude injected into every project, so it is in
+scope without an import.
+
+`predicate` is an ordinary function value of type `FUNC(T) AS Boolean` — a named
+`FUNC` or a `LAMBDA`. Because it is called as an ordinary call, an error raised
+inside `predicate` is **not** absorbed by `partition`: it propagates out of the
+`collections::partition` call to the caller, abandoning the partially built
+result. `partition` itself defines no error of its own. Note that a lambda
+passed here may not capture an outer `MUT` binding; the callback position proven
+non-escaping is `collections::forEach`, not `partition`.
+
+`partition` does not mutate `value`; it builds two new lists. It allocates while
+doing so, but allocation failure is not a trappable domain error, and the
+`append` it uses is classified infallible for exactly that reason.
+
+`partition` is a generic implemented in MFBASIC source; a call is rewritten to
+the internal `__collections_partition` generic and instantiated for the element
+type like any other generic function."#;
+
 pub(crate) const PARTITION: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.partition",
     "partition",
     INTRO,
-    "",
+    DESC,
     &[],
     &[custom(&[
         req("value", &["list"], "List OF T"),
