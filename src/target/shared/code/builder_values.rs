@@ -260,7 +260,7 @@ impl CodeBuilder<'_> {
     /// a flat data union, a flat collection, or a flat `Result`. Scalars (stored
     /// inline by value), resources, threads, and recursive/non-flat composites are
     /// excluded: they are never freed by the generic owned-value path.
-    pub(super) fn is_freeable_flat_value(&self, type_: &str) -> bool {
+    pub(crate) fn is_freeable_flat_value(&self, type_: &str) -> bool {
         self.type_is_flat(type_)
             && (type_ == "String"
                 || is_collection_type(type_)

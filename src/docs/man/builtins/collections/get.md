@@ -38,7 +38,7 @@ a `String` payload is materialized fresh, while a composite payload stored
 inline in the collection's data region is copied into a standalone arena block
 before it is handed back, so binding, storing, and freeing the result cannot
 disturb the source collection.
-[[src/target/shared/code/builder_collection_queries.rs:materialize_owned_element]]
+[[src/codegen/memory/owned.rs:materialize_owned_element]]
 
 `get` is the only fallible member of this group. It reports a missing element as
 a trappable domain error rather than substituting anything, and it is

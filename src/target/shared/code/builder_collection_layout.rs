@@ -367,7 +367,7 @@ impl CodeBuilder<'_> {
     /// block has no internal pointers, the byte copy **is** a deep copy. Valid
     /// only for types `emit_flat_block_size` supports; returns the destination
     /// pointer in a fresh register.
-    pub(super) fn copy_flat_block(
+    pub(crate) fn copy_flat_block(
         &mut self,
         type_: &str,
         source: impl Into<Operand>,
@@ -734,7 +734,7 @@ impl CodeBuilder<'_> {
     /// is in `ptr_slot`, into `out_slot`. An inlined `String` is `len + 9`; an
     /// inlined nested record recurses through `emit_record_block_size_to_slot`.
     /// Clobbers its temporary scratch vregs (and the recursion's scratch).
-    pub(super) fn emit_inlined_block_size_from_ptr_slot(
+    pub(crate) fn emit_inlined_block_size_from_ptr_slot(
         &mut self,
         field_type: &str,
         ptr_slot: usize,

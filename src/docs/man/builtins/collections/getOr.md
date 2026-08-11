@@ -45,7 +45,7 @@ result can be bound and freed identically no matter which path ran. A composite
 payload read out of the collection is likewise copied into a standalone block
 before it is returned.
 [[src/codegen/builtins/collections/common/map.rs:lower_map_get_or]]
-[[src/target/shared/code/builder_collection_queries.rs:materialize_owned_element]]
+[[src/codegen/memory/owned.rs:materialize_owned_element]]
 
 `default` is an ordinary argument expression, so it is evaluated before the
 lookup runs, whether or not it ends up being used.

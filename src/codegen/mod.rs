@@ -6,4 +6,5 @@
 //! (`registry`) and, as functions migrate, their target-generic lowering.
 
 pub(crate) mod builtins;
+pub(crate) mod memory;
 pub(crate) mod registry;

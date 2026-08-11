@@ -25,6 +25,15 @@ impl CodeBuilder<'_> {
         self.raw_result_capture.clone()
     }
 
+    /// plan-86 E: whether the enclosing `LET e = get(...)` binding is consumed
+    /// read-only over an immutable container, so `get`'s result may alias the
+    /// container's inline element instead of owning a copy. Read by
+    /// `materialize_owned_element` (now in `codegen::memory`) without exposing the
+    /// field.
+    pub(crate) fn borrow_get_result(&self) -> bool {
+        self.borrow_get_result
+    }
+
     /// Record an internal (`binding: "internal"`, no library) call relocation from
     /// the current function to `to`, without emitting the branch itself. Extracted
     /// verbatim from `emit_map_probe`'s open-coded push so that helper can live in
@@ -65,7 +74,7 @@ impl CodeBuilder<'_> {
     /// compare, so there is no tag check. Same neutrality argument: an arena
     /// symbol is never a platform import, pinned by
     /// `arena_symbols_are_never_platform_imports`.
-    pub(super) fn emit_arena_free_call(&mut self) {
+    pub(crate) fn emit_arena_free_call(&mut self) {
         self.emit_symbol_call(ARENA_FREE_SYMBOL);
     }
 
