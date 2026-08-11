@@ -96,10 +96,14 @@ pub fn run(options: &AuditOptions) -> i32 {
     if crate::resolver::resolve_project(&options.location, &manifest, &ast).is_err() {
         return 3;
     }
-    let Ok(concrete_ast) = crate::monomorph::monomorphize_project(&options.location, &ast) else {
+    let Ok(augmented) = crate::resolver::augment_project(&ast) else {
         return 3;
     };
-    if crate::resolver::resolve_project_with(&options.location, &manifest, &concrete_ast, false)
+    let Ok(concrete_ast) = crate::monomorph::monomorphize_project(&options.location, &augmented)
+    else {
+        return 3;
+    };
+    if crate::resolver::resolve_augmented(&options.location, &manifest, &concrete_ast, false)
         .is_err()
     {
         return 3;

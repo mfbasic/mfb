@@ -80,9 +80,11 @@ pub(crate) use link::{
     IrCStructField, IrFree, IrLinkExpr, IrLinkFunction, IrNativeResource, StructSlotView,
     BYTE_LIST_TYPE,
 };
+#[cfg(test)]
+pub use lower::lower_project_with_external_functions;
 pub use lower::{
-    lower_project_with_external_functions, write_ir, ImportedTypeDef, ImportedTypeField,
-    ImportedTypeKind, ImportedTypeVariant,
+    lower_augmented_project, write_ir, ImportedTypeDef, ImportedTypeField, ImportedTypeKind,
+    ImportedTypeVariant,
 };
 pub(crate) use op::IrOp;
 pub use package::{

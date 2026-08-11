@@ -9,6 +9,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 pub fn monomorphize_project(project_dir: &Path, ast: &AstProject) -> Result<AstProject, ()> {
+    // NOTE: `ast` is expected to be already augmented with the builtin package
+    // sources (see `resolver::augment_project`, run before this in the build), so
+    // the overload machinery below can mangle a builtin's native overload set.
     let mut mono = Monomorphizer::new(project_dir, ast);
     mono.run();
     if mono.had_error {

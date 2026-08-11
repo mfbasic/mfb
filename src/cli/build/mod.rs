@@ -326,11 +326,16 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     reporter.phase("parse", parse_start.elapsed());
     let resolve_start = std::time::Instant::now();
     resolver::resolve_project(&options.location, &manifest, &ast)?;
-    let concrete_ast = monomorph::monomorphize_project(&options.location, &ast)?;
+    // Inject the builtin package sources BEFORE monomorphization so the
+    // monomorphizer sees them (in particular so a builtin's native overload set is
+    // mangled to private symbols like a user overload, not collided at codegen).
+    let augmented = resolver::augment_project(&ast)?;
+    let concrete_ast = monomorph::monomorphize_project(&options.location, &augmented)?;
     // Skip DOC validation on the post-monomorph pass: monomorphization renames
     // overloaded/generic declarations, so their doc headers would falsely appear
-    // unresolved. The original-AST pass above already validated them.
-    resolver::resolve_project_with(&options.location, &manifest, &concrete_ast, false)?;
+    // unresolved. The original-AST pass above already validated them. The AST is
+    // already augmented, so resolve without re-injecting the package sources.
+    resolver::resolve_augmented(&options.location, &manifest, &concrete_ast, false)?;
     reporter.phase("resolve", resolve_start.elapsed());
     let verify_start = std::time::Instant::now();
     // In test mode the synthesized driver is the entry point (it replaces the
@@ -409,7 +414,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             .into_iter()
             .filter(|(name, _)| source_external_types.contains_key(name))
             .collect();
-    let source_ir = ir::lower_project_with_external_functions(
+    let source_ir = ir::lower_augmented_project(
         &concrete_ast,
         entry.clone(),
         &source_external_types,
@@ -483,7 +488,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 external_package_function_types_from_files(&packages).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-            let mut ir = ir::lower_project_with_external_functions(
+            let mut ir = ir::lower_augmented_project(
                 &concrete_ast,
                 entry.clone(),
                 &external_functions,
@@ -697,7 +702,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 external_package_function_types_from_files(&packages).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-            let mut ir = ir::lower_project_with_external_functions(
+            let mut ir = ir::lower_augmented_project(
                 &concrete_ast,
                 entry.clone(),
                 &external_functions,
@@ -770,7 +775,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             BuildOutput::Ir => {
                 let (external_functions, external_params) =
                     external_package_function_types(&options.location, &manifest);
-                let ir = ir::lower_project_with_external_functions(
+                let ir = ir::lower_augmented_project(
                     &concrete_ast,
                     entry.clone(),
                     &external_functions,
@@ -813,7 +818,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 external_package_function_types_from_files(packages).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-            let mut lowered = ir::lower_project_with_external_functions(
+            let mut lowered = ir::lower_augmented_project(
                 &concrete_ast,
                 entry.clone(),
                 &external_functions,

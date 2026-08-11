@@ -31,31 +31,31 @@ only a well-formed UTF-8 sequence and rejects an invalid lead byte, a missing or
 stray continuation byte, a truncated multi-byte sequence, an overlong encoding, a
 surrogate code point (`U+D800`–`U+DFFF`), and any scalar above `U+10FFFF`. The
 empty list decodes to the empty string.
-[[src/codegen/builtins/encoding/package.mfb:__encoding_utf8Valid]] [[src/codegen/builtins/encoding/mod.rs:__encoding_utf8DecodeBytes]]
+[[src/codegen/builtins/encoding/package.mfb:__encoding_utf8Valid]] [[src/codegen/builtins/encoding/package.mfb:__encoding_utf8Decode]]
 
 `utf8Decode` is a **parameter overload** selected by the argument's element type:
 a `List OF Byte` is decoded directly, while a `List OF Integer` is first checked
 element by element — each unit must lie in `0..255` — then decoded. The overload
 is resolved during monomorphization, so the selection is a compile-time decision,
-not a runtime dispatch. [[src/codegen/builtins/encoding/mod.rs:resolve_overload_target]]
+not a runtime dispatch. [[src/monomorph/lower.rs:resolve_overload]]
 
 It is the inverse of `encoding::utf8Encode`: decoding the bytes (or integers)
 that `utf8Encode` produced reconstructs the original string, and any string
 round-trips losslessly through the two functions.
-[[src/codegen/builtins/encoding/mod.rs:__encoding_utf8DecodeInts]]
+[[src/codegen/builtins/encoding/package.mfb:__encoding_utf8Decode]]
 
 ## Overloads
 
 **`encoding::utf8Decode(value AS List OF Byte) AS String`**
 
 Validates the raw octets as UTF-8 and returns the decoded text. Selected when the
-argument is a `List OF Byte`. [[src/codegen/builtins/encoding/mod.rs:UTF8_DECODE_BYTES]]
+argument is a `List OF Byte`. [[src/codegen/builtins/encoding/package.mfb:__encoding_utf8Decode]]
 
 **`encoding::utf8Decode(value AS List OF Integer) AS String`**
 
 Requires every element to be in `0..255`, then validates and decodes the resulting
 bytes as UTF-8. Selected when the argument is a `List OF Integer`.
-[[src/codegen/builtins/encoding/mod.rs:UTF8_DECODE_INTS]]
+[[src/codegen/builtins/encoding/package.mfb:__encoding_utf8Decode]]
 
 ## Parameters
 
@@ -73,14 +73,14 @@ bytes as UTF-8. Selected when the argument is a `List OF Integer`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | An element is outside `0..255` (integer form), or the bytes are not a well-formed UTF-8 sequence. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf8DecodeInts]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | An element is outside `0..255` (integer form), or the bytes are not a well-formed UTF-8 sequence. [[src/codegen/builtins/encoding/package.mfb:__encoding_utf8Decode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Type checking
 
 `utf8Decode` takes exactly one argument, either a `List OF Byte` or a
 `List OF Integer`, and returns a `String`. The argument type selects the overload
 at compile time; any other argument type is a compile-time error.
-[[src/codegen/builtins/encoding/mod.rs:resolve_overload_target]] [[src/codegen/builtins/encoding/mod.rs:ENCODING]]
+[[src/monomorph/lower.rs:resolve_overload]] [[src/codegen/builtins/encoding/mod.rs:ENCODING]]
 
 ## Examples
 

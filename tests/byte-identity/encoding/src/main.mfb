@@ -56,16 +56,14 @@ FUNC main() AS Integer
   LET ei AS List OF Integer = encoding::utf8Encode("hi")
   acc = acc + len(eb) + len(ei)
 
-  ' --- UTF-8: explicit Bytes / Ints encoders ---
-  LET hb AS List OF Byte = encoding::utf8EncodeBytes("hi")
-  LET hi AS List OF Integer = encoding::utf8EncodeInts("hi")
+  ' --- UTF-8: utf8Encode return-type overload disambiguated by the LET type ---
+  LET hb AS List OF Byte = encoding::utf8Encode("hi")
+  LET hi AS List OF Integer = encoding::utf8Encode("hi")
   acc = acc + len(hb) + len(hi)
 
-  ' --- UTF-8: param overload of utf8Decode (Byte / Integer) + explicit ---
+  ' --- UTF-8: param overload of utf8Decode (Byte / Integer) ---
   s = s & encoding::utf8Decode(hb)
   s = s & encoding::utf8Decode(hi)
-  s = s & encoding::utf8DecodeBytes(hb)
-  s = s & encoding::utf8DecodeInts(hi)
 
   io::print(toString(acc) & s)
   RETURN 0

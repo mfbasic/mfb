@@ -71,6 +71,40 @@ pub fn resolve_project_with(
     ast: &AstProject,
     validate_docs: bool,
 ) -> Result<(), ()> {
+    let augmented = augment_project(ast)?;
+    resolve_augmented(project_dir, manifest, &augmented, validate_docs)
+}
+
+/// Resolve an already-augmented project — the builtin package sources are already
+/// injected (`augment_project`), so this does NOT re-augment. Used on the
+/// post-monomorphization AST, where the monomorphizer already ran over the injected
+/// sources (so their overload sets could be mangled) and re-augmenting would
+/// declare every package source twice.
+pub fn resolve_augmented(
+    project_dir: &Path,
+    manifest: &HashMap<String, JsonValue>,
+    augmented: &AstProject,
+    validate_docs: bool,
+) -> Result<(), ()> {
+    let mut resolver = Resolver::new(project_dir, manifest, augmented);
+    resolver.resolve();
+    if validate_docs {
+        resolver.resolve_doc_blocks();
+    }
+    if resolver.had_error {
+        Err(())
+    } else {
+        Ok(())
+    }
+}
+
+/// Inject every builtin package's source companion into the project, in dependency
+/// order (a package importing another must be injected first so the latter's
+/// `uses_package` sees the dependency). Run BEFORE monomorphization so the
+/// monomorphizer sees the injected sources — in particular so a builtin's native
+/// overload set (`encoding`'s `__encoding_utf8Encode`/`utf8Decode`) is mangled to
+/// private `$`-symbols like any user overload, instead of colliding at codegen.
+pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     let augmented = crate::codegen::builtins::json::augmented_project(ast)?;
     // The `term`↔`astrings` drawText bridge, injected only when a program imports
     // BOTH packages; it imports term/astrings/strings, so it precedes all three so
@@ -107,16 +141,7 @@ pub fn resolve_project_with(
     // `strings` before `encoding`: `strings_package.mfb` imports `encoding`.
     let augmented = builtins::strings::augmented_project(&augmented)?;
     let augmented = crate::codegen::builtins::encoding::augmented_project(&augmented)?;
-    let mut resolver = Resolver::new(project_dir, manifest, &augmented);
-    resolver.resolve();
-    if validate_docs {
-        resolver.resolve_doc_blocks();
-    }
-    if resolver.had_error {
-        Err(())
-    } else {
-        Ok(())
-    }
+    Ok(augmented)
 }
 
 fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {

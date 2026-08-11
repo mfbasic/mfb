@@ -178,14 +178,47 @@ FUNC __encoding_codepoints(value AS String) AS List OF Integer
 END FUNC
 
 ' --- utf8 ----------------------------------------------------------------
+' utf8Encode is a return-type overload set (String -> List OF Byte | List OF
+' Integer); utf8Decode is a parameter overload set (List OF Byte | List OF
+' Integer -> String). Declared here as same-named `__encoding_utf8Encode` /
+' `__encoding_utf8Decode` implementations so the monomorphizer resolves and
+' mangles them to private `$`-symbols by return/argument type — no public
+' `utf8EncodeBytes`/… twins. The public `encoding::utf8Encode`/`utf8Decode`
+' calls are rewritten onto these internal names in the monomorphizer.
 
-'@@MFB_BODY:utf8EncodeBytes@@
+FUNC __encoding_utf8Encode(value AS String) AS List OF Byte
+  RETURN strings::toBytes(value)
+END FUNC
 
-'@@MFB_BODY:utf8EncodeInts@@
+FUNC __encoding_utf8Encode(value AS String) AS List OF Integer
+  LET data AS List OF Byte = strings::toBytes(value)
+  MUT result AS List OF Integer = []
+  FOR EACH b IN data
+    result = collections::append(result, toInt(b))
+  NEXT
+  RETURN result
+END FUNC
 
-'@@MFB_BODY:utf8DecodeBytes@@
+FUNC __encoding_utf8Decode(value AS List OF Byte) AS String
+  IF __encoding_utf8Valid(value) = FALSE THEN
+    FAIL error(77050003, "invalid utf-8")
+  END IF
+  RETURN toString(value)
+END FUNC
 
-'@@MFB_BODY:utf8DecodeInts@@
+FUNC __encoding_utf8Decode(value AS List OF Integer) AS String
+  MUT data AS List OF Byte = []
+  FOR EACH unit IN value
+    IF unit < 0 OR unit > 255 THEN
+      FAIL error(77050003, "invalid utf-8 code unit")
+    END IF
+    data = collections::append(data, toByte(unit))
+  NEXT
+  IF __encoding_utf8Valid(data) = FALSE THEN
+    FAIL error(77050003, "invalid utf-8")
+  END IF
+  RETURN toString(data)
+END FUNC
 
 ' --- utf16 ---------------------------------------------------------------
 

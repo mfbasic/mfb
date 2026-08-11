@@ -23,7 +23,7 @@ The package defines no new types. It works with three ordinary value shapes:
 `String` (always UTF-8 text), `List OF Byte` (raw octets, each `0..255`), and
 `List OF Integer` (code units or scalar values as `Integer`). Byte transport uses
 `strings::toBytes` — the raw UTF-8 bytes of a `String`, the inverse of
-`toString(List OF Byte)` — as its foundation. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf8EncodeBytes]]
+`toString(List OF Byte)` — as its foundation. [[src/codegen/builtins/encoding/package.mfb:__encoding_utf8Encode]]
 
 Functions come in encode/decode pairs and are total round-trips over well-formed
 input. Encoders always succeed; decoders validate their input and fail on
@@ -45,7 +45,7 @@ overload: the same `String` argument yields either a `List OF Byte` or a
 type context to select the overload is a compile-time `TYPE_OVERLOAD_AMBIGUOUS`
 error, not a runtime failure. `utf8Decode` is a parameter overload selected by
 whether its argument is a `List OF Byte` or a `List OF Integer`. Both are resolved
-during monomorphization. [[src/codegen/builtins/encoding/mod.rs:resolve_overload_target]]
+during monomorphization. [[src/monomorph/lower.rs:resolve_overload]]
 
 ## Errors
 

@@ -7,11 +7,12 @@ use crate::codegen::registry::{
 };
 
 // Byte<->text and Unicode codecs, implemented in MFBASIC source over `bits`,
-// `strings`, and `collections` (see `encoding_package.mfb`). Public names map to
-// internal `__encoding_*` helpers via `implementation_name`; the two overloaded
-// names (`utf8Encode` return-type overload, `utf8Decode` parameter overload) are
-// resolved in the type checker and monomorphizer (see `resolve_overload_target`).
-// See `plan-02-encoding.md` Part B.
+// `strings`, and `collections` (see `encoding_package.mfb`). Non-overloaded public
+// names map to internal `__encoding_*` helpers via `implementation_name`; the two
+// overloaded names (`utf8Encode` return-type overload, `utf8Decode` parameter
+// overload) are native overload sets whose implementations live in `package.mfb`
+// and are mangled to private `$`-symbols by the monomorphizer (see `monomorph::
+// lower`). See `plan-02-encoding.md` Part B.
 
 const UTF8_ENCODE: &str = "encoding.utf8Encode";
 const UTF8_DECODE: &str = "encoding.utf8Decode";
@@ -42,16 +43,6 @@ const SLEB128_DECODE: &str = "encoding.sleb128Decode";
 const VARINT_ENCODE: &str = "encoding.varintEncode";
 const VARINT_DECODE: &str = "encoding.varintDecode";
 
-// The concrete dispatch targets the overloaded `utf8Encode`/`utf8Decode` names
-// resolve to during monomorphization. They are package-qualified (so the
-// post-monomorph resolver accepts them as built-in members) and map to their
-// internal implementation in `implementation_name`, exactly like the other
-// non-overloaded functions.
-const UTF8_ENCODE_BYTES: &str = "encoding.utf8EncodeBytes";
-const UTF8_ENCODE_INTS: &str = "encoding.utf8EncodeInts";
-const UTF8_DECODE_BYTES: &str = "encoding.utf8DecodeBytes";
-const UTF8_DECODE_INTS: &str = "encoding.utf8DecodeInts";
-
 mod func_base32_decode;
 mod func_base32_encode;
 mod func_base64_decode;
@@ -77,27 +68,25 @@ mod func_utf16_encode;
 mod func_utf32_decode;
 mod func_utf32_encode;
 mod func_utf8_decode;
-mod func_utf8_decode_bytes;
-mod func_utf8_decode_ints;
 mod func_utf8_encode;
-mod func_utf8_encode_bytes;
-mod func_utf8_encode_ints;
 mod func_varint_decode;
 mod func_varint_encode;
 
 const BYTES: &str = "List OF Byte";
 const INTS: &str = "List OF Integer";
 
-// plan-72-I: `ENCODING` is the descriptor authority. Every function is unary
-// with a fixed return, so `is_encoding_call`/`arity`/`call_return_type_name`/
-// `implementation_name` derive from the descriptor. Non-overloaded functions (and
-// the 4 monomorph targets) carry `Implementation::Mfb` (their `__encoding_*` body
-// lives in the owning `func_*.rs`; the rewrite target comes from `IMPL_NAMES`);
-// the two overloaded names `utf8Encode`/`utf8Decode` are `Implementation::Custom`
-// (`is_overloaded`), resolved by `EncodingResolver::resolve_overload_target`.
-// `resolve_call` argument validation is also resolver-owned. `WhenImported` source.
-// `ov`/`p` build the documentation overloads; each member's descriptor is
-// constructed in its `func_*.rs` via `BuiltinFunction::mfb`/`::custom`.
+// plan-72-I: `ENCODING` is the descriptor authority. Every non-overloaded function
+// is unary with a fixed return, so `is_encoding_call`/`arity`/`call_return_type_
+// name`/`implementation_name` derive from the descriptor; each carries
+// `Implementation::Mfb` (its `__encoding_*` body lives in the owning `func_*.rs`;
+// the rewrite target comes from `IMPL_NAMES`). `utf8Encode` (return-type overload)
+// and `utf8Decode` (parameter overload) are **native overload sets**: their two
+// `__encoding_utf8Encode` / `__encoding_utf8Decode` implementations live directly
+// in `package.mfb`, and the monomorphizer resolves + mangles them to private
+// `$`-symbols by return/argument type (`encoding::utf8Encode`/`utf8Decode` are
+// rewritten onto those internal names in `monomorph::lower`). No public
+// `utf8EncodeBytes`/… twins. `WhenImported` source. `ov`/`p` build the
+// documentation overloads.
 const fn p(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
     Parameter {
         name,
@@ -115,14 +104,11 @@ const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload 
 const VALTEXT: &[&str] = &["text"];
 
 const ENCODING_FUNCTIONS: &[BuiltinFunction] = &[
-    // The two overloaded names: Custom implementation (resolved by the resolver).
+    // The two overloaded names (`utf8Encode`/`utf8Decode`): native overload sets;
+    // their `__encoding_*` implementations live in `package.mfb` and mangle to
+    // private symbols in the monomorphizer, so there are no public byte/int twins.
     func_utf8_encode::UTF8_ENCODE,
     func_utf8_decode::UTF8_DECODE,
-    // The 4 monomorph targets.
-    func_utf8_encode_bytes::UTF8_ENCODE_BYTES,
-    func_utf8_encode_ints::UTF8_ENCODE_INTS,
-    func_utf8_decode_bytes::UTF8_DECODE_BYTES,
-    func_utf8_decode_ints::UTF8_DECODE_INTS,
     // Non-overloaded codecs.
     func_utf16_encode::UTF16_ENCODE,
     func_utf16_decode::UTF16_DECODE,
@@ -152,9 +138,9 @@ const ENCODING_FUNCTIONS: &[BuiltinFunction] = &[
     func_varint_decode::VARINT_DECODE,
 ];
 
-/// Argument-dependent resolution for encoding: `resolve_call` validation and the
-/// overloaded `utf8Encode`/`utf8Decode` monomorph-target selection. Both delegate
-/// to the retained `dispatch_*` helpers.
+/// Argument-dependent resolution for encoding: `resolve_call` validation via the
+/// retained `dispatch_resolve` helper (return types for the non-overloaded members
+/// and the overloaded parents' pre-monomorph type).
 struct EncodingResolver;
 impl BuiltinResolver for EncodingResolver {
     fn resolve_return_type(
@@ -164,16 +150,6 @@ impl BuiltinResolver for EncodingResolver {
         arg_types: &[String],
     ) -> Option<String> {
         dispatch_resolve(name, arg_types).map(|resolved| resolved.return_type.into_owned())
-    }
-
-    fn resolve_overload_target(
-        &self,
-        _module: &BuiltinModule,
-        name: &str,
-        arg_types: &[String],
-        expected_type: Option<&str>,
-    ) -> Result<Option<String>, ()> {
-        dispatch_overload_target(name, arg_types, expected_type).map(|opt| opt.map(str::to_string))
     }
 }
 static ENCODING_RESOLVER: EncodingResolver = EncodingResolver;
@@ -224,13 +200,13 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
-        UTF8_ENCODE | UTF8_ENCODE_BYTES | UTF8_ENCODE_INTS | UTF16_ENCODE | UTF32_ENCODE
-        | PERCENT_ENCODE | PERCENT_DECODE | HTML_ESCAPE | HTML_UNESCAPE | FORM_URL_ENCODE
-        | FORM_URL_DECODE | PUNYCODE_ENCODE | PUNYCODE_DECODE | HEX_DECODE | BASE32_DECODE
-        | BASE64_DECODE | BASE64URL_DECODE => Some("String"),
+        UTF8_ENCODE | UTF16_ENCODE | UTF32_ENCODE | PERCENT_ENCODE | PERCENT_DECODE
+        | HTML_ESCAPE | HTML_UNESCAPE | FORM_URL_ENCODE | FORM_URL_DECODE | PUNYCODE_ENCODE
+        | PUNYCODE_DECODE | HEX_DECODE | BASE32_DECODE | BASE64_DECODE | BASE64URL_DECODE => {
+            Some("String")
+        }
         UTF8_DECODE => Some("List OF Byte or List OF Integer"),
-        UTF8_DECODE_BYTES => Some(BYTES),
-        UTF8_DECODE_INTS | UTF16_DECODE | UTF32_DECODE => Some(INTS),
+        UTF16_DECODE | UTF32_DECODE => Some(INTS),
         HEX_ENCODE | BASE32_ENCODE | BASE64_ENCODE | BASE64URL_ENCODE | ULEB128_DECODE
         | SLEB128_DECODE | VARINT_DECODE => Some(BYTES),
         ULEB128_ENCODE | SLEB128_ENCODE | VARINT_ENCODE => Some("Integer"),
@@ -245,13 +221,13 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 /// directly instead of parsing the `expected_arguments` diagnostic string.
 pub(crate) fn argument_types(name: &str) -> Option<&'static [&'static str]> {
     match name {
-        UTF8_ENCODE | UTF8_ENCODE_BYTES | UTF8_ENCODE_INTS | UTF16_ENCODE | UTF32_ENCODE
-        | PERCENT_ENCODE | PERCENT_DECODE | HTML_ESCAPE | HTML_UNESCAPE | FORM_URL_ENCODE
-        | FORM_URL_DECODE | PUNYCODE_ENCODE | PUNYCODE_DECODE | HEX_DECODE | BASE32_DECODE
-        | BASE64_DECODE | BASE64URL_DECODE => Some(&["String"]),
+        UTF8_ENCODE | UTF16_ENCODE | UTF32_ENCODE | PERCENT_ENCODE | PERCENT_DECODE
+        | HTML_ESCAPE | HTML_UNESCAPE | FORM_URL_ENCODE | FORM_URL_DECODE | PUNYCODE_ENCODE
+        | PUNYCODE_DECODE | HEX_DECODE | BASE32_DECODE | BASE64_DECODE | BASE64URL_DECODE => {
+            Some(&["String"])
+        }
         UTF8_DECODE => None,
-        UTF8_DECODE_BYTES => Some(&[BYTES]),
-        UTF8_DECODE_INTS | UTF16_DECODE | UTF32_DECODE => Some(&[INTS]),
+        UTF16_DECODE | UTF32_DECODE => Some(&[INTS]),
         HEX_ENCODE | BASE32_ENCODE | BASE64_ENCODE | BASE64URL_ENCODE | ULEB128_DECODE
         | SLEB128_DECODE | VARINT_DECODE => Some(&[BYTES]),
         ULEB128_ENCODE | SLEB128_ENCODE | VARINT_ENCODE => Some(&["Integer"]),
@@ -271,11 +247,7 @@ fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedC
         // utf8Encode: String -> List OF Byte | List OF Integer (return overload).
         // Resolved precisely via the expected type; default to List OF Byte here.
         UTF8_ENCODE if arg == "String" => Cow::Borrowed(BYTES),
-        UTF8_ENCODE_BYTES if arg == "String" => Cow::Borrowed(BYTES),
-        UTF8_ENCODE_INTS if arg == "String" => Cow::Borrowed(INTS),
         UTF8_DECODE if arg == BYTES || arg == INTS => Cow::Borrowed("String"),
-        UTF8_DECODE_BYTES if arg == BYTES => Cow::Borrowed("String"),
-        UTF8_DECODE_INTS if arg == INTS => Cow::Borrowed("String"),
         UTF16_ENCODE | UTF32_ENCODE if arg == "String" => Cow::Borrowed(INTS),
         UTF16_DECODE | UTF32_DECODE if arg == INTS => Cow::Borrowed("String"),
         HEX_ENCODE | BASE32_ENCODE | BASE64_ENCODE | BASE64URL_ENCODE if arg == BYTES => {
@@ -297,19 +269,15 @@ fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedC
     Some(ResolvedCall { return_type })
 }
 
-/// The internal `__encoding_*` symbol each non-overloaded public member (and the
-/// four `utf8Encode`/`utf8Decode` monomorph targets) rewrites to during IR
-/// lowering. These members now carry [`Implementation::Mfb`], whose descriptor
-/// `implementation_name` is `None` (the body is assembled into the injected
-/// package rather than named by a fixed rewrite symbol), so the rewrite target is
-/// provided here explicitly. The two overloaded names (`utf8Encode`/`utf8Decode`,
-/// `Implementation::Custom`) are absent: they resolve to a concrete target via
-/// `resolve_overload_target` first, and that target then rewrites through here.
+/// The internal `__encoding_*` symbol each non-overloaded public member rewrites to
+/// during IR lowering. These members carry [`Implementation::Mfb`], whose descriptor
+/// `implementation_name` is `None` (the body is assembled into the injected package
+/// rather than named by a fixed rewrite symbol), so the rewrite target is provided
+/// here explicitly. The two overloaded names (`utf8Encode`/`utf8Decode`) are absent:
+/// they are native overload sets whose `__encoding_utf8Encode`/`utf8Decode`
+/// implementations the monomorphizer mangles to private `$`-symbols directly — there
+/// is no fixed rewrite target to name here.
 const IMPL_NAMES: &[(&str, &str)] = &[
-    ("encoding.utf8EncodeBytes", "__encoding_utf8EncodeBytes"),
-    ("encoding.utf8EncodeInts", "__encoding_utf8EncodeInts"),
-    ("encoding.utf8DecodeBytes", "__encoding_utf8DecodeBytes"),
-    ("encoding.utf8DecodeInts", "__encoding_utf8DecodeInts"),
     ("encoding.utf16Encode", "__encoding_utf16Encode"),
     ("encoding.utf16Decode", "__encoding_utf16Decode"),
     ("encoding.utf32Encode", "__encoding_utf32Encode"),
@@ -343,38 +311,6 @@ pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
         .iter()
         .find(|(public, _)| *public == name)
         .map(|(_, internal)| *internal)
-}
-
-/// Resolve the overloaded `utf8Encode`/`utf8Decode` public calls to a concrete
-/// internal implementation, using the call's argument types and the expected
-/// (contextual) type. Returns `Ok(Some(name))` on a unique match, `Ok(None)`
-/// when the callee is not an overloaded encoding name, and `Err(())` when a
-/// return-type overload cannot be resolved without an expected type
-/// (`utf8Encode` with no `List OF Byte`/`List OF Integer` context). Invoked
-/// through the descriptor resolver by `builtins::resolve_overload_target`.
-fn dispatch_overload_target(
-    callee: &str,
-    arg_types: &[String],
-    expected_type: Option<&str>,
-) -> Result<Option<&'static str>, ()> {
-    match callee {
-        UTF8_ENCODE if arg_types == ["String"] => match expected_type {
-            Some(BYTES) => Ok(Some(UTF8_ENCODE_BYTES)),
-            Some(INTS) => Ok(Some(UTF8_ENCODE_INTS)),
-            _ => Err(()),
-        },
-        UTF8_DECODE if arg_types == [BYTES] => Ok(Some(UTF8_DECODE_BYTES)),
-        UTF8_DECODE if arg_types == [INTS] => Ok(Some(UTF8_DECODE_INTS)),
-        _ => Ok(None),
-    }
-}
-
-/// Whether `callee` is one of the overloaded encoding public names: derived from
-/// the descriptor (an overloaded name carries `Implementation::Custom`).
-pub(crate) fn is_overloaded(callee: &str) -> bool {
-    ENCODING
-        .function(callee)
-        .is_some_and(|function| matches!(function.implementation, Implementation::Custom))
 }
 
 /// Synthetic path label for the injected encoding source. `parse_source_internal`
@@ -490,14 +426,11 @@ mod tests {
         for n in ALL_PUBLIC {
             assert!(is_encoding_call(n), "{n}");
         }
-        for n in [
-            UTF8_ENCODE_BYTES,
-            UTF8_ENCODE_INTS,
-            UTF8_DECODE_BYTES,
-            UTF8_DECODE_INTS,
-        ] {
-            assert!(is_encoding_call(n), "{n}");
-        }
+        // The internal byte/int implementations are source functions
+        // (`#encoding_utf8Encode`/…), not descriptor members, so they are not
+        // encoding *calls* — there are no public `utf8EncodeBytes`/… twins.
+        assert!(!is_encoding_call("encoding.utf8EncodeBytes"));
+        assert!(!is_encoding_call("encoding.utf8DecodeInts"));
         assert!(!is_encoding_call("encoding.nope"));
         assert!(!is_encoding_call("other.utf8Encode"));
     }
@@ -535,8 +468,6 @@ mod tests {
             expected_arguments(UTF8_DECODE),
             Some("List OF Byte or List OF Integer")
         );
-        assert_eq!(expected_arguments(UTF8_DECODE_BYTES), Some(BYTES));
-        assert_eq!(expected_arguments(UTF8_DECODE_INTS), Some(INTS));
         assert_eq!(expected_arguments(UTF16_DECODE), Some(INTS));
         assert_eq!(expected_arguments(HEX_ENCODE), Some(BYTES));
         assert_eq!(expected_arguments(ULEB128_DECODE), Some(BYTES));
@@ -551,7 +482,6 @@ mod tests {
         // overloaded `utf8Decode`, which has no single signature.
         assert_eq!(argument_types(UTF8_ENCODE), Some(&["String"][..]));
         assert_eq!(argument_types(UTF8_DECODE), None);
-        assert_eq!(argument_types(UTF8_DECODE_BYTES), Some(&[BYTES][..]));
         assert_eq!(argument_types(UTF32_DECODE), Some(&[INTS][..]));
         assert_eq!(argument_types(HEX_ENCODE), Some(&[BYTES][..]));
         assert_eq!(argument_types(ULEB128_ENCODE), Some(&["Integer"][..]));
@@ -560,22 +490,6 @@ mod tests {
 
     #[test]
     fn implementation_name_flat_map() {
-        assert_eq!(
-            implementation_name(UTF8_ENCODE_BYTES),
-            Some("__encoding_utf8EncodeBytes")
-        );
-        assert_eq!(
-            implementation_name(UTF8_ENCODE_INTS),
-            Some("__encoding_utf8EncodeInts")
-        );
-        assert_eq!(
-            implementation_name(UTF8_DECODE_BYTES),
-            Some("__encoding_utf8DecodeBytes")
-        );
-        assert_eq!(
-            implementation_name(UTF8_DECODE_INTS),
-            Some("__encoding_utf8DecodeInts")
-        );
         assert_eq!(
             implementation_name(HEX_ENCODE),
             Some("__encoding_hexEncode")
@@ -596,47 +510,6 @@ mod tests {
         assert_eq!(implementation_name(UTF8_ENCODE), None);
         assert_eq!(implementation_name(UTF8_DECODE), None);
         assert_eq!(implementation_name("encoding.nope"), None);
-    }
-
-    #[test]
-    fn resolve_overload_target_all_paths() {
-        // Route through the generic descriptor entry point (which delegates to
-        // `EncodingResolver::resolve_overload_target`), the same path monomorph
-        // uses. Results are owned `String`s.
-        let target = |callee: &str, args: &[&str], expected: Option<&str>| {
-            crate::builtins::resolve_overload_target(callee, &strings(args), expected)
-        };
-        assert_eq!(
-            target(UTF8_ENCODE, &["String"], Some(BYTES)),
-            Ok(Some(UTF8_ENCODE_BYTES.to_string()))
-        );
-        assert_eq!(
-            target(UTF8_ENCODE, &["String"], Some(INTS)),
-            Ok(Some(UTF8_ENCODE_INTS.to_string()))
-        );
-        // no expected type -> Err
-        assert_eq!(target(UTF8_ENCODE, &["String"], None), Err(()));
-        assert_eq!(target(UTF8_ENCODE, &["String"], Some("String")), Err(()));
-        // utf8Encode with wrong arg types is not the overload arm -> Ok(None)
-        assert_eq!(target(UTF8_ENCODE, &["Integer"], Some(BYTES)), Ok(None));
-        assert_eq!(
-            target(UTF8_DECODE, &[BYTES], None),
-            Ok(Some(UTF8_DECODE_BYTES.to_string()))
-        );
-        assert_eq!(
-            target(UTF8_DECODE, &[INTS], None),
-            Ok(Some(UTF8_DECODE_INTS.to_string()))
-        );
-        // non-overloaded callee -> Ok(None)
-        assert_eq!(target(HEX_ENCODE, &[BYTES], None), Ok(None));
-    }
-
-    #[test]
-    fn is_overloaded_only_utf8() {
-        assert!(is_overloaded(UTF8_ENCODE));
-        assert!(is_overloaded(UTF8_DECODE));
-        assert!(!is_overloaded(UTF16_ENCODE));
-        assert!(!is_overloaded(HEX_ENCODE));
     }
 
     #[test]
@@ -710,12 +583,8 @@ mod tests {
         assert!(resolve(UTF8_ENCODE, &[]).is_none());
         // utf8 family (monomorph targets + overloaded names).
         assert_eq!(ret(UTF8_ENCODE, &["String"]).as_deref(), Some(BYTES));
-        assert_eq!(ret(UTF8_ENCODE_BYTES, &["String"]).as_deref(), Some(BYTES));
-        assert_eq!(ret(UTF8_ENCODE_INTS, &["String"]).as_deref(), Some(INTS));
         assert_eq!(ret(UTF8_DECODE, &[BYTES]).as_deref(), Some("String"));
         assert_eq!(ret(UTF8_DECODE, &[INTS]).as_deref(), Some("String"));
-        assert_eq!(ret(UTF8_DECODE_BYTES, &[BYTES]).as_deref(), Some("String"));
-        assert_eq!(ret(UTF8_DECODE_INTS, &[INTS]).as_deref(), Some("String"));
         // utf16/utf32.
         assert_eq!(ret(UTF16_ENCODE, &["String"]).as_deref(), Some(INTS));
         assert_eq!(ret(UTF32_ENCODE, &["String"]).as_deref(), Some(INTS));

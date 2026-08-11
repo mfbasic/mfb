@@ -79,6 +79,11 @@ pub struct ImportedTypeVariant {
     pub fields: Vec<ImportedTypeField>,
 }
 
+/// Augmenting wrapper used by the in-process tests, which pass a bare (un-injected)
+/// AST: it runs the builtin-source augmentation then lowers. The build path injects
+/// the sources before monomorphization (`resolver::augment_project`) and lowers the
+/// already-augmented AST with [`lower_augmented_project`] directly.
+#[cfg(test)]
 pub fn lower_project_with_external_functions(
     ast: &AstProject,
     entry: Option<EntryPoint>,
@@ -129,7 +134,26 @@ pub fn lower_project_with_external_functions(
         .expect("built-in strings package source must parse");
     let augmented = crate::codegen::builtins::encoding::augmented_project(&augmented)
         .expect("built-in encoding package source must parse");
-    let ast = &augmented;
+    lower_augmented_project(
+        &augmented,
+        entry,
+        external_function_types,
+        external_function_params,
+        imported_types,
+    )
+}
+
+/// Lower an already-augmented project (builtin package sources already injected by
+/// `resolver::augment_project`, before monomorphization) to IR. The build path
+/// calls this directly on the post-monomorph AST; [`lower_project_with_external_
+/// functions`] is the augmenting wrapper the in-process tests use on a bare AST.
+pub fn lower_augmented_project(
+    ast: &AstProject,
+    entry: Option<EntryPoint>,
+    external_function_types: &HashMap<String, String>,
+    external_function_params: &HashMap<String, Vec<ExternalFunctionParam>>,
+    imported_types: &[ImportedTypeDef],
+) -> IrProject {
     let mut types = Vec::new();
     let mut functions = Vec::new();
     let mut function_returns = function_returns(ast);

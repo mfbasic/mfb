@@ -27,18 +27,18 @@ dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project
 `encoding::utf8Encode` returns the UTF-8 encoding of `value` — the exact bytes
 that make up the string's storage — one element per byte. Because MFBASIC strings
 are always UTF-8 text, the result is the string's raw octets in order, with each
-element in the range `0..255`. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf8EncodeBytes]]
+element in the range `0..255`. [[src/codegen/builtins/encoding/package.mfb:__encoding_utf8Encode]]
 
 The function is **total**: every string, including the empty string (which yields
 an empty list), encodes successfully, and it never raises a runtime error. The
 byte form is exactly `strings::toBytes(value)`; the integer form contains the
-identical numeric values widened to `Integer`. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf8EncodeInts]]
+identical numeric values widened to `Integer`. [[src/codegen/builtins/encoding/package.mfb:__encoding_utf8Encode]]
 
 `utf8Encode` is a **return-type overload**: the same `String` argument produces
 either a `List OF Byte` or a `List OF Integer`, chosen by the expected
 (contextual) type at the call site. A call with no type context to select the
 overload is a compile-time `TYPE_OVERLOAD_AMBIGUOUS` error, not a runtime failure;
-the overload is resolved during monomorphization. [[src/codegen/builtins/encoding/mod.rs:resolve_overload_target]]
+the overload is resolved during monomorphization. [[src/monomorph/lower.rs:resolve_overload]]
 
 The inverse operation is `encoding::utf8Decode`, which accepts either a
 `List OF Byte` or a `List OF Integer` and validates it as well-formed UTF-8.
@@ -48,12 +48,12 @@ The inverse operation is `encoding::utf8Decode`, which accepts either a
 **`encoding::utf8Encode(value AS String) AS List OF Byte`**
 
 Returns the UTF-8 octets as raw bytes. Selected when the call is used where a
-`List OF Byte` is expected. [[src/codegen/builtins/encoding/mod.rs:UTF8_ENCODE_BYTES]]
+`List OF Byte` is expected. [[src/codegen/builtins/encoding/package.mfb:__encoding_utf8Encode]]
 
 **`encoding::utf8Encode(value AS String) AS List OF Integer`**
 
 Returns the identical byte values as `Integer` elements (each `0..255`). Selected
-when the call is used where a `List OF Integer` is expected. [[src/codegen/builtins/encoding/mod.rs:UTF8_ENCODE_INTS]]
+when the call is used where a `List OF Integer` is expected. [[src/codegen/builtins/encoding/package.mfb:__encoding_utf8Encode]]
 
 ## Parameters
 
@@ -77,7 +77,7 @@ No errors.
 `utf8Encode` takes exactly one `String` argument. The return type is a return-type
 overload resolved to `List OF Byte` or `List OF Integer` from the expected type;
 with no expected type to disambiguate, the call is a compile-time
-`TYPE_OVERLOAD_AMBIGUOUS` error. [[src/codegen/builtins/encoding/mod.rs:resolve_overload_target]] [[src/codegen/builtins/encoding/mod.rs:ENCODING]]
+`TYPE_OVERLOAD_AMBIGUOUS` error. [[src/monomorph/lower.rs:resolve_overload]] [[src/codegen/builtins/encoding/mod.rs:ENCODING]]
 
 ## Examples
 

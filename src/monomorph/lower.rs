@@ -1207,54 +1207,18 @@ impl<'a> Monomorphizer<'a> {
                             .unwrap_or_else(|| "Unknown".to_string())
                     })
                     .collect::<Vec<_>>();
-                // Resolve the overloaded `encoding::utf8Encode`/`utf8Decode`
-                // public calls onto their concrete internal implementation using
-                // the argument types and (for the return-type overload) the
-                // expected type (plan-02-encoding.md Part B).
-                if crate::codegen::builtins::encoding::is_overloaded(callee) {
-                    // plan-72-I: resolve the overload target through the descriptor
-                    // registry API rather than the encoding-specific free function.
-                    match crate::builtins::resolve_overload_target(
-                        callee,
-                        &arg_types,
-                        expected_type,
-                    ) {
-                        Ok(Some(target)) => {
-                            // The target is a package-qualified built-in member
-                            // (`encoding.utf8EncodeBytes`); the post-monomorph
-                            // resolver accepts it and IR maps it to its internal
-                            // implementation, like the other encoding functions.
-                            return Expression::Call {
-                                callee: target,
-                                arguments: lowered_args,
-                                line: *call_line,
-                                column: *column,
-                            };
-                        }
-                        Ok(None) => {}
-                        Err(()) => {
-                            self.report(
-                                "TYPE_OVERLOAD_AMBIGUOUS",
-                                &format!(
-                                    "Call to `{callee}` matches overloads that differ only by \
-                                     return type; supply the expected type (e.g. a `LET … AS` \
-                                     annotation) to select one."
-                                ),
-                                line,
-                            );
-                            return Expression::Call {
-                                callee: callee.clone(),
-                                arguments: lowered_args,
-                                line: *call_line,
-                                column: *column,
-                            };
-                        }
-                    }
-                }
-                // Rewrite a `collections::` call onto its internal generic
-                // implementation so it instantiates like any generic function.
-                let callee = &self
-                    .collections_internal_callee(callee)
+                // Rewrite the public overloaded `encoding::utf8Encode`/`utf8Decode`
+                // onto their internal `__encoding_*` overload sets, and a
+                // `collections::` call onto its internal generic implementation —
+                // so the native overload / instantiation machinery below resolves
+                // and mangles them like any user overload (`resolve_overload`).
+                let encoding_internal = match callee.as_str() {
+                    "encoding.utf8Encode" => Some("#encoding_utf8Encode".to_string()),
+                    "encoding.utf8Decode" => Some("#encoding_utf8Decode".to_string()),
+                    _ => None,
+                };
+                let callee = &encoding_internal
+                    .or_else(|| self.collections_internal_callee(callee))
                     .unwrap_or_else(|| callee.clone());
                 // Named arguments can reorder the call's values relative to the
                 // template's declared parameters. `arg_types` is built in source
