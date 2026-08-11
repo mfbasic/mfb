@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/formUrlEncode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, VALTEXT};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, VALTEXT};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Encode a `String` as `application/x-www-form-urlencoded` data."#;
 const DESC: &str = r#"`encoding::formUrlEncode` encodes `text` using the
@@ -76,15 +76,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const FORM_URL_ENCODE: BuiltinFunction = ef(
+pub(crate) const FORM_URL_ENCODE: BuiltinFunction = BuiltinFunction::mfb(
     "encoding.formUrlEncode",
     "formUrlEncode",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("value", VALTEXT, "String")], "String")],
-    Implementation::Mfb {
-        body: BODY,
-        fast_path: None,
-    },
+    BODY,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

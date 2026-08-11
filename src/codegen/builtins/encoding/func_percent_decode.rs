@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/percentDecode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, VALTEXT};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, VALTEXT};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Decode a percent-encoded (URL-encoded) `String` back into text."#;
 const DESC: &str = r#"`encoding::percentDecode` reverses `encoding::percentEncode`, expanding every
@@ -55,15 +55,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const PERCENT_DECODE: BuiltinFunction = ef(
+pub(crate) const PERCENT_DECODE: BuiltinFunction = BuiltinFunction::mfb(
     "encoding.percentDecode",
     "percentDecode",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("value", VALTEXT, "String")], "String")],
-    Implementation::Mfb {
-        body: BODY,
-        fast_path: None,
-    },
+    BODY,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

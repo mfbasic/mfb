@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/hexEncode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, BYTES};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, BYTES};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Encode a `List OF Byte` to a lowercase hexadecimal `String`."#;
 const DESC: &str = r#"`encoding::hexEncode` returns the base-16 representation of `data`, emitting two
@@ -61,15 +61,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const HEX_ENCODE: BuiltinFunction = ef(
+pub(crate) const HEX_ENCODE: BuiltinFunction = BuiltinFunction::mfb(
     "encoding.hexEncode",
     "hexEncode",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("data", &[], BYTES)], "String")],
-    Implementation::Mfb {
-        body: BODY,
-        fast_path: None,
-    },
+    BODY,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

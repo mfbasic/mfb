@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/base32Decode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, BYTES};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, BYTES};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Decode a standard Base32 `String` into a `List OF Byte`."#;
 const DESC: &str = r#"`encoding::base32Decode` parses `text` as standard Base32 (RFC 4648 §6) and
@@ -89,15 +89,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const BASE32_DECODE: BuiltinFunction = ef(
+pub(crate) const BASE32_DECODE: BuiltinFunction = BuiltinFunction::mfb(
     "encoding.base32Decode",
     "base32Decode",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("text", &[], "String")], BYTES)],
-    Implementation::Mfb {
-        body: BODY,
-        fast_path: None,
-    },
+    BODY,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

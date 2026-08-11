@@ -1,9 +1,9 @@
 use std::borrow::Cow;
 
 use crate::codegen::registry::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
-    DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
-    ParameterType, ReturnType,
+    BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
+    DefaultResolver, DefaultValue, Implementation, InjectionRule, Parameter, ParameterType,
+    ReturnType,
 };
 
 // Byte<->text and Unicode codecs, implemented in MFBASIC source over `bits`,
@@ -91,10 +91,13 @@ const INTS: &str = "List OF Integer";
 // plan-72-I: `ENCODING` is the descriptor authority. Every function is unary
 // with a fixed return, so `is_encoding_call`/`arity`/`call_return_type_name`/
 // `implementation_name` derive from the descriptor. Non-overloaded functions (and
-// the 4 monomorph targets) carry `Implementation::Rewrite(__encoding_*)`; the two
-// overloaded names `utf8Encode`/`utf8Decode` are `Implementation::Custom`
+// the 4 monomorph targets) carry `Implementation::Mfb` (their `__encoding_*` body
+// lives in the owning `func_*.rs`; the rewrite target comes from `IMPL_NAMES`);
+// the two overloaded names `utf8Encode`/`utf8Decode` are `Implementation::Custom`
 // (`is_overloaded`), resolved by `EncodingResolver::resolve_overload_target`.
 // `resolve_call` argument validation is also resolver-owned. `WhenImported` source.
+// `ov`/`p` build the documentation overloads; each member's descriptor is
+// constructed in its `func_*.rs` via `BuiltinFunction::mfb`/`::custom`.
 const fn p(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
     Parameter {
         name,
@@ -107,28 +110,6 @@ const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload 
     BuiltinOverload {
         params,
         return_type: ReturnType::Fixed(ret),
-    }
-}
-const fn ef(
-    name: &'static str,
-    slug: &'static str,
-    overloads: &'static [BuiltinOverload],
-    implementation: Implementation,
-) -> BuiltinFunction {
-    BuiltinFunction {
-        name,
-        doc_slug: slug,
-        doc_intro: "",
-        doc_desc: "",
-        errors: &[],
-        overloads,
-        doc_example: "",
-        implementation,
-        lowering: Lowering::Helper,
-        flags: BuiltinFlags {
-            internal_only: false,
-            return_type_overloaded: false,
-        },
     }
 }
 const VALTEXT: &[&str] = &["text"];
@@ -685,43 +666,33 @@ mod tests {
 
     #[test]
     fn descriptor_constructors_execute_at_runtime() {
-        // `p`/`ov`/`ef` are const fns used only in const context, so their
-        // bodies never run at runtime and show as uncovered. Call them at
-        // runtime to exercise (and pin the shape of) each constructor.
+        // `p`/`ov` are const fns used only in const context, so their bodies never
+        // run at runtime and show as uncovered. Call them at runtime to exercise
+        // (and pin the shape of) each overload/parameter builder.
         let param = p("value", VALTEXT, "String");
         assert_eq!(param.name, "value");
         assert_eq!(param.aliases, VALTEXT);
         assert_eq!(param.ty, ParameterType::Named("String"));
         assert_eq!(param.default, DefaultValue::None);
 
-        // E0716: `ov`/`ef` borrow `&'static` slices, so they must be named consts.
+        // E0716: `ov` borrows `&'static` slices, so they must be named consts.
         const PARAMS: &[Parameter] = &[p("value", &[], "String")];
         let overload = ov(PARAMS, BYTES);
         assert_eq!(overload.params.len(), 1);
         assert_eq!(overload.params[0].name, "value");
         assert_eq!(overload.return_type, ReturnType::Fixed(BYTES));
 
-        const OV_CUSTOM: &[BuiltinOverload] = &[ov(&[p("value", VALTEXT, "String")], BYTES)];
-        let custom = ef(UTF8_ENCODE, "utf8Encode", OV_CUSTOM, Implementation::Custom);
-        assert_eq!(custom.name, UTF8_ENCODE);
-        assert_eq!(custom.doc_slug, "utf8Encode");
-        assert_eq!(custom.overloads.len(), 1);
-        assert_eq!(custom.implementation, Implementation::Custom);
-        assert_eq!(custom.lowering, Lowering::Helper);
-        assert!(!custom.flags.internal_only);
-        assert!(!custom.flags.return_type_overloaded);
+        // The two overloaded names use the registry-wide `BuiltinFunction::custom`;
+        // every other member uses `BuiltinFunction::mfb` in its own `func_*.rs`.
+        let entry = func_utf8_encode::UTF8_ENCODE;
+        assert_eq!(entry.doc_slug, "utf8Encode");
+        assert_eq!(entry.implementation, Implementation::Custom);
+        assert!(!entry.doc_intro.is_empty());
 
-        const OV_REWRITE: &[BuiltinOverload] = &[ov(&[p("data", &[], BYTES)], "String")];
-        let rewrite = ef(
-            HEX_ENCODE,
-            "hexEncode",
-            OV_REWRITE,
-            Implementation::Rewrite("__encoding_hexEncode"),
-        );
-        assert_eq!(
-            rewrite.implementation,
-            Implementation::Rewrite("__encoding_hexEncode")
-        );
+        let hex = func_hex_encode::HEX_ENCODE;
+        assert_eq!(hex.doc_slug, "hexEncode");
+        assert!(matches!(hex.implementation, Implementation::Mfb { .. }));
+        assert!(!hex.doc_example.is_empty());
     }
 
     #[test]

@@ -306,18 +306,34 @@ impl BuiltinFunction {
         self
     }
 
-    /// Attach the one-line summary (`doc_intro`) in `const` context. Additive, so a
-    /// member without one keeps `doc_intro: ""`.
-    pub(crate) const fn with_intro(mut self, doc_intro: &'static str) -> BuiltinFunction {
-        self.doc_intro = doc_intro;
-        self
-    }
-
-    /// Attach the full `## Description` prose (`doc_desc`) in `const` context.
-    /// Additive, so a member without one keeps `doc_desc: ""`.
-    pub(crate) const fn with_desc(mut self, doc_desc: &'static str) -> BuiltinFunction {
-        self.doc_desc = doc_desc;
-        self
+    /// Declare a builtin whose implementation is argument-dependent and selected
+    /// by the owning package's [`BuiltinResolver`] (`Implementation::Custom`) —
+    /// e.g. `encoding::utf8Encode`'s return-type overload. The registry-wide
+    /// counterpart to [`Self::mfb`]/[`Self::native`] for the resolver-driven case,
+    /// so a package need not hand-write the struct literal.
+    pub(crate) const fn custom(
+        name: &'static str,
+        doc_slug: &'static str,
+        doc_intro: &'static str,
+        doc_desc: &'static str,
+        errors: &'static [&'static str],
+        overloads: &'static [BuiltinOverload],
+    ) -> BuiltinFunction {
+        BuiltinFunction {
+            name,
+            doc_slug,
+            doc_intro,
+            doc_desc,
+            errors,
+            overloads,
+            doc_example: "",
+            implementation: Implementation::Custom,
+            lowering: Lowering::Helper,
+            flags: BuiltinFlags {
+                internal_only: false,
+                return_type_overloaded: false,
+            },
+        }
     }
 
     /// The member's native fast path, if it carries one (`Implementation::Mfb`

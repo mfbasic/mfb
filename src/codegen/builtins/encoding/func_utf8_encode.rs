@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/utf8Encode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, BYTES, VALTEXT};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, BYTES, VALTEXT};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Encode a `String` to its UTF-8 bytes."#;
 const DESC: &str = r#"`encoding::utf8Encode` returns the UTF-8 encoding of `value` — the exact bytes
@@ -51,12 +51,12 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const UTF8_ENCODE: BuiltinFunction = ef(
+pub(crate) const UTF8_ENCODE: BuiltinFunction = BuiltinFunction::custom(
     "encoding.utf8Encode",
     "utf8Encode",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("value", VALTEXT, "String")], BYTES)],
-    Implementation::Custom,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

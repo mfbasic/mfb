@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/utf16Decode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, INTS};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, INTS};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Decode a `List OF Integer` of UTF-16 code units to a `String`."#;
 const DESC: &str = r#"`encoding::utf16Decode` interprets `value` as a sequence of UTF-16 code units and
@@ -89,15 +89,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const UTF16_DECODE: BuiltinFunction = ef(
+pub(crate) const UTF16_DECODE: BuiltinFunction = BuiltinFunction::mfb(
     "encoding.utf16Decode",
     "utf16Decode",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("value", &[], INTS)], "String")],
-    Implementation::Mfb {
-        body: BODY,
-        fast_path: None,
-    },
+    BODY,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

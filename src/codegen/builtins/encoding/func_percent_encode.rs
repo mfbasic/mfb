@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/percentEncode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, VALTEXT};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, VALTEXT};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Percent-encode (URL-encode) a `String` per RFC 3986."#;
 const DESC: &str = r#"`encoding::percentEncode` percent-encodes `text` following the RFC 3986 rules for
@@ -70,15 +70,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const PERCENT_ENCODE: BuiltinFunction = ef(
+pub(crate) const PERCENT_ENCODE: BuiltinFunction = BuiltinFunction::mfb(
     "encoding.percentEncode",
     "percentEncode",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("value", VALTEXT, "String")], "String")],
-    Implementation::Mfb {
-        body: BODY,
-        fast_path: None,
-    },
+    BODY,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

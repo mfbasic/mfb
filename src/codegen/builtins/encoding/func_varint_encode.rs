@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/varintEncode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, BYTES};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, BYTES};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Encode a signed `Integer` as a ZigZag varint `List OF Byte`."#;
 const DESC: &str = r#"`encoding::varintEncode` returns the ZigZag [varint](https://protobuf.dev/programming-guides/encoding/#varints)
@@ -60,15 +60,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const VARINT_ENCODE: BuiltinFunction = ef(
+pub(crate) const VARINT_ENCODE: BuiltinFunction = BuiltinFunction::mfb(
     "encoding.varintEncode",
     "varintEncode",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("value", &[], "Integer")], BYTES)],
-    Implementation::Mfb {
-        body: BODY,
-        fast_path: None,
-    },
+    BODY,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

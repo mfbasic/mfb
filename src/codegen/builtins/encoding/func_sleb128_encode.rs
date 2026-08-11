@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/sleb128Encode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, BYTES};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, BYTES};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Encode a signed `Integer` as a signed LEB128 `List OF Byte`."#;
 const DESC: &str = r#"`encoding::sleb128Encode` returns the signed [LEB128](https://en.wikipedia.org/wiki/LEB128)
@@ -82,15 +82,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const SLEB128_ENCODE: BuiltinFunction = ef(
+pub(crate) const SLEB128_ENCODE: BuiltinFunction = BuiltinFunction::mfb(
     "encoding.sleb128Encode",
     "sleb128Encode",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("value", &[], "Integer")], BYTES)],
-    Implementation::Mfb {
-        body: BODY,
-        fast_path: None,
-    },
+    BODY,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/base64Decode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, BYTES};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, BYTES};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Decode a standard Base64 `String` into a `List OF Byte`."#;
 const DESC: &str = r#"`encoding::base64Decode` parses `text` as standard Base64 (RFC 4648 §4) and
@@ -69,15 +69,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const BASE64_DECODE: BuiltinFunction = ef(
+pub(crate) const BASE64_DECODE: BuiltinFunction = BuiltinFunction::mfb(
     "encoding.base64Decode",
     "base64Decode",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("text", &[], "String")], BYTES)],
-    Implementation::Mfb {
-        body: BODY,
-        fast_path: None,
-    },
+    BODY,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/punycodeDecode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Decode an ASCII Punycode hostname back to its Unicode form."#;
 const DESC: &str = r#"`encoding::punycodeDecode` converts an ASCII hostname in the internationalized
@@ -78,15 +78,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const PUNYCODE_DECODE: BuiltinFunction = ef(
+pub(crate) const PUNYCODE_DECODE: BuiltinFunction = BuiltinFunction::mfb(
     "encoding.punycodeDecode",
     "punycodeDecode",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("asciiDomain", &[], "String")], "String")],
-    Implementation::Mfb {
-        body: BODY,
-        fast_path: None,
-    },
+    BODY,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

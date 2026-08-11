@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/utf16Encode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, INTS, VALTEXT};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, INTS, VALTEXT};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Encode a `String` to its UTF-16 code units."#;
 const DESC: &str = r#"`encoding::utf16Encode` returns the UTF-16 encoding of `value` as a list of
@@ -73,15 +73,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const UTF16_ENCODE: BuiltinFunction = ef(
+pub(crate) const UTF16_ENCODE: BuiltinFunction = BuiltinFunction::mfb(
     "encoding.utf16Encode",
     "utf16Encode",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("value", VALTEXT, "String")], INTS)],
-    Implementation::Mfb {
-        body: BODY,
-        fast_path: None,
-    },
+    BODY,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

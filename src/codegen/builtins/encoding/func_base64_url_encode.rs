@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/base64UrlEncode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, BYTES};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, BYTES};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Encode a `List OF Byte` to a URL- and filename-safe Base64 `String`."#;
 const DESC: &str = r#"`encoding::base64UrlEncode` returns the URL- and filename-safe Base64
@@ -60,15 +60,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const BASE64_URL_ENCODE: BuiltinFunction = ef(
+pub(crate) const BASE64_URL_ENCODE: BuiltinFunction = BuiltinFunction::mfb(
     "encoding.base64UrlEncode",
     "base64UrlEncode",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("data", &[], BYTES)], "String")],
-    Implementation::Mfb {
-        body: BODY,
-        fast_path: None,
-    },
+    BODY,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

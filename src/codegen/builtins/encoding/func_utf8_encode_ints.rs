@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/utf8EncodeInts.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, INTS};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, INTS};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Encode a `String` to its UTF-8 bytes as a `List OF Integer`."#;
 const DESC: &str = r#"`encoding::utf8EncodeInts` returns the UTF-8 encoding of `value` — the exact
@@ -62,15 +62,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const UTF8_ENCODE_INTS: BuiltinFunction = ef(
+pub(crate) const UTF8_ENCODE_INTS: BuiltinFunction = BuiltinFunction::mfb(
     "encoding.utf8EncodeInts",
     "utf8EncodeInts",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("value", &[], "String")], INTS)],
-    Implementation::Mfb {
-        body: BODY,
-        fast_path: None,
-    },
+    BODY,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

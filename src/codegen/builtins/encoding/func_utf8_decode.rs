@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/utf8Decode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, BYTES};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, BYTES};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Decode a UTF-8 byte or code-unit sequence to a `String`."#;
 const DESC: &str = r#"`encoding::utf8Decode` interprets `value` as a UTF-8 byte sequence and returns the
@@ -51,12 +51,12 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const UTF8_DECODE: BuiltinFunction = ef(
+pub(crate) const UTF8_DECODE: BuiltinFunction = BuiltinFunction::custom(
     "encoding.utf8Decode",
     "utf8Decode",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("value", &[], BYTES)], "String")],
-    Implementation::Custom,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

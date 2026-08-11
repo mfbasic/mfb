@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/utf32Decode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, INTS};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, INTS};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Decode a `List OF Integer` of UTF-32 code points to a `String`."#;
 const DESC: &str = r#"`encoding::utf32Decode` interprets `value` as a sequence of UTF-32 code points
@@ -64,15 +64,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const UTF32_DECODE: BuiltinFunction = ef(
+pub(crate) const UTF32_DECODE: BuiltinFunction = BuiltinFunction::mfb(
     "encoding.utf32Decode",
     "utf32Decode",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("value", &[], INTS)], "String")],
-    Implementation::Mfb {
-        body: BODY,
-        fast_path: None,
-    },
+    BODY,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/htmlEscape.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, VALTEXT};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, VALTEXT};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Escape the five HTML/XML metacharacters in a `String`."#;
 const DESC: &str = r#"`encoding::htmlEscape` produces a form of `text` that is safe to embed inside
@@ -68,15 +68,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const HTML_ESCAPE: BuiltinFunction = ef(
+pub(crate) const HTML_ESCAPE: BuiltinFunction = BuiltinFunction::mfb(
     "encoding.htmlEscape",
     "htmlEscape",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("value", VALTEXT, "String")], "String")],
-    Implementation::Mfb {
-        body: BODY,
-        fast_path: None,
-    },
+    BODY,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);

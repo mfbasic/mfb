@@ -5,8 +5,8 @@
 //! `src/docs/man/builtins/encoding/utf8DecodeBytes.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ef, ov, p, BYTES};
-use crate::codegen::registry::{BuiltinFunction, Implementation};
+use super::{ov, p, BYTES};
+use crate::codegen::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Decode a `List OF Byte` of UTF-8 octets to a `String`."#;
 const DESC: &str = r#"`encoding::utf8DecodeBytes` interprets `value` as a UTF-8 byte sequence and
@@ -60,15 +60,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const UTF8_DECODE_BYTES: BuiltinFunction = ef(
+pub(crate) const UTF8_DECODE_BYTES: BuiltinFunction = BuiltinFunction::mfb(
     "encoding.utf8DecodeBytes",
     "utf8DecodeBytes",
+    INTRO,
+    DESC,
+    &[],
     &[ov(&[p("value", &[], BYTES)], "String")],
-    Implementation::Mfb {
-        body: BODY,
-        fast_path: None,
-    },
+    BODY,
 )
-.with_intro(INTRO)
-.with_desc(DESC)
 .with_example(EX);
