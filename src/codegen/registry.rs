@@ -182,31 +182,6 @@ pub(crate) type OsLower = fn(
     &dyn crate::target::shared::code::CodegenPlatform,
 ) -> crate::target::shared::code::HelperResult;
 
-/// A `Resolve` member's compile-time selector: given the call's argument types and
-/// the expected (contextual) return type, it returns which [`Variant`] key to use —
-/// `Ok(Some(name))` on a unique pick, `Ok(None)` when the call doesn't apply, and
-/// `Err(())` when a return-type overload needs an expected type that is absent
-/// (`utf8Encode` with no `List OF Byte`/`List OF Integer` context). The picked
-/// `name` is the registered call name of the target function (a sibling descriptor
-/// co-located in the same `func_*.rs`).
-pub(crate) type ResolveFn = fn(&[String], Option<&str>) -> Result<Option<&'static str>, ()>;
-
-/// One candidate a [`Implementation::Resolve`] member selects among — a **private**
-/// internal target that owns its body inline, not a separately-registered public
-/// function. `name` is the selector's return value (the monomorph target, e.g.
-/// `encoding.utf8DecodeBytes`), `doc_slug` its source-injection marker slug,
-/// `return_type` the type it yields, and `implementation` its actual lowering
-/// (`Mfb`/`Native`/…). Because the variant is not in the package's public
-/// `functions` list, the registry resolves its return type and injects its body by
-/// scanning `Resolve` members (see `REGISTRY.variant`), and it is not user-callable.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Variant {
-    pub(crate) name: &'static str,
-    pub(crate) doc_slug: &'static str,
-    pub(crate) return_type: &'static str,
-    pub(crate) implementation: Implementation,
-}
-
 /// How a public call name maps to its implementation symbol.
 ///
 /// `Same` means no rewrite — the public name *is* the implementation (the
@@ -253,18 +228,6 @@ pub(crate) enum Implementation {
         win: OsLower,
         all: &'static [&'static str],
     },
-    /// A compile-time overload: the public name has **several** implementations,
-    /// picked per call by `resolver` from static argument/expected types. Each
-    /// candidate is listed in `variants` (name + return type) and is itself a
-    /// registered sibling descriptor (`Mfb`/`Native`/…) co-located in the same
-    /// `func_*.rs`. The honest, self-describing form of the closed-set `Custom`
-    /// members: the options are visible on the descriptor instead of hidden behind
-    /// a package `BuiltinResolver`. (`Custom` remains for open/computed families
-    /// like `vector`, whose target name is derived, not enumerable.)
-    Resolve {
-        resolver: ResolveFn,
-        variants: &'static [Variant],
-    },
 }
 
 // Hand-written so the `Native` fn pointer is compared by address via
@@ -307,16 +270,6 @@ impl PartialEq for Implementation {
                     all: ab,
                 },
             ) => std::ptr::fn_addr_eq(*pa, *pb) && std::ptr::fn_addr_eq(*wa, *wb) && aa == ab,
-            (
-                Implementation::Resolve {
-                    resolver: ra,
-                    variants: va,
-                },
-                Implementation::Resolve {
-                    resolver: rb,
-                    variants: vb,
-                },
-            ) => std::ptr::fn_addr_eq(*ra, *rb) && va == vb,
             _ => false,
         }
     }
@@ -505,39 +458,6 @@ impl BuiltinFunction {
             overloads,
             doc_example: "",
             implementation: Implementation::Os { posix, win, all },
-            lowering: Lowering::Helper,
-            flags: BuiltinFlags {
-                internal_only: false,
-                return_type_overloaded: false,
-            },
-        }
-    }
-
-    /// Declare a compile-time-overloaded member ([`Implementation::Resolve`]) that
-    /// owns its selector and lists its candidate variants inline. `resolver` picks a
-    /// variant from the call's argument/expected types; each `Variant` names a
-    /// registered sibling descriptor (co-located in the same `func_*.rs`) that holds
-    /// the actual body/lowering. The self-describing form of a closed-set `Custom`.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) const fn resolve(
-        name: &'static str,
-        doc_slug: &'static str,
-        doc_intro: &'static str,
-        doc_desc: &'static str,
-        errors: &'static [&'static str],
-        overloads: &'static [BuiltinOverload],
-        resolver: ResolveFn,
-        variants: &'static [Variant],
-    ) -> BuiltinFunction {
-        BuiltinFunction {
-            name,
-            doc_slug,
-            doc_intro,
-            doc_desc,
-            errors,
-            overloads,
-            doc_example: "",
-            implementation: Implementation::Resolve { resolver, variants },
             lowering: Lowering::Helper,
             flags: BuiltinFlags {
                 internal_only: false,
@@ -973,10 +893,7 @@ impl DefaultResolver {
             | Implementation::Custom
             | Implementation::Native(_)
             | Implementation::Mfb { .. }
-            | Implementation::Os { .. }
-            // Argument-dependent, like `Custom`: the parent resolves to a concrete
-            // variant first, and that variant carries its own `implementation_name`.
-            | Implementation::Resolve { .. } => None,
+            | Implementation::Os { .. } => None,
         }
     }
 
@@ -1071,27 +988,6 @@ impl BuiltinRegistry {
             module
                 .function(qualified)
                 .map(|function| (module, function))
-        })
-    }
-
-    /// The `(module, variant)` for the private [`Variant`] a `Resolve` member
-    /// selects, found by its `name` (e.g. `encoding.utf8DecodeBytes`). Variants are
-    /// not in any module's public `functions` list, so they are invisible to
-    /// [`Self::function`]; this scan gives the internal paths (return-type
-    /// resolution, package attribution, source injection) a way to reach them
-    /// without exposing them as user-callable functions.
-    pub(crate) fn variant(&self, name: &str) -> Option<(&'static BuiltinModule, &'static Variant)> {
-        self.modules.iter().copied().find_map(|module| {
-            module.functions.iter().find_map(|function| {
-                if let Implementation::Resolve { variants, .. } = function.implementation {
-                    variants
-                        .iter()
-                        .find(|variant| variant.name == name)
-                        .map(|variant| (module, variant))
-                } else {
-                    None
-                }
-            })
         })
     }
 

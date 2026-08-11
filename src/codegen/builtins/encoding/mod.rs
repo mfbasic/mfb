@@ -77,7 +77,11 @@ mod func_utf16_encode;
 mod func_utf32_decode;
 mod func_utf32_encode;
 mod func_utf8_decode;
+mod func_utf8_decode_bytes;
+mod func_utf8_decode_ints;
 mod func_utf8_encode;
+mod func_utf8_encode_bytes;
+mod func_utf8_encode_ints;
 mod func_varint_decode;
 mod func_varint_encode;
 
@@ -89,12 +93,11 @@ const INTS: &str = "List OF Integer";
 // `implementation_name` derive from the descriptor. Non-overloaded functions (and
 // the 4 monomorph targets) carry `Implementation::Mfb` (their `__encoding_*` body
 // lives in the owning `func_*.rs`; the rewrite target comes from `IMPL_NAMES`);
-// `utf8Encode` (return-type overload) and `utf8Decode` (parameter overload) are
-// `Implementation::Resolve`: each owns its selector and its two **private** variant
-// bodies inline in its `func_*.rs`. Both are `is_overloaded`. `resolve_call`
-// argument validation is resolver-owned. `WhenImported` source.
+// the two overloaded names `utf8Encode`/`utf8Decode` are `Implementation::Custom`
+// (`is_overloaded`), resolved by `EncodingResolver::resolve_overload_target`.
+// `resolve_call` argument validation is also resolver-owned. `WhenImported` source.
 // `ov`/`p` build the documentation overloads; each member's descriptor is
-// constructed in its `func_*.rs` via `BuiltinFunction::mfb`/`::resolve`.
+// constructed in its `func_*.rs` via `BuiltinFunction::mfb`/`::custom`.
 const fn p(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
     Parameter {
         name,
@@ -112,11 +115,14 @@ const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload 
 const VALTEXT: &[&str] = &["text"];
 
 const ENCODING_FUNCTIONS: &[BuiltinFunction] = &[
-    // The two overloaded names (`Implementation::Resolve`). Their byte/int monomorph
-    // targets are private variants owned inline by their `func_*.rs`, not public
-    // functions, so they do not appear in this list.
+    // The two overloaded names: Custom implementation (resolved by the resolver).
     func_utf8_encode::UTF8_ENCODE,
     func_utf8_decode::UTF8_DECODE,
+    // The 4 monomorph targets.
+    func_utf8_encode_bytes::UTF8_ENCODE_BYTES,
+    func_utf8_encode_ints::UTF8_ENCODE_INTS,
+    func_utf8_decode_bytes::UTF8_DECODE_BYTES,
+    func_utf8_decode_ints::UTF8_DECODE_INTS,
     // Non-overloaded codecs.
     func_utf16_encode::UTF16_ENCODE,
     func_utf16_decode::UTF16_DECODE,
@@ -160,9 +166,15 @@ impl BuiltinResolver for EncodingResolver {
         dispatch_resolve(name, arg_types).map(|resolved| resolved.return_type.into_owned())
     }
 
-    // `resolve_overload_target` is intentionally not overridden: both overloaded
-    // names (`utf8Encode`/`utf8Decode`) are now `Implementation::Resolve` and are
-    // resolved by their own descriptor selectors before this package resolver.
+    fn resolve_overload_target(
+        &self,
+        _module: &BuiltinModule,
+        name: &str,
+        arg_types: &[String],
+        expected_type: Option<&str>,
+    ) -> Result<Option<String>, ()> {
+        dispatch_overload_target(name, arg_types, expected_type).map(|opt| opt.map(str::to_string))
+    }
 }
 static ENCODING_RESOLVER: EncodingResolver = EncodingResolver;
 
@@ -258,16 +270,10 @@ fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedC
     let return_type: Cow<'a, str> = match name {
         // utf8Encode: String -> List OF Byte | List OF Integer (return overload).
         // Resolved precisely via the expected type; default to List OF Byte here.
-        // `UTF8_ENCODE`/`UTF8_DECODE` are `Implementation::Resolve`: their selectors
-        // (and the no-context `TYPE_OVERLOAD_AMBIGUOUS` error) live on the descriptor
-        // in their `func_*.rs`, reached before this resolver. Only the concrete
-        // monomorph-target variants remain here.
+        UTF8_ENCODE if arg == "String" => Cow::Borrowed(BYTES),
         UTF8_ENCODE_BYTES if arg == "String" => Cow::Borrowed(BYTES),
         UTF8_ENCODE_INTS if arg == "String" => Cow::Borrowed(INTS),
-        // `UTF8_DECODE` (the overloaded parent) is `Implementation::Resolve`: its
-        // return-type resolution is owned by its descriptor selector in
-        // `func_utf8_decode.rs`, not this package resolver. Only the concrete
-        // monomorph targets remain here.
+        UTF8_DECODE if arg == BYTES || arg == INTS => Cow::Borrowed("String"),
         UTF8_DECODE_BYTES if arg == BYTES => Cow::Borrowed("String"),
         UTF8_DECODE_INTS if arg == INTS => Cow::Borrowed("String"),
         UTF16_ENCODE | UTF32_ENCODE if arg == "String" => Cow::Borrowed(INTS),
@@ -296,9 +302,9 @@ fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedC
 /// lowering. These members now carry [`Implementation::Mfb`], whose descriptor
 /// `implementation_name` is `None` (the body is assembled into the injected
 /// package rather than named by a fixed rewrite symbol), so the rewrite target is
-/// provided here explicitly. The two overloaded parents (`utf8Encode`/`utf8Decode`,
-/// `Implementation::Resolve`) are absent: they resolve to a concrete variant target
-/// via `resolve_overload_target` first, and that target then rewrites through here.
+/// provided here explicitly. The two overloaded names (`utf8Encode`/`utf8Decode`,
+/// `Implementation::Custom`) are absent: they resolve to a concrete target via
+/// `resolve_overload_target` first, and that target then rewrites through here.
 const IMPL_NAMES: &[(&str, &str)] = &[
     ("encoding.utf8EncodeBytes", "__encoding_utf8EncodeBytes"),
     ("encoding.utf8EncodeInts", "__encoding_utf8EncodeInts"),
@@ -339,14 +345,36 @@ pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
         .map(|(_, internal)| *internal)
 }
 
+/// Resolve the overloaded `utf8Encode`/`utf8Decode` public calls to a concrete
+/// internal implementation, using the call's argument types and the expected
+/// (contextual) type. Returns `Ok(Some(name))` on a unique match, `Ok(None)`
+/// when the callee is not an overloaded encoding name, and `Err(())` when a
+/// return-type overload cannot be resolved without an expected type
+/// (`utf8Encode` with no `List OF Byte`/`List OF Integer` context). Invoked
+/// through the descriptor resolver by `builtins::resolve_overload_target`.
+fn dispatch_overload_target(
+    callee: &str,
+    arg_types: &[String],
+    expected_type: Option<&str>,
+) -> Result<Option<&'static str>, ()> {
+    match callee {
+        UTF8_ENCODE if arg_types == ["String"] => match expected_type {
+            Some(BYTES) => Ok(Some(UTF8_ENCODE_BYTES)),
+            Some(INTS) => Ok(Some(UTF8_ENCODE_INTS)),
+            _ => Err(()),
+        },
+        UTF8_DECODE if arg_types == [BYTES] => Ok(Some(UTF8_DECODE_BYTES)),
+        UTF8_DECODE if arg_types == [INTS] => Ok(Some(UTF8_DECODE_INTS)),
+        _ => Ok(None),
+    }
+}
+
 /// Whether `callee` is one of the overloaded encoding public names: derived from
-/// the descriptor. Both `utf8Encode` (return-type overload) and `utf8Decode`
-/// (parameter overload) carry `Implementation::Resolve`, with their selector and
-/// private variants owned by their own `func_*.rs`.
+/// the descriptor (an overloaded name carries `Implementation::Custom`).
 pub(crate) fn is_overloaded(callee: &str) -> bool {
     ENCODING
         .function(callee)
-        .is_some_and(|function| matches!(function.implementation, Implementation::Resolve { .. }))
+        .is_some_and(|function| matches!(function.implementation, Implementation::Custom))
 }
 
 /// Synthetic path label for the injected encoding source. `parse_source_internal`
@@ -377,27 +405,14 @@ pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
 /// `collections::assembled_source`.
 fn assembled_source() -> String {
     let mut source = String::from(include_str!("package.mfb"));
-    let mut splice = |slug: &str, body: &str| {
-        let marker = format!("'@@MFB_BODY:{slug}@@");
-        debug_assert!(
-            source.contains(&marker),
-            "encoding package.mfb is missing the '{marker}' body marker",
-        );
-        source = source.replacen(&marker, body, 1);
-    };
     for func in ENCODING_FUNCTIONS {
-        match func.implementation {
-            Implementation::Mfb { body, .. } => splice(func.doc_slug, body),
-            // A `Resolve` member's private variants each contribute their own `Mfb`
-            // body (`func_utf8_decode.rs`), spliced at their own slug marker.
-            Implementation::Resolve { variants, .. } => {
-                for variant in variants {
-                    if let Implementation::Mfb { body, .. } = variant.implementation {
-                        splice(variant.doc_slug, body);
-                    }
-                }
-            }
-            _ => {}
+        if let Implementation::Mfb { body, .. } = func.implementation {
+            let marker = format!("'@@MFB_BODY:{}@@", func.doc_slug);
+            debug_assert!(
+                source.contains(&marker),
+                "encoding package.mfb is missing the '{marker}' body marker",
+            );
+            source = source.replacen(&marker, body, 1);
         }
     }
     source
@@ -475,15 +490,13 @@ mod tests {
         for n in ALL_PUBLIC {
             assert!(is_encoding_call(n), "{n}");
         }
-        // Both overloads' byte/int targets are private `Resolve` variants — not
-        // public calls, so they are not recognized as encoding members.
         for n in [
             UTF8_ENCODE_BYTES,
             UTF8_ENCODE_INTS,
             UTF8_DECODE_BYTES,
             UTF8_DECODE_INTS,
         ] {
-            assert!(!is_encoding_call(n), "{n}");
+            assert!(is_encoding_call(n), "{n}");
         }
         assert!(!is_encoding_call("encoding.nope"));
         assert!(!is_encoding_call("other.utf8Encode"));
@@ -669,14 +682,11 @@ mod tests {
         assert_eq!(overload.params[0].name, "value");
         assert_eq!(overload.return_type, ReturnType::Fixed(BYTES));
 
-        // The two overloaded names use `BuiltinFunction::resolve` (selector + inline
-        // private variants); every other member uses `::mfb` in its own `func_*.rs`.
+        // The two overloaded names use the registry-wide `BuiltinFunction::custom`;
+        // every other member uses `BuiltinFunction::mfb` in its own `func_*.rs`.
         let entry = func_utf8_encode::UTF8_ENCODE;
         assert_eq!(entry.doc_slug, "utf8Encode");
-        assert!(matches!(
-            entry.implementation,
-            Implementation::Resolve { .. }
-        ));
+        assert_eq!(entry.implementation, Implementation::Custom);
         assert!(!entry.doc_intro.is_empty());
 
         let hex = func_hex_encode::HEX_ENCODE;
@@ -698,13 +708,12 @@ mod tests {
         // Arity guard: only unary calls resolve.
         assert!(resolve(UTF8_ENCODE, &["String", "String"]).is_none());
         assert!(resolve(UTF8_ENCODE, &[]).is_none());
-        // utf8 family. The overloaded parents (`UTF8_ENCODE`/`UTF8_DECODE`) are
-        // `Implementation::Resolve`, no longer `dispatch_resolve` arms; only their
-        // concrete monomorph targets remain here.
+        // utf8 family (monomorph targets + overloaded names).
+        assert_eq!(ret(UTF8_ENCODE, &["String"]).as_deref(), Some(BYTES));
         assert_eq!(ret(UTF8_ENCODE_BYTES, &["String"]).as_deref(), Some(BYTES));
         assert_eq!(ret(UTF8_ENCODE_INTS, &["String"]).as_deref(), Some(INTS));
-        // `UTF8_DECODE` (the parent) is `Implementation::Resolve`, no longer a
-        // `dispatch_resolve` arm; only its concrete monomorph targets remain here.
+        assert_eq!(ret(UTF8_DECODE, &[BYTES]).as_deref(), Some("String"));
+        assert_eq!(ret(UTF8_DECODE, &[INTS]).as_deref(), Some("String"));
         assert_eq!(ret(UTF8_DECODE_BYTES, &[BYTES]).as_deref(), Some("String"));
         assert_eq!(ret(UTF8_DECODE_INTS, &[INTS]).as_deref(), Some("String"));
         // utf16/utf32.
