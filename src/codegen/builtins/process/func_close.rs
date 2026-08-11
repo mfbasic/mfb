@@ -63,6 +63,7 @@ pub(crate) const CLOSE: BuiltinFunction = BuiltinFunction::os(
 .with_example(EX);
 
 pub(crate) fn lower_process_close_helper_posix(
+    _call: &str,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -115,6 +116,7 @@ pub(crate) fn lower_process_close_helper_posix(
 }
 
 pub(crate) fn lower_process_close_helper_win(
+    _call: &str,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,

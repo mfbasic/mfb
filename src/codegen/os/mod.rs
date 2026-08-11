@@ -33,7 +33,7 @@ pub(crate) fn dispatch_runtime_helper(
                     } else {
                         posix
                     };
-                    return Some(lower(symbol, platform_imports, platform));
+                    return Some(lower(call, symbol, platform_imports, platform));
                 }
             }
         }

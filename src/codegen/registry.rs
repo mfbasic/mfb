@@ -175,7 +175,9 @@ pub(crate) type MfbFastPath =
 /// `platform.family()`. Arch-neutrality is why both live in the member's
 /// `func_*.rs` and produce per-target machine code from a single source.
 pub(crate) type OsLower = fn(
-    &str,
+    &str, // the runtime-call name (e.g. "process.sendTimeout") — lets a member that
+    // covers several code-form symbols pick the form; single-symbol members ignore it
+    &str, // the mangled `_mfb_rt_<pkg>_<call>_<target>` helper symbol
     &std::collections::HashMap<String, String>,
     &dyn crate::target::shared::code::CodegenPlatform,
 ) -> crate::target::shared::code::HelperResult;
