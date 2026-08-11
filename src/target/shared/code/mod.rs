@@ -602,17 +602,17 @@ struct OwnedListCleanup {
 /// size is recomputed from the static type at drop via
 /// `emit_inlined_block_size_from_ptr_slot`.
 #[derive(Clone)]
-struct OwnedValueCleanup {
+pub(crate) struct OwnedValueCleanup {
     /// Static type of the bound value (drives the runtime size computation).
-    type_: String,
+    pub(crate) type_: String,
     /// Stack offset of the binding's slot (holds the block pointer).
-    stack_offset: usize,
+    pub(crate) stack_offset: usize,
     /// plan-77 M6: when `Some`, this is a non-escaping closure binding rather than
     /// a flat value; the slot holds the closure object pointer and the vec is the
     /// static types of its captures. The drop frees the object, its env block, and
     /// each freeable-flat capture (skipping by-value scalars/floats) instead of a
     /// single flat `arena_free`.
-    closure_captures: Option<Vec<String>>,
+    pub(crate) closure_captures: Option<Vec<String>>,
 }
 
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free

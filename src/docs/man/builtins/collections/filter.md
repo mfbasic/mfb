@@ -58,7 +58,7 @@ result, the loop stops immediately at that element, later elements are never
 visited, no result list is produced, and the callback's own error is passed
 through unchanged. The partially built output is freed on that path before the
 error leaves. [[src/builtins/mod.rs:inline_builtin_is_infallible]]
-[[src/target/shared/code/builder_collection_queries.rs:emit_callback_failure_exit]]
+[[src/codegen/builtins/collections/common/flow.rs:emit_callback_failure_exit]]
 
 An inline `TRAP` on a `filter` call captures that propagated callback error at
 the call site rather than letting it auto-propagate.
@@ -81,7 +81,7 @@ the call site rather than letting it auto-propagate.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| — | any error raised by `predicate` | The callback fails for some element. The error is propagated unchanged, iteration stops at that element, and the partial result list is freed; `filter` defines no error code of its own. [[src/target/shared/code/builder_collection_queries.rs:emit_callback_failure_exit]] |
+| — | any error raised by `predicate` | The callback fails for some element. The error is propagated unchanged, iteration stops at that element, and the partial result list is freed; `filter` defines no error code of its own. [[src/codegen/builtins/collections/common/flow.rs:emit_callback_failure_exit]] |
 
 ## Type checking
 

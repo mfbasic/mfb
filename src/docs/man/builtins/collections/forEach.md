@@ -48,7 +48,7 @@ passed here; wrap it in a `SUB` of your own, as the first example below does.
 `action` is invoked through the shared direct-callable path, which restores a
 closure's captured environment around each call, so a callable value that
 carries an environment works as well as a plain named reference.
-[[src/target/shared/code/builder_collection_queries.rs:emit_direct_callable_branch]]
+[[src/codegen/builtins/collections/common/flow.rs:emit_direct_callable_branch]]
 
 `forEach` raises no domain error of its own. It is classified fallible solely
 because a failing `action` propagates: when the callback returns a non-`Ok`
@@ -57,7 +57,7 @@ visited, and the callback's own error is passed straight through — unchanged, 
 whatever code and message the callback raised is what the caller sees. Because
 `forEach` owns no accumulator, no cleanup runs on that path.
 [[src/builtins/mod.rs:inline_builtin_is_infallible]]
-[[src/target/shared/code/builder_collection_queries.rs:emit_callback_failure_exit]]
+[[src/codegen/builtins/collections/common/flow.rs:emit_callback_failure_exit]]
 
 An inline `TRAP` on a `forEach` call captures that propagated callback error at
 the call site rather than letting it auto-propagate.
@@ -82,7 +82,7 @@ An empty `value` calls `action` zero times.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| — | any error raised by `action` | The callback fails for some element. The error is propagated unchanged and iteration stops at that element; `forEach` defines no error code of its own. [[src/target/shared/code/builder_collection_queries.rs:emit_callback_failure_exit]] |
+| — | any error raised by `action` | The callback fails for some element. The error is propagated unchanged and iteration stops at that element; `forEach` defines no error code of its own. [[src/codegen/builtins/collections/common/flow.rs:emit_callback_failure_exit]] |
 
 ## Type checking
 

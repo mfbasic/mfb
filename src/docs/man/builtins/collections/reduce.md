@@ -60,7 +60,7 @@ the fold stops immediately at that element, later elements are never visited,
 and the reducer's own error is passed through unchanged. No cleanup runs on that
 path, since the accumulator may still alias the borrowed `initial`.
 [[src/builtins/mod.rs:inline_builtin_is_infallible]]
-[[src/target/shared/code/builder_collection_queries.rs:emit_callback_failure_exit]]
+[[src/codegen/builtins/collections/common/flow.rs:emit_callback_failure_exit]]
 
 An inline `TRAP` on a `reduce` call captures that propagated reducer error at
 the call site rather than letting it auto-propagate.
@@ -84,7 +84,7 @@ the call site rather than letting it auto-propagate.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| — | any error raised by `f` | The reducer fails for some element. The error is propagated unchanged and the fold stops at that element; `reduce` defines no error code of its own. [[src/target/shared/code/builder_collection_queries.rs:emit_callback_failure_exit]] |
+| — | any error raised by `f` | The reducer fails for some element. The error is propagated unchanged and the fold stops at that element; `reduce` defines no error code of its own. [[src/codegen/builtins/collections/common/flow.rs:emit_callback_failure_exit]] |
 
 ## Type checking
 

@@ -29,6 +29,7 @@
 //! is deferred), which is why these files carry the accepted temporary
 //! `codegen -> target` import edge.
 
+pub(crate) mod flow;
 pub(crate) mod list;
 pub(crate) mod map;
 pub(crate) mod memory;

@@ -202,7 +202,7 @@ impl CodeBuilder<'_> {
     /// `arena_free(ptr, size)`. `arena_free` scrubs the bytes (entropy poison),
     /// so a later use-after-free reads garbage and traps loudly. Clobbers
     /// caller-saved scratch; the caller reloads anything it needs afterward.
-    pub(super) fn emit_owned_value_drop(
+    pub(crate) fn emit_owned_value_drop(
         &mut self,
         cleanup: &OwnedValueCleanup,
     ) -> Result<(), String> {

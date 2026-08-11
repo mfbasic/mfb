@@ -17,6 +17,14 @@ impl CodeBuilder<'_> {
         });
     }
 
+    /// The inline-`TRAP` raw-result capture label, when the current lowering sits
+    /// inside an inline `TRAP` on a raw-supported builtin. Read by the collections
+    /// callback members' failure exit (`emit_callback_failure_exit`, now in
+    /// `codegen::builtins::collections::common::flow`) without exposing the field.
+    pub(crate) fn raw_result_capture_label(&self) -> Option<String> {
+        self.raw_result_capture.clone()
+    }
+
     /// Record an internal (`binding: "internal"`, no library) call relocation from
     /// the current function to `to`, without emitting the branch itself. Extracted
     /// verbatim from `emit_map_probe`'s open-coded push so that helper can live in
