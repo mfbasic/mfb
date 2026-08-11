@@ -168,7 +168,7 @@ impl CodeBuilder<'_> {
     /// `remaining` (decremented to 0). `scratch` holds the in-flight word/byte
     /// and is clobbered. Shared by `emit_copy_bytes` and the collection
     /// entry/payload copy loops so every payload move is word-sized.
-    pub(super) fn emit_block_copy_advance(
+    pub(crate) fn emit_block_copy_advance(
         &mut self,
         dst: impl Into<Operand>,
         src: impl Into<Operand>,
@@ -951,7 +951,7 @@ impl CodeBuilder<'_> {
     /// region and the slot stores the block-relative offset); every other field
     /// slot holds the scalar value or pointer, stored inline at `8*index`.
     /// Returns a register holding the new record pointer. plan-02 §4.2.
-    pub(super) fn emit_build_inlined_record(
+    pub(crate) fn emit_build_inlined_record(
         &mut self,
         record_type: &str,
         field_slots: &[usize],
@@ -1330,7 +1330,7 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn lower_map_literal(
+    pub(crate) fn lower_map_literal(
         &mut self,
         type_: &str,
         entries: &[(NirValue, NirValue)],
@@ -2002,7 +2002,7 @@ impl CodeBuilder<'_> {
     /// Phase 6). A no-op for lists (`is_map == false`) so list allocations are
     /// unchanged. The bucket region sits past the data region, so the
     /// capacity-based data base (`emit_collection_data_pointer`) is unaffected.
-    pub(super) fn emit_reserve_map_buckets(
+    pub(crate) fn emit_reserve_map_buckets(
         &mut self,
         is_map: bool,
         capacity_reg: impl Into<Operand>,
@@ -2262,7 +2262,7 @@ impl CodeBuilder<'_> {
         self.emit_materialize_string_from_bytes(&bytes, &length)
     }
 
-    pub(super) fn emit_materialize_string_from_bytes(
+    pub(crate) fn emit_materialize_string_from_bytes(
         &mut self,
         source: impl Into<Operand>,
         length: impl Into<Operand>,

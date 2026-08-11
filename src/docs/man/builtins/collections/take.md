@@ -35,8 +35,8 @@ delegated to the internal slice helper. That helper is lowered natively as a
 bulk range copy, and the native lowering is what defines the boundary behavior:
 the range start is clamped into `[0, len]` and the range stop into
 `[start, len]`. [[src/codegen/builtins/collections/func_take.rs:__collections_take]]
-[[src/target/shared/code/builder_collection_queries.rs:try_inline_slice_op]]
-[[src/target/shared/code/builder_collection_queries.rs:lower_list_slice_range]]
+[[src/codegen/builtins/collections/common/slice.rs:try_inline_slice_op]]
+[[src/codegen/builtins/collections/common/slice.rs:lower_list_slice_range]]
 
 That clamping makes `take` **total** — every `Integer` value of `count` is
 accepted and no index is ever rejected:
@@ -47,7 +47,7 @@ accepted and no index is ever rejected:
   length, so the whole list is returned.
 - Otherwise the result holds exactly `count` elements.
 
-[[src/target/shared/code/builder_collection_queries.rs:lower_list_slice_range]]
+[[src/codegen/builtins/collections/common/slice.rs:lower_list_slice_range]]
 
 The result is a freshly allocated list; element payloads are copied into it, so
 the returned list does not share storage with `value`. `value` is not modified.
@@ -65,13 +65,13 @@ behind.
 
 | Type | Description |
 | --- | --- |
-| `List OF T` | A new list of the first `min(max(count, 0), len(value))` elements of `value`, in their original order. [[src/target/shared/code/builder_collection_queries.rs:lower_list_slice_range]] |
+| `List OF T` | A new list of the first `min(max(count, 0), len(value))` elements of `value`, in their original order. [[src/codegen/builtins/collections/common/slice.rs:lower_list_slice_range]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77010001` | `ErrOutOfMemory` | The arena cannot allocate the result list, or its computed size overflows. No value of `count` is itself rejected. [[src/target/shared/code/builder_collection_queries.rs:lower_list_slice_range]] [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77010001` | `ErrOutOfMemory` | The arena cannot allocate the result list, or its computed size overflows. No value of `count` is itself rejected. [[src/codegen/builtins/collections/common/slice.rs:lower_list_slice_range]] [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Type checking
 

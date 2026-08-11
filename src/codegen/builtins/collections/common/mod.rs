@@ -34,3 +34,4 @@ pub(crate) mod list;
 pub(crate) mod map;
 pub(crate) mod memory;
 pub(crate) mod set;
+pub(crate) mod slice;

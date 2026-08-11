@@ -744,7 +744,7 @@ impl CodeBuilder<'_> {
         }
     }
 
-    pub(super) fn static_type_name(&self, value: &NirValue) -> Option<String> {
+    pub(crate) fn static_type_name(&self, value: &NirValue) -> Option<String> {
         match value {
             NirValue::Const { type_, .. } => Some(type_.clone()),
             NirValue::Local(name) => self.locals.get(name).map(|local| local.type_.clone()),

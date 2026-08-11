@@ -51,8 +51,8 @@ is always required. [[src/codegen/builtins/collections/func_chunks.rs:__collecti
 Each block is built by the internal slice helper, which is lowered natively as a
 bulk range copy, so element payloads are copied into freshly allocated lists and
 no block shares storage with `value`. `value` is not modified.
-[[src/target/shared/code/builder_collection_queries.rs:try_inline_slice_op]]
-[[src/target/shared/code/builder_collection_queries.rs:lower_list_slice_range]]
+[[src/codegen/builtins/collections/common/slice.rs:try_inline_slice_op]]
+[[src/codegen/builtins/collections/common/slice.rs:lower_list_slice_range]]
 
 ## Parameters
 
@@ -72,7 +72,7 @@ no block shares storage with `value`. `value` is not modified.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | `chunkSize` is less than 1. [[src/codegen/builtins/collections/func_chunks.rs:__collections_chunks]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
-| `77010001` | `ErrOutOfMemory` | The arena cannot allocate a block or the result list, or a computed size overflows. [[src/target/shared/code/builder_collection_queries.rs:lower_list_slice_range]] [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77010001` | `ErrOutOfMemory` | The arena cannot allocate a block or the result list, or a computed size overflows. [[src/codegen/builtins/collections/common/slice.rs:lower_list_slice_range]] [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Type checking
 

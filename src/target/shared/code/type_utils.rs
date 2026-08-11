@@ -289,7 +289,7 @@ pub(super) fn is_set_type(type_: &str) -> bool {
 /// sizing / copy / free / reserve site consults instead of an inline
 /// `kind == MAP` test, so a Set is never sized one way and freed another
 /// (plan-63-B §3).
-pub(super) fn collection_has_buckets(type_: &str) -> bool {
+pub(crate) fn collection_has_buckets(type_: &str) -> bool {
     type_.starts_with("Map OF ") || is_set_type(type_)
 }
 

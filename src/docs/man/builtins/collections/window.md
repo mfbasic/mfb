@@ -54,8 +54,8 @@ Each window is built by the internal slice helper, which is lowered natively as
 a bulk range copy, so element payloads are copied into freshly allocated lists
 and no window shares storage with `value`. Overlapping windows therefore hold
 independent copies of the elements they share. `value` is not modified.
-[[src/target/shared/code/builder_collection_queries.rs:try_inline_slice_op]]
-[[src/target/shared/code/builder_collection_queries.rs:lower_list_slice_range]]
+[[src/codegen/builtins/collections/common/slice.rs:try_inline_slice_op]]
+[[src/codegen/builtins/collections/common/slice.rs:lower_list_slice_range]]
 
 ## Parameters
 
@@ -76,7 +76,7 @@ independent copies of the elements they share. `value` is not modified.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | `size` is less than 1, or `stride` is less than 1. [[src/codegen/builtins/collections/func_window.rs:__collections_window]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
-| `77010001` | `ErrOutOfMemory` | The arena cannot allocate a window or the result list, or a computed size overflows. [[src/target/shared/code/builder_collection_queries.rs:lower_list_slice_range]] [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77010001` | `ErrOutOfMemory` | The arena cannot allocate a window or the result list, or a computed size overflows. [[src/codegen/builtins/collections/common/slice.rs:lower_list_slice_range]] [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Type checking
 

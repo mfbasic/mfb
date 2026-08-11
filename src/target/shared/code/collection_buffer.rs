@@ -112,7 +112,7 @@ impl CodeBuilder<'_> {
     /// Write a tight collection header: `capacity == count`, `dataCapacity ==
     /// dataLength` (no headroom). Used by the splice/remove paths that produce a
     /// fresh exact-sized buffer (plan-01 §4.3 — snapshots stay tight).
-    pub(super) fn emit_write_list_header_from_registers(
+    pub(crate) fn emit_write_list_header_from_registers(
         &mut self,
         layout: &CollectionTypeLayout,
         collection: impl Into<Operand>,
