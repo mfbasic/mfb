@@ -7,4 +7,5 @@
 
 pub(crate) mod builtins;
 pub(crate) mod memory;
+pub(crate) mod os;
 pub(crate) mod registry;

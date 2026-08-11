@@ -167,6 +167,19 @@ pub(crate) type MfbFastPath =
         &[crate::target::shared::nir::NirValue],
     ) -> Result<Option<crate::target::shared::code::ValueResult>, String>;
 
+/// An OS-seam member's per-platform native emission: the arch-neutral `abi::` code
+/// that emits its `_mfb_rt_<pkg>_*` runtime helper body. Same shape as a runtime
+/// helper lowering — given the helper symbol, the platform imports, and the target
+/// platform, it emits the body. [`Implementation::Os`] carries one for POSIX
+/// (libc: macOS/Linux) and one for Windows (kernel32); the dispatch picks by
+/// `platform.family()`. Arch-neutrality is why both live in the member's
+/// `func_*.rs` and produce per-target machine code from a single source.
+pub(crate) type OsLower = fn(
+    &str,
+    &std::collections::HashMap<String, String>,
+    &dyn crate::target::shared::code::CodegenPlatform,
+) -> crate::target::shared::code::HelperResult;
+
 /// How a public call name maps to its implementation symbol.
 ///
 /// `Same` means no rewrite — the public name *is* the implementation (the
@@ -201,6 +214,18 @@ pub(crate) enum Implementation {
         body: &'static str,
         fast_path: Option<MfbFastPath>,
     },
+    /// An OS-seam intrinsic: the member owns its arch-neutral, OS-branching native
+    /// emission (`posix`/`win`), which the runtime-call dispatch selects by
+    /// `platform.family()` to emit the `_mfb_rt_<pkg>_*` helper body. `all` lists
+    /// every runtime-helper call name this member's emission covers — usually just
+    /// its own (`["process.close"]`), but a member selected by arity/flags in
+    /// `builder_values` emits several (`spawn` → `["process.spawn", "process.spawnEnv"]`).
+    /// The honest, self-describing form of the OS-seam members that were `Same`.
+    Os {
+        posix: OsLower,
+        win: OsLower,
+        all: &'static [&'static str],
+    },
 }
 
 // Hand-written so the `Native` fn pointer is compared by address via
@@ -231,6 +256,18 @@ impl PartialEq for Implementation {
                         _ => false,
                     }
             }
+            (
+                Implementation::Os {
+                    posix: pa,
+                    win: wa,
+                    all: aa,
+                },
+                Implementation::Os {
+                    posix: pb,
+                    win: wb,
+                    all: ab,
+                },
+            ) => std::ptr::fn_addr_eq(*pa, *pb) && std::ptr::fn_addr_eq(*wa, *wb) && aa == ab,
             _ => false,
         }
     }
@@ -374,6 +411,39 @@ impl BuiltinFunction {
             overloads,
             doc_example: "",
             implementation: Implementation::Same,
+            lowering: Lowering::Helper,
+            flags: BuiltinFlags {
+                internal_only: false,
+                return_type_overloaded: false,
+            },
+        }
+    }
+
+    /// Declare an OS-seam member that owns its per-platform native emission
+    /// ([`Implementation::Os`]) — the honest, self-describing form of the `Same`
+    /// OS-seam members. `posix`/`win` emit the `_mfb_rt_<pkg>_*` helper body;
+    /// `all` names every runtime-helper call the member covers.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) const fn os(
+        name: &'static str,
+        doc_slug: &'static str,
+        doc_intro: &'static str,
+        doc_desc: &'static str,
+        errors: &'static [&'static str],
+        overloads: &'static [BuiltinOverload],
+        posix: OsLower,
+        win: OsLower,
+        all: &'static [&'static str],
+    ) -> BuiltinFunction {
+        BuiltinFunction {
+            name,
+            doc_slug,
+            doc_intro,
+            doc_desc,
+            errors,
+            overloads,
+            doc_example: "",
+            implementation: Implementation::Os { posix, win, all },
             lowering: Lowering::Helper,
             flags: BuiltinFlags {
                 internal_only: false,
@@ -808,7 +878,8 @@ impl DefaultResolver {
             Implementation::Same
             | Implementation::Custom
             | Implementation::Native(_)
-            | Implementation::Mfb { .. } => None,
+            | Implementation::Mfb { .. }
+            | Implementation::Os { .. } => None,
         }
     }
 

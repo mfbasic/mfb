@@ -113,59 +113,6 @@ pub(super) fn lower_process_isrunning_helper(
 
 // process.close — close the parent's stdin write handle (signals the child's
 // stdin EOF); mark it -1. Idempotent per-record via the -1 sentinel.
-pub(super) fn lower_process_close_helper(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-) -> HelperResult {
-    const FILE: usize = 0x20;
-    const FRAME: usize = 0x30;
-    let sp = abi::stack_pointer();
-    let closed_l = format!("{symbol}_closed");
-    let already = format!("{symbol}_already");
-    let done = format!("{symbol}_done");
-    let mut relocations = Vec::new();
-    let mut instructions = vec![
-        abi::label("entry"),
-        abi::subtract_stack(FRAME),
-        abi::store_u64(abi::return_register(), sp, FILE),
-        abi::load_u64(abi::mfb_arg(0), sp, FILE),
-        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), RESOURCE_OFFSET_CLOSED),
-        abi::compare_immediate(abi::mfb_arg(1), "0"),
-        abi::branch_ne(&closed_l),
-        abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), PROC_STDIN_W),
-        abi::compare_immediate(abi::mfb_arg(0), "0"),
-        abi::branch_lt(&already), // -1 sentinel: already closed
-    ];
-    platform.emit_libc_call(
-        "CloseHandle",
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    instructions.extend([
-        abi::load_u64(abi::mfb_arg(1), sp, FILE),
-        // -1 sentinel (no negative immediate on Win64): 0 - 1.
-        abi::move_immediate(abi::mfb_arg(0), "Integer", "0"),
-        abi::subtract_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1),
-        abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), PROC_STDIN_W),
-        abi::label(&already),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::branch(&done),
-        abi::label(&closed_l),
-    ]);
-    emit_fail(
-        symbol,
-        "ErrResourceClosed",
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
-    instructions.extend([abi::label(&done), abi::add_stack(FRAME), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
-}
 
 /// Emit a blocking `WriteFile(fd, [src_slot], [rem_slot], &[written_slot], NULL)`
 /// loop that drains `rem` bytes from `src` on the pipe handle in `fd_slot`. The

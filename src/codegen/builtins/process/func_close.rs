@@ -1,11 +1,19 @@
-//! `process::close` — descriptor entry.
+//! `process::close` — descriptor + per-platform OS-seam emission.
 //!
-//! Per-member file (planning/migrate.md). process members are
-//! `Implementation::Same`: they lower via the `_mfb_rt_process_*` runtime-call
-//! seam (emission in `../native/`), so this file carries only the descriptor +
-//! docs migrated from `src/docs/man/builtins/process/close.md`.
+//! `Implementation::Os`: the member owns its arch-neutral, OS-branching native
+//! emission. `lower_process_close_helper_posix` (libc `close`, macOS/Linux) and
+//! `lower_process_close_helper_win` (`CloseHandle`) emit the `_mfb_rt_process_close`
+//! helper body; the runtime-call dispatch (`crate::codegen::os`) picks by
+//! `platform.family()`. Docs migrated from `src/docs/man/builtins/process/close.md`.
+
+use std::collections::HashMap;
 
 use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::abi;
+use crate::target::shared::code::native_helpers::emit_fail;
+use crate::target::shared::code::*;
+
+use super::native::PROC_STDIN_W;
 
 const INTRO: &str =
     r#"Close a child's standard input, signalling end-of-input; the child keeps running."#;
@@ -41,12 +49,121 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const CLOSE: BuiltinFunction = BuiltinFunction::same(
+pub(crate) const CLOSE: BuiltinFunction = BuiltinFunction::os(
     super::CLOSE,
     "close",
     INTRO,
     DESC,
     &[],
     &[super::ov(super::P_PROC, "Nothing")],
+    lower_process_close_helper_posix,
+    lower_process_close_helper_win,
+    &["process.close"],
 )
 .with_example(EX);
+
+pub(crate) fn lower_process_close_helper_posix(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    let mut v = Vregs::new();
+    let file = v.next();
+    let closed = v.next();
+    let fd = v.next();
+    let neg = v.next();
+    let closed_l = format!("{symbol}_closed");
+    let already = format!("{symbol}_stdin_already");
+    let done = format!("{symbol}_done");
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&file, abi::return_register()),
+        abi::load_u64(&closed, &file, RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(&closed, "0"),
+        abi::branch_ne(&closed_l),
+        abi::load_u64(&fd, &file, PROC_STDIN_W),
+        abi::compare_immediate(&fd, "0"),
+        abi::branch_lt(&already),
+        abi::move_register(abi::c_arg(0), &fd),
+    ];
+    let mut relocations = Vec::new();
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::bitwise_not(&neg, abi::ZERO), // -1: stdin marked closed
+        abi::store_u64(&neg, &file, PROC_STDIN_W),
+        abi::label(&already),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&closed_l),
+    ]);
+    emit_fail(
+        symbol,
+        "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
+pub(crate) fn lower_process_close_helper_win(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    const FILE: usize = 0x20;
+    const FRAME: usize = 0x30;
+    let sp = abi::stack_pointer();
+    let closed_l = format!("{symbol}_closed");
+    let already = format!("{symbol}_already");
+    let done = format!("{symbol}_done");
+    let mut relocations = Vec::new();
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::subtract_stack(FRAME),
+        abi::store_u64(abi::return_register(), sp, FILE),
+        abi::load_u64(abi::mfb_arg(0), sp, FILE),
+        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(abi::mfb_arg(1), "0"),
+        abi::branch_ne(&closed_l),
+        abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), PROC_STDIN_W),
+        abi::compare_immediate(abi::mfb_arg(0), "0"),
+        abi::branch_lt(&already), // -1 sentinel: already closed
+    ];
+    platform.emit_libc_call(
+        "CloseHandle",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::mfb_arg(1), sp, FILE),
+        // -1 sentinel (no negative immediate on Win64): 0 - 1.
+        abi::move_immediate(abi::mfb_arg(0), "Integer", "0"),
+        abi::subtract_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1),
+        abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), PROC_STDIN_W),
+        abi::label(&already),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&closed_l),
+    ]);
+    emit_fail(
+        symbol,
+        "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::add_stack(FRAME), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
+}

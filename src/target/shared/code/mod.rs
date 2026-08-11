@@ -2412,13 +2412,15 @@ fn lower_runtime_helper(
                             platform,
                         )?
                     }
-                    "process.close" => {
-                        crate::codegen::builtins::process::lower_process_close_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                        )?
-                    }
+                    // Migrated to `Implementation::Os` (spike): the emission lives in
+                    // `func_close.rs`; the generic dispatch picks posix/win.
+                    "process.close" => crate::codegen::os::dispatch_runtime_helper(
+                        "process.close",
+                        symbol,
+                        platform_imports,
+                        platform,
+                    )
+                    .expect("process.close carries Implementation::Os")?,
                     "process.send" => crate::codegen::builtins::process::lower_process_send_helper(
                         symbol,
                         platform_imports,

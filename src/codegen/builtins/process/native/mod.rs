@@ -53,7 +53,6 @@ process_dispatch!(lower_process_shell_helper());
 process_dispatch!(lower_process_pid_helper());
 process_dispatch!(lower_process_isrunning_helper());
 process_dispatch!(lower_process_waitfor_helper());
-process_dispatch!(lower_process_close_helper());
 process_dispatch!(lower_process_send_helper(is_bytes: bool, with_timeout: bool));
 process_dispatch!(lower_process_receive_helper(with_from: bool));
 process_dispatch!(lower_process_receivebytes_helper(with_from: bool));
