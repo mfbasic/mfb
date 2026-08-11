@@ -214,7 +214,7 @@ impl CodeBuilder<'_> {
         }
     }
 
-    pub(super) fn mark_register_used(&mut self, register: &str) {
+    pub(crate) fn mark_register_used(&mut self, register: &str) {
         if abi::is_callee_saved(register)
             && !self.used_callee_saved.iter().any(|saved| saved == register)
         {

@@ -122,7 +122,7 @@ impl CodeBuilder<'_> {
 
     /// Rounds the unsigned offset held in `reg` up to `alignment`, using
     /// `scratch` for the alignment mask. A no-op for `alignment <= 1`.
-    pub(super) fn emit_align_offset_register(
+    pub(crate) fn emit_align_offset_register(
         &mut self,
         reg: impl Into<Operand>,
         alignment: usize,

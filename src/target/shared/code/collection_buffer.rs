@@ -1,55 +1,6 @@
 use super::*;
 
 impl CodeBuilder<'_> {
-    /// Returns `(slot, materialized)`: `materialized` is true when the item was
-    /// wrapped in a freshly arena-allocated singleton list the CALLER must free
-    /// after the consuming insert copied out of it (via
-    /// [`Self::free_intermediate_collection`]) — leaving it live leaked one
-    /// block per value-path append/prepend/insert/set (bug-01's fourth leak:
-    /// ~40% of all allocations under `r = append(r, expr)` churn).
-    pub(crate) fn collection_argument_as_list_slot(
-        &mut self,
-        list_type: &str,
-        element_type: &str,
-        item: ValueResult,
-    ) -> Result<(usize, bool), String> {
-        if item.type_ == list_type {
-            let slot = self.allocate_stack_object("collection_insert_list", 8);
-            self.emit(abi::store_u64(&item.location, abi::stack_pointer(), slot));
-            return Ok((slot, false));
-        }
-        if item.type_ != element_type {
-            return Err(format!(
-                "native collection list item must be {}, got {}",
-                element_type, item.type_
-            ));
-        }
-        let item_slot = self.allocate_stack_object("collection_insert_item", 8);
-        self.emit(abi::store_u64(
-            &item.location,
-            abi::stack_pointer(),
-            item_slot,
-        ));
-        let singleton = self.lower_collection_values(
-            list_type,
-            vec![CollectionValueSlot {
-                key: None,
-                value: PayloadSlot {
-                    slot: item_slot,
-                    type_: element_type.to_string(),
-                },
-            }],
-            "singleton list",
-        )?;
-        let slot = self.allocate_stack_object("collection_insert_singleton", 8);
-        self.emit(abi::store_u64(
-            &singleton.location,
-            abi::stack_pointer(),
-            slot,
-        ));
-        Ok((slot, true))
-    }
-
     /// Free an intermediate collection block (a materialized singleton or a
     /// consumed `removeAt` result) after the operation that copied out of it,
     /// preserving `result` across the `arena_free` call (which clobbers every

@@ -33,5 +33,6 @@ pub(crate) mod flow;
 pub(crate) mod list;
 pub(crate) mod map;
 pub(crate) mod memory;
+pub(crate) mod mutate;
 pub(crate) mod set;
 pub(crate) mod slice;

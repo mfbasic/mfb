@@ -106,7 +106,7 @@ pub(super) fn collection_type_code(type_: &str) -> Option<usize> {
 /// paths that carry the numeric type code rather than the type name: 8-byte
 /// scalars, native collection/object pointers, and inline record/union slot
 /// payloads require 8-byte alignment; 1-byte scalars and `String` bytes do not.
-pub(super) fn collection_payload_alignment_for_code(code: usize) -> usize {
+pub(crate) fn collection_payload_alignment_for_code(code: usize) -> usize {
     match code {
         COLLECTION_TYPE_INTEGER
         | COLLECTION_TYPE_FLOAT

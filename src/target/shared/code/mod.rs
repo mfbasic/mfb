@@ -109,7 +109,6 @@ mod builder_value_semantics;
 mod builder_values;
 mod builder_vector_inline;
 mod collection_buffer;
-mod collection_mutate;
 mod native_helpers;
 
 mod crypto;

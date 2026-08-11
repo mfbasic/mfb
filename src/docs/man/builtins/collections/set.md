@@ -62,7 +62,7 @@ is composed from `removeKey` — which is a filter and never fails on a missing
 key — followed by a concatenation of the single new entry, which is why an
 absent key inserts rather than raising.
 [[src/codegen/builtins/collections/func_set.rs:lower_set]]
-[[src/target/shared/code/map_mutate.rs:lower_map_remove_key]]
+[[src/codegen/builtins/collections/common/mutate.rs:lower_map_remove_key]]
 
 `set` is classified **fallible** overall because of the list overload's range
 check, so an inline `TRAP` on a `set` call compiles and catches that failure
