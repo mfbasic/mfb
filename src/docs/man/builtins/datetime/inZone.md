@@ -32,12 +32,12 @@ same quantity `datetime::offsetAt` returns: zero for a UTC zone
 (`ZoneKind::Utc`), the stored constant for a fixed-offset zone (`ZoneKind::FixedOffset`,
 kind `1`, built with `datetime::fixedOffset`), and the DST-correct host offset
 for a local zone (`ZoneKind::Local`, kind `2`, built with `datetime::local`).
-[[src/codegen/builtins/datetime/package.mfb:ZoneKind]] [[src/codegen/builtins/datetime/package.mfb:__datetime_offsetAt]] It then adds
+[[src/codegen/builtins/datetime/package.mfb:ZoneKind]] [[src/codegen/builtins/datetime/func_offset_at.rs:__datetime_offsetAt]] It then adds
 that offset, in seconds, to the instant's seconds-since-epoch to obtain a local
 second count, floor-divides that into whole days and the second-of-day, converts
 the day count to a civil year/month/day with the proleptic Gregorian calendar,
 and decomposes the second-of-day into hour, minute, and second.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_inZone]]
+[[src/codegen/builtins/datetime/func_in_zone.rs:__datetime_inZone]]
 
 The returned `DateTime` carries four things: the civil date, the civil time,
 `zone` itself, and the resolved offset. Because the offset is pinned onto the
@@ -46,13 +46,13 @@ result, the `DateTime` round-trips back to the original instant via
 field is preserved verbatim into the time's `nanos` field; only the `seconds`
 field participates in the offset and date/time computation, so an instant before
 the Unix epoch (negative `seconds`) projects correctly.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_inZone]]
+[[src/codegen/builtins/datetime/func_in_zone.rs:__datetime_inZone]]
 
 `datetime::toUtc` and `datetime::toLocal` are shorthands for calling `inZone`
 with the UTC zone and the host local zone, respectively. `inZone` is pure for UTC
 and fixed-offset zones; for a local zone it reads the host's time-zone
 configuration through the `datetime::localOffset` OS intrinsic to resolve the
-offset. [[src/codegen/builtins/datetime/package.mfb:__datetime_toUtc]]
+offset. [[src/codegen/builtins/datetime/func_to_utc.rs:__datetime_toUtc]]
 
 ## Parameters
 
@@ -71,7 +71,7 @@ offset. [[src/codegen/builtins/datetime/package.mfb:__datetime_toUtc]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | Adding the resolved offset to the instant's seconds-since-epoch (`at.seconds + off`) produces a value outside the signed `Integer` range, which can occur only for an instant at the extreme edge of the timeline. [[src/codegen/builtins/datetime/package.mfb:__datetime_inZone]] |
+| `77050010` | `ErrOverflow` | Adding the resolved offset to the instant's seconds-since-epoch (`at.seconds + off`) produces a value outside the signed `Integer` range, which can occur only for an instant at the extreme edge of the timeline. [[src/codegen/builtins/datetime/func_in_zone.rs:__datetime_inZone]] |
 
 ## Examples
 

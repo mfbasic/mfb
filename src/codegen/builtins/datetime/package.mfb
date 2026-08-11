@@ -177,15 +177,9 @@ END FUNC
 ' plain truncating divide.
 ' ===========================================================================
 
-FUNC __datetime_now AS Instant
-  LET ns AS Integer = datetime::nowNanos()
-  RETURN __datetime_normInstant(ns / 1000000000, ns MOD 1000000000)
-END FUNC
+'@@MFB_BODY:now@@
 
-FUNC __datetime_monotonic AS Duration
-  LET ns AS Integer = datetime::monotonicNanos()
-  RETURN __datetime_normDuration(ns / 1000000000, ns MOD 1000000000)
-END FUNC
+'@@MFB_BODY:monotonic@@
 
 ' ===========================================================================
 ' Instant component builders (§5.1.1). Disjoint arities 1..5.
@@ -239,76 +233,40 @@ END FUNC
 ' Instant arithmetic & comparison (§5.4).
 ' ===========================================================================
 
-FUNC __datetime_add(at AS Instant, by AS Duration) AS Instant
-  RETURN __datetime_normInstant(at.seconds + by.seconds, at.nanos + by.nanos)
-END FUNC
+'@@MFB_BODY:add@@
 
-FUNC __datetime_subtract(at AS Instant, by AS Duration) AS Instant
-  RETURN __datetime_normInstant(at.seconds - by.seconds, at.nanos - by.nanos)
-END FUNC
+'@@MFB_BODY:subtract@@
 
-FUNC __datetime_between(start AS Instant, finish AS Instant) AS Duration
-  RETURN __datetime_normDuration(finish.seconds - start.seconds, finish.nanos - start.nanos)
-END FUNC
+'@@MFB_BODY:between@@
 
-FUNC __datetime_compare(a AS Instant, b AS Instant) AS Integer
-  IF a.seconds < b.seconds THEN RETURN -1
-  IF a.seconds > b.seconds THEN RETURN 1
-  IF a.nanos < b.nanos THEN RETURN -1
-  IF a.nanos > b.nanos THEN RETURN 1
-  RETURN 0
-END FUNC
+'@@MFB_BODY:compare@@
 
-FUNC __datetime_isBefore(a AS Instant, b AS Instant) AS Boolean
-  RETURN __datetime_compare(a, b) < 0
-END FUNC
+'@@MFB_BODY:isBefore@@
 
-FUNC __datetime_isAfter(a AS Instant, b AS Instant) AS Boolean
-  RETURN __datetime_compare(a, b) > 0
-END FUNC
+'@@MFB_BODY:isAfter@@
 
-FUNC __datetime_equals(a AS Instant, b AS Instant) AS Boolean
-  RETURN __datetime_compare(a, b) = 0
-END FUNC
+'@@MFB_BODY:equals@@
 
 ' ===========================================================================
 ' Duration algebra (§5.4).
 ' ===========================================================================
 
-FUNC __datetime_negate(d AS Duration) AS Duration
-  RETURN __datetime_normDuration(-d.seconds, -d.nanos)
-END FUNC
+'@@MFB_BODY:negate@@
 
-FUNC __datetime_plus(a AS Duration, b AS Duration) AS Duration
-  RETURN __datetime_normDuration(a.seconds + b.seconds, a.nanos + b.nanos)
-END FUNC
+'@@MFB_BODY:plus@@
 
-FUNC __datetime_minus(a AS Duration, b AS Duration) AS Duration
-  RETURN __datetime_normDuration(a.seconds - b.seconds, a.nanos - b.nanos)
-END FUNC
+'@@MFB_BODY:minus@@
 
 ' ===========================================================================
 ' Epoch milliseconds / nanoseconds (§5.5). Checked arithmetic surfaces
 ' `ErrOverflow` when a value is outside the Integer range.
 ' ===========================================================================
 
-FUNC __datetime_toMillis(at AS Instant) AS Integer
-  RETURN at.seconds * 1000 + at.nanos / 1000000
-END FUNC
+'@@MFB_BODY:toMillis@@
 
-FUNC __datetime_toNanos(at AS Instant) AS Integer
-  RETURN at.seconds * 1000000000 + at.nanos
-END FUNC
+'@@MFB_BODY:toNanos@@
 
-FUNC __datetime_fromMillis(millis AS Integer) AS Instant
-  MUT q AS Integer = millis / 1000
-  MUT r AS Integer = millis MOD 1000
-  IF r < 0 THEN
-    r = r + 1000
-    q = q - 1
-  END IF
-  RETURN Instant[q, r * 1000000]
-END FUNC
+'@@MFB_BODY:fromMillis@@
 
 ' ===========================================================================
 ' Integer floor division / modulo (operators truncate toward zero; calendar
@@ -389,48 +347,13 @@ END FUNC
 ' Leap rule, month length, validating constructors (§4, §5.5).
 ' ===========================================================================
 
-FUNC __datetime_isLeapYear(year AS Integer) AS Boolean
-  RETURN (year MOD 4 = 0 AND year MOD 100 <> 0) OR year MOD 400 = 0
-END FUNC
+'@@MFB_BODY:isLeapYear@@
 
-FUNC __datetime_daysInMonth(year AS Integer, month AS Integer) AS Integer
-  IF month = 2 THEN
-    IF __datetime_isLeapYear(year) THEN
-      RETURN 29
-    END IF
-    RETURN 28
-  END IF
-  IF month = 4 OR month = 6 OR month = 9 OR month = 11 THEN
-    RETURN 30
-  END IF
-  RETURN 31
-END FUNC
+'@@MFB_BODY:daysInMonth@@
 
-FUNC __datetime_date(year AS Integer, month AS Integer, day AS Integer) AS Date
-  IF month < 1 OR month > 12 THEN
-    FAIL error(77050002, "datetime: month out of range")
-  END IF
-  IF day < 1 OR day > __datetime_daysInMonth(year, month) THEN
-    FAIL error(77050002, "datetime: day out of range for month")
-  END IF
-  RETURN Date[year, month, day]
-END FUNC
+'@@MFB_BODY:date@@
 
-FUNC __datetime_time(hour AS Integer, minute AS Integer, second AS Integer, nanos AS Integer) AS Time
-  IF hour < 0 OR hour > 23 THEN
-    FAIL error(77050002, "datetime: hour out of range")
-  END IF
-  IF minute < 0 OR minute > 59 THEN
-    FAIL error(77050002, "datetime: minute out of range")
-  END IF
-  IF second < 0 OR second > 59 THEN
-    FAIL error(77050002, "datetime: second out of range")
-  END IF
-  IF nanos < 0 OR nanos > 999999999 THEN
-    FAIL error(77050002, "datetime: nanos out of range")
-  END IF
-  RETURN Time[hour, minute, second, nanos]
-END FUNC
+'@@MFB_BODY:time@@
 
 ' ===========================================================================
 ' Offset rendering and zone constructors (§5.2).
@@ -462,13 +385,9 @@ FUNC __datetime_offsetLabel(seconds AS Integer) AS String
   RETURN __datetime_offsetLabelSep(seconds, ":")
 END FUNC
 
-FUNC __datetime_utc AS Zone
-  RETURN Zone[0, 0, "UTC"]
-END FUNC
+'@@MFB_BODY:utc@@
 
-FUNC __datetime_local AS Zone
-  RETURN Zone[0, 2, "Local"]
-END FUNC
+'@@MFB_BODY:local@@
 
 FUNC __datetime_fixedOffset1(offsetSeconds AS Integer) AS Zone
   IF offsetSeconds <= -86400 OR offsetSeconds >= 86400 THEN
@@ -494,39 +413,19 @@ FUNC __datetime_fixedOffset2(hours AS Integer, mins AS Integer) AS Zone
   RETURN __datetime_fixedOffset1(total)
 END FUNC
 
-FUNC __datetime_offsetAt(z AS Zone, at AS Instant) AS Integer
-  IF z.kind = 2 THEN
-    RETURN datetime::localOffset(at.seconds)
-  END IF
-  RETURN z.offsetSeconds
-END FUNC
+'@@MFB_BODY:offsetAt@@
 
 ' ===========================================================================
 ' Projection (§5.3).
 ' ===========================================================================
 
-FUNC __datetime_inZone(at AS Instant, z AS Zone) AS DateTime
-  LET off AS Integer = __datetime_offsetAt(z, at)
-  LET localSeconds AS Integer = at.seconds + off
-  LET days AS Integer = __datetime_floorDiv(localSeconds, 86400)
-  LET secOfDay AS Integer = __datetime_floorMod(localSeconds, 86400)
-  LET date AS Date = __datetime_civilFromDays(days)
-  LET time AS Time = Time[secOfDay / 3600, (secOfDay / 60) MOD 60, secOfDay MOD 60, at.nanos]
-  RETURN DateTime[date, time, z, off]
-END FUNC
+'@@MFB_BODY:inZone@@
 
-FUNC __datetime_toUtc(at AS Instant) AS DateTime
-  RETURN __datetime_inZone(at, __datetime_utc())
-END FUNC
+'@@MFB_BODY:toUtc@@
 
-FUNC __datetime_toLocal(at AS Instant) AS DateTime
-  RETURN __datetime_inZone(at, __datetime_local())
-END FUNC
+'@@MFB_BODY:toLocal@@
 
-FUNC __datetime_resolve(dt AS DateTime) AS Instant
-  LET localSeconds AS Integer = __datetime_daysFromCivil(dt.date.year, dt.date.month, dt.date.day) * 86400 + dt.time.hour * 3600 + dt.time.minute * 60 + dt.time.second
-  RETURN Instant[localSeconds - dt.offset, dt.time.nanos]
-END FUNC
+'@@MFB_BODY:resolve@@
 
 ' Map a wall-clock second count (civil fields treated as if UTC) to the epoch
 ' instant it names in zone `z`, applying the §5.7 policy. Probes the offset a day
@@ -549,41 +448,19 @@ FUNC __datetime_resolveLocal(localSeconds AS Integer, z AS Zone) AS Integer
   RETURN candEarly
 END FUNC
 
-FUNC __datetime_civil(d AS Date, t AS Time, z AS Zone) AS DateTime
-  LET localSeconds AS Integer = __datetime_daysFromCivil(d.year, d.month, d.day) * 86400 + t.hour * 3600 + t.minute * 60 + t.second
-  LET epochSeconds AS Integer = __datetime_resolveLocal(localSeconds, z)
-  RETURN __datetime_inZone(Instant[epochSeconds, t.nanos], z)
-END FUNC
+'@@MFB_BODY:civil@@
 
-FUNC __datetime_withZone(dt AS DateTime, z AS Zone) AS DateTime
-  RETURN __datetime_inZone(__datetime_resolve(dt), z)
-END FUNC
+'@@MFB_BODY:withZone@@
 
 ' ===========================================================================
 ' Accessors (§5.5).
 ' ===========================================================================
 
-FUNC __datetime_weekday(dt AS DateTime) AS Weekday
-  LET days AS Integer = __datetime_daysFromCivil(dt.date.year, dt.date.month, dt.date.day)
-  LET idx AS Integer = __datetime_floorMod(days + 3, 7)
-  IF idx = 0 THEN RETURN Weekday.Monday
-  IF idx = 1 THEN RETURN Weekday.Tuesday
-  IF idx = 2 THEN RETURN Weekday.Wednesday
-  IF idx = 3 THEN RETURN Weekday.Thursday
-  IF idx = 4 THEN RETURN Weekday.Friday
-  IF idx = 5 THEN RETURN Weekday.Saturday
-  RETURN Weekday.Sunday
-END FUNC
+'@@MFB_BODY:weekday@@
 
-FUNC __datetime_dayOfYear(dt AS DateTime) AS Integer
-  LET here AS Integer = __datetime_daysFromCivil(dt.date.year, dt.date.month, dt.date.day)
-  LET start AS Integer = __datetime_daysFromCivil(dt.date.year, 1, 1)
-  RETURN here - start + 1
-END FUNC
+'@@MFB_BODY:dayOfYear@@
 
-FUNC __datetime_startOfDay(dt AS DateTime) AS DateTime
-  RETURN __datetime_civil(dt.date, Time[0, 0, 0, 0], dt.zone)
-END FUNC
+'@@MFB_BODY:startOfDay@@
 
 ' ===========================================================================
 ' Format mini-language (§6).
@@ -694,61 +571,11 @@ FUNC __datetime_formatToken(dt AS DateTime, ch AS String, runLen AS Integer) AS 
   FAIL error(77050003, "datetime: unknown format token")
 END FUNC
 
-FUNC __datetime_format(dt AS DateTime, pattern AS String) AS String
-  LET n AS Integer = len(pattern)
-  MUT out AS String = ""
-  MUT i AS Integer = 0
-  WHILE i < n
-    LET ch AS String = strings::mid(pattern, i, 1)
-    IF ch = "'" THEN
-      IF i + 1 < n AND strings::mid(pattern, i + 1, 1) = "'" THEN
-        out = out & "'"
-        i = i + 2
-      ELSE
-        MUT j AS Integer = i + 1
-        WHILE j < n AND strings::mid(pattern, j, 1) <> "'"
-          out = out & strings::mid(pattern, j, 1)
-          j = j + 1
-        END WHILE
-        i = j + 1
-      END IF
-    ELSEIF __datetime_isLetter(ch) THEN
-      MUT runLen AS Integer = 1
-      WHILE i + runLen < n AND strings::mid(pattern, i + runLen, 1) = ch
-        runLen = runLen + 1
-      END WHILE
-      out = out & __datetime_formatToken(dt, ch, runLen)
-      i = i + runLen
-    ELSE
-      out = out & ch
-      i = i + 1
-    END IF
-  END WHILE
-  RETURN out
-END FUNC
+'@@MFB_BODY:format@@
 
-FUNC __datetime_toIso(dt AS DateTime) AS String
-  RETURN __datetime_padN(dt.date.year, 4) & "-" & __datetime_pad2(dt.date.month) & "-" & __datetime_pad2(dt.date.day) & "T" & __datetime_pad2(dt.time.hour) & ":" & __datetime_pad2(dt.time.minute) & ":" & __datetime_pad2(dt.time.second) & "." & strings::left(__datetime_padN(dt.time.nanos, 9), 3) & __datetime_isoZone(dt.offset)
-END FUNC
+'@@MFB_BODY:toIso@@
 
-FUNC __datetime_formatDuration(d AS Duration) AS String
-  MUT totalMs AS Integer = d.seconds * 1000 + d.nanos / 1000000
-  MUT sign AS String = ""
-  IF totalMs < 0 THEN
-    sign = "-"
-    totalMs = -totalMs
-  END IF
-  LET days AS Integer = totalMs / 86400000
-  LET hh AS Integer = (totalMs / 3600000) MOD 24
-  LET mm AS Integer = (totalMs / 60000) MOD 60
-  LET ss AS Integer = (totalMs / 1000) MOD 60
-  LET ms AS Integer = totalMs MOD 1000
-  MUT out AS String = sign
-  IF days > 0 THEN
-    out = out & toString(days) & "d "
-  END IF
-  RETURN out & __datetime_pad2(hh) & ":" & __datetime_pad2(mm) & ":" & __datetime_pad2(ss) & "." & strings::padLeft(toString(ms), 3, "0")
-END FUNC
+'@@MFB_BODY:formatDuration@@
 
 ' ===========================================================================
 ' Parsing (§6). A pattern-driven scanner walks `pattern` and `value` in
@@ -1032,88 +859,16 @@ FUNC __datetime_expect(value AS String, pos AS Integer, ch AS String) AS Integer
   RETURN pos + 1
 END FUNC
 
-FUNC __datetime_parseIso(value AS String) AS DateTime
-  LET n AS Integer = len(value)
-  LET yr AS __datetime_NumRead = __datetime_readNum(value, 0, 4)
-  MUT pos AS Integer = yr.nextPos
-  pos = __datetime_expect(value, pos, "-")
-  LET mo AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
-  pos = __datetime_expect(value, mo.nextPos, "-")
-  LET dy AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
-  pos = dy.nextPos
-  LET sep AS String = strings::mid(value, pos, 1)
-  IF sep <> "T" AND sep <> "t" AND sep <> " " THEN
-    FAIL error(77050003, "datetime: expected date/time separator")
-  END IF
-  pos = pos + 1
-  LET hh AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
-  pos = __datetime_expect(value, hh.nextPos, ":")
-  LET mm AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
-  pos = __datetime_expect(value, mm.nextPos, ":")
-  LET ss AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
-  pos = ss.nextPos
-  MUT nanos AS Integer = 0
-  IF pos < n AND strings::mid(value, pos, 1) = "." THEN
-    pos = pos + 1
-    MUT frac AS Integer = 0
-    MUT digits AS Integer = 0
-    WHILE pos < n AND __datetime_isDigit(strings::mid(value, pos, 1)) AND digits < 9
-      frac = frac * 10 + toInt(strings::mid(value, pos, 1))
-      digits = digits + 1
-      pos = pos + 1
-    END WHILE
-    WHILE digits < 9
-      frac = frac * 10
-      digits = digits + 1
-    END WHILE
-    nanos = frac
-    WHILE pos < n AND __datetime_isDigit(strings::mid(value, pos, 1))
-      pos = pos + 1
-    END WHILE
-  END IF
-  LET off AS __datetime_NumRead = __datetime_readOffset(value, pos)
-  LET d AS Date = Date[yr.value, mo.value, dy.value]
-  LET t AS Time = Time[hh.value, mm.value, ss.value, nanos]
-  RETURN DateTime[d, t, __datetime_fixedOffset1(off.value), off.value]
-END FUNC
+'@@MFB_BODY:parseIso@@
 
 ' ===========================================================================
 ' Calendar-day / month arithmetic (§5.4). Both keep the civil wall-clock and
 ' re-resolve the offset through the value's zone, so they stay DST-aware.
 ' ===========================================================================
 
-FUNC __datetime_addDays(dt AS DateTime, days AS Integer) AS DateTime
-  LET newDays AS Integer = __datetime_daysFromCivil(dt.date.year, dt.date.month, dt.date.day) + days
-  ' plan-64 A3: fixed-offset fast path. A whole-day shift leaves the wall-clock
-  ' time and the zone offset unchanged, and civilFromDays/daysFromCivil are
-  ' inverse on valid civil dates, so for a fixed-offset zone (kind <> 2)
-  ' __datetime_civil's resolveLocal->Instant->inZone round-trip provably returns
-  ' DateTime[civilFromDays(newDays), dt.time, dt.zone, dt.offset]. Build it
-  ' directly to skip that round-trip's Instant/Date/Time transient allocations.
-  ' A system zone (kind = 2) can cross a DST boundary, so it keeps the round-trip.
-  IF dt.zone.kind <> 2 THEN
-    RETURN DateTime[__datetime_civilFromDays(newDays), dt.time, dt.zone, dt.offset]
-  END IF
-  RETURN __datetime_civil(__datetime_civilFromDays(newDays), dt.time, dt.zone)
-END FUNC
+'@@MFB_BODY:addDays@@
 
-FUNC __datetime_addMonths(dt AS DateTime, months AS Integer) AS DateTime
-  LET total AS Integer = dt.date.year * 12 + (dt.date.month - 1) + months
-  LET y AS Integer = __datetime_floorDiv(total, 12)
-  LET m AS Integer = __datetime_floorMod(total, 12) + 1
-  MUT day AS Integer = dt.date.day
-  LET dim AS Integer = __datetime_daysInMonth(y, m)
-  IF day > dim THEN
-    day = dim
-  END IF
-  ' plan-64 A3: fixed-offset fast path (see __datetime_addDays). day is clamped to
-  ' daysInMonth so Date[y, m, day] is a valid civil date; for a fixed-offset zone
-  ' __datetime_civil would round-trip back to the same fields, so build directly.
-  IF dt.zone.kind <> 2 THEN
-    RETURN DateTime[Date[y, m, day], dt.time, dt.zone, dt.offset]
-  END IF
-  RETURN __datetime_civil(Date[y, m, day], dt.time, dt.zone)
-END FUNC
+'@@MFB_BODY:addMonths@@
 
 ' plan-77 D2: the `Z` token of the ISO pattern — "Z" for a zero UTC offset, else
 ' the signed offset label. Matches __datetime_formatToken's `Z`/runLen=1 arm so

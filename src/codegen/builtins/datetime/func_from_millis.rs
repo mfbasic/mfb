@@ -70,12 +70,25 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const FROM_MILLIS: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_fromMillis(millis AS Integer) AS Instant
+  MUT q AS Integer = millis / 1000
+  MUT r AS Integer = millis MOD 1000
+  IF r < 0 THEN
+    r = r + 1000
+    q = q - 1
+  END IF
+  RETURN Instant[q, r * 1000000]
+END FUNC"#;
+
+pub(crate) const FROM_MILLIS: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.fromMillis",
     "fromMillis",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[super::req("millis", super::I)], "Instant")],
+    BODY,
 )
 .with_example(EX);

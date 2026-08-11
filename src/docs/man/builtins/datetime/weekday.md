@@ -34,14 +34,14 @@ against a fixed reference (`floorMod(days + 3, 7)`), so the answer is the
 wall-clock weekday a person reading `dt`'s date in its zone would name. The
 time-of-day fields, the sub-second nanoseconds, and the zone's UTC offset do not
 affect the result; no `Instant` is resolved and no zone table is consulted.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_weekday]]
+[[src/codegen/builtins/datetime/func_weekday.rs:__datetime_weekday]]
 
 Because the computation reads only `dt`'s stored civil date, the same instant
 projected into two different zones can report two different weekdays whenever the
 zones place that instant on opposite sides of midnight. The week is treated as
 starting on Monday, matching the ordering of the `Weekday` enum, so
 `Weekday.Monday` is the first day and `Weekday.Sunday` is the last.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_weekday]]
+[[src/codegen/builtins/datetime/func_weekday.rs:__datetime_weekday]]
 
 `datetime::weekday` is pure: it reads no host state and has no side effects.
 
@@ -49,7 +49,7 @@ starting on Monday, matching the ordering of the `Weekday` enum, so
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `dt` | `DateTime` | The `DateTime` whose civil date is examined. Only the date's year, month, and day are used; the time-of-day, nanoseconds, and zone offset are ignored for the purpose of naming the weekday. [[src/codegen/builtins/datetime/package.mfb:__datetime_weekday]] |
+| `dt` | `DateTime` | The `DateTime` whose civil date is examined. Only the date's year, month, and day are used; the time-of-day, nanoseconds, and zone offset are ignored for the purpose of naming the weekday. [[src/codegen/builtins/datetime/func_weekday.rs:__datetime_weekday]] |
 
 ## Return value
 

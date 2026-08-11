@@ -60,7 +60,27 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const ADD_MONTHS: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_addMonths(dt AS DateTime, months AS Integer) AS DateTime
+  LET total AS Integer = dt.date.year * 12 + (dt.date.month - 1) + months
+  LET y AS Integer = __datetime_floorDiv(total, 12)
+  LET m AS Integer = __datetime_floorMod(total, 12) + 1
+  MUT day AS Integer = dt.date.day
+  LET dim AS Integer = __datetime_daysInMonth(y, m)
+  IF day > dim THEN
+    day = dim
+  END IF
+  ' plan-64 A3: fixed-offset fast path (see __datetime_addDays). day is clamped to
+  ' daysInMonth so Date[y, m, day] is a valid civil date; for a fixed-offset zone
+  ' __datetime_civil would round-trip back to the same fields, so build directly.
+  IF dt.zone.kind <> 2 THEN
+    RETURN DateTime[Date[y, m, day], dt.time, dt.zone, dt.offset]
+  END IF
+  RETURN __datetime_civil(Date[y, m, day], dt.time, dt.zone)
+END FUNC"#;
+
+pub(crate) const ADD_MONTHS: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.addMonths",
     "addMonths",
     INTRO,
@@ -70,5 +90,6 @@ pub(crate) const ADD_MONTHS: BuiltinFunction = BuiltinFunction::custom(
         &[super::req("dt", "DateTime"), super::req("months", super::I)],
         "DateTime",
     )],
+    BODY,
 )
 .with_example(EX);

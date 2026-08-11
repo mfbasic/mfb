@@ -71,7 +71,25 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const TIME: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_time(hour AS Integer, minute AS Integer, second AS Integer, nanos AS Integer) AS Time
+  IF hour < 0 OR hour > 23 THEN
+    FAIL error(77050002, "datetime: hour out of range")
+  END IF
+  IF minute < 0 OR minute > 59 THEN
+    FAIL error(77050002, "datetime: minute out of range")
+  END IF
+  IF second < 0 OR second > 59 THEN
+    FAIL error(77050002, "datetime: second out of range")
+  END IF
+  IF nanos < 0 OR nanos > 999999999 THEN
+    FAIL error(77050002, "datetime: nanos out of range")
+  END IF
+  RETURN Time[hour, minute, second, nanos]
+END FUNC"#;
+
+pub(crate) const TIME: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.time",
     "time",
     INTRO,
@@ -86,5 +104,6 @@ pub(crate) const TIME: BuiltinFunction = BuiltinFunction::custom(
         ],
         "Time",
     )],
+    BODY,
 )
 .with_example(EX);

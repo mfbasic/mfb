@@ -27,7 +27,7 @@ IMPORT datetime
 left to right and emitting, for each position, either a literal character or the
 value selected by a formatting token. The result is a freshly built `String`;
 `dt` is read only and is not modified. An empty pattern yields the empty string.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_format]]
+[[src/codegen/builtins/datetime/func_format.rs:__datetime_format]]
 
 A token is a run of one or more of the same ASCII letter (`A`–`Z` or `a`–`z`);
 the run length selects the width or style of the field. Any character that is
@@ -36,7 +36,7 @@ spaces, dashes, colons, and slashes appear literally. A run of a letter that is
 not one of the recognized tokens below is an error, not literal text: to emit a
 letter literally, wrap it in single quotes (`'T'` produces a literal `T`); to
 emit a literal apostrophe, write two single quotes (`''`).
-[[src/codegen/builtins/datetime/package.mfb:__datetime_isLetter]] [[src/codegen/builtins/datetime/package.mfb:__datetime_format]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_isLetter]] [[src/codegen/builtins/datetime/func_format.rs:__datetime_format]]
 
 The recognized tokens are:
 
@@ -67,14 +67,14 @@ English. The offset tokens read `dt.offset`, the resolved UTC offset carried by
 Inside single quotes every character, including formatting letters, is copied
 literally until the closing quote; an opening quote with no matching close runs
 to the end of `pattern`. `datetime::format` is pure: it reads no host state and
-has no side effects. [[src/codegen/builtins/datetime/package.mfb:__datetime_format]]
+has no side effects. [[src/codegen/builtins/datetime/func_format.rs:__datetime_format]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `dt` | `DateTime` | The moment to render. Its date fields (`year`, `month`, `day`), time fields (`hour`, `minute`, `second`, `nanos`), and resolved UTC `offset` supply the values for the pattern tokens. [[src/codegen/builtins/datetime/mod.rs:FORMAT]] |
-| `pattern` | `String` | The format string: a mix of literal characters and token runs drawn from the table above, with single quotes escaping literal text. An empty pattern produces an empty result. [[src/codegen/builtins/datetime/package.mfb:__datetime_format]] |
+| `pattern` | `String` | The format string: a mix of literal characters and token runs drawn from the table above, with single quotes escaping literal text. An empty pattern produces an empty result. [[src/codegen/builtins/datetime/func_format.rs:__datetime_format]] |
 
 ## Return value
 

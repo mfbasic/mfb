@@ -52,12 +52,19 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const TO_UTC: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_toUtc(at AS Instant) AS DateTime
+  RETURN __datetime_inZone(at, __datetime_utc())
+END FUNC"#;
+
+pub(crate) const TO_UTC: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.toUtc",
     "toUtc",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[super::req("at", "Instant")], "DateTime")],
+    BODY,
 )
 .with_example(EX);

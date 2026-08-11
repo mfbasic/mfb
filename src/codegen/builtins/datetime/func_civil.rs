@@ -65,7 +65,15 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const CIVIL: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_civil(d AS Date, t AS Time, z AS Zone) AS DateTime
+  LET localSeconds AS Integer = __datetime_daysFromCivil(d.year, d.month, d.day) * 86400 + t.hour * 3600 + t.minute * 60 + t.second
+  LET epochSeconds AS Integer = __datetime_resolveLocal(localSeconds, z)
+  RETURN __datetime_inZone(Instant[epochSeconds, t.nanos], z)
+END FUNC"#;
+
+pub(crate) const CIVIL: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.civil",
     "civil",
     INTRO,
@@ -79,5 +87,6 @@ pub(crate) const CIVIL: BuiltinFunction = BuiltinFunction::custom(
         ],
         "DateTime",
     )],
+    BODY,
 )
 .with_example(EX);

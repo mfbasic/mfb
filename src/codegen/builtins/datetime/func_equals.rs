@@ -69,7 +69,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const EQUALS: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_equals(a AS Instant, b AS Instant) AS Boolean
+  RETURN __datetime_compare(a, b) = 0
+END FUNC"#;
+
+pub(crate) const EQUALS: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.equals",
     "equals",
     INTRO,
@@ -79,5 +85,6 @@ pub(crate) const EQUALS: BuiltinFunction = BuiltinFunction::custom(
         &[super::req("a", "Instant"), super::req("b", "Instant")],
         "Boolean",
     )],
+    BODY,
 )
 .with_example(EX);

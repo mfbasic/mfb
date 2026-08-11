@@ -70,7 +70,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const IS_BEFORE: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_isBefore(a AS Instant, b AS Instant) AS Boolean
+  RETURN __datetime_compare(a, b) < 0
+END FUNC"#;
+
+pub(crate) const IS_BEFORE: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.isBefore",
     "isBefore",
     INTRO,
@@ -80,5 +86,6 @@ pub(crate) const IS_BEFORE: BuiltinFunction = BuiltinFunction::custom(
         &[super::req("a", "Instant"), super::req("b", "Instant")],
         "Boolean",
     )],
+    BODY,
 )
 .with_example(EX);

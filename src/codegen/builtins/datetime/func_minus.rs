@@ -59,7 +59,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const MINUS: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_minus(a AS Duration, b AS Duration) AS Duration
+  RETURN __datetime_normDuration(a.seconds - b.seconds, a.nanos - b.nanos)
+END FUNC"#;
+
+pub(crate) const MINUS: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.minus",
     "minus",
     INTRO,
@@ -69,5 +75,6 @@ pub(crate) const MINUS: BuiltinFunction = BuiltinFunction::custom(
         &[super::req("a", "Duration"), super::req("b", "Duration")],
         "Duration",
     )],
+    BODY,
 )
 .with_example(EX);

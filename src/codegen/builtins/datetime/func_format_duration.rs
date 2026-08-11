@@ -68,12 +68,34 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const FORMAT_DURATION: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_formatDuration(d AS Duration) AS String
+  MUT totalMs AS Integer = d.seconds * 1000 + d.nanos / 1000000
+  MUT sign AS String = ""
+  IF totalMs < 0 THEN
+    sign = "-"
+    totalMs = -totalMs
+  END IF
+  LET days AS Integer = totalMs / 86400000
+  LET hh AS Integer = (totalMs / 3600000) MOD 24
+  LET mm AS Integer = (totalMs / 60000) MOD 60
+  LET ss AS Integer = (totalMs / 1000) MOD 60
+  LET ms AS Integer = totalMs MOD 1000
+  MUT out AS String = sign
+  IF days > 0 THEN
+    out = out & toString(days) & "d "
+  END IF
+  RETURN out & __datetime_pad2(hh) & ":" & __datetime_pad2(mm) & ":" & __datetime_pad2(ss) & "." & strings::padLeft(toString(ms), 3, "0")
+END FUNC"#;
+
+pub(crate) const FORMAT_DURATION: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.formatDuration",
     "formatDuration",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[super::req("d", "Duration")], "String")],
+    BODY,
 )
 .with_example(EX);

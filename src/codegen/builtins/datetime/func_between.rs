@@ -72,7 +72,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const BETWEEN: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_between(start AS Instant, finish AS Instant) AS Duration
+  RETURN __datetime_normDuration(finish.seconds - start.seconds, finish.nanos - start.nanos)
+END FUNC"#;
+
+pub(crate) const BETWEEN: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.between",
     "between",
     INTRO,
@@ -85,5 +91,6 @@ pub(crate) const BETWEEN: BuiltinFunction = BuiltinFunction::custom(
         ],
         "Duration",
     )],
+    BODY,
 )
 .with_example(EX);

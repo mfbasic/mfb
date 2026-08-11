@@ -68,12 +68,19 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const LOCAL: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_local AS Zone
+  RETURN Zone[0, 2, "Local"]
+END FUNC"#;
+
+pub(crate) const LOCAL: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.local",
     "local",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[], "Zone")],
+    BODY,
 )
 .with_example(EX);

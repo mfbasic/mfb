@@ -51,12 +51,12 @@ share a pattern mini-language: a pattern is literal text with token runs, where 
 run of the same letter is one token whose length selects width or style, and
 literal letters are wrapped in single quotes. `format` renders a `DateTime`,
 `parse` reads one back, and `toIso`/`parseIso` handle RFC 3339 / ISO 8601 with a
-required offset. [[src/codegen/builtins/datetime/package.mfb:__datetime_format]]
+required offset. [[src/codegen/builtins/datetime/func_format.rs:__datetime_format]]
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | raised by `date`, `time`, `instant`, `duration`, and `fixedOffset` when a component field (month, day, hour, minute, second, nanos, or offset magnitude) is outside its valid range [[src/codegen/builtins/datetime/package.mfb:__datetime_date]] |
-| `77050003` | `ErrInvalidFormat` | raised by `format` on an unknown pattern token, and by `parse` and `parseIso` when the input does not match the pattern, a required field or offset is missing, or a month name is unrecognized [[src/codegen/builtins/datetime/package.mfb:__datetime_format]] |
-| `77050010` | `ErrOverflow` | raised by `add`, `subtract`, `between`, `addDays`, `addMonths`, `plus`, `minus`, `negate`, `toMillis`, `toNanos`, and other checked arithmetic when a value falls outside the `Integer` range [[src/codegen/builtins/datetime/package.mfb:__datetime_toMillis]] |
+| `77050002` | `ErrInvalidArgument` | raised by `date`, `time`, `instant`, `duration`, and `fixedOffset` when a component field (month, day, hour, minute, second, nanos, or offset magnitude) is outside its valid range [[src/codegen/builtins/datetime/func_date.rs:__datetime_date]] |
+| `77050003` | `ErrInvalidFormat` | raised by `format` on an unknown pattern token, and by `parse` and `parseIso` when the input does not match the pattern, a required field or offset is missing, or a month name is unrecognized [[src/codegen/builtins/datetime/func_format.rs:__datetime_format]] |
+| `77050010` | `ErrOverflow` | raised by `add`, `subtract`, `between`, `addDays`, `addMonths`, `plus`, `minus`, `negate`, `toMillis`, `toNanos`, and other checked arithmetic when a value falls outside the `Integer` range [[src/codegen/builtins/datetime/func_to_millis.rs:__datetime_toMillis]] |

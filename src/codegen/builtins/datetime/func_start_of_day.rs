@@ -58,12 +58,19 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const START_OF_DAY: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_startOfDay(dt AS DateTime) AS DateTime
+  RETURN __datetime_civil(dt.date, Time[0, 0, 0, 0], dt.zone)
+END FUNC"#;
+
+pub(crate) const START_OF_DAY: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.startOfDay",
     "startOfDay",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[super::req("dt", "DateTime")], "DateTime")],
+    BODY,
 )
 .with_example(EX);

@@ -28,7 +28,7 @@ from combining two spans of elapsed physical time. It adds the two `seconds`
 fields and the two `nanos` fields independently, then normalizes the sum so the
 stored `nanos` lands in the range `0 .. 999_999_999`, carrying any whole seconds
 embedded in the nanosecond sum into the `seconds` field.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_plus]]
+[[src/codegen/builtins/datetime/func_plus.rs:__datetime_plus]]
 
 Because both operands are signed `Duration`s, `plus` handles spans of either
 direction: adding a negative `Duration` shortens the total, and adding two

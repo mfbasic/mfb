@@ -69,7 +69,19 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const IN_ZONE: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_inZone(at AS Instant, z AS Zone) AS DateTime
+  LET off AS Integer = __datetime_offsetAt(z, at)
+  LET localSeconds AS Integer = at.seconds + off
+  LET days AS Integer = __datetime_floorDiv(localSeconds, 86400)
+  LET secOfDay AS Integer = __datetime_floorMod(localSeconds, 86400)
+  LET date AS Date = __datetime_civilFromDays(days)
+  LET time AS Time = Time[secOfDay / 3600, (secOfDay / 60) MOD 60, secOfDay MOD 60, at.nanos]
+  RETURN DateTime[date, time, z, off]
+END FUNC"#;
+
+pub(crate) const IN_ZONE: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.inZone",
     "inZone",
     INTRO,
@@ -79,5 +91,6 @@ pub(crate) const IN_ZONE: BuiltinFunction = BuiltinFunction::custom(
         &[super::req("at", "Instant"), super::req("zone", "Zone")],
         "DateTime",
     )],
+    BODY,
 )
 .with_example(EX);

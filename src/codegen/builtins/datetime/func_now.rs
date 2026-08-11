@@ -52,12 +52,20 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const NOW: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_now AS Instant
+  LET ns AS Integer = datetime::nowNanos()
+  RETURN __datetime_normInstant(ns / 1000000000, ns MOD 1000000000)
+END FUNC"#;
+
+pub(crate) const NOW: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.now",
     "now",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[], "Instant")],
+    BODY,
 )
 .with_example(EX);

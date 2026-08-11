@@ -54,12 +54,19 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const TO_NANOS: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_toNanos(at AS Instant) AS Integer
+  RETURN at.seconds * 1000000000 + at.nanos
+END FUNC"#;
+
+pub(crate) const TO_NANOS: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.toNanos",
     "toNanos",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[super::req("at", "Instant")], super::I)],
+    BODY,
 )
 .with_example(EX);

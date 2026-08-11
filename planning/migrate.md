@@ -3,16 +3,32 @@
 Last updated: 2026-08-10
 
 This is a **reusable playbook**, not a single-package plan. Substitute `<pkg>`
-(e.g. `csv`, `strings`, `math`) throughout. It describes the **full** migration —
+(e.g. `strings`, `math`, `net`) throughout. It describes the **full** migration —
 the same depth `collections` and `encoding` received — so that after it runs, the
 package is entirely self-describing from the registry and **no package-specific
 code remains in `src/target`**.
 
-Two migrations have already run this playbook; read them as worked examples:
+Several migrations have run this playbook; read them as worked examples:
 - `src/codegen/builtins/collections/` — source generics **and** native fast paths
   (`Implementation::Mfb` + `Mfb.fast_path`, plus `common/` lowering).
 - `src/codegen/builtins/encoding/` — pure MFBASIC source (`Implementation::Mfb`,
   every `fast_path` `None`, no `common/`).
+- `src/codegen/builtins/{csv,json}/` — pure source with a resolver + record/opaque
+  **types**; concrete rewrite via `IMPL_NAMES` (json's `JsonResolver`; csv's
+  irregular `readRow` → `__csv_next`).
+- `src/codegen/builtins/regex/` — the **multi-file** source case: `assembled_source`
+  splices member bodies into the engine, then appends shared Unicode tables that
+  live in the neutral `src/codegen/unicode/` (also `include_str!`d by `strings`).
+- `src/codegen/builtins/datetime/` — a **hybrid**: `Custom` members whose source
+  bodies stay in `package.mfb` (arity one-to-many, so `Mfb` does not fit) **plus**
+  three OS-seam runtime intrinsics whose arch-neutral syscall emission moved to
+  `native.rs`.
+
+**One rule that overrides convenience: one `func_*.rs` per member, always** — even
+a `Custom`, doc-only member with no body or per-member lowering gets its own file
+(its intro/description/examples are content, and consistency is the standard). Do
+not keep the member table inline in `mod.rs` because "there's nothing but docs to
+co-locate"; that is a rationalization, not an exemption.
 
 Read `.ai/collections.md`, `.ai/resources-packages.md`, `.ai/codegen-invariants.md`,
 and the memory note **`mfb-package-rewrite-paths`** before starting.

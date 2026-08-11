@@ -75,7 +75,42 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const FORMAT: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_format(dt AS DateTime, pattern AS String) AS String
+  LET n AS Integer = len(pattern)
+  MUT out AS String = ""
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET ch AS String = strings::mid(pattern, i, 1)
+    IF ch = "'" THEN
+      IF i + 1 < n AND strings::mid(pattern, i + 1, 1) = "'" THEN
+        out = out & "'"
+        i = i + 2
+      ELSE
+        MUT j AS Integer = i + 1
+        WHILE j < n AND strings::mid(pattern, j, 1) <> "'"
+          out = out & strings::mid(pattern, j, 1)
+          j = j + 1
+        END WHILE
+        i = j + 1
+      END IF
+    ELSEIF __datetime_isLetter(ch) THEN
+      MUT runLen AS Integer = 1
+      WHILE i + runLen < n AND strings::mid(pattern, i + runLen, 1) = ch
+        runLen = runLen + 1
+      END WHILE
+      out = out & __datetime_formatToken(dt, ch, runLen)
+      i = i + runLen
+    ELSE
+      out = out & ch
+      i = i + 1
+    END IF
+  END WHILE
+  RETURN out
+END FUNC"#;
+
+pub(crate) const FORMAT: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.format",
     "format",
     INTRO,
@@ -88,5 +123,6 @@ pub(crate) const FORMAT: BuiltinFunction = BuiltinFunction::custom(
         ],
         "String",
     )],
+    BODY,
 )
 .with_example(EX);

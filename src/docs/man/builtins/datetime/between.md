@@ -36,7 +36,7 @@ borrow is carried into the `seconds` field. A negative nanosecond difference
 borrows a whole second during normalization, so the `seconds` field of the result
 is the floored whole-second component of the true difference and the `nanos` field
 is the non-negative sub-second remainder.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_between]]
+[[src/codegen/builtins/datetime/func_between.rs:__datetime_between]]
 [[src/codegen/builtins/datetime/package.mfb:__datetime_normDuration]]
 
 Both instants are points on the same Unix-epoch, leap-second-free UTC timeline, so

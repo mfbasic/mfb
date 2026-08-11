@@ -27,20 +27,20 @@ IMPORT datetime
 given `year` under the proleptic-Gregorian calendar. The result is `31` for
 January, March, May, July, August, October, and December; `30` for April, June,
 September, and November; and `28` or `29` for February depending on whether
-`year` is a leap year. [[src/codegen/builtins/datetime/package.mfb:__datetime_daysInMonth]]
+`year` is a leap year. [[src/codegen/builtins/datetime/func_days_in_month.rs:__datetime_daysInMonth]]
 
 February's length is decided by applying the leap-year rule to `year`: a leap
 February has `29` days, otherwise it has `28`. The leap rule is purely
 arithmetic on the year number (divisible by `4`, except century years that are
 not divisible by `400`), so it extends indefinitely into the past and future and
 treats zero and negative year numbers by the same divisibility test.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_isLeapYear]]
+[[src/codegen/builtins/datetime/func_is_leap_year.rs:__datetime_isLeapYear]]
 
 Only February consults `year`; for every other month the result depends solely
 on `month`, and `year` is ignored. The `month` argument is not range-checked:
 any value that is not `2`, `4`, `6`, `9`, or `11` yields `31`, so out-of-range
 month numbers do not raise an error but return `31` by falling through to the
-default case. [[src/codegen/builtins/datetime/package.mfb:__datetime_daysInMonth]]
+default case. [[src/codegen/builtins/datetime/func_days_in_month.rs:__datetime_daysInMonth]]
 
 The function reads no time zone, `Instant`, or current clock value and has no
 side effects.

@@ -29,7 +29,7 @@ the UTC timeline by the span `by`. It adds the two `seconds` fields and the two
 lands in the range `0 .. 999_999_999`, carrying any whole seconds embedded in
 the nanosecond sum into the `seconds` field. The result is a point on the same
 Unix-epoch, leap-second-free timeline as `at`.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_add]]
+[[src/codegen/builtins/datetime/func_add.rs:__datetime_add]]
 
 Because `by` is a signed `Duration`, `add` covers both directions on the
 timeline: a positive span moves the `Instant` later and a negative span moves it

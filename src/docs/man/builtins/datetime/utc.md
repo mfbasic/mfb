@@ -29,7 +29,7 @@ the literal string `"UTC"`. The returned `Zone` carries a zone kind of
 `ZoneKind::Utc` (the first `ZoneKind` variant, tag `0`), marking it as the
 canonical UTC zone rather than an arbitrary fixed offset built with
 `datetime::fixedOffset` (kind `ZoneKind::FixedOffset`).
-[[src/codegen/builtins/datetime/package.mfb:__datetime_utc]] [[src/codegen/builtins/datetime/package.mfb:ZoneKind]]
+[[src/codegen/builtins/datetime/func_utc.rs:__datetime_utc]] [[src/codegen/builtins/datetime/package.mfb:ZoneKind]]
 
 A `Zone` is the bridge between the absolute UTC timeline (an `Instant`) and the
 human-readable civil fields of a `DateTime`. Project an `Instant` through this
@@ -55,7 +55,7 @@ environment. [[src/codegen/builtins/datetime/mod.rs:DATETIME]]
 
 | Type | Description |
 | --- | --- |
-| `Zone` | The UTC zone: a `Zone` with a constant offset of zero seconds, a zone kind of `ZoneKind::Utc` (tag `0`), and the label `"UTC"`. The same value is returned on every call. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] [[src/codegen/builtins/datetime/package.mfb:__datetime_utc]] |
+| `Zone` | The UTC zone: a `Zone` with a constant offset of zero seconds, a zone kind of `ZoneKind::Utc` (tag `0`), and the label `"UTC"`. The same value is returned on every call. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] [[src/codegen/builtins/datetime/func_utc.rs:__datetime_utc]] |
 
 ## Errors
 

@@ -30,7 +30,7 @@ result places them behind UTC (west), and zero means the zone coincides with
 UTC at that instant. This is the exact quantity `datetime::inZone` adds to an
 `Instant`'s seconds-since-epoch to produce the civil fields of a `DateTime`, so
 `offsetAt` exposes that adjustment on its own.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_inZone]]
+[[src/codegen/builtins/datetime/func_in_zone.rs:__datetime_inZone]]
 
 How the offset is determined depends on the zone's kind. For a UTC zone
 (`ZoneKind::Utc`) and a fixed-offset zone (`ZoneKind::FixedOffset`, built with
@@ -43,12 +43,12 @@ the host zone table and is therefore DST-correct, returning the standard-time
 offset for instants outside daylight saving and the shifted offset for instants
 within it. Two calls with the same local zone but instants on opposite sides of
 a DST transition can therefore return different values.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_offsetAt]] [[src/codegen/builtins/datetime/package.mfb:ZoneKind]]
+[[src/codegen/builtins/datetime/func_offset_at.rs:__datetime_offsetAt]] [[src/codegen/builtins/datetime/package.mfb:ZoneKind]]
 
 Only the `seconds` field of `at` participates; the sub-second `nanos` field is
 ignored. The function reads no host state for UTC and fixed zones (those are
 pure); for a local zone it reads the host's time-zone configuration through the
-`datetime::localOffset` OS intrinsic. [[src/codegen/builtins/datetime/package.mfb:__datetime_offsetAt]]
+`datetime::localOffset` OS intrinsic. [[src/codegen/builtins/datetime/func_offset_at.rs:__datetime_offsetAt]]
 
 ## Parameters
 

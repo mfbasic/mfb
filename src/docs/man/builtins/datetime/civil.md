@@ -30,7 +30,7 @@ resulting `Instant` back through `zone`. Because the result is the projection of
 a concrete `Instant`, it round-trips: `datetime::resolve` on the returned
 `DateTime` recovers the same `Instant`, and that `Instant` projected through
 `zone` with `datetime::inZone` reproduces the same `DateTime` fields.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_civil]]
+[[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]]
 
 The `year`, `month`, and `day` of `date` and the `hour`, `minute`, and `second`
 of `time` are combined into a single second count (`daysFromCivil * 86400 +
@@ -40,7 +40,7 @@ as a civil (zone-local) time. The offset for that moment is then resolved from
 `datetime::fixedOffset`) the offset is constant; for the host's local zone
 (`datetime::local`) it is resolved from the platform's zone table at that
 instant, so the result is daylight-saving correct.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_civil]]
+[[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]]
 
 When the named local time does not exist or is not unique because of a
 daylight-saving transition, `civil` resolves it deterministically. It probes the
@@ -55,15 +55,15 @@ The sub-second `nanos` of `time` are carried through unchanged into the
 resulting `Instant` and `DateTime`; only the whole-second civil fields
 participate in offset resolution. `civil` is pure: beyond what `zone` itself
 resolves it reads no host state and has no side effects.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_civil]]
+[[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `date` | `Date` | The calendar date (`year`, `month`, `day`) of the wall-clock moment, interpreted as a local date in `zone`. [[src/codegen/builtins/datetime/mod.rs:CIVIL]] |
-| `time` | `Time` | The wall-clock time of day (`hour`, `minute`, `second`, `nanos`) of the moment, interpreted as a local time in `zone`. The `nanos` field is preserved verbatim in the result. [[src/codegen/builtins/datetime/package.mfb:__datetime_civil]] |
-| `zone` | `Zone` | The zone in which `date` and `time` are read as local civil fields and against which the UTC offset is resolved. May be a fixed-offset zone (`datetime::utc`, `datetime::fixedOffset`) or the host's local zone (`datetime::local`). [[src/codegen/builtins/datetime/package.mfb:__datetime_offsetAt]] |
+| `time` | `Time` | The wall-clock time of day (`hour`, `minute`, `second`, `nanos`) of the moment, interpreted as a local time in `zone`. The `nanos` field is preserved verbatim in the result. [[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]] |
+| `zone` | `Zone` | The zone in which `date` and `time` are read as local civil fields and against which the UTC offset is resolved. May be a fixed-offset zone (`datetime::utc`, `datetime::fixedOffset`) or the host's local zone (`datetime::local`). [[src/codegen/builtins/datetime/func_offset_at.rs:__datetime_offsetAt]] |
 
 ## Return value
 
@@ -75,7 +75,7 @@ resolves it reads no host state and has no side effects.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The civil-to-seconds arithmetic (`daysFromCivil(...) * 86400 + ...`) or the offset resolution produces a value outside the signed `Integer` range, which can occur only for a `date`/`time` at the extreme edge of the representable timeline. [[src/codegen/builtins/datetime/package.mfb:__datetime_civil]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | The civil-to-seconds arithmetic (`daysFromCivil(...) * 86400 + ...`) or the offset resolution produces a value outside the signed `Integer` range, which can occur only for a `date`/`time` at the extreme edge of the representable timeline. [[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]] [[src/builtins/errorcode.rs:ErrOverflow]] |
 
 ## Examples
 

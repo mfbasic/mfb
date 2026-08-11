@@ -56,7 +56,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const SUBTRACT: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_subtract(at AS Instant, by AS Duration) AS Instant
+  RETURN __datetime_normInstant(at.seconds - by.seconds, at.nanos - by.nanos)
+END FUNC"#;
+
+pub(crate) const SUBTRACT: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.subtract",
     "subtract",
     INTRO,
@@ -66,5 +72,6 @@ pub(crate) const SUBTRACT: BuiltinFunction = BuiltinFunction::custom(
         &[super::req("at", "Instant"), super::req("by", "Duration")],
         "Instant",
     )],
+    BODY,
 )
 .with_example(EX);

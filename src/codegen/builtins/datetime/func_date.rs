@@ -59,7 +59,19 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const DATE: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_date(year AS Integer, month AS Integer, day AS Integer) AS Date
+  IF month < 1 OR month > 12 THEN
+    FAIL error(77050002, "datetime: month out of range")
+  END IF
+  IF day < 1 OR day > __datetime_daysInMonth(year, month) THEN
+    FAIL error(77050002, "datetime: day out of range for month")
+  END IF
+  RETURN Date[year, month, day]
+END FUNC"#;
+
+pub(crate) const DATE: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.date",
     "date",
     INTRO,
@@ -73,5 +85,6 @@ pub(crate) const DATE: BuiltinFunction = BuiltinFunction::custom(
         ],
         "Date",
     )],
+    BODY,
 )
 .with_example(EX);

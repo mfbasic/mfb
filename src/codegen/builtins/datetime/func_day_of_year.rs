@@ -57,12 +57,21 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const DAY_OF_YEAR: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_dayOfYear(dt AS DateTime) AS Integer
+  LET here AS Integer = __datetime_daysFromCivil(dt.date.year, dt.date.month, dt.date.day)
+  LET start AS Integer = __datetime_daysFromCivil(dt.date.year, 1, 1)
+  RETURN here - start + 1
+END FUNC"#;
+
+pub(crate) const DAY_OF_YEAR: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.dayOfYear",
     "dayOfYear",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[super::req("dt", "DateTime")], super::I)],
+    BODY,
 )
 .with_example(EX);

@@ -71,7 +71,22 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const DAYS_IN_MONTH: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_daysInMonth(year AS Integer, month AS Integer) AS Integer
+  IF month = 2 THEN
+    IF __datetime_isLeapYear(year) THEN
+      RETURN 29
+    END IF
+    RETURN 28
+  END IF
+  IF month = 4 OR month = 6 OR month = 9 OR month = 11 THEN
+    RETURN 30
+  END IF
+  RETURN 31
+END FUNC"#;
+
+pub(crate) const DAYS_IN_MONTH: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.daysInMonth",
     "daysInMonth",
     INTRO,
@@ -81,5 +96,6 @@ pub(crate) const DAYS_IN_MONTH: BuiltinFunction = BuiltinFunction::custom(
         &[super::req("year", super::I), super::req("month", super::I)],
         super::I,
     )],
+    BODY,
 )
 .with_example(EX);

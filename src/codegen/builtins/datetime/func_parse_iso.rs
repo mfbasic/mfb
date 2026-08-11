@@ -83,12 +83,60 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const PARSE_ISO: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_parseIso(value AS String) AS DateTime
+  LET n AS Integer = len(value)
+  LET yr AS __datetime_NumRead = __datetime_readNum(value, 0, 4)
+  MUT pos AS Integer = yr.nextPos
+  pos = __datetime_expect(value, pos, "-")
+  LET mo AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
+  pos = __datetime_expect(value, mo.nextPos, "-")
+  LET dy AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
+  pos = dy.nextPos
+  LET sep AS String = strings::mid(value, pos, 1)
+  IF sep <> "T" AND sep <> "t" AND sep <> " " THEN
+    FAIL error(77050003, "datetime: expected date/time separator")
+  END IF
+  pos = pos + 1
+  LET hh AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
+  pos = __datetime_expect(value, hh.nextPos, ":")
+  LET mm AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
+  pos = __datetime_expect(value, mm.nextPos, ":")
+  LET ss AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
+  pos = ss.nextPos
+  MUT nanos AS Integer = 0
+  IF pos < n AND strings::mid(value, pos, 1) = "." THEN
+    pos = pos + 1
+    MUT frac AS Integer = 0
+    MUT digits AS Integer = 0
+    WHILE pos < n AND __datetime_isDigit(strings::mid(value, pos, 1)) AND digits < 9
+      frac = frac * 10 + toInt(strings::mid(value, pos, 1))
+      digits = digits + 1
+      pos = pos + 1
+    END WHILE
+    WHILE digits < 9
+      frac = frac * 10
+      digits = digits + 1
+    END WHILE
+    nanos = frac
+    WHILE pos < n AND __datetime_isDigit(strings::mid(value, pos, 1))
+      pos = pos + 1
+    END WHILE
+  END IF
+  LET off AS __datetime_NumRead = __datetime_readOffset(value, pos)
+  LET d AS Date = Date[yr.value, mo.value, dy.value]
+  LET t AS Time = Time[hh.value, mm.value, ss.value, nanos]
+  RETURN DateTime[d, t, __datetime_fixedOffset1(off.value), off.value]
+END FUNC"#;
+
+pub(crate) const PARSE_ISO: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.parseIso",
     "parseIso",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[super::req("value", "String")], "DateTime")],
+    BODY,
 )
 .with_example(EX);

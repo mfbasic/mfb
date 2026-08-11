@@ -33,8 +33,8 @@ instant's seconds-since-epoch to obtain a local second count, floor-divides that
 into whole days and the second-of-day, converts the day count to a civil
 year/month/day with the proleptic Gregorian calendar, and decomposes the
 second-of-day into hour, minute, and second.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_toLocal]]
-[[src/codegen/builtins/datetime/package.mfb:__datetime_inZone]]
+[[src/codegen/builtins/datetime/func_to_local.rs:__datetime_toLocal]]
+[[src/codegen/builtins/datetime/func_in_zone.rs:__datetime_inZone]]
 
 The returned `DateTime` carries four things: the civil date, the civil time, the
 local zone, and the resolved offset. Because the resolved offset is pinned onto
@@ -43,13 +43,13 @@ the result, the `DateTime` round-trips back to the original instant via
 `nanos` field is preserved verbatim into the time's `nanos` field; only the
 `seconds` field participates in the offset and date/time computation, so an
 instant before the Unix epoch (negative `seconds`) projects correctly.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_offsetAt]]
+[[src/codegen/builtins/datetime/func_offset_at.rs:__datetime_offsetAt]]
 
 Unlike `datetime::toUtc`, `datetime::toLocal` is not pure: it reads the host's
 time-zone configuration to resolve the offset, so the same instant can produce a
 different civil `DateTime` on a host configured for a different zone or under a
 different DST rule.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_local]]
+[[src/codegen/builtins/datetime/func_local.rs:__datetime_local]]
 
 ## Parameters
 
@@ -67,7 +67,7 @@ different DST rule.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | Adding the resolved local offset to the instant's seconds-since-epoch produces a value outside the signed `Integer` range, which can occur only for an instant at the extreme edge of the timeline. [[src/codegen/builtins/datetime/package.mfb:__datetime_inZone]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | Adding the resolved local offset to the instant's seconds-since-epoch produces a value outside the signed `Integer` range, which can occur only for an instant at the extreme edge of the timeline. [[src/codegen/builtins/datetime/func_in_zone.rs:__datetime_inZone]] [[src/builtins/errorcode.rs:ErrOverflow]] |
 
 ## Examples
 

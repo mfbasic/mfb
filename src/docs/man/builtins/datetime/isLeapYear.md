@@ -28,14 +28,14 @@ reports whether that year has 366 days. A year is a leap year when it is
 divisible by 4, except for century years (those divisible by 100), which are
 leap years only when they are also divisible by 400. So `2000` and `2024` are
 leap years, while `1900` and `2023` are not.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_isLeapYear]]
+[[src/codegen/builtins/datetime/func_is_leap_year.rs:__datetime_isLeapYear]]
 
 The rule is purely arithmetic on the year number: no time zone, `Instant`, or
 current clock value is consulted. The proleptic Gregorian calendar extends the
 same rule indefinitely into the past and future, so years before the calendar's
 historical adoption and negative (BCE-style) year numbers are evaluated by the
 identical divisibility test on `4`, `100`, and `400`. The function reads no host
-state and has no side effects. [[src/codegen/builtins/datetime/package.mfb:__datetime_isLeapYear]]
+state and has no side effects. [[src/codegen/builtins/datetime/func_is_leap_year.rs:__datetime_isLeapYear]]
 
 ## Parameters
 

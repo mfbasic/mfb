@@ -27,7 +27,7 @@ IMPORT datetime
 leap-second-free) from a single count of whole milliseconds measured from
 `1970-01-01T00:00:00Z`. A `millis` of `0` yields the epoch itself, positive
 values select instants after the epoch, and negative values select instants
-before it. [[src/codegen/builtins/datetime/package.mfb:__datetime_fromMillis]]
+before it. [[src/codegen/builtins/datetime/func_from_millis.rs:__datetime_fromMillis]]
 
 The count is split into a whole-second `seconds` field and a sub-second `nanos`
 field by *floor* division, so the `nanos` remainder is always non-negative. The
@@ -41,7 +41,7 @@ nanoseconds (`remainder * 1000000`), always in `0..999000000`. A `millis` of
 millisecond before the epoch. Because the input carries only millisecond
 resolution, the `nanos` field is always a whole number of milliseconds — its
 microsecond and nanosecond digits are zero.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_fromMillis]]
+[[src/codegen/builtins/datetime/func_from_millis.rs:__datetime_fromMillis]]
 
 The arithmetic cannot overflow: dividing by `1000` only reduces the magnitude of
 the `seconds` field, and the scaled remainder never exceeds `999000000`, so the

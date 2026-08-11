@@ -27,7 +27,7 @@ IMPORT datetime
 when `a` is before `b`, `0` when the two instants name the same point, and `1`
 when `a` is after `b`. The result is the standard comparator value suitable for
 driving a sort or a branch on ordering, and it never returns any value other
-than `-1`, `0`, or `1`. [[src/codegen/builtins/datetime/package.mfb:__datetime_compare]]
+than `-1`, `0`, or `1`. [[src/codegen/builtins/datetime/func_compare.rs:__datetime_compare]]
 
 The comparison is performed field by field. The `seconds` fields are compared
 first: if `a.seconds` is less than `b.seconds` the result is `-1`, and if it is

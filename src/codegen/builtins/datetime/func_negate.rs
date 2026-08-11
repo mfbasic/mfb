@@ -50,12 +50,19 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const NEGATE: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_negate(d AS Duration) AS Duration
+  RETURN __datetime_normDuration(-d.seconds, -d.nanos)
+END FUNC"#;
+
+pub(crate) const NEGATE: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.negate",
     "negate",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[super::req("d", "Duration")], "Duration")],
+    BODY,
 )
 .with_example(EX);

@@ -37,10 +37,10 @@ have identical representations. A `DateTime` composes a `Date`, a `Time`, and th
 `Zone` it was projected through, and additionally caches the resolved UTC `offset`
 so it round-trips back to its `Instant` without re-consulting the zone. Zones are
 distinguished by their `kind` field, which takes the values of the exported
-`ZoneKind` enum (`Utc` = 0, `FixedOffset` = 1, `Local` = 2). [[src/codegen/builtins/datetime/package.mfb:__datetime_offsetAt]]
+`ZoneKind` enum (`Utc` = 0, `FixedOffset` = 1, `Local` = 2). [[src/codegen/builtins/datetime/func_offset_at.rs:__datetime_offsetAt]]
 
 Alongside these records the package exports three enums — `ZoneKind`, `Weekday`,
-and `Month` — which carry no fields and so are not tabulated here. [[src/codegen/builtins/datetime/package.mfb:__datetime_weekday]]
+and `Month` — which carry no fields and so are not tabulated here. [[src/codegen/builtins/datetime/func_weekday.rs:__datetime_weekday]]
 
 ## Types
 
@@ -70,7 +70,7 @@ A civil calendar date (proleptic Gregorian), with no time or zone.
 | --- | --- | --- |
 | `year` | `Integer` | Proleptic Gregorian year (e.g. `2026`); may be negative for years before 1 CE. |
 | `month` | `Integer` | Month of the year, `1 .. 12` (January = 1). |
-| `day` | `Integer` | Day of the month, `1 .. daysInMonth(year, month)`. [[src/codegen/builtins/datetime/package.mfb:__datetime_date]] |
+| `day` | `Integer` | Day of the month, `1 .. daysInMonth(year, month)`. [[src/codegen/builtins/datetime/func_date.rs:__datetime_date]] |
 
 ### datetime::Time
 
@@ -81,7 +81,7 @@ A civil wall-clock time of day, with no date or zone.
 | `hour` | `Integer` | Hour of the day, `0 .. 23`. |
 | `minute` | `Integer` | Minute of the hour, `0 .. 59`. |
 | `second` | `Integer` | Second of the minute, `0 .. 59` (no leap seconds). |
-| `nanos` | `Integer` | Sub-second nanoseconds, `0 .. 999_999_999`. [[src/codegen/builtins/datetime/package.mfb:__datetime_time]] |
+| `nanos` | `Integer` | Sub-second nanoseconds, `0 .. 999_999_999`. [[src/codegen/builtins/datetime/func_time.rs:__datetime_time]] |
 
 ### datetime::Zone
 
@@ -102,7 +102,7 @@ An instant projected into a zone: civil date and time plus the zone and its reso
 | `date` | `Date` | The civil date in the projecting zone. |
 | `time` | `Time` | The civil wall-clock time in the projecting zone. |
 | `zone` | `Zone` | The zone this civil value was projected through. |
-| `offset` | `Integer` | The resolved UTC offset in seconds at this instant, so the value round-trips back to its `Instant` without re-consulting the zone. [[src/codegen/builtins/datetime/package.mfb:__datetime_inZone]] |
+| `offset` | `Integer` | The resolved UTC offset in seconds at this instant, so the value round-trips back to its `Instant` without re-consulting the zone. [[src/codegen/builtins/datetime/func_in_zone.rs:__datetime_inZone]] |
 
 ## See also
 

@@ -55,7 +55,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const ADD: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_add(at AS Instant, by AS Duration) AS Instant
+  RETURN __datetime_normInstant(at.seconds + by.seconds, at.nanos + by.nanos)
+END FUNC"#;
+
+pub(crate) const ADD: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.add",
     "add",
     INTRO,
@@ -65,5 +71,6 @@ pub(crate) const ADD: BuiltinFunction = BuiltinFunction::custom(
         &[super::req("at", "Instant"), super::req("by", "Duration")],
         "Instant",
     )],
+    BODY,
 )
 .with_example(EX);

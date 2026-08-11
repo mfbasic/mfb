@@ -669,17 +669,39 @@ pub(crate) fn is_datetime_runtime_call(name: &str) -> bool {
     )
 }
 
-/// Parses the built-in `datetime` package source. Unlike the source packages that
-/// inline member bodies (`Implementation::Mfb`), datetime's members are `Custom`
-/// with an arity-keyed one-to-many mapping onto `__datetime_*<n>` bodies, so the
-/// bodies stay in the `package.mfb` companion (parsed verbatim). Synthetic path
-/// label preserved byte-for-byte from the pre-migration `package_source_glue!`.
+/// Parses the built-in `datetime` package source. The 37 single-body members carry
+/// their `FUNC __datetime_<slug> ... END FUNC` body in their `func_*.rs`
+/// (`Implementation::Mfb`), spliced in by [`assembled_source`]; the 4 arity members
+/// (`instant`/`duration`/`fixedOffset`/`parse`, which map one-to-many onto
+/// `__datetime_*<n>` bodies that `Mfb` cannot hold) and every private helper stay
+/// in `package.mfb`. Synthetic path label preserved byte-for-byte from the
+/// pre-migration `package_source_glue!`.
 pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
     crate::ast::parse_source_internal(
         std::path::Path::new("<builtin-datetime>"),
         "builtins/datetime.mfb",
-        include_str!("package.mfb"),
+        &assembled_source(),
     )
+}
+
+/// The `datetime` package source: `package.mfb` (arity-member bodies + private
+/// helpers) with each `Implementation::Mfb` member's body spliced in for its
+/// `'@@MFB_BODY:<slug>@@` marker at the body's original position, keeping every
+/// other line's number unchanged so the injected AST is byte-identical to the
+/// pre-migration companion.
+fn assembled_source() -> String {
+    let mut source = String::from(include_str!("package.mfb"));
+    for func in DATETIME_FUNCTIONS {
+        if let crate::codegen::registry::Implementation::Mfb { body, .. } = func.implementation {
+            let marker = format!("'@@MFB_BODY:{}@@", func.doc_slug);
+            debug_assert!(
+                source.contains(&marker),
+                "datetime package.mfb is missing the '{marker}' body marker",
+            );
+            source = source.replacen(&marker, body, 1);
+        }
+    }
+    source
 }
 
 pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
@@ -883,10 +905,13 @@ mod tests {
         assert!(source_file().is_ok());
     }
 
-    /// The parameter names of `FUNC <func>(...)` as written in `package.mfb` —
-    /// the ground truth a param-name table must match.
+    /// The parameter names of `FUNC <func>(...)` as written in the assembled
+    /// package source — the ground truth a param-name table must match. Reads
+    /// `assembled_source()` (not the raw `package.mfb`) because the single-body
+    /// members' `FUNC`s are now `Implementation::Mfb` bodies spliced in over their
+    /// markers.
     fn mfb_param_names(func: &str) -> Vec<String> {
-        let source = include_str!("package.mfb");
+        let source = assembled_source();
         let prefix = format!("FUNC {func}(");
         let rest = source
             .lines()

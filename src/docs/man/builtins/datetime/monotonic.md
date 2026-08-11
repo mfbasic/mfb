@@ -42,7 +42,7 @@ supported platforms), then splits it into the `seconds` and `nanos` fields of a
 `Duration` by a truncating divide and remainder against `1_000_000_000`. The
 divisor is a non-zero constant, so the split cannot trap, and the nanosecond
 remainder already falls in `0 .. 999_999_999`.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_monotonic]]
+[[src/codegen/builtins/datetime/func_monotonic.rs:__datetime_monotonic]]
 
 `monotonic` is **not pure**: two calls may return different spans, and the values
 depend on host clock state. It takes no arguments, reads clock state only, and

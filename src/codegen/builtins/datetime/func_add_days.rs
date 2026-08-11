@@ -50,7 +50,24 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const ADD_DAYS: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_addDays(dt AS DateTime, days AS Integer) AS DateTime
+  LET newDays AS Integer = __datetime_daysFromCivil(dt.date.year, dt.date.month, dt.date.day) + days
+  ' plan-64 A3: fixed-offset fast path. A whole-day shift leaves the wall-clock
+  ' time and the zone offset unchanged, and civilFromDays/daysFromCivil are
+  ' inverse on valid civil dates, so for a fixed-offset zone (kind <> 2)
+  ' __datetime_civil's resolveLocal->Instant->inZone round-trip provably returns
+  ' DateTime[civilFromDays(newDays), dt.time, dt.zone, dt.offset]. Build it
+  ' directly to skip that round-trip's Instant/Date/Time transient allocations.
+  ' A system zone (kind = 2) can cross a DST boundary, so it keeps the round-trip.
+  IF dt.zone.kind <> 2 THEN
+    RETURN DateTime[__datetime_civilFromDays(newDays), dt.time, dt.zone, dt.offset]
+  END IF
+  RETURN __datetime_civil(__datetime_civilFromDays(newDays), dt.time, dt.zone)
+END FUNC"#;
+
+pub(crate) const ADD_DAYS: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.addDays",
     "addDays",
     INTRO,
@@ -60,5 +77,6 @@ pub(crate) const ADD_DAYS: BuiltinFunction = BuiltinFunction::custom(
         &[super::req("dt", "DateTime"), super::req("days", super::I)],
         "DateTime",
     )],
+    BODY,
 )
 .with_example(EX);

@@ -29,7 +29,7 @@ removing one span of elapsed physical time from another. It subtracts the
 `b` from the `nanos` field of `a`, independently, then normalizes the result so
 the stored `nanos` lands in the range `0 .. 999_999_999`, borrowing a whole
 second from the `seconds` field when the nanosecond difference is negative.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_minus]]
+[[src/codegen/builtins/datetime/func_minus.rs:__datetime_minus]]
 
 Because both operands are signed `Duration`s, `minus` handles spans of either
 direction: subtracting a negative `Duration` lengthens the total, and

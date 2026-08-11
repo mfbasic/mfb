@@ -29,7 +29,7 @@ variant, tag `2`), marking it as the platform-resolved local zone rather than th
 canonical UTC zone built by `datetime::utc` (kind `ZoneKind::Utc`, tag `0`) or an
 arbitrary fixed offset built by `datetime::fixedOffset` (kind
 `ZoneKind::FixedOffset`, tag `1`).
-[[src/codegen/builtins/datetime/package.mfb:__datetime_local]] [[src/codegen/builtins/datetime/package.mfb:ZoneKind]]
+[[src/codegen/builtins/datetime/func_local.rs:__datetime_local]] [[src/codegen/builtins/datetime/package.mfb:ZoneKind]]
 
 Unlike `datetime::utc` and `datetime::fixedOffset`, whose offsets are baked into
 the `Zone` at construction, the local zone holds no fixed offset of its own. The
@@ -62,7 +62,7 @@ the zone is resolved against an instant during projection.
 
 | Type | Description |
 | --- | --- |
-| `Zone` | The host's local zone: a `Zone` with a zone kind of `ZoneKind::Local` (tag `2`), a placeholder offset of zero seconds, and the label `"Local"`. The same value is returned on every call; its effective offset is determined only when the zone is projected against a specific `Instant`. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] [[src/codegen/builtins/datetime/package.mfb:__datetime_local]] |
+| `Zone` | The host's local zone: a `Zone` with a zone kind of `ZoneKind::Local` (tag `2`), a placeholder offset of zero seconds, and the label `"Local"`. The same value is returned on every call; its effective offset is determined only when the zone is projected against a specific `Instant`. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] [[src/codegen/builtins/datetime/func_local.rs:__datetime_local]] |
 
 ## Errors
 

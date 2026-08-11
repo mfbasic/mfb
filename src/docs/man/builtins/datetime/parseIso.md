@@ -36,12 +36,12 @@ parsing `value` left to right. The components are:
 
 - `yyyy-MM-dd` — four-digit year, two-digit month, two-digit day, each introduced
   by its literal `-` separator
-- `<sep>` — the date/time separator: `T`, `t`, or a single space [[src/codegen/builtins/datetime/package.mfb:__datetime_parseIso]]
+- `<sep>` — the date/time separator: `T`, `t`, or a single space [[src/codegen/builtins/datetime/func_parse_iso.rs:__datetime_parseIso]]
 - `HH:mm:ss` — two-digit hour, minute, and second on a 24-hour clock, separated by
   literal `:` characters
 - `.fraction` — optional fractional second: a `.` followed by decimal digits. The
   first nine digits are scaled to nanoseconds (so `.25` becomes `250000000` ns);
-  any digits beyond the ninth are consumed but ignored [[src/codegen/builtins/datetime/package.mfb:__datetime_parseIso]]
+  any digits beyond the ninth are consumed but ignored [[src/codegen/builtins/datetime/func_parse_iso.rs:__datetime_parseIso]]
 - `<offset>` — required UTC offset: `Z` or `z` for UTC, otherwise a signed
   `+/-HH:MM` or `+/-HHMM` (the colon between offset hours and minutes is optional)
 
@@ -50,7 +50,7 @@ digits, so a field may be written with or without leading padding as long as the
 surrounding separators are present. The offset is mandatory; unlike
 `datetime::parse` there is no zone argument and no defaulting to UTC, because a
 conforming RFC 3339 timestamp always carries its own offset. The parsed offset is
-applied directly, making the result a fixed-offset moment. [[src/codegen/builtins/datetime/package.mfb:__datetime_parseIso]]
+applied directly, making the result a fixed-offset moment. [[src/codegen/builtins/datetime/func_parse_iso.rs:__datetime_parseIso]]
 
 Like `datetime::parse`, `parseIso` does not range-check the decoded calendar
 fields: an out-of-range component such as month 13 or day 40 is carried into the
@@ -74,7 +74,7 @@ host state and has no side effects. [[src/codegen/builtins/datetime/package.mfb:
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `value` does not conform to RFC 3339: a required digit is missing, a `-`, `:`, or date/time separator is absent or wrong, or the offset is missing or malformed (neither `Z`/`z` nor a signed `+/-HH:MM` offset). [[src/codegen/builtins/datetime/package.mfb:__datetime_parseIso]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | `value` does not conform to RFC 3339: a required digit is missing, a `-`, `:`, or date/time separator is absent or wrong, or the offset is missing or malformed (neither `Z`/`z` nor a signed `+/-HH:MM` offset). [[src/codegen/builtins/datetime/func_parse_iso.rs:__datetime_parseIso]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 | `77050002` | `ErrInvalidArgument` | The parsed offset decodes to a magnitude of 24 hours (86400 seconds) or more, which is out of range for a fixed-offset zone. [[src/codegen/builtins/datetime/package.mfb:__datetime_fixedOffset1]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
 
 ## Examples

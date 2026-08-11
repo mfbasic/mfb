@@ -53,12 +53,20 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const RESOLVE: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_resolve(dt AS DateTime) AS Instant
+  LET localSeconds AS Integer = __datetime_daysFromCivil(dt.date.year, dt.date.month, dt.date.day) * 86400 + dt.time.hour * 3600 + dt.time.minute * 60 + dt.time.second
+  RETURN Instant[localSeconds - dt.offset, dt.time.nanos]
+END FUNC"#;
+
+pub(crate) const RESOLVE: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.resolve",
     "resolve",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[super::req("dt", "DateTime")], "Instant")],
+    BODY,
 )
 .with_example(EX);

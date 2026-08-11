@@ -51,12 +51,19 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const IS_LEAP_YEAR: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_isLeapYear(year AS Integer) AS Boolean
+  RETURN (year MOD 4 = 0 AND year MOD 100 <> 0) OR year MOD 400 = 0
+END FUNC"#;
+
+pub(crate) const IS_LEAP_YEAR: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.isLeapYear",
     "isLeapYear",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[super::req("year", super::I)], "Boolean")],
+    BODY,
 )
 .with_example(EX);

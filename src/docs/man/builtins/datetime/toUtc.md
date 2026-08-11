@@ -30,7 +30,7 @@ UTC zone contributes a zero offset, so the instant's seconds-since-epoch are
 split directly — floor-divided into whole days and the second-of-day — into a
 civil year/month/day (proleptic Gregorian calendar) and an
 hour/minute/second-of-day, with no offset adjustment.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_toUtc]]
+[[src/codegen/builtins/datetime/func_to_utc.rs:__datetime_toUtc]]
 
 The returned `DateTime` carries four things: the civil date, the civil time, the
 UTC zone, and a resolved offset of zero. Because the zero offset is pinned onto
@@ -39,13 +39,13 @@ the result, the `DateTime` round-trips back to the original instant via
 `nanos` field is preserved verbatim into the time's `nanos` field; only the
 `seconds` field participates in the date and time computation, so an instant
 before the Unix epoch (negative `seconds`) projects correctly.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_inZone]]
+[[src/codegen/builtins/datetime/func_in_zone.rs:__datetime_inZone]]
 
 Unlike `datetime::toLocal`, `datetime::toUtc` is pure: it reads no host
 time-zone configuration and produces the same result on every platform. Because
 the resolved offset is always zero, adding it to the instant's seconds cannot
 overflow the `Integer` range, so this call raises no error of its own.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_utc]]
+[[src/codegen/builtins/datetime/func_utc.rs:__datetime_utc]]
 
 ## Parameters
 

@@ -27,7 +27,7 @@ IMPORT datetime
 beginning of `dt`'s civil day, in `dt`'s own zone. It keeps `dt`'s calendar date
 (year, month, day) and zone, replaces the wall-clock time with a `Time` of
 `00:00:00` and zero nanoseconds, and re-resolves the moment through that zone.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_startOfDay]]
+[[src/codegen/builtins/datetime/func_start_of_day.rs:__datetime_startOfDay]]
 
 The result is produced exactly as `datetime::civil(dt.date, Time[0, 0, 0, 0],
 dt.zone)`: local midnight is interpreted in `dt`'s zone, the applicable UTC offset
@@ -36,7 +36,7 @@ is resolved for that moment, and the canonical `DateTime` naming the resulting
 `dt`, the result is daylight-saving correct: for the host's local zone the offset
 reflects whatever DST rule applies at midnight on that date, which may differ from
 the offset that applied at `dt`'s original time of day.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_civil]]
+[[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]]
 
 The day boundary is civil midnight in `dt`'s zone, not UTC midnight, so the
 underlying `Instant` generally differs from `dt`'s `Instant` truncated to whole
@@ -66,7 +66,7 @@ different zone or DST rule.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The epoch-seconds arithmetic used to resolve local midnight (`daysFromCivil(...) * 86400`, and the surrounding offset probes) produces a value outside the signed `Integer` range for an extreme calendar date. [[src/codegen/builtins/datetime/package.mfb:__datetime_civil]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | The epoch-seconds arithmetic used to resolve local midnight (`daysFromCivil(...) * 86400`, and the surrounding offset probes) produces a value outside the signed `Integer` range for an extreme calendar date. [[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]] [[src/builtins/errorcode.rs:ErrOverflow]] |
 
 ## Examples
 

@@ -53,12 +53,19 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const TO_MILLIS: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_toMillis(at AS Instant) AS Integer
+  RETURN at.seconds * 1000 + at.nanos / 1000000
+END FUNC"#;
+
+pub(crate) const TO_MILLIS: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.toMillis",
     "toMillis",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[super::req("at", "Instant")], super::I)],
+    BODY,
 )
 .with_example(EX);

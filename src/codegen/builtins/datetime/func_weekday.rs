@@ -57,12 +57,27 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const WEEKDAY: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_weekday(dt AS DateTime) AS Weekday
+  LET days AS Integer = __datetime_daysFromCivil(dt.date.year, dt.date.month, dt.date.day)
+  LET idx AS Integer = __datetime_floorMod(days + 3, 7)
+  IF idx = 0 THEN RETURN Weekday.Monday
+  IF idx = 1 THEN RETURN Weekday.Tuesday
+  IF idx = 2 THEN RETURN Weekday.Wednesday
+  IF idx = 3 THEN RETURN Weekday.Thursday
+  IF idx = 4 THEN RETURN Weekday.Friday
+  IF idx = 5 THEN RETURN Weekday.Saturday
+  RETURN Weekday.Sunday
+END FUNC"#;
+
+pub(crate) const WEEKDAY: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.weekday",
     "weekday",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[super::req("dt", "DateTime")], "Weekday")],
+    BODY,
 )
 .with_example(EX);

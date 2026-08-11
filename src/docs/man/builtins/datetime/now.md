@@ -36,7 +36,7 @@ intrinsic (`datetime::nowNanos`), then splits it into the `seconds` and `nanos`
 fields of an `Instant` by a truncating divide and remainder against
 `1_000_000_000`. The reading is non-negative and the divisor is a non-zero
 constant, so the split cannot trap, and the nanosecond remainder already falls
-in `0 .. 999_999_999`. [[src/codegen/builtins/datetime/package.mfb:__datetime_now]]
+in `0 .. 999_999_999`. [[src/codegen/builtins/datetime/func_now.rs:__datetime_now]]
 
 `now` is bounded by its underlying intrinsic, which reports nanoseconds since
 the epoch and is valid through roughly the year 2262. This is a limit on `now`,

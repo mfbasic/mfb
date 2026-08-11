@@ -27,14 +27,14 @@ IMPORT datetime
 the resulting `DateTime`. It converts `dt`'s calendar date to a serial day count,
 adds `days`, converts that count back to a year-month-day date, and rebuilds the
 `DateTime` from the new date, `dt`'s original wall-clock time, and `dt`'s original
-zone. [[src/codegen/builtins/datetime/package.mfb:__datetime_addDays]]
+zone. [[src/codegen/builtins/datetime/func_add_days.rs:__datetime_addDays]]
 
 Because the result is re-resolved through `dt`'s zone, `addDays` is
 daylight-saving aware: the wall-clock time of day is preserved and the UTC offset
 is recomputed for the new date, so crossing a DST transition shifts the
 underlying instant by the appropriate 23-, 24-, or 25-hour day rather than a
 fixed `86_400` seconds. The sub-second nanosecond component of the time is carried
-through unchanged. [[src/codegen/builtins/datetime/package.mfb:__datetime_resolveLocal]] [[src/codegen/builtins/datetime/package.mfb:__datetime_civil]]
+through unchanged. [[src/codegen/builtins/datetime/package.mfb:__datetime_resolveLocal]] [[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]]
 
 `days` is a signed count: a positive value moves `dt` later in the calendar and a
 negative value moves it earlier. Adding zero days returns a `DateTime` equal to
@@ -61,7 +61,7 @@ yield the same result, and it has no side effects.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The day-count arithmetic (`daysFromCivil(...) + days`), or the conversion of the shifted date back to epoch seconds during zone resolution, produces a value outside the signed `Integer` range. [[src/codegen/builtins/datetime/package.mfb:__datetime_addDays]] [[src/codegen/builtins/datetime/package.mfb:__datetime_civil]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | The day-count arithmetic (`daysFromCivil(...) + days`), or the conversion of the shifted date back to epoch seconds during zone resolution, produces a value outside the signed `Integer` range. [[src/codegen/builtins/datetime/func_add_days.rs:__datetime_addDays]] [[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]] [[src/builtins/errorcode.rs:ErrOverflow]] |
 
 ## Examples
 

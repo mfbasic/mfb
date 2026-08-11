@@ -27,7 +27,7 @@ IMPORT datetime
 magnitude that points the opposite way along a timeline. A forward span of `+90s`
 becomes a backward span of `-90s`, a backward span becomes forward, and the zero
 `Duration` negates to itself. Adding `d` to `datetime::negate(d)` yields a zero
-span. [[src/codegen/builtins/datetime/package.mfb:__datetime_negate]]
+span. [[src/codegen/builtins/datetime/func_negate.rs:__datetime_negate]]
 
 Negation acts on the whole span, not on each field independently. It negates both
 the `seconds` and the `nanos` field, then re-normalizes so the stored `nanos`

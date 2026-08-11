@@ -65,7 +65,16 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const OFFSET_AT: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_offsetAt(z AS Zone, at AS Instant) AS Integer
+  IF z.kind = 2 THEN
+    RETURN datetime::localOffset(at.seconds)
+  END IF
+  RETURN z.offsetSeconds
+END FUNC"#;
+
+pub(crate) const OFFSET_AT: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.offsetAt",
     "offsetAt",
     INTRO,
@@ -75,5 +84,6 @@ pub(crate) const OFFSET_AT: BuiltinFunction = BuiltinFunction::custom(
         &[super::req("zone", "Zone"), super::req("at", "Instant")],
         super::I,
     )],
+    BODY,
 )
 .with_example(EX);

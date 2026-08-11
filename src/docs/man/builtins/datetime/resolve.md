@@ -36,7 +36,7 @@ dt.time.second`). That sum is the local second count: the seconds-since-epoch th
 wall-clock fields would name if they were UTC. It then subtracts `dt.offset` — the
 resolved UTC offset in seconds carried on the `DateTime` — to shift the local
 count back onto the UTC timeline, and pairs the result with `dt.time.nanos`.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_resolve]]
+[[src/codegen/builtins/datetime/func_resolve.rs:__datetime_resolve]]
 
 Because the offset is read directly from `dt` rather than re-derived from the
 zone, `resolve` is unambiguous even across daylight-saving transitions: it
@@ -44,7 +44,7 @@ reproduces exactly the instant a `DateTime` was built from. For any instant `at`
 and zone `z`, `datetime::resolve(datetime::inZone(at, z))` returns `at` unchanged.
 The `seconds` field participates in the date/time arithmetic; the `nanos` field is
 copied through verbatim. `resolve` is pure and reads no host state.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_resolve]]
+[[src/codegen/builtins/datetime/func_resolve.rs:__datetime_resolve]]
 
 ## Parameters
 
@@ -62,7 +62,7 @@ copied through verbatim. `resolve` is pure and reads no host state.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The civil-to-seconds arithmetic (`daysFromCivil(...) * 86400 + ...`) or the offset subtraction (`localSeconds - dt.offset`) produces a value outside the signed `Integer` range — `Integer` `*`/`+`/`-` are overflow-checked and trap at the boundary — which can occur only for a `DateTime` at the extreme edge of the representable timeline. [[src/codegen/builtins/datetime/package.mfb:__datetime_resolve]] [[src/target/shared/code/builder_numeric.rs:emit_overflow_if_flags_set]] |
+| `77050010` | `ErrOverflow` | The civil-to-seconds arithmetic (`daysFromCivil(...) * 86400 + ...`) or the offset subtraction (`localSeconds - dt.offset`) produces a value outside the signed `Integer` range — `Integer` `*`/`+`/`-` are overflow-checked and trap at the boundary — which can occur only for a `DateTime` at the extreme edge of the representable timeline. [[src/codegen/builtins/datetime/func_resolve.rs:__datetime_resolve]] [[src/target/shared/code/builder_numeric.rs:emit_overflow_if_flags_set]] |
 
 ## Examples
 

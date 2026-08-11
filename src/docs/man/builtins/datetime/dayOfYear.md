@@ -35,13 +35,13 @@ date, subtracting the days-from-civil count of January 1 of the same year, and
 adding one (`here - start + 1`), so leap years correctly extend the count past
 February. The time-of-day fields, the sub-second nanoseconds, and the zone's UTC
 offset do not affect the result; no `Instant` is resolved and no zone table is
-consulted. [[src/codegen/builtins/datetime/package.mfb:__datetime_dayOfYear]]
+consulted. [[src/codegen/builtins/datetime/func_day_of_year.rs:__datetime_dayOfYear]]
 
 Because the computation reads only `dt`'s stored civil date, the same instant
 projected into two different zones can report two different day-of-year values
 whenever the zones place that instant on opposite sides of midnight, and across
 the December 31 / January 1 boundary the two zones can even fall in different
-years. [[src/codegen/builtins/datetime/package.mfb:__datetime_dayOfYear]]
+years. [[src/codegen/builtins/datetime/func_day_of_year.rs:__datetime_dayOfYear]]
 
 `datetime::dayOfYear` is pure: it reads no host state and has no side effects.
 
@@ -49,7 +49,7 @@ years. [[src/codegen/builtins/datetime/package.mfb:__datetime_dayOfYear]]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `dt` | `DateTime` | The `DateTime` whose civil date is examined. Only the date's year, month, and day are used; the time-of-day, nanoseconds, and zone offset are ignored when computing the ordinal day. [[src/codegen/builtins/datetime/package.mfb:__datetime_dayOfYear]] |
+| `dt` | `DateTime` | The `DateTime` whose civil date is examined. Only the date's year, month, and day are used; the time-of-day, nanoseconds, and zone offset are ignored when computing the ordinal day. [[src/codegen/builtins/datetime/func_day_of_year.rs:__datetime_dayOfYear]] |
 
 ## Return value
 

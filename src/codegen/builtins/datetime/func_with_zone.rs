@@ -63,7 +63,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const WITH_ZONE: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_withZone(dt AS DateTime, z AS Zone) AS DateTime
+  RETURN __datetime_inZone(__datetime_resolve(dt), z)
+END FUNC"#;
+
+pub(crate) const WITH_ZONE: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.withZone",
     "withZone",
     INTRO,
@@ -73,5 +79,6 @@ pub(crate) const WITH_ZONE: BuiltinFunction = BuiltinFunction::custom(
         &[super::req("dt", "DateTime"), super::req("zone", "Zone")],
         "DateTime",
     )],
+    BODY,
 )
 .with_example(EX);

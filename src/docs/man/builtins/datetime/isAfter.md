@@ -28,7 +28,7 @@ IMPORT datetime
 It is defined directly in terms of `datetime::compare`: the result is exactly
 `datetime::compare(a, b) > 0`, so it is `TRUE` only when `compare` reports `1`
 and `FALSE` when `compare` reports `0` or `-1`.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_isAfter]]
+[[src/codegen/builtins/datetime/func_is_after.rs:__datetime_isAfter]]
 
 The comparison is performed field by field, matching `datetime::compare`. The
 `seconds` fields are compared first; only when they are equal are the `nanos`

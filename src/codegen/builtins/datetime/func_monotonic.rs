@@ -57,12 +57,20 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const MONOTONIC: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_monotonic AS Duration
+  LET ns AS Integer = datetime::monotonicNanos()
+  RETURN __datetime_normDuration(ns / 1000000000, ns MOD 1000000000)
+END FUNC"#;
+
+pub(crate) const MONOTONIC: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.monotonic",
     "monotonic",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[], "Duration")],
+    BODY,
 )
 .with_example(EX);

@@ -27,7 +27,7 @@ IMPORT datetime
 count of whole milliseconds measured from the Unix epoch
 (`1970-01-01T00:00:00Z`). Instants before the epoch yield negative counts, the
 epoch itself yields `0`, and instants after the epoch yield positive counts.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_toMillis]]
+[[src/codegen/builtins/datetime/func_to_millis.rs:__datetime_toMillis]]
 
 The result is computed as `at.seconds * 1000 + at.nanos / 1000000`: the
 seconds-since-epoch field is scaled to milliseconds and the sub-second `nanos`
@@ -46,7 +46,7 @@ only on `at`.
 `datetime::toMillis` is the inverse of `datetime::fromMillis` to
 whole-millisecond precision; sub-millisecond `nanos` in `at` are not recoverable
 from the result. For full nanosecond precision use `datetime::toNanos`.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_fromMillis]]
+[[src/codegen/builtins/datetime/func_from_millis.rs:__datetime_fromMillis]]
 
 ## Parameters
 
@@ -64,7 +64,7 @@ from the result. For full nanosecond precision use `datetime::toNanos`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | Evaluating `at.seconds * 1000 + at.nanos / 1000000` overflows the signed `Integer` range — either the millisecond scaling or the trailing addition — which can occur only for an instant at the extreme edge of the timeline. [[src/codegen/builtins/datetime/package.mfb:__datetime_toMillis]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | Evaluating `at.seconds * 1000 + at.nanos / 1000000` overflows the signed `Integer` range — either the millisecond scaling or the trailing addition — which can occur only for an instant at the extreme edge of the timeline. [[src/codegen/builtins/datetime/func_to_millis.rs:__datetime_toMillis]] [[src/builtins/errorcode.rs:ErrOverflow]] |
 
 ## Examples
 

@@ -30,7 +30,7 @@ of `at`, independently, then normalizes the difference so the stored `nanos`
 lands in the range `0 .. 999_999_999`, borrowing a whole second from the
 `seconds` field when the nanosecond difference is negative. The result is a point
 on the same Unix-epoch, leap-second-free timeline as `at`.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_subtract]]
+[[src/codegen/builtins/datetime/func_subtract.rs:__datetime_subtract]]
 
 Because `by` is a signed `Duration`, `subtract` covers both directions on the
 timeline: a positive span moves the `Instant` earlier and a negative span moves

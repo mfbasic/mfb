@@ -34,7 +34,7 @@ component is an error, not silently carried into the next unit. `hour` must be
 in `0 .. 23`, where `0` is midnight and `23` is the final hour of the day.
 `minute` and `second` must each be in `0 .. 59`; the model has no leap seconds,
 so `60` is never a valid second. `nanos` is the sub-second remainder and must be
-in `0 .. 999_999_999`. [[src/codegen/builtins/datetime/package.mfb:__datetime_time]]
+in `0 .. 999_999_999`. [[src/codegen/builtins/datetime/func_time.rs:__datetime_time]]
 
 `second` and `nanos` default to `0`, so a two-argument call names the top of a
 minute and a three-argument call names the top of a second. Unlike
@@ -49,10 +49,10 @@ side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `hour` | `Integer` | The hour of the day. Must be in `0 .. 23`, where `0` is midnight and `23` is the last hour. Any value outside this range is an error. [[src/codegen/builtins/datetime/package.mfb:__datetime_time]] |
-| `minute` | `Integer` | The minute of the hour. Must be in `0 .. 59`. Any value outside this range is an error. [[src/codegen/builtins/datetime/package.mfb:__datetime_time]] |
-| `second` | `Integer` | The second of the minute. Must be in `0 .. 59`; there are no leap seconds, so `60` is rejected. Defaults to `0` when omitted. [[src/codegen/builtins/datetime/package.mfb:__datetime_time]] |
-| `nanos` | `Integer` | The sub-second remainder in nanoseconds. Must be in `0 .. 999_999_999`. Defaults to `0` when omitted. [[src/codegen/builtins/datetime/package.mfb:__datetime_time]] |
+| `hour` | `Integer` | The hour of the day. Must be in `0 .. 23`, where `0` is midnight and `23` is the last hour. Any value outside this range is an error. [[src/codegen/builtins/datetime/func_time.rs:__datetime_time]] |
+| `minute` | `Integer` | The minute of the hour. Must be in `0 .. 59`. Any value outside this range is an error. [[src/codegen/builtins/datetime/func_time.rs:__datetime_time]] |
+| `second` | `Integer` | The second of the minute. Must be in `0 .. 59`; there are no leap seconds, so `60` is rejected. Defaults to `0` when omitted. [[src/codegen/builtins/datetime/func_time.rs:__datetime_time]] |
+| `nanos` | `Integer` | The sub-second remainder in nanoseconds. Must be in `0 .. 999_999_999`. Defaults to `0` when omitted. [[src/codegen/builtins/datetime/func_time.rs:__datetime_time]] |
 
 ## Return value
 
@@ -64,7 +64,7 @@ side effects.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `hour` is outside `0 .. 23`, `minute` or `second` is outside `0 .. 59`, or `nanos` is outside `0 .. 999_999_999` (for example `datetime::time(24, 0)`). [[src/codegen/builtins/datetime/package.mfb:__datetime_time]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050002` | `ErrInvalidArgument` | `hour` is outside `0 .. 23`, `minute` or `second` is outside `0 .. 59`, or `nanos` is outside `0 .. 999_999_999` (for example `datetime::time(24, 0)`). [[src/codegen/builtins/datetime/func_time.rs:__datetime_time]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
 
 ## Examples
 

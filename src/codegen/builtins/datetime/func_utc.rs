@@ -62,12 +62,19 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const UTC: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_utc AS Zone
+  RETURN Zone[0, 0, "UTC"]
+END FUNC"#;
+
+pub(crate) const UTC: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.utc",
     "utc",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[], "Zone")],
+    BODY,
 )
 .with_example(EX);

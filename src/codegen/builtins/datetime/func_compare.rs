@@ -70,7 +70,17 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const COMPARE: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_compare(a AS Instant, b AS Instant) AS Integer
+  IF a.seconds < b.seconds THEN RETURN -1
+  IF a.seconds > b.seconds THEN RETURN 1
+  IF a.nanos < b.nanos THEN RETURN -1
+  IF a.nanos > b.nanos THEN RETURN 1
+  RETURN 0
+END FUNC"#;
+
+pub(crate) const COMPARE: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.compare",
     "compare",
     INTRO,
@@ -80,5 +90,6 @@ pub(crate) const COMPARE: BuiltinFunction = BuiltinFunction::custom(
         &[super::req("a", "Instant"), super::req("b", "Instant")],
         super::I,
     )],
+    BODY,
 )
 .with_example(EX);

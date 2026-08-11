@@ -57,12 +57,19 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const TO_LOCAL: BuiltinFunction = BuiltinFunction::custom(
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __datetime_toLocal(at AS Instant) AS DateTime
+  RETURN __datetime_inZone(at, __datetime_local())
+END FUNC"#;
+
+pub(crate) const TO_LOCAL: BuiltinFunction = BuiltinFunction::mfb(
     "datetime.toLocal",
     "toLocal",
     INTRO,
     DESC,
     &[],
     &[super::ov(&[super::req("at", "Instant")], "DateTime")],
+    BODY,
 )
 .with_example(EX);

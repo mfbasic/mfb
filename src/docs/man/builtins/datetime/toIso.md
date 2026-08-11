@@ -30,7 +30,7 @@ built `String` of the shape `yyyy-MM-ddTHH:mm:ss.fffZ`, for example
 the time and the trailing field is the offset carried by `dt`: the single letter
 `Z` when the offset is zero, otherwise a signed `+HH:MM` or `-HH:MM`. The
 fractional-second field is always three digits (milliseconds), zero-padded, even
-when `dt` has no sub-second value. [[src/codegen/builtins/datetime/package.mfb:__datetime_toIso]]
+when `dt` has no sub-second value. [[src/codegen/builtins/datetime/func_to_iso.rs:__datetime_toIso]]
 
 `toIso` is the convenience form of `datetime::format` invoked with the fixed
 pattern `yyyy-MM-dd'T'HH:mm:ss.fffZ`. It reads only the date fields, time
@@ -38,11 +38,11 @@ fields, and resolved offset of `dt`; it does not consult `dt`'s zone name, apply
 any zone conversion, or shift the moment. The `nanos` of `dt` are truncated to
 milliseconds for the `fff` field. `dt` is read only and is not modified. The
 output is round-trippable: `datetime::parseIso` parses a string produced by
-`toIso` back into an equivalent `DateTime`. [[src/codegen/builtins/datetime/package.mfb:__datetime_toIso]]
+`toIso` back into an equivalent `DateTime`. [[src/codegen/builtins/datetime/func_to_iso.rs:__datetime_toIso]]
 
 Because the pattern is fixed and always valid, `toIso` emits a result for every
 `DateTime` and is pure: it reads no host state and has no side effects.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_format]]
+[[src/codegen/builtins/datetime/func_format.rs:__datetime_format]]
 
 ## Parameters
 
