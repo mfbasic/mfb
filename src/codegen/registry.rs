@@ -390,12 +390,24 @@ impl BuiltinFunction {
         }
     }
 
-    /// Declare a builtin with no rewrite — the public name **is** the
-    /// implementation (`Implementation::Same`). Used by OS-seam packages whose
-    /// members lower to `_mfb_rt_<pkg>_*` runtime helpers keyed by call name
-    /// (process/io/fs/net/…): the descriptor answers arity/return/validation and
-    /// the native backend emits the mechanism. The registry-wide counterpart to
-    /// [`Self::mfb`]/[`Self::native`]/[`Self::custom`].
+    /// **Deprecated — do not author new members with this.** `Implementation::Same`
+    /// is legacy by-name dispatch: the descriptor carries *no* lowering, so the call
+    /// falls through to the hand-written `src/target` ladder keyed on the call name.
+    /// Every new (or migrated) member should instead own its lowering on the
+    /// descriptor:
+    ///
+    /// - [`Self::os`] — an OS-seam member (lowers to a `_mfb_rt_<pkg>_*` runtime
+    ///   helper): supply its `posix`/`win` emission.
+    /// - [`Self::native`] — an arch-neutral member that emits in place or via a
+    ///   shared helper: supply its target-generic `NativeLower`.
+    ///
+    /// Kept only so the not-yet-migrated packages (bits/math/strings/net/…) still
+    /// compile; reach for `::os`/`::native` and this constructor disappears.
+    #[deprecated(
+        note = "Implementation::Same is legacy by-name dispatch; author new members with \
+                BuiltinFunction::os() (OS-seam runtime helper) or ::native() (arch-neutral \
+                inline/helper lowering) so the member owns its lowering on the descriptor"
+    )]
     pub(crate) const fn same(
         name: &'static str,
         doc_slug: &'static str,

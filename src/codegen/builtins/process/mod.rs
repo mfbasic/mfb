@@ -360,8 +360,10 @@ mod tests {
         assert_eq!(o.params.len(), P_SHELL.len());
         assert!(matches!(o.return_type, ReturnType::Fixed("Boolean")));
 
-        // The `BuiltinFunction::same` constructor is still available for OS-seam
-        // members that carry no per-platform emission of their own; exercise it.
+        // The `BuiltinFunction::same` constructor is #[deprecated] (author new
+        // members with ::os/::native); this exercises that the legacy path still
+        // builds a valid descriptor for the packages not yet migrated off it.
+        #[allow(deprecated)]
         let f = BuiltinFunction::same(
             black_box("process.demo"),
             black_box("demo"),
