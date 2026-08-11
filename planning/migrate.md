@@ -70,16 +70,26 @@ ls src/builtins/<pkg>*.mfb                               # source companion?
 grep -rlE 'lower_<pkg>_|builder_<pkg>|is_<pkg>_call|__<pkg>_' src/target/  # native payload
 ```
 
+Classify **per member, not per package** — the decisive fact is often *how many
+`.mfb` bodies a member has*, not the package's overall `Implementation`. (datetime
+was uniformly `Custom`, but 37 of its 44 members have a single body and belong on
+`Mfb`; only 7 truly need `Custom`. Don't lump the whole package by its hardest
+members — that is the same mistake as keeping the table inline "because it's just
+docs".)
+
 | Member shape today | Migrates to | Mechanism |
 |---|---|---|
-| `Rewrite("__<pkg>_x")` / source generic, body in `<pkg>*.mfb` | `Implementation::Mfb { body, fast_path: None }` | body → Rust const + `'@@MFB_BODY:<slug>@@` marker in `package.mfb`, spliced by `assembled_source()` |
+| `Rewrite("__<pkg>_x")` / source generic, **one** body in `<pkg>*.mfb` | `Implementation::Mfb { body, fast_path: None }` | body → Rust const + `'@@MFB_BODY:<slug>@@` marker in `package.mfb`, spliced by `assembled_source()` |
+| `Custom` (resolver-selected) but with **one** `__<pkg>_<slug>` body | **`Implementation::Mfb`** (still!) | same as above. A member is `Mfb`-eligible whenever it has exactly one body — **even in a resolver package**: return-type resolution is module-level (`resolve_call_return_type` always calls `module.resolver`, `src/builtins/mod.rs`), so it fires regardless of a member's `Implementation`. Converting `Custom`→`Mfb` for a single-body member is byte-identical. |
 | Source generic **with** a native fast path in `src/target` | `Implementation::Mfb { body, fast_path: Some(..) }` | as above **plus** the fast-path fn moves into the `func_*.rs`; shared lowering → `common/` |
 | `Same` + `Inline`/`Helper`, lowered natively in `src/target` (bits/math/io/…) | `Implementation::Native(lower)` | the `impl CodeBuilder { lower_<pkg>_* }` methods move into the package; shared lowering → `common/`; reached via the `try_native_lower` seam |
-| `Custom` (argument-dependent, resolver-selected) | `Implementation::Custom` + package `BuiltinResolver` | descriptor via `BuiltinFunction::custom(...)`; resolver moves with the module |
+| `Custom` with a **one-to-many arity** mapping (`instant`→`__<pkg>_instant1..5`) | `Implementation::Custom` (must stay) | `Mfb` holds one body per member; arity bodies **stay in `package.mfb`** verbatim. Resolver + arity-keyed `implementation_name` move with the module. |
+| **OS-seam runtime intrinsic** — arch-neutral per-platform syscall emission (datetime `nowNanos`; io/fs/net/thread syscalls) | `Implementation::Custom`, emission → `native.rs` | a **third lowering kind** (not `Mfb`, not `try_native_lower`): a `RuntimeHelperSpec` + a `lower_<pkg>_helper` built on the `abi::`/`CodegenPlatform` seam. See Phase 3's OS-seam bullet. |
 | A pure constant / data-only member (no lowering) | stays data in the descriptor | relocate only |
 
-A real package is usually a **mix** (e.g. `strings` has native scalar members + an
-`.mfb` companion + Tier-B transforms). Handle each member by its row.
+A real package is usually a **mix** (datetime: `Mfb` + arity-`Custom` + OS-seam;
+`strings`: native scalar members + an `.mfb` companion + Tier-B transforms). Handle
+each member by its row.
 
 ### Constructors (use the registry-wide ones — never a per-package `ef`/`mf` wrapper)
 
@@ -88,11 +98,15 @@ A real package is usually a **mix** (e.g. `strings` has native scalar members + 
 - `BuiltinFunction::mfb_with_fast_path(.., body, fast_path)`
 - `BuiltinFunction::native(name, slug, intro, desc, errors, overloads, lower)`
 - `BuiltinFunction::custom(name, slug, intro, desc, errors, overloads)`
-- `.with_example(EX)` chains the `## Examples` block.
+- `.with_example(EX)` chains `## Examples`; `.with_intro(..)` / `.with_desc(..)` chain
+  intro/desc for members declared via a compact `(name, slug, overloads)` helper
+  (datetime's `df`) rather than a full constructor.
 
 Package-local helpers stay only for **overload/parameter** construction (collections'
-`custom`/`req`/`opt`, encoding's `ov`/`p`) — the descriptor-level `BuiltinFunction`
-constructor is always the shared one.
+`custom`/`req`/`opt`, encoding's `ov`/`p`, datetime's `req`/`opt`/`optn`/`ov`) — the
+descriptor-level `BuiltinFunction` constructor is always the shared one. Child
+`func_*.rs` reach these parent helpers via `super::` (private-item access to an
+ancestor module — no `pub(super)` needed).
 
 ---
 
@@ -102,11 +116,14 @@ constructor is always the shared one.
 src/codegen/builtins/<pkg>/
   mod.rs            # module decls, ENCODING_FUNCTIONS-style table (func:: refs),
                     # resolver (if any), metadata tables, source glue, IMPL_NAMES,
-                    # overload/param helpers, tests
-  package.mfb       # ONLY for source-backed packages: shared private helpers +
-                    # '@@MFB_BODY:<slug>@@ markers where member bodies were
-  func_<name>.rs    # one per member: its INTRO/DESC/EX consts, its BODY const
-                    # (Mfb) or native lowering fn (Native), and its descriptor
+                    # overload/param helpers, runtime specs/predicate, tests
+  package.mfb       # source-backed pkgs: private helpers + arity-member bodies +
+                    # '@@MFB_BODY:<slug>@@ markers where single-body members were
+  func_<name>.rs    # one per member, ALWAYS — its INTRO/DESC/EX consts, its BODY
+                    # const (Mfb) or native lowering fn (Native), and its descriptor.
+                    # A doc-only Custom member still gets its own file.
+  native.rs         # ONLY for OS-seam packages: the relocated arch-neutral syscall
+                    # emission (`lower_<pkg>_helper`), re-exported pub(crate) from mod.rs
   common/           # ONLY if members share `impl CodeBuilder` lowering (Native/
     mod.rs          # fast-path packages). Holds the shared lowering methods that
     *.rs            # were `<pkg>`-only in src/target. Pure-source packages have none.
@@ -114,6 +131,9 @@ src/codegen/builtins/<pkg>/
 
 `common/` exists **iff** the package has native lowering that multiple members
 share (collections has it; encoding does not). Do not invent an empty `common/`.
+**Shared `.mfb` companions used by more than one package** (the Unicode tables:
+regex + strings) live in the neutral **`src/codegen/unicode/`**, not nested under
+the first package to need them.
 
 ---
 
@@ -176,7 +196,26 @@ Per member, by its taxonomy row:
   - **Fast-path fns must be free fns** — an `impl` method won't coerce to the
     `MfbFastPath`/`NativeLower` HRTB fn-pointer (E0308).
 - **Custom.** Descriptor via `BuiltinFunction::custom(…)`; move the package
-  `BuiltinResolver` and its `dispatch_*` helpers into `mod.rs` unchanged.
+  `BuiltinResolver` and its `dispatch_*` helpers into `mod.rs` unchanged. **But
+  first check each Custom member's body count** — a single-body Custom member is
+  `Mfb`-eligible (see the taxonomy); only arity one-to-many and OS-seam members
+  stay `Custom`. A source-backed Custom package therefore usually needs an
+  `assembled_source()` too (markers for the `Mfb` members; arity bodies stay).
+- **OS-seam runtime intrinsic (`native.rs`).** For a member lowered by the
+  *runtime-call* seam (a `RuntimeHelperSpec` + a per-platform `lower_<pkg>_helper`
+  in `src/target/shared/code/<pkg>.rs`, dispatched from `code/mod.rs`, recognized in
+  `runtime/mod.rs`, catalogued in `runtime/catalog.rs`): the emission is
+  **arch-neutral** (built on `abi::` + `CodegenPlatform`; branches on OS *family*,
+  never per-arch), so it moves like `Native`. Relocate `lower_<pkg>_helper` →
+  `src/codegen/builtins/<pkg>/native.rs` (`use crate::target::shared::code::*;`,
+  promote any `pub(super)` it needs — `HelperResult`/`HelperBody`,
+  `raise_error_into`, `finalize_vreg_body_with_locals`), re-export it `pub(crate)`
+  from `mod.rs`, and repoint the `code/mod.rs` dispatch call. Move the
+  `RuntimeHelperSpec` consts + a `is_<pkg>_runtime_call` predicate into `mod.rs`;
+  the shared `runtime/mod.rs` recognizer delegates to the predicate and the
+  `catalog` imports the specs from codegen. The `RuntimeHelper::<Pkg>` enum variant,
+  the catalog array entry, and the dispatch line **stay** in `src/target` — they
+  are the runtime-call analogue of the `REGISTRY` module list, not `<pkg>` logic.
 - **Transitivity trap.** A helper called *only* by a shared/non-`<pkg>` function is
   **not** `<pkg>`-only; it stays in `src/target`. Verify each helper's callers
   before moving it (census by effect, not by one name — a helper has many spellings).
@@ -193,29 +232,49 @@ Two mechanisms exist; pick by whether members are **generics** or **concrete**
   collections): add `<pkg>::internal_name(member)` + a `<pkg>_internal_callee`
   binding path in `src/monomorph/lower.rs`. `implementation_name` may return `None`.
 - **Concrete package** (members concrete-typed, rewritten in `ir/lower.rs` via the
-  `.or_else(|| builtins::<pkg>::implementation_name(..))` chain, e.g. encoding):
+  `.or_else(|| builtins::<pkg>::implementation_name(..))` chain, e.g. encoding/csv/json/regex):
   `Implementation::Mfb`/`::Native` make the descriptor's `implementation_name`
   `None`, which **breaks that rewrite**. Keep an explicit `IMPL_NAMES:
   &[(&str,&str)]` table (`"<pkg>.slug" → "__<pkg>_slug"`) and have the package's
   `implementation_name` read it. Byte-identical because the rewrite string is
-  unchanged.
+  unchanged. (The table also captures irregular pairings a derivation would miss —
+  csv's `readRow` → `__csv_next`.)
+- **Arity-keyed resolver variant** (datetime): the package's `implementation_name`
+  is `fn(name, argc) -> Option<String>` (not `&'static str`) and is called on its
+  own `ir/lower.rs` line, **not** the `.or_else` chain. It routes through the module
+  resolver's `dispatch_implementation_name`, which is independent of a member's
+  `Implementation` — so it keeps working unchanged for `Mfb` and `Custom` members
+  alike. No `IMPL_NAMES` needed; just move the resolver + the two `dispatch_*` fns.
 - **Acceptance:** `artifact-gate <pkg>` = 0 diffs; the package's monomorph/overload
   tests pass.
 
-### Phase 5 — Migrate docs, repoint citations, man2
+### Phase 5 — Migrate docs, man2
 
-- Populate each descriptor's `doc_intro` (man `# title` sub-line), `doc_desc`
-  (`## Description`, citations stripped), `doc_example` (`## Examples`, stripped)
-  from `src/docs/man/builtins/<pkg>/*.md`. Metadata only.
-- **Repoint doc citations** (the `man_citations_resolve` / `spec_citations_resolve`
-  tests are a **loose substring** check): a member body's `__<pkg>_<slug>` now lives
-  in its `func_*.rs`/`mod.rs`, **not** `package.mfb` (which holds only helpers +
-  markers). Repoint member citations → the Rust module; helper citations →
-  `package.mfb`; old `src/builtins/<pkg>.rs` refs → the new `mod.rs`.
+> **Citation repointing is NOT here — it belongs in the Phases 1–4 commit that
+> moves the files.** The `man_citations_resolve` / `spec_citations_resolve` tests
+> break the instant a file moves, independent of doc *content*. So each time you
+> `git mv`/split a file, repoint its citations in the *same* commit and keep the
+> suite green. Phase 5 is purely the metadata content.
+
+- **Per-member docs.** Populate each descriptor's `doc_intro` (man `# title`
+  sub-line), `doc_desc` (`## Description`, citations stripped), `doc_example`
+  (`## Examples`, stripped) from `src/docs/man/builtins/<pkg>/*.md`. Members declared
+  with a compact constructor (`datetime`'s `df`) layer docs via `with_intro`/
+  `with_desc`/`with_example`; `mfb`/`native`/`custom` take intro/desc as params.
+- **Module-level docs (a distinct, easy-to-forget step).** Populate the
+  `BuiltinModule`'s own `doc_intro`/`doc_desc` from `<pkg>/package.md`'s title line
+  + `## Description`. (Missed on csv the first time — `mfb man2 <pkg>` renders a
+  blank overview without it.)
+- **Citation-repointing rule** (used in Phases 1–4, restated here as the reference):
+  the check is a **loose substring** match. A member body's `__<pkg>_<slug>` lives
+  in its `func_*.rs` (Mfb) — repoint member citations there; helpers + arity bodies
+  stay in `package.mfb`; `src/builtins/<pkg>.rs` refs → `mod.rs`; a relocated
+  `native.rs`/spec → its new path. Use `\b` so `__<pkg>_add` doesn't match
+  `__<pkg>_addDays`.
 - man2 is already registry-generic (`show_man2` → `REGISTRY.module`), so no wiring
   is needed — just verify `mfb man2 <pkg>` and `mfb man2 <pkg> <fn>` render.
 - **Acceptance:** `artifact-gate <pkg>` = 0 diffs (docs are metadata); citation
-  tests pass; man2 renders intro/params/description/examples.
+  tests pass; man2 renders the overview + each function.
 
 ### Phase 6 — Land
 
@@ -266,6 +325,18 @@ Grep `[^:]<pkg>::` and `builtins::<pkg>` across `src/`, then fix by site:
   "tests pass" from delegated file moves.
 - **No test/golden re-baseline** to make it pass (AGENTS.md): a real diff is a bug;
   a stale golden is proven benign + regenerated in its own pre-migration commit.
+- **A migration can surface a stale golden in a *sibling* package.** Moving a shared
+  `include_str!` file (regex relocating `unicode_gencat.mfb`, which `strings` also
+  includes) flips the sibling's gate red even though your change is a byte-identical
+  rename. Prove it benign and regenerate the sibling's sums in their **own** commit —
+  don't fold it into the migration.
+- **Moving a *generated* file is a lockstep edit.** Update its generator's output
+  path, `scripts/check-generated.sh`, and `scripts/list_functions.py` together, then
+  run `check-generated.sh` (it must still reproduce the file byte-for-byte).
+- **Own the deviation.** If a package tempts you to skip the pattern (keep the table
+  inline, leave a member `Custom` that could be `Mfb`, put shared data under one
+  package), either do it right or *ask* — do not quietly deviate and justify it after.
+  Every such shortcut here was caught in review and redone.
 
 ---
 
@@ -292,6 +363,18 @@ Grep `[^:]<pkg>::` and `builtins::<pkg>` across `src/`, then fix by site:
   `impl CodeBuilder` lowering → `func_*.rs`/`common/`, `Implementation::Native`,
   delete the `lower_<pkg>_call` dispatch, seam via `try_native_lower`. Largest
   `src/target` payload; land member-group by member-group, gate green each step.
-- **Custom/resolver** (parts of encoding, crypto, datetime): `BuiltinFunction::custom`
-  + move the `BuiltinResolver`.
+- **Custom/resolver** (encoding's 2 overloaded names, crypto, datetime): move the
+  `BuiltinResolver`; but classify **per member** — single-body members go on `Mfb`,
+  only arity one-to-many + OS-seam stay `custom`. datetime: 37 `Mfb` + 4 arity-`Custom`
+  + 3 OS-seam (`native.rs`). A resolver package still needs `assembled_source()`.
 - **Data-only** (errorcode, general, testing): mostly relocate + docs; little to move.
+
+## Commit sequence (what each phase lands)
+
+One commit per phase, each green: (0) sibling+own stale-golden regens — separate
+commits; (1) descriptor + `package.mfb` relocation + rewire + **citation repoint**;
+(2) `func_*.rs` split; (3) implementation move (`Mfb` bodies / `Native` / `native.rs`
+OS-seam) + **citation repoint**; (4) rewrite path; (5) docs (per-member + module).
+Split large native/OS-seam packages further (datetime landed descriptor, then
+syscall emission, then runtime specs as three commits). Never batch a file move
+without its citation repoint.
