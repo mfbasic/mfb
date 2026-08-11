@@ -45,6 +45,55 @@ internal `__collections_all` generic and instantiated for the element type like
 any other generic function. It does not
 mutate `value` and has no other side effects beyond whatever `predicate` does."#;
 
+const EX: &str = r#"Test that every integer in a list is positive:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(collections::all([1, 2, 3], isPos)))
+  RETURN 0
+END FUNC
+```
+
+An empty list satisfies every predicate:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC main AS Integer
+  LET empty AS List OF Integer = []
+  io::print(toString(collections::all(empty, isPos)))
+  RETURN 0
+END FUNC
+```
+
+Named arguments bind by the declared parameter names `value` and `predicate`:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(collections::all(value := [1, 0], predicate := isPos)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const ALL: BuiltinFunction = BuiltinFunction::mfb(
     "collections.all",
     "all",
@@ -56,4 +105,5 @@ pub(crate) const ALL: BuiltinFunction = BuiltinFunction::mfb(
         req("predicate", &[], "FUNC(T) AS Boolean"),
     ])],
     BODY,
-);
+)
+.with_example(EX);

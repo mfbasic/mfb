@@ -64,6 +64,7 @@ const fn regex_fn(
         doc_desc: "",
         errors: &[],
         overloads,
+        doc_example: "",
         implementation: Implementation::Rewrite(implementation),
         lowering: Lowering::Helper,
         flags: BuiltinFlags {

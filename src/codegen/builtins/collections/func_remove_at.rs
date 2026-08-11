@@ -35,6 +35,45 @@ the result block is allocated, so a rejected index allocates nothing.
 `collections::removeKey`, which takes a key rather than an index and does not
 raise when the key is absent."#;
 
+const EX: &str = r#"Remove the second element:
+
+```
+IMPORT collections
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = collections::removeAt([1, 2, 3], 1)
+  RETURN 0
+END FUNC
+```
+
+Remove the last element:
+
+```
+IMPORT collections
+
+FUNC main AS Integer
+  LET source AS List OF String = ["a", "b", "c"]
+  LET shorter AS List OF String = collections::removeAt(source, len(source) - 1)
+  RETURN 0
+END FUNC
+```
+
+Catch an out-of-range index with an inline `TRAP`:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2]
+  LET shorter AS List OF Integer = collections::removeAt(numbers, 2) TRAP(e)
+    io::print(e.message)
+    RECOVER numbers
+  END TRAP
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const REMOVE_AT: BuiltinFunction = BuiltinFunction::native(
     "collections.removeAt",
     "removeAt",
@@ -46,7 +85,8 @@ pub(crate) const REMOVE_AT: BuiltinFunction = BuiltinFunction::native(
         req("index", &[], "Integer"),
     ])],
     lower_remove_at,
-);
+)
+.with_example(EX);
 
 /// `collections::removeAt(List OF T, Integer) AS List OF T`: drop the element at
 /// `index` (range-checked -> `ErrIndexOutOfRange`).

@@ -35,6 +35,33 @@ is built on is classified infallible for exactly that reason.
 internal `__collections_toSet` generic and instantiated for the element type like
 any other generic function."#;
 
+const EX: &str = r#"Collapse a list's duplicates into a set:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET s AS Set OF Integer = collections::toSet([5, 5, 6, 7, 6])
+  io::print(toString(len(s)))
+  RETURN 0
+END FUNC
+```
+
+Round-trip a set through a list and back:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET original AS Set OF String = Set OF String { "a", "b", "c" }
+  LET roundTripped AS Set OF String = collections::toSet(collections::toList(original))
+  io::print(toString(len(roundTripped)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const TO_SET: BuiltinFunction = BuiltinFunction::mfb(
     "collections.toSet",
     "toSet",
@@ -43,4 +70,5 @@ pub(crate) const TO_SET: BuiltinFunction = BuiltinFunction::mfb(
     &[],
     &[custom(&[req("value", &["list"], "List OF T")])],
     BODY,
-);
+)
+.with_example(EX);

@@ -41,6 +41,50 @@ the returned list does not share storage with `value`. `value` is not modified.
 `collections::drop` is the complementary operation, returning what `take` leaves
 behind."#;
 
+const EX: &str = r#"Keep the first two elements:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET head AS List OF Integer = collections::take([1, 2, 3, 4], 2)
+  io::print(toString(len(head)))
+  RETURN 0
+END FUNC
+```
+
+An oversized count yields the whole list; a non-positive count yields an empty
+one:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET all AS List OF Integer = collections::take([1, 2, 3], 99)
+  LET none AS List OF Integer = collections::take([1, 2, 3], 0)
+  io::print(toString(len(all)))
+  io::print(toString(len(none)))
+  RETURN 0
+END FUNC
+```
+
+Split a list into a head and a tail with `take` and `drop`:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET items AS List OF String = ["a", "b", "c", "d"]
+  LET first AS List OF String = collections::take(items, 2)
+  LET rest AS List OF String = collections::drop(items, 2)
+  io::print(collections::get(rest, 0))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const TAKE: BuiltinFunction = BuiltinFunction::mfb(
     "collections.take",
     "take",
@@ -52,4 +96,5 @@ pub(crate) const TAKE: BuiltinFunction = BuiltinFunction::mfb(
         req("count", &[], "Integer"),
     ])],
     BODY,
-);
+)
+.with_example(EX);

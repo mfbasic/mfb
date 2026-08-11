@@ -36,6 +36,32 @@ infallible.
 the internal `__collections_intersection` generic and instantiated for the
 element type like any other generic function."#;
 
+const EX: &str = r#"Elements common to two sets:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET both AS Set OF Integer = collections::intersection(Set OF Integer { 1, 2, 3 }, Set OF Integer { 2, 3, 4 })
+  io::print(toString(len(both)))
+  RETURN 0
+END FUNC
+```
+
+Disjoint sets intersect to the empty set:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET both AS Set OF Integer = collections::intersection(Set OF Integer { 1, 2 }, Set OF Integer { 3, 4 })
+  io::print(toString(len(both)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const INTERSECTION: BuiltinFunction = BuiltinFunction::mfb(
     "collections.intersection",
     "intersection",
@@ -47,4 +73,5 @@ pub(crate) const INTERSECTION: BuiltinFunction = BuiltinFunction::mfb(
         req("b", &["second"], "Set OF T"),
     ])],
     BODY,
-);
+)
+.with_example(EX);

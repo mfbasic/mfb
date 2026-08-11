@@ -40,6 +40,48 @@ branch; other key types fall back to a linear scan of the entry table. This is
 a performance difference only — both paths select the same entry and yield the
 same `default` when the key is absent."#;
 
+const EX: &str = r#"Read a list item with a fallback for an out-of-range index:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [10, 20, 30]
+  io::print(toString(collections::getOr(numbers, 99, 0)))
+  RETURN 0
+END FUNC
+```
+
+Read a map value with a fallback for a missing key:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+  io::print(toString(collections::getOr(ages, "Grace", 0)))
+  io::print(toString(collections::getOr(ages, "Ada", 0)))
+  RETURN 0
+END FUNC
+```
+
+Look up every key of a map without a separate membership test:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+  FOR EACH name IN collections::keys(ages)
+    io::print(name & " is " & toString(collections::getOr(ages, name, 0)))
+  NEXT
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const GET_OR: BuiltinFunction = BuiltinFunction::native(
     "collections.getOr",
     "getOr",
@@ -52,7 +94,8 @@ pub(crate) const GET_OR: BuiltinFunction = BuiltinFunction::native(
         req("default", &["fallback"], "T"),
     ])],
     lower_get_or,
-);
+)
+.with_example(EX);
 
 /// `collections::getOr` — total lookup returning `default` on miss (list index or
 /// map key overload). Reuses the get-or helpers; no domain error is raised.

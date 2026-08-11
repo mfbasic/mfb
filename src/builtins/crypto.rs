@@ -135,6 +135,7 @@ const fn cf(
         doc_desc: "",
         errors: &[],
         overloads,
+        doc_example: "",
         // Implementation is argument-dependent (native vs typed source body), so
         // the resolver owns it; `DefaultResolver::implementation_name` returns
         // None for `Custom` and the wrapper routes to `CryptoResolver`.

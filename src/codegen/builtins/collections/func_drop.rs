@@ -38,6 +38,49 @@ the returned list does not share storage with `value`. `value` is not modified.
 `collections::take` is the complementary operation, returning the elements
 `drop` discards."#;
 
+const EX: &str = r#"Discard the first two elements:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET tail AS List OF Integer = collections::drop([1, 2, 3, 4], 2)
+  io::print(toString(len(tail)))
+  RETURN 0
+END FUNC
+```
+
+An oversized count yields the empty list; a non-positive count yields the whole
+list:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET none AS List OF Integer = collections::drop([1, 2, 3], 99)
+  LET all AS List OF Integer = collections::drop([1, 2, 3], 0)
+  io::print(toString(len(none)))
+  io::print(toString(len(all)))
+  RETURN 0
+END FUNC
+```
+
+Skip a header row before processing the rest:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET rows AS List OF String = ["name", "ada", "grace"]
+  LET body AS List OF String = collections::drop(rows, 1)
+  io::print(collections::get(body, 0))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const DROP: BuiltinFunction = BuiltinFunction::mfb(
     "collections.drop",
     "drop",
@@ -49,4 +92,5 @@ pub(crate) const DROP: BuiltinFunction = BuiltinFunction::mfb(
         req("count", &[], "Integer"),
     ])],
     BODY,
-);
+)
+.with_example(EX);

@@ -56,6 +56,49 @@ Note that the template argument `T` is inferred from the argument, so a bare
 untyped `[]` literal cannot be passed directly — bind it to a
 `List OF List OF T` first, or pass an expression whose type is known."#;
 
+const EX: &str = r#"Concatenate three inner lists:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET nested AS List OF List OF Integer = [[1, 2], [3], [4, 5]]
+  LET flat AS List OF Integer = collections::flatten(nested)
+  io::print(toString(len(flat)))
+  RETURN 0
+END FUNC
+```
+
+Empty inner lists contribute nothing:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET nested AS List OF List OF String = [["a"], [], ["b", "c"]]
+  LET flat AS List OF String = collections::flatten(value := nested)
+  io::print(collections::get(flat, 1))
+  RETURN 0
+END FUNC
+```
+
+Only one level is removed, so flattening twice is two calls:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET deep AS List OF List OF List OF Integer = [[[1, 2], [3]],]
+  LET once AS List OF List OF Integer = collections::flatten(deep)
+  LET twice AS List OF Integer = collections::flatten(once)
+  io::print(toString(len(once)) & " " & toString(len(twice)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const FLATTEN: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.flatten",
     "flatten",
@@ -65,7 +108,8 @@ pub(crate) const FLATTEN: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     &[custom(&[req("value", &["list"], "List OF List OF T")])],
     BODY,
     flatten_fast_path,
-);
+)
+.with_example(EX);
 
 /// plan-86 A3: native `collections::flatten` (`#collections_flatten$T`, 1 arg)
 /// for a simple result element T (String or fixed-width) — the inner lists are

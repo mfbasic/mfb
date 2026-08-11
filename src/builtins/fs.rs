@@ -77,6 +77,7 @@ const fn ffn(
         doc_desc: "",
         errors: &[],
         overloads,
+        doc_example: "",
         implementation: Implementation::Same,
         lowering: Lowering::Helper,
         flags: BuiltinFlags {

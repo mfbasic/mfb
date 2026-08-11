@@ -48,6 +48,54 @@ leaves.
 An inline `TRAP` on a `transform` call captures that propagated callback error
 at the call site rather than letting it auto-propagate."#;
 
+const EX: &str = r#"Map integers to strings, changing the element type:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC label(value AS Integer) AS String
+  RETURN "n=" & toString(value)
+END FUNC
+
+FUNC main AS Integer
+  LET labels AS List OF String = collections::transform([1, 2, 3], label)
+  io::print(collections::get(labels, 0))
+  RETURN 0
+END FUNC
+```
+
+Map with a `LAMBDA`, keeping the element type:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET tripled AS List OF Integer = collections::transform([1, 2, 3], LAMBDA(value AS Integer) -> value * 3)
+  io::print(toString(collections::get(tripled, 2)))
+  RETURN 0
+END FUNC
+```
+
+An empty input yields an empty result:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC double(value AS Integer) AS Integer
+  RETURN value * 2
+END FUNC
+
+FUNC main AS Integer
+  LET empty AS List OF Integer = []
+  LET mapped AS List OF Integer = collections::transform(empty, double)
+  io::print(toString(len(mapped)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const TRANSFORM: BuiltinFunction = BuiltinFunction::native(
     "collections.transform",
     "transform",
@@ -59,7 +107,8 @@ pub(crate) const TRANSFORM: BuiltinFunction = BuiltinFunction::native(
         req("f", &["transform"], "FUNC(T) AS U"),
     ])],
     lower_transform,
-);
+)
+.with_example(EX);
 
 /// `collections::transform(List OF T, FUNC(T) AS U) AS List OF U`: map each
 /// element through `f`, appending the results to a pre-sized output list.

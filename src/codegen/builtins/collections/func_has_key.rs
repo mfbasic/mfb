@@ -35,6 +35,49 @@ Use `hasKey` to guard a `collections::get`, which *does* fail on a missing key.
 When the goal is simply to obtain a value with a fallback,
 `collections::getOr` does it in one call and avoids the second lookup."#;
 
+const EX: &str = r#"Test map membership:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+  io::print(toString(collections::hasKey(ages, "Ada")))
+  io::print(toString(collections::hasKey(ages, "Grace")))
+  RETURN 0
+END FUNC
+```
+
+Guard a lookup that would otherwise fail:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+  IF collections::hasKey(ages, "Ada") THEN
+    io::print(toString(collections::get(ages, "Ada")))
+  END IF
+  RETURN 0
+END FUNC
+```
+
+Confirm that removing a key takes it out of the result:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+  LET without AS Map OF String TO Integer = collections::removeKey(ages, "Ada")
+  io::print(toString(collections::hasKey(without, "Ada")))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const HAS_KEY: BuiltinFunction = BuiltinFunction::native(
     "collections.hasKey",
     "hasKey",
@@ -46,7 +89,8 @@ pub(crate) const HAS_KEY: BuiltinFunction = BuiltinFunction::native(
         req("key", &[], "K"),
     ])],
     lower_has_key,
-);
+)
+.with_example(EX);
 
 /// `collections::hasKey(Map OF K TO V, K) AS Boolean`: key membership via the
 /// shared hash-probe / linear-scan (`emit_key_membership`).

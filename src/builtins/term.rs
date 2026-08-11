@@ -171,6 +171,7 @@ const fn term_fn(
         doc_desc: "",
         errors: &[],
         overloads,
+        doc_example: "",
         // `term::` calls lower directly by name to the native backend — no rewrite.
         implementation: Implementation::Same,
         lowering: Lowering::Helper,

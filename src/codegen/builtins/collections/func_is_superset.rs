@@ -32,6 +32,32 @@ set is a superset of the empty set, so `isSuperset(a, Set OF T { })` is always
 the internal `__collections_isSuperset` generic and instantiated for the element
 type like any other generic function."#;
 
+const EX: &str = r#"A larger set containing a smaller one:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET yes AS Boolean = collections::isSuperset(Set OF Integer { 1, 2, 3 }, Set OF Integer { 1, 2 })
+  io::print(toString(yes))
+  RETURN 0
+END FUNC
+```
+
+A missing element makes it false:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET no AS Boolean = collections::isSuperset(Set OF Integer { 1, 2, 3 }, Set OF Integer { 1, 9 })
+  io::print(toString(no))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const IS_SUPERSET: BuiltinFunction = BuiltinFunction::mfb(
     "collections.isSuperset",
     "isSuperset",
@@ -43,4 +69,5 @@ pub(crate) const IS_SUPERSET: BuiltinFunction = BuiltinFunction::mfb(
         req("b", &["second"], "Set OF T"),
     ])],
     BODY,
-);
+)
+.with_example(EX);

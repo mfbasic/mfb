@@ -93,6 +93,7 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
             params: P_PARSE,
             return_type: ReturnType::Fixed(GRID_TYPE),
         }],
+        doc_example: "",
         implementation: Implementation::Rewrite(INTERNAL_PARSE),
         lowering: crate::codegen::registry::Lowering::Helper,
         flags: BuiltinFlags {
@@ -110,6 +111,7 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
             params: P_STRINGIFY,
             return_type: ReturnType::Fixed("String"),
         }],
+        doc_example: "",
         implementation: Implementation::Rewrite(INTERNAL_STRINGIFY),
         lowering: crate::codegen::registry::Lowering::Helper,
         flags: BuiltinFlags {
@@ -127,6 +129,7 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
             params: P_PARSE_STREAM,
             return_type: ReturnType::Fixed(READER_TYPE),
         }],
+        doc_example: "",
         implementation: Implementation::Rewrite(INTERNAL_PARSE_STREAM),
         lowering: crate::codegen::registry::Lowering::Helper,
         flags: BuiltinFlags {
@@ -144,6 +147,7 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
             params: P_NEXT,
             return_type: ReturnType::Fixed(ROW_TYPE),
         }],
+        doc_example: "",
         implementation: Implementation::Rewrite(INTERNAL_NEXT),
         lowering: crate::codegen::registry::Lowering::Helper,
         flags: BuiltinFlags {

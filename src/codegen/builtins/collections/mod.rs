@@ -186,6 +186,7 @@ const fn native(
         doc_desc,
         errors,
         overloads,
+        doc_example: "",
         implementation: Implementation::Same,
         lowering: Lowering::Helper,
         flags: BuiltinFlags {
@@ -328,6 +329,135 @@ infallible alongside `append` and `prepend`, and an inline `TRAP` written on a
 `TYPE_INLINE_TRAP_DEAD_HANDLER`). Allocation exhaustion is not a trappable domain
 error in this language."#;
 
+const EX_FIND: &str = r#"Find an element, with and without a starting index:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [10, 20, 30, 20]
+  io::print(toString(collections::find(numbers, 20)))
+  io::print(toString(collections::find(numbers, 20, 2)))
+  RETURN 0
+END FUNC
+```
+
+Find a contiguous sublist:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [10, 20, 30, 20]
+  LET needle AS List OF Integer = [20, 30]
+  io::print(toString(collections::find(numbers, needle)))
+  RETURN 0
+END FUNC
+```
+
+Handle a missing element instead of letting `ErrNotFound` propagate:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2, 3]
+  LET index AS Integer = collections::find(numbers, 99) TRAP(e)
+    io::print("absent: " & e.message)
+    RECOVER -1
+  END TRAP
+  io::print(toString(index))
+  RETURN 0
+END FUNC
+```"#;
+
+const EX_MID: &str = r#"Take two elements from the middle:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2, 3, 4]
+  LET middle AS List OF Integer = collections::mid(numbers, 1, 2)
+  io::print(toString(collections::get(middle, 0)))
+  io::print(toString(len(middle)))
+  RETURN 0
+END FUNC
+```
+
+An empty slice at the end of the list is legal:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2, 3, 4]
+  LET empty AS List OF Integer = collections::mid(numbers, 4, 0)
+  io::print(toString(len(empty)))
+  RETURN 0
+END FUNC
+```
+
+An over-long range raises rather than truncating, so handle it:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2, 3]
+  LET tail AS List OF Integer = collections::mid(numbers, 2, 2) TRAP(e)
+    io::print("bad range: " & e.message)
+    RECOVER []
+  END TRAP
+  io::print(toString(len(tail)))
+  RETURN 0
+END FUNC
+```"#;
+
+const EX_REPLACE: &str = r#"Replace every matching element:
+
+```
+IMPORT collections
+
+FUNC main AS Integer
+  LET values AS List OF Integer = collections::replace([1, 2, 1], 1, 9)
+  RETURN 0
+END FUNC
+```
+
+A needle that does not occur yields an unchanged copy:
+
+```
+IMPORT collections
+IMPORT strings
+IMPORT io
+
+FUNC main AS Integer
+  LET words AS List OF String = collections::replace(["a", "b"], "z", "Q")
+  io::print(strings::join(words, ","))
+  RETURN 0
+END FUNC
+```
+
+Substituting a placeholder throughout a list:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET cleaned AS List OF String = collections::replace(["x", "b", "x"], "x", "QQ")
+  io::print(toString(len(cleaned)))
+  RETURN 0
+END FUNC
+```"#;
+
 // (`add`/`remove`/`toList` doc consts + entries moved to their func_*.rs, plan-96.)
 // (`findIndex`/`findLastIndex` doc consts + entries moved to func_find_index.rs /
 // func_find_last_index.rs when they migrated to Implementation::Mfb.)
@@ -362,7 +492,8 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
             req("item", &["needle"], "T"),
             opt("start", &[], "Integer"),
         ])],
-    ),
+    )
+    .with_example(EX_FIND),
     native(
         "collections.mid",
         "mid",
@@ -374,7 +505,8 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
             req("start", &[], "Integer"),
             req("count", &[], "Integer"),
         ])],
-    ),
+    )
+    .with_example(EX_MID),
     native(
         "collections.replace",
         "replace",
@@ -386,7 +518,8 @@ const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
             req("old", &["needle"], "T"),
             req("new", &["replacement"], "T"),
         ])],
-    ),
+    )
+    .with_example(EX_REPLACE),
     func_add::ADD,
     func_remove::REMOVE,
     func_to_list::TO_LIST,

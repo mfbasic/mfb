@@ -32,6 +32,50 @@ rather than a guarantee to rely on across versions.
 `keys` call has a dead handler. Building the result list does allocate, and an
 allocation failure is not a trappable domain error in this language."#;
 
+const EX: &str = r#"Get the keys of a map:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+  LET names AS List OF String = collections::keys(ages)
+  io::print(toString(len(names)))
+  RETURN 0
+END FUNC
+```
+
+Iterate a map by key:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+  FOR EACH name IN collections::keys(ages)
+    io::print(name & " is " & toString(collections::getOr(ages, name, 0)))
+  NEXT
+  RETURN 0
+END FUNC
+```
+
+The keys and values projections line up index for index:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+  LET names AS List OF String = collections::keys(ages)
+  LET numbers AS List OF Integer = collections::values(ages)
+  io::print(collections::get(names, 0) & "=" & toString(collections::get(numbers, 0)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const KEYS: BuiltinFunction = BuiltinFunction::native(
     "collections.keys",
     "keys",
@@ -40,7 +84,8 @@ pub(crate) const KEYS: BuiltinFunction = BuiltinFunction::native(
     &[],
     &[custom(&[req("value", &["map"], "Map OF K TO V")])],
     lower_keys,
-);
+)
+.with_example(EX);
 
 /// `collections::keys(Map OF K TO V) AS List OF K`: project each entry's key.
 pub(crate) fn lower_keys(

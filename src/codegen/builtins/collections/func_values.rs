@@ -32,6 +32,48 @@ rather than a guarantee to rely on across versions.
 `values` call has a dead handler. Building the result list does allocate, and an
 allocation failure is not a trappable domain error in this language."#;
 
+const EX: &str = r#"Get the values of a map:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+  LET numbers AS List OF Integer = collections::values(ages)
+  io::print(toString(len(numbers)))
+  RETURN 0
+END FUNC
+```
+
+Sum a map's values:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+  io::print(toString(collections::sum(collections::values(ages))))
+  RETURN 0
+END FUNC
+```
+
+Iterate the values directly:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+  FOR EACH age IN collections::values(ages)
+    io::print(toString(age))
+  NEXT
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const VALUES: BuiltinFunction = BuiltinFunction::native(
     "collections.values",
     "values",
@@ -40,7 +82,8 @@ pub(crate) const VALUES: BuiltinFunction = BuiltinFunction::native(
     &[],
     &[custom(&[req("value", &["map"], "Map OF K TO V")])],
     lower_values,
-);
+)
+.with_example(EX);
 
 /// `collections::values(Map OF K TO V) AS List OF V`: project each entry's value.
 pub(crate) fn lower_values(

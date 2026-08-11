@@ -44,6 +44,7 @@ const fn money_fn(
         doc_desc: "",
         errors: &[],
         overloads,
+        doc_example: "",
         implementation: Implementation::Same,
         lowering: Lowering::Inline,
         flags: BuiltinFlags {

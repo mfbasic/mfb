@@ -45,6 +45,45 @@ error leaves.
 An inline `TRAP` on a `filter` call captures that propagated callback error at
 the call site rather than letting it auto-propagate."#;
 
+const EX: &str = r#"Keep the even numbers with a built-in predicate:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET evens AS List OF Integer = collections::filter([1, 2, 3, 4], isEven)
+  io::print(toString(len(evens)))
+  RETURN 0
+END FUNC
+```
+
+Keep the non-empty strings:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET names AS List OF String = collections::filter(["Ada", "", "Grace"], isNotEmpty)
+  io::print(collections::get(names, 0))
+  RETURN 0
+END FUNC
+```
+
+Filter with a `LAMBDA`:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET small AS List OF Integer = collections::filter([1, 2, 5, 9], LAMBDA(value AS Integer) -> value < 3)
+  io::print(toString(len(small)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const FILTER: BuiltinFunction = BuiltinFunction::native(
     "collections.filter",
     "filter",
@@ -56,7 +95,8 @@ pub(crate) const FILTER: BuiltinFunction = BuiltinFunction::native(
         req("predicate", &[], "FUNC(T) AS Boolean"),
     ])],
     lower_filter,
-);
+)
+.with_example(EX);
 
 /// `collections::filter(List OF T, FUNC(T) AS Boolean) AS List OF T`: keep the
 /// elements for which `predicate` returns TRUE, appending to a pre-sized output.

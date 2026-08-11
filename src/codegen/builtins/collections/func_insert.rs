@@ -39,6 +39,43 @@ inline `TRAP` on an `insert` call compiles and catches the out-of-range failure
 rather than being reported as a dead handler. The bounds test runs before any
 allocation for the result, so a rejected index allocates nothing."#;
 
+const EX: &str = r#"Insert in the middle:
+
+```
+IMPORT collections
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = collections::insert([1, 3], 1, 2)
+  RETURN 0
+END FUNC
+```
+
+Insert at the length — the append position, which is in range:
+
+```
+IMPORT collections
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = collections::insert([1, 2], 2, 3)
+  RETURN 0
+END FUNC
+```
+
+Catch an out-of-range index with an inline `TRAP`:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = collections::insert([1, 2], 5, 9) TRAP(e)
+    io::print(e.message)
+    RECOVER [1, 2]
+  END TRAP
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const INSERT: BuiltinFunction = BuiltinFunction::native(
     "collections.insert",
     "insert",
@@ -51,7 +88,8 @@ pub(crate) const INSERT: BuiltinFunction = BuiltinFunction::native(
         req("item", &[], "T"),
     ])],
     lower_insert,
-);
+)
+.with_example(EX);
 
 /// `collections::insert(List OF T, Integer, T) AS List OF T`: splice `item` at
 /// `index` (`0 <= index <= len`, range-checked -> `ErrIndexOutOfRange`).

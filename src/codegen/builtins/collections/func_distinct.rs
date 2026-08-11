@@ -80,6 +80,65 @@ the `append` it uses is classified infallible for exactly that reason.
 the internal `__collections_distinct` generic and instantiated for the element
 type like any other generic function."#;
 
+const EX: &str = r#"Deduplicate a list of integers:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET unique AS List OF Integer = collections::distinct([1, 2, 1, 3, 2])
+  io::print(toString(len(unique)))
+  RETURN 0
+END FUNC
+```
+
+First occurrences are kept in their original order:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET names AS List OF String = collections::distinct(["b", "a", "b", "c"])
+  io::print(collections::get(names, 0))
+  io::print(collections::get(names, 1))
+  io::print(collections::get(names, 2))
+  RETURN 0
+END FUNC
+```
+
+Normalize before deduplicating when Unicode equivalence matters:
+
+```
+IMPORT io
+IMPORT collections
+IMPORT strings
+
+FUNC normalize(s AS String) AS String
+  RETURN strings::normalizeNfc(s)
+END FUNC
+
+FUNC main AS Integer
+  LET raw AS List OF String = ["a", "a", "b"]
+  LET unique AS List OF String = collections::distinct(collections::transform(raw, normalize))
+  io::print(toString(len(unique)))
+  RETURN 0
+END FUNC
+```
+
+The single parameter is named `value`:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  io::print(toString(len(collections::distinct(value := [1, 1, 2]))))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const DISTINCT: BuiltinFunction = BuiltinFunction::mfb(
     "collections.distinct",
     "distinct",
@@ -88,4 +147,5 @@ pub(crate) const DISTINCT: BuiltinFunction = BuiltinFunction::mfb(
     &[],
     &[custom(&[req("value", &["collection"], "List OF T")])],
     BODY,
-);
+)
+.with_example(EX);

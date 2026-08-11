@@ -51,6 +51,48 @@ directly.
 Neither `a` nor `b` is modified; the result is a newly built list. `zip` invokes
 no user callback and raises no error."#;
 
+const EX: &str = r#"Pair numbers with labels and read both fields:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET pairs AS List OF Pair OF Integer, String = collections::zip([1, 2], ["a", "b"])
+  LET p AS Pair OF Integer, String = collections::get(pairs, 0)
+  io::print(toString(p.first) & p.second)
+  RETURN 0
+END FUNC
+```
+
+The shorter list decides the result length:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET short AS List OF Pair OF Integer, String = collections::zip(a := [1, 2, 3, 4], b := ["x"])
+  io::print(toString(len(short)))
+  RETURN 0
+END FUNC
+```
+
+Walk a zipped list:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET pairs AS List OF Pair OF String, Integer = collections::zip(["a", "b"], [10, 20])
+  FOR EACH p IN pairs
+    io::print(p.first & "=" & toString(p.second))
+  NEXT
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const ZIP: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.zip",
     "zip",
@@ -63,7 +105,8 @@ pub(crate) const ZIP: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     ])],
     BODY,
     zip_fast_path,
-);
+)
+.with_example(EX);
 
 /// Native fast path for `#collections_zip$A$B` over two fixed-width scalar lists
 /// (or both-String). `try_inline_zip_op` already self-gates and returns `Ok(None)`

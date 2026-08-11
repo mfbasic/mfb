@@ -34,6 +34,32 @@ the result, but allocation failure is not a trappable domain error, and the
 internal `__collections_union` generic and instantiated for the element type like
 any other generic function."#;
 
+const EX: &str = r#"Combine two sets:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET u AS Set OF Integer = collections::union(Set OF Integer { 1, 2 }, Set OF Integer { 2, 3 })
+  io::print(toString(len(u)))
+  RETURN 0
+END FUNC
+```
+
+Union with an empty set is a copy:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET u AS Set OF Integer = collections::union(Set OF Integer { 4, 5 }, Set OF Integer { })
+  io::print(toString(len(u)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const UNION: BuiltinFunction = BuiltinFunction::mfb(
     "collections.union",
     "union",
@@ -45,4 +71,5 @@ pub(crate) const UNION: BuiltinFunction = BuiltinFunction::mfb(
         req("b", &["second"], "Set OF T"),
     ])],
     BODY,
-);
+)
+.with_example(EX);

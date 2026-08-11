@@ -35,6 +35,49 @@ key nor an empty map fails — so an inline `TRAP` on a `removeKey` call has a
 dead handler. Building the result map does allocate, and an allocation failure
 is not a trappable domain error in this language."#;
 
+const EX: &str = r#"Remove a key:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+  LET smaller AS Map OF String TO Integer = collections::removeKey(ages, "Ada")
+  io::print(toString(len(smaller)))
+  io::print(toString(collections::hasKey(smaller, "Ada")))
+  RETURN 0
+END FUNC
+```
+
+The original map is unchanged:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+  LET smaller AS Map OF String TO Integer = collections::removeKey(ages, "Ada")
+  io::print(toString(collections::hasKey(ages, "Ada")))
+  RETURN 0
+END FUNC
+```
+
+Removing an absent key is harmless:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+  LET same AS Map OF String TO Integer = collections::removeKey(ages, "Grace")
+  io::print(toString(len(same)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const REMOVE_KEY: BuiltinFunction = BuiltinFunction::native(
     "collections.removeKey",
     "removeKey",
@@ -46,7 +89,8 @@ pub(crate) const REMOVE_KEY: BuiltinFunction = BuiltinFunction::native(
         req("key", &[], "K"),
     ])],
     lower_remove_key,
-);
+)
+.with_example(EX);
 
 /// `collections::removeKey` — a new map with the entry for `key` dropped (no-op
 /// if absent). Reuses `lower_map_remove_key`.

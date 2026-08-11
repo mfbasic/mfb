@@ -45,6 +45,47 @@ only — both paths select the same entry and raise the same error when the key 
 absent."#;
 
 /// The descriptor entry for `collections::get`, wired to `lower_get`.
+const EX: &str = r#"Read a list item by index:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [10, 20, 30]
+  io::print(toString(collections::get(numbers, 0)))
+  RETURN 0
+END FUNC
+```
+
+Read a map value by key:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+  io::print(toString(collections::get(ages, "Ada")))
+  RETURN 0
+END FUNC
+```
+
+Guard the lookup so the missing-key error cannot be raised:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+  IF collections::hasKey(ages, "Grace") THEN
+    io::print(toString(collections::get(ages, "Grace")))
+  END IF
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const GET: BuiltinFunction = BuiltinFunction::native(
     "collections.get",
     "get",
@@ -56,7 +97,8 @@ pub(crate) const GET: BuiltinFunction = BuiltinFunction::native(
         req("index", &["key"], "Integer"),
     ])],
     lower_get,
-);
+)
+.with_example(EX);
 
 /// Target-generic lowering for `collections::get` (moved verbatim from the former
 /// `CodeBuilder::lower_collection_get`). Emits through `abi::`; branches to the

@@ -273,6 +273,10 @@ pub(crate) struct BuiltinFunction {
     /// Full reference description for this function, authored in the renderer's
     /// Markdown subset. Unbounded. Empty until authored.
     pub(crate) doc_desc: &'static str,
+    /// Worked `## Examples` section for this function, authored in the renderer's
+    /// Markdown subset (fenced code blocks + prose). Unbounded. Empty until
+    /// authored; set via [`BuiltinFunction::with_example`].
+    pub(crate) doc_example: &'static str,
     /// The `errorCode::Err*` names this function can raise at runtime (e.g.
     /// `"ErrIndexOutOfRange"`), for documentation. Empty for infallible functions
     /// and until authored.
@@ -292,6 +296,14 @@ impl BuiltinFunction {
             Implementation::Native(lower) => Some(lower),
             _ => None,
         }
+    }
+
+    /// Attach a worked `## Examples` section, consumed in `const` context:
+    /// `BuiltinFunction::native(...).with_example(EXAMPLE)`. Additive, so a member
+    /// without examples simply omits it and keeps `doc_example: ""`.
+    pub(crate) const fn with_example(mut self, doc_example: &'static str) -> BuiltinFunction {
+        self.doc_example = doc_example;
+        self
     }
 
     /// The member's native fast path, if it carries one (`Implementation::Mfb`
@@ -324,6 +336,7 @@ impl BuiltinFunction {
             doc_desc,
             errors,
             overloads,
+            doc_example: "",
             implementation: Implementation::Native(lower),
             lowering: Lowering::Helper,
             flags: BuiltinFlags {
@@ -397,6 +410,7 @@ impl BuiltinFunction {
             doc_desc,
             errors,
             overloads,
+            doc_example: "",
             implementation: Implementation::Mfb { body, fast_path },
             lowering: Lowering::Helper,
             flags: BuiltinFlags {
@@ -1114,6 +1128,7 @@ mod tests {
         doc_slug: "add",
         doc_intro: "",
         doc_desc: "",
+        doc_example: "",
         errors: &[],
         overloads: &[BuiltinOverload {
             params: &[
@@ -1135,6 +1150,7 @@ mod tests {
         doc_slug: "emit",
         doc_intro: "",
         doc_desc: "",
+        doc_example: "",
         errors: &[],
         overloads: &[BuiltinOverload {
             params: &[
@@ -1170,6 +1186,7 @@ mod tests {
         doc_slug: "pick",
         doc_intro: "",
         doc_desc: "",
+        doc_example: "",
         errors: &[],
         overloads: &[BuiltinOverload {
             params: &[Parameter::required("x", "Integer")],
@@ -1215,6 +1232,7 @@ mod tests {
         doc_slug: "now",
         doc_intro: "",
         doc_desc: "",
+        doc_example: "",
         errors: &[],
         overloads: &[BuiltinOverload {
             params: &[],
@@ -1232,6 +1250,7 @@ mod tests {
         name: "t",
         doc_intro: "",
         doc_desc: "",
+
         functions: &[ADD, EMIT, PICK, NOW],
         types: TEST_TYPES,
         // A real source loader (borrowed from `app`) so the source rule and
@@ -1250,6 +1269,7 @@ mod tests {
         doc_slug: "add",
         doc_intro: "",
         doc_desc: "",
+        doc_example: "",
         errors: &[],
         overloads: &[BuiltinOverload {
             params: &[Parameter::required("a", "Integer")],
@@ -1267,6 +1287,7 @@ mod tests {
         name: "u",
         doc_intro: "",
         doc_desc: "",
+
         functions: &[OTHER_ADD],
         types: &[],
         source: None,
@@ -1538,6 +1559,7 @@ mod tests {
         name: "t2",
         doc_intro: "",
         doc_desc: "",
+
         functions: &[ADD],
         types: &[],
         source: None,
@@ -1774,6 +1796,7 @@ mod tests {
         doc_slug: "pick",
         doc_intro: "",
         doc_desc: "",
+        doc_example: "",
         errors: &[],
         overloads: S_OVERLOADS,
         implementation: Implementation::Custom,
@@ -1792,6 +1815,7 @@ mod tests {
         name: "s",
         doc_intro: "",
         doc_desc: "",
+
         functions: &[S_PICK],
         types: S_TYPES,
         source: Some(BuiltinSource {
@@ -1976,6 +2000,7 @@ mod tests {
         doc_slug: "mixed",
         doc_intro: "",
         doc_desc: "",
+        doc_example: "",
         errors: &[],
         overloads: &[
             BuiltinOverload {
@@ -1999,6 +2024,7 @@ mod tests {
         name: "m",
         doc_intro: "",
         doc_desc: "",
+
         functions: &[MIXED_RET],
         types: &[],
         source: None,

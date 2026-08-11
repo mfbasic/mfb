@@ -63,6 +63,70 @@ map is discarded. `groupBy` itself raises no error of its own.
 Either callback may be a named `FUNC` or a `LAMBDA` expression, since both
 produce a function value of the required type."#;
 
+const EX: &str = r#"Group numbers by parity, keeping the numbers themselves:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC parity(n AS Integer) AS Integer
+  RETURN n MOD 2
+END FUNC
+
+FUNC identity(n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  LET nums AS List OF Integer = [1, 2, 3, 4]
+  LET groups AS Map OF Integer TO List OF Integer = collections::groupBy(nums, parity, identity)
+  io::print(toString(len(collections::get(groups, 0))))
+  RETURN 0
+END FUNC
+```
+
+The same grouping written with lambdas and named arguments:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET nums AS List OF Integer = [1, 2, 3, 4]
+  LET groups AS Map OF Integer TO List OF Integer = collections::groupBy(value := nums, keyFn := LAMBDA(n AS Integer) -> n MOD 2, valFn := LAMBDA(n AS Integer) -> n)
+  io::print(toString(len(collections::keys(groups))))
+  RETURN 0
+END FUNC
+```
+
+A failing projection propagates its error to the caller's `TRAP`:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC strictKey(n AS Integer) AS Integer
+  IF n < 0 THEN
+    FAIL error(77050002, "negative item")
+  END IF
+  RETURN n MOD 2
+END FUNC
+
+FUNC identity(n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  LET groups AS Map OF Integer TO List OF Integer = collections::groupBy([1, -2, 3], strictKey, identity)
+  io::print(toString(len(collections::keys(groups))))
+  RETURN 0
+  TRAP(err)
+    io::print("failed: " & toString(err.code))
+    RETURN 1
+  END TRAP
+END FUNC
+```"#;
+
 pub(crate) const GROUP_BY: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.groupBy",
     "groupBy",
@@ -76,7 +140,8 @@ pub(crate) const GROUP_BY: BuiltinFunction = BuiltinFunction::mfb_with_fast_path
     ])],
     BODY,
     group_by_fast_path,
-);
+)
+.with_example(EX);
 
 /// Native fast path for `#collections_groupBy$T$K$V` (Integer key, fixed-width or
 /// String T/V, re-eval-safe value). Every other instantiation declines

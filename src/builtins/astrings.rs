@@ -125,6 +125,7 @@ const fn astrings_fn(
         doc_desc: "",
         errors: &[],
         overloads,
+        doc_example: "",
         implementation,
         lowering: Lowering::Helper,
         flags: BuiltinFlags {
@@ -146,6 +147,7 @@ const fn astrings_internal_fn(
         doc_desc: "",
         errors: &[],
         overloads,
+        doc_example: "",
         implementation: Implementation::Same,
         lowering: Lowering::Helper,
         flags: BuiltinFlags {

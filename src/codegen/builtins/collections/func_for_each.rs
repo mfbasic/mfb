@@ -48,6 +48,41 @@ the call site rather than letting it auto-propagate.
 
 An empty `value` calls `action` zero times."#;
 
+const EX: &str = r#"Print every element with a `SUB`:
+
+```
+IMPORT collections
+IMPORT io
+
+SUB show(item AS String)
+  io::print(item)
+END SUB
+
+FUNC main AS Integer
+  LET names AS List OF String = ["Ada", "Grace"]
+  collections::forEach(names, show)
+  RETURN 0
+END FUNC
+```
+
+The list is left untouched by the walk:
+
+```
+IMPORT collections
+IMPORT io
+
+SUB report(value AS Integer)
+  io::print(toString(value))
+END SUB
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2, 3]
+  collections::forEach(numbers, report)
+  io::print(toString(len(numbers)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const FOR_EACH: BuiltinFunction = BuiltinFunction::native(
     "collections.forEach",
     "forEach",
@@ -59,7 +94,8 @@ pub(crate) const FOR_EACH: BuiltinFunction = BuiltinFunction::native(
         req("action", &[], "FUNC(T) AS Nothing"),
     ])],
     lower_for_each,
-);
+)
+.with_example(EX);
 
 /// `collections::forEach(List OF T, FUNC(T) AS Nothing)`: call `action` per
 /// element in order, yielding `Nothing`. A failing callback propagates.

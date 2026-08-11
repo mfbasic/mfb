@@ -75,6 +75,60 @@ doing so, but allocation failure is not a trappable domain error, and the
 the internal `__collections_partition` generic and instantiated for the element
 type like any other generic function."#;
 
+const EX: &str = r#"Split integers into positives and the rest:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC main AS Integer
+  LET result AS Partition OF Integer = collections::partition([-1, 2, -3, 4], isPos)
+  io::print(toString(len(result.matched)))
+  io::print(toString(len(result.unmatched)))
+  RETURN 0
+END FUNC
+```
+
+Each side keeps its original order:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC main AS Integer
+  LET result AS Partition OF Integer = collections::partition([3, -1, 5, -2], isPos)
+  io::print(toString(collections::get(result.matched, 0)))
+  io::print(toString(collections::get(result.matched, 1)))
+  io::print(toString(collections::get(result.unmatched, 0)))
+  RETURN 0
+END FUNC
+```
+
+Named arguments bind by the declared parameter names `value` and `predicate`:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC main AS Integer
+  LET result AS Partition OF Integer = collections::partition(value := [1, -1], predicate := isPos)
+  io::print(toString(len(result.matched)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const PARTITION: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.partition",
     "partition",
@@ -87,7 +141,8 @@ pub(crate) const PARTITION: BuiltinFunction = BuiltinFunction::mfb_with_fast_pat
     ])],
     BODY,
     partition_fast_path,
-);
+)
+.with_example(EX);
 
 /// Native fast path for `#collections_partition$T` (fixed-width or String
 /// elements). Scalar/Byte decline (`Ok(None)`) and run the `.mfb` body. Free fn.

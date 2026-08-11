@@ -42,6 +42,46 @@ error in this language.
 Appending an empty list returns a copy of `value` with the same elements in the
 same order."#;
 
+const EX: &str = r#"Append a single element:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = collections::append([1, 2], 3)
+  io::print(toString(len(numbers)))
+  RETURN 0
+END FUNC
+```
+
+Concatenate a second list:
+
+```
+IMPORT collections
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = collections::append([1, 2], [3, 4])
+  RETURN 0
+END FUNC
+```
+
+Build a list in a loop; the argument is never mutated, the result is:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  MUT bytes AS List OF Byte = []
+  FOR i = 65 TO 70
+    bytes = collections::append(bytes, toByte(i))
+  NEXT
+  io::print(toString(len(bytes)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const APPEND: BuiltinFunction = BuiltinFunction::native(
     "collections.append",
     "append",
@@ -53,7 +93,8 @@ pub(crate) const APPEND: BuiltinFunction = BuiltinFunction::native(
         req("item", &["items"], "T"),
     ])],
     lower_append,
-);
+)
+.with_example(EX);
 
 /// `collections::append` — splice `item` (single element or a whole list) at the
 /// end of the list. The shared end-insert body with append's index (`count`).

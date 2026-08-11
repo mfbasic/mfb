@@ -41,6 +41,45 @@ error in this language.
 
 Prepending to an empty list yields a one-element list."#;
 
+const EX: &str = r#"Add an element to the front:
+
+```
+IMPORT collections
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = collections::prepend([2, 3], 1)
+  RETURN 0
+END FUNC
+```
+
+Build a reversed list by prepending in a loop:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  MUT reversed AS List OF Integer = []
+  FOR i = 1 TO 5
+    reversed = collections::prepend(reversed, i)
+  NEXT
+  io::print(toString(collections::get(reversed, 0)))
+  RETURN 0
+END FUNC
+```
+
+Put a whole list in front — use `append` with the operands reversed, because
+`prepend` has no list overload:
+
+```
+IMPORT collections
+
+FUNC main AS Integer
+  LET joined AS List OF Integer = collections::append([1, 2], [3, 4])
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const PREPEND: BuiltinFunction = BuiltinFunction::native(
     "collections.prepend",
     "prepend",
@@ -52,7 +91,8 @@ pub(crate) const PREPEND: BuiltinFunction = BuiltinFunction::native(
         req("item", &[], "T"),
     ])],
     lower_prepend,
-);
+)
+.with_example(EX);
 
 /// `collections::prepend` — splice `item` at index `0`. The shared end-insert
 /// body with prepend's index (`0`) and its reject-a-list guard.

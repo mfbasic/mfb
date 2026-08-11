@@ -43,6 +43,56 @@ discarded. `mapValues` itself raises no error of its own.
 `f` may be a named `FUNC` or a `LAMBDA` expression, since both produce a function
 value of the required type."#;
 
+const EX: &str = r#"Double every value in a map:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC double(n AS Integer) AS Integer
+  RETURN n * 2
+END FUNC
+
+FUNC main AS Integer
+  LET scores AS Map OF String TO Integer = Map OF String TO Integer { "a" := 3, "b" := 4 }
+  LET doubled AS Map OF String TO Integer = collections::mapValues(scores, double)
+  io::print(toString(collections::get(doubled, "a")))
+  RETURN 0
+END FUNC
+```
+
+Change the value type, using a lambda and named arguments:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET scores AS Map OF String TO Integer = Map OF String TO Integer { "a" := 3 }
+  LET labels AS Map OF String TO String = collections::mapValues(value := scores, f := LAMBDA(n AS Integer) -> toString(n))
+  io::print(collections::get(labels, "a"))
+  RETURN 0
+END FUNC
+```
+
+The source map is left unchanged:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC double(n AS Integer) AS Integer
+  RETURN n * 2
+END FUNC
+
+FUNC main AS Integer
+  LET scores AS Map OF String TO Integer = Map OF String TO Integer { "a" := 3 }
+  LET doubled AS Map OF String TO Integer = collections::mapValues(scores, double)
+  io::print(toString(collections::get(scores, "a")))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const MAP_VALUES: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.mapValues",
     "mapValues",
@@ -55,7 +105,8 @@ pub(crate) const MAP_VALUES: BuiltinFunction = BuiltinFunction::mfb_with_fast_pa
     ])],
     BODY,
     map_values_fast_path,
-);
+)
+.with_example(EX);
 
 /// Native fast path for `#collections_mapValues$K$V$U` with V == U and 8-byte
 /// fixed-width (rewrites value payloads in place over a tight copy). Other

@@ -46,6 +46,62 @@ check. `collections::contains` raises no trappable domain error, so an inline
 `contains` answers only whether a match exists. Use `collections::find` when the
 position of the match is needed."#;
 
+const EX: &str = r#"Test list membership:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2, 3]
+  io::print(toString(collections::contains(numbers, 2)))
+  io::print(toString(collections::contains(numbers, 9)))
+  RETURN 0
+END FUNC
+```
+
+Branch on membership:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET names AS List OF String = ["Ada", "Grace"]
+  IF collections::contains(names, "Ada") THEN
+    io::print("found")
+  END IF
+  RETURN 0
+END FUNC
+```
+
+An empty list contains nothing:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET empty AS List OF Integer = []
+  io::print(toString(collections::contains(empty, 0)))
+  RETURN 0
+END FUNC
+```
+
+Test set membership; the same call works on a `Set`:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET s AS Set OF Integer = Set OF Integer { 1, 2, 3 }
+  io::print(toString(collections::contains(s, 2)))
+  io::print(toString(collections::contains(s, 9)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const CONTAINS: BuiltinFunction = BuiltinFunction::native(
     "collections.contains",
     "contains",
@@ -57,7 +113,8 @@ pub(crate) const CONTAINS: BuiltinFunction = BuiltinFunction::native(
         req("item", &[], "T"),
     ])],
     lower_contains,
-);
+)
+.with_example(EX);
 
 /// `collections::contains(collection, element) AS Boolean`: a `Set` membership
 /// probe (shared `emit_key_membership`) or a linear list scan.

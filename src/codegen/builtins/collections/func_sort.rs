@@ -90,6 +90,47 @@ comparison.
 `value` is not modified. Like every `collections` helper, `sort` produces a new
 list value and leaves its argument intact."#;
 
+const EX: &str = r#"Sort a list of integers:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ordered AS List OF Integer = collections::sort([3, 1, 2])
+  io::print(toString(collections::get(ordered, 0)))
+  RETURN 0
+END FUNC
+```
+
+Sort strings, and observe that the input is untouched:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET names AS List OF String = ["pear", "apple", "fig"]
+  LET ordered AS List OF String = collections::sort(names)
+  io::print(collections::get(ordered, 0))
+  io::print(collections::get(names, 0))
+  RETURN 0
+END FUNC
+```
+
+A list of fewer than two elements is returned as-is:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET one AS List OF Integer = collections::sort([7])
+  io::print(toString(len(one)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const SORT: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.sort",
     "sort",
@@ -99,7 +140,8 @@ pub(crate) const SORT: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     &[custom(&[req("value", &["list"], "List OF T")])],
     BODY,
     sort_fast_path,
-);
+)
+.with_example(EX);
 
 /// Native fast path for `#collections_sort$T` (String or signed 8-byte
 /// fixed-width, 1 arg): an index-permutation merge. Float and everything else

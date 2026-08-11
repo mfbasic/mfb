@@ -28,6 +28,32 @@ the observable semantics are identical either way.
 rather than a failure, so no path raises a trappable domain error and an inline
 `TRAP` written on a `remove` call has a dead handler."#;
 
+const EX: &str = r#"Remove a present element:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET s AS Set OF Integer = collections::remove(Set OF Integer { 1, 2, 3 }, 2)
+  io::print(toString(len(s)))
+  RETURN 0
+END FUNC
+```
+
+Removing an absent element is a no-op:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET s AS Set OF Integer = collections::remove(Set OF Integer { 1, 2 }, 9)
+  io::print(toString(len(s)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const REMOVE: BuiltinFunction = BuiltinFunction::native(
     "collections.remove",
     "remove",
@@ -39,7 +65,8 @@ pub(crate) const REMOVE: BuiltinFunction = BuiltinFunction::native(
         req("item", &["element"], "T"),
     ])],
     lower_remove,
-);
+)
+.with_example(EX);
 
 /// `collections::remove(Set OF T, T) AS Set OF T` (plan-63-B): remove an element
 /// (no-op if absent). Reuses `lower_map_remove_key` with the element as the key.

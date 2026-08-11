@@ -89,6 +89,7 @@ const fn ef(
         doc_desc: "",
         errors: &[],
         overloads,
+        doc_example: "",
         implementation,
         lowering: Lowering::Helper,
         flags: BuiltinFlags {

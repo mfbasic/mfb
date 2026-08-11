@@ -78,6 +78,7 @@ const fn nf(
         doc_desc: "",
         errors: &[],
         overloads,
+        doc_example: "",
         implementation,
         lowering: Lowering::Helper,
         flags: BuiltinFlags {

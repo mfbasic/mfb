@@ -96,6 +96,41 @@ the sort.
 There is no descending form. To order descending by a numeric key, have `keyFn`
 return the negated key. `value` is not modified."#;
 
+const EX: &str = r#"Sort descending by negating an integer key:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC negated(n AS Integer) AS Integer
+  RETURN 0 - n
+END FUNC
+
+FUNC main AS Integer
+  LET ordered AS List OF Integer = collections::sortBy([1, 3, 2], negated)
+  io::print(toString(collections::get(ordered, 0)))
+  RETURN 0
+END FUNC
+```
+
+Order strings by length; equal lengths keep their input order:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC size(s AS String) AS Integer
+  RETURN len(s)
+END FUNC
+
+FUNC main AS Integer
+  LET words AS List OF String = ["pear", "fig", "kiwi", "date"]
+  LET byLength AS List OF String = collections::sortBy(words, size)
+  io::print(collections::get(byLength, 0))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const SORT_BY: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.sortBy",
     "sortBy",
@@ -108,7 +143,8 @@ pub(crate) const SORT_BY: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     ])],
     BODY,
     sort_by_fast_path,
-);
+)
+.with_example(EX);
 
 /// Native fast path for `#collections_sortBy$T$U`: 8-byte fixed-width items and
 /// signed 8-byte keys (String items allowed when the source is re-eval-safe).

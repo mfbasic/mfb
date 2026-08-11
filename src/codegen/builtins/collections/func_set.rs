@@ -50,6 +50,47 @@ rather than being reported as a dead handler. On the list path the bounds test
 runs before any replacement value is materialized, so a rejected index allocates
 nothing."#;
 
+const EX: &str = r#"Replace an existing list element:
+
+```
+IMPORT collections
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = collections::set([1, 2, 3], 1, 9)
+  RETURN 0
+END FUNC
+```
+
+Insert and then overwrite a map key — neither call can fail:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  MUT scores AS Map OF String TO Integer = Map OF String TO Integer {}
+  scores = collections::set(scores, "Ada", 10)
+  scores = collections::set(scores, "Ada", 20)
+  io::print(toString(collections::get(scores, "Ada")))
+  RETURN 0
+END FUNC
+```
+
+A list index equal to the length is out of range, not an append:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = collections::set([1, 2], 2, 9) TRAP(e)
+    io::print(e.message)
+    RECOVER collections::append([1, 2], 9)
+  END TRAP
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const SET: BuiltinFunction = BuiltinFunction::native(
     "collections.set",
     "set",
@@ -62,7 +103,8 @@ pub(crate) const SET: BuiltinFunction = BuiltinFunction::native(
         req("item", &[], "T"),
     ])],
     lower_set,
-);
+)
+.with_example(EX);
 
 /// `collections::set` — replace a list element (range-checked) or assign a map
 /// key (always succeeds). List path: tight copy + in-place overwrite for a

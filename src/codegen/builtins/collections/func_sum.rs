@@ -46,6 +46,47 @@ ordinary function-level `TRAP` can handle it.
 To total a list of some other element type, or to accumulate with different
 rules, fold it with `collections::reduce`."#;
 
+const EX: &str = r#"Total a list of integers:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET total AS Integer = collections::sum([1, 2, 3])
+  io::print(toString(total))
+  RETURN 0
+END FUNC
+```
+
+Total `Float` and `Fixed` lists:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET floats AS List OF Float = [1.25, 2.5]
+  LET fixeds AS List OF Fixed = [1.25F, 2.5F]
+  io::print(toString(collections::sum(floats)))
+  io::print(toString(collections::sum(fixeds)))
+  RETURN 0
+END FUNC
+```
+
+An empty list totals to zero:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET empty AS List OF Integer = []
+  io::print(toString(collections::sum(empty)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const SUM: BuiltinFunction = BuiltinFunction::native(
     "collections.sum",
     "sum",
@@ -54,7 +95,8 @@ pub(crate) const SUM: BuiltinFunction = BuiltinFunction::native(
     &["ErrOverflow"],
     &[custom(&[req("value", &["collection"], "List OF Number")])],
     lower_sum,
-);
+)
+.with_example(EX);
 
 /// `collections::sum(List OF Integer|Float|Fixed)` — the accumulation loop; the
 /// Integer/Fixed paths use checked addition (`ErrOverflow`), Float uses IEEE-754.

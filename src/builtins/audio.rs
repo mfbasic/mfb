@@ -121,6 +121,7 @@ const fn af(
         doc_desc: "",
         errors: &[],
         overloads,
+        doc_example: "",
         implementation: Implementation::Custom,
         lowering: Lowering::Helper,
         flags: BuiltinFlags {

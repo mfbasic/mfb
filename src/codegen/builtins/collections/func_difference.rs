@@ -36,6 +36,32 @@ a trappable domain error, and the `add` it is built on is classified infallible.
 the internal `__collections_difference` generic and instantiated for the element
 type like any other generic function."#;
 
+const EX: &str = r#"Elements of the first set not in the second:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET only AS Set OF Integer = collections::difference(Set OF Integer { 1, 2, 3 }, Set OF Integer { 2 })
+  io::print(toString(len(only)))
+  RETURN 0
+END FUNC
+```
+
+Difference is asymmetric:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET d AS Set OF Integer = collections::difference(Set OF Integer { 2 }, Set OF Integer { 1, 2, 3 })
+  io::print(toString(len(d)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const DIFFERENCE: BuiltinFunction = BuiltinFunction::mfb(
     "collections.difference",
     "difference",
@@ -47,4 +73,5 @@ pub(crate) const DIFFERENCE: BuiltinFunction = BuiltinFunction::mfb(
         req("b", &["second"], "Set OF T"),
     ])],
     BODY,
-);
+)
+.with_example(EX);

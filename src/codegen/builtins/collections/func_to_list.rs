@@ -19,6 +19,33 @@ empty list.
 `toList` is **infallible**: no path in its lowering raises a trappable domain
 error, so an inline `TRAP` written on a `toList` call has a dead handler."#;
 
+const EX: &str = r#"List the elements of a set:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET elems AS List OF Integer = collections::toList(Set OF Integer { 3, 1, 2 })
+  io::print(toString(len(elems)))
+  RETURN 0
+END FUNC
+```
+
+Duplicate elements never appear in the listed result:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  MUT s AS Set OF Integer = Set OF Integer { 1, 2 }
+  s = collections::add(s, 2)
+  io::print(toString(len(collections::toList(s))))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const TO_LIST: BuiltinFunction = BuiltinFunction::native(
     "collections.toList",
     "toList",
@@ -27,7 +54,8 @@ pub(crate) const TO_LIST: BuiltinFunction = BuiltinFunction::native(
     &[],
     &[custom(&[req("value", &["set"], "Set OF T")])],
     lower_to_list,
-);
+)
+.with_example(EX);
 
 /// `collections::toList(Set OF T) AS List OF T` (plan-63-B): the elements in
 /// stable insertion order. Reuses the Map key projection (the Set's elements

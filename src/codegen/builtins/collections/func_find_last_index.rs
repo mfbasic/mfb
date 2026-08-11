@@ -80,6 +80,81 @@ const BODY: &str =
   FAIL error(77050004, \"Requested item, key, file, or resource was not found.\")
 END FUNC";
 
+const EX: &str = r#"Find the last positive element:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(collections::findLastIndex([1, 2, 0, 3], isPos)))
+  RETURN 0
+END FUNC
+```
+
+Limit the backward scan with an explicit `endIndex`:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC main AS Integer
+  LET nums AS List OF Integer = [5, 0, 7, 9]
+  io::print(toString(collections::findLastIndex(nums, isPos, 2)))
+  RETURN 0
+END FUNC
+```
+
+The parameter is named `endIndex`, so this is the named-argument spelling:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(collections::findLastIndex([5, 0, 7], isPos, endIndex := -2)))
+  RETURN 0
+END FUNC
+```
+
+An empty list raises `ErrIndexOutOfRange`, so a defensive caller traps both
+codes:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC lastPositive(nums AS List OF Integer) AS Integer
+  RETURN collections::findLastIndex(nums, isPos)
+
+  TRAP(e)
+    RETURN -1
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  LET empty AS List OF Integer = []
+  io::print(toString(lastPositive(empty)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const FIND_LAST_INDEX: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.findLastIndex",
     "findLastIndex",
@@ -93,7 +168,8 @@ pub(crate) const FIND_LAST_INDEX: BuiltinFunction = BuiltinFunction::mfb_with_fa
     ])],
     BODY,
     find_last_index_fast_path,
-);
+)
+.with_example(EX);
 
 /// Native fast path for `#collections_findLastIndex$String` (3-arg form): a
 /// reverse predicate scan. Other element types decline (`Ok(None)`) and run the

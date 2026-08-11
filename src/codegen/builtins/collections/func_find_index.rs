@@ -63,6 +63,80 @@ const BODY: &str =
   FAIL error(77050004, \"Requested item, key, file, or resource was not found.\")
 END FUNC";
 
+const EX: &str = r#"Find the first positive element:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(collections::findIndex([-1, 0, 3, 4], isPos)))
+  RETURN 0
+END FUNC
+```
+
+Resume the scan past an earlier match by passing `start`:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC main AS Integer
+  LET nums AS List OF Integer = [5, -1, 7, -2]
+  LET first AS Integer = collections::findIndex(nums, isPos)
+  io::print(toString(collections::findIndex(nums, isPos, first + 1)))
+  RETURN 0
+END FUNC
+```
+
+Handle the no-match case with a function-level `TRAP`:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC firstPositive(nums AS List OF Integer) AS Integer
+  RETURN collections::findIndex(nums, isPos)
+
+  TRAP(e)
+    RETURN -1
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(firstPositive([-3, -2])))
+  RETURN 0
+END FUNC
+```
+
+The third parameter is named `start`:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(collections::findIndex([5, -1, 7], isPos, start := 1)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const FIND_INDEX: BuiltinFunction = BuiltinFunction::mfb(
     "collections.findIndex",
     "findIndex",
@@ -75,4 +149,5 @@ pub(crate) const FIND_INDEX: BuiltinFunction = BuiltinFunction::mfb(
         opt("start", &[], "Integer"),
     ])],
     BODY,
-);
+)
+.with_example(EX);

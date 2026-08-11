@@ -119,6 +119,7 @@ const fn df(
         doc_desc: "",
         errors: &[],
         overloads,
+        doc_example: "",
         implementation: Implementation::Custom,
         lowering: Lowering::Helper,
         flags: BuiltinFlags {

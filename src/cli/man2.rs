@@ -142,6 +142,13 @@ fn render_function_markdown(module: &BuiltinModule, function: &BuiltinFunction) 
     }
 
     render_errors(&mut md, function);
+
+    if !function.doc_example.is_empty() {
+        md.push_str("## Examples\n\n");
+        md.push_str(function.doc_example);
+        md.push_str("\n\n");
+    }
+
     render_see_also(&mut md, module, function);
 
     md

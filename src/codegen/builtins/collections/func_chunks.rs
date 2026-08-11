@@ -57,6 +57,49 @@ Each block is built by the internal slice helper, which is lowered natively as a
 bulk range copy, so element payloads are copied into freshly allocated lists and
 no block shares storage with `value`. `value` is not modified."#;
 
+const EX: &str = r#"Split five elements into blocks of two, leaving a short final block:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET parts AS List OF List OF Integer = collections::chunks([1, 2, 3, 4, 5], 2)
+  io::print(toString(len(parts)))
+  io::print(toString(len(collections::get(parts, 2))))
+  RETURN 0
+END FUNC
+```
+
+A list shorter than the chunk size yields a single block:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET one AS List OF List OF Integer = collections::chunks([1, 2], 10)
+  io::print(toString(len(one)))
+  RETURN 0
+END FUNC
+```
+
+Reject a non-positive chunk size at runtime:
+
+```
+IMPORT collections
+IMPORT io
+IMPORT errorCode
+
+FUNC main AS Integer
+  LET bad AS List OF List OF Integer = collections::chunks([1, 2, 3], 0) TRAP(e)
+    io::print(toString(e.code = errorCode::ErrInvalidArgument))
+    RECOVER []
+  END TRAP
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const CHUNKS: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.chunks",
     "chunks",
@@ -69,7 +112,8 @@ pub(crate) const CHUNKS: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     ])],
     BODY,
     chunks_fast_path,
-);
+)
+.with_example(EX);
 
 /// Native fast path for `#collections_chunks$T` with a constant `size >= 1`:
 /// fixed-width via the contiguous-block builder, String via per-chunk slice

@@ -44,6 +44,7 @@ const fn json_fn(
         doc_desc: "",
         errors: &[],
         overloads,
+        doc_example: "",
         implementation,
         lowering: Lowering::Helper,
         flags: BuiltinFlags {

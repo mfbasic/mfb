@@ -41,6 +41,58 @@ path, since the accumulator may still alias the borrowed `initial`.
 An inline `TRAP` on a `reduce` call captures that propagated reducer error at
 the call site rather than letting it auto-propagate."#;
 
+const EX: &str = r#"Sum a list with an explicit reducer:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC add(total AS Integer, value AS Integer) AS Integer
+  RETURN total + value
+END FUNC
+
+FUNC main AS Integer
+  LET total AS Integer = collections::reduce([1, 2, 3], 10, add)
+  io::print(toString(total))
+  RETURN 0
+END FUNC
+```
+
+Fold a `List OF String` into a single `String`, showing that `U` need not equal
+`T`'s usual result:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC join(text AS String, word AS String) AS String
+  RETURN text & word
+END FUNC
+
+FUNC main AS Integer
+  LET joined AS String = collections::reduce(["hello", "world"], "", join)
+  io::print(joined)
+  RETURN 0
+END FUNC
+```
+
+An empty list returns `initial` without calling the reducer:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC add(total AS Integer, value AS Integer) AS Integer
+  RETURN total + value
+END FUNC
+
+FUNC main AS Integer
+  LET empty AS List OF Integer = []
+  io::print(toString(collections::reduce(empty, 7, add)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const REDUCE: BuiltinFunction = BuiltinFunction::native(
     "collections.reduce",
     "reduce",
@@ -53,7 +105,8 @@ pub(crate) const REDUCE: BuiltinFunction = BuiltinFunction::native(
         req("f", &["combine"], "FUNC(U, T) AS U"),
     ])],
     lower_reduce,
-);
+)
+.with_example(EX);
 
 /// `collections::reduce(List OF T, U, FUNC(U, T) AS U) AS U`: left fold. The
 /// shared fold machinery, walked head-to-tail.

@@ -44,6 +44,32 @@ classified infallible.
 rewritten to the internal `__collections_symmetricDifference` generic and
 instantiated for the element type like any other generic function."#;
 
+const EX: &str = r#"Elements in exactly one of two sets:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET d AS Set OF Integer = collections::symmetricDifference(Set OF Integer { 1, 2, 3 }, Set OF Integer { 2, 3, 4 })
+  io::print(toString(len(d)))
+  RETURN 0
+END FUNC
+```
+
+Two equal sets have an empty symmetric difference:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET d AS Set OF Integer = collections::symmetricDifference(Set OF Integer { 1, 2 }, Set OF Integer { 1, 2 })
+  io::print(toString(len(d)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const SYMMETRIC_DIFFERENCE: BuiltinFunction = BuiltinFunction::mfb(
     "collections.symmetricDifference",
     "symmetricDifference",
@@ -55,4 +81,5 @@ pub(crate) const SYMMETRIC_DIFFERENCE: BuiltinFunction = BuiltinFunction::mfb(
         req("b", &["second"], "Set OF T"),
     ])],
     BODY,
-);
+)
+.with_example(EX);

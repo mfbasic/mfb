@@ -32,6 +32,32 @@ set is a subset of itself, and equal sets are subsets of each other.
 internal `__collections_isSubset` generic and instantiated for the element type
 like any other generic function."#;
 
+const EX: &str = r#"A smaller set contained in a larger one:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET yes AS Boolean = collections::isSubset(Set OF Integer { 1, 2 }, Set OF Integer { 1, 2, 3 })
+  io::print(toString(yes))
+  RETURN 0
+END FUNC
+```
+
+An element outside the second set makes it false:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET no AS Boolean = collections::isSubset(Set OF Integer { 1, 9 }, Set OF Integer { 1, 2, 3 })
+  io::print(toString(no))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const IS_SUBSET: BuiltinFunction = BuiltinFunction::mfb(
     "collections.isSubset",
     "isSubset",
@@ -43,4 +69,5 @@ pub(crate) const IS_SUBSET: BuiltinFunction = BuiltinFunction::mfb(
         req("b", &["second"], "Set OF T"),
     ])],
     BODY,
-);
+)
+.with_example(EX);

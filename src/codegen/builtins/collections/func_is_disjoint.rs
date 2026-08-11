@@ -33,6 +33,32 @@ empty set is disjoint from every set, so a call with an empty argument is always
 the internal `__collections_isDisjoint` generic and instantiated for the element
 type like any other generic function."#;
 
+const EX: &str = r#"Two sets with no common element:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET yes AS Boolean = collections::isDisjoint(Set OF Integer { 1, 2 }, Set OF Integer { 3, 4 })
+  io::print(toString(yes))
+  RETURN 0
+END FUNC
+```
+
+A shared element makes it false:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET no AS Boolean = collections::isDisjoint(Set OF Integer { 1, 2 }, Set OF Integer { 2, 3 })
+  io::print(toString(no))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const IS_DISJOINT: BuiltinFunction = BuiltinFunction::mfb(
     "collections.isDisjoint",
     "isDisjoint",
@@ -44,4 +70,5 @@ pub(crate) const IS_DISJOINT: BuiltinFunction = BuiltinFunction::mfb(
         req("b", &["second"], "Set OF T"),
     ])],
     BODY,
-);
+)
+.with_example(EX);

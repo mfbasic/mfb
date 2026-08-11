@@ -28,6 +28,48 @@ the observable semantics are identical either way.
 so an inline `TRAP` written on an `add` call has a dead handler. Allocation
 exhaustion is not a trappable domain error in this language."#;
 
+const EX: &str = r#"Insert a new element:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET s AS Set OF Integer = collections::add(Set OF Integer { 1, 2 }, 3)
+  io::print(toString(len(s)))
+  RETURN 0
+END FUNC
+```
+
+Adding an element already present is a no-op:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET s AS Set OF Integer = collections::add(Set OF Integer { 1, 2 }, 2)
+  io::print(toString(len(s)))
+  RETURN 0
+END FUNC
+```
+
+Build a set in a loop; the argument is never mutated, the result is:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  MUT seen AS Set OF Integer = Set OF Integer { }
+  FOR i = 1 TO 5
+    seen = collections::add(seen, i MOD 2)
+  NEXT
+  io::print(toString(len(seen)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const ADD: BuiltinFunction = BuiltinFunction::native(
     "collections.add",
     "add",
@@ -39,7 +81,8 @@ pub(crate) const ADD: BuiltinFunction = BuiltinFunction::native(
         req("item", &["element"], "T"),
     ])],
     lower_add,
-);
+)
+.with_example(EX);
 
 /// `collections::add(Set OF T, T) AS Set OF T` (plan-63-B): insert an element,
 /// idempotent. Copy the set (tight, uniquely owned), then insert into the copy.

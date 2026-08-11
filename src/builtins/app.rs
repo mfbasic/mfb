@@ -37,6 +37,7 @@ const APP_FUNCTIONS: &[BuiltinFunction] = &[
             params: &[],
             return_type: ReturnType::Fixed("Mode"),
         }],
+        doc_example: "",
         implementation: Implementation::Same,
         lowering: Lowering::Inline,
         flags: BuiltinFlags {
@@ -54,6 +55,7 @@ const APP_FUNCTIONS: &[BuiltinFunction] = &[
             params: &[Parameter::required("mode", "Mode")],
             return_type: ReturnType::Fixed("Nothing"),
         }],
+        doc_example: "",
         implementation: Implementation::Same,
         lowering: Lowering::Inline,
         flags: BuiltinFlags {

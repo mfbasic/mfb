@@ -56,6 +56,59 @@ a bulk range copy, so element payloads are copied into freshly allocated lists
 and no window shares storage with `value`. Overlapping windows therefore hold
 independent copies of the elements they share. `value` is not modified."#;
 
+const EX: &str = r#"Overlapping pairs, with the default stride of 1:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET windows AS List OF List OF Integer = collections::window([1, 2, 3, 4], 2)
+  io::print(toString(len(windows)))
+  RETURN 0
+END FUNC
+```
+
+A stride equal to the size gives non-overlapping windows — and unlike `chunks`,
+a trailing partial run is dropped:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET pairs AS List OF List OF Integer = collections::window([1, 2, 3, 4, 5], 2, 2)
+  io::print(toString(len(pairs)))
+  RETURN 0
+END FUNC
+```
+
+Name the stride explicitly; the parameter is `stride`, not `step`:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET spaced AS List OF List OF Integer = collections::window([1, 2, 3, 4, 5, 6], 2, stride := 3)
+  io::print(toString(len(spaced)))
+  RETURN 0
+END FUNC
+```
+
+A size larger than the list yields no windows at all:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET none AS List OF List OF Integer = collections::window([1, 2], 5)
+  io::print(toString(len(none)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const WINDOW: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.window",
     "window",
@@ -69,7 +122,8 @@ pub(crate) const WINDOW: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     ])],
     BODY,
     window_fast_path,
-);
+)
+.with_example(EX);
 
 /// Native fast path for `#collections_window$T` with constant `size >= 1` /
 /// `stride >= 1`: fixed-width (stride 1) via the contiguous-block builder, String

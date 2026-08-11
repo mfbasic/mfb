@@ -53,6 +53,51 @@ not move the key to the end.
 
 `merge` invokes no user callback and raises no error."#;
 
+const EX: &str = r#"Let the second map win on a collision:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET a AS Map OF String TO Integer = Map OF String TO Integer { "x" := 1 }
+  LET b AS Map OF String TO Integer = Map OF String TO Integer { "x" := 2, "y" := 9 }
+  LET merged AS Map OF String TO Integer = collections::merge(a, b, TRUE)
+  io::print(toString(collections::get(merged, "x")))
+  RETURN 0
+END FUNC
+```
+
+Keep the first map's value instead, while still gaining `b`'s new keys:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET defaults AS Map OF String TO Integer = Map OF String TO Integer { "retries" := 3 }
+  LET overrides AS Map OF String TO Integer = Map OF String TO Integer { "retries" := 9, "timeout" := 30 }
+  LET settings AS Map OF String TO Integer = collections::merge(a := defaults, b := overrides, preferB := FALSE)
+  io::print(toString(collections::get(settings, "retries")) & " " & toString(collections::get(settings, "timeout")))
+  RETURN 0
+END FUNC
+```
+
+Both inputs are left unchanged:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET a AS Map OF String TO Integer = Map OF String TO Integer { "x" := 1 }
+  LET b AS Map OF String TO Integer = Map OF String TO Integer { "x" := 2 }
+  LET merged AS Map OF String TO Integer = collections::merge(a, b, TRUE)
+  io::print(toString(collections::get(a, "x")))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const MERGE: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     "collections.merge",
     "merge",
@@ -66,7 +111,8 @@ pub(crate) const MERGE: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
     ])],
     BODY,
     merge_fast_path,
-);
+)
+.with_example(EX);
 
 /// Native fast path for `#collections_merge$K$V` with a String key, fixed-width
 /// value, and compile-time-`TRUE` `preferB` (presized copy + in-place bulk

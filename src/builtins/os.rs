@@ -52,6 +52,7 @@ const fn os_fn(
         doc_desc: "",
         errors: &[],
         overloads,
+        doc_example: "",
         implementation: Implementation::Same,
         lowering: Lowering::Helper,
         flags: BuiltinFlags {

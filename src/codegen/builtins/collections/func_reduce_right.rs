@@ -38,6 +38,54 @@ discarded. `reduceRight` itself raises no error of its own.
 `f` may be a named `FUNC` or a `LAMBDA` expression, since both produce a function
 value of the required type."#;
 
+const EX: &str = r#"Subtract each item from an accumulator, right to left:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC subtract(acc AS Integer, n AS Integer) AS Integer
+  RETURN acc - n
+END FUNC
+
+FUNC main AS Integer
+  LET total AS Integer = collections::reduceRight([1, 2, 3], 0, subtract)
+  io::print(toString(total))
+  RETURN 0
+END FUNC
+```
+
+Fold into a different type — build a reversed `String` from a `List OF String`:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET words AS List OF String = ["a", "b", "c"]
+  LET joined AS String = collections::reduceRight(value := words, initial := "", f := LAMBDA(acc AS String, w AS String) -> acc & w)
+  io::print(joined)
+  RETURN 0
+END FUNC
+```
+
+An empty list returns `initial` untouched:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC subtract(acc AS Integer, n AS Integer) AS Integer
+  RETURN acc - n
+END FUNC
+
+FUNC main AS Integer
+  LET empty AS List OF Integer = []
+  io::print(toString(collections::reduceRight(empty, 42, subtract)))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) const REDUCE_RIGHT: BuiltinFunction = BuiltinFunction::native(
     "collections.reduceRight",
     "reduceRight",
@@ -50,7 +98,8 @@ pub(crate) const REDUCE_RIGHT: BuiltinFunction = BuiltinFunction::native(
         req("f", &["combine"], "FUNC(U, T) AS U"),
     ])],
     lower_reduce_right,
-);
+)
+.with_example(EX);
 
 /// `collections::reduceRight(List OF T, U, FUNC(U, T) AS U) AS U`: right fold.
 /// The shared fold machinery, walked tail-to-head.
