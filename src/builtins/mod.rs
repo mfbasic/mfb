@@ -384,6 +384,20 @@ pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
 /// the hand-ordered per-package `resolve_call` chain it grew from.
 pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Option<String> {
     let (module, function) = crate::codegen::registry::REGISTRY.function(callee)?;
+    // A `Resolve` member owns its own selector on the descriptor: pick the variant
+    // from the argument types (return-type resolution has no expected type) and
+    // read that variant's return type — no package `BuiltinResolver` involved.
+    if let crate::codegen::registry::Implementation::Resolve { resolver, variants } =
+        function.implementation
+    {
+        let Ok(Some(name)) = resolver(arg_types, None) else {
+            return None;
+        };
+        return variants
+            .iter()
+            .find(|v| v.name == name)
+            .map(|v| v.return_type.to_string());
+    }
     match module.resolver {
         Some(resolver) => resolver.resolve_return_type(module, function.name, arg_types),
         None => crate::codegen::registry::DefaultResolver::resolve_call(
@@ -825,9 +839,15 @@ pub(crate) fn resolve_overload_target(
     arg_types: &[String],
     expected_type: Option<&str>,
 ) -> Result<Option<String>, ()> {
-    let Some((module, _function)) = crate::codegen::registry::REGISTRY.function(callee) else {
+    let Some((module, function)) = crate::codegen::registry::REGISTRY.function(callee) else {
         return Ok(None);
     };
+    // A `Resolve` member's selector answers the monomorph target directly.
+    if let crate::codegen::registry::Implementation::Resolve { resolver, .. } =
+        function.implementation
+    {
+        return resolver(arg_types, expected_type).map(|opt| opt.map(str::to_string));
+    }
     match module.resolver {
         Some(resolver) => {
             resolver.resolve_overload_target(module, callee, arg_types, expected_type)

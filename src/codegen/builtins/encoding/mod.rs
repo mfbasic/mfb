@@ -77,8 +77,6 @@ mod func_utf16_encode;
 mod func_utf32_decode;
 mod func_utf32_encode;
 mod func_utf8_decode;
-mod func_utf8_decode_bytes;
-mod func_utf8_decode_ints;
 mod func_utf8_encode;
 mod func_utf8_encode_bytes;
 mod func_utf8_encode_ints;
@@ -93,9 +91,11 @@ const INTS: &str = "List OF Integer";
 // `implementation_name` derive from the descriptor. Non-overloaded functions (and
 // the 4 monomorph targets) carry `Implementation::Mfb` (their `__encoding_*` body
 // lives in the owning `func_*.rs`; the rewrite target comes from `IMPL_NAMES`);
-// the two overloaded names `utf8Encode`/`utf8Decode` are `Implementation::Custom`
-// (`is_overloaded`), resolved by `EncodingResolver::resolve_overload_target`.
-// `resolve_call` argument validation is also resolver-owned. `WhenImported` source.
+// `utf8Encode` is `Implementation::Custom` (return-type overload, resolved by
+// `EncodingResolver::resolve_overload_target`); `utf8Decode` is
+// `Implementation::Resolve` (parameter overload, selector + both variants owned by
+// `func_utf8_decode.rs`). Both are `is_overloaded`. `resolve_call` argument
+// validation is resolver-owned. `WhenImported` source.
 // `ov`/`p` build the documentation overloads; each member's descriptor is
 // constructed in its `func_*.rs` via `BuiltinFunction::mfb`/`::custom`.
 const fn p(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
@@ -121,8 +121,8 @@ const ENCODING_FUNCTIONS: &[BuiltinFunction] = &[
     // The 4 monomorph targets.
     func_utf8_encode_bytes::UTF8_ENCODE_BYTES,
     func_utf8_encode_ints::UTF8_ENCODE_INTS,
-    func_utf8_decode_bytes::UTF8_DECODE_BYTES,
-    func_utf8_decode_ints::UTF8_DECODE_INTS,
+    func_utf8_decode::UTF8_DECODE_BYTES,
+    func_utf8_decode::UTF8_DECODE_INTS,
     // Non-overloaded codecs.
     func_utf16_encode::UTF16_ENCODE,
     func_utf16_decode::UTF16_DECODE,
@@ -273,7 +273,10 @@ fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedC
         UTF8_ENCODE if arg == "String" => Cow::Borrowed(BYTES),
         UTF8_ENCODE_BYTES if arg == "String" => Cow::Borrowed(BYTES),
         UTF8_ENCODE_INTS if arg == "String" => Cow::Borrowed(INTS),
-        UTF8_DECODE if arg == BYTES || arg == INTS => Cow::Borrowed("String"),
+        // `UTF8_DECODE` (the overloaded parent) is `Implementation::Resolve`: its
+        // return-type resolution is owned by its descriptor selector in
+        // `func_utf8_decode.rs`, not this package resolver. Only the concrete
+        // monomorph targets remain here.
         UTF8_DECODE_BYTES if arg == BYTES => Cow::Borrowed("String"),
         UTF8_DECODE_INTS if arg == INTS => Cow::Borrowed("String"),
         UTF16_ENCODE | UTF32_ENCODE if arg == "String" => Cow::Borrowed(INTS),
@@ -363,18 +366,24 @@ fn dispatch_overload_target(
             Some(INTS) => Ok(Some(UTF8_ENCODE_INTS)),
             _ => Err(()),
         },
-        UTF8_DECODE if arg_types == [BYTES] => Ok(Some(UTF8_DECODE_BYTES)),
-        UTF8_DECODE if arg_types == [INTS] => Ok(Some(UTF8_DECODE_INTS)),
+        // `UTF8_DECODE` is `Implementation::Resolve`: its selector lives on the
+        // descriptor (`func_utf8_decode.rs`), reached before this resolver.
         _ => Ok(None),
     }
 }
 
 /// Whether `callee` is one of the overloaded encoding public names: derived from
-/// the descriptor (an overloaded name carries `Implementation::Custom`).
+/// the descriptor. `utf8Encode` carries `Implementation::Custom` (return-type
+/// overload, resolved by [`EncodingResolver`]); `utf8Decode` carries
+/// `Implementation::Resolve` (parameter overload, resolved by its own descriptor
+/// selector in `func_utf8_decode.rs`).
 pub(crate) fn is_overloaded(callee: &str) -> bool {
-    ENCODING
-        .function(callee)
-        .is_some_and(|function| matches!(function.implementation, Implementation::Custom))
+    ENCODING.function(callee).is_some_and(|function| {
+        matches!(
+            function.implementation,
+            Implementation::Custom | Implementation::Resolve { .. }
+        )
+    })
 }
 
 /// Synthetic path label for the injected encoding source. `parse_source_internal`
@@ -712,8 +721,8 @@ mod tests {
         assert_eq!(ret(UTF8_ENCODE, &["String"]).as_deref(), Some(BYTES));
         assert_eq!(ret(UTF8_ENCODE_BYTES, &["String"]).as_deref(), Some(BYTES));
         assert_eq!(ret(UTF8_ENCODE_INTS, &["String"]).as_deref(), Some(INTS));
-        assert_eq!(ret(UTF8_DECODE, &[BYTES]).as_deref(), Some("String"));
-        assert_eq!(ret(UTF8_DECODE, &[INTS]).as_deref(), Some("String"));
+        // `UTF8_DECODE` (the parent) is `Implementation::Resolve`, no longer a
+        // `dispatch_resolve` arm; only its concrete monomorph targets remain here.
         assert_eq!(ret(UTF8_DECODE_BYTES, &[BYTES]).as_deref(), Some("String"));
         assert_eq!(ret(UTF8_DECODE_INTS, &[INTS]).as_deref(), Some("String"));
         // utf16/utf32.
