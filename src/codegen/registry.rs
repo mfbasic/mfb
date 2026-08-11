@@ -152,6 +152,21 @@ pub(crate) type NativeLower =
         &[crate::target::shared::nir::NirValue],
     ) -> Result<crate::target::shared::code::ValueResult, String>;
 
+/// A source-generic member's optional native **fast path**: the native
+/// alternative to its `.mfb` body, chosen when a specific monomorph instantiation
+/// qualifies (fixed-width elements, String keys, a const-`TRUE` flag, …). Given
+/// the code builder, the `#pkg_<name>$<TypeArgs>` monomorph target, and the call
+/// args, it either lowers natively (`Ok(Some(_))`) or **declines** (`Ok(None)`),
+/// in which case the caller monomorphizes the `.mfb` body instead. This is the
+/// `try_*`/`Ok(None)`-to-fall-back shape the collections fast paths already use;
+/// carried by [`Implementation::Mfb`] alongside the body.
+pub(crate) type MfbFastPath =
+    for<'a> fn(
+        &mut crate::target::shared::code::CodeBuilder<'a>,
+        &str,
+        &[crate::target::shared::nir::NirValue],
+    ) -> Result<Option<crate::target::shared::code::ValueResult>, String>;
+
 /// How a public call name maps to its implementation symbol.
 ///
 /// `Same` means no rewrite — the public name *is* the implementation (the
@@ -177,7 +192,15 @@ pub(crate) enum Implementation {
     /// dual-path source loader and monomorphized like the package's `.mfb`
     /// companion. The external `.mfb` file remains the fallback for members not
     /// yet carrying `Mfb`, so the two paths coexist during migration.
-    Mfb(&'static str),
+    ///
+    /// `fast_path` is the member's optional native accelerator (see
+    /// [`MfbFastPath`]): when a monomorph instantiation qualifies it lowers the
+    /// call natively instead of instantiating `body`. `None` for the members that
+    /// only ever run their `.mfb` body.
+    Mfb {
+        body: &'static str,
+        fast_path: Option<MfbFastPath>,
+    },
 }
 
 // Hand-written so the `Native` fn pointer is compared by address via
@@ -191,7 +214,23 @@ impl PartialEq for Implementation {
             | (Implementation::Custom, Implementation::Custom) => true,
             (Implementation::Rewrite(a), Implementation::Rewrite(b)) => a == b,
             (Implementation::Native(a), Implementation::Native(b)) => std::ptr::fn_addr_eq(*a, *b),
-            (Implementation::Mfb(a), Implementation::Mfb(b)) => a == b,
+            (
+                Implementation::Mfb {
+                    body: a,
+                    fast_path: fa,
+                },
+                Implementation::Mfb {
+                    body: b,
+                    fast_path: fb,
+                },
+            ) => {
+                a == b
+                    && match (fa, fb) {
+                        (None, None) => true,
+                        (Some(fa), Some(fb)) => std::ptr::fn_addr_eq(*fa, *fb),
+                        _ => false,
+                    }
+            }
             _ => false,
         }
     }
@@ -300,6 +339,47 @@ impl BuiltinFunction {
         overloads: &'static [BuiltinOverload],
         body: &'static str,
     ) -> BuiltinFunction {
+        Self::mfb_impl(
+            name, doc_slug, doc_intro, doc_desc, errors, overloads, body, None,
+        )
+    }
+
+    /// Like [`Self::mfb`], but the member also owns a native [`MfbFastPath`] — the
+    /// accelerator chosen for qualifying monomorph instantiations, with the `.mfb`
+    /// `body` as the fallback.
+    pub(crate) const fn mfb_with_fast_path(
+        name: &'static str,
+        doc_slug: &'static str,
+        doc_intro: &'static str,
+        doc_desc: &'static str,
+        errors: &'static [&'static str],
+        overloads: &'static [BuiltinOverload],
+        body: &'static str,
+        fast_path: MfbFastPath,
+    ) -> BuiltinFunction {
+        Self::mfb_impl(
+            name,
+            doc_slug,
+            doc_intro,
+            doc_desc,
+            errors,
+            overloads,
+            body,
+            Some(fast_path),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    const fn mfb_impl(
+        name: &'static str,
+        doc_slug: &'static str,
+        doc_intro: &'static str,
+        doc_desc: &'static str,
+        errors: &'static [&'static str],
+        overloads: &'static [BuiltinOverload],
+        body: &'static str,
+        fast_path: Option<MfbFastPath>,
+    ) -> BuiltinFunction {
         BuiltinFunction {
             name,
             doc_slug,
@@ -307,7 +387,7 @@ impl BuiltinFunction {
             doc_desc,
             errors,
             overloads,
-            implementation: Implementation::Mfb(body),
+            implementation: Implementation::Mfb { body, fast_path },
             lowering: Lowering::Helper,
             flags: BuiltinFlags {
                 internal_only: false,
@@ -628,7 +708,7 @@ impl DefaultResolver {
             Implementation::Same
             | Implementation::Custom
             | Implementation::Native(_)
-            | Implementation::Mfb(_) => None,
+            | Implementation::Mfb { .. } => None,
         }
     }
 

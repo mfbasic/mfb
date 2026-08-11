@@ -1065,7 +1065,7 @@ pub(crate) fn source_file() -> Result<AstFile, ()> {
 fn assembled_source() -> String {
     let mut source = String::from(include_str!("package.mfb"));
     for func in COLLECTIONS_FUNCTIONS {
-        if let Implementation::Mfb(body) = func.implementation {
+        if let Implementation::Mfb { body, .. } = func.implementation {
             let marker = format!("'@@MFB_BODY:{}@@", func.doc_slug);
             debug_assert!(
                 source.contains(&marker),
