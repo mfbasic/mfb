@@ -142,7 +142,7 @@ pub(super) fn lower_sort_string_list_helper() -> CodeFunction {
 /// when invalid. Keeping validation in a separate `bl`-reachable function (with
 /// its own frame and short-range internal branches) keeps the filesystem read
 /// helpers small.
-pub(super) fn emit_call_validate_utf8(
+pub(crate) fn emit_call_validate_utf8(
     symbol: &str,
     error_label: &str,
     instructions: &mut Vec<CodeInstruction>,
@@ -507,7 +507,7 @@ pub(super) fn finalize_vreg_helper(
 /// resulting frame and spill stack slots. The building block of
 /// [`finalize_vreg_helper`]; used directly by helpers that produce their
 /// `CodeFunction` fields (params, name) at the call site rather than here.
-pub(super) fn finalize_vreg_body(
+pub(crate) fn finalize_vreg_body(
     instructions: &mut Vec<CodeInstruction>,
     reserved: &[&str],
 ) -> (CodeFrame, Vec<CodeStackSlot>) {
@@ -877,14 +877,14 @@ fn resolve_stack_arg_sentinels(
 /// (plan-00-G Phase 2): each call yields a fresh `%vN` the shared allocator
 /// colors. Lets the PCG64 / arena helpers be written in target-neutral MIR (no
 /// fixed `x9`/`x13`…) so register placement is a per-ISA backend job.
-pub(super) struct Vregs(usize);
+pub(crate) struct Vregs(usize);
 
 impl Vregs {
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Vregs(0)
     }
 
-    pub(super) fn next(&mut self) -> String {
+    pub(crate) fn next(&mut self) -> String {
         let name = format!("%v{}", self.0);
         self.0 += 1;
         name

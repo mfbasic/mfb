@@ -27,7 +27,7 @@ IMPORT process
 child's stdin pipe. It sends end-of-input to the child, so a filter that reads
 until EOF (`sort`, `cat`, `wc`, `tr`, …) stops waiting for more input and produces
 its output. After `close`, further `process::send`/`process::sendBytes` to the same
-child raise `ErrResourceClosed`. [[src/target/shared/code/process/unix.rs:lower_process_close_helper]]
+child raise `ErrResourceClosed`. [[src/codegen/builtins/process/native/unix.rs:lower_process_close_helper]]
 
 `process::close` is **not** a handle-consuming close. Despite the name, it does not
 release the `Process` resource: the child keeps running, its output stays readable

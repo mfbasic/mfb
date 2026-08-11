@@ -28,7 +28,7 @@ handle to the resulting child. Unlike `process::spawn`, which execs a program
 directly, `shell` hands the string to the platform shell — `/bin/sh -c` on Unix —
 so shell features work: pipelines (`|`), redirection (`>`, `<`), globbing (`*`),
 command sequencing (`;`, `&&`), quoting, and environment-variable expansion are all
-interpreted by the shell. [[src/target/shared/code/process/unix.rs:lower_process_shell_helper]]
+interpreted by the shell. [[src/codegen/builtins/process/native/unix.rs:lower_process_shell_helper]]
 
 Because the string is parsed by a shell, values interpolated into `cmd` are subject
 to shell word-splitting and metacharacter interpretation; build the command with
@@ -40,7 +40,7 @@ The child is wired to three pipes for its standard streams exactly as with
 `process::spawn`, and the returned handle has the same ownership: it is closed by
 lexical drop at scope exit, which force-kills and reaps a still-running child unless
 it is first awaited with `process::waitFor` or released with `process::detach`.
-[[src/target/shared/code/process/unix.rs:emit_spawn_tail]]
+[[src/codegen/builtins/process/native/unix.rs:emit_spawn_tail]]
 [[src/codegen/builtins/process/mod.rs:resource_close_function]]
 
 ## Parameters

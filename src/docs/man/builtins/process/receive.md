@@ -29,7 +29,7 @@ IMPORT process
 never over-reading past the line boundary, so successive calls return successive
 lines. Without a `from` argument it reads the child's standard output; pass a
 `Stream` value to choose standard output or standard error explicitly.
-[[src/target/shared/code/process/unix.rs:lower_process_receive_helper]]
+[[src/codegen/builtins/process/native/unix.rs:lower_process_receive_helper]]
 [[src/codegen/builtins/process/mod.rs:STREAM_TYPE]]
 
 The call blocks until a full line is available or the stream ends. At end of stream
@@ -54,7 +54,7 @@ Reads one line from the child's standard output.
 **`process::receive(p AS Process, from AS Stream) AS String`**
 
 Reads one line from the selected stream — `Stream.StdOut` or `Stream.StdErr`.
-[[src/target/shared/code/process/unix.rs:lower_process_receive_helper]]
+[[src/codegen/builtins/process/native/unix.rs:lower_process_receive_helper]]
 
 ## Parameters
 
@@ -67,7 +67,7 @@ Reads one line from the selected stream — `Stream.StdOut` or `Stream.StdErr`.
 
 | Type | Description |
 | --- | --- |
-| `String` | One line of the child's output, including its trailing newline (or, at end of stream, the final unterminated line). End of output is reported as `ErrResourceClosed`, never as an empty string. [[src/target/shared/code/process/unix.rs:lower_process_receive_helper]] |
+| `String` | One line of the child's output, including its trailing newline (or, at end of stream, the final unterminated line). End of output is reported as `ErrResourceClosed`, never as an empty string. [[src/codegen/builtins/process/native/unix.rs:lower_process_receive_helper]] |
 
 ## Errors
 

@@ -26,6 +26,15 @@ use crate::codegen::registry::{
 
 mod func_close;
 mod func_detach;
+
+mod native;
+pub(crate) use native::{
+    lower_process_close_helper, lower_process_detach_helper, lower_process_didsignal_helper,
+    lower_process_drop_helper, lower_process_isrunning_helper, lower_process_pid_helper,
+    lower_process_poll_helper, lower_process_receive_helper, lower_process_receivebytes_helper,
+    lower_process_send_helper, lower_process_shell_helper, lower_process_signal_helper,
+    lower_process_spawn_helper, lower_process_spawnenv_helper, lower_process_waitfor_helper,
+};
 mod func_did_signal;
 mod func_is_running;
 mod func_pid;

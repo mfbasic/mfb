@@ -46,9 +46,9 @@ pub(crate) mod test_support;
 mod validation;
 pub(crate) use entry::lower_program_entry;
 pub(crate) use runtime_helpers::lower_thread_trampoline;
-mod codegen_utils;
-pub(crate) use codegen_utils::finalize_vreg_body_with_locals;
+pub(crate) mod codegen_utils;
 use codegen_utils::*;
+pub(crate) use codegen_utils::{finalize_vreg_body, finalize_vreg_body_with_locals, Vregs};
 mod code_impl;
 use code_impl::{join_json, ToCodeJson};
 mod operand;
@@ -79,13 +79,12 @@ use module_analysis::*;
 mod audio;
 mod builder_collection_compare;
 mod builder_collection_layout;
-use builder_collection_layout::{
-    byte_list_block_kind, byte_list_entry_stride, list_block_kind,
-    push_collection_data_base_from_capacity, recursive_transfer_types, thread_copy_symbol,
-    type_participates_in_cycle,
-};
 pub(crate) use builder_collection_layout::{
-    kind2_payload_size, list_element_is_fixed_width, list_entry_stride,
+    byte_list_block_kind, byte_list_entry_stride, kind2_payload_size, list_element_is_fixed_width,
+    list_entry_stride, push_collection_data_base_from_capacity,
+};
+use builder_collection_layout::{
+    list_block_kind, recursive_transfer_types, thread_copy_symbol, type_participates_in_cycle,
 };
 mod app;
 mod builder_control;
@@ -111,7 +110,7 @@ mod builder_value_semantics;
 mod builder_values;
 mod builder_vector_inline;
 mod collection_buffer;
-mod native_helpers;
+pub(crate) mod native_helpers;
 
 mod crypto;
 mod crypto_ec;
@@ -122,11 +121,10 @@ pub(crate) mod link_locator;
 pub(crate) mod link_thunk;
 mod list_mutate;
 mod map_mutate;
-mod net;
+pub(crate) mod net;
 mod os;
 mod perf;
 mod private;
-mod process;
 mod simd_kernel_coeffs;
 mod term;
 mod term_grid;
@@ -2373,105 +2371,161 @@ fn lower_runtime_helper(
                     audio::lower_audio_helper(call, symbol, platform_imports, platform)?
                 }
                 call if call.starts_with("process.") => match call {
-                    "process.spawn" => process::lower_process_spawn_helper(
-                        symbol,
-                        platform_imports,
-                        platform,
-                        false,
-                    )?,
+                    "process.spawn" => {
+                        crate::codegen::builtins::process::lower_process_spawn_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            false,
+                        )?
+                    }
                     "process.shell" => {
-                        process::lower_process_shell_helper(symbol, platform_imports, platform)?
+                        crate::codegen::builtins::process::lower_process_shell_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                        )?
                     }
                     "process.spawnEnv" => {
-                        process::lower_process_spawnenv_helper(symbol, platform_imports, platform)?
+                        crate::codegen::builtins::process::lower_process_spawnenv_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                        )?
                     }
-                    "process.pid" => {
-                        process::lower_process_pid_helper(symbol, platform_imports, platform)?
-                    }
+                    "process.pid" => crate::codegen::builtins::process::lower_process_pid_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                    )?,
                     "process.isRunning" => {
-                        process::lower_process_isrunning_helper(symbol, platform_imports, platform)?
+                        crate::codegen::builtins::process::lower_process_isrunning_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                        )?
                     }
                     "process.waitFor" => {
-                        process::lower_process_waitfor_helper(symbol, platform_imports, platform)?
+                        crate::codegen::builtins::process::lower_process_waitfor_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                        )?
                     }
                     "process.close" => {
-                        process::lower_process_close_helper(symbol, platform_imports, platform)?
+                        crate::codegen::builtins::process::lower_process_close_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                        )?
                     }
-                    "process.send" => process::lower_process_send_helper(
+                    "process.send" => crate::codegen::builtins::process::lower_process_send_helper(
                         symbol,
                         platform_imports,
                         platform,
                         false,
                         false,
                     )?,
-                    "process.sendTimeout" => process::lower_process_send_helper(
+                    "process.sendTimeout" => {
+                        crate::codegen::builtins::process::lower_process_send_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            false,
+                            true,
+                        )?
+                    }
+                    "process.sendBytes" => {
+                        crate::codegen::builtins::process::lower_process_send_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            true,
+                            false,
+                        )?
+                    }
+                    "process.sendBytesTimeout" => {
+                        crate::codegen::builtins::process::lower_process_send_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            true,
+                            true,
+                        )?
+                    }
+                    "process.receive" => {
+                        crate::codegen::builtins::process::lower_process_receive_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            false,
+                        )?
+                    }
+                    "process.receiveFrom" => {
+                        crate::codegen::builtins::process::lower_process_receive_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            true,
+                        )?
+                    }
+                    "process.receiveBytes" => {
+                        crate::codegen::builtins::process::lower_process_receivebytes_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            false,
+                        )?
+                    }
+                    "process.receiveBytesFrom" => {
+                        crate::codegen::builtins::process::lower_process_receivebytes_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            true,
+                        )?
+                    }
+                    "process.poll" => crate::codegen::builtins::process::lower_process_poll_helper(
                         symbol,
                         platform_imports,
                         platform,
                         false,
-                        true,
                     )?,
-                    "process.sendBytes" => process::lower_process_send_helper(
-                        symbol,
-                        platform_imports,
-                        platform,
-                        true,
-                        false,
-                    )?,
-                    "process.sendBytesTimeout" => process::lower_process_send_helper(
-                        symbol,
-                        platform_imports,
-                        platform,
-                        true,
-                        true,
-                    )?,
-                    "process.receive" => process::lower_process_receive_helper(
-                        symbol,
-                        platform_imports,
-                        platform,
-                        false,
-                    )?,
-                    "process.receiveFrom" => process::lower_process_receive_helper(
-                        symbol,
-                        platform_imports,
-                        platform,
-                        true,
-                    )?,
-                    "process.receiveBytes" => process::lower_process_receivebytes_helper(
-                        symbol,
-                        platform_imports,
-                        platform,
-                        false,
-                    )?,
-                    "process.receiveBytesFrom" => process::lower_process_receivebytes_helper(
-                        symbol,
-                        platform_imports,
-                        platform,
-                        true,
-                    )?,
-                    "process.poll" => process::lower_process_poll_helper(
-                        symbol,
-                        platform_imports,
-                        platform,
-                        false,
-                    )?,
-                    "process.pollFrom" => process::lower_process_poll_helper(
-                        symbol,
-                        platform_imports,
-                        platform,
-                        true,
-                    )?,
+                    "process.pollFrom" => {
+                        crate::codegen::builtins::process::lower_process_poll_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                            true,
+                        )?
+                    }
                     "process.signal" => {
-                        process::lower_process_signal_helper(symbol, platform_imports, platform)?
+                        crate::codegen::builtins::process::lower_process_signal_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                        )?
                     }
                     "process.didSignal" => {
-                        process::lower_process_didsignal_helper(symbol, platform_imports, platform)?
+                        crate::codegen::builtins::process::lower_process_didsignal_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                        )?
                     }
                     "process.detach" => {
-                        process::lower_process_detach_helper(symbol, platform_imports, platform)?
+                        crate::codegen::builtins::process::lower_process_detach_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                        )?
                     }
                     "process.__drop" => {
-                        process::lower_process_drop_helper(symbol, platform_imports, platform)?
+                        crate::codegen::builtins::process::lower_process_drop_helper(
+                            symbol,
+                            platform_imports,
+                            platform,
+                        )?
                     }
                     other => {
                         return Err(format!(
@@ -2571,7 +2625,7 @@ fn is_tls_server_symbol(symbol: &str) -> bool {
 /// resolved through its glob imports, while four sibling modules each defined a
 /// byte-identical private copy that shadowed it (bug-322). Those are deleted;
 /// this is the one definition.
-pub(super) fn emit_alloc(
+pub(crate) fn emit_alloc(
     symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,

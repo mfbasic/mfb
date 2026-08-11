@@ -28,7 +28,7 @@ IMPORT process
 by `process::waitFor` or by a `process::isRunning` that observed the exit — so it
 returns `Signal.None` for a child that exited normally *or* that has not yet been
 observed to terminate. Await or poll the child first if you need the death cause.
-[[src/target/shared/code/process/unix.rs:lower_process_didsignal_helper]]
+[[src/codegen/builtins/process/native/unix.rs:lower_process_didsignal_helper]]
 [[src/codegen/builtins/process/mod.rs:SIGNAL_TYPE]]
 
 On Unix it decodes the terminating signal (`WTERMSIG`): `SIGKILL` maps to
@@ -39,7 +39,7 @@ On Unix it decodes the terminating signal (`WTERMSIG`): `SIGKILL` maps to
 (e.g. `0xC0000005` `STATUS_ACCESS_VIOLATION`) maps to `Signal.Error`, and every
 other outcome maps to `Signal.None`; this is a documented Windows limitation. The
 full platform mapping is tabulated in `mfb man process types`.
-[[src/target/shared/code/process/windows.rs:lower_process_didsignal_helper]]
+[[src/codegen/builtins/process/native/windows.rs:lower_process_didsignal_helper]]
 
 Reading a handle that has already been dropped or detached raises
 `ErrResourceClosed`. [[src/builtins/errorcode.rs:ErrResourceClosed]]
@@ -54,7 +54,7 @@ Reading a handle that has already been dropped or detached raises
 
 | Type | Description |
 | --- | --- |
-| `Signal` | The bucket the child died on: `Signal.Kill`, `Signal.Terminate`, or `Signal.Error` for a signal death, or `Signal.None` if it exited normally or has not yet been observed to terminate. [[src/target/shared/code/process/unix.rs:lower_process_didsignal_helper]] |
+| `Signal` | The bucket the child died on: `Signal.Kill`, `Signal.Terminate`, or `Signal.Error` for a signal death, or `Signal.None` if it exited normally or has not yet been observed to terminate. [[src/codegen/builtins/process/native/unix.rs:lower_process_didsignal_helper]] |
 
 ## Errors
 

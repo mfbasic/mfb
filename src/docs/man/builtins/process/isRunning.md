@@ -26,13 +26,13 @@ IMPORT process
 `process::isRunning` reports whether the child behind a `Process` handle is still
 alive. It performs a non-blocking check (`waitpid` with `WNOHANG` on Unix) and
 returns immediately: `TRUE` while the child is running, `FALSE` once it has exited.
-[[src/target/shared/code/process/unix.rs:lower_process_isrunning_helper]]
+[[src/codegen/builtins/process/native/unix.rs:lower_process_isrunning_helper]]
 
 When the check observes that the child has just exited, it decodes and **caches**
 the exit code and raw wait status in the handle, so a later `process::waitFor`
 returns without blocking and `process::didSignal` can report how the child died.
 Once the exit has been cached, further `isRunning` calls answer `FALSE` from the
-cache without another system call. [[src/target/shared/code/process/unix.rs:emit_decode_status]]
+cache without another system call. [[src/codegen/builtins/process/native/unix.rs:emit_decode_status]]
 
 The handle is borrowed and left open. Calling `isRunning` on a handle that has
 already been dropped or detached raises `ErrResourceClosed`.
@@ -48,7 +48,7 @@ already been dropped or detached raises `ErrResourceClosed`.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` while the child is still running; `FALSE` once it has exited (at which point its exit status has been cached). [[src/target/shared/code/process/unix.rs:lower_process_isrunning_helper]] |
+| `Boolean` | `TRUE` while the child is still running; `FALSE` once it has exited (at which point its exit status has been cached). [[src/codegen/builtins/process/native/unix.rs:lower_process_isrunning_helper]] |
 
 ## Errors
 

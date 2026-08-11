@@ -7,9 +7,9 @@
 //! status int, the `read` errno buffer, the built `argv` array — uses the
 //! explicit `sp`-relative frame from `finalize_vreg_body_with_locals`.
 
-use super::super::native_helpers::emit_fail;
 use super::*;
 use crate::target::shared::abi;
+use crate::target::shared::code::native_helpers::emit_fail;
 use std::collections::HashMap;
 
 // POSIX constants identical across macOS and Linux for the ops here.
@@ -59,7 +59,7 @@ fn emit_decode_status(
 // ---------------------------------------------------------------------------
 // process.pid — read the cached child pid (handle@8).
 // ---------------------------------------------------------------------------
-pub(in crate::target::shared::code) fn lower_process_pid_helper(
+pub(super) fn lower_process_pid_helper(
     symbol: &str,
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
@@ -98,7 +98,7 @@ pub(in crate::target::shared::code) fn lower_process_pid_helper(
 // ---------------------------------------------------------------------------
 // process.close — close the child's stdin (parent's write end), once.
 // ---------------------------------------------------------------------------
-pub(in crate::target::shared::code) fn lower_process_close_helper(
+pub(super) fn lower_process_close_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -154,7 +154,7 @@ pub(in crate::target::shared::code) fn lower_process_close_helper(
 // process.waitFor — block until exit, return the exit code (-1 on signal).
 // Idempotent: a second call returns the cached code.
 // ---------------------------------------------------------------------------
-pub(in crate::target::shared::code) fn lower_process_waitfor_helper(
+pub(super) fn lower_process_waitfor_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -234,7 +234,7 @@ pub(in crate::target::shared::code) fn lower_process_waitfor_helper(
 // ---------------------------------------------------------------------------
 // process.isRunning — WNOHANG waitpid; caches the exit state on a reap.
 // ---------------------------------------------------------------------------
-pub(in crate::target::shared::code) fn lower_process_isrunning_helper(
+pub(super) fn lower_process_isrunning_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -318,7 +318,7 @@ pub(in crate::target::shared::code) fn lower_process_isrunning_helper(
 // process.__drop — scope-drop: SIGKILL + reap a live child, close pipe fds, set
 // the closed bit. Idempotent (a closed record is a no-op).
 // ---------------------------------------------------------------------------
-pub(in crate::target::shared::code) fn lower_process_drop_helper(
+pub(super) fn lower_process_drop_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -882,7 +882,7 @@ fn emit_cstring_literal(
     instructions.push(abi::store_u8(abi::ZERO, dst, text.len()));
 }
 
-pub(in crate::target::shared::code) fn lower_process_spawn_helper(
+pub(super) fn lower_process_spawn_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1034,7 +1034,7 @@ pub(in crate::target::shared::code) fn lower_process_spawn_helper(
 // both macOS and Linux — the plan's bash-on-macOS preference is dropped for
 // portability; see Corrections.)
 // ---------------------------------------------------------------------------
-pub(in crate::target::shared::code) fn lower_process_shell_helper(
+pub(super) fn lower_process_shell_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1151,7 +1151,7 @@ pub(in crate::target::shared::code) fn lower_process_shell_helper(
 // with child-side chdir + environment application (setenv per entry; the whole
 // inherited environment cleared first when envReplace is true).
 // ---------------------------------------------------------------------------
-pub(in crate::target::shared::code) fn lower_process_spawnenv_helper(
+pub(super) fn lower_process_spawnenv_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1332,7 +1332,7 @@ pub(in crate::target::shared::code) fn lower_process_spawnenv_helper(
 // writes the raw List OF Byte with no newline. Blocking (partial-write loop with
 // EINTR retry); a broken pipe (child stdin gone) raises ErrResourceClosed.
 // ---------------------------------------------------------------------------
-pub(in crate::target::shared::code) fn lower_process_send_helper(
+pub(super) fn lower_process_send_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1569,7 +1569,7 @@ fn emit_poll_wait(
 // receive can follow; false on timeout. `with_from` selects the stream via the
 // `Stream` arg (0 = StdOut, else StdErr); the 2-arg form always polls stdout.
 // ---------------------------------------------------------------------------
-pub(in crate::target::shared::code) fn lower_process_poll_helper(
+pub(super) fn lower_process_poll_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1664,7 +1664,7 @@ pub(in crate::target::shared::code) fn lower_process_poll_helper(
 // empty read) with nothing buffered, raises ErrResourceClosed. `with_from`
 // selects stderr; the 1-arg form reads stdout.
 // ---------------------------------------------------------------------------
-pub(in crate::target::shared::code) fn lower_process_receivebytes_helper(
+pub(super) fn lower_process_receivebytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1839,7 +1839,7 @@ pub(in crate::target::shared::code) fn lower_process_receivebytes_helper(
 // (A byte-at-a-time read trades a syscall per byte for a buffer-free, always-
 // correct line framing; the chunk-oriented `receiveBytes` is the bulk path.)
 // ---------------------------------------------------------------------------
-pub(in crate::target::shared::code) fn lower_process_receive_helper(
+pub(super) fn lower_process_receive_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1951,7 +1951,7 @@ pub(in crate::target::shared::code) fn lower_process_receive_helper(
         abi::branch(&closed),
         abi::label(&build),
     ]);
-    super::super::net::emit_string_result_build(
+    crate::target::shared::code::net::emit_string_result_build(
         symbol,
         LINEP,
         N,
@@ -2002,7 +2002,7 @@ pub(in crate::target::shared::code) fn lower_process_receive_helper(
 // Terminate->SIGTERM, Error->SIGABRT, None->no-op. Operating on a dropped/
 // detached process raises ErrResourceClosed.
 // ---------------------------------------------------------------------------
-pub(in crate::target::shared::code) fn lower_process_signal_helper(
+pub(super) fn lower_process_signal_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -2075,7 +2075,7 @@ pub(in crate::target::shared::code) fn lower_process_signal_helper(
 // Kill for SIGKILL; Error for the fault signals (SIGILL/ABRT/FPE/BUS/SEGV);
 // Terminate for every other terminating signal.
 // ---------------------------------------------------------------------------
-pub(in crate::target::shared::code) fn lower_process_didsignal_helper(
+pub(super) fn lower_process_didsignal_helper(
     symbol: &str,
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
@@ -2156,7 +2156,7 @@ pub(in crate::target::shared::code) fn lower_process_didsignal_helper(
 // child and no zombie is left, and set the record `closed` bit so scope-drop's
 // __drop is a no-op and any later op traps ErrResourceClosed.
 // ---------------------------------------------------------------------------
-pub(in crate::target::shared::code) fn lower_process_detach_helper(
+pub(super) fn lower_process_detach_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,

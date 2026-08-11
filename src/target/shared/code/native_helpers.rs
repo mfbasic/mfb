@@ -125,7 +125,7 @@ pub(super) fn emit_arena_free(
 /// code and ERR tag, load the message data address, and branch to `done`. Sources
 /// the `(code, message-symbol)` from `ERRORCODE_CONSTANTS` via `raise_error_into`
 /// (plan-88-C), so it carries no per-error codegen constants of its own.
-pub(super) fn emit_fail(
+pub(crate) fn emit_fail(
     symbol: &str,
     error_name: &str,
     instructions: &mut Vec<CodeInstruction>,

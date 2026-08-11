@@ -30,7 +30,7 @@ so it returns as soon as any data is available rather than waiting to fill a fix
 size, and the returned list is frequently shorter than the amount the child will
 eventually produce. It does no line framing, decoding, or newline translation, so
 it is the right call for binary output; use `process::receive` for text lines.
-[[src/target/shared/code/process/unix.rs:lower_process_receivebytes_helper]]
+[[src/codegen/builtins/process/native/unix.rs:lower_process_receivebytes_helper]]
 
 Without a `from` argument it reads the child's standard output; pass a `Stream`
 value to choose standard output or standard error. The call blocks until at least
@@ -50,7 +50,7 @@ Reads the next chunk from the child's standard output.
 **`process::receiveBytes(p AS Process, from AS Stream) AS List OF Byte`**
 
 Reads the next chunk from the selected stream — `Stream.StdOut` or `Stream.StdErr`.
-[[src/target/shared/code/process/unix.rs:lower_process_receivebytes_helper]]
+[[src/codegen/builtins/process/native/unix.rs:lower_process_receivebytes_helper]]
 
 ## Parameters
 
@@ -63,7 +63,7 @@ Reads the next chunk from the selected stream — `Stream.StdOut` or `Stream.Std
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The next chunk of the child's output, in arrival order, always at least one byte. End of output is reported as `ErrResourceClosed`, never as an empty list. [[src/target/shared/code/process/unix.rs:lower_process_receivebytes_helper]] |
+| `List OF Byte` | The next chunk of the child's output, in arrival order, always at least one byte. End of output is reported as `ErrResourceClosed`, never as an empty list. [[src/codegen/builtins/process/native/unix.rs:lower_process_receivebytes_helper]] |
 
 ## Errors
 

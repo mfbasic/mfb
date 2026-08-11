@@ -17,24 +17,22 @@
 //!
 //! Every helper receives the `Process` record pointer in `x0` (the first MFB
 //! argument register) and returns the standard `(tag, value)` result in
-//! `RESULT_TAG_REGISTER`/`RESULT_VALUE_REGISTER`. The Unix mechanism (fork + exec
-//! + three pipes + waitpid/kill) lives in the `unix` submodule; the Windows
-//! backend (`CreateProcess`) is added by sub-plan D.
+//! `RESULT_TAG_REGISTER`/`RESULT_VALUE_REGISTER`. The Unix mechanism (fork/exec,
+//! three pipes, waitpid/kill) lives in the `unix` submodule; the Windows backend
+//! (`CreateProcess`) is added by sub-plan D.
 
-use super::*;
+use crate::target::shared::code::*;
 use std::collections::HashMap;
 
 mod unix;
 mod windows;
-
-use crate::target::shared::code::types::PlatformFamily;
 
 /// Route a process helper to the Windows (`CreateProcess`) or Unix (fork/exec)
 /// backend by `platform.family()`. plan-90-D adds the Windows arm; on every other
 /// platform this is a thin pass-through to `unix`.
 macro_rules! process_dispatch {
     ($name:ident ( $($arg:ident : $ty:ty),* $(,)? )) => {
-        pub(in crate::target::shared::code) fn $name(
+        pub(crate) fn $name(
             symbol: &str,
             platform_imports: &HashMap<String, String>,
             platform: &dyn CodegenPlatform,

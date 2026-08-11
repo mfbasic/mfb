@@ -2420,7 +2420,7 @@ pub(super) fn push_collection_data_pointer_into(
 ///
 /// `scratch_product` may alias `scratch_entry_size` and/or `dst`; the sites in
 /// `audio/` do exactly that.
-pub(super) fn push_collection_data_base_from_capacity(
+pub(crate) fn push_collection_data_base_from_capacity(
     out: &mut Vec<CodeInstruction>,
     dst: impl Into<Operand>,
     collection: impl Into<Operand>,
@@ -2518,7 +2518,7 @@ pub(crate) fn kind2_payload_size(element_type: &str) -> Option<usize> {
 /// The lookup-entry stride for a `List OF Byte`, for the runtime helpers that
 /// build or read one and know their element type statically. Zero once the
 /// entry-free representation is live (plan-57-D).
-pub(super) fn byte_list_entry_stride() -> usize {
+pub(crate) fn byte_list_entry_stride() -> usize {
     list_entry_stride("Byte")
 }
 
@@ -2643,7 +2643,7 @@ pub(super) fn emit_alloc_byte_list(
 /// not have is precisely the sort of latent disagreement that produced four
 /// separate corruption bugs in this sub-plan, and the next person to reach for
 /// the kind byte should be able to trust it.
-pub(super) fn byte_list_block_kind() -> usize {
+pub(crate) fn byte_list_block_kind() -> usize {
     list_block_kind("Byte")
 }
 

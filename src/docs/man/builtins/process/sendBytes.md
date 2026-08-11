@@ -28,13 +28,13 @@ IMPORT process
 in list order, with **no** trailing newline and no re-encoding. It is the binary
 counterpart of `process::send` (which sends a `String` and appends `'\n'`); use
 `sendBytes` for binary input or when you control line framing yourself.
-[[src/target/shared/code/process/unix.rs:lower_process_send_helper]]
+[[src/codegen/builtins/process/native/unix.rs:lower_process_send_helper]]
 
 The whole list is written before the call returns: it loops over the underlying
 writes, resuming a short or interrupted write rather than treating it as complete.
 An empty list writes nothing and returns immediately. Without a `timeoutMs` the
 call blocks while the child's input pipe is full, waiting for room.
-[[src/target/shared/code/process/unix.rs:lower_process_send_helper]]
+[[src/codegen/builtins/process/native/unix.rs:lower_process_send_helper]]
 
 If the child has closed or is no longer reading its standard input — a broken pipe —
 the write fails and `sendBytes` raises `ErrResourceClosed`, the same error raised
@@ -45,7 +45,7 @@ detached. [[src/builtins/errorcode.rs:ErrResourceClosed]]
 on expiry it raises `ErrTimeout`. On Windows the timeout is best-effort: anonymous
 pipes have no write-readiness poll, so a write to a draining reader returns at once
 but a write that fills the pipe is not preempted at the deadline.
-[[src/target/shared/code/process/windows.rs:lower_process_send_helper]]
+[[src/codegen/builtins/process/native/windows.rs:lower_process_send_helper]]
 
 ## Overloads
 
@@ -57,14 +57,14 @@ input pipe.
 **`process::sendBytes(p AS Process, data AS List OF Byte, timeoutMs AS Integer) AS Nothing`**
 
 The same, but raises `ErrTimeout` if the write cannot complete within `timeoutMs`
-milliseconds (best-effort on Windows). [[src/target/shared/code/process/unix.rs:emit_poll_wait]]
+milliseconds (best-effort on Windows). [[src/codegen/builtins/process/native/unix.rs:emit_poll_wait]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/mod.rs:P_SENDB]] |
-| `data` | `List OF Byte` | The bytes to write, in list order, with no newline appended. An empty list writes nothing. [[src/target/shared/code/process/unix.rs:lower_process_send_helper]] |
+| `data` | `List OF Byte` | The bytes to write, in list order, with no newline appended. An empty list writes nothing. [[src/codegen/builtins/process/native/unix.rs:lower_process_send_helper]] |
 | `timeoutMs` | `Integer` | Optional. The maximum time to wait for room in the child's input pipe, in milliseconds; on expiry the call raises `ErrTimeout`. Best-effort on Windows. [[src/codegen/builtins/process/mod.rs:P_SENDB_T]] |
 
 ## Return value
