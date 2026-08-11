@@ -136,7 +136,7 @@ impl CodeBuilder<'_> {
     /// (plan-01 §4.2). `capacity >= count` and `dataCapacity >= dataLength` must
     /// hold; the data region base is computed from `capacity`, so the writer and
     /// every reader agree via `emit_collection_data_pointer`. Uses x22 scratch.
-    pub(super) fn emit_write_collection_header_full(
+    pub(crate) fn emit_write_collection_header_full(
         &mut self,
         layout: &CollectionTypeLayout,
         collection: impl Into<Operand>,

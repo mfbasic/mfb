@@ -1237,7 +1237,7 @@ impl CodeBuilder<'_> {
         }
     }
 
-    pub(super) fn lower_empty_collection(&mut self, type_: &str) -> Result<ValueResult, String> {
+    pub(crate) fn lower_empty_collection(&mut self, type_: &str) -> Result<ValueResult, String> {
         self.lower_collection_values(type_, Vec::new(), "empty collection")
     }
 

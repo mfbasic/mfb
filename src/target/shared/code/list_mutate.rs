@@ -881,7 +881,7 @@ impl CodeBuilder<'_> {
     /// (the O(n²) `flatten`/`append_batch` path). The caller guarantees `self` is
     /// uniquely owned and that `rhs` is a distinct buffer (the `append(list, list)`
     /// self-alias is excluded at the gate and takes the value path).
-    pub(super) fn lower_list_bulk_append_in_place(
+    pub(crate) fn lower_list_bulk_append_in_place(
         &mut self,
         buffer_slot: usize,
         rhs_slot: usize,

@@ -53,7 +53,7 @@ impl CodeBuilder<'_> {
     /// cursors, so extracting only the shared loop body keeps the output
     /// byte-identical.
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn emit_byte_compare_loop(
+    pub(crate) fn emit_byte_compare_loop(
         &mut self,
         left: impl Into<Operand>,
         right: impl Into<Operand>,

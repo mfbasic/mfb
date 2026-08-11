@@ -797,18 +797,8 @@ impl CodeBuilder<'_> {
                         return self.lower_collection_sort_call(args);
                     }
                 }
-                // plan-86 A3: native `collections::flatten` (`#collections_flatten$T`,
-                // 1 arg) for a simple result element T (String or fixed-width) — the
-                // inner lists are inline self-contained blocks, bulk-appended into the
-                // result with no per-inner copy. A nested `List OF List OF List ...`
-                // (T itself a list) falls through to the `.mfb` body.
-                if let Some(t) = target.strip_prefix("#collections_flatten$") {
-                    if matches!(t, "String" | "Integer" | "Float" | "Fixed" | "Money")
-                        && args.len() == 1
-                    {
-                        return self.lower_collection_flatten_call(args);
-                    }
-                }
+                // flatten migrated to Implementation::Mfb.fast_path (func_flatten.rs),
+                // consulted by try_mfb_fast_path above.
                 // plan-64 C2: native mapValues when the value type is unchanged and
                 // 8-byte fixed-width (`#collections_mapValues$K$V$U`, V == U in
                 // Integer/Float/Fixed/Money). Other instantiations fall through to
