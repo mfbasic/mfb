@@ -30,13 +30,13 @@ proceed without blocking. It returns `TRUE` when the selected stream is readable
 output, so a draining `process::receive`/`process::receiveBytes` can follow — and
 `FALSE` when nothing became readable before the deadline. The stream is inspected
 only; no data is consumed, so a `TRUE` result leaves the bytes in place for the next
-read. [[src/codegen/builtins/process/native/unix.rs:lower_process_poll_helper]]
+read. [[src/codegen/builtins/process/func_poll.rs:lower_process_poll_helper_posix]]
 
 `ms` is the wait bound in milliseconds. `0` is a non-blocking check that returns the
 stream's current readiness immediately; a positive value waits up to that long; a
 timeout that elapses with nothing readable returns `FALSE` (poll reports readiness
 as a boolean and never raises `ErrTimeout`).
-[[src/codegen/builtins/process/native/unix.rs:lower_process_poll_helper]]
+[[src/codegen/builtins/process/func_poll.rs:lower_process_poll_helper_posix]]
 
 Without a `from` argument `poll` inspects the child's standard output; pass a
 `Stream` value to choose standard output or standard error.
@@ -51,21 +51,21 @@ Waits up to `ms` milliseconds for the child's standard output to become readable
 **`process::poll(p AS Process, ms AS Integer, from AS Stream) AS Boolean`**
 
 The same, for the selected stream — `Stream.StdOut` or `Stream.StdErr`.
-[[src/codegen/builtins/process/native/unix.rs:lower_process_poll_helper]]
+[[src/codegen/builtins/process/func_poll.rs:lower_process_poll_helper_posix]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `p` | `Process` | The child process handle. Borrowed and inspected for readiness only; no data is read. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/mod.rs:P_POLL]] |
-| `ms` | `Integer` | The maximum time to wait, in milliseconds. `0` is an immediate non-blocking check; a positive value waits up to that long. [[src/codegen/builtins/process/native/unix.rs:lower_process_poll_helper]] |
+| `ms` | `Integer` | The maximum time to wait, in milliseconds. `0` is an immediate non-blocking check; a positive value waits up to that long. [[src/codegen/builtins/process/func_poll.rs:lower_process_poll_helper_posix]] |
 | `from` | `Stream` | Optional. Which output stream to inspect: `Stream.StdOut` (the default) or `Stream.StdErr`. [[src/codegen/builtins/process/mod.rs:P_POLL_S]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when the selected stream is readable — a following read will not block, including when that read would report end of output; `FALSE` when nothing became readable before the deadline. [[src/codegen/builtins/process/native/unix.rs:lower_process_poll_helper]] |
+| `Boolean` | `TRUE` when the selected stream is readable — a following read will not block, including when that read would report end of output; `FALSE` when nothing became readable before the deadline. [[src/codegen/builtins/process/func_poll.rs:lower_process_poll_helper_posix]] |
 
 ## Errors
 

@@ -28,7 +28,7 @@ handle to the resulting child. Unlike `process::spawn`, which execs a program
 directly, `shell` hands the string to the platform shell — `/bin/sh -c` on Unix —
 so shell features work: pipelines (`|`), redirection (`>`, `<`), globbing (`*`),
 command sequencing (`;`, `&&`), quoting, and environment-variable expansion are all
-interpreted by the shell. [[src/codegen/builtins/process/native/unix.rs:lower_process_shell_helper]]
+interpreted by the shell. [[src/codegen/builtins/process/func_shell.rs:lower_process_shell_helper_posix]]
 
 Because the string is parsed by a shell, values interpolated into `cmd` are subject
 to shell word-splitting and metacharacter interpretation; build the command with

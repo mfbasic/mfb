@@ -10,7 +10,11 @@
 use std::collections::HashMap;
 
 use crate::codegen::registry::BuiltinFunction;
-use crate::target::shared::code::{CodegenPlatform, HelperResult};
+use crate::target::shared::abi;
+use crate::target::shared::code::native_helpers::emit_fail;
+use crate::target::shared::code::*;
+
+use super::native::*;
 
 const INTRO: &str = r#"Read one newline-terminated line of text from a child's output."#;
 const DESC: &str = r#"`process::receive` reads one line from a child's output stream and returns it as a
@@ -77,12 +81,157 @@ pub(crate) fn lower_process_receive_helper_posix(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    super::native::unix::lower_process_receive_helper(
+    let with_from = call == "process.receiveFrom";
+    const FD: usize = 0;
+    const LINEP: usize = 8; // accumulator pointer (for the result build)
+    const N: usize = 16; // accumulated length
+    const STR: usize = 24; // built String ptr
+    const CAP: usize = 1048576; // 1 MiB max line
+    const EINTR: &str = "4";
+
+    let closed = format!("{symbol}_closed");
+    let use_stderr = format!("{symbol}_use_stderr");
+    let sel_done = format!("{symbol}_sel_done");
+    let read_loop = format!("{symbol}_read_loop");
+    let read_fail = format!("{symbol}_read_fail");
+    let got_byte = format!("{symbol}_got_byte");
+    let eof_check = format!("{symbol}_eof_check");
+    let build = format!("{symbol}_build");
+    let str_copy = format!("{symbol}_str_copy");
+    let str_done = format!("{symbol}_str_done");
+    let alloc_fail = format!("{symbol}_alloc_fail");
+    let encoding_error = format!("{symbol}_encoding_error");
+    let done = format!("{symbol}_done");
+
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::load_u64("%v9", abi::return_register(), RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&closed),
+    ];
+    if with_from {
+        instructions.extend([
+            abi::compare_immediate(abi::c_arg(1), "0"),
+            abi::branch_ne(&use_stderr),
+            abi::load_u64("%v9", abi::return_register(), PROC_STDOUT_R),
+            abi::branch(&sel_done),
+            abi::label(&use_stderr),
+            abi::load_u64("%v9", abi::return_register(), PROC_STDERR_R),
+            abi::label(&sel_done),
+        ]);
+    } else {
+        instructions.push(abi::load_u64("%v9", abi::return_register(), PROC_STDOUT_R));
+    }
+    instructions.extend([
+        abi::store_u64("%v9", abi::stack_pointer(), FD),
+        // Accumulator buffer.
+        abi::move_immediate(abi::return_register(), "Integer", &CAP.to_string()),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+    ]);
+    let mut relocations = Vec::new();
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    instructions.extend([
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), LINEP),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), N),
+        // read one byte into acc[filled].
+        abi::label(&read_loop),
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), FD),
+        abi::load_u64("%v9", abi::stack_pointer(), LINEP),
+        abi::load_u64("%v10", abi::stack_pointer(), N),
+        abi::add_registers(abi::c_arg(1), "%v9", "%v10"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "1"),
+    ]);
+    platform.emit_libc_call(
+        "read",
         symbol,
         platform_imports,
-        platform,
-        call == "process.receiveFrom",
-    )
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_lt(&read_fail),
+        abi::branch_gt(&got_byte),
+        // r == 0: EOF.
+        abi::label(&eof_check),
+        abi::load_u64("%v10", abi::stack_pointer(), N),
+        abi::compare_immediate("%v10", "0"),
+        abi::branch_eq(&closed),
+        abi::branch(&build),
+        abi::label(&got_byte),
+        // filled += 1; check the byte just read for '\n'.
+        abi::load_u64("%v9", abi::stack_pointer(), LINEP),
+        abi::load_u64("%v10", abi::stack_pointer(), N),
+        abi::add_registers("%v11", "%v9", "%v10"),
+        abi::load_u8("%v12", "%v11", 0),
+        abi::add_immediate("%v10", "%v10", 1),
+        abi::store_u64("%v10", abi::stack_pointer(), N),
+        abi::compare_immediate("%v12", "10"), // '\n'
+        abi::branch_eq(&build),
+        abi::move_immediate("%v11", "Integer", &CAP.to_string()),
+        abi::compare_registers("%v10", "%v11"),
+        abi::branch_eq(&build), // line too long -> return what we have
+        abi::branch(&read_loop),
+        abi::label(&read_fail),
+    ]);
+    platform.emit_errno(
+        symbol,
+        ("%v9").into(),
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate("%v9", EINTR),
+        abi::branch_eq(&read_loop),
+        abi::branch(&closed),
+        abi::label(&build),
+    ]);
+    crate::target::shared::code::net::emit_string_result_build(
+        symbol,
+        LINEP,
+        N,
+        STR,
+        &str_copy,
+        &str_done,
+        &alloc_fail,
+        &encoding_error,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STR),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&encoding_error),
+    ]);
+    emit_fail(
+        symbol,
+        "ErrEncoding",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&closed));
+    emit_fail(
+        symbol,
+        "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&alloc_fail));
+    emit_fail(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 48);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
 pub(crate) fn lower_process_receive_helper_win(
@@ -91,10 +240,185 @@ pub(crate) fn lower_process_receive_helper_win(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    super::native::windows::lower_process_receive_helper(
+    let with_from = call == "process.receiveFrom";
+    const NREAD: usize = 0x28;
+    const FILE: usize = 0x30;
+    const FD: usize = 0x38;
+    const ACC: usize = 0x40;
+    const N: usize = 0x48;
+    const STR: usize = 0x50;
+    const I: usize = 0x58;
+    const FROM: usize = 0x60;
+    const FRAME: usize = 0x70;
+    const CAP: usize = 1048576; // 1 MiB max line
+    let sp = abi::stack_pointer();
+    let closed_l = format!("{symbol}_closed");
+    let alloc_fail = format!("{symbol}_alloc_fail");
+    let encoding_error = format!("{symbol}_encoding");
+    let use_stderr = format!("{symbol}_use_stderr");
+    let sel_done = format!("{symbol}_sel_done");
+    let read_loop = format!("{symbol}_read_loop");
+    let eof = format!("{symbol}_eof");
+    let build = format!("{symbol}_build");
+    let copy_loop = format!("{symbol}_copy_loop");
+    let copy_done = format!("{symbol}_copy_done");
+    let done = format!("{symbol}_done");
+    let mut relocations = Vec::new();
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::subtract_stack(FRAME),
+        abi::store_u64(abi::return_register(), sp, FILE),
+    ];
+    if with_from {
+        instructions.push(abi::store_u64(abi::mfb_arg(1), sp, FROM));
+    }
+    instructions.extend([
+        abi::load_u64(abi::mfb_arg(0), sp, FILE),
+        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(abi::mfb_arg(1), "0"),
+        abi::branch_ne(&closed_l),
+    ]);
+    if with_from {
+        instructions.extend([
+            abi::load_u64(abi::mfb_arg(1), sp, FROM),
+            abi::compare_immediate(abi::mfb_arg(1), "0"),
+            abi::branch_ne(&use_stderr),
+            abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDOUT_R),
+            abi::branch(&sel_done),
+            abi::label(&use_stderr),
+            abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDERR_R),
+            abi::label(&sel_done),
+        ]);
+    } else {
+        instructions.push(abi::load_u64(
+            abi::mfb_arg(1),
+            abi::mfb_arg(0),
+            PROC_STDOUT_R,
+        ));
+    }
+    instructions.extend([
+        abi::store_u64(abi::mfb_arg(1), sp, FD),
+        // accumulator = arena_alloc(CAP, 1)
+        abi::move_immediate(abi::return_register(), "Integer", &CAP.to_string()),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "1"),
+    ]);
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    instructions.extend([
+        abi::store_u64(abi::mfb_return(1), sp, ACC),
+        abi::store_u64(abi::ZERO, sp, N),
+        abi::label(&read_loop),
+        // ReadFile(fd, acc + n, 1, &nread, NULL)
+        abi::load_u64(abi::mfb_arg(0), sp, FD),
+        abi::load_u64(abi::mfb_arg(1), sp, ACC),
+        abi::load_u64(abi::mfb_arg(2), sp, N),
+        abi::add_registers(abi::mfb_arg(1), abi::mfb_arg(1), abi::mfb_arg(2)),
+        abi::move_immediate(abi::mfb_arg(2), "Integer", "1"),
+        abi::add_immediate(abi::mfb_arg(3), sp, NREAD),
+        abi::store_u64(abi::ZERO, sp, 0x20),
+    ]);
+    platform.emit_libc_call(
+        "ReadFile",
         symbol,
         platform_imports,
-        platform,
-        call == "process.receiveFrom",
-    )
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_eq(&eof), // ReadFile FALSE = broken pipe / EOF
+        abi::load_u32(abi::mfb_arg(0), sp, NREAD),
+        abi::compare_immediate(abi::mfb_arg(0), "0"),
+        abi::branch_eq(&eof),
+        // got a byte: n += 1; check for '\n' or a full line.
+        abi::load_u64(abi::mfb_arg(0), sp, ACC),
+        abi::load_u64(abi::mfb_arg(1), sp, N),
+        abi::add_registers(abi::mfb_arg(2), abi::mfb_arg(0), abi::mfb_arg(1)),
+        abi::load_u8(abi::mfb_arg(3), abi::mfb_arg(2), 0),
+        abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 1),
+        abi::store_u64(abi::mfb_arg(1), sp, N),
+        abi::compare_immediate(abi::mfb_arg(3), "10"),
+        abi::branch_eq(&build),
+        abi::move_immediate(abi::mfb_arg(2), "Integer", &CAP.to_string()),
+        abi::compare_registers(abi::mfb_arg(1), abi::mfb_arg(2)),
+        abi::branch_eq(&build),
+        abi::branch(&read_loop),
+        abi::label(&eof),
+        abi::load_u64(abi::mfb_arg(0), sp, N),
+        abi::compare_immediate(abi::mfb_arg(0), "0"),
+        abi::branch_eq(&closed_l),
+        abi::label(&build),
+        // String obj = arena_alloc(n + 9, 8): length@0, bytes@8, NUL.
+        abi::load_u64(abi::mfb_arg(0), sp, N),
+        abi::add_immediate(abi::return_register(), abi::mfb_arg(0), 9),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    instructions.extend([
+        abi::store_u64(abi::mfb_return(1), sp, STR),
+        abi::move_register(abi::mfb_arg(0), abi::mfb_return(1)),
+        abi::load_u64(abi::mfb_arg(1), sp, N),
+        abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(0), 0),
+        // copy n bytes: dst = str + 8 (mfb_arg(2)), src = acc (mfb_arg(3))
+        abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(0), 8),
+        abi::load_u64(abi::mfb_arg(3), sp, ACC),
+        abi::store_u64(abi::ZERO, sp, I),
+        abi::label(&copy_loop),
+        abi::load_u64(abi::mfb_arg(0), sp, I),
+        abi::load_u64(abi::mfb_arg(1), sp, N),
+        abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)),
+        abi::branch_eq(&copy_done),
+        abi::load_u8(abi::mfb_arg(0), abi::mfb_arg(3), 0),
+        abi::store_u8(abi::mfb_arg(0), abi::mfb_arg(2), 0),
+        abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 1),
+        abi::add_immediate(abi::mfb_arg(3), abi::mfb_arg(3), 1),
+        abi::load_u64(abi::mfb_arg(0), sp, I),
+        abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1),
+        abi::store_u64(abi::mfb_arg(0), sp, I),
+        abi::branch(&copy_loop),
+        abi::label(&copy_done),
+        abi::store_u8(abi::ZERO, abi::mfb_arg(2), 0), // NUL-terminate
+        // validate_utf8(str + 8, n)
+        abi::load_u64(abi::mfb_arg(0), sp, STR),
+        abi::add_immediate(abi::return_register(), abi::mfb_arg(0), 8),
+        abi::load_u64(abi::c_arg(1), sp, N),
+    ]);
+    crate::target::shared::code::codegen_utils::emit_call_validate_utf8(
+        symbol,
+        &encoding_error,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::load_u64(RESULT_VALUE_REGISTER, sp, STR),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&encoding_error),
+    ]);
+    emit_fail(
+        symbol,
+        "ErrEncoding",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&closed_l));
+    emit_fail(
+        symbol,
+        "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&alloc_fail));
+    emit_fail(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::add_stack(FRAME), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
 }

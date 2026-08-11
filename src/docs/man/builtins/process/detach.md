@@ -27,7 +27,7 @@ IMPORT process
 closes the parent-side pipe ends, arranges for the operating system to auto-reap the
 child when it eventually exits (on Unix, by setting `SIGCHLD` to be ignored so the
 kernel reaps it and no zombie is left), and marks the handle closed. The child keeps
-running on its own and survives the parent's exit. [[src/codegen/builtins/process/native/unix.rs:lower_process_detach_helper]]
+running on its own and survives the parent's exit. [[src/codegen/builtins/process/func_detach.rs:lower_process_detach_helper_posix]]
 
 This is the counterpart to the default drop behavior. Normally letting a `Process`
 go out of scope force-kills and reaps the child; `detach` is the deliberate opt-out

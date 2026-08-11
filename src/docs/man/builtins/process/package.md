@@ -30,8 +30,8 @@ involved, so no quoting, globbing, or redirection is interpreted. `process::shel
 instead runs a command line through the platform shell (`/bin/sh -c` on Unix), so
 pipes, redirection, and shell syntax work. A four-argument `spawn` overload adds a
 working directory, an environment `Map OF String TO String`, and a replace-vs-merge
-flag. [[src/codegen/builtins/process/native/unix.rs:lower_process_spawn_helper]]
-[[src/codegen/builtins/process/native/unix.rs:lower_process_shell_helper]]
+flag. [[src/codegen/builtins/process/func_spawn.rs:lower_process_spawn_helper_posix]]
+[[src/codegen/builtins/process/func_shell.rs:lower_process_shell_helper_posix]]
 
 Ownership of a live child is deliberate. Letting a `Process` drop at scope exit
 **force-kills and reaps** it (`SIGKILL` + `waitpid` on Unix), so no runaway child
@@ -42,7 +42,7 @@ end-of-input to a filter) and leaves the child running and the handle usable.
 pipes, arranges for the child to be auto-reaped, and marks the handle closed so
 the child keeps running independently after the program exits.
 [[src/codegen/builtins/process/mod.rs:resource_close_function]]
-[[src/codegen/builtins/process/native/unix.rs:lower_process_detach_helper]]
+[[src/codegen/builtins/process/func_detach.rs:lower_process_detach_helper_posix]]
 
 Streaming I/O connects to the child's three standard streams over pipes.
 `process::send` writes a `String` (appending a newline) to the child's standard
@@ -53,21 +53,21 @@ selecting standard output (the default) or standard error, and `process::poll`
 reports whether the selected stream is readable within a timeout. A read that
 reaches end of stream with nothing buffered raises `ErrResourceClosed`, so a
 consumer loops until that error is raised. [[src/codegen/builtins/process/mod.rs:STREAM_TYPE]]
-[[src/codegen/builtins/process/native/unix.rs:lower_process_receive_helper]]
+[[src/codegen/builtins/process/func_receive.rs:lower_process_receive_helper_posix]]
 
 The `Signal` enum is a four-bucket cross-platform vocabulary (`None`, `Kill`,
 `Terminate`, `Error`) used both to *deliver* a signal with `process::signal` and
 to *observe* how a terminated child died with `process::didSignal`; the exact
 platform mapping is tabulated in `mfb man process types`.
 [[src/codegen/builtins/process/mod.rs:SIGNAL_TYPE]]
-[[src/codegen/builtins/process/native/unix.rs:lower_process_signal_helper]]
+[[src/codegen/builtins/process/func_signal.rs:lower_process_signal_helper_posix]]
 
 The lifecycle queries read cached state: `process::pid` returns the child pid,
 `process::isRunning` polls without blocking, `process::waitFor` blocks for exit
 and returns the exit code (`-1` on a signal death on Unix). `waitFor` and
 `isRunning` cache the exit status the first time they observe it, so `waitFor` is
 idempotent and `didSignal` can report the death cause after the fact.
-[[src/codegen/builtins/process/native/unix.rs:lower_process_waitfor_helper]]
+[[src/codegen/builtins/process/func_wait_for.rs:lower_process_waitfor_helper_posix]]
 
 ## Errors
 

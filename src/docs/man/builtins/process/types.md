@@ -57,7 +57,7 @@ the optional final argument of `process::receive`, `process::receiveBytes`, and
 **observes** which bucket a terminated child died on. The buckets abstract over
 platform signal numbers, and the two directions map to and from the host
 differently, as tabulated below. [[src/codegen/builtins/process/mod.rs:SIGNAL_TYPE]]
-[[src/codegen/builtins/process/native/unix.rs:lower_process_signal_helper]]
+[[src/codegen/builtins/process/func_signal.rs:lower_process_signal_helper_posix]]
 
 ## Types
 
@@ -93,8 +93,8 @@ observed by `process::didSignal`. The member ordinals are `None = 0`, `Kill = 1`
 #### `process::signal` — bucket to host signal (deliver)
 
 `process::signal` translates each bucket to a host mechanism.
-[[src/codegen/builtins/process/native/unix.rs:lower_process_signal_helper]]
-[[src/codegen/builtins/process/native/windows.rs:lower_process_signal_helper]]
+[[src/codegen/builtins/process/func_signal.rs:lower_process_signal_helper_posix]]
+[[src/codegen/builtins/process/func_signal.rs:lower_process_signal_helper_win]]
 
 | Bucket | Unix (`kill`) | Windows (`TerminateProcess`) |
 | --- | --- | --- |
@@ -107,13 +107,13 @@ Windows has no way to deliver an arbitrary signal to a child without a shared
 console, so every terminating bucket is the same best-effort `TerminateProcess`.
 The distinct POSIX-flavored exit codes (`128 + signo`) let a later
 `process::waitFor` read back a recognizable value; there is no per-signal fidelity.
-[[src/codegen/builtins/process/native/windows.rs:lower_process_signal_helper]]
+[[src/codegen/builtins/process/func_signal.rs:lower_process_signal_helper_win]]
 
 #### `process::didSignal` — host status to bucket (observe)
 
 `process::didSignal` decodes the cached status of a terminated child into a bucket.
-[[src/codegen/builtins/process/native/unix.rs:lower_process_didsignal_helper]]
-[[src/codegen/builtins/process/native/windows.rs:lower_process_didsignal_helper]]
+[[src/codegen/builtins/process/func_did_signal.rs:lower_process_didsignal_helper_posix]]
+[[src/codegen/builtins/process/func_did_signal.rs:lower_process_didsignal_helper_win]]
 
 | Bucket | Unix (`WTERMSIG` of the wait status) | Windows (exit code) |
 | --- | --- | --- |
@@ -125,7 +125,7 @@ The distinct POSIX-flavored exit codes (`128 + signo`) let a later
 Windows exit codes carry no signal disposition, so `didSignal` there recovers only
 the fault case (an NTSTATUS error-severity code maps to `Error`); every other
 outcome maps to `None`. This is a documented Windows limitation.
-[[src/codegen/builtins/process/native/windows.rs:lower_process_didsignal_helper]]
+[[src/codegen/builtins/process/func_did_signal.rs:lower_process_didsignal_helper_win]]
 
 ## See also
 

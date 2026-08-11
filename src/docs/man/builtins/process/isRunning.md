@@ -26,7 +26,7 @@ IMPORT process
 `process::isRunning` reports whether the child behind a `Process` handle is still
 alive. It performs a non-blocking check (`waitpid` with `WNOHANG` on Unix) and
 returns immediately: `TRUE` while the child is running, `FALSE` once it has exited.
-[[src/codegen/builtins/process/native/unix.rs:lower_process_isrunning_helper]]
+[[src/codegen/builtins/process/func_is_running.rs:lower_process_isrunning_helper_posix]]
 
 When the check observes that the child has just exited, it decodes and **caches**
 the exit code and raw wait status in the handle, so a later `process::waitFor`
@@ -48,7 +48,7 @@ already been dropped or detached raises `ErrResourceClosed`.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` while the child is still running; `FALSE` once it has exited (at which point its exit status has been cached). [[src/codegen/builtins/process/native/unix.rs:lower_process_isrunning_helper]] |
+| `Boolean` | `TRUE` while the child is still running; `FALSE` once it has exited (at which point its exit status has been cached). [[src/codegen/builtins/process/func_is_running.rs:lower_process_isrunning_helper_posix]] |
 
 ## Errors
 

@@ -17,9 +17,14 @@
 //!
 //! Every helper receives the `Process` record pointer in `x0` (the first MFB
 //! argument register) and returns the standard `(tag, value)` result in
-//! `RESULT_TAG_REGISTER`/`RESULT_VALUE_REGISTER`. The Unix mechanism (fork/exec,
-//! three pipes, waitpid/kill) lives in the `unix` submodule; the Windows backend
-//! (`CreateProcess`) is added by sub-plan D.
+//! `RESULT_TAG_REGISTER`/`RESULT_VALUE_REGISTER`.
+//!
+//! Each member now owns its own per-platform emission in its `func_*.rs`
+//! (`Implementation::Os`); this module keeps only what is genuinely *shared*
+//! across members: the record-tail offset constants below, the reusable `emit_*`
+//! builders (`unix`/`windows` submodules), the one `lower_process_send_helper`
+//! emitter shared by `send`/`sendBytes`, and the `process.__drop` helper (not a
+//! descriptor member, so it is still reached by name).
 
 use crate::target::shared::code::*;
 use std::collections::HashMap;

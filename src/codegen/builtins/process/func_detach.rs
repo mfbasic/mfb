@@ -10,7 +10,11 @@
 use std::collections::HashMap;
 
 use crate::codegen::registry::BuiltinFunction;
-use crate::target::shared::code::{CodegenPlatform, HelperResult};
+use crate::target::shared::abi;
+use crate::target::shared::code::native_helpers::emit_fail;
+use crate::target::shared::code::*;
+
+use super::native::*;
 
 const INTRO: &str =
     r#"Relinquish ownership of a child so it keeps running after the program exits."#;
@@ -61,7 +65,71 @@ pub(crate) fn lower_process_detach_helper_posix(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    super::native::unix::lower_process_detach_helper(symbol, platform_imports, platform)
+    let sigchld = if platform.family() == PlatformFamily::MacOS {
+        "20"
+    } else {
+        "17"
+    };
+    let mut v = Vregs::new();
+    let file = v.next();
+    let fd = v.next();
+    let one = v.next();
+    let closed_l = format!("{symbol}_closed");
+    let done = format!("{symbol}_done");
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&file, abi::return_register()),
+        abi::load_u64(&fd, &file, RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(&fd, "0"),
+        abi::branch_ne(&closed_l),
+    ];
+    let mut relocations = Vec::new();
+    for off in [PROC_STDIN_W, PROC_STDOUT_R, PROC_STDERR_R] {
+        let skip = format!("{symbol}_skip_{off}");
+        instructions.extend([
+            abi::load_u64(&fd, &file, off),
+            abi::compare_immediate(&fd, "0"),
+            abi::branch_lt(&skip),
+            abi::move_register(abi::c_arg(0), &fd),
+        ]);
+        platform.emit_libc_call(
+            "close",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.push(abi::label(&skip));
+    }
+    // signal(SIGCHLD, SIG_IGN=1) -> kernel auto-reaps, no zombie.
+    instructions.extend([
+        abi::move_immediate(abi::c_arg(0), "Integer", sigchld),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+    ]);
+    platform.emit_libc_call(
+        "signal",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::move_immediate(&one, "Integer", "1"),
+        abi::store_u64(&one, &file, RESOURCE_OFFSET_CLOSED),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&closed_l),
+    ]);
+    emit_fail(
+        symbol,
+        "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
 pub(crate) fn lower_process_detach_helper_win(
@@ -70,5 +138,59 @@ pub(crate) fn lower_process_detach_helper_win(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    super::native::windows::lower_process_detach_helper(symbol, platform_imports, platform)
+    const FILE: usize = 0x20;
+    const FRAME: usize = 0x30;
+    let sp = abi::stack_pointer();
+    let closed_l = format!("{symbol}_closed");
+    let done = format!("{symbol}_done");
+    let mut relocations = Vec::new();
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::subtract_stack(FRAME),
+        abi::store_u64(abi::return_register(), sp, FILE),
+        abi::load_u64(abi::mfb_arg(0), sp, FILE),
+        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(abi::mfb_arg(1), "0"),
+        abi::branch_ne(&closed_l),
+    ];
+    for off in [
+        PROC_STDIN_W,
+        PROC_STDOUT_R,
+        PROC_STDERR_R,
+        RESOURCE_OFFSET_HANDLE,
+    ] {
+        let skip = format!("{symbol}_skip_{off}");
+        instructions.extend([
+            abi::load_u64(abi::mfb_arg(0), sp, FILE),
+            abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), off),
+            abi::compare_immediate(abi::mfb_arg(0), "0"),
+            abi::branch_lt(&skip), // -1 sentinel (already closed) — skip
+        ]);
+        platform.emit_libc_call(
+            "CloseHandle",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.push(abi::label(&skip));
+    }
+    instructions.extend([
+        abi::load_u64(abi::mfb_arg(0), sp, FILE),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "1"),
+        abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(0), RESOURCE_OFFSET_CLOSED),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&closed_l),
+    ]);
+    emit_fail(
+        symbol,
+        "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::add_stack(FRAME), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
 }

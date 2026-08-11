@@ -28,7 +28,7 @@ IMPORT process
 and cached in the handle record, so `pid` performs no system call and never blocks;
 it returns the same value for the life of the handle, even after the child has
 exited (the pid is not re-checked for liveness — use `process::isRunning` for
-that). [[src/codegen/builtins/process/native/unix.rs:lower_process_pid_helper]]
+that). [[src/codegen/builtins/process/func_pid.rs:lower_process_pid_helper_posix]]
 
 The handle is borrowed and left open. Calling `pid` on a handle that has already
 been dropped or detached raises `ErrResourceClosed`.
@@ -44,7 +44,7 @@ been dropped or detached raises `ErrResourceClosed`.
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The child's operating-system process ID, as recorded at spawn. [[src/codegen/builtins/process/native/unix.rs:lower_process_pid_helper]] |
+| `Integer` | The child's operating-system process ID, as recorded at spawn. [[src/codegen/builtins/process/func_pid.rs:lower_process_pid_helper_posix]] |
 
 ## Errors
 

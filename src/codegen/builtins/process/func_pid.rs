@@ -10,7 +10,11 @@
 use std::collections::HashMap;
 
 use crate::codegen::registry::BuiltinFunction;
-use crate::target::shared::code::{CodegenPlatform, HelperResult};
+use crate::target::shared::abi;
+use crate::target::shared::code::native_helpers::emit_fail;
+use crate::target::shared::code::*;
+
+use super::native::*;
 
 const INTRO: &str = r#"Return the operating-system process ID of a spawned child."#;
 const DESC: &str = r#"`process::pid` reads the operating-system process identifier of the child behind a
@@ -51,17 +55,71 @@ pub(crate) const PID: BuiltinFunction = BuiltinFunction::os(
 pub(crate) fn lower_process_pid_helper_posix(
     _call: &str,
     symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
+    _platform_imports: &HashMap<String, String>,
+    _platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    super::native::unix::lower_process_pid_helper(symbol, platform_imports, platform)
+    let mut v = Vregs::new();
+    let file = v.next();
+    let closed = v.next();
+    let pid = v.next();
+    let closed_l = format!("{symbol}_closed");
+    let done = format!("{symbol}_done");
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&file, abi::return_register()),
+        abi::load_u64(&closed, &file, RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(&closed, "0"),
+        abi::branch_ne(&closed_l),
+        abi::load_u64(&pid, &file, RESOURCE_OFFSET_HANDLE),
+        abi::move_register(RESULT_VALUE_REGISTER, &pid),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&closed_l),
+    ];
+    let mut relocations = Vec::new();
+    emit_fail(
+        symbol,
+        "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
 pub(crate) fn lower_process_pid_helper_win(
     _call: &str,
     symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
+    _platform_imports: &HashMap<String, String>,
+    _platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    super::native::windows::lower_process_pid_helper(symbol, platform_imports, platform)
+    let mut v = Vregs::new();
+    let file = v.next();
+    let closed = v.next();
+    let closed_l = format!("{symbol}_closed");
+    let done = format!("{symbol}_done");
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&file, abi::return_register()),
+        abi::load_u64(&closed, &file, RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(&closed, "0"),
+        abi::branch_ne(&closed_l),
+        abi::load_u64(RESULT_VALUE_REGISTER, &file, PROC_STATUS),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&closed_l),
+    ];
+    let mut relocations = Vec::new();
+    emit_fail(
+        symbol,
+        "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
 }

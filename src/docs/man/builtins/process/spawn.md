@@ -31,7 +31,7 @@ child's arguments verbatim. **No shell is involved** — quoting, globbing, pipe
 redirection, and environment-variable expansion are *not* interpreted, so an
 argument that contains spaces or shell metacharacters reaches the program as one
 literal argument. Use `process::shell` when you need a shell to parse a command
-line. [[src/codegen/builtins/process/native/unix.rs:lower_process_spawn_helper]]
+line. [[src/codegen/builtins/process/func_spawn.rs:lower_process_spawn_helper_posix]]
 
 The child is created with three pipes wired to its standard input, output, and
 error, so the parent can `process::send` to it and `process::receive` from it.
@@ -62,15 +62,15 @@ The full form. `cwd` sets the child's working directory before it execs (an empt
 string keeps the parent's directory). `env` supplies environment variables; when
 `envReplace` is `TRUE` the child's environment is *only* the entries of `env`
 (the inherited environment is cleared first), and when it is `FALSE` those entries
-are merged over the inherited environment. [[src/codegen/builtins/process/native/unix.rs:lower_process_spawnenv_helper]]
+are merged over the inherited environment. [[src/codegen/builtins/process/func_spawn.rs:lower_process_spawn_helper_posix]]
 [[src/codegen/builtins/process/native/unix.rs:emit_child_apply_env]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `args` | `List OF String` | The argument vector. `args[0]` is the executable, resolved on `PATH`; the rest are the child's arguments, passed literally with no shell interpretation. Must be non-empty. [[src/codegen/builtins/process/native/unix.rs:lower_process_spawn_helper]] |
-| `cwd` | `String` | (full form) The working directory to switch to before running the child. An empty string leaves the parent's working directory in effect. [[src/codegen/builtins/process/native/unix.rs:lower_process_spawnenv_helper]] |
+| `args` | `List OF String` | The argument vector. `args[0]` is the executable, resolved on `PATH`; the rest are the child's arguments, passed literally with no shell interpretation. Must be non-empty. [[src/codegen/builtins/process/func_spawn.rs:lower_process_spawn_helper_posix]] |
+| `cwd` | `String` | (full form) The working directory to switch to before running the child. An empty string leaves the parent's working directory in effect. [[src/codegen/builtins/process/func_spawn.rs:lower_process_spawn_helper_posix]] |
 | `env` | `Map OF String TO String` | (full form) Environment variables for the child, each key/value set with `setenv`. [[src/codegen/builtins/process/native/unix.rs:emit_child_apply_env]] |
 | `envReplace` | `Boolean` | (full form) `TRUE` to run with *only* `env` (the inherited environment is cleared first); `FALSE` to merge `env` over the inherited environment. [[src/codegen/builtins/process/native/unix.rs:emit_child_apply_env]] |
 

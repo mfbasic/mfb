@@ -26,7 +26,7 @@ IMPORT process
 `process::waitFor` blocks until the child behind a `Process` handle has exited, then
 returns its exit code. A child that exited normally returns its exit status
 (`0 .. 255` on Unix); a child killed by a signal returns `-1`.
-[[src/codegen/builtins/process/native/unix.rs:lower_process_waitfor_helper]]
+[[src/codegen/builtins/process/func_wait_for.rs:lower_process_waitfor_helper_posix]]
 
 `waitFor` is **idempotent**. The first call reaps the child (`waitpid` on Unix) and
 caches its exit code and raw wait status in the handle; every later call — and a
@@ -55,7 +55,7 @@ exiting; drain the child with `process::receive` (or close its input with
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The child's exit code: its normal exit status, or `-1` if it was killed by a signal. Cached, so repeat calls return the same value without blocking. [[src/codegen/builtins/process/native/unix.rs:lower_process_waitfor_helper]] |
+| `Integer` | The child's exit code: its normal exit status, or `-1` if it was killed by a signal. Cached, so repeat calls return the same value without blocking. [[src/codegen/builtins/process/func_wait_for.rs:lower_process_waitfor_helper_posix]] |
 
 ## Errors
 
