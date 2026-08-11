@@ -49,6 +49,6 @@ check() {
 
 check scripts/gen_vector_package.py src/builtins/vector_package.mfb
 check scripts/gen_regex_unicode.py src/codegen/unicode/unicode_gencat.mfb
-check scripts/gen_regex_scripts.py src/codegen/builtins/regex/regex_scripts.mfb
+check scripts/gen_regex_scripts.py src/codegen/unicode/unicode_script_of.mfb
 
 exit "$status"

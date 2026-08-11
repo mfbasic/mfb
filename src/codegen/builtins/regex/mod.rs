@@ -5,9 +5,10 @@
 //! `'@@MFB_BODY:<slug>@@` marker; the backtracking engine's private helpers stay
 //! in `package.mfb`. regex is the three-file source case: `assembled_source`
 //! appends two generated Unicode tables to the engine as one file, exactly as the
-//! pre-migration `source_file` did — the regex-only Script table (`regex_scripts.mfb`,
-//! here) and the general-category table (`src/codegen/unicode/unicode_gencat.mfb`,
-//! shared with `strings`). regex is concrete (rewritten in IR lowering), so the
+//! pre-migration `source_file` did. Both are generated Unicode data shared from
+//! the neutral `src/codegen/unicode/` — the Script-property table
+//! (`unicode_script_of.mfb`) and the general-category table (`unicode_gencat.mfb`,
+//! also used by `strings`). regex is concrete (rewritten in IR lowering), so the
 //! `__regex_*` rewrite target comes from the explicit `IMPL_NAMES` table.
 
 use std::path::Path;
@@ -65,10 +66,53 @@ const REGEX_FUNCTIONS: &[BuiltinFunction] = &[
     func_replace::REPLACE,
 ];
 
+const MODULE_INTRO: &str = r#"Match, search, and replace text with regular expressions"#;
+const MODULE_DESC: &str = r#"The `regex` package searches and rewrites text with a single portable
+regular-expression dialect that is MFBASIC's own. Its syntax and semantics are
+defined entirely by `mfb spec stdlib regex` and produce byte-for-byte identical
+results on every target, never deferring to a host libc, locale, or OS regex
+library. `regex` is a built-in package: `IMPORT regex` needs no manifest
+dependency. For the full pattern language, run `mfb man regex language`.
+
+The package defines no new types. `pattern` and `replacement` are ordinary
+runtime `String` values, so they may be literals, built at run time, or read from
+input; a pattern is compiled at the moment a function is called. An invalid
+pattern fails the call with `ErrInvalidFormat` rather than being silently treated
+as "no match". Because MFBASIC `String` literals process their own backslash
+escapes, a backslash the regex needs is written `"\\"` in a source literal
+(`"\\d"` is the pattern `\d`); a pattern read from a file or user input has no
+such doubling.
+
+Matching operates over Unicode scalar values. Every position and index a regex
+function accepts or reports is a zero-based Unicode scalar index — never a byte
+offset and never a grapheme-cluster index — consistent with `len` and the
+`strings` package. A string of `n` scalars has positions `0` through `n`;
+position `n` is after the last scalar, so a `start` argument may equal
+`len(value)`. All Unicode-dependent behavior (the `\d`/`\w`/`\s` shorthands,
+`\p{...}` properties, and `(?i)` case folding) resolves against a single pinned
+Unicode version, identical across every target.
+
+The functions differ only in what they report. `match` returns a `Boolean` for
+whether the pattern matches anywhere; `find` returns the start index of the first
+match at or after `start`, or `-1` when there is none; `findAll` returns a
+`List OF Integer` of the start index of every non-overlapping match; and
+`replace` returns a new `String` with every non-overlapping match rewritten by a
+replacement template. Every search is unanchored and leftmost: the reported match
+is the one beginning at the smallest position where any match exists. `find` and
+`findAll` take an optional `start` (default `0`) restricting only where a match
+may begin — the absolute anchors `\A`, `\z`, and unflagged `^`/`$` are still
+evaluated against the whole value. A zero-length match is valid; iteration
+advances one scalar past an empty match so it always terminates.
+
+No `regex` function fails on the absence of a match: `match` returns `FALSE`,
+`find` returns `-1`, `findAll` returns an empty list, and `replace` returns
+`value` unchanged. `ErrNotFound` is never raised by this package. None of the
+functions mutate their arguments or have side effects."#;
+
 pub(crate) static REGEX: BuiltinModule = BuiltinModule {
     name: "regex",
-    doc_intro: "",
-    doc_desc: "",
+    doc_intro: MODULE_INTRO,
+    doc_desc: MODULE_DESC,
     functions: REGEX_FUNCTIONS,
     types: &[],
     source: Some(BuiltinSource {
@@ -155,7 +199,7 @@ pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
 /// marker at the body's original position (keeping every other engine line's number
 /// unchanged). The engine and the two generated Unicode tables — general-category
 /// (`src/codegen/unicode/unicode_gencat.mfb`, see `scripts/gen_regex_unicode.py`)
-/// and the Script property (`regex_scripts.mfb`, see `scripts/gen_regex_scripts.py`, plan-77 R2)
+/// and the Script property (`src/codegen/unicode/unicode_script_of.mfb`, see `scripts/gen_regex_scripts.py`, plan-77 R2)
 /// — are kept as separate physical files so each table can be regenerated
 /// mechanically, but they compile as one source file: MFBASIC `FUNC`s are
 /// file-local unless exported, and `PACKAGE` visibility is not valid in an
@@ -177,11 +221,11 @@ fn assembled_source() -> String {
     format!(
         "{}\n{}\n{}",
         engine,
-        // gencat is shared with `strings` (which renames `__regex_genCat`), so it
-        // lives in the neutral `src/codegen/unicode/`; the Script table is
-        // regex-only and lives here as `regex_scripts.mfb`.
+        // Both tables are generated Unicode data shared from the neutral
+        // `src/codegen/unicode/`: the general-category table (also used by
+        // `strings`, which renames `__regex_genCat`) and the Script-property table.
         include_str!("../../unicode/unicode_gencat.mfb"),
-        include_str!("regex_scripts.mfb"),
+        include_str!("../../unicode/unicode_script_of.mfb"),
     )
 }
 

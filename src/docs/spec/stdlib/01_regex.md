@@ -213,7 +213,7 @@ Unknown property names are parse errors. The general-category lookup `__regex_ge
 maps each scalar to its two-letter category via contiguous ranges over `0..0x10FFFF`,
 generated from Unicode 16.0.0.[[src/codegen/unicode/unicode_gencat.mfb:__regex_genCat]] The
 Script lookup `__regex_scriptOf` is the analogous run-length table, generated from the
-vendored UCD `Scripts.txt` (Unicode 16.0.0).[[src/codegen/builtins/regex/regex_scripts.mfb:__regex_scriptOf]]
+vendored UCD `Scripts.txt` (Unicode 16.0.0).[[src/codegen/unicode/unicode_script_of.mfb:__regex_scriptOf]]
 
 ## Flags
 

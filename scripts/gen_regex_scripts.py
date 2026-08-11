@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate src/codegen/builtins/regex/regex_scripts.mfb — the full Unicode Script property
+"""Generate src/codegen/unicode/unicode_script_of.mfb — the full Unicode Script property
 table used by the regex engine's `\\p{Script=...}` (see `mfb spec stdlib regex`).
 
 The 10 hand-written script ranges the engine shipped with are replaced by two
@@ -22,7 +22,7 @@ committed file — never the network or the interpreter's Unicode tables — its
 output is reproducible under any Python 3, so `scripts/check-generated.sh`
 verifies it the same way it verifies the other generated artifacts.
 
-    python3 scripts/gen_regex_scripts.py > src/codegen/builtins/regex/regex_scripts.mfb
+    python3 scripts/gen_regex_scripts.py > src/codegen/unicode/unicode_script_of.mfb
 """
 import os
 import sys
