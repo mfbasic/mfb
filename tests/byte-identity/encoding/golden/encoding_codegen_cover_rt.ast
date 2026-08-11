@@ -59,10 +59,8 @@
       { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "hb" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "hi" }] } }, "line": 62 },
       { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "identifier", "value": "hb" }] } }, "line": 65 },
       { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "identifier", "value": "hi" }] } }, "line": 66 },
-      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.utf8DecodeBytes", "arguments": [{ "kind": "identifier", "value": "hb" }] } }, "line": 67 },
-      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.utf8DecodeInts", "arguments": [{ "kind": "identifier", "value": "hi" }] } }, "line": 68 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "acc" }] }, "right": { "kind": "identifier", "value": "s" } }] }, "line": 70 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 71 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "acc" }] }, "right": { "kind": "identifier", "value": "s" } }] }, "line": 68 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 69 }
       ]
     }
     ]

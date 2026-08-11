@@ -121,8 +121,8 @@ const ENCODING_FUNCTIONS: &[BuiltinFunction] = &[
     // The 4 monomorph targets.
     func_utf8_encode_bytes::UTF8_ENCODE_BYTES,
     func_utf8_encode_ints::UTF8_ENCODE_INTS,
-    func_utf8_decode::UTF8_DECODE_BYTES,
-    func_utf8_decode::UTF8_DECODE_INTS,
+    // utf8Decode's byte/int targets are private `Implementation::Resolve` variants
+    // (owned inline by func_utf8_decode.rs), not public functions.
     // Non-overloaded codecs.
     func_utf16_encode::UTF16_ENCODE,
     func_utf16_decode::UTF16_DECODE,
@@ -414,14 +414,27 @@ pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
 /// `collections::assembled_source`.
 fn assembled_source() -> String {
     let mut source = String::from(include_str!("package.mfb"));
+    let mut splice = |slug: &str, body: &str| {
+        let marker = format!("'@@MFB_BODY:{slug}@@");
+        debug_assert!(
+            source.contains(&marker),
+            "encoding package.mfb is missing the '{marker}' body marker",
+        );
+        source = source.replacen(&marker, body, 1);
+    };
     for func in ENCODING_FUNCTIONS {
-        if let Implementation::Mfb { body, .. } = func.implementation {
-            let marker = format!("'@@MFB_BODY:{}@@", func.doc_slug);
-            debug_assert!(
-                source.contains(&marker),
-                "encoding package.mfb is missing the '{marker}' body marker",
-            );
-            source = source.replacen(&marker, body, 1);
+        match func.implementation {
+            Implementation::Mfb { body, .. } => splice(func.doc_slug, body),
+            // A `Resolve` member's private variants each contribute their own `Mfb`
+            // body (`func_utf8_decode.rs`), spliced at their own slug marker.
+            Implementation::Resolve { variants, .. } => {
+                for variant in variants {
+                    if let Implementation::Mfb { body, .. } = variant.implementation {
+                        splice(variant.doc_slug, body);
+                    }
+                }
+            }
+            _ => {}
         }
     }
     source
@@ -499,13 +512,13 @@ mod tests {
         for n in ALL_PUBLIC {
             assert!(is_encoding_call(n), "{n}");
         }
-        for n in [
-            UTF8_ENCODE_BYTES,
-            UTF8_ENCODE_INTS,
-            UTF8_DECODE_BYTES,
-            UTF8_DECODE_INTS,
-        ] {
+        // utf8Encode's byte/int targets are still public functions.
+        for n in [UTF8_ENCODE_BYTES, UTF8_ENCODE_INTS] {
             assert!(is_encoding_call(n), "{n}");
+        }
+        // utf8Decode's targets are private `Resolve` variants — not public calls.
+        for n in [UTF8_DECODE_BYTES, UTF8_DECODE_INTS] {
+            assert!(!is_encoding_call(n), "{n}");
         }
         assert!(!is_encoding_call("encoding.nope"));
         assert!(!is_encoding_call("other.utf8Encode"));

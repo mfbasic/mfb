@@ -60,10 +60,8 @@
     { "op": "assign", "line": 62, "name": "acc", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "hb" }] } }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "hi" }] } } },
     { "op": "assign", "line": 65, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "call", "type": "String", "target": "#encoding_utf8DecodeBytes", "args": [{ "kind": "local", "name": "hb" }] } } },
     { "op": "assign", "line": 66, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "call", "type": "String", "target": "#encoding_utf8DecodeInts", "args": [{ "kind": "local", "name": "hi" }] } } },
-    { "op": "assign", "line": 67, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "call", "type": "String", "target": "#encoding_utf8DecodeBytes", "args": [{ "kind": "local", "name": "hb" }] } } },
-    { "op": "assign", "line": 68, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "call", "type": "String", "target": "#encoding_utf8DecodeInts", "args": [{ "kind": "local", "name": "hi" }] } } },
-    { "op": "eval", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "acc" }] }, "right": { "kind": "local", "name": "s" } }] } },
-    { "op": "return", "line": 71, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 68, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "acc" }] }, "right": { "kind": "local", "name": "s" } }] } },
+    { "op": "return", "line": 69, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {

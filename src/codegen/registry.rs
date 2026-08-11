@@ -191,16 +191,20 @@ pub(crate) type OsLower = fn(
 /// co-located in the same `func_*.rs`).
 pub(crate) type ResolveFn = fn(&[String], Option<&str>) -> Result<Option<&'static str>, ()>;
 
-/// One candidate a [`Implementation::Resolve`] member selects among: the target's
-/// registered call `name` (the selector's return value and the map key) and the
-/// `return_type` that name yields, so the parent's return-type resolution is a
-/// single lookup. The target's actual body/lowering lives in that named sibling
-/// descriptor (same `func_*.rs`), which stays registered so injection, call
-/// lookup, and docs are unchanged.
+/// One candidate a [`Implementation::Resolve`] member selects among — a **private**
+/// internal target that owns its body inline, not a separately-registered public
+/// function. `name` is the selector's return value (the monomorph target, e.g.
+/// `encoding.utf8DecodeBytes`), `doc_slug` its source-injection marker slug,
+/// `return_type` the type it yields, and `implementation` its actual lowering
+/// (`Mfb`/`Native`/…). Because the variant is not in the package's public
+/// `functions` list, the registry resolves its return type and injects its body by
+/// scanning `Resolve` members (see `REGISTRY.variant`), and it is not user-callable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Variant {
     pub(crate) name: &'static str,
+    pub(crate) doc_slug: &'static str,
     pub(crate) return_type: &'static str,
+    pub(crate) implementation: Implementation,
 }
 
 /// How a public call name maps to its implementation symbol.
@@ -1067,6 +1071,23 @@ impl BuiltinRegistry {
             module
                 .function(qualified)
                 .map(|function| (module, function))
+        })
+    }
+
+    /// The private [`Variant`] a `Resolve` member selects, found by its `name`
+    /// (e.g. `encoding.utf8DecodeBytes`). Variants are not in any module's public
+    /// `functions` list, so they are invisible to [`Self::function`]; this scan
+    /// gives the internal paths (return-type resolution, source injection) a way to
+    /// reach them without exposing them as user-callable functions.
+    pub(crate) fn variant(&self, name: &str) -> Option<&'static Variant> {
+        self.modules.iter().copied().find_map(|module| {
+            module.functions.iter().find_map(|function| {
+                if let Implementation::Resolve { variants, .. } = function.implementation {
+                    variants.iter().find(|variant| variant.name == name)
+                } else {
+                    None
+                }
+            })
         })
     }
 

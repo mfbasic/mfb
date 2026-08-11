@@ -61,11 +61,9 @@ FUNC main() AS Integer
   LET hi AS List OF Integer = encoding::utf8EncodeInts("hi")
   acc = acc + len(hb) + len(hi)
 
-  ' --- UTF-8: param overload of utf8Decode (Byte / Integer) + explicit ---
+  ' --- UTF-8: param overload of utf8Decode (Byte / Integer) ---
   s = s & encoding::utf8Decode(hb)
   s = s & encoding::utf8Decode(hi)
-  s = s & encoding::utf8DecodeBytes(hb)
-  s = s & encoding::utf8DecodeInts(hi)
 
   io::print(toString(acc) & s)
   RETURN 0

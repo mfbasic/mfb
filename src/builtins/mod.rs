@@ -383,7 +383,14 @@ pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
 /// (`duplicate_function_name` is `None`), so this is order-independent — replacing
 /// the hand-ordered per-package `resolve_call` chain it grew from.
 pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Option<String> {
-    let (module, function) = crate::codegen::registry::REGISTRY.function(callee)?;
+    let Some((module, function)) = crate::codegen::registry::REGISTRY.function(callee) else {
+        // A `Resolve` member's private variant target (e.g.
+        // `encoding.utf8DecodeBytes`, produced by the monomorphizer) is not a
+        // public function; its return type comes from the variant descriptor.
+        return crate::codegen::registry::REGISTRY
+            .variant(callee)
+            .map(|variant| variant.return_type.to_string());
+    };
     // A `Resolve` member owns its own selector on the descriptor: pick the variant
     // from the argument types (return-type resolution has no expected type) and
     // read that variant's return type — no package `BuiltinResolver` involved.
@@ -419,6 +426,13 @@ pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Op
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     if let Some((module, function)) = crate::codegen::registry::REGISTRY.function(name) {
         return crate::codegen::registry::DefaultResolver::return_type_name(module, function.name);
+    }
+    // A `Resolve` member's private variant target (a monomorph-produced call like
+    // `encoding.utf8DecodeBytes`) is a lowered-only name: not a public function, but
+    // its return type is known, so it is admitted as a builtin call exactly like the
+    // other lowered-only names below (`tls.closeListener`).
+    if let Some(variant) = crate::codegen::registry::REGISTRY.variant(name) {
+        return Some(variant.return_type);
     }
     audio::call_return_type_name(name).or_else(|| tls::call_return_type_name(name))
 }
